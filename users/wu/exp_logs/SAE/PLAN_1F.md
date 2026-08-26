@@ -1940,6 +1940,24 @@ assuming it are the right conventions. That the reader independently reproduces 
 6.8e-05 as 6.752e-05 over 2,858 epochs at 100.0 percent fully clipped is the check that matters: it
 validates the reader against a number it did not read.
 
+**THE DIRECTION-AWARE LABEL IS RATIFIED, and the knife-edge it sits on is closed 2026-08-26, still
+pre-result.** The implementer's choice — the module prints "APPLIED STEP MATERIALLY LARGER at Nx"
+rather than "AMBIGUOUS at Nx" when the arm did not improve — is correct and is what the ruling
+above implies: "ambiguous" is defined for an IMPROVING arm, and quoting it over a non-improving one
+would invert the finding, reading as "we cannot tell whether it worked" when what was measured is
+that it did not work despite the easier optimization regime. RATIFIED AS IMPLEMENTED.
+
+What that label switch needs and did not have is a definition of "improve", because as written it
+turns on a bare comparison against 1.6828 and would flip between two opposite readings on a
+difference of 0.001. **REGISTERED NOW: neither label is asserted when the arm's PER is within
+0.027 of 1.6828 in either direction; that band reports "NO MATERIAL CHANGE at Nx" and the ratio
+still travels with it.** Provenance, stated as with the 1.25 convention: 0.027 is the only
+seed-to-seed spread this project has measured on a comparable arm (entry 5's full-loss seeds,
+0.8580-0.8848), 9.1a runs ONE seed and therefore has no spread of its own, and no seed replication
+is funded. It is a loose anchor from a different stream and a different trainer, which is exactly
+why it is named rather than left implicit — and it errs toward withholding a label, the same
+direction as the 1.25 convention.
+
 **Status.** REGISTERED 2026-08-26, FUNDED by the USER in the same message. Handed to the implementer.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 

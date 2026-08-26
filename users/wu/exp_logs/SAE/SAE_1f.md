@@ -1116,6 +1116,16 @@ record per `train_num_updates`).
   epochs is the check that validates it. Live at update 476: still 100 percent clip at gnorm ~160,
   i.e. an applied step near 5e-04 against the banked arm's 6.752e-05 -- unchanged in direction from
   the first-epochs reading, and still not a result.
+  **DIRECTION-AWARE LABEL RATIFIED, and its knife-edge closed** (`PLAN_1F.md` entry 9.1a,
+  2026-08-26, pre-result). Printing "APPLIED STEP MATERIALLY LARGER at Nx" instead of "AMBIGUOUS at
+  Nx" for a non-improving arm is the right call and is what the band ruling implies -- "ambiguous"
+  is defined for an improving arm and would invert the finding otherwise. What it needed was a
+  definition of "improve", since as written it flips between two opposite readings on a 0.001
+  difference: **neither label is asserted within 0.027 of 1.6828 in either direction; that band
+  reports "NO MATERIAL CHANGE at Nx"**, ratio still attached. 0.027 is the only seed spread this
+  project has measured on a comparable arm (entry 5's full-loss seeds), 9.1a runs one seed and has
+  none of its own, and it errs toward withholding a label -- named rather than left implicit,
+  as with the 1.25 convention. Arm healthy at update 756, unchanged in regime.
 
 - 2026-08-25 (late evening) **ENTRY 9.3 VERIFIED AT THE ARTIFACTS AND ACCEPTED; approach 11 and
   verdicts 46-49 stand.** Every number in the approach-11 table reproduces row for row from the five
