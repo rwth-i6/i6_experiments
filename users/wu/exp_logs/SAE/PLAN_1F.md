@@ -1787,9 +1787,28 @@ against 0.4168**, while its matching-objective gap to the content-free answer is
 that is what moves H; it does not buy a better memoryless unit-to-phone map, because the released
 128-cluster inventory is coarser than entry 5's 500-unit codebook. This is the pricing 9.3 was
 registered to obtain: **the stream that most helps the objective is not the stream with the best
-reachable decode**, so even a stopping-rule reopen that went the other way would land 9.1 on a stream
-whose best memoryless decode is 0.54. 9.1 stays unfunded and is now unfunded for a second,
-independent reason.
+reachable MEMORYLESS-MAP decode.**
+
+CORRECTED 2026-08-26 on the USER's question "is a worse upper bound equivalent to worse
+performance" — replaces "9.1 stays unfunded and is now unfunded for a second, independent reason"
+(planner, 2026-08-25 late evening), because that inference does not hold and this project had
+already measured why. **A ceiling ordering is not a performance ordering, and this ceiling is not
+even an upper bound on what 9.1 would run.** Two reasons, both from banked numbers.
+(i) A ceiling bounds; it does not predict. On the one configuration where both numbers exist, the
+trained arm reads 0.8522 against a 0.4168 ceiling — it recovers essentially none of its headroom,
+so the achieved number is set by the 0.435 gap and not by the bound. That gap is UNMEASURED on the
+merged stream, and nothing in entry 9.3 measures it.
+(ii) The 0.4168 / 0.5421 rows are MEMORYLESS oracle-map ceilings — one phone per unit. The
+generator 9.1 would train carries context, and this project has already measured a context model
+beating that bound on this very stream: E1's supervised probe reads 0.3565 against the 0.4148
+memoryless ceiling, and the 2026-08-17 E1 verdict ruled that landing BELOW it is the expected pass
+outcome for a richer function class, not an overshoot. A bound on per-unit maps therefore says
+nothing about a convolutional generator's reachable PER on the merged stream.
+WHAT SURVIVES, unchanged and still worth having: the merged stream's best memoryless map is
+measurably worse than the pooled stream's, which prices the released 128-cluster INVENTORY against
+entry 5's 500-unit codebook and is a real fact about map quality. **What does not survive is any
+claim that this makes 9.1 likelier to fail.** 9.1 remains unfunded — by gate 9.0's own registered
+consequence, which is reason enough and needs no help from this table.
 (2) **The inversion gate 9.0 measured is an inversion in the OBJECTIVE, not in phone error rate.**
 The audio-free unigram null the objective prefers on all five configurations scores 0.89-1.61 PER
 while the truth it beats scores 0.42-0.84 — every ceiling row beats its own configuration's null by

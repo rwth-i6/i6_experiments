@@ -517,8 +517,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    and is a ceiling, and the decode currency's own floor is 0.0503. TWO NEW DECISION-RELEVANT
    READINGS: (1) the corrected merged stream prices WORSE at its ceiling than the stream it
    corrects, **0.5421 against 0.4168**, though its objective gap is 24x smaller -- the repair
-   fixes the segment rate, not the map, so **9.1 is now unfunded for a second, independent
-   reason** and even a stopping-rule reopen would land it on a 0.54 stream; (2) the inversion
+   fixes the segment rate, not the map, which prices the released 128-cluster inventory
+   against entry 5's 500-unit codebook. (CORRECTED 2026-08-26 on the USER's question,
+   replaces "9.1 is now unfunded for a second, independent reason", because a ceiling
+   ordering is not a performance ordering and these are MEMORYLESS-map ceilings that do not
+   bound a context-carrying generator at all -- E1's supervised probe already reads 0.3565
+   against the same stream's 0.4148 memoryless ceiling. 9.1 remains unfunded by gate 9.0's
+   own registered consequence, which needs no help from this table.) (2) the inversion
    gate 9.0 measured is in the OBJECTIVE, not in PER -- the null it prefers scores 0.89-1.61
    while the truth it beats scores 0.42-0.84, so the closure rests on the objective ranking
    against transcription quality, not on empty streams. 9.3 has no bar, funds nothing, and

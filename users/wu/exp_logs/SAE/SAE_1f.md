@@ -1028,6 +1028,17 @@ record per `train_num_updates`).
   and one after the decode step the PER currency requires. The distinction matters most on c3, where
   2.12 segments per gold phone make the collapse do almost all the work (real boundaries + perfect
   map 0.1071 collapsed).
+  (c) **A CEILING ORDERING IS NOT A PERFORMANCE ORDERING, and these ceilings do not bound what 9.1
+  would run** (added 2026-08-26 on the USER's question; this corrects the PLANNER's reading of
+  verdict 46, not verdict 46, which says "reachable decode" and is right as written). Two banked
+  numbers settle it. The trained arm reads 0.8522 against a 0.4168 ceiling on the same stream, so
+  the achieved PER is set by the 0.435 gap and not by the bound, and that gap is unmeasured on the
+  merged stream. And these are MEMORYLESS oracle-map ceilings: E1's supervised probe reads 0.3565
+  against this stream's 0.4148 memoryless ceiling, which the 2026-08-17 E1 verdict ruled the
+  expected pass outcome for a richer function class. So 0.5421 prices the released 128-cluster
+  INVENTORY against entry 5's 500-unit codebook -- a real fact about map quality -- and prices
+  nothing about whether a context-carrying generator on the merged stream would beat 0.8522.
+  Any later citation of verdict 46 must carry that scope.
   Not blocking, recorded for the reason rather than the finding: verdict 48's inversion is an
   arm-level comparison of two numbers on the same 2,699 utterances rather than a per-utterance paired
   delta. It is exempt from `paired-data-for-model-eval` on magnitude alone -- the smallest gap is
