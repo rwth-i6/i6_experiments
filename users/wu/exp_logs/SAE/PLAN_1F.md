@@ -1882,6 +1882,30 @@ and the merged stream is half the segments per second of the raw one, so the pro
 in under entry 7's rather than over it. Project it from the first measured step rate rather than
 asserting it, and check it against the queue limit before the run is left unattended.
 
+**READ AMENDED 2026-08-26, STILL PRE-RESULT (arm at update 126 of 40,000, no PER exists) — the
+clipping-regime diagnostic is CARRIED OVER, replacing the read above only by addition, because the
+2026-08-18 clause (3) already binds every read of this trainer and I omitted it.** The 2026-08-18
+clipping-regime ruling adopted, as clause (3), that "the table must carry the clip fraction and
+gnorm alongside each arm's PER at every read point, so the regime is visible in the same table as
+the number it threatens". 9.1a's one registered comparison is against the banked 1.6828, and that
+arm's number was produced at a specific optimization regime: fully clipped on 100.0 percent of
+epochs at `clip_norm` 20.0 and flat lr 0.004, mean applied step about 6.8e-05 whole-run. **The
+"only one variable" claim is exact at the CONSTRUCTOR — `segment_dir` — and is NOT a claim about
+the optimizer.** Halving the segments per second changes sequence length and therefore gradient
+scale, so the merged arm can land in a different clip regime as a downstream consequence, and a PER
+difference against 1.6828 would then be part stream and part training regime. Early live evidence
+that this is not hypothetical: at update 126 the merged arm logs gnorm 132 at 100 percent clip,
+where the banked full-loss arm ran 116 rising to 2187 through update 13,000 — far too early to read
+anything from, and exactly why the diagnostic is registered before it can be chosen after the fact.
+REQUIRED IN THE 9.1a TABLE, the same four quantities banked for entry 7's two arms so the three rows
+are comparable: percent of epochs fully clipped, mean gradient norm whole-run and over the last
+tenth, and the mean applied step. REGISTERED READING, written now: if the merged arm's applied step
+is materially LARGER than 6.8e-05, then any improvement over 1.6828 is ambiguous between the rate
+repair and simply training more effectively, and must be reported as ambiguous rather than
+attributed to the stream; if it is comparable or smaller, an improvement survives the confound a
+fortiori, on the same asymmetry logic the 2026-08-18 ruling applies to the signature. This changes
+nothing about what is run and adds no spend.
+
 **Status.** REGISTERED 2026-08-26, FUNDED by the USER in the same message. Handed to the implementer.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 

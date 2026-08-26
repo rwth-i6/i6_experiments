@@ -1046,6 +1046,29 @@ record per `train_num_updates`).
 
 ## Verifier feedback
 
+- 2026-08-26 **ENTRY 9.1a's LAUNCH VERIFIED ON DISK, and one PRE-RESULT amendment to my own
+  registration.** Verified first-hand rather than from the flag flip (`add-alias-not-in-graph`):
+  `GuaMergedSegmentsJob.aqDChbdylhLD` is finished and its `segments.txt` carries the frame check as
+  a gate on its own output -- 2,699 of 2,699 utterances of entry 9.3's c5 pool at fingerprint
+  `93e6ee25c009`, segment AND frame count, so training could not have started on a different stream;
+  `GuaTrainJob.N8moRyLEIytz` is live with no error markers (epoch 10, update 126, 14 updates/epoch,
+  `train_ups` 0.7, which puts 40,000 updates near 16 h and inside the ~17 GPU-h estimate); and the
+  banked entry-7 arms `GuaTrainJob.PZo12D74ij2M` / `.OfNoESzNJykY` are untouched at their 2026-08-23
+  mtimes, with the relabeling chain's `GuaTrainJob.NOS8BQ4IoPlM` absent from the graph as claimed.
+  Merged rates 13.977 / 14.255 / 14.375 seg/s on train/valid/test against gold 13.548 are consistent
+  with the 14.458 entry 9.3 banked on its dev pool.
+  **THE AMENDMENT, and it is mine, not the implementer's:** my 9.1a read omitted the clipping-regime
+  diagnostic that the 2026-08-18 ruling's clause (3) already binds to every read of this trainer. It
+  is now added in `PLAN_1F.md` entry 9.1a, pre-result at update 126. The reason it matters here
+  specifically: the "one variable" claim is exact at the CONSTRUCTOR (`segment_dir`) and is not a
+  claim about the optimizer, and halving the segments per second changes gradient scale, so the
+  merged arm can land in a different clip regime than the 1.6828 arm it is read against. At update
+  126 it logs gnorm 132 at 100 percent clip where the banked arm ran 116 rising to 2187 through
+  13,000 -- unreadable this early, which is the point of registering the diagnostic now. The table
+  must carry percent of epochs fully clipped, mean gnorm whole-run and last tenth, and the mean
+  applied step, so the three rows are comparable; the registered reading of each direction is in the
+  amendment. No spend and no change to what is run.
+
 - 2026-08-25 (late evening) **ENTRY 9.3 VERIFIED AT THE ARTIFACTS AND ACCEPTED; approach 11 and
   verdicts 46-49 stand.** Every number in the approach-11 table reproduces row for row from the five
   `disclosure.txt` payloads, and the frame checks pass: all five report the identical pool
