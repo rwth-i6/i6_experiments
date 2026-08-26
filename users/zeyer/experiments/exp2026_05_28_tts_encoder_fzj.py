@@ -1795,7 +1795,43 @@ def py():
 
     get_mfa_phone_mean_logmel_table()
 
+    # Same two tables on subwords instead of phonemes, from our own CTC alignment,
+    # so the pseudo-enc needs neither a phoneme lexicon nor an external aligner.
+    # CPU-only job over the align HDFs the RNA setup already produced.
+    _ctc_subword_tables()
+
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
+
+
+@functools.cache
+def _ctc_subword_tables():
+    """Per-subword mean log-mel and duration tables, from the LibriSpeech CTC forced alignment.
+
+    Aligns with the paired-audio-only base model.
+    Deliberately the same call the RNA setup makes,
+    so the align jobs hash identically and the finished ones are reused.
+
+    :return: the stats job, with out_mean_table / out_duration_table for the pseudo-enc
+    """
+    from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_raw_audio_only
+    from i6_experiments.users.zeyer.datasets.librispeech_ctc_subword_stats import ComputeCtcSubwordStatsJob
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_librispeech_base
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_slow_fast_rna_fzj import _ls_align_hdfs
+
+    with disable_register_output():
+        model = _train_librispeech_base().get_last_fixed_epoch()
+    job = ComputeCtcSubwordStatsJob(
+        align_hdfs=_ls_align_hdfs(model, keys=["train"])["train"],
+        dataset_dict=get_librispeech_raw_audio_only(main_key="train").get_main_dataset(),
+        returnn_root=tools_paths.get_returnn_root(),
+    )
+    job.add_alias("datasets/LibriSpeech/ctc_subword_stats")
+    tk.register_output("datasets/LibriSpeech/ctc_subword_mean_logmel.npz", job.out_mean_table)
+    tk.register_output("datasets/LibriSpeech/ctc_subword_durations.npz", job.out_duration_table)
+    tk.register_output("datasets/LibriSpeech/ctc_subword_stats.json", job.out_stats)
+    return job
 
 
 def _train_asr_base_multigpu(
