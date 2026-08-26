@@ -1182,6 +1182,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # Same, but durations scaled to 0.7, so ~30% shorter sequences at ~1 encoder frame per phoneme.
     # Differs from the run above in exactly this one knob.
     _train_tts_encoder(
@@ -1209,6 +1210,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # Same as the dur07 run, but with packed tensors + Inductor compile, to compare speed directly.
     # Bounds come from that run's own config. `capture` defaults to True, so the whole step
     # is captured; only capture_optimizer is off, since grad_explicit reduces between
@@ -1273,6 +1275,7 @@ def py():
         },
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # lerp (unscaled durations) with packing, mirroring how dur07-packed relates to dur07.
     # dur07-packed runs 6476 steps/epoch against dur07's 17461 (0.371x) and 77min against 199min,
     # so packing is the speed lever here, not the duration scale, which changed neither.
@@ -1333,6 +1336,55 @@ def py():
             },
             extra_config_deletes=["optimizer.epsilon"],
         )
+
+    # Same as lerp-packed, plus a random-walk speaking rate on the durations.
+    # Our per-token lognormal leaves neighbouring durations uncorrelated;
+    # Rossenbach et al. 2023 (arXiv 2310.08132) found that correlated jitter is what matters,
+    # worth up to 15% relative there, while a constant scale changed nothing.
+    # sigma 0.0375 and the [0.9, 1.2] clip are their best synthetic-only setting.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-packed-single-gumbel-muon-nep38-durwalk",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_duration_walk_sigma=0.0375,
+        pseudo_enc_max_len_factor=15,
+        train_seq_ordering="random",
+        pseudo_enc_lerp=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        glow_tts_add_silence_between_words=0.15,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # Packing fits ~26% more seqs per step, so an epoch is 3156 steps instead of 3971 (0.794x),
     # and everything keyed to the step count lands weaker over a run.
     # The mask count: bv28 draws it from each seq's own length, where bv25 used the batch max,
@@ -1373,6 +1425,7 @@ def py():
             },
             extra_config_deletes=["optimizer.epsilon"],
         )
+
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
@@ -1435,6 +1488,7 @@ def py():
     #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
+
     # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
     # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
     # (no conv front-end on the text branch -- this matches the earlier study's injection point;
@@ -1874,6 +1928,7 @@ def _train_tts_encoder(
     pseudo_enc_smooth_box_width: Optional[int] = None,
     pseudo_enc_duration_table: Optional[tk.Path] = None,
     pseudo_enc_duration_sigma: Optional[float] = None,
+    pseudo_enc_duration_walk_sigma: Optional[float] = None,
     pseudo_enc_duration_scale: Optional[float] = None,
     pseudo_enc_max_len_factor: Optional[int] = None,
     behavior_version: int = 25,
@@ -2115,6 +2170,11 @@ def _train_tts_encoder(
                     else {}
                 ),
                 **(
+                    {"pseudo_enc_duration_walk_sigma": pseudo_enc_duration_walk_sigma}
+                    if pseudo_enc_duration_walk_sigma is not None
+                    else {}
+                ),
+                **(
                     {"pseudo_enc_duration_scale": pseudo_enc_duration_scale}
                     if pseudo_enc_duration_scale is not None
                     else {}
@@ -2246,6 +2306,11 @@ def _train_tts_encoder(
                 else {}
             ),
             **(
+                {"pseudo_enc_duration_walk_sigma": pseudo_enc_duration_walk_sigma}
+                if pseudo_enc_duration_walk_sigma is not None
+                else {}
+            ),
+            **(
                 {"pseudo_enc_duration_scale": pseudo_enc_duration_scale}
                 if pseudo_enc_duration_scale is not None
                 else {}
@@ -2373,6 +2438,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             smooth_box_width=config.typed_value("pseudo_enc_smooth_box_width", None),
             duration_table=config.typed_value("pseudo_enc_duration_table", None),
             duration_sigma=config.float("pseudo_enc_duration_sigma", 0.45),
+            duration_walk_sigma=config.typed_value("pseudo_enc_duration_walk_sigma", None),
             duration_scale=config.float("pseudo_enc_duration_scale", 1.0),
             max_len_factor=config.typed_value("pseudo_enc_max_len_factor", None),
             lerp=config.bool("pseudo_enc_lerp", False),
@@ -2453,6 +2519,8 @@ class PseudoSpeechEncoder(rf.Module):
         smooth_box_width: Optional[int] = None,
         duration_table: Optional[str] = None,
         duration_sigma: float = 0.45,
+        duration_walk_sigma: Optional[float] = None,
+        duration_walk_clip: Tuple[float, float] = (0.9, 1.2),
         duration_scale: float = 1.0,
         max_len_factor: Optional[int] = None,
         lerp: bool = False,
@@ -2488,6 +2556,8 @@ class PseudoSpeechEncoder(rf.Module):
         # Real durations are right-skewed and span ~3.4x across phones, which a uniform range cannot represent.
         # Data, not a weight, so it stays out of the checkpoint and is reloaded from the path at recog.
         self.duration_sigma = duration_sigma
+        self.duration_walk_sigma = duration_walk_sigma
+        self.duration_walk_clip = duration_walk_clip
         # Shortens the sequences without touching the shape: lognormal is scale-invariant,
         # so the skew and the per-phone ratios survive. Below ~0.7 the phones fall under one
         # encoder frame each (6x subsampling), which is what made the old label-1 setup unusable.
@@ -2510,6 +2580,17 @@ class PseudoSpeechEncoder(rf.Module):
         # Real log-mel has essentially no plateaus, which lerp reproduces and a Gaussian does not.
         # With per-phone durations the box shortcut no longer applies: one width cannot fit 5..17 frames.
         self.lerp = lerp
+
+    def _speaking_rate(self, dims, spatial_dim: Dim) -> Tensor:
+        """
+        Rate factor that drifts along the sequence, so neighbouring tokens scale together.
+        Per-token jitter alone leaves the durations uncorrelated, which is the structure
+        Rossenbach et al. 2023 found costs most; centring keeps the expected length.
+        """
+        step = rf.random_normal(dims, dtype="float32") * self.duration_walk_sigma
+        walk = rf.cumsum(step, spatial_dim=spatial_dim)
+        walk = walk - rf.reduce_mean(walk, axis=spatial_dim)
+        return rf.clip_by_value(1.0 + walk, self.duration_walk_clip[0], self.duration_walk_clip[1])
 
     def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
@@ -2546,6 +2627,8 @@ class PseudoSpeechEncoder(rf.Module):
                 med = rf.convert_to_tensor(numpy.asarray(self.duration_medians), dims=[self.wb_vocab_dim])
                 base = rf.gather(med, indices=labels_wb, axis=self.wb_vocab_dim) * self.duration_scale
                 jitter = rf.exp(rf.random_normal(base.dims, dtype="float32") * self.duration_sigma)
+                if self.duration_walk_sigma:
+                    jitter = jitter * self._speaking_rate(base.dims, spatial_dim)
                 jitter = rf.where(train, jitter, 1.0)
                 durations = rf.maximum(rf.cast(base * jitter + 0.5, "int32"), 1)
             else:
@@ -2601,6 +2684,9 @@ class PseudoSpeechEncoder(rf.Module):
         else:
             import torch
 
+            assert not self.duration_walk_sigma, (
+                "duration_walk_sigma is only implemented on the lerp path, the interleaved branch would ignore it"
+            )
             (batch_dim,) = labels.remaining_dims(spatial_dim)
             ids_raw = labels.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T] int
             bs, t = ids_raw.shape
