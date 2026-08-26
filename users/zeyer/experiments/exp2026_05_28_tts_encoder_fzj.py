@@ -1278,9 +1278,10 @@ def py():
     # The mask count: bv28 draws it from each seq's own length, where bv25 used the batch max,
     # which on this data is 252k samples against a true mean of 206k, i.e. 1.227x more;
     # 100/1.227 = 82 restores that strength, 70 goes past it to test whether it was the optimum.
+    # It was not: at ep 11, 70 leads 82 leads 100, so 60 continues the same ratio.
     # specaugment_steps is a STEP schedule, so its ramp finished at ep 7.9 instead of ep 6.3.
     # Decoupled weight decay shrinks by lr*wd per step, so its total is 0.794x as well.
-    for _sa_factor in (82, 70):
+    for _sa_factor in (82, 70, 60):
         _train_asr_base_multigpu(
             f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug{_sa_factor}-stepcomp",
             prefix=prefix,
