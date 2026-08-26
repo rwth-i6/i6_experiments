@@ -11,8 +11,6 @@ import huggingface_hub
 
 from sisyphus import tk, Job, Task
 
-from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
-
 
 class DownloadHuggingFaceRepoJob(Job):
     """
@@ -166,3 +164,25 @@ class GetContentDirFromHfCacheDirJob(Job):
         content_dir = get_content_dir_from_hub_cache_dir(self.hub_cache_dir)
         shutil.rmtree(self.out_content_dir.get_path())
         shutil.copytree(content_dir, self.out_content_dir.get_path())
+
+
+def get_content_dir_from_hub_cache_dir(hub_cache_dir: Union[tk.Path, str]):
+    """
+    Get the content dir for HF functions like :func:`load_dataset` or ``...from_pretrained``.
+
+    Use this inside your job.
+    """
+    if isinstance(hub_cache_dir, tk.Path):
+        hub_cache_dir = hub_cache_dir.get_path()
+    assert isinstance(hub_cache_dir, str) and os.path.isdir(hub_cache_dir)
+    cache_content = [fn for fn in os.listdir(hub_cache_dir) if not fn.startswith(".") and not fn == "CACHEDIR.TAG"]
+    assert cache_content, f"empty cache dir {hub_cache_dir}"
+    assert len(cache_content) == 1, f"cache dir {hub_cache_dir} has multiple entries: {cache_content}"
+    model_dir = hub_cache_dir + "/" + cache_content[0]
+    refs_content = os.listdir(model_dir + "/refs")
+    assert len(refs_content) == 1, f"refs dir {model_dir}/refs has not a single entry but {refs_content}"
+    ref = open(model_dir + "/refs/" + refs_content[0]).read().strip()
+    assert ref
+    snapshot_dir = model_dir + "/snapshots/" + ref
+    assert os.path.isdir(snapshot_dir)
+    return snapshot_dir
