@@ -1906,6 +1906,40 @@ attributed to the stream; if it is comparable or smaller, an improvement survive
 fortiori, on the same asymmetry logic the 2026-08-18 ruling applies to the signature. This changes
 nothing about what is run and adds no spend.
 
+**BAND RULED 2026-08-26 (planner, still pre-result; the implementer asked for a number where the
+amendment said only "materially LARGER").** The implementer's declared band is RATIFIED AS PROPOSED
+— applied-step ratio above **1.25** is AMBIGUOUS, **1.00 or below** is a fortiori, and between them
+is reported as comparable within the declared band and NOT as a fortiori. Ratified with its
+provenance stated, because only one of those two boundaries is principled and a later reader must
+know which: **1.00 is principled** — it is exactly the 2026-08-18 asymmetry, that an arm winning
+while applying no more parameter movement per update than its comparator wins a fortiori — while
+**1.25 is a declared convention**, a courtesy margin for "too close to matter", chosen before any
+result and anchored only loosely by the one measured case this project has, where a 4.3x
+applied-step difference (6.8e-05 full against 2.9e-04 bigram-only) was ruled a mechanism capable of
+masking a 0.10 PER signature. There is no calibration of applied step against PER on this bed and
+none is funded, so no threshold in that range can be derived; 1.25 errs toward declaring AMBIGUOUS,
+which is the right direction for a planner, since under-claiming a result costs less than
+over-claiming one. CONSEQUENCE, and it is the operative part: **the RATIO ITSELF travels with the
+verdict wherever the verdict is quoted.** No bare "AMBIGUOUS" or "a fortiori" label may stand alone
+in plan, log or report — a 1.3 and a 9 are not the same finding, and the label alone hides which
+one was measured.
+
+**THE OTHER DIRECTION, registered now because it is the likelier one and must not be chosen after
+the fact.** The reading above is written for an arm that IMPROVES on 1.6828. If the merged arm does
+NOT improve — lands at or above the banked 1.6828, or anywhere near c5's 0.9075 audio-free null —
+while its applied step is materially LARGER, that is a STRONGER negative than the number alone,
+because the arm had the more effective optimization regime and still did not move; the ratio is then
+reported as strengthening the negative rather than qualifying it. The asymmetry is the same one the
+2026-08-18 ruling applies and it runs in both directions.
+
+**THE READER'S DESIGN IS RATIFIED.** All three rows through ONE registered reader rather than by
+quoting banked numbers is the correct call and is what `derived-statistics-need-a-job` requires;
+taking `clip_norm` from each run's own resolved config dump and `lr` from each epoch's own record,
+deduping the resubmit replay by `train_num_updates`, and reporting epoch coverage rather than
+assuming it are the right conventions. That the reader independently reproduces the planner's banked
+6.8e-05 as 6.752e-05 over 2,858 epochs at 100.0 percent fully clipped is the check that matters: it
+validates the reader against a number it did not read.
+
 **Status.** REGISTERED 2026-08-26, FUNDED by the USER in the same message. Handed to the implementer.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 

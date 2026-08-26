@@ -1094,6 +1094,19 @@ record per `train_num_updates`).
   must carry percent of epochs fully clipped, mean gnorm whole-run and last tenth, and the mean
   applied step, so the three rows are comparable; the registered reading of each direction is in the
   amendment. No spend and no change to what is run.
+  **BAND RULED, and the reader's design ratified** (`PLAN_1F.md` entry 9.1a, 2026-08-26, pre-result).
+  The proposed applied-step band stands as proposed -- above 1.25 AMBIGUOUS, 1.00 or below a
+  fortiori, between them comparable and NOT a fortiori -- with its provenance on the record: 1.00 is
+  the principled boundary (it IS the 2026-08-18 asymmetry), 1.25 is a declared convention erring
+  toward AMBIGUOUS, since no calibration of applied step against PER exists on this bed. **The RATIO
+  travels with the verdict wherever the verdict is quoted**; no bare label may stand alone, because a
+  1.3 and a 9 are not the same finding. Registered besides, because it is the likelier outcome and
+  must not be picked afterwards: if the arm does NOT improve on 1.6828 while its applied step is
+  materially larger, the ratio STRENGTHENS the negative rather than qualifying it. One reader for all
+  three rows is the right call and the reproduction of the banked 6.8e-05 as 6.752e-05 over 2,858
+  epochs is the check that validates it. Live at update 476: still 100 percent clip at gnorm ~160,
+  i.e. an applied step near 5e-04 against the banked arm's 6.752e-05 -- unchanged in direction from
+  the first-epochs reading, and still not a result.
 
 - 2026-08-25 (late evening) **ENTRY 9.3 VERIFIED AT THE ARTIFACTS AND ACCEPTED; approach 11 and
   verdicts 46-49 stand.** Every number in the approach-11 table reproduces row for row from the five
