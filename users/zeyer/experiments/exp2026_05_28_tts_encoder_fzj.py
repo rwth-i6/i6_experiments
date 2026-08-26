@@ -225,6 +225,7 @@ def py():
         },
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # nep38 base_lr sweep with DEFAULT peak_lr (1e-3) -> default OCLR shape: eff. peak = base_lr*1e-3, floor =
     # base_lr*1e-5 (floor/peak ratio 1/100, vs the deeper 1/500 of the peak_lr=5e-3 baseline). base_lr in
     # {1,5,10} -> eff. peak {1e-3, 5e-3, 1e-2}. baselr5 (eff. peak 5e-3, shallow floor) vs lr5e3-wdbl-nep38
@@ -583,11 +584,11 @@ def py():
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
 
-    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # Same as ref-match-logmel-muon (= ref-match-logmel + muon-lr5e3-wdbl), but nep 25 -> 38 (+50% updates):
     # the training-matched point removing the 4-GPU step-count penalty (audio-only nep38 bought 4.22 -> 4.01).
     # Isolates whether the ~0 TTS text-util gain is the regime, not the TTS.
     # {"dev-clean": 1.74, "dev-other": 3.98, "test-clean": 1.92, "test-other": 4.22}  (1st TTS variant < 4.0)
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # _train_tts_encoder(
     #     "tts-enc-ref-match-logmel-muon-nep38",
     #     prefix=prefix,
@@ -609,11 +610,11 @@ def py():
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
 
-    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # Clean front-end x path comparison vs ref-match-logmel-muon-nep38: DbMel front-end + DIRECT injection
     # (no waveform/Griffin-Lim), everything else identical. The pair isolates DbMel+direct vs log-mel+waveform
     # at the best regime (log-mel is +0.13 better front-end but needs the ~0.10 GL waveform round-trip).
     # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.91, "test-other": 4.37}  (== logmel 3.98)
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # _train_tts_encoder(
     #     "tts-enc-ref-match-dbmel-muon-nep38",
     #     prefix=prefix,
@@ -632,7 +633,6 @@ def py():
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
 
-    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # noise0-muon-nep38 (ref-match-logmel + noise 0 + muon + nep38) REMOVED 2026-06-17: NaN'd at ep12 (inf/nan
     # via debug_inf_nan). Cause = low/zero-variance synthesis x muon -- noise0 was stable under AdamW/nep25
     # (4.26) and muon+nep38 was stable at noise 0.7; only the combination NaN'd. See the noise01 variant below
@@ -641,6 +641,7 @@ def py():
     # the muon+nep38 NaN that noise0 (exactly 0) hit, while keeping the low-noise benefit (noise0 was the best
     # synth at nep25, 4.26). If it NaNs too, the trigger is low-noise x muon broadly, not the exact zero.
     # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.80, "test-other": 4.10}  (stable; best TTS variant)
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # _train_tts_encoder(
     #     "tts-enc-ref-match-logmel-noise01-muon-nep38",
     #     prefix=prefix,
@@ -691,10 +692,10 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
-    # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # ref-match-logmel-muon-nep38 + random durations (rnddur: i.i.d.-uniform durations renormalized to the
     # predictor total -- structure removed, length kept), to see if random durations hold up in the best regime.
     # {"dev-clean": 1.72, "dev-other": 3.95, "test-clean": 1.92, "test-other": 4.35}  (ties layer8 dev-other)
+    # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # _train_tts_encoder(
     #     "tts-enc-ref-match-logmel-rnddur-muon-nep38",
     #     prefix=prefix,
@@ -736,13 +737,13 @@ def py():
     #     glow_tts_length_scale_range=(0.3, 0.7),
     # )
 
-    # better: -> pseudo-enc-logmel-muon-nep38
     # Speech-likeness 2x2, cell A (acoustics=embedding, durations=random): pseudo-speech-encoder --
     # TRAINABLE phoneme embedding, blank-interleaved, random durations (labels 1 frame, blanks 0-3;
     # the earlier study's winning setting), no TTS at all. SpecAugment time-mask width scaled to the
     # ~3x-compressed pseudo sequences (20 -> 6).
     # Same text/audio regime as ref-match-logmel (cell D: acoustics=TTS, durations=learned).
     # {"dev-clean": 1.73, "dev-other": 4.30, "test-clean": 1.98, "test-other": 4.58}
+    # better: -> pseudo-enc-logmel-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-logmel",
     #     prefix=prefix,
@@ -772,11 +773,11 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
-    # better: -> pseudo-enc-logmel-muon-nep38
     # Consistency-ladder (b): NO blank insertion -- blanks get duration 0, so the feature sequence is
     # pure label embeddings (labels still 1 frame each). Isolates the contribution of the random blank
     # frames; the phoneme seq itself already carries [space] silence tokens between words.
     # {"dev-clean": 2.11, "dev-other": 4.97, "test-clean": 2.32, "test-other": 5.32}
+    # better: -> pseudo-enc-logmel-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-logmel-noblank",
     #     prefix=prefix,
@@ -793,8 +794,8 @@ def py():
     # trained text-encoder params. [space] keeps its real-silence row; [start]/[end] = global mean.
     from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_mean_logmel_table
 
-    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # {"dev-clean": 2.19, "dev-other": 4.90, "test-clean": 2.24, "test-other": 5.21}
+    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-logmel-noblank-mfatable",
     #     prefix=prefix,
@@ -808,11 +809,11 @@ def py():
     #     pseudo_enc_specaug_max_width=6,
     # )
 
-    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # Rung (d) WITH blank: the frozen MFA mean-logmel table, but blanks restored (0-3 frames) like the
     # phoneme winner -- the apples-to-apples mfatable comparison (blank gave -0.67 abs dev-other for the
     # trained embedding). Blank row = [space] silence acoustics (frozen-table loader, by design).
     # {"dev-clean": 1.70, "dev-other": 4.28, "test-clean": 1.85, "test-other": 4.70}
+    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-logmel-mfatable",
     #     prefix=prefix,
@@ -1571,6 +1572,7 @@ def py():
             pseudo_enc_start_layer=_start_layer,
             pseudo_enc_specaug_max_width=6,
         )
+
     # Layer-split depth sweep in the best regime (muon-lr5e3-wdbl + nep38): inject the pseudo-speech at
     # encoder layer N (= share the top 16-N encoder layers). layer8 won at nep25 (3.95, first text-util
     # variant below the no-text baseline). 0-indexed layers "0".."15", so N=16 = share ZERO encoder layers
@@ -1598,6 +1600,7 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon"],
         )
+
     # Reduced-blank layer-split: max 1 blank (uniform 0-1, avg 0.5 -> ~1.5 enc-frames/phoneme vs 2.5 at
     # blank 0-3), so the un-subsampled text sequence is ~40% shorter -> fixes the layer0 OOM and is closer to
     # real speech length. layer0 (OOM-prone) + layer8 (the winner), best regime (muon-lr5e3-wdbl + nep38).
@@ -1623,11 +1626,11 @@ def py():
             extra_config_deletes=["optimizer.epsilon"],
         )
 
-    # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # layer8 with NO blanks (the phoneme seq already carries [space] silence): label 1 frame at the enc-rate
     # = ~1 enc-frame/phon (still feasible, unlike the front-end noblank which collapsed to ~0.17 enc-frame).
     # Tests whether blanks help layer8 or just bloat it, and whether the noblank regression transfers here.
     # {"dev-clean": 1.62, "dev-other": 3.95, "test-clean": 1.78, "test-other": 4.09}  (best test-other)
+    # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-layer8-noblank-muon-nep38",
     #     prefix=prefix,
@@ -1647,12 +1650,12 @@ def py():
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
 
-    # better: -> pseudo-enc-logmel-muon-nep38
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
     # phoneme variant (cheapness bonus of coarser units).
     # {"dev-clean": 2.30, "dev-other": 5.11, "test-clean": 2.47, "test-other": 5.51}
+    # better: -> pseudo-enc-logmel-muon-nep38
     # _train_tts_encoder(
     #     "pseudo-enc-logmel-spm",
     #     prefix=prefix,
