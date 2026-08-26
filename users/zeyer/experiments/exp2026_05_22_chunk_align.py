@@ -820,3 +820,98 @@ def py():
                 reg(f"{_es_name}-accuracy.txt", _es_m.out_accuracy)
                 reg(f"{_es_name}-error-p95-sec.txt", _es_m.out_error_p95_sec)
                 reg(f"{_es_name}-frac-gt-1s.txt", _es_m.out_frac_gt_1s)
+
+    # === Tables (data): resolve registered outputs into tables-data/. ===
+    # Presentation (headers/units/captions) lives in separate repo
+    # (tables-spec/ + scripts/render_tables.py); scripts/sync_tables.sh rsyncs the JSONs.
+    from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob
+
+    def _table(name: str, columns, rows):
+        _tj = WriteTableDataJob(columns=list(columns), rows=rows)
+        reg(f"tables-data/{name}.data.json", _tj.out_json)
+        reg(f"tables-data/{name}.tsv", _tj.out_tsv)
+
+    def _m3(base: str):
+        # the three headline metrics of a metric job, by registered-output name
+        # (.get: a missing registration becomes a null cell, not a config error)
+        return {
+            "acc": _table_results.get(f"{base}-accuracy.txt"),
+            "err_p95_sec": _table_results.get(f"{base}-error-p95-sec.txt"),
+            "frac_gt_1s": _table_results.get(f"{base}-frac-gt-1s.txt"),
+        }
+
+    _zoo_family = {
+        "mms-fa": "CTC",
+        "w2v-phoneme": "CTC",
+        "parakeet-ctc-1.1b": "CTC",
+        "owsm-ctc-v4-1b": "CTC",
+        "fastconformer-stream-ctc": "CTC",
+        "fastconformer-stream-rnnt": "Transducer",
+        "parakeet-rnnt-1.1b": "Transducer",
+        "parakeet-tdt-0.6b-v2": "Transducer",
+        "emformer-rnnt": "Transducer",
+        "whisper-base": "AED",
+        "whisper-large-v3": "AED",
+        "crisperwhisper": "AED",
+        "owls-1b-180k": "AED",
+        "voxtral": "Speech LLM",
+        "canary-qwen": "Speech LLM",
+    }
+    _zoo_rows = [{"family": "Speech LLM", "model": "phi4mm", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")}] + [
+        {"family": _zf, "model": _zn, **_m3(f"chunk-align/zoo/{_zn}-buckeye-val-cs30-ov0")}
+        for _zn, _zf in _zoo_family.items()
+    ]
+    # contiguous family blocks (stable within-family order; phi4mm groups with the speech LLMs)
+    _zoo_fam_order = ["CTC", "Transducer", "AED", "Speech LLM"]
+    _zoo_rows.sort(key=lambda _r: _zoo_fam_order.index(_r["family"]))
+    _table("zoo", ["family", "model", "acc", "err_p95_sec", "frac_gt_1s"], _zoo_rows)
+    _table(
+        "context-ablation",
+        ["model", "context", "acc", "frac_gt_1s"],
+        [
+            {"model": "phi4mm", "context": "marker", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")},
+            {"model": "phi4mm", "context": "none", **_m3("chunk-align/zoo/phi4mm-noctx-buckeye-val-cs30-ov0")},
+            {"model": "voxtral", "context": "marker", **_m3("chunk-align/zoo/voxtral-buckeye-val-cs30-ov0")},
+            {"model": "voxtral", "context": "none", **_m3("chunk-align/zoo/voxtral-noctx-buckeye-val-cs30-ov0")},
+            {
+                "model": "parakeet-rnnt-1.1b",
+                "context": "none",
+                **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-buckeye-val-cs30-ov0"),
+            },
+            {
+                "model": "parakeet-rnnt-1.1b",
+                "context": "prev labels",
+                **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-prevctx-buckeye-val-cs30-ov0"),
+            },
+            {
+                "model": "parakeet-tdt-0.6b-v2",
+                "context": "none",
+                **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-buckeye-val-cs30-ov0"),
+            },
+            {
+                "model": "parakeet-tdt-0.6b-v2",
+                "context": "prev labels",
+                **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-prevctx-buckeye-val-cs30-ov0"),
+            },
+        ],
+    )
+    _table(
+        "exit-scale",
+        ["chunk_size", "chunk_stride", "exit_scale", "word_start_heuristic", "acc", "frac_gt_1s"],
+        [
+            {
+                "chunk_size": _t_cs,
+                "chunk_stride": _t_cs - _t_ov,
+                "exit_scale": _t_es,
+                "word_start_heuristic": int(_t_wsh),
+                **_m3(
+                    f"chunk-align/phi4mm-buckeye-val-cs{_t_cs:g}-ov{_t_ov:g}"
+                    if (_t_es == 1.0 and _t_wsh)
+                    else f"chunk-align/exit-scale/phi4mm-buckeye-val-cs{_t_cs:g}-ov{_t_ov:g}-es{_t_es:g}-wsh{int(_t_wsh)}"
+                ),
+            }
+            for _t_cs, _t_ov in [(30.0, 0.0), (10.0, 2.5)]
+            for _t_es in [1.0, 0.5, 0.0]
+            for _t_wsh in [True, False]
+        ],
+    )
