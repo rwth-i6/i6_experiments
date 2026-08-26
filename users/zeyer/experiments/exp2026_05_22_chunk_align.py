@@ -824,12 +824,16 @@ def py():
     # === Tables (data): resolve registered outputs into tables-data/. ===
     # Presentation (headers/units/captions) lives in separate repo
     # (tables-spec/ + scripts/render_tables.py); scripts/sync_tables.sh rsyncs the JSONs.
-    from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob
+    from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob, write_preview_manifest
 
     def _table(name: str, columns, rows):
         _tj = WriteTableDataJob(columns=list(columns), rows=rows)
         reg(f"tables-data/{name}.data.json", _tj.out_json)
         reg(f"tables-data/{name}.tsv", _tj.out_tsv)
+        # live-preview manifest: `table_data.py --refresh-preview` re-resolves it from disk
+        # any time (pending cells -> a placeholder glyph, a finished table job wins),
+        # see the paper repo's scripts/sync_tables.sh
+        write_preview_manifest(name, list(columns), rows, "output/tables-data-preview")
 
     def _m3(base: str):
         # the three headline metrics of a metric job, by registered-output name
@@ -840,56 +844,57 @@ def py():
             "frac_gt_1s": _table_results.get(f"{base}-frac-gt-1s.txt"),
         }
 
+    # family + display name per zoo model, matching the grad-align paper's per-model table
     _zoo_family = {
-        "mms-fa": "CTC",
-        "w2v-phoneme": "CTC",
-        "parakeet-ctc-1.1b": "CTC",
-        "owsm-ctc-v4-1b": "CTC",
-        "fastconformer-stream-ctc": "CTC",
-        "fastconformer-stream-rnnt": "Transducer",
-        "parakeet-rnnt-1.1b": "Transducer",
-        "parakeet-tdt-0.6b-v2": "Transducer",
-        "emformer-rnnt": "Transducer",
-        "whisper-base": "AED",
-        "whisper-large-v3": "AED",
-        "crisperwhisper": "AED",
-        "owls-1b-180k": "AED",
-        "voxtral": "Speech LLM",
-        "canary-qwen": "Speech LLM",
+        "mms-fa": ("CTC", "MMS-FA"),
+        "w2v-phoneme": ("CTC", "XLS-R (Phoneme)"),
+        "parakeet-ctc-1.1b": ("CTC", "Parakeet CTC"),
+        "owsm-ctc-v4-1b": ("CTC", "OWSM-CTC"),
+        "fastconformer-stream-ctc": ("CTC", "FastConformer (streaming)"),
+        "fastconformer-stream-rnnt": ("Transd.", "FastConformer (streaming)"),
+        "parakeet-rnnt-1.1b": ("Transd.", "Parakeet RNN-T"),
+        "parakeet-tdt-0.6b-v2": ("Transd.", "Parakeet TDT"),
+        "emformer-rnnt": ("Transd.", "Emformer (streaming)"),
+        "whisper-base": ("AED", "Whisper-base"),
+        "whisper-large-v3": ("AED", "Whisper-large-v3"),
+        "crisperwhisper": ("AED", "CrisperWhisper"),
+        "owls-1b-180k": ("AED", "OWLS-1B"),
+        "voxtral": ("Speech LLM", "Voxtral"),
+        "canary-qwen": ("Speech LLM", "Canary-Qwen"),
     }
-    _zoo_rows = [{"family": "Speech LLM", "model": "phi4mm", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")}] + [
-        {"family": _zf, "model": _zn, **_m3(f"chunk-align/zoo/{_zn}-buckeye-val-cs30-ov0")}
-        for _zn, _zf in _zoo_family.items()
+    _zoo_rows = [{"family": "Speech LLM", "model": "Phi-4-MM", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")}] + [
+        {"family": _zf, "model": _zd, **_m3(f"chunk-align/zoo/{_zn}-buckeye-val-cs30-ov0")}
+        for _zn, (_zf, _zd) in _zoo_family.items()
     ]
     # contiguous family blocks (stable within-family order; phi4mm groups with the speech LLMs)
-    _zoo_fam_order = ["CTC", "Transducer", "AED", "Speech LLM"]
+    _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM"]
     _zoo_rows.sort(key=lambda _r: _zoo_fam_order.index(_r["family"]))
     _table("zoo", ["family", "model", "acc", "err_p95_sec", "frac_gt_1s"], _zoo_rows)
     _table(
         "context-ablation",
         ["model", "context", "acc", "frac_gt_1s"],
         [
-            {"model": "phi4mm", "context": "marker", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")},
-            {"model": "phi4mm", "context": "none", **_m3("chunk-align/zoo/phi4mm-noctx-buckeye-val-cs30-ov0")},
-            {"model": "voxtral", "context": "marker", **_m3("chunk-align/zoo/voxtral-buckeye-val-cs30-ov0")},
-            {"model": "voxtral", "context": "none", **_m3("chunk-align/zoo/voxtral-noctx-buckeye-val-cs30-ov0")},
+            {"model": "Phi-4-MM", "context": "marker", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")},
+            {"model": "Phi-4-MM", "context": "none", **_m3("chunk-align/zoo/phi4mm-noctx-buckeye-val-cs30-ov0")},
+            {"model": "Voxtral", "context": "marker", **_m3("chunk-align/zoo/voxtral-buckeye-val-cs30-ov0")},
+            {"model": "Voxtral", "context": "none", **_m3("chunk-align/zoo/voxtral-noctx-buckeye-val-cs30-ov0")},
             {
-                "model": "parakeet-rnnt-1.1b",
+                "model": "Parakeet RNN-T",
                 "context": "none",
                 **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-buckeye-val-cs30-ov0"),
             },
             {
-                "model": "parakeet-rnnt-1.1b",
+                "model": "Parakeet RNN-T",
                 "context": "prev labels",
                 **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-prevctx-buckeye-val-cs30-ov0"),
             },
             {
-                "model": "parakeet-tdt-0.6b-v2",
+                "model": "Parakeet TDT",
                 "context": "none",
                 **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-buckeye-val-cs30-ov0"),
             },
             {
-                "model": "parakeet-tdt-0.6b-v2",
+                "model": "Parakeet TDT",
                 "context": "prev labels",
                 **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-prevctx-buckeye-val-cs30-ov0"),
             },
