@@ -61,7 +61,14 @@ is the likelier one: an arm that does NOT improve on 1.6828 while applying mater
 movement per update STRENGTHENS the negative rather than qualifying it. One choice of mine inside
 that: the label is direction-aware, reading "APPLIED STEP MATERIALLY LARGER at Nx" rather than
 "AMBIGUOUS at Nx" when the arm did not improve, since "ambiguous" is defined for an improving arm
-and quoting it there would invert the finding.
+and quoting it there would invert the finding. RATIFIED, and the knife-edge it sat on is closed
+(speech-llm `b5ed8c0`, 35 tests, again with no constructor argument moving): as a bare comparison
+"improve" would have flipped between two opposite readings on a difference of 0.001, so **neither
+label is asserted when the arm's phone error rate is within 0.027 of the banked number in either
+direction -- that band reports "NO MATERIAL CHANGE at Nx" with the ratio still attached.** The
+margin's provenance renders beside it: 0.027 is the only seed-to-seed spread this project has
+measured on a comparable arm (entry 5's full-loss seeds), this run has ONE seed and so no spread of
+its own, and no replication is funded.
 
 **EARLY LIVE EVIDENCE, far too early to read anything from and recorded only because the diagnostic
 exists to catch exactly this.** Over its first 24 epochs (updates 14-336) the merged arm sits at 91.7
