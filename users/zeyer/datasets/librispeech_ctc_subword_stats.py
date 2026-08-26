@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 from sisyphus import Job, Task, tk
 
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
+
 
 class ComputeCtcSubwordStatsJob(Job):
     """
@@ -119,7 +121,7 @@ class ComputeCtcSubwordStatsJob(Job):
         import json
         import numpy
         import torch
-        from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
+
         import returnn.frontend as rf
         from returnn.tensor import Tensor, Dim
         from returnn.datasets import init_dataset
