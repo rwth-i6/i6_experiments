@@ -851,9 +851,11 @@ def py():
         "parakeet-ctc-1.1b": ("CTC", "Parakeet CTC"),
         "owsm-ctc-v4-1b": ("CTC", "OWSM-CTC"),
         "fastconformer-stream-ctc": ("CTC", "FastConformer (streaming)"),
-        "fastconformer-stream-rnnt": ("Transd.", "FastConformer (streaming)"),
+        # parakeet first, so the two identical FastConformer cells are not adjacent
+        # (auto_merge would otherwise fuse them across the CTC/Transd. boundary)
         "parakeet-rnnt-1.1b": ("Transd.", "Parakeet RNN-T"),
         "parakeet-tdt-0.6b-v2": ("Transd.", "Parakeet TDT"),
+        "fastconformer-stream-rnnt": ("Transd.", "FastConformer (streaming)"),
         "emformer-rnnt": ("Transd.", "Emformer (streaming)"),
         "whisper-base": ("AED", "Whisper-base"),
         "whisper-large-v3": ("AED", "Whisper-large-v3"),
