@@ -21,6 +21,7 @@ def get_training_config(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
+    import_memristor: bool = False,
     debug: bool = False,
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
@@ -59,6 +60,7 @@ def get_training_config(
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         include_native_ops=include_native_ops,
+        import_memristor=import_memristor,
         debug=debug,
     )
     python_prolog = None

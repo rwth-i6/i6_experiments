@@ -10,6 +10,7 @@ v11 adds option for separate dac for pos encs
 v12 adds option for different weight bit precisions for different layers
 v13 adds weight dropout
 v14 adds weight sparsity / pruning
+v15 adds weight noise
 """
 
 import math

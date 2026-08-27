@@ -2,13 +2,19 @@
 Contains the serializers for the ReturnnConfig epilog which write the model import and task functions import
 including serializing their parameters.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH, TORCH_MEMRISTOR_PATH, rasr_binary_path, I6_CORE_REPO_PATH
+from .default_tools import (
+    I6_MODELS_REPO_PATH,
+    TORCH_MEMRISTOR_PATH,
+    TORCH_MEMRISTOR_PATH_v3,
+    rasr_binary_path,
+    I6_CORE_REPO_PATH,
+)
 
 
 def serialize_training(
@@ -16,7 +22,7 @@ def serialize_training(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
-    import_memristor: bool = False,
+    import_memristor: Union[bool, str] = False,
 ) -> Collection:
     """
     Helper function to create the serialization collection
@@ -50,6 +56,9 @@ def serialize_training(
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
         # serializer_objects.insert(1, memristor_modules)
         serializer_objects.append(memristor_modules)
+    elif import_memristor == "new_v3":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v3)
+        serializer_objects.append(memristor_modules)
 
     serializer = Collection(
         serializer_objects=serializer_objects,
@@ -69,7 +78,7 @@ def serialize_forward(
     forward_step_name: str = "forward",
     forward_init_args: Optional[Dict[str, Any]] = None,
     unhashed_forward_init_args: Optional[Dict[str, Any]] = None,
-    import_memristor: bool = False,
+    import_memristor: Union[bool, str] = False,
     debug: bool = False,
     run_rasr: bool = False,
 ):
@@ -105,6 +114,9 @@ def serialize_forward(
     ]
     if import_memristor is True and not debug:
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v3" and not debug:
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v3)
         serializer_objects.insert(1, memristor_modules)
 
     if run_rasr is True:

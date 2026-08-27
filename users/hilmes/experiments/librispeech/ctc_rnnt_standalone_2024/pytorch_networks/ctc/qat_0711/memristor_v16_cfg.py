@@ -59,7 +59,33 @@ class PercentilePruningConfig:
         return weight * (weight.abs() >= cutoff).to(weight.dtype)
 
 
-WeightPruningConfig = Union[ThresholdPruningConfig, PercentilePruningConfig]
+@dataclass
+class PercentileThresholdPruningConfig:
+    """Percentile pruning with a fixed threshold applied on top (union of both masks).
+
+    A weight is pruned if it is in the bottom `percentile` fraction by absolute value OR its
+    absolute value is below `threshold`, i.e. kept iff ``|w| >= max(percentile_cutoff, threshold)``.
+    Intended for applying a threshold at recognition on top of a percentile-pruned training
+    without un-pruning weights between the threshold and a larger percentile cutoff.
+
+    :param prune_before_quant: if True the prune mask is computed and applied on the raw
+        (continuous) weight *before* the weight quantizer; if False pruning is applied to the
+        already fake-quantized weight, so the zeros live on the quantization grid.
+    """
+    start_epoch: int
+    percentile: float
+    threshold: float
+    prune_before_quant: bool
+
+    def apply(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        cutoff = torch.clamp_min(torch.quantile(weight.abs(), self.percentile), self.threshold)
+        return weight * (weight.abs() >= cutoff).to(weight.dtype)
+
+
+WeightPruningConfig = Union[ThresholdPruningConfig, PercentilePruningConfig, PercentileThresholdPruningConfig]
 
 
 @dataclass
@@ -365,7 +391,14 @@ class QuantModelTrainConfigV16:
         d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
         if d.get("weight_pruning") is not None:
             pruning_d = d["weight_pruning"]
-            if "threshold" in pruning_d:
+            if "threshold" in pruning_d and "percentile" in pruning_d:
+                d["weight_pruning"] = PercentileThresholdPruningConfig(
+                    start_epoch=pruning_d["start_epoch"],
+                    percentile=pruning_d["percentile"],
+                    threshold=pruning_d["threshold"],
+                    prune_before_quant=pruning_d["prune_before_quant"],
+                )
+            elif "threshold" in pruning_d:
                 d["weight_pruning"] = ThresholdPruningConfig(
                     start_epoch=pruning_d["start_epoch"],
                     threshold=pruning_d["threshold"],

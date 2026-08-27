@@ -81,14 +81,14 @@ def get_observer_excludes(num_layers: int = 12):
     excludes.extend([f'conformer.frontend.conv_3_in_quant.observer.max_val'])
     excludes.extend([f'conformer.frontend.conv_4_in_quant.observer.min_val'])
     excludes.extend([f'conformer.frontend.conv_4_in_quant.observer.max_val'])
-    excludes.extend([f'conformer.frontend.conv_1.weight_quantizer.observer.min_val'])
-    excludes.extend([f'conformer.frontend.conv_1.weight_quantizer.observer.max_val'])
-    excludes.extend([f'conformer.frontend.conv_2.weight_quantizer.observer.min_val'])
-    excludes.extend([f'conformer.frontend.conv_2.weight_quantizer.observer.max_val'])
-    excludes.extend([f'conformer.frontend.conv_3.weight_quantizer.observer.min_val'])
-    excludes.extend([f'conformer.frontend.conv_3.weight_quantizer.observer.max_val'])
-    excludes.extend([f'conformer.frontend.conv_4.weight_quantizer.observer.min_val'])
-    excludes.extend([f'conformer.frontend.conv_4.weight_quantizer.observer.max_val'])
+    excludes.extend([f'conformer.frontend.conv1.weight_quantizer.observer.min_val'])
+    excludes.extend([f'conformer.frontend.conv1.weight_quantizer.observer.max_val'])
+    excludes.extend([f'conformer.frontend.conv2.weight_quantizer.observer.min_val'])
+    excludes.extend([f'conformer.frontend.conv2.weight_quantizer.observer.max_val'])
+    excludes.extend([f'conformer.frontend.conv3.weight_quantizer.observer.min_val'])
+    excludes.extend([f'conformer.frontend.conv3.weight_quantizer.observer.max_val'])
+    excludes.extend([f'conformer.frontend.conv4.weight_quantizer.observer.min_val'])
+    excludes.extend([f'conformer.frontend.conv4.weight_quantizer.observer.max_val'])
     excludes.extend([f'conformer.frontend.linear.weight_quantizer.observer.min_val'])
     excludes.extend([f'conformer.frontend.linear.weight_quantizer.observer.max_val'])
 
@@ -215,7 +215,7 @@ def bpe_ls960_0426_memristor_frontend():
         num_repeat_feat=5,
     )
     network_module_mem_v11 = "ctc.qat_0711.memristor_v11_quant_front"
-    network_front_v2 = "ctc.qat_0711.memristor_quant_front_v2"
+    network_front_v2 = "ctc.q_front_0726.memristor_quant_front_v2"
     memristor_report = {}
 
     train_config_24gbgpu = {

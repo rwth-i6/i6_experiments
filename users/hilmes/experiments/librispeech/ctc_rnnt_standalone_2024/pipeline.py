@@ -43,6 +43,7 @@ def search_single(
     returnn_root: tk.Path,
     mem_rqmt: float = 14,
     use_gpu: bool = False,
+    additional_output_files: Optional[List[str]] = None,
 ):
     """
     Run search for a specific test dataset
@@ -56,6 +57,8 @@ def search_single(
     :param returnn_root: Path to a checked out RETURNN repository
     :param mem_rqmt: some search jobs might need more memory
     :param use_gpu: if to do GPU decoding
+    :param additional_output_files: extra files the forward/decoder writes into the job dir,
+        declared as job outputs and registered (e.g. energy_report.pkl)
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
@@ -69,9 +72,11 @@ def search_single(
         cpu_rqmt=8 if mem_rqmt < 30 else 16,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py"],
+        output_files=["search_out.py"] + (additional_output_files or []),
     )
     search_job.add_alias(prefix_name + "/search_job")
+    for output_file in additional_output_files or []:
+        tk.register_output(prefix_name + "/" + output_file, search_job.out_files[output_file])
 
     search_ctm = SearchWordsToCTMJob(
         recog_words_file=search_job.out_files["search_out.py"],
@@ -101,6 +106,7 @@ def search(
     import_memristor: bool = False,
     debug: bool = False,
     run_rasr: bool = False,
+    additional_output_files: Optional[List[str]] = None,
 ):
     """
     Run search over multiple datasets and collect statistics
@@ -118,7 +124,26 @@ def search(
     if asr_model.prior_file is not None:
         decoder_args["config"]["prior_file"] = asr_model.prior_file
 
-    if "_newsynap_" in prefix_name and import_memristor:
+    if ("_newsynap_noisefix_" in prefix_name or "_newsynap_noisefree_" in prefix_name) and import_memristor:
+        # v4 = v3 + corrected shot-noise constants (e/BW matching upstream
+        # synaptogen). noisefree runs additionally disable readout noise via
+        # the rasr_ctc_v1_batched_fast_nonoise decoder wrapper.
+        import_memristor = "new_v4"
+    elif "_newsynap_jitfallback_" in prefix_name and import_memristor:
+        import_memristor = "new_v3"
+    elif "_newsynap_progfast_" in prefix_name and import_memristor:
+        # v5 = v3 lineage + cell-programming speedups (branch
+        # bene_programming_speedup): bit-exact applyVoltage fixes plus the
+        # opt-in parallel programming enabled for the conversion job via
+        # SYN_FAST_PROG (see prepare_memristor).
+        import_memristor = "new_v5"
+    elif "_newsynap_fast_" in prefix_name and import_memristor:
+        # v3 = device-adaptive fast path (Triton on >=7.0, TorchScript/NNC on
+        # older GPUs), so these runs need no GPU-type pin -- the "real life"
+        # setup. NOTE: seeded runs deliberately stay on v2 below (complete,
+        # switching would only rehash and recompute them).
+        import_memristor = "new_v3"
+    elif "_newsynap_" in prefix_name and import_memristor:
         import_memristor = "new"
 
     returnn_search_config = get_forward_config(
@@ -158,9 +183,17 @@ def search(
             returnn_root,
             use_gpu=use_gpu,
             mem_rqmt=mem,
+            additional_output_files=additional_output_files,
         )
-        if import_memristor is True:
+        if import_memristor is True or import_memristor == "energy":
             search_job.rqmt["time"] += 24 * 4  # 4 additional days
+        if import_memristor == "new" and "_newsynap_seeded_" in prefix_name:
+            search_job.rqmt["time"] += 24  # standard path w8 may exceed 24h even on A10
+        if "_hpctest_" in prefix_name:
+            # HPC (CLAIX) speed smoke test: sis_itc_helper's run_job.sh passes
+            # rqmt time as the remote walltime; keep it below 12h so the job is
+            # scheduled onto the c25g partition. Overrides any bump above.
+            search_job.rqmt["time"] = 11
         search_jobs.append(search_job)
 
     return search_jobs, wers
@@ -282,7 +315,26 @@ def search_multi(
     if asr_model.prior_file is not None:
         decoder_args["config"]["prior_file"] = asr_model.prior_file
 
-    if "_newsynap_" in prefix_name and import_memristor:
+    if ("_newsynap_noisefix_" in prefix_name or "_newsynap_noisefree_" in prefix_name) and import_memristor:
+        # v4 = v3 + corrected shot-noise constants (e/BW matching upstream
+        # synaptogen). noisefree runs additionally disable readout noise via
+        # the rasr_ctc_v1_batched_fast_nonoise decoder wrapper.
+        import_memristor = "new_v4"
+    elif "_newsynap_jitfallback_" in prefix_name and import_memristor:
+        import_memristor = "new_v3"
+    elif "_newsynap_progfast_" in prefix_name and import_memristor:
+        # v5 = v3 lineage + cell-programming speedups (branch
+        # bene_programming_speedup): bit-exact applyVoltage fixes plus the
+        # opt-in parallel programming enabled for the conversion job via
+        # SYN_FAST_PROG (see prepare_memristor).
+        import_memristor = "new_v5"
+    elif "_newsynap_fast_" in prefix_name and import_memristor:
+        # v3 = device-adaptive fast path (Triton on >=7.0, TorchScript/NNC on
+        # older GPUs), so these runs need no GPU-type pin -- the "real life"
+        # setup. NOTE: seeded runs deliberately stay on v2 below (complete,
+        # switching would only rehash and recompute them).
+        import_memristor = "new_v3"
+    elif "_newsynap_" in prefix_name and import_memristor:
         import_memristor = "new"
 
     returnn_search_config = get_forward_config(
@@ -325,7 +377,7 @@ def search_multi(
             cpu_rqmt=max(8, workers),
             use_gpu=use_gpu,
         )
-        if import_memristor is True:
+        if import_memristor is True or import_memristor == "energy":
             search_job.rqmt["time"] += 24 * 4  # additional headroom for the memristor forward
         for combo_name, wer in combo_wers.items():
             # keep the key structure identical to the single-scale path so the report regex matches
@@ -412,6 +464,15 @@ def prepare_memristor(
         search_job.rqmt["mem"] += 36
 
     search_job.add_alias(prefix_name + "/prepare_mem_job")
+    # Enable the opt-in parallel programming path inside the conversion job
+    # (since the 2026-08-10 default-pin switch the default SynaptogenML content
+    # supports it; older pins ignore the env harmlessly). The workers pin their
+    # BLAS to a single thread themselves. 8 workers / 8 CPUs: requests sized to
+    # the 8-CPU slots the user's other forward jobs cycle through -- larger
+    # requests starve at QOSMaxCpuPerUserLimit with no backfill reservation.
+    # set_env and rqmt are not hashed -> no job re-runs from this.
+    search_job.set_env("SYN_FAST_PROG", "8")
+    search_job.rqmt["cpu"] = 8
     search_job.set_keep_value(10)
     # search_job.set_vis_name(prefix_name + "/prior_job")
     return search_job.out_files["converted_model.pt"]

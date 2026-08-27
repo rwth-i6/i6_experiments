@@ -8,6 +8,7 @@ from dataclasses import dataclass, asdict
 import copy
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from sisyphus import tk
+from sisyphus.tools import extract_paths
 from i6_core.returnn.training import ReturnnTrainingJob
 import os
 from i6_core.rasr.config import WriteRasrConfigJob
@@ -44,12 +45,27 @@ def eval_model(
     run_rasr: bool = False,
     split_mem_init: bool = False,
     search_gpu: Optional[int] = None,
+    search_gpu_type: Optional[str] = None,
     split_args: Optional = None,
     with_prior: bool = True,
     prune_weights: bool = False,
     run_rasr_multi: bool = False,
     num_search_workers: int = 8,
+    recog_network_module: Optional[str] = None,
+    extra_decoder_args: Optional[Dict[str, Any]] = None,
+    additional_search_output_files: Optional[List[str]] = None,
+    search_output_collector: Optional[Dict[str, Any]] = None,
 ):
+    """
+    :param search_output_collector: if given, filled with {filename: tk.Path} for the
+        additional_search_output_files of the search jobs (last search wins per file)
+    :param recog_network_module: overrides the network module for the recognition only
+        (prior/conversion jobs keep the train_args/prior_args module and stay cached);
+        "_mem_inited" is appended like for the regular module when split_mem_init is set
+    :param extra_decoder_args: merged into decoder_args next to "config" (hashed),
+        e.g. {"energy": {...}} for the energy measurement decoders
+    :param additional_search_output_files: extra declared output files of the search jobs
+    """
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
     if isinstance(specific_epoch, int):
@@ -69,7 +85,18 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_specific_checkpoint=epoch,
-            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            # prior/prune/conversion always use the standard memristor lib (value
+            # True), so e.g. an import_memristor="energy" recognition shares those
+            # jobs with the plain eval. Sole exception: "new_v5" changes the
+            # PROGRAMMING itself, so it must reach the conversion config (a shared
+            # default-pin conversion would silently bypass the fast programming).
+            prior_config={
+                "import_memristor": import_memristor
+                if import_memristor == "new_v5"
+                else True
+            }
+            if import_memristor
+            else None,
             prune_weights=prune_weights,
             split_preparation=split_mem_init,
             split_args=(split_args or train_args) if split_mem_init else None, # TODO: this means that the converter settings are actually part of the init
@@ -79,6 +106,8 @@ def eval_model(
             asr_model.network_module = train_args["network_module"]
         if split_mem_init is True:
             asr_model.network_module += "_mem_inited"
+        if recog_network_module is not None:
+            asr_model.network_module = recog_network_module + ("_mem_inited" if split_mem_init is True else "")
         res, best_params = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
@@ -97,8 +126,12 @@ def eval_model(
             get_best_params=get_best_params,
             run_rasr=run_rasr,
             search_gpu=search_gpu,
+            search_gpu_type=search_gpu_type,
             run_rasr_multi=run_rasr_multi,
             num_search_workers=num_search_workers,
+            extra_decoder_args=extra_decoder_args,
+            additional_search_output_files=additional_search_output_files,
+            search_output_collector=search_output_collector,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -109,12 +142,25 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
-            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            # prior/prune/conversion always use the standard memristor lib (value
+            # True), so e.g. an import_memristor="energy" recognition shares those
+            # jobs with the plain eval. Sole exception: "new_v5" changes the
+            # PROGRAMMING itself, so it must reach the conversion config (a shared
+            # default-pin conversion would silently bypass the fast programming).
+            prior_config={
+                "import_memristor": import_memristor
+                if import_memristor == "new_v5"
+                else True
+            }
+            if import_memristor
+            else None,
             prune_weights=prune_weights,
         )
         if prior_args is not None:
             asr_model_best4.net_args = train_args["net_args"]
             asr_model_best4.network_module = train_args["network_module"]
+        if recog_network_module is not None:
+            asr_model_best4.network_module = recog_network_module
         res, _ = tune_and_evaluate_helper(
             training_name + "/best4",
             asr_model_best4,
@@ -131,6 +177,10 @@ def eval_model(
             import_memristor=import_memristor,
             run_rasr=run_rasr,
             search_gpu=search_gpu,
+            search_gpu_type=search_gpu_type,
+            extra_decoder_args=extra_decoder_args,
+            additional_search_output_files=additional_search_output_files,
+            search_output_collector=search_output_collector,
         )
         result_dict.update(res)
     if run_best is True:
@@ -141,12 +191,25 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
-            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            # prior/prune/conversion always use the standard memristor lib (value
+            # True), so e.g. an import_memristor="energy" recognition shares those
+            # jobs with the plain eval. Sole exception: "new_v5" changes the
+            # PROGRAMMING itself, so it must reach the conversion config (a shared
+            # default-pin conversion would silently bypass the fast programming).
+            prior_config={
+                "import_memristor": import_memristor
+                if import_memristor == "new_v5"
+                else True
+            }
+            if import_memristor
+            else None,
             prune_weights=prune_weights,
         )
         if prior_args is not None:
             asr_model_best.net_args = train_args["net_args"]
             asr_model_best.network_module = train_args["network_module"]
+        if recog_network_module is not None:
+            asr_model_best.network_module = recog_network_module
         res, _ = tune_and_evaluate_helper(
             training_name + "/best",
             asr_model_best,
@@ -163,6 +226,10 @@ def eval_model(
             import_memristor=import_memristor,
             run_rasr=run_rasr,
             search_gpu=search_gpu,
+            search_gpu_type=search_gpu_type,
+            extra_decoder_args=extra_decoder_args,
+            additional_search_output_files=additional_search_output_files,
+            search_output_collector=search_output_collector,
         )
         result_dict.update(res)
     if get_best_params is True:
@@ -189,8 +256,12 @@ def tune_and_evaluate_helper(
     get_best_params: bool = False,
     run_rasr: bool = False,
     search_gpu: Optional[int] = None,
+    search_gpu_type: Optional[str] = None,
     run_rasr_multi: bool = False,
     num_search_workers: int = 8,
+    extra_decoder_args: Optional[Dict[str, Any]] = None,
+    additional_search_output_files: Optional[List[str]] = None,
+    search_output_collector: Optional[Dict[str, Any]] = None,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -203,7 +274,14 @@ def tune_and_evaluate_helper(
     :param base_decoder_config: any decoder config dataclass
     :param lm_scales: lm scales for tuning
     :param prior_scales: prior scales for tuning, same length as lm scales
+    :param extra_decoder_args: merged into decoder_args next to "config" (hashed)
+    :param additional_search_output_files: extra declared output files of the search jobs
     """
+    # temporary (2026-08-15): route ALL memristor GPU searches to the local 48GB queue;
+    # rqmt/pin are unhashed, so remove this block to restore the per-call routing below
+    if search_gpu is not None or search_gpu_type is not None:
+        search_gpu = 48
+        search_gpu_type = None
     results = {}
     if run_rasr_multi:
         # Multi-scale path: one forward job computes posteriors once and sweeps the whole grid.
@@ -253,9 +331,21 @@ def tune_and_evaluate_helper(
                 if not os.path.exists(f"{job._sis_path()}/finished.run.1"):
                     job.hold()
                     job.move_to_hpc = True
+                    # RASR reads the lexicon / LM image only via the written
+                    # rasr.config, so for the ForwardJob they are transitive
+                    # deps that move_job_to_hpc.sh (first-level input/* only)
+                    # would miss. Register them as direct inputs so they show
+                    # up as input links and get synced. add_input does not
+                    # change the job hash.
+                    for p in extract_paths(base_decoder_config):
+                        job.add_input(p)
         if search_gpu is not None:
             for job in search_jobs:
                 job.rqmt["gpu_mem"] = search_gpu
+        if search_gpu_type is not None:
+            # read by settings.py; plain attribute like move_to_hpc, not hashed
+            for job in search_jobs:
+                job.pin_gpu_type = search_gpu_type
         results.update(wers)
         return results, None
 
@@ -282,28 +372,46 @@ def tune_and_evaluate_helper(
                 decoder_config.rasr_config_file = recog_rasr_config_path
                 decoder_config.rasr_post_config = None
             search_name = training_name + f"/search_{search_name}"
+            decoder_args = {"config": asdict(decoder_config)}
+            if extra_decoder_args:
+                decoder_args.update(extra_decoder_args)
             search_jobs, wers = search(
                 search_name,
                 forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
+                decoder_args=decoder_args,
                 test_dataset_tuples=dev_dataset_tuples,
                 use_gpu=use_gpu,
                 import_memristor=import_memristor,
                 debug=debug,
                 run_rasr=run_rasr,
+                additional_output_files=additional_search_output_files,
                 **default_returnn,
             )
+            if search_output_collector is not None:
+                # single-scale, single-dataset callers (energy evals) get the exact file;
+                # multi-point sweeps would keep the last search's paths
+                for f in additional_search_output_files or []:
+                    for job in search_jobs:
+                        search_output_collector[f] = job.out_files[f]
             if run_search_on_hpc is True:
                 for job in search_jobs:
                     if not os.path.exists(
                         f"{job._sis_path()}/finished.run.1"):  # sync back was successful
                         job.hold()
                         job.move_to_hpc = True
+                        # see multi block above: promote rasr.config-internal
+                        # resources (lexicon, LM image, ...) to direct inputs
+                        # so the HPC mover syncs them; hash-neutral.
+                        for p in extract_paths(base_decoder_config):
+                            job.add_input(p)
             if search_gpu is not None:
                 for job in search_jobs:
                     job.rqmt['gpu_mem'] = search_gpu
+            if search_gpu_type is not None:
+                for job in search_jobs:
+                    job.pin_gpu_type = search_gpu_type
             tune_parameters.append((lm_weight, prior_scale))
             # tune_values_clean.append((wers[search_name + "/dev-clean"]))
             if search_name + "/dev-other" in wers:

@@ -294,6 +294,10 @@ def eow_phon_ls960_0426_memristor_noise():
                             "use_speed_perturbation": True,
                         }
                         recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{1000//10}eps_{dim}dim_{weight_bit}_{activation_bit}_seed_{seed}/cycle_{num_cycles // 11}"
+                        # fast eval replaced the ~3-5 day slow searches under the same names
+                        # (validated fast==slow on the bpe side, see noise.py/mixed_prec):
+                        # "_fast" decoder shim + explicit new_v3 SynaptogenML pin, ~30 min
+                        # per search on 48gb L40S. Conversion/prior jobs are unaffected.
                         res_conv = eval_model(
                             training_name=recog_name  + f"_{num_cycles}",
                             train_job=train_job,
@@ -302,11 +306,11 @@ def eow_phon_ls960_0426_memristor_noise():
                             decoder_config=rasr_config_memristor,
                             dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
                             result_dict=res_conv,
-                            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                            decoder_module="ctc.decoder.rasr_ctc_v1_batched_fast",
                             prior_scales=[memristor_prior],
                             lm_scales=[memristor_lm],
                             use_gpu=True,
-                            import_memristor=True,
+                            import_memristor="new_v3",
                             extra_forward_config={
                                 "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                             },
@@ -316,7 +320,7 @@ def eow_phon_ls960_0426_memristor_noise():
                             run_search_on_hpc=False,
                             run_rasr=True,
                             split_mem_init = True,
-                            search_gpu=24 if dim > 512 else 11,
+                            search_gpu=48,
                         )
                     recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{1000 // 10}eps_{dim}dim_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
                     generate_report(results=res_conv, exp_name=recog_name)
@@ -504,6 +508,7 @@ def eow_phon_ls960_0426_memristor_noise():
                                     }
 
                                     recog_name = prefix_name + "/" + network_module_mem_v15 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}/cycle_{num_cycles // 11}"
+                                    # fast eval, same switch as the v10 block above
                                     res_conv = eval_model(
                                         training_name=recog_name + f"_{num_cycles}",
                                         train_job=train_job,
@@ -512,11 +517,11 @@ def eow_phon_ls960_0426_memristor_noise():
                                         decoder_config=rasr_config_memristor,
                                         dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
                                         result_dict=res_conv,
-                                        decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                                        decoder_module="ctc.decoder.rasr_ctc_v1_batched_fast",
                                         prior_scales=[memristor_prior],
                                         lm_scales=[memristor_lm],
                                         use_gpu=True,
-                                        import_memristor=True,
+                                        import_memristor="new_v3",
                                         extra_forward_config={
                                             "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                                         },
@@ -526,7 +531,7 @@ def eow_phon_ls960_0426_memristor_noise():
                                         run_search_on_hpc=False,
                                         run_rasr=True,
                                         split_mem_init=True,
-                                        search_gpu=24 if dim > 512 else 11,
+                                        search_gpu=48,
                                     )
                                 recog_name = prefix_name + "/" + network_module_mem_v15 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}_cycle"
                                 generate_report(results=res_conv, exp_name=recog_name)

@@ -1,7 +1,7 @@
 import os.path
 
 from .default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from .pipeline import search, ASRModel, quantize_static, prepare_asr_model, evaluate_all
+from .pipeline import search, search_multi, ASRModel, quantize_static, prepare_asr_model, evaluate_all
 from .pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 from .pytorch_networks.ctc.decoder.rasr_ctc_v1 import DecoderConfig as RasrDecoderConfig
 from typing import List, Optional, Dict, Any, List, Union, Tuple
@@ -70,7 +70,7 @@ def eval_model(
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
     loss_name: str = "dev_loss_ctc",
-    import_memristor: bool = False,
+    import_memristor: Union[bool, str] = False,
     use_gpu: bool = False,
     extra_forward_config: Optional[dict[str, Any]] = None,
     run_best_4: bool = True,
@@ -87,6 +87,8 @@ def eval_model(
     run_rasr: bool = False,
     split_mem_init: bool = False,
     search_gpu: Optional[int] = None,
+    run_rasr_multi: bool = False,
+    num_search_workers: int = 8,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -108,8 +110,9 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_specific_checkpoint=epoch,
-            prior_config={"import_memristor": import_memristor}
-            if import_memristor is True else None,
+            # prior/mem-init always use the standard memristor pin, so a "new_v3"
+            # recognition shares those jobs with the plain eval
+            prior_config={"import_memristor": True} if import_memristor else None,
             split_preparation=split_mem_init,
             split_args=train_args if split_mem_init else None,
         )
@@ -139,6 +142,8 @@ def eval_model(
             unhashed_decoder_args=unhashed_decoder_args,
             run_rasr=run_rasr,
             search_gpu=search_gpu,
+            run_rasr_multi=run_rasr_multi,
+            num_search_workers=num_search_workers,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -149,8 +154,8 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
-            prior_config={"import_memristor": import_memristor}
-            if import_memristor is True and with_prior is True
+            prior_config={"import_memristor": True}
+            if import_memristor and with_prior is True
             else None,
             split_preparation=split_mem_init,
         )
@@ -184,8 +189,8 @@ def eval_model(
             with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
-            prior_config={"import_memristor": import_memristor}
-            if import_memristor is True and with_prior is True
+            prior_config={"import_memristor": True}
+            if import_memristor and with_prior is True
             else None,
             split_preparation=split_mem_init,
         )
@@ -228,7 +233,7 @@ def tune_and_evaluate_helper(
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     quant_args: Optional[QuantArgs] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
-    import_memristor: bool = False,
+    import_memristor: Union[bool, str] = False,
     extra_forward_config: Optional[dict[str, Any]] = None,
     use_gpu: bool = False,
     debug: bool = False,
@@ -240,6 +245,8 @@ def tune_and_evaluate_helper(
     unhashed_decoder_args: Optional = None,
     run_rasr: bool = False,
     search_gpu: Optional[int] = None,
+    run_rasr_multi: bool = False,
+    num_search_workers: int = 8,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -253,9 +260,72 @@ def tune_and_evaluate_helper(
     :param lm_scales: lm scales for tuning
     :param prior_scales: prior scales for tuning, same length as lm scales
     """
+    # temporary (2026-08-15): route ALL memristor GPU searches to the local 48GB queue;
+    # rqmt is unhashed, so remove this line to restore the per-call routing below
+    if search_gpu is not None:
+        search_gpu = 48
     tune_parameters = []
     tune_values = []
     results = {}
+    if run_rasr_multi:
+        # Multi-scale path: one forward job computes posteriors once and sweeps the whole grid.
+        # Build one written RASR config per lm scale (lm scale baked into the file), then run a
+        # single multi decoder job per dataset that applies all (lm, prior) combinations.
+        from .pytorch_networks.ctc.decoder.rasr_ctc_v1_batched_multi import (
+            DecoderConfig as MultiRasrDecoderConfig,
+        )
+        from sisyphus.tools import extract_paths
+
+        lm_values = [lw[0] if isinstance(lw, tuple) else lw for lw in lm_scales]
+        rasr_config_files = []
+        for lm_weight in lm_values:
+            per_lm_config = copy.deepcopy(base_decoder_config)
+            per_lm_config.rasr_config_file.lib_rasr.lm.scale = lm_weight
+            rasr_config_files.append(
+                WriteRasrConfigJob(per_lm_config.rasr_config_file, per_lm_config.rasr_post_config).out_config
+            )
+
+        multi_decoder_config = MultiRasrDecoderConfig(
+            rasr_config_files=rasr_config_files,
+            lm_scales=list(lm_values),
+            prior_scales=list(prior_scales),
+            num_search_workers=num_search_workers,
+            rasr_post_config=None,
+            blank_log_penalty=base_decoder_config.blank_log_penalty,
+            prior_file=None,  # injected in search_multi from the trained model
+            turn_off_quant=base_decoder_config.turn_off_quant,
+        )
+
+        search_jobs, wers = search_multi(
+            training_name,
+            forward_config=extra_forward_config or {},
+            asr_model=asr_model,
+            decoder_module=decoder_module,
+            decoder_args={"config": asdict(multi_decoder_config)},
+            test_dataset_tuples=dev_dataset_tuples,
+            lm_scales=list(lm_values),
+            prior_scales=list(prior_scales),
+            num_search_workers=num_search_workers,
+            use_gpu=use_gpu,
+            import_memristor=import_memristor,
+            debug=debug,
+            **default_returnn,
+        )
+        if run_search_on_hpc is True:
+            for job in search_jobs:
+                if not os.path.exists(f"{job._sis_path()}/finished.run.1"):
+                    job.hold()
+                    job.move_to_hpc = True
+                    # lexicon / LM image are only referenced via the written rasr.config,
+                    # so register them as direct inputs for the HPC sync (hash-neutral)
+                    for p in extract_paths(base_decoder_config):
+                        job.add_input(p)
+        if search_gpu is not None:
+            for job in search_jobs:
+                job.rqmt["gpu_mem"] = search_gpu
+        results.update(wers)
+        return results, None
+
     for lm_weight in lm_scales:
         for prior_scale in prior_scales:
             decoder_config = copy.deepcopy(base_decoder_config)
@@ -1922,8 +1992,9 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
     assert len(tmp) == 0, tmp
     return "\n".join(line)
 
-def build_qat_report_v2(report: Dict) -> str:
-    """Tabular version of build_qat_report_v2. QAT and Memristor sections are rendered as aligned tables."""
+def build_qat_report_v2(report: Dict, max_seeds: int = 3) -> str:
+    """Tabular version of build_qat_report_v2. QAT and Memristor sections are rendered as aligned tables.
+    Seed columns render only for seeds that have entries, capped at max_seeds (noise reports pass 1)."""
     import numpy as np
     import re
 
@@ -2082,7 +2153,12 @@ def build_qat_report_v2(report: Dict) -> str:
         return any(key.endswith(s) for s in CYCLE_STAT_SUFFIXES | SPLIT_SUFFIXES | DATASET_CYCLE_SUFFIXES)
 
     def exp_label(exp_short: str) -> str:
-        return " ".join(exp_short.split(".")[2:])
+        # strip the module prefix literally -- splitting on "." breaks noise names like gauss0.05
+        label = exp_short.replace("ctc.memristor_1025.", "")
+        parts = label.split(" ")
+        if parts and parts[0].isdigit():
+            parts = parts[1:]
+        return " ".join(parts)
 
     def get_type(exp_short: str) -> str:
         for kw in TYPE_KEYWORDS:
@@ -2150,15 +2226,17 @@ def build_qat_report_v2(report: Dict) -> str:
         return summary.get(exp_short + st, ("—", ""))[0]
 
     def qat_table(exps_dict: Dict) -> List[str]:
-        seed_groups: Dict[str, List[str]] = {}
+        seed_groups: Dict[str, Dict[int, str]] = {}
         for e in exps_dict:
             base = re.sub(r"_seed_\d+", "", e)
-            seed_groups.setdefault(base, []).append(e)
+            m = re.search(r"_seed_(\d+)", e)
+            idx = int(m.group(1)) if m else 0
+            seed_groups.setdefault(base, {})[idx] = e
 
-        MAX_SEEDS = 3
-        COLS_PER_SEED = 3
-        splits = [("Short-dev", "", False), ("Full dev", "_full_dev", True), ("Full test", "_full_test", True)]
-        n_splits = len(splits)
+        # only seeds that actually have entries, capped by max_seeds
+        seed_idxs = sorted({i for sm in seed_groups.values() for i in sm})[:max_seeds]
+        if not seed_idxs:
+            seed_idxs = [0]
 
         def cell_val(e: str, st: str, has_best: bool) -> str:
             last = summary.get(e + st, ("—", ""))[0]
@@ -2168,31 +2246,50 @@ def build_qat_report_v2(report: Dict) -> str:
                     return f"{last}/{best_val}"
             return last
 
+        all_splits = [("Short-dev", "", False), ("Full dev", "_full_dev", True), ("Full test", "_full_test", True)]
+
+        def split_has_data(st: str, hb: bool) -> bool:
+            for sm in seed_groups.values():
+                for i in seed_idxs:
+                    e = sm.get(i)
+                    if e and (cell_val(e, st, hb) != "—" or cell_val(e + "_greedy", st, hb) != "—"):
+                        return True
+            return False
+
+        splits = [s for s in all_splits if split_has_data(s[1], s[2])] or all_splits[:1]
+        n_splits = len(splits)
+
+        has_greedy = any(
+            cell_val(sm[i] + "_greedy", st, hb) != "—"
+            for sm in seed_groups.values()
+            for i in seed_idxs
+            if i in sm
+            for _, st, hb in splits
+        )
+        sub_headers = (lambda i: (f"s{i}", "scales", "greedy") if has_greedy else (f"s{i}", "scales"))
+        COLS_PER_SEED = 3 if has_greedy else 2
+        n_seed_cols = len(seed_idxs)
+
         data_rows = []
-        for base, exps in seed_groups.items():
-            seed_map = {}
-            for e in exps:
-                m = re.search(r"_seed_(\d+)", e)
-                idx = int(m.group(1)) if m else 0
-                seed_map[idx] = e
+        for base, seed_map in seed_groups.items():
             row = [exp_label(base)]
             for _, st, hb in splits:
-                for i in range(MAX_SEEDS):
+                for i in seed_idxs:
                     e = seed_map.get(i)
                     row.append(cell_val(e, st, hb) if e else "—")
                     row.append(scales_info.get(e, "—") if e else "—")
-                    greedy_e = (e + "_greedy") if e else None
-                    row.append(cell_val(greedy_e, st, hb) if greedy_e else "—")
+                    if has_greedy:
+                        row.append(cell_val(e + "_greedy", st, hb) if e else "—")
             data_rows.append(row)
 
-        header2 = ["Experiment"] + [c for _ in splits for i in range(MAX_SEEDS) for c in (f"s{i}", "scales", "greedy")]
+        header2 = ["Experiment"] + [c for _ in splits for i in seed_idxs for c in sub_headers(i)]
         all_rows = [header2] + data_rows
         widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(header2))]
 
         double_after = {
-            s * MAX_SEEDS * COLS_PER_SEED + (k + 1) * COLS_PER_SEED
+            s * n_seed_cols * COLS_PER_SEED + (k + 1) * COLS_PER_SEED
             for s in range(n_splits)
-            for k in range(MAX_SEEDS - 1)
+            for k in range(n_seed_cols - 1)
         }
 
         def col_sep(i: int) -> str:
@@ -2209,8 +2306,8 @@ def build_qat_report_v2(report: Dict) -> str:
 
         header1_parts = [" " * widths[0]]
         for s, (split_name, _, _hb) in enumerate(splits):
-            start = 1 + s * MAX_SEEDS * COLS_PER_SEED
-            n_cols = MAX_SEEDS * COLS_PER_SEED
+            start = 1 + s * n_seed_cols * COLS_PER_SEED
+            n_cols = n_seed_cols * COLS_PER_SEED
             span = sum(widths[start + j] for j in range(n_cols))
             span += sum(len(col_sep(start + j)) for j in range(n_cols - 1))
             header1_parts.append(split_name.center(span))
@@ -2225,7 +2322,9 @@ def build_qat_report_v2(report: Dict) -> str:
         return [header1, fmt(header2), sep] + [fmt(r) for r in data_rows]
 
     def cycle_table(exps_dict: Dict) -> List[str]:
-        splits = [("Short-dev", ""), ("Dev", "_dev_all"), ("Test", "_test_all")]
+        all_splits = [("Short-dev", ""), ("Dev", "_dev_all"), ("Test", "_test_all")]
+        # only splits that have any data
+        splits = [s for s in all_splits if any(e + s[1] in cycle_raw for e in exps_dict)] or all_splits[:1]
         has_rel = any(
             cycle_raw.get(e + st_sfx, {}).get("rel") is not None
             for e in exps_dict for _, st_sfx in splits

@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH, TORCH_MEMRISTOR_PATH, rasr_binary_path, I6_CORE_REPO_PATH, TORCH_MEMRISTOR_PATH_v2
+from .default_tools import I6_MODELS_REPO_PATH, I6_NATIVE_OPS_REPO_PATH, TORCH_MEMRISTOR_PATH, rasr_binary_path, I6_CORE_REPO_PATH, TORCH_MEMRISTOR_PATH_v2, TORCH_MEMRISTOR_PATH_v3, TORCH_MEMRISTOR_PATH_v4, TORCH_MEMRISTOR_PATH_v5, TORCH_MEMRISTOR_PATH_ENERGY
 
 
 def serialize_training(
@@ -16,6 +16,7 @@ def serialize_training(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
+    import_memristor: bool = False,
     debug: bool = False,
 ) -> Collection:
     """
@@ -25,6 +26,10 @@ def serialize_training(
     :param net_args: arguments for the model
     :param unhashed_net_args: as above but not hashed
     :param include_native_ops: include the i6_native_ops for e.g. Fast-Baum-Welch or Warp-RNNT
+    :param import_memristor: make synaptogen_ml importable in the training job (same
+        pin selection values as serialize_forward); needed e.g. for training-time
+        SynaptogenPoolNoiseConfig. Default False keeps the serialization (and thus
+        existing training hashes) unchanged.
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return: Collection object to be added to the ReturnnConfig epilog
     """
@@ -47,6 +52,25 @@ def serialize_training(
         pytorch_model_import,
         pytorch_train_step,
     ]
+
+    if import_memristor is True:
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v2)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v3":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v3)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v4":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v4)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v5":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v5)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "energy":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_ENERGY)
+        serializer_objects.insert(1, memristor_modules)
 
     if include_native_ops:
         i6_native_ops = ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH)
@@ -126,6 +150,18 @@ def serialize_forward(
         serializer_objects.insert(1, memristor_modules)
     elif import_memristor == "new":
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v2)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v3":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v3)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v4":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v4)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "new_v5":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_v5)
+        serializer_objects.insert(1, memristor_modules)
+    elif import_memristor == "energy":
+        memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH_ENERGY)
         serializer_objects.insert(1, memristor_modules)
 
     if include_native_ops:

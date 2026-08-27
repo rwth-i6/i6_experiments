@@ -54,12 +54,27 @@ SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
 #     checkout_folder_name="torch_memristor",
 #     branch="bene_cycle",
 # ).out_repository.copy()
+# 2026-08-10 silent switch: a049b99 -> 601680e (branch bene_programming_speedup),
+# same switch as the LBS ctc_rnnt_standalone_2024 default pin. hash_overwrite
+# below keeps all downstream hashes stable; finished jobs keep their results,
+# only newly created jobs pick up the new clone. QAT layers / default_params /
+# config / util byte-identical vs a049b99 (audited 2026-08-08); everything new
+# is opt-in (fast inference + SYN_FAST_PROG parallel programming) plus
+# bit-exact applyVoltage speedups. Validated by the 70-point LBS
+# _newsynap_progfast_ A/B (grand mean dWER -0.004, conversions x6.3-9.7).
 TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/SynaptogenML",
-    commit="a049b99350b59d7118641ee976db74481678807b",
+    commit="601680e6cec45e8a2eae958071e286c36f375c3e",
     checkout_folder_name="SynaptogenML",
 ).out_repository.copy()
 TORCH_MEMRISTOR_PATH.hash_overwrite = "LOQUACIOUS_STANDALONE_DEFAULT_TORCH_MEMRISTOR"
+
+# fast-inference pin (set_fast_inference API), same commit as the LBS "new_v3" pin
+TORCH_MEMRISTOR_PATH_v3 = CloneGitRepositoryJob(
+    url="https://github.com/rwth-i6/SynaptogenML",
+    commit="6f89b529e034d0bf17f8f5c211867be5f1358e9e",
+    checkout_folder_name="SynaptogenML",
+).out_repository.copy()
 
 rasr_path = "/work/asr4/hilmes/dev/rasr_librasr_19_09_25/"
 rasr_root = tk.Path(rasr_path, hash_overwrite="LOQUACIOUS_STANDALONE_DEFAULT_RASR_ROOT").copy()

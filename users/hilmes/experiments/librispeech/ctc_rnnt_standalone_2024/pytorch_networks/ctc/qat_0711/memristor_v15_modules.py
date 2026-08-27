@@ -14,6 +14,7 @@ import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, Tuple
 from .memristor_v15_cfg import QuantizedConformerMHSARelPosV1Config, WeightPruningConfig, WeightNoiseConfig
+from functools import partial
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 
@@ -251,6 +252,20 @@ class LinearQuant(nn.Module):
         if self.weight_dropout > 0.0 and self.training:
             weight = F.dropout(weight, p=self.weight_dropout, training=True)
         if self.noise_config is not None:
+            if getattr(self.noise_config, "is_decoupled", False) and self.training:
+                # Wave 3 fwd/bwd decoupling: forward VALUE from w_fwd, every gradient
+                # (input, weight, bias) through w_bwd. dL/dW = x^T g either way (additive eps).
+                eps = self.noise_config.noise_tensor(
+                    weight, self.weight_quantizer, self.weight_bit_prec, self.training
+                )
+                if eps is not None:
+                    if self.noise_config.mode == "forward_only":
+                        w_fwd, w_bwd = weight + eps, weight
+                    else:  # "backward_only"
+                        w_fwd, w_bwd = weight, weight + eps
+                    lin_bwd = F.linear(tensor, w_bwd, self.bias)
+                    return lin_bwd + (F.linear(tensor, w_fwd, self.bias) - lin_bwd).detach()
+                return F.linear(tensor, weight, self.bias)
             weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
         lin = F.linear(tensor, weight, self.bias)
         return lin
@@ -310,6 +325,25 @@ class Conv1dQuant(nn.Module):
         if self.weight_dropout > 0.0 and self.training:
             weight = F.dropout(weight, p=self.weight_dropout, training=True)
         if self.noise_config is not None:
+            if getattr(self.noise_config, "is_decoupled", False) and self.training:
+                # Wave 3 fwd/bwd decoupling, see LinearQuant.forward
+                eps = self.noise_config.noise_tensor(
+                    weight, self.weight_quantizer, self.weight_bit_prec, self.training
+                )
+                if eps is not None:
+                    if self.noise_config.mode == "forward_only":
+                        w_fwd, w_bwd = weight + eps, weight
+                    else:  # "backward_only"
+                        w_fwd, w_bwd = weight, weight + eps
+                    conv = partial(
+                        F.conv1d, bias=self.bias, stride=self.stride, padding=self.padding,
+                        dilation=self.dilation, groups=self.groups,
+                    )
+                    res_bwd = conv(tensor, w_bwd)
+                    return res_bwd + (conv(tensor, w_fwd) - res_bwd).detach()
+                return F.conv1d(
+                    tensor, weight, self.bias, self.stride, self.padding, self.dilation, self.groups
+                )
             weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
         result = F.conv1d(
             tensor, weight, self.bias, self.stride, self.padding, self.dilation, self.groups

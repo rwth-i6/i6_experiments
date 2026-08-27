@@ -2,7 +2,7 @@
 Universal helpers to create configuration objects (i6_core ReturnnConfig) for RETURNN training/forwarding
 """
 import copy
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
@@ -23,6 +23,7 @@ def get_training_config(
     debug: bool = False,
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
+    import_memristor: Union[bool, str] = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -58,6 +59,7 @@ def get_training_config(
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         debug=debug,
+        import_memristor=import_memristor,
     )
     python_prolog = None
 
@@ -189,7 +191,7 @@ def get_forward_config(
     decoder_args: Dict[str, Any],
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
-    import_memristor: bool = False,
+    import_memristor: Union[bool, str] = False,
     debug: bool = False,
     run_rasr: bool = False,
 ) -> ReturnnConfig:

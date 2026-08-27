@@ -179,12 +179,16 @@ def build_training_datasets(
 def build_test_dataset(
     dataset_key: str,
     settings: DatasetSettings,
+    segment_file: Optional[tk.Path] = None,
 ) -> Tuple[Dataset, tk.Path]:
     """
     Create ASR test set that only contains the audio stream
 
     :param dataset_key: e.g. dev-other, which test set to create
     :param settings: settings object for the RETURNN data pipeline
+    :param segment_file: optional list of sequence tags to restrict the set to (for
+        cheap smoke/A-B runs); the returned bliss is still the FULL corpus, so pair
+        it with a correspondingly filtered bliss for meaningful scoring
     :return: tuple of the test dataset and a path to the corresponding bliss corpus file
     """
     ogg_zip_dict = get_ogg_zip_dict("corpora", returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
@@ -196,7 +200,10 @@ def build_test_dataset(
     data_map = {"raw_audio": ("zip_dataset", "data")}
 
     test_zip_dataset = OggZipDataset(
-        files=[test_ogg], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse",
+        segment_file=segment_file,
     )
     test_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"

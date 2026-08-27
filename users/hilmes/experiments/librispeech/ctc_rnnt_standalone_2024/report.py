@@ -1,6 +1,6 @@
 from functools import partial
 import numpy as np
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
 
@@ -487,19 +487,28 @@ def build_qat_report(report: Dict):
     return "\n".join(line)
 
 
-def build_qat_report_v2(report: Dict) -> str:
+def build_qat_report_v2(report: Dict, pruning_info: Optional[Dict] = None, device_info: Optional[Dict] = None,
+                        energy_info: Optional[Dict] = None) -> str:
     """Cleaned-up version of build_qat_report for LibriSpeech experiments.
 
     Groups experiments by type, aggregates seeds into columns, and shows
     cycle statistics with relative deviation vs. the no-hardware baseline.
     Works with all 7 call sites across ctc_bpe/memristor.py and ctc_phon/memristor.py.
+
+    :param pruning_info: optional {training_name: pruning percent variable}; if given,
+        the QAT tables get an extra prune% column (output unchanged when None)
+    :param device_info: optional {training_name: (num_crossbars var, num_resistances var)};
+        if given, the QAT tables get extra xbars/cells columns (output unchanged when None)
+    :param energy_info: optional {energy eval name: tk.Path to energy_summary.json};
+        if given, an own "Energy (fast path)" table is appended (rows with unfinished
+        jobs render as dashes; output unchanged when None)
     """
     import re
 
     report = copy.deepcopy(report)
 
     TYPE_KEYWORDS = [
-        "greedy", "gauss", "bitflip", "finetune", "posadc", "keep_encs", "nolinpos", "learnpos", "quantout",
+        "greedy", "bitflip", "finetune", "posadc", "keep_encs", "nolinpos", "learnpos", "quantout",
         "pertensor", "batched", "combined", "fixed", "bal",
         "ideal_correct", "ideal", "adc", "correction", "noise", "frontend",
     ]
@@ -585,6 +594,31 @@ def build_qat_report_v2(report: Dict) -> str:
 
     def shorten(exp: str) -> str:
         return " ".join(exp.split("/")[3:])
+
+    prune_pct: Dict[str, str] = {}
+    if pruning_info is not None:
+        for k, v in instanciate_delayed(copy.deepcopy(pruning_info)).items():
+            try:
+                prune_pct[shorten(k)] = "{:.1f}".format(float(v))
+            except (TypeError, ValueError):
+                prune_pct[shorten(k)] = "—"
+
+    def _human(n: int) -> str:
+        for factor, unit in [(1e9, "G"), (1e6, "M"), (1e3, "k")]:
+            if n >= factor:
+                return "{:.3g}{}".format(n / factor, unit)
+        return str(n)
+
+    device_cols: Dict[str, tuple] = {}
+    if device_info is not None:
+        for k, v in device_info.items():
+            # resolve per entry: unfinished Variables raise VariableNotSet and the
+            # report must still render before the stats job finished
+            try:
+                xbars, cells = instanciate_delayed(copy.deepcopy(v))
+                device_cols[shorten(k)] = ("{:,}".format(int(xbars)), _human(int(cells)))
+            except Exception:
+                device_cols[shorten(k)] = ("—", "—")
 
     def _parse_scales(key: str) -> str:
         m = re.search(r"search_lm([\d.]+)_prior([\d.]+)", key)
@@ -729,11 +763,57 @@ def build_qat_report_v2(report: Dict) -> str:
                 row.append(scales_info.get(e, "—") if e else "—")
                 greedy_e = (e + "_greedy") if e else None
                 row.append(summary.get(greedy_e, ("—", ""))[0] if greedy_e else "—")
+            first_e = seed_map.get(0, next(iter(seed_map.values()), None))
+            if pruning_info is not None:
+                row.append(prune_pct.get(first_e, "—") if first_e else "—")
+            if device_info is not None:
+                row.extend(device_cols.get(first_e, ("—", "—")) if first_e else ("—", "—"))
             data_rows.append(row)
         header2 = ["Experiment"] + [c for i in range(MAX_SEEDS) for c in (f"s{i}", "scales", "greedy")]
+        split_spans = [("dev-other", 1, MAX_SEEDS * COLS_PER_SEED)]
         # || after the last col of each seed group except the final one
         double_after = [COLS_PER_SEED * (i + 1) for i in range(MAX_SEEDS - 1)]
-        return _two_row_table(header2, data_rows, [("dev-other", 1, MAX_SEEDS * COLS_PER_SEED)], double_after=double_after)
+        if pruning_info is not None:
+            header2.append("prune%")
+            split_spans.append(("", 1 + MAX_SEEDS * COLS_PER_SEED, 1))
+            double_after.append(MAX_SEEDS * COLS_PER_SEED)
+        if device_info is not None:
+            base = 1 + MAX_SEEDS * COLS_PER_SEED + (1 if pruning_info is not None else 0)
+            header2.extend(["xbars", "cells"])
+            split_spans.append(("devices", base, 2))
+            double_after.append(base - 1)
+        return _two_row_table(header2, data_rows, split_spans, double_after=double_after)
+
+    def noise_table(exps_dict: Dict) -> List[str]:
+        """Like qat_table, but replaces the seed 0/1/2 columns with without_noise/with_noise."""
+        conds = ["without_noise", "with_noise"]
+        COLS_PER_COND = 3
+        groups: Dict[str, Dict[str, str]] = {}
+        for e in exps_dict:
+            m = re.search(r"(with_noise|without_noise)$", e)
+            cond = m.group(1) if m else None
+            base = re.sub(r"_seed_\d+", "", e)
+            base = re.sub(r"\s*(with_noise|without_noise)$", "", base)
+            groups.setdefault(base, {})[cond] = e
+        data_rows = []
+        for cond_map in groups.values():
+            # plain entries (no suffix) are noise-free by construction: show them in
+            # the without_noise column unless an explicit without_noise eval exists
+            if None in cond_map and "without_noise" not in cond_map:
+                cond_map["without_noise"] = cond_map.pop(None)
+        for base, cond_map in groups.items():
+            row = [exp_label(base)]
+            for cond in conds:
+                e = cond_map.get(cond)
+                row.append(summary.get(e, ("—", ""))[0] if e else "—")
+                row.append(scales_info.get(e, "—") if e else "—")
+                greedy_e = (e + "_greedy") if e else None
+                row.append(summary.get(greedy_e, ("—", ""))[0] if greedy_e else "—")
+            data_rows.append(row)
+        header2 = ["Experiment"] + [c for cond in conds for c in (cond, "scales", "greedy")]
+        split_spans = [("dev-other", 1, len(conds) * COLS_PER_COND)]
+        double_after = [COLS_PER_COND * (i + 1) for i in range(len(conds) - 1)]
+        return _two_row_table(header2, data_rows, split_spans, double_after=double_after)
 
     def cycle_table(exps_dict: Dict) -> List[str]:
         has_rel = any(cycle_raw.get(e, {}).get("rel") is not None for e in exps_dict)
@@ -772,11 +852,57 @@ def build_qat_report_v2(report: Dict) -> str:
                 lines.append("")
                 lines.append(f"  -- {gtype} --")
                 lines.append("")
-            lines.extend(table_fn(entries))
+            if table_fn is qat_table and gtype == "noise":
+                lines.extend(noise_table(entries))
+            else:
+                lines.extend(table_fn(entries))
         lines.append("")
 
     render_section("Baseline", baseline_exps, qat_table)
     render_section("QAT (no hardware)", qat_exps, qat_table)
     render_section("Memristor (hardware cycles)", cycle_exps, cycle_table)
+
+    if energy_info:
+        import json
+        import os
+
+        def _energy_row(name: str, path) -> List[str]:
+            try:
+                p = path.get_path() if hasattr(path, "get_path") else str(path)
+                if not os.path.exists(p):
+                    raise FileNotFoundError(p)
+                with open(p) as f:
+                    s = json.load(f)
+                ct, dv, plm = s["current_totals"], s["devices"], s.get("per_layer_matrix", {})
+                # peak tracking is off in detail="summary" runs -> report the global
+                # max bitline current and total ADC saturation count instead
+                max_bl = max((e.get("max_bitline_current", 0.0) for e in plm.values()), default=0.0)
+                sat = sum(e.get("sat_count", 0) for e in plm.values())
+                return [
+                    name,
+                    _human(int(dv["conducting"])),
+                    _human(int(dv["allocated"])),
+                    "{:.4g}".format(ct["sum_abs_iv"]),
+                    "{:.4g}".format(ct["charge_proxy_sum_abs"]),
+                    "{:.4g}".format(ct["sum_abs_percell"]),
+                    "{:.3g}".format(max_bl),
+                    _human(sat),
+                    str(s.get("num_batches", "—")),
+                ]
+            except Exception:
+                return [name, "—", "—", "—", "—", "—", "—", "—", "—"]
+
+        header2 = ["Experiment", "conduct", "alloc", "Σ|I·V|", "Σ|I| col", "Σ|I| cell", "maxI_bl[A]", "sat", "batches"]
+        data_rows = [_energy_row(shorten(k), v) for k, v in sorted(energy_info.items())]
+        title = "Energy (fast path, fixed scales, dev-other)"
+        lines.append(title)
+        lines.append("=" * len(title))
+        lines.append("(devices | run totals over all batches; comparable only within the same dataset/batching)")
+        lines.extend(_two_row_table(
+            header2, data_rows,
+            [("devices", 1, 2), ("currents", 3, 3), ("", 6, 3)],
+            double_after=[2, 5],
+        ))
+        lines.append("")
 
     return "\n".join(lines)

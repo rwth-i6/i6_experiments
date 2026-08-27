@@ -73,6 +73,9 @@ def run_memristor_cycle_eval(
     search_gpu=11,
     prune_weights=False,
 ):
+    # recognition always runs the "_fast" decoder shims with the explicit new_v3
+    # SynaptogenML pin (validated fast==slow on the noise/mixed_prec side, flipped
+    # here 2026-08-03); conversion and prior jobs are unaffected and stay cached.
     from torch_memristor.memristor_modules import DacAdcHardwareSettings
     if recog_dac_settings is None:
         recog_dac_settings = DacAdcHardwareSettings(
@@ -126,11 +129,11 @@ def run_memristor_cycle_eval(
             decoder_config=rasr_config,
             dev_dataset_tuples=dev_dataset_tuples,
             result_dict=res_fixed,
-            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+            decoder_module="ctc.decoder.rasr_ctc_v1_batched_fast",
             prior_scales=prior_scales,
             lm_scales=lm_scales,
             use_gpu=True,
-            import_memristor=True,
+            import_memristor="new_v3",
             extra_forward_config={"batch_size": batch_size},
             run_best_4=False,
             run_best=False,
@@ -150,11 +153,11 @@ def run_memristor_cycle_eval(
                 decoder_config=greedy_config,
                 dev_dataset_tuples=dev_dataset_tuples,
                 result_dict=res_greedy,
-                decoder_module="ctc.decoder.greedy_bpe_ctc_quant_v1",
+                decoder_module="ctc.decoder.greedy_bpe_ctc_quant_v1_fast",
                 prior_scales=[0.0],
                 lm_scales=[0.0],
                 use_gpu=True,
-                import_memristor=True,
+                import_memristor="new_v3",
                 extra_forward_config={"batch_size": batch_size},
                 run_best_4=False,
                 run_best=False,
@@ -654,7 +657,9 @@ def bpe_ls960_1225_memristor_train_ablation():
                             prior_network_module=network_module_mem_v10,
                             recog_network_module=network_module_mem_v11,
                             recog_model_config_class=MemristorModelTrainConfigV11,
-                            search_gpu=11 if dim < 1024 else 24,
+                            search_gpu=11 if dim < 768 else 24,
+                            # large dims took days per slow search on the A10s; small dims
+                            # keep the finished slow evals (no fast twin needed there)
                         )
 
 
