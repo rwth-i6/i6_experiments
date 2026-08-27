@@ -109,6 +109,9 @@ class MfaForcedAlignJob(Job):
     # counts). Forces a re-run of the v1 attempts (timit errored, buckeye 0-coverage).
     __sis_version__ = 4  # strict per-word count+identity sanity check (no silent skip); see what fails
 
+    # excluded value = pre-flag behavior
+    __sis_hash_exclude__ = {"allow_failed_seqs": False}
+
     def __init__(
         self,
         *,
@@ -123,6 +126,7 @@ class MfaForcedAlignJob(Job):
         dataset_offset_factors: int = 1,
         beam: int = 10,
         retry_beam: int = 400,
+        allow_failed_seqs: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -138,6 +142,10 @@ class MfaForcedAlignJob(Job):
         # Kaldi alignment beams. Hashed (not excluded) so sweeping them is a deliberate new run.
         self.beam = beam
         self.retry_beam = retry_beam
+        # Tolerate seqs MFA fails to align at all (long-form: even retry_beam can give up on a whole
+        # track): fill them with word-uniform boundaries over the audio duration (no gold leak),
+        # report true coverage, and keep the strict raise for everything else recombinable.
+        self.allow_failed_seqs = allow_failed_seqs
         self.returnn_root = returnn_root
         # WBE computed in-job (robust to partial MFA coverage); same align_metrics as the grad-align jobs.
         self.out_wbe = self.output_var("wbe.txt")
@@ -281,19 +289,28 @@ class MfaForcedAlignJob(Job):
         for uid, ref_se in ref.items():
             ref_w = ref_words[uid]
             jf = os.path.join(out_dir, f"{uid}.json")
+            rec = None
             if not os.path.exists(jf):
                 problems.append((uid, "missing_json", f"MFA exported no alignment ({len(ref_w)} ref words)"))
-                continue
-            entries = json.load(open(jf))["tiers"]["words"]["entries"]
-            rec = _recombine_to_ref_words(entries, ref_w)
-            if rec is None:
-                mfa_words = [str(e[2]) for e in entries]
-                problems.append(
-                    (uid, "no_recombine", f"mfa={len(mfa_words)} ref={len(ref_w)} MFA={mfa_words} REF={ref_w}")
-                )
+            else:
+                entries = json.load(open(jf))["tiers"]["words"]["entries"]
+                rec = _recombine_to_ref_words(entries, ref_w)
+                if rec is None:
+                    mfa_words = [str(e[2]) for e in entries]
+                    problems.append(
+                        (uid, "no_recombine", f"mfa={len(mfa_words)} ref={len(ref_w)} MFA={mfa_words} REF={ref_w}")
+                    )
+            if rec is not None:
+                utt_errs.append(per_utt_boundary_errors(rec, ref_se))
+            elif self.allow_failed_seqs:
+                # word-uniform fallback over the wav duration (from the corpus file, no gold leak),
+                # so the boundaries HDF stays seq-complete for the downstream metric jobs
+                dur = sf.info(os.path.join(corpus, f"{uid}.wav")).duration
+                n = len(ref_w)
+                rec = [(k * dur / n, (k + 1) * dur / n) for k in range(n)]
+            else:
                 continue
             boundaries_writer.insert_batch(np.array([rec], dtype="float32"), [len(rec)], [f"seq-{int(uid[1:])}"])
-            utt_errs.append(per_utt_boundary_errors(rec, ref_se))
         boundaries_writer.close()
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -301,14 +318,18 @@ class MfaForcedAlignJob(Job):
             print(f"=== MFA SANITY FAILURES: {len(problems)}/{n_total} seqs ===", flush=True)
             for uid, kind, detail in problems[:300]:
                 print(f"  [{kind}] {uid}: {detail}", flush=True)
-            raise AssertionError(
-                f"MFA word boundaries failed the strict sanity check on {len(problems)}/{n_total} seqs."
-                " A forced aligner fed the gold transcript must reproduce it 1:1; see the per-seq detail above."
-            )
+            if not self.allow_failed_seqs:
+                raise AssertionError(
+                    f"MFA word boundaries failed the strict sanity check on {len(problems)}/{n_total} seqs."
+                    " A forced aligner fed the gold transcript must reproduce it 1:1; see the per-seq detail above."
+                )
+        # in-job WBE metrics cover only the natively aligned seqs
+        # (the fallback rows are in the HDF, so downstream metric jobs include them)
         metrics = aggregate_corpus(utt_errs)
         print("CORPUS METRICS:", metrics)
         self.out_wbe.set(metrics["wbe"])
         self.out_metrics.set(metrics)
         self.out_acc50.set(metrics["acc_50ms"])
-        # Strict mode reaches here only if ALL seqs passed -> full coverage.
-        self.out_coverage.set({"covered": len(utt_errs), "total": n_total, "fraction": 1.0})
+        self.out_coverage.set(
+            {"covered": len(utt_errs), "total": n_total, "fraction": len(utt_errs) / n_total}
+        )

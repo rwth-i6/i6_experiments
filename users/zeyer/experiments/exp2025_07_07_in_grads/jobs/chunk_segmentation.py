@@ -1975,6 +1975,105 @@ class FreeDecodeLcsChunkSegmentationJob(Job):
         hdf_writer.close()
 
 
+class ChunkAssignmentFromWordBoundariesJob(Job):
+    """
+    Bucket frame-level word boundaries into the fixed chunk grid,
+    so any native aligner becomes comparable under the chunk-assignment metrics.
+    Input: a word-boundaries HDF as read by CalcAlignmentMetricsFromWordBoundariesJob
+    ([num_words, 2] in seconds, one row per gold word).
+    Each word goes to the chunk owning its predicted center
+    (chunk c owns [start_c, start_{c+1}), like the proportional baseline);
+    non-monotone centers are clamped to non-decreasing chunk indices (counted in the log),
+    so the output is a valid monotone assignment in the standard HDF format
+    and :class:`CalcChunkAssignmentMetricsJob` applies unchanged.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        word_boundaries_hdf: tk.Path,
+        chunk_size_secs: float = 30.0,
+        chunk_overlap_secs: float = 0.0,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.word_boundaries_hdf = word_boundaries_hdf
+        self.chunk_size_secs = chunk_size_secs
+        self.chunk_overlap_secs = chunk_overlap_secs
+
+        self.rqmt = {"time": 2, "cpu": 2, "mem": 10}
+
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
+        from datasets import load_dataset
+
+        wb_ds = HDFDataset([self.word_boundaries_hdf.get_path()])
+        wb_ds.initialize()
+        wb_ds.init_seq_order(epoch=1)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        n_clamped_total = 0
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            samplerate = data["audio"]["sampling_rate"]
+            audio_len = len(data["audio"]["array"])
+            words: List[str] = data["word_detail"]["utterance"]
+            wb_ds.load_seqs(seq_idx, seq_idx + 1)
+            se = wb_ds.get_data(seq_idx, "data")  # [num_words, 2] in seconds
+            assert se.shape == (len(words), 2), f"seq {seq_idx}: {se.shape=} vs {len(words)=}"
+
+            chunk_start_end = _chunk_grid(audio_len, samplerate, self.chunk_size_secs, self.chunk_overlap_secs)
+            inner_starts = np.array([a0 for a0, _ in chunk_start_end[1:]], dtype=np.float64)
+            centers = (se[:, 0] + se[:, 1]) / 2.0 * samplerate  # seconds -> samples
+            ci_raw = np.searchsorted(inner_starts, centers, side="right")
+            ci = np.maximum.accumulate(ci_raw)  # enforce a monotone assignment
+            n_clamped = int(np.sum(ci != ci_raw))
+            n_clamped_total += n_clamped
+
+            words_per_chunks: List[List[int]] = [[] for _ in chunk_start_end]
+            for w in range(len(words)):
+                words_per_chunks[int(ci[w])].append(w)
+            wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+            print(f"seq {seq_idx}: {len(words)} words, {len(chunk_start_end)} chunks, {n_clamped} clamped")
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(chunk_start_end)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(chunk_start_end)[None]},
+            )
+        print(f"total non-monotone words clamped: {n_clamped_total}")
+        hdf_writer.close()
+
+
 def _chunk_grid(audio_len: int, samplerate: int, chunk_size_secs: float, chunk_overlap_secs: float):
     """Chunk sample ranges, same construction as :class:`ChunkSegmentationFromModelJob`
     (incl. merging a <=128-sample tail into the last chunk when there is no overlap)."""

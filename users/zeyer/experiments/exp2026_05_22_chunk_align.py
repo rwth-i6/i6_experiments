@@ -76,9 +76,39 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_se
     ProportionalChunkAssignmentJob,
     GreedyExitChunkSegmentationJob,
     FreeDecodeLcsChunkSegmentationJob,
+    ChunkAssignmentFromWordBoundariesJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     MapBuckeyeFineTimestampsToLongFormJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_align_baseline import (
+    ForcedAlignBaselineJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_forced_align_baseline import (
+    ForcedAlignPhonemeBaselineJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.parakeet_ctc_forced_align import (
+    ParakeetCtcForcedAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc_forced_align import (
+    OwsmCtcForcedAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.native_transducer_align import (
+    NativeTransducerAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_crossattn_align import (
+    WhisperCrossAttnForcedAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
+    PullApptainerImageJob,
+    ApptainerExeWrapperJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_forced_align import (
+    MfaDownloadModelJob,
+    MfaForcedAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import (
+    CalcAlignmentMetricsFromWordBoundariesJob,
 )
 
 # Same convention as exp2025_05_05_align.py / exp2026_05_23_grad_align.py.
@@ -267,6 +297,11 @@ def py():
         (5.0, 2.5, [0.0]),
         (3.0, 1.5, [0.0]),
         (2.0, 1.0, [0.0]),
+        # eep=0 no-overlap anchors, so the stride table has a stride = L row per chunk size
+        (30.0, 0.0, [0.0]),
+        (20.0, 0.0, [0.0]),
+        (5.0, 0.0, [0.0]),
+        (3.0, 0.0, [0.0]),
     ]:
         for _eep in _eeps:
             _seg_e = ChunkSegmentationFromModelBatchedJob(
@@ -720,7 +755,13 @@ def py():
     # (Whisper: 448 decoder positions incl. the <|startofprev|> prompt;
     # Emformer: the T x (U+1) x V joint lattice OOMs on full-transcript U).
     # A 30s chunk holds at most ~100 words, so the caps are semantically free.
-    _zoo_max_words = {"whisper-base": 120, "whisper-large-v3": 120, "crisperwhisper": 120, "emformer-rnnt": 200}
+    _zoo_max_words = {
+        "whisper-base": 120,
+        "whisper-large-v3": 120,
+        "whisper-large-v3-noprev": 120,
+        "crisperwhisper": 120,
+        "emformer-rnnt": 200,
+    }
     # Length-fair word-start selection for the weak-score models (acc < 90% in the first round;
     # plain argmax exit degenerates to extreme lag / erratic starts there, see the job docstring).
     # Per-model best after rounds 1-3 (see readme): mms-fa / w2v-phoneme best WITHOUT norm
@@ -729,6 +770,7 @@ def py():
     _zoo_start_norm = {
         "whisper-base": True,
         "whisper-large-v3": True,
+        "whisper-large-v3-noprev": True,
         "crisperwhisper": True,
         "emformer-rnnt": "consumed",
     }
@@ -774,6 +816,10 @@ def py():
             ),
             True,
         ),
+        # AED context ablation: Whisper-large-v3 WITHOUT the native <|startofprev|> prev text.
+        # Same final config otherwise (EOT exit, completion norm, cap 120); the old round-5
+        # no-prev runs are confounded by the timestamp exit, so this is the clean pair.
+        ("whisper-large-v3-noprev", rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir), False),
     ]
     for _zname, _zcfg, _zprev in _zoo:
         _zseg = ChunkSegmentationFromModelJob(
@@ -833,6 +879,172 @@ def py():
                 reg(f"{_es_name}-accuracy.txt", _es_m.out_accuracy)
                 reg(f"{_es_name}-error-p95-sec.txt", _es_m.out_error_p95_sec)
                 reg(f"{_es_name}-frac-gt-1s.txt", _es_m.out_frac_gt_1s)
+
+    # === Native alignment baselines directly on LONG-FORM Buckeye (no chunking). ===
+    # Each model's own aligner (job classes shared with the grad-align recipe; that recipe ran
+    # them on the RESEGMENTED Buckeye to work around long-sequence issues, here we deliberately
+    # feed the raw unsegmented val tracks). Several are expected to break -- bounded audio
+    # context (Whisper's 30s window), lattice memory (transducers), training-length mismatch --
+    # each such case is a reported result, not an infrastructure failure.
+    # MFA (GMM-HMM) as the external reference aligner.
+    # Speech-LLM self-attention deferred: needs head selection + eager attention,
+    # memory-infeasible at 10 min.
+    _lf_dir = dl_ds_buckeye.out_hub_cache_dir
+    _lf_off = _DATASET_OFFSET_FACTORS["buckeye"]
+    # openai-whisper timestamp overlay, same checkout as the grad-align recipe uses
+    _lf_whisper_overlay = "/home/az668407/work/whisper-ts-overlay"
+
+    def _lf_metric(_wb_hdf, _lf_name):
+        _lf_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_wb_hdf,
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            dataset_offset_factors=_lf_off,
+        )
+        _lf_m.add_alias(f"{_lf_name}-metric")
+        reg(f"{_lf_name}-wbe.txt", _lf_m.out_wbe)
+        reg(f"{_lf_name}-acc50.txt", _lf_m.out_acc50)
+        reg(f"{_lf_name}-metrics.txt", _lf_m.out_metrics)
+        # also the chunk-assignment metrics: bucket the boundaries into the same cs30
+        # non-overlapping grid as the DP experiments, then the shared chunk metric job
+        _lf_ca = ChunkAssignmentFromWordBoundariesJob(
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            word_boundaries_hdf=_wb_hdf,
+            chunk_size_secs=30.0,
+            chunk_overlap_secs=0.0,
+        )
+        _lf_ca.add_alias(f"{_lf_name}-chunkassign")
+        _lf_cm = CalcChunkAssignmentMetricsJob(
+            chunk_seg_hdf=_lf_ca.out_hdf,
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            dataset_offset_factors=_lf_off,
+        )
+        _lf_cm.add_alias(f"{_lf_name}-chunkassign-metric")
+        reg(f"{_lf_name}-chunk-accuracy.txt", _lf_cm.out_accuracy)
+        reg(f"{_lf_name}-chunk-error-p95-sec.txt", _lf_cm.out_error_p95_sec)
+        reg(f"{_lf_name}-chunk-frac-gt-1s.txt", _lf_cm.out_frac_gt_1s)
+
+    # MMS-FA (torchaudio CTC forced alignment)
+    _lf_fa = ForcedAlignBaselineJob(dataset_dir=_lf_dir, dataset_key="val")
+    _lf_fa.add_alias("chunk-align/native-longform/mms-fa")
+    _lf_metric(_lf_fa.out_hdf, "chunk-align/native-longform/mms-fa")
+
+    # XLS-R phoneme-CTC forced alignment
+    _lf_ph = ForcedAlignPhonemeBaselineJob(
+        dataset_dir=_lf_dir,
+        dataset_key="val",
+        model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+        dataset_offset_factors=_lf_off,
+        dump_word_boundaries=True,
+    )
+    _lf_ph.add_alias("chunk-align/native-longform/w2v-phoneme")
+    _lf_metric(_lf_ph.out_word_boundaries_hdf, "chunk-align/native-longform/w2v-phoneme")
+
+    # CTC posteriors forced alignment (torchaudio Viterbi on the model's own emission)
+    _lf_pc = ParakeetCtcForcedAlignJob(
+        dataset_dir=_lf_dir,
+        dataset_key="val",
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        dataset_offset_factors=_lf_off,
+    )
+    _lf_pc.add_alias("chunk-align/native-longform/parakeet-ctc-1.1b")
+    _lf_metric(_lf_pc.out_word_boundaries_hdf, "chunk-align/native-longform/parakeet-ctc-1.1b")
+
+    _lf_ow = OwsmCtcForcedAlignJob(
+        dataset_dir=_lf_dir,
+        dataset_key="val",
+        model_dir=dl_owsm_ctc.out_hub_cache_dir,
+        dataset_offset_factors=_lf_off,
+    )
+    _lf_ow.add_alias("chunk-align/native-longform/owsm-ctc-v4-1b")
+    _lf_metric(_lf_ow.out_word_boundaries_hdf, "chunk-align/native-longform/owsm-ctc-v4-1b")
+
+    _lf_fcc = ParakeetCtcForcedAlignJob(
+        dataset_dir=_lf_dir,
+        dataset_key="val",
+        model_config=rf.build_dict(
+            FastConformerStreaming,
+            model_dir=dl_fc_stream.out_hub_cache_dir,
+            overlay_path=_NEMO_OVERLAY,
+            head="ctc",
+            att_context_size=_fc_att,
+        ),
+        dataset_offset_factors=_lf_off,
+    )
+    _lf_fcc.add_alias("chunk-align/native-longform/fastconformer-stream-ctc")
+    _lf_metric(_lf_fcc.out_word_boundaries_hdf, "chunk-align/native-longform/fastconformer-stream-ctc")
+
+    # Transducer native Viterbi forced alignment (model configs as in the grad-align recipe;
+    # the T x U joint lattice on a 10-min track is the expected memory breaker)
+    for _lf_nt_cfg, _lf_nt_name in [
+        (
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_rnnt.out_hub_cache_dir,
+                per_token_score="prefix",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            "parakeet-rnnt-1.1b",
+        ),
+        (
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_tdt.out_hub_cache_dir,
+                per_token_score="emission",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            "parakeet-tdt-0.6b-v2",
+        ),
+        (
+            rf.build_dict(
+                FastConformerStreaming,
+                model_dir=dl_fc_stream.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                head="rnnt",
+                att_context_size=_fc_att,
+            ),
+            "fastconformer-stream-rnnt",
+        ),
+        (rf.build_dict(EmformerRnnt), "emformer-rnnt"),
+    ]:
+        _lf_nt = NativeTransducerAlignJob(dataset_dir=_lf_dir, dataset_key="val", model_config=_lf_nt_cfg)
+        _lf_nt.add_alias(f"chunk-align/native-longform/{_lf_nt_name}-native-viterbi")
+        _lf_metric(_lf_nt.out_word_boundaries_hdf, f"chunk-align/native-longform/{_lf_nt_name}-native-viterbi")
+
+    # Whisper cross-attention DTW (whisper-base; the 30s mel window is the expected
+    # structural breaker on 10-min tracks)
+    _lf_wca = WhisperCrossAttnForcedAlignJob(dataset_dir=_lf_dir, dataset_key="val", overlay=_lf_whisper_overlay)
+    _lf_wca.add_alias("chunk-align/native-longform/whisper-base-crossattn")
+    _lf_metric(_lf_wca.out_hdf, "chunk-align/native-longform/whisper-base-crossattn")
+
+    # MFA (GMM-HMM) external reference; infra identical to the grad-align setup
+    # (same hashes -> the image/wrapper/model downloads are imported, never rebuilt)
+    _mfa_image = PullApptainerImageJob("docker://mmcauliffe/montreal-forced-aligner:latest")
+    _mfa_exe = ApptainerExeWrapperJob(
+        _mfa_image.out_image,
+        command="mfa",
+        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999"],
+    )
+    _mfa_models = MfaDownloadModelJob(
+        mfa_exe=_mfa_exe.out_exe,
+        models=[("acoustic", "english_us_arpa"), ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")],
+    )
+    _lf_mfa = MfaForcedAlignJob(
+        dataset_dir=_lf_dir,
+        dataset_key="val",
+        mfa_exe=_mfa_exe.out_exe,
+        model_root=_mfa_models.out_model_root,
+        dataset_offset_factors=_lf_off,
+        # long-form: MFA gave up on 1/46 tracks (u000016, the mumbled seq) despite retry_beam;
+        # tolerate it (word-uniform fallback rows, true coverage reported) instead of hard-failing
+        allow_failed_seqs=True,
+    )
+    _lf_mfa.add_alias("chunk-align/native-longform/mfa")
+    _lf_metric(_lf_mfa.out_word_boundaries_hdf, "chunk-align/native-longform/mfa")
+    reg("chunk-align/native-longform/mfa-coverage.txt", _lf_mfa.out_coverage)
 
     # === Baselines (same model, no DP): the DP ablation set. ===
     # proportional split (trivial floor), greedy exit threshold (no global objective),
@@ -941,34 +1153,36 @@ def py():
     _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM"]
     _zoo_rows.sort(key=lambda _r: _zoo_fam_order.index(_r["family"]))
     _table("zoo", ["family", "model", "acc", "err_p95_sec", "frac_gt_1s"], _zoo_rows)
+    # one context-ablation pair per family with a label context to ablate
+    # (CTC has no label state at all -> stated in the caption, no rows)
+    _ctx_rows = [
+        ("Transd.", "Parakeet RNN-T", "none", "chunk-align/zoo/parakeet-rnnt-1.1b-buckeye-val-cs30-ov0"),
+        (
+            "Transd.",
+            "Parakeet RNN-T",
+            "prev labels",
+            "chunk-align/zoo/parakeet-rnnt-1.1b-prevctx-buckeye-val-cs30-ov0",
+        ),
+        ("Transd.", "Parakeet TDT", "none", "chunk-align/zoo/parakeet-tdt-0.6b-v2-buckeye-val-cs30-ov0"),
+        (
+            "Transd.",
+            "Parakeet TDT",
+            "prev labels",
+            "chunk-align/zoo/parakeet-tdt-0.6b-v2-prevctx-buckeye-val-cs30-ov0",
+        ),
+        ("AED", "Whisper-large-v3", "prev text", "chunk-align/zoo/whisper-large-v3-buckeye-val-cs30-ov0"),
+        ("AED", "Whisper-large-v3", "none", "chunk-align/zoo/whisper-large-v3-noprev-buckeye-val-cs30-ov0"),
+        ("Speech LLM", "Phi-4-MM", "marker", "chunk-align/phi4mm-buckeye-val-cs30-ov0"),
+        ("Speech LLM", "Phi-4-MM", "none", "chunk-align/zoo/phi4mm-noctx-buckeye-val-cs30-ov0"),
+        ("Speech LLM", "Voxtral", "marker", "chunk-align/zoo/voxtral-buckeye-val-cs30-ov0"),
+        ("Speech LLM", "Voxtral", "none", "chunk-align/zoo/voxtral-noctx-buckeye-val-cs30-ov0"),
+    ]
     _table(
         "context-ablation",
-        ["model", "context", "acc", "frac_gt_1s"],
+        ["family", "model", "context", "acc", "frac_gt_1s"],
         [
-            {"model": "Phi-4-MM", "context": "marker", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")},
-            {"model": "Phi-4-MM", "context": "none", **_m3("chunk-align/zoo/phi4mm-noctx-buckeye-val-cs30-ov0")},
-            {"model": "Voxtral", "context": "marker", **_m3("chunk-align/zoo/voxtral-buckeye-val-cs30-ov0")},
-            {"model": "Voxtral", "context": "none", **_m3("chunk-align/zoo/voxtral-noctx-buckeye-val-cs30-ov0")},
-            {
-                "model": "Parakeet RNN-T",
-                "context": "none",
-                **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-buckeye-val-cs30-ov0"),
-            },
-            {
-                "model": "Parakeet RNN-T",
-                "context": "prev labels",
-                **_m3("chunk-align/zoo/parakeet-rnnt-1.1b-prevctx-buckeye-val-cs30-ov0"),
-            },
-            {
-                "model": "Parakeet TDT",
-                "context": "none",
-                **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-buckeye-val-cs30-ov0"),
-            },
-            {
-                "model": "Parakeet TDT",
-                "context": "prev labels",
-                **_m3("chunk-align/zoo/parakeet-tdt-0.6b-v2-prevctx-buckeye-val-cs30-ov0"),
-            },
+            {"family": _t_f, "model": _t_d, "context": _t_c, **_m3(_t_b)}
+            for _t_f, _t_d, _t_c, _t_b in _ctx_rows
         ],
     )
     _table(
@@ -1001,20 +1215,33 @@ def py():
             for _t_cs in [30.0, 20.0, 10.0, 5.0, 3.0, 2.0, 1.0, 0.5]
         ],
     )
-    # chunk-stride sweep at cs10, uniform eep=0 (the overlap-correct setting;
-    # only accuracy is registered for these cells)
-    _stride_bases = [
-        (0.0, "chunk-align/phi4mm-buckeye-val-cs10-ov0-eep0"),
-        (1.0, "chunk-align/phi4mm-buckeye-val-cs10-ov1-eep0"),
-        (2.5, "chunk-align/phi4mm-buckeye-val-cs10-ov2.5-eep0-wsh1"),
-        (5.0, "chunk-align/phi4mm-buckeye-val-cs10-ov5-eep0"),
+    # chunk-stride sweep across chunk sizes, uniform eep=0 (the overlap-correct setting;
+    # only accuracy is registered for these cells).
+    # cells = every eep=0 (cs, ov) combination above; cs10-ov2.5 comes from the hp sweep
+    # (its name carries -wsh1); cs0.5's registered name is "cs0" via the {:.0f} formatting
+    _stride_cells = [
+        (30.0, [(0.0, ""), (5.0, ""), (15.0, "")]),
+        (20.0, [(0.0, ""), (10.0, "")]),
+        (10.0, [(0.0, ""), (1.0, ""), (2.5, "-wsh1"), (5.0, "")]),
+        (5.0, [(0.0, ""), (2.5, "")]),
+        (3.0, [(0.0, ""), (1.5, "")]),
+        (2.0, [(0.0, ""), (1.0, "")]),
+        (1.0, [(0.0, ""), (0.25, ""), (0.5, ""), (0.75, "")]),
+        (0.5, [(0.0, "")]),
     ]
     _table(
         "chunk-stride",
         ["chunk_size", "chunk_stride", "acc"],
         [
-            {"chunk_size": 10.0, "chunk_stride": 10.0 - _t_ov, "acc": _table_results.get(_t_b + "-accuracy.txt")}
-            for _t_ov, _t_b in _stride_bases
+            {
+                "chunk_size": _t_cs,
+                "chunk_stride": _t_cs - _t_ov,
+                "acc": _table_results.get(
+                    f"chunk-align/phi4mm-buckeye-val-cs{_t_cs:.0f}-ov{_t_ov:g}-eep0{_t_sfx}-accuracy.txt"
+                ),
+            }
+            for _t_cs, _t_ovs in _stride_cells
+            for _t_ov, _t_sfx in _t_ovs
         ],
     )
     # empty-exit penalty sweep cells (registered with accuracy only)
@@ -1096,6 +1323,35 @@ def py():
                 ("drift-span repair", "chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair"),
                 ("staggered grid", "chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15"),
                 ("char-level scoring", "chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel"),
+            ]
+        ],
+    )
+    # native aligners applied directly to the long-form tracks (WBE in seconds; a crashed
+    # job = a reported failure case, its cells stay pending until replaced by an authored literal)
+    _table(
+        "native-longform",
+        ["family", "model", "wbe", "acc50", "acc", "frac_gt_1s"],
+        [
+            {
+                "family": _t_f,
+                "model": _t_d,
+                "wbe": _table_results.get(f"chunk-align/native-longform/{_t_n}-wbe.txt"),
+                "acc50": _table_results.get(f"chunk-align/native-longform/{_t_n}-acc50.txt"),
+                "acc": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-accuracy.txt"),
+                "frac_gt_1s": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-frac-gt-1s.txt"),
+            }
+            for _t_f, _t_d, _t_n in [
+                ("CTC", "MMS-FA", "mms-fa"),
+                ("CTC", "XLS-R (Phoneme)", "w2v-phoneme"),
+                ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b"),
+                ("CTC", "OWSM-CTC", "owsm-ctc-v4-1b"),
+                ("CTC", "FastConformer (streaming)", "fastconformer-stream-ctc"),
+                ("Transd.", "Parakeet RNN-T", "parakeet-rnnt-1.1b-native-viterbi"),
+                ("Transd.", "Parakeet TDT", "parakeet-tdt-0.6b-v2-native-viterbi"),
+                ("Transd.", "FastConformer (streaming)", "fastconformer-stream-rnnt-native-viterbi"),
+                ("Transd.", "Emformer (streaming)", "emformer-rnnt-native-viterbi"),
+                ("AED", "Whisper-base (cross-att.)", "whisper-base-crossattn"),
+                ("Ref.", "MFA", "mfa"),
             ]
         ],
     )
