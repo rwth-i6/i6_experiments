@@ -2298,9 +2298,7 @@ def _train_tts_encoder(
             sil_between_words=glow_tts_add_silence_between_words,
         )
     else:
-        text_map_seq = functools.partial(
-            _glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim
-        )
+        text_map_seq = functools.partial(_glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim)
     text_ds = {
         "class": "PostprocessingDataset",
         # real ordering stays on the inner LmDataset; "default" here (see notes_postprocessing_train_dataset).
@@ -2984,9 +2982,7 @@ class PseudoSpeechEncoder(rf.Module):
             # get_size_tensor() is on CPU by convention, and the rest of this runs on the device
             last_pos = rf.copy_to_device(spatial_dim.get_size_tensor(), durations.device) - 1
             gap = rf.where(rf.range_over_dim(spatial_dim) >= last_pos, 0, gap)
-            nxt = rf.gather(
-                labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True
-            )
+            nxt = rf.gather(labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True)
         body = rf.maximum(durations - gap, 1)
 
         seg_start = rf.cumsum(durations, spatial_dim=spatial_dim) - durations
@@ -3026,9 +3022,7 @@ class PseudoSpeechEncoder(rf.Module):
         if self.gap_frac:
             # Trailing frames glide from this unit's last stored frame to the next unit's first.
             gf = rf.cast(offset - body_rep + 1, "float32") / rf.cast(gap_rep + 1, "float32")
-            last_v = rf.gather(
-                self.array_table, indices=flat + rf.maximum(len_rep - 1, 0), axis=self.array_flat_dim
-            )
+            last_v = rf.gather(self.array_table, indices=flat + rf.maximum(len_rep - 1, 0), axis=self.array_flat_dim)
             first_v = rf.gather(self.array_table, indices=nxt_rep * self.array_frames, axis=self.array_flat_dim)
             gf = rf.cast(rf.clip_by_value(gf, 0.0, 1.0), last_v.dtype)
             out = rf.where(offset < body_rep, out, last_v * (1.0 - gf) + first_v * gf)
