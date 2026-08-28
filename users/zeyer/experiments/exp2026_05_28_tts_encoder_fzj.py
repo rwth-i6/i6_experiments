@@ -1238,6 +1238,43 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # Row 5 of the ladder: the same frozen-table idea on SUBWORDS instead of phonemes, so no lexicon
+    # and no MFA, only a CTC alignment from our own ASR model. Mirrors the lerp arm above; the units,
+    # the table and the bounds are the only differences, so the pair isolates phonemes vs subwords.
+    # A phoneme is about one encoder frame and a single mean frame represents it, while a subword
+    # spans ~18 log-mel frames, so the table holds an array per unit that is resampled to the
+    # sampled duration (see ComputeCtcSubwordStatsJob).
+    # Silence comes from the unit sequence itself, as [space] does on the phoneme path.
+    # max_len_factor 30: measured 17.8 frames per unit, p99 27.5, p99.9 34.9.
+    # max_phon_len 200: measured at most 185 units per sequence.
+    # gap_frac 0.25: the last quarter of each unit glides into the next, taken out of its duration,
+    # which puts the step at a join level with the step inside a unit (measured 1.01).
+    _train_tts_encoder(
+        "pseudo-enc-ctcsubword-lerp-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=4_000,
+        max_phon_len=200,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_array_table=_ctc_subword_tables(fill_within_words=True).out_mean_table,
+        pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_gap_frac=0.25,
+        pseudo_enc_max_len_factor=30,
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # Same, but durations scaled to 0.7, so ~30% shorter sequences at ~1 encoder frame per phoneme.
     # Differs from the run above in exactly this one knob.
     _train_tts_encoder(
@@ -2149,6 +2186,10 @@ def _train_tts_encoder(
     pseudo_enc_lerp: bool = False,
     glow_tts_add_silence_between_words: Optional[float] = None,
     pseudo_enc_start_layer: Optional[int] = None,
+    pseudo_enc_array_table: Optional[tk.Path] = None,
+    pseudo_enc_array_duration_table: Optional[tk.Path] = None,
+    pseudo_enc_smooth_boundary_width: Optional[int] = None,
+    pseudo_enc_gap_frac: Optional[float] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
     glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
     glow_tts_random_durations_jitter_mult: Optional[Tuple[float, float]] = None,
@@ -2241,6 +2282,23 @@ def _train_tts_encoder(
     corpus_files = [get_librispeech_normalized_lm_data(), get_train_corpus_text()]
     spm_dim = base_extern[tgt_key]["sparse_dim"]  # spm vocab dim (same object as the audio target)
     phon_dim = phon_extern["sparse_dim"]  # GlowTTS phoneme vocab dim
+    # Subword path: the units are the ASR's own subwords plus a silence entry, which is exactly the
+    # vocab the CTC alignment and its table are indexed by. It reuses the phoneme stream and all its
+    # plumbing, so only the vocab dim and the map_seq differ; renaming the stream would rehash
+    # every existing packed arm.
+    if pseudo_enc_array_table is not None:
+        phon_dim = Dim(spm_dim.dimension + 1, name="subword_units")
+        text_map_seq = functools.partial(
+            _subword_units_map_seq,
+            target_key=tgt_key,
+            spm_dim=spm_dim,
+            units_dim=phon_dim,
+            sil_between_words=glow_tts_add_silence_between_words,
+        )
+    else:
+        text_map_seq = functools.partial(
+            _glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim
+        )
     text_ds = {
         "class": "PostprocessingDataset",
         # real ordering stays on the inner LmDataset; "default" here (see notes_postprocessing_train_dataset).
@@ -2255,7 +2313,7 @@ def _train_tts_encoder(
             "partition_epoch": text_train_epoch_split,
             "seq_ordering": train_seq_ordering or "laplace:.1000",
         },
-        "map_seq": functools.partial(_glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim),
+        "map_seq": text_map_seq,
         "map_outputs": {
             tgt_key: {"dims": [Dim(None, name="spm_seq")], "sparse_dim": spm_dim, "dtype": "int32"},
             PHONEMES_DATA_KEY: {"dims": [Dim(None, name="phon_seq")], "sparse_dim": phon_dim, "dtype": "int32"},
@@ -2366,6 +2424,21 @@ def _train_tts_encoder(
                 "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
                 **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
                 **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
+                **(
+                    {
+                        "pseudo_enc_units": "spm",
+                        "pseudo_enc_array_table": pseudo_enc_array_table,
+                        "pseudo_enc_array_duration_table": pseudo_enc_array_duration_table,
+                    }
+                    if pseudo_enc_array_table is not None
+                    else {}
+                ),
+                **(
+                    {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
+                    if pseudo_enc_smooth_boundary_width is not None
+                    else {}
+                ),
+                **({"pseudo_enc_gap_frac": pseudo_enc_gap_frac} if pseudo_enc_gap_frac is not None else {}),
                 **({"pseudo_enc_smooth_sigma": pseudo_enc_smooth_sigma} if pseudo_enc_smooth_sigma is not None else {}),
                 **(
                     {"pseudo_enc_smooth_box_width": pseudo_enc_smooth_box_width}
@@ -2655,7 +2728,16 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             duration_scale=config.float("pseudo_enc_duration_scale", 1.0),
             max_len_factor=config.typed_value("pseudo_enc_max_len_factor", None),
             lerp=config.bool("pseudo_enc_lerp", False),
+            array_table=config.typed_value("pseudo_enc_array_table", None),
+            array_duration_table=config.typed_value("pseudo_enc_array_duration_table", None),
+            smooth_boundary_width=config.typed_value("pseudo_enc_smooth_boundary_width", None),
+            gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
+        if config.typed_value("pseudo_enc_array_table", None):
+            # The table comes from a CTC alignment over the ASR's own subwords,
+            # so it is indexed by that vocab plus a silence row, and holds log-mel.
+            assert units == "spm", "the subword array table is indexed by the ASR subword vocab"
+            assert start_layer < 0, "the array table lives in the front-end feature space"
         frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
         if frozen_table:
             import numpy
@@ -2737,6 +2819,10 @@ class PseudoSpeechEncoder(rf.Module):
         duration_scale: float = 1.0,
         max_len_factor: Optional[int] = None,
         lerp: bool = False,
+        array_table: Optional[str] = None,
+        array_duration_table: Optional[str] = None,
+        smooth_boundary_width: Optional[int] = None,
+        gap_frac: float = 0.0,
     ):
         super().__init__()
         self.vocab_dim = vocab_dim
@@ -2789,6 +2875,46 @@ class PseudoSpeechEncoder(rf.Module):
             # Blank row: 1 frame. Blank is not a phone, and with blank_duration_range=(0,0)
             # (the standard here) it is never emitted anyway.
             self.duration_medians = numpy.concatenate([med, numpy.ones((1,), dtype="float32")])
+        # Subword path: a whole log-mel array per unit instead of one frame, from the CTC alignment.
+        # A phoneme is about one encoder frame, so a single frame plus lerp represents it;
+        # a subword spans several, so its trajectory has to be stored and resampled.
+        # The table is flattened to [vocab * frames, feature] and indexed by unit * frames + pos:
+        # gathering [out_frames, frames, feature] first would be gigabytes on a packed batch.
+        # Non-trainable, so it lives in model state and reaches the GPU once.
+        # None smooths the whole sequence; a width restricts the kernel to the segment edges.
+        self.smooth_boundary_width = smooth_boundary_width
+        # Fraction of each unit's duration spent gliding into the next, instead of filtering.
+        # Measured on this table, 0.25 puts the step at a join level with the step inside a unit.
+        self.gap_frac = gap_frac
+        self.array_table = None
+        self.array_lengths = None
+        self.array_frames = 0
+        if array_table:
+            import numpy
+
+            npz = numpy.load(array_table, allow_pickle=True)
+            means, lengths = npz["means"].astype("float32"), npz["lengths"].astype("int32")
+            assert means.shape[0] == self.wb_vocab_dim.dimension, (
+                f"array table {means.shape} vs with-blank vocab {self.wb_vocab_dim}"
+            )
+            assert means.shape[2] == out_dim.dimension, f"array table {means.shape} vs out dim {out_dim}"
+            self.array_frames = int(means.shape[1])
+            self.array_flat_dim = Dim(means.shape[0] * self.array_frames, name="unit_frame_entries")
+            self.array_table = rf.Parameter([self.array_flat_dim, out_dim], dtype="float32", trainable=False)
+            self.array_table.initial = means.reshape(-1, means.shape[2])
+            self.array_lengths = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
+            self.array_lengths.initial = lengths
+        if array_duration_table:
+            import numpy
+
+            npz = numpy.load(array_duration_table, allow_pickle=True)
+            dur = npz["durations"].astype("float32")
+            # Unlike the phoneme table this one already covers silence, which the subword path emits,
+            # so it is used as is rather than having a blank row appended.
+            assert dur.shape == (self.wb_vocab_dim.dimension,), (
+                f"duration table {dur.shape} vs with-blank vocab {self.wb_vocab_dim}"
+            )
+            self.duration_medians = dur
         # Linear interpolation between successive phoneme targets instead of a step function.
         # Real log-mel has essentially no plateaus, which lerp reproduces and a Gaussian does not.
         # With per-phone durations the box shortcut no longer applies: one width cannot fit 5..17 frames.
@@ -2805,10 +2931,124 @@ class PseudoSpeechEncoder(rf.Module):
         walk = walk - rf.reduce_mean(walk, axis=spatial_dim)
         return rf.clip_by_value(1.0 + walk, self.duration_walk_clip[0], self.duration_walk_clip[1])
 
-    def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
-        assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
-            f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim}"
+    def _array_forward(self, labels_wb: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+        """Per-unit stored array, resampled to the sampled duration.
+
+        Each unit holds ``lengths[u]`` frames of its own trajectory, which is stretched or
+        compressed onto the frames the duration draw gives it, so the duration model and the
+        spectral shape stay independent. Reads are two gathers into the flattened table plus a
+        lerp between them, which keeps it traceable and free of host reads.
+
+        :param labels_wb: unit indices, already tagged with the with-blank vocab
+        :return: (features, output spatial dim)
+        """
+        train = rf.get_run_ctx().train_flag
+        med = rf.convert_to_tensor(self.duration_medians, dims=[self.wb_vocab_dim])
+        base = rf.gather(med, indices=labels_wb, axis=self.wb_vocab_dim) * self.duration_scale
+        jitter = rf.exp(rf.random_normal(base.dims, dtype="float32") * self.duration_sigma)
+        if self.duration_walk_sigma:
+            jitter = jitter * self._speaking_rate(base.dims, spatial_dim)
+        jitter = rf.where(train, jitter, 1.0)
+        durations = rf.maximum(rf.cast(base * jitter + 0.5, "int32"), 1)
+        durations = durations.copy_masked(0, dims=[spatial_dim])
+        if self.max_len_factor:
+            durations = rf.limit_repeats(durations, in_spatial_dim=spatial_dim, max_len_factor=self.max_len_factor)
+
+        # The step between two units is several times the step inside one, so the last frames of
+        # each unit are given over to a linear glide into the next. They are taken OUT of the
+        # duration, so the sampled length is what the sequence actually gets, and the count scales
+        # with the duration, which stops short units from losing most of their body.
+        # The final unit has nothing to glide into, so it keeps all its frames.
+        gap = rf.zeros(durations.dims, dtype="int32")
+        nxt = labels_wb
+        if self.gap_frac:
+            gap = rf.cast(rf.cast(durations, "float32") * self.gap_frac + 0.5, "int32")
+            gap = rf.clip_by_value(gap, 1, rf.maximum(durations - 1, 1))
+            # get_size_tensor() is on CPU by convention, and the rest of this runs on the device
+            last_pos = rf.copy_to_device(spatial_dim.get_size_tensor(), durations.device) - 1
+            gap = rf.where(rf.range_over_dim(spatial_dim) >= last_pos, 0, gap)
+            nxt = rf.gather(
+                labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True
+            )
+        body = rf.maximum(durations - gap, 1)
+
+        seg_start = rf.cumsum(durations, spatial_dim=spatial_dim) - durations
+        unit_rep, out_spatial_dim = rf.repeat(
+            labels_wb, in_spatial_dim=spatial_dim, repeats=durations, max_len_factor=self.max_len_factor
         )
+        start_rep, _ = rf.repeat(
+            seg_start, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+        )
+        dur_rep, _ = rf.repeat(
+            durations, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+        )
+        body_rep, _ = rf.repeat(body, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
+        gap_rep, _ = rf.repeat(gap, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
+        nxt_rep, _ = rf.repeat(nxt, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
+        pos = rf.range_over_dim(out_spatial_dim)
+        offset = pos - start_rep
+        # Divisor is body-1, not body as on the lerp path: there the fraction glides toward the next
+        # unit and must not reach it, while here it spans this unit's own array end to end,
+        # so the last body frame has to land on the last stored frame.
+        # A one-frame body gets frac 0, i.e. the first stored frame.
+        frac = rf.cast(offset, "float32") / rf.cast(rf.maximum(body_rep - 1, 1), "float32")
+        frac = rf.clip_by_value(frac, 0.0, 1.0)
+
+        # Position inside the stored array. A unit of stored length L spans [0, L-1],
+        # so the last body frame of a segment lands on the last stored frame.
+        len_rep = rf.gather(self.array_lengths, indices=unit_rep, axis=self.wb_vocab_dim)
+        src = frac * rf.cast(rf.maximum(len_rep - 1, 1), "float32")
+        lo = rf.cast(rf.floor(src), "int32")
+        hi = rf.minimum(lo + 1, rf.maximum(len_rep - 1, 0))
+        w = src - rf.cast(lo, "float32")
+        flat = unit_rep * self.array_frames
+        a = rf.gather(self.array_table, indices=flat + lo, axis=self.array_flat_dim)
+        b = rf.gather(self.array_table, indices=flat + hi, axis=self.array_flat_dim)
+        w = rf.cast(w, a.dtype)
+        out = a * (1.0 - w) + b * w
+        if self.gap_frac:
+            # Trailing frames glide from this unit's last stored frame to the next unit's first.
+            gf = rf.cast(offset - body_rep + 1, "float32") / rf.cast(gap_rep + 1, "float32")
+            last_v = rf.gather(
+                self.array_table, indices=flat + rf.maximum(len_rep - 1, 0), axis=self.array_flat_dim
+            )
+            first_v = rf.gather(self.array_table, indices=nxt_rep * self.array_frames, axis=self.array_flat_dim)
+            gf = rf.cast(rf.clip_by_value(gf, 0.0, 1.0), last_v.dtype)
+            out = rf.where(offset < body_rep, out, last_v * (1.0 - gf) + first_v * gf)
+        out.feature_dim = self.out_dim
+        if self.smooth is not None:
+            # out_spatial_dim passed explicitly so "same" padding reuses that dim
+            # instead of minting a new one, as on the phoneme path below.
+            sm, _ = self.smooth(out, in_spatial_dim=out_spatial_dim, out_spatial_dim=out_spatial_dim)
+            sm.feature_dim = self.out_dim
+            if self.smooth_boundary_width:
+                # The step between two units measures about ten times the frame-to-frame change
+                # inside a unit, since a stored array is already smooth from averaging.
+                # A kernel wide enough to halve that step also blurs the interior,
+                # so it is applied only within smooth_boundary_width frames of a segment edge.
+                offset = pos - start_rep
+                dist = rf.minimum(offset, rf.maximum(dur_rep - 1 - offset, 0))
+                near = rf.cast(dist < self.smooth_boundary_width, sm.dtype)
+                out = sm * near + out * (1.0 - near)
+            else:
+                out = sm
+            out.feature_dim = self.out_dim
+        return out, out_spatial_dim
+
+    def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+        # The subword path carries silence as a unit of the sequence, so its stream is already over
+        # the with-blank vocab; the phoneme paths pass labels only and are re-tagged below.
+        assert labels.sparse_dim.dimension in (self.vocab_dim.dimension, self.wb_vocab_dim.dimension), (
+            f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim} / {self.wb_vocab_dim}"
+        )
+        if self.array_table is not None:
+            # Silence is a unit of the sequence here, not something interleaved in,
+            # so the with-blank vocab is just a re-tag as on the no-blank paths below.
+            labels_wb = labels.copy()
+            labels_wb.sparse_dim = self.wb_vocab_dim
+            # Smoothing is applied inside _array_forward, which has the segment offsets
+            # needed to restrict it to the joins.
+            return self._array_forward(labels_wb, spatial_dim=spatial_dim)
         # Fast path: exactly one frame per label and no blanks -> nothing to interleave or repeat.
         # Only valid when durations are uniform-1 and no interpolation is requested.
         if (
@@ -3899,6 +4139,70 @@ def _glowtts_text_map_seq(seq, *, target_key, spm_dim, phon_dim, rng, **_kwargs)
     )
     out.data[PHONEMES_DATA_KEY] = Tensor(
         PHONEMES_DATA_KEY, dims=[_Dim(None, name="phon_seq")], dtype="int32", sparse_dim=phon_dim, raw_tensor=phon_ids
+    )
+    return out
+
+
+def _subword_units_map_seq(
+    seq,
+    *,
+    target_key,
+    spm_dim,
+    units_dim,
+    rng,
+    sil_between_words: float = 0.15,
+    sil_begin: float = 1.0,
+    sil_end: float = 1.0,
+    **_kwargs,
+):
+    """PostprocessingDataset map_seq: raw utf8 bytes -> (spm target, subword unit seq with silence).
+
+    The units are the same spm pieces as the target plus a silence unit appended to the vocab,
+    which is exactly the vocab the CTC alignment and its mean-log-mel table are indexed by,
+    so the table needs no relabelling.
+
+    Silence placement mirrors ``PhoneSeqGenerator``: beginning, word boundaries, end, each by
+    probability. Word starts are visible in the pieces themselves via the SentencePiece marker,
+    so no lexicon is involved. The phoneme path brackets every sequence with ``[start]``/``[end]``
+    at probability 1; there is no subword analogue of those, so the boundary is silence instead.
+
+    :param sil_between_words: per-boundary probability, mirroring add_silence_between_words
+    :param sil_begin: leading silence probability, standing in for ``[start]``
+    :param sil_end: trailing silence probability, standing in for ``[end]``
+    """
+    import numpy as np
+    from returnn.tensor import Tensor, TensorDict, Dim as _Dim
+
+    spm, _ = _glowtts_text_tokenizers()
+    orth = bytes(np.asarray(seq["data"].raw_tensor).astype("uint8").tolist()).decode("utf8")
+    spm_ids = spm.get_seq(orth)
+    labels = spm.labels
+    sil_idx = len(labels)  # silence shares the blank row, i.e. the last vocab entry
+
+    units = []
+    if rng.uniform() < sil_begin:
+        units.append(sil_idx)
+    for i, idx in enumerate(spm_ids):
+        if i > 0 and labels[idx].startswith("\u2581") and rng.uniform() < sil_between_words:
+            units.append(sil_idx)
+        units.append(int(idx))
+    if rng.uniform() < sil_end:
+        units.append(sil_idx)
+
+    out = TensorDict()
+    out.data[target_key] = Tensor(
+        target_key,
+        dims=[_Dim(None, name="spm_seq")],
+        dtype="int32",
+        sparse_dim=spm_dim,
+        raw_tensor=np.array(spm_ids, dtype="int32"),
+    )
+    out.data[PHONEMES_DATA_KEY] = Tensor(
+        PHONEMES_DATA_KEY,
+        dims=[_Dim(None, name="unit_seq")],
+        dtype="int32",
+        sparse_dim=units_dim,
+        raw_tensor=np.array(units, dtype="int32"),
     )
     return out
 
