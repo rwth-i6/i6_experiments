@@ -2288,6 +2288,8 @@ def _train_tts_encoder(
     # every existing packed arm.
     if pseudo_enc_array_table is not None:
         phon_dim = Dim(spm_dim.dimension + 1, name="subword_units")
+        phon_extern = {k: v for k, v in phon_extern.items() if k != "vocab"}
+        phon_extern["sparse_dim"] = phon_dim
         text_map_seq = functools.partial(
             _subword_units_map_seq,
             target_key=tgt_key,
@@ -2604,6 +2606,21 @@ def _train_tts_encoder(
             **(
                 {"pseudo_enc_max_len_factor": pseudo_enc_max_len_factor}
                 if pseudo_enc_max_len_factor is not None
+                else {}
+            ),
+            **(
+                {
+                    "pseudo_enc_units": "spm",
+                    "pseudo_enc_array_table": pseudo_enc_array_table,
+                    "pseudo_enc_array_duration_table": pseudo_enc_array_duration_table,
+                }
+                if pseudo_enc_array_table is not None
+                else {}
+            ),
+            **({"pseudo_enc_gap_frac": pseudo_enc_gap_frac} if pseudo_enc_gap_frac is not None else {}),
+            **(
+                {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
+                if pseudo_enc_smooth_boundary_width is not None
                 else {}
             ),
             **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
