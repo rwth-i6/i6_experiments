@@ -119,10 +119,15 @@ class NativeTransducerAlignJob(Job):
             ys = fwd.targets[0, :n_tokens].cpu().numpy()
             del fwd
 
-            emit_frame = self._viterbi_emit_frames(
-                lat["log_probs"], lat["log_dur"], lat["durations"], ys, model.blank_idx
-            )
-            t_enc = lat["log_probs"].shape[0]
+            if "logblank" in lat:
+                # gathered long-form lattice (see the Emformer wrapper's streaming path)
+                logblank, loglab = lat["logblank"], lat["loglab"]
+            else:
+                lp = lat["log_probs"]
+                logblank = lp[:, :, model.blank_idx]  # [T, U+1]
+                loglab = lp[np.arange(lp.shape[0])[:, None], np.arange(len(ys))[None, :], ys[None, :]]  # [T, U]
+            emit_frame = self._viterbi_emit_frames(logblank, loglab, lat["log_dur"], lat["durations"], ys)
+            t_enc = logblank.shape[0]
             sec_per_frame = (len(audio) / sr) / t_enc
             bounds = []
             for w in range(len(words)):
@@ -135,16 +140,16 @@ class NativeTransducerAlignJob(Job):
         writer.close()
 
     @staticmethod
-    def _viterbi_emit_frames(lp, ld, durations, ys, blank_idx):
-        """Best path over the lattice; returns per-token emit frame indices [U]."""
+    def _viterbi_emit_frames(logblank, loglab, ld, durations, ys):
+        """Best path over the gathered lattice
+        (logblank [T, U+1], loglab [T, U] = next-target log-probs);
+        returns per-token emit frame indices [U]."""
         import numpy as np
 
         neg = -1.0e30
-        t_max, u1 = lp.shape[0], lp.shape[1]
+        t_max, u1 = logblank.shape[0], logblank.shape[1]
         u_len = len(ys)
-        assert u1 >= u_len + 1
-        logblank = lp[:, :, blank_idx]  # [T, U+1]
-        loglab = lp[np.arange(t_max)[:, None], np.arange(u_len)[None, :], ys[None, :]]  # [T, U]
+        assert u1 >= u_len + 1 and loglab.shape[1] >= u_len
 
         psi = np.full((t_max, u_len + 1), neg)
         if ld is None:
