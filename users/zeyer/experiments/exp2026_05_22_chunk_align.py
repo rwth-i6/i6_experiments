@@ -937,6 +937,9 @@ def py():
         dataset_key="val",
         model_dir=dl_w2v_phoneme.out_hub_cache_dir,
         dataset_offset_factors=_lf_off,
+        # G2P word targets, as in the grad-align Buckeye phoneme baseline
+        # (the dataset phonetic_detail carries Buckeye labels beyond TIMIT61)
+        g2p_word_targets=True,
         dump_word_boundaries=True,
     )
     _lf_ph.add_alias("chunk-align/native-longform/w2v-phoneme")
