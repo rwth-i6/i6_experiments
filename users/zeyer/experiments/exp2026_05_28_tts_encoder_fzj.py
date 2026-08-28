@@ -1250,7 +1250,7 @@ def py():
     # gap_frac 0.25: the last quarter of each unit glides into the next, taken out of its duration,
     # which puts the step at a join level with the step inside a unit (measured 1.01).
     _train_tts_encoder(
-        "pseudo-enc-ctcsubword-lerp-single-gumbel-muon-nep38",
+        "pseudo-enc-ctcsubword-lerp-packed-single-gumbel-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=70_000,
@@ -1268,10 +1268,28 @@ def py():
         pseudo_enc_specaug_max_width=6,
         single_stream=True,
         interleave_gumbel_scale=1.0,
+        train_seq_ordering="random",
         base_lr=1.0,
         peak_lr=5e-3,
         nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            # units are at most 200 per sequence (measured 185), against 300 for phonemes,
+            # and each spans up to max_len_factor frames
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 4_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 200},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
         extra_config_deletes=["optimizer.epsilon"],
     )
 
@@ -2979,8 +2997,7 @@ class PseudoSpeechEncoder(rf.Module):
         if self.gap_frac:
             gap = rf.cast(rf.cast(durations, "float32") * self.gap_frac + 0.5, "int32")
             gap = rf.clip_by_value(gap, 1, rf.maximum(durations - 1, 1))
-            # get_size_tensor() is on CPU by convention, and the rest of this runs on the device
-            last_pos = rf.copy_to_device(spatial_dim.get_size_tensor(), durations.device) - 1
+            last_pos = spatial_dim.get_size_tensor(device=durations.device) - 1
             gap = rf.where(rf.range_over_dim(spatial_dim) >= last_pos, 0, gap)
             nxt = rf.gather(labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True)
         body = rf.maximum(durations - gap, 1)
