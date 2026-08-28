@@ -184,7 +184,46 @@ class ForcedAlignPhonemeBaselineJob(Job):
             else:
                 ph = data["phonetic_detail"]
                 phones = list(ph["utterance"])
-                target_ids = [int(vocab[_TIMIT61_TO_IPA[p.lower()]]) for p in phones]
+
+                # long-form Buckeye labels beyond TIMIT61, from a full inventory scan of the
+                # val phonetic_detail (71 distinct labels): nasalized vowels = vowel label + "n",
+                # tq = glottalized t, plus a handful of annotation markers/fragments
+                # (each <= 5 tokens of 161k) scored as silence. Every set is explicit;
+                # any label outside them fails loudly instead of being silently mapped.
+                _nasalized = {
+                    f"{_v}n" for _v in ("aa", "ae", "ah", "ao", "aw", "ay", "eh", "ey", "ih", "iy", "ow", "oy", "uw")
+                }
+                _annot_junk = {
+                    None,
+                    "sil",
+                    "noise",
+                    "vocnoise",
+                    "unknown",
+                    "iver",
+                    "{b_trans}",
+                    "h",
+                    "a",
+                    "x",
+                    "i",
+                    "uw ix",
+                }
+
+                def _ph_to_ipa(p):
+                    if p is not None:
+                        p = p.lower()
+                    if p in _annot_junk:
+                        return " "
+                    if p in _TIMIT61_TO_IPA:
+                        return _TIMIT61_TO_IPA[p]
+                    if p == "tq":
+                        return _TIMIT61_TO_IPA["t"]
+                    if p in _nasalized:
+                        return _TIMIT61_TO_IPA[p[:-1]]
+                    raise KeyError(
+                        f"unhandled phone label {p!r} (not TIMIT61 / nasalized / tq / known annotation junk)"
+                    )
+
+                target_ids = [int(vocab[_ph_to_ipa(p)]) for p in phones]
 
             wav = torch.tensor(audio, device=dev)[None]
             if sr != target_sr:
