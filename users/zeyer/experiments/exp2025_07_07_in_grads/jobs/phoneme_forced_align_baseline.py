@@ -63,9 +63,14 @@ class ForcedAlignPhonemeBaselineJob(Job):
         returnn_root: Optional[tk.Path] = None,
     ):
         """
-        :param g2p_word_targets: no phone ground truth (e.g. Buckeye): phone targets come from
-            espeak-ng G2P per word; only WORD-boundary metrics are computed (vs word_detail),
-            the phone outputs are set to None. Default False = TIMIT phonetic_detail mode.
+        :param g2p_word_targets: phone targets from espeak-ng G2P per word,
+            instead of the dataset's phonetic_detail.
+            Used for Buckeye: it has phone ground truth,
+            but its label inventory differs from TIMIT61,
+            so the TIMIT-to-IPA mapping does not apply.
+            Only word-boundary metrics are computed (vs word_detail),
+            the phone outputs are set to None.
+            Default False = TIMIT phonetic_detail mode.
         """
         super().__init__()
         self.g2p_word_targets = g2p_word_targets

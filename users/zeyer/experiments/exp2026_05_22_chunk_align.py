@@ -96,9 +96,6 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.native_transducer_align import (
     NativeTransducerAlignJob,
 )
-from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_crossattn_align import (
-    WhisperCrossAttnForcedAlignJob,
-)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
     PullApptainerImageJob,
     ApptainerExeWrapperJob,
@@ -1017,11 +1014,9 @@ def py():
         _lf_nt.add_alias(f"chunk-align/native-longform/{_lf_nt_name}-native-viterbi")
         _lf_metric(_lf_nt.out_word_boundaries_hdf, f"chunk-align/native-longform/{_lf_nt_name}-native-viterbi")
 
-    # Whisper cross-attention DTW (whisper-base; the 30s mel window is the expected
-    # structural breaker on 10-min tracks)
-    _lf_wca = WhisperCrossAttnForcedAlignJob(dataset_dir=_lf_dir, dataset_key="val", overlay=_lf_whisper_overlay)
-    _lf_wca.add_alias("chunk-align/native-longform/whisper-base-crossattn")
-    _lf_metric(_lf_wca.out_hdf, "chunk-align/native-longform/whisper-base-crossattn")
+    # No Whisper cross-attention entry: long-form input is structurally impossible for
+    # Whisper (learned decoder pos embeddings, 448 positions; encoder asserts 30s);
+    # the table carries an authored note instead (verified crash: 1102 vs 448).
 
     # MFA (GMM-HMM) external reference; infra identical to the grad-align setup
     # (same hashes -> the image/wrapper/model downloads are imported, never rebuilt)
@@ -1331,6 +1326,7 @@ def py():
     )
     # native aligners applied directly to the long-form tracks (WBE in seconds; a crashed
     # job = a reported failure case, its cells stay pending until replaced by an authored literal)
+    _whisper_lf_note = "input too long for the model \\\\ (learned decoder pos. embeddings)"
     _table(
         "native-longform",
         ["family", "model", "wbe", "acc50", "acc", "frac_gt_1s"],
@@ -1353,9 +1349,20 @@ def py():
                 ("Transd.", "Parakeet TDT", "parakeet-tdt-0.6b-v2-native-viterbi"),
                 ("Transd.", "FastConformer (streaming)", "fastconformer-stream-rnnt-native-viterbi"),
                 ("Transd.", "Emformer (streaming)", "emformer-rnnt-native-viterbi"),
-                ("AED", "Whisper-base (cross-att.)", "whisper-base-crossattn"),
                 ("Ref.", "MFA", "mfa"),
             ]
+        ]
+        + [
+            # authored row: Whisper cannot take long-form input at all
+            # (learned decoder pos embeddings, 448 positions; encoder asserts 30s)
+            {
+                "family": "AED",
+                "model": "Whisper-base (cross-att.)",
+                "wbe": _whisper_lf_note,
+                "acc50": _whisper_lf_note,
+                "acc": _whisper_lf_note,
+                "frac_gt_1s": _whisper_lf_note,
+            }
         ],
     )
     # DP vs the no-DP baselines (same model, same metric)
