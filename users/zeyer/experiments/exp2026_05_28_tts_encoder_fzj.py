@@ -3402,6 +3402,8 @@ def aed_pseudo_enc_frontend_single_stream_train_step(*, model: Model, extern_dat
     if text_feats.dtype != audio_feats.dtype:
         # the embedding runs under autocast while the front-end does not
         text_feats = rf.cast(text_feats, audio_feats.dtype)
+    # Note, confusingly concat in spatial dim: it's actually that we merge the batches,
+    # and this works because each row is empty in exactly one of them.
     feats, feats_spatial_dim = rf.concat(
         (audio_feats, audio_spatial_dim), (text_feats, text_spatial_dim), handle_dynamic_dims=True
     )
