@@ -1156,7 +1156,11 @@ def get_ctc_prior_probs(
     # which assumes a slightly different model API though,
     # and we must call log_probs_wb_from_logits to have it correct in any case.
     return collect_statistics(
-        model=ctc_model, dataset=dataset, forward_def=_ctc_model_softmax_prior_returnn_forward, config=config
+        model=ctc_model,
+        dataset=dataset,
+        forward_def=_ctc_model_softmax_prior_returnn_forward,
+        config=config,
+        forward_mem_rqmt=16,
     ).mean
 
 
