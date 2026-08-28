@@ -197,7 +197,10 @@ def train(
             stop_for_resubmission_when_low_time_left=True,
         ),
     )
+    no_train_time_hours = False
     if post_config:
+        post_config = dict(post_config)
+        no_train_time_hours = post_config.pop("__no_train_time_hours", False)
         returnn_train_config.post_config = dict_update_deep(returnn_train_config.post_config, post_config)
 
     for k, v in SharedPostConfig.items():
@@ -241,7 +244,8 @@ def train(
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
     tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
-    tk.register_output(f"{prefix_name}/train_time_hours", _train_hours(returnn_train_job))
+    if not no_train_time_hours:
+        tk.register_output(f"{prefix_name}/train_time_hours", _train_hours(returnn_train_job))
 
     res = ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
     train_models_by_prefix[prefix_name] = res

@@ -1267,6 +1267,7 @@ def py_aed_graphc_loquacious():
             **small_overrides,
             "train.backend": "tensorflow",
             "train.tf_amp": "bfloat16",
+            "train_post.__no_train_time_hours": True,  # early run where info was not logged yet...
         },
         # only the hashed train config needs an explicit delete here; the torch_* entries in the
         # post config are dropped by train() itself, by backend
@@ -1287,6 +1288,7 @@ def py_aed_graphc_loquacious():
             "train.backend": "tensorflow",
             "train.tf_amp": "bfloat16",
             "train._hash_only_tf_native_ctc": True,
+            "train_post.__no_train_time_hours": True,  # early run where info was not logged yet...
         },
         config_deletes=["train.torch_amp"],
     )
