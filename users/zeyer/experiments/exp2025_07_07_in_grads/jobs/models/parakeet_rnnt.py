@@ -380,6 +380,10 @@ class ParakeetRnnt(BaseModelInterface):
             prev_text = " ".join(w.lower() for w in omitted_prev_words[0][-32:])
             prev_ids = list(self.tokenizer.text_to_ids(prev_text))
 
+        if wav.shape[0] > self.LONGFORM_N_SAMPLES:
+            assert not prev_ids, "long-form: omitted-prev context unsupported"
+            return self._forward_longform(wav, orig_n_samples, words, sub_ids, word_ranges, collect_lattice)
+
         with torch.enable_grad():
             # Preprocessor -> log-mel [1, F, T_mel]. The grad leaf is the
             # transposed [1, T_mel, F] so the extract reduces over the mel dim
@@ -465,6 +469,89 @@ class ParakeetRnnt(BaseModelInterface):
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
+        )
+
+    LONGFORM_N_SAMPLES = 16000 * 80
+
+    def _forward_longform(self, wav, orig_n_samples, words, sub_ids, word_ranges, collect_lattice) -> ForwardOutput:
+        """Long-form forward for the native-viterbi forced alignment.
+
+        No grads:
+        with grads, autograd retains every conformer attention matrix (~1.8 GiB per layer at 10 min) and OOMs;
+        without, the full-context encoder fits.
+        The joint is evaluated in time chunks
+        and reduced to the gathered lattice (blank + next-target log-prob per (t, u));
+        the full [T, U+1, V] joint would be ~75 GB.
+        Only collect_lattice consumers (the native-viterbi job) are supported.
+        """
+        dev = self.device
+        assert collect_lattice is not None, "long-form ParakeetRnnt forward: only the native-viterbi path is supported"
+        s_len = len(sub_ids)
+        ys_t = torch.tensor(sub_ids, dtype=torch.long, device=dev)
+        with torch.no_grad():
+            wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
+            proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)  # [1, F, T_mel]
+            t_feat = int(proc.shape[2])
+            enc, _ = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
+            t_enc = int(enc.shape[2])
+            enc_t = enc.transpose(1, 2)  # [1, T_enc, H]
+            tgt = torch.tensor([sub_ids], dtype=torch.long, device=dev)
+            tgt_len = torch.tensor([s_len], dtype=torch.long, device=dev)
+            dec_out, _, _ = self.model.decoder(targets=tgt, target_length=tgt_len)  # [1, H, U+1]
+            dec_t = dec_out.transpose(1, 2)  # [1, U+1, H]
+
+            logblank = torch.empty((t_enc, s_len + 1), device=dev)
+            loglab = torch.empty((t_enc, s_len), device=dev)
+            log_dur = None
+            durations = None
+            chunk_t = 64  # [64, U+1, V] joint chunk, a few GB transient
+            for t0 in range(0, t_enc, chunk_t):
+                t1 = min(t0 + chunk_t, t_enc)
+                logits = self.model.joint.joint(enc_t[:, t0:t1], dec_t)  # [1, tau, U+1, V(+dur)]
+                num_dur = int(logits.shape[-1]) - self.vocab_size
+                lsm = torch.log_softmax(logits[0, ..., : self.vocab_size].float(), dim=-1)
+                logblank[t0:t1] = lsm[:, :, self.blank_idx]
+                loglab[t0:t1] = lsm[:, :s_len, :].gather(2, ys_t[None, :, None].expand(t1 - t0, -1, -1))[:, :, 0]
+                if num_dur > 0:
+                    if log_dur is None:
+                        log_dur = torch.empty((t_enc, s_len + 1, num_dur), device=dev)
+                        durations = [int(d) for d in self.model.cfg["decoding"]["durations"]]
+                    log_dur[t0:t1] = torch.log_softmax(logits[0, ..., self.vocab_size :].float(), dim=-1)
+                del logits, lsm
+
+            collect_lattice.append(
+                dict(
+                    logblank=logblank.cpu().numpy(),
+                    loglab=loglab.cpu().numpy(),
+                    log_dur=log_dur.cpu().numpy() if log_dur is not None else None,
+                    durations=durations,
+                )
+            )
+            partial = torch.logsumexp(loglab, dim=0)  # [S], crude time-marginal emission score
+
+        partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1], exit slot
+        targets = torch.tensor([sub_ids + [self.blank_idx]], dtype=torch.long, device=dev)
+        word_start_end = [[a, b] for (a, b) in word_ranges] + [[s_len, s_len + 1]]
+        input_slice = (
+            torch.tensor([0], dtype=torch.int64),
+            torch.tensor([t_feat], dtype=torch.int64),
+        )
+        edges = torch.arange(t_feat + 1, dtype=torch.float64) * (orig_n_samples / max(t_feat, 1))
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(0)
+        print(
+            f"[fwd longform] words={len(words)} subwords={s_len} T_feat={t_feat} T_enc={t_enc} "
+            f"(no-grad, chunked joint)",
+            flush=True,
+        )
+        return ForwardOutput(
+            inputs=proc.transpose(1, 2),
+            input_seq_lens=torch.tensor([t_feat]),
+            input_slice_start_end=input_slice,
+            input_raw_start_end=input_raw_start_end,
+            targets=targets,
+            target_seq_lens=torch.tensor([targets.shape[1]]),
+            target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=None),
         )
 
     # ---- log_probs -------------------------------------------------------

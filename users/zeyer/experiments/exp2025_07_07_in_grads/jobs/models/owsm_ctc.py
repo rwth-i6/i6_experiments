@@ -164,16 +164,30 @@ class OwsmCtc(BaseModelInterface):
 
         return ctc_partial_scores(lp, target_ids, self.blank_idx, mode=self.per_token_score)
 
-    def _encode(self, wav: torch.Tensor, n_samples: int):
+    def _encode(self, wav: torch.Tensor, n_samples: int, *, with_grad: bool = True):
         """log-mel leaf -> normalize -> prompt-conditioned self-cond-CTC encoder -> CTC emission logits.
-        Returns (leaf [1,T,128], logits [1,T_enc,V], T_enc)."""
+        Returns (leaf [1,T,128], logits [1,T_enc,V], T_enc).
+        with_grad=False = pure inference (recog / forced align):
+        with grads, autograd retains every E-Branchformer attention matrix (O(T^2) per layer)
+        and OOMs on long-form input."""
+        from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
+
+        # sdpa never materializes the [H, T, T] score matrices,
+        # which OOM in the encoder self-attention on long-form input even without grads;
+        # keep espnet's default eager path when grads are wanted (unchanged grad-align behavior).
+        for m in self.model.encoder.modules():
+            if isinstance(m, MultiHeadedAttention):
+                m.use_sdpa = not with_grad
+
         speech = wav.to(self.device)[None]
         slens = torch.tensor([n_samples], device=self.device)
         with torch.no_grad():
             feats, flens = self.model._extract_feats(speech, slens)  # [1, T, 128] log-mel @100Hz
-        leaf = feats.detach().requires_grad_(True)
-        leaf.retain_grad()
-        with torch.enable_grad():
+        leaf = feats.detach()
+        if with_grad:
+            leaf.requires_grad_(True)
+            leaf.retain_grad()
+        with torch.enable_grad() if with_grad else torch.no_grad():
             nfeats, nflens = (
                 self.model.normalize(leaf, flens) if getattr(self.model, "normalize", None) else (leaf, flens)
             )
@@ -294,7 +308,7 @@ class OwsmCtc(BaseModelInterface):
         """CTC greedy: argmax per frame, collapse repeats, drop blanks + special tokens, BPE-detok."""
         assert len(raw_inputs) == 1 and raw_inputs_sample_rate == 16000
         with torch.no_grad():
-            _, logits, _ = self._encode(raw_inputs[0].float(), int(raw_input_seq_lens[0]))
+            _, logits, _ = self._encode(raw_inputs[0].float(), int(raw_input_seq_lens[0]), with_grad=False)
             ids = logits[0].argmax(-1).tolist()
         out_ids: List[int] = []
         prev = None
@@ -319,7 +333,7 @@ class OwsmCtc(BaseModelInterface):
         dev = self.device
         dur = int(audio.shape[0]) / sample_rate
         with torch.no_grad():
-            _, logits, _ = self._encode(audio.float(), int(audio.shape[0]))
+            _, logits, _ = self._encode(audio.float(), int(audio.shape[0]), with_grad=False)
             lp = torch.log_softmax(logits[0].float(), dim=-1)  # [T_enc, V]
         flat_ids, word_ranges = [], []
         for w in words:

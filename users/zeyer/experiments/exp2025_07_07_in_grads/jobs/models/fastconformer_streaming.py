@@ -148,6 +148,9 @@ class FastConformerStreaming(BaseModelInterface):
         s_len = len(sub_ids)
         assert s_len > 0, f"empty target for {words!r}"
 
+        if self.head == "rnnt" and wav.shape[0] > self.LONGFORM_N_SAMPLES:
+            return self._forward_longform(wav, orig_n_samples, words, sub_ids, word_ranges, collect_lattice)
+
         with torch.enable_grad():
             wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
             proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)  # [1, F, T_mel]
@@ -230,6 +233,71 @@ class FastConformerStreaming(BaseModelInterface):
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
+        )
+
+    LONGFORM_N_SAMPLES = 16000 * 80
+
+    def _forward_longform(self, wav, orig_n_samples, words, sub_ids, word_ranges, collect_lattice) -> ForwardOutput:
+        """Long-form forward for the native-viterbi forced alignment (RNN-T head).
+
+        The streaming encoder (limited-context attention) fits long input,
+        but with grads autograd retains all layer activations,
+        and the single full [T, U+1, H] joint was a ~30 GiB allocation.
+        So: no grads, joint in time chunks reduced to the gathered lattice.
+        Only collect_lattice consumers (the native-viterbi job) are supported.
+        """
+        dev = self.device
+        assert collect_lattice is not None, "long-form FastConformerStreaming forward: native-viterbi path only"
+        s_len = len(sub_ids)
+        ys_t = torch.tensor(sub_ids, dtype=torch.long, device=dev)
+        with torch.no_grad():
+            wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
+            proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)  # [1, F, T_mel]
+            t_feat = int(proc.shape[2])
+            enc, _ = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
+            t_enc = int(enc.shape[2])
+            enc_t = enc.transpose(1, 2)  # [1, T_enc, H]
+            tgt = torch.tensor([sub_ids], dtype=torch.long, device=dev)
+            tgt_len = torch.tensor([s_len], dtype=torch.long, device=dev)
+            dec_out, _, _ = self.model.decoder(targets=tgt, target_length=tgt_len)  # [1, H, U+1]
+            dec_t = dec_out.transpose(1, 2)  # [1, U+1, H]
+
+            logblank = torch.empty((t_enc, s_len + 1), device=dev)
+            loglab = torch.empty((t_enc, s_len), device=dev)
+            chunk_t = 64  # [64, U+1, V] joint chunk, well under 1 GB transient
+            for t0 in range(0, t_enc, chunk_t):
+                t1 = min(t0 + chunk_t, t_enc)
+                logits = self.model.joint.joint(enc_t[:, t0:t1], dec_t)  # [1, tau, U+1, V]
+                lsm = torch.log_softmax(logits[0, ..., : self.vocab_size].float(), dim=-1)
+                logblank[t0:t1] = lsm[:, :, self.blank_idx]
+                loglab[t0:t1] = lsm[:, :s_len, :].gather(2, ys_t[None, :, None].expand(t1 - t0, -1, -1))[:, :, 0]
+                del logits, lsm
+
+            collect_lattice.append(
+                dict(logblank=logblank.cpu().numpy(), loglab=loglab.cpu().numpy(), log_dur=None, durations=None)
+            )
+            partial = torch.logsumexp(loglab, dim=0)  # [S], crude time-marginal emission score
+
+        partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1], exit slot
+        targets = torch.tensor([sub_ids + [self.blank_idx]], dtype=torch.long, device=dev)
+        word_start_end = [[a, b] for (a, b) in word_ranges] + [[s_len, s_len + 1]]
+        input_slice = (torch.tensor([0], dtype=torch.int64), torch.tensor([t_feat], dtype=torch.int64))
+        edges = torch.arange(t_feat + 1, dtype=torch.float64) * (orig_n_samples / max(t_feat, 1))
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(0)
+        print(
+            f"[fwd longform] head=rnnt words={len(words)} subwords={s_len} T_feat={t_feat} T_enc={t_enc} "
+            f"(no-grad, chunked joint)",
+            flush=True,
+        )
+        return ForwardOutput(
+            inputs=proc.transpose(1, 2),
+            input_seq_lens=torch.tensor([t_feat]),
+            input_slice_start_end=input_slice,
+            input_raw_start_end=input_raw_start_end,
+            targets=targets,
+            target_seq_lens=torch.tensor([targets.shape[1]]),
+            target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=None),
         )
 
     def _register_enc_grad_hook(self, captured: List[torch.Tensor]):

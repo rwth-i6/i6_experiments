@@ -67,6 +67,14 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.w
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_self_attn import (
+    SelectSelfAttnAlignHeadsJob,
+    ExtractSelfAttnPerTokenJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
+    WordAlignFromPerTokenGradsJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align import _phi4mm_model_config
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_segmentation import (
     ChunkSegmentationFromModelJob,
     ChunkSegmentationFromModelBatchedJob,
@@ -884,8 +892,6 @@ def py():
     # context (Whisper's 30s window), lattice memory (transducers), training-length mismatch --
     # each such case is a reported result, not an infrastructure failure.
     # MFA (GMM-HMM) as the external reference aligner.
-    # Speech-LLM self-attention deferred: needs head selection + eager attention,
-    # memory-infeasible at 10 min.
     _lf_dir = dl_ds_buckeye.out_hub_cache_dir
     _lf_off = _DATASET_OFFSET_FACTORS["buckeye"]
     # openai-whisper timestamp overlay, same checkout as the grad-align recipe uses
@@ -1044,6 +1050,60 @@ def py():
     _lf_metric(_lf_mfa.out_word_boundaries_hdf, "chunk-align/native-longform/mfa")
     reg("chunk-align/native-longform/mfa-coverage.txt", _lf_mfa.out_coverage)
 
+    # Speech-LLM decoder self-attention DTW + OWLS cross-attention DTW,
+    # directly on the long-form tracks.
+    # Head selection (TIMIT val, gold) is byte-identical to the grad-align recipe,
+    # so the finished jobs are reused; extract + DP align are new.
+    for _lf_sa_name, _lf_sa_kind, _lf_sa_cfg, _lf_sa_ups in [
+        (
+            "owls-1b-180k",
+            "crossattn",
+            rf.build_dict(Owls, model_dir=dl_owls_1b.out_hub_cache_dir, char_level=True),
+            True,
+        ),
+        (
+            "voxtral",
+            "selfattn",
+            rf.build_dict(
+                Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
+            ),
+            False,
+        ),
+        (
+            "canary-qwen",
+            "selfattn",
+            rf.build_dict(
+                CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, attn_implementation="eager", version=3
+            ),
+            False,
+        ),
+        ("phi4mm", "selfattn", _phi4mm_model_config(dl_phi4mm_dir, attn_implementation="eager"), False),
+    ]:
+        _lf_sa_sel = SelectSelfAttnAlignHeadsJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_lf_sa_cfg,
+            time_upsample_when_short=_lf_sa_ups,
+        )
+        _lf_sa_ex = ExtractSelfAttnPerTokenJob(
+            dataset_dir=_lf_dir, dataset_key="val", model_config=_lf_sa_cfg, heads=_lf_sa_sel.out_heads
+        )
+        _lf_sa_nm = f"chunk-align/native-longform/{_lf_sa_name}-{_lf_sa_kind}"
+        _lf_sa_ex.add_alias(f"{_lf_sa_nm}-extract")
+        _lf_sa_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_lf_sa_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            dataset_offset_factors=_lf_off,
+            # the grad-align headline align opts (softmax over time, blank -5, en0.5, sil1.0)
+            align_opts={"apply_softmax_over_time": True, "blank_score": -5},
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _lf_sa_al.add_alias(_lf_sa_nm)
+        _lf_metric(_lf_sa_al.out_word_boundaries_hdf, _lf_sa_nm)
+
     # === Baselines (same model, no DP): the DP ablation set. ===
     # proportional split (trivial floor), greedy exit threshold (no global objective),
     # free-decode + LCS stitching (the HF chunked-pipeline analogue).
@@ -1123,34 +1183,76 @@ def py():
             "frac_gt_1s": _table_results.get(f"{base}-frac-gt-1s.txt"),
         }
 
-    # family + display name per zoo model, matching the grad-align paper's per-model table
+    # family + display name per zoo model, matching the grad-align paper's per-model table;
+    # third entry = the model's native long-form aligner:
+    # a short name under chunk-align/native-longform/, or ("note", text) = authored literal
+    _whisper_lf_note = "input too long for the model \\\\ (learned decoder pos. embeddings)"
     _zoo_family = {
-        "mms-fa": ("CTC", "MMS-FA"),
-        "w2v-phoneme": ("CTC", "XLS-R (Phoneme)"),
-        "parakeet-ctc-1.1b": ("CTC", "Parakeet CTC"),
-        "owsm-ctc-v4-1b": ("CTC", "OWSM-CTC"),
-        "fastconformer-stream-ctc": ("CTC", "FastConformer (streaming)"),
+        "mms-fa": ("CTC", "MMS-FA", "mms-fa"),
+        "w2v-phoneme": ("CTC", "XLS-R (Phoneme)", "w2v-phoneme"),
+        "parakeet-ctc-1.1b": ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b"),
+        "owsm-ctc-v4-1b": ("CTC", "OWSM-CTC", "owsm-ctc-v4-1b"),
+        "fastconformer-stream-ctc": ("CTC", "FastConformer (streaming)", "fastconformer-stream-ctc"),
         # parakeet first, so the two identical FastConformer cells are not adjacent
         # (auto_merge would otherwise fuse them across the CTC/Transd. boundary)
-        "parakeet-rnnt-1.1b": ("Transd.", "Parakeet RNN-T"),
-        "parakeet-tdt-0.6b-v2": ("Transd.", "Parakeet TDT"),
-        "fastconformer-stream-rnnt": ("Transd.", "FastConformer (streaming)"),
-        "emformer-rnnt": ("Transd.", "Emformer (streaming)"),
-        "whisper-base": ("AED", "Whisper-base"),
-        "whisper-large-v3": ("AED", "Whisper-large-v3"),
-        "crisperwhisper": ("AED", "CrisperWhisper"),
-        "owls-1b-180k": ("AED", "OWLS-1B"),
-        "voxtral": ("Speech LLM", "Voxtral"),
-        "canary-qwen": ("Speech LLM", "Canary-Qwen"),
+        "parakeet-rnnt-1.1b": ("Transd.", "Parakeet RNN-T", "parakeet-rnnt-1.1b-native-viterbi"),
+        "parakeet-tdt-0.6b-v2": ("Transd.", "Parakeet TDT", "parakeet-tdt-0.6b-v2-native-viterbi"),
+        "fastconformer-stream-rnnt": (
+            "Transd.",
+            "FastConformer (streaming)",
+            "fastconformer-stream-rnnt-native-viterbi",
+        ),
+        "emformer-rnnt": ("Transd.", "Emformer (streaming)", "emformer-rnnt-native-viterbi"),
+        "whisper-base": ("AED", "Whisper-base", ("note", _whisper_lf_note)),
+        "whisper-large-v3": ("AED", "Whisper-large-v3", ("note", _whisper_lf_note)),
+        "crisperwhisper": ("AED", "CrisperWhisper", ("note", _whisper_lf_note)),
+        "owls-1b-180k": ("AED", "OWLS-1B", "owls-1b-180k-crossattn"),
+        "voxtral": ("Speech LLM", "Voxtral", "voxtral-selfattn"),
+        "canary-qwen": ("Speech LLM", "Canary-Qwen", "canary-qwen-selfattn"),
     }
-    _zoo_rows = [{"family": "Speech LLM", "model": "Phi-4-MM", **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0")}] + [
-        {"family": _zf, "model": _zd, **_m3(f"chunk-align/zoo/{_zn}-buckeye-val-cs30-ov0")}
-        for _zn, (_zf, _zd) in _zoo_family.items()
-    ]
+
+    def _nat4(_t_n):
+        """Native long-form metric cells, see the ``_zoo_family`` third-entry forms."""
+        if _t_n is None:
+            return {"nat_wbe": None, "nat_acc50": None, "nat_acc": None, "nat_frac_gt_1s": None}
+        if isinstance(_t_n, tuple):
+            _t_kind, _t_txt = _t_n
+            assert _t_kind == "note", _t_n
+            return {"nat_wbe": _t_txt, "nat_acc50": _t_txt, "nat_acc": _t_txt, "nat_frac_gt_1s": _t_txt}
+        return {
+            "nat_wbe": _table_results.get(f"chunk-align/native-longform/{_t_n}-wbe.txt"),
+            "nat_acc50": _table_results.get(f"chunk-align/native-longform/{_t_n}-acc50.txt"),
+            "nat_acc": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-accuracy.txt"),
+            "nat_frac_gt_1s": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-frac-gt-1s.txt"),
+        }
+
+    _zoo_rows = (
+        [
+            {
+                "family": "Speech LLM",
+                "model": "Phi-4-MM",
+                **_m3("chunk-align/phi4mm-buckeye-val-cs30-ov0"),
+                **_nat4("phi4mm-selfattn"),
+            }
+        ]
+        + [
+            {"family": _zf, "model": _zd, **_m3(f"chunk-align/zoo/{_zn}-buckeye-val-cs30-ov0"), **_nat4(_zln)}
+            for _zn, (_zf, _zd, _zln) in _zoo_family.items()
+        ]
+        + [
+            # MFA aligns the long-form tracks directly but is no chunk-scoring model,
+            # so the chunk-align side stays empty
+            {"family": "Ref.", "model": "MFA", "acc": "--", "err_p95_sec": "--", "frac_gt_1s": "--", **_nat4("mfa")}
+        ]
+    )
     # contiguous family blocks (stable within-family order; phi4mm groups with the speech LLMs)
-    _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM"]
+    _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM", "Ref."]
     _zoo_rows.sort(key=lambda _r: _zoo_fam_order.index(_r["family"]))
-    _table("zoo", ["family", "model", "acc", "err_p95_sec", "frac_gt_1s"], _zoo_rows)
+    _table(
+        "zoo",
+        ["family", "model", "acc", "err_p95_sec", "frac_gt_1s", "nat_wbe", "nat_acc50", "nat_acc", "nat_frac_gt_1s"],
+        _zoo_rows,
+    )
     # one context-ablation pair per family with a label context to ablate
     # (CTC has no label state at all -> stated in the caption, no rows)
     _ctx_rows = [
@@ -1178,10 +1280,7 @@ def py():
     _table(
         "context-ablation",
         ["family", "model", "context", "acc", "frac_gt_1s"],
-        [
-            {"family": _t_f, "model": _t_d, "context": _t_c, **_m3(_t_b)}
-            for _t_f, _t_d, _t_c, _t_b in _ctx_rows
-        ],
+        [{"family": _t_f, "model": _t_d, "context": _t_c, **_m3(_t_b)} for _t_f, _t_d, _t_c, _t_b in _ctx_rows],
     )
     _table(
         "exit-scale",
@@ -1322,47 +1421,6 @@ def py():
                 ("staggered grid", "chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15"),
                 ("char-level scoring", "chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel"),
             ]
-        ],
-    )
-    # native aligners applied directly to the long-form tracks (WBE in seconds; a crashed
-    # job = a reported failure case, its cells stay pending until replaced by an authored literal)
-    _whisper_lf_note = "input too long for the model \\\\ (learned decoder pos. embeddings)"
-    _table(
-        "native-longform",
-        ["family", "model", "wbe", "acc50", "acc", "frac_gt_1s"],
-        [
-            {
-                "family": _t_f,
-                "model": _t_d,
-                "wbe": _table_results.get(f"chunk-align/native-longform/{_t_n}-wbe.txt"),
-                "acc50": _table_results.get(f"chunk-align/native-longform/{_t_n}-acc50.txt"),
-                "acc": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-accuracy.txt"),
-                "frac_gt_1s": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-frac-gt-1s.txt"),
-            }
-            for _t_f, _t_d, _t_n in [
-                ("CTC", "MMS-FA", "mms-fa"),
-                ("CTC", "XLS-R (Phoneme)", "w2v-phoneme"),
-                ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b"),
-                ("CTC", "OWSM-CTC", "owsm-ctc-v4-1b"),
-                ("CTC", "FastConformer (streaming)", "fastconformer-stream-ctc"),
-                ("Transd.", "Parakeet RNN-T", "parakeet-rnnt-1.1b-native-viterbi"),
-                ("Transd.", "Parakeet TDT", "parakeet-tdt-0.6b-v2-native-viterbi"),
-                ("Transd.", "FastConformer (streaming)", "fastconformer-stream-rnnt-native-viterbi"),
-                ("Transd.", "Emformer (streaming)", "emformer-rnnt-native-viterbi"),
-                ("Ref.", "MFA", "mfa"),
-            ]
-        ]
-        + [
-            # authored row: Whisper cannot take long-form input at all
-            # (learned decoder pos embeddings, 448 positions; encoder asserts 30s)
-            {
-                "family": "AED",
-                "model": "Whisper-base (cross-att.)",
-                "wbe": _whisper_lf_note,
-                "acc50": _whisper_lf_note,
-                "acc": _whisper_lf_note,
-                "frac_gt_1s": _whisper_lf_note,
-            }
         ],
     )
     # DP vs the no-DP baselines (same model, same metric)
