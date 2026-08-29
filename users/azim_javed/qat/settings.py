@@ -38,7 +38,8 @@ def check_engine_limits(current_rqmt, task):
         # "cn-280",
         # "cn-262",
         # "cn-253"
-        "cn-230"
+        # "cn-230"
+        "cn-275"
     ]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []

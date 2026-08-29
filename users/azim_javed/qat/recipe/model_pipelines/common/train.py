@@ -67,6 +67,7 @@ def train(
     train_step_import: Import,
     best_n_epochs: int = 0,
     finetune_options: Optional[FinetuneOptions] = None,
+    seed: Optional[int] = None,
 ) -> TrainedModel[ModelConfigType]:
     model_serializers = get_model_serializers(model_class=model_class, model_config=model_config)
 
@@ -92,10 +93,13 @@ def train(
                 "filename": finetune_options.filename,
                 "init_for_train": finetune_options.init_for_train,
                 "ignore_missing": finetune_options.ignore_missing,
-                "var_name_mapping": finetune_options.var_name_mapping,
-                "allowed_missing_prefix": finetune_options.allowed_missing_prefix,
             }
         }
+        if finetune_options.var_name_mapping is not None:
+            config_dict["preload_from_files"][finetune_options.label]["var_name_mapping"] = finetune_options.var_name_mapping
+        if finetune_options.allowed_missing_prefix is not None:
+            config_dict["preload_from_files"][finetune_options.label]["allowed_missing_prefix"] = finetune_options.allowed_missing_prefix
+
     if options.automatic_mixed_precision:
         config_dict["torch_amp_options"] = {"dtype": "bfloat16"}
 
@@ -104,6 +108,9 @@ def train(
 
     if options.max_seq_length:
         config_dict["max_seq_length"] = options.max_seq_length
+
+    if seed is not None:
+        config_dict["random_seed"] = seed
 
     train_returnn_config = ReturnnConfig(
         config=config_dict,

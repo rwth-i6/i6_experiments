@@ -361,7 +361,7 @@ class FixedContextTransducerPy:
                     hist_flat = [tok for (_, h) in chunk for tok in h]
                     hist_tensor = torch.tensor(hist_flat, dtype=torch.long, device=device).view(B, -1)
 
-                    scores_tensor = self._model(enc_tensor, hist_tensor)
+                    scores_tensor = self.model_forward(enc_tensor, hist_tensor)
                     scores_np = scores_tensor.detach().cpu().numpy()
 
                     for b, (ctx, _) in enumerate(chunk):
@@ -371,6 +371,19 @@ class FixedContextTransducerPy:
                     results[idx] = (cache[ctx], step)
 
         return results
+
+    def model_forward(self, enc_tensor, history_tensor):
+        return self._model(enc_tensor, history_tensor)
+
+
+class FixedContextTransducerPy_Cached(FixedContextTransducerPy):
+    def model_forward(self, enc_tensor, history_tensor):
+        scores_tensor = self._model(enc_tensor, history_tensor, use_cache=True)
+        return scores_tensor
+    def reset(self):
+        super().reset()
+        if SHOULD_LOG:
+            print("prediction_cache_size", len(self._model.prediction_net_cache))
 
 
 class StatefulTransducerPy:
@@ -727,8 +740,13 @@ def register_pyscorers():
             LabelScorer.__init__(self, config)
             FixedContextTransducerPy.__init__(self, config)
 
+    class PyFixedContextTransducerPy_Cached(FixedContextTransducerPy_Cached, LabelScorer):
+        def __init__(self, config):
+            LabelScorer.__init__(self, config)
+            FixedContextTransducerPy_Cached.__init__(self, config)
+
     register_label_scorer_type("fixed-context-py", PyFixedContextTransducerPy)
-    register_label_scorer_type("fixed-context-py-optim", PyFixedContextTransducerPy)
+    register_label_scorer_type("fixed-context-py-cache", PyFixedContextTransducerPy_Cached)
 
     class PyStatefulTransducerPy(StatefulTransducerPy, LabelScorer):
         def __init__(self, config):

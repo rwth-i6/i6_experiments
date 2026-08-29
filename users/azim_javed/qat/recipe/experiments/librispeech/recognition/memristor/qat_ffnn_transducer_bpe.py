@@ -17,18 +17,18 @@ from .....model_pipelines.common.recog import (
 from .....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from .....model_pipelines.common.serializers import get_model_serializers
 from .....model_pipelines.common.train import TrainedModel
-from .....model_pipelines.ffnn_transducer_qat_encoder.mem_inited.label_scorer_config import (
+from .....model_pipelines.qat_ffnn_transducer.mem_inited.label_scorer_config import (
     get_ffnn_transducer_label_scorer_config,
 )
-from .....model_pipelines.ffnn_transducer_qat_encoder.pytorch_modules import (
-    FFNNTransducerQATEncoderConfig as BaseFFNNTransducerQATEncoderConfig,
-    FFNNTransducerQATEncoderModel as BaseFFNNTransducerQATEncoderModel,
+from .....model_pipelines.qat_ffnn_transducer.pytorch_modules import (
+    QATFFNNTransducerConfig as BaseQATFFNNTransducerConfig,
+    QATFFNNTransducerModel as BaseQATFFNNTransducerModel,
 )
 
-from .....model_pipelines.ffnn_transducer_qat_encoder.mem_inited.pytorch_modules import (
-    FFNNTransducerQATEncoderConfig,
-    FFNNTransducerQATEncoder,
-    FFNNTransducerQATEncoderModel,
+from .....model_pipelines.qat_ffnn_transducer.mem_inited.pytorch_modules import (
+    QATFFNNTransducerConfig,
+    QATFFNNTransducerEncoder,
+    QATFFNNTransducerModel,
 )
 
 from i6_models.config import ModelConfiguration, ModuleType
@@ -51,7 +51,7 @@ class TransducerRecogVariant(BaseRecogVariant):
 
 
 def run(
-    model: TrainedModel[BaseFFNNTransducerQATEncoderConfig],
+    model: TrainedModel[QATFFNNTransducerConfig],
     variants: Optional[List[TransducerRecogVariant]] = None,
     corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
     converter_hardware_settings: Optional[DacAdcHardwareSettings] = None,
@@ -60,8 +60,8 @@ def run(
     max_runs: Optional[int] = 5,
     batched_decoder: bool = False,
     batch_size_seconds: Optional[int] = None,
+    use_cache: bool = False,
 ) -> Tuple[List[MemristorRecogResult], List[RecogResult]]:
-    # max_runs = 2  # TODO: debug
     if variants is None:
         variants = default_recog_variants()
 
@@ -98,6 +98,8 @@ def run(
                 variant,
                 search_mode_params=replace(variant.search_mode_params, batch_size_seconds=batch_size_seconds),
             )
+        if use_cache and any(tag in variant.descriptor for tag in ("lexfree", "mbs", "ilm0.1_elm0.6", "ilm0.2_elm0.8")):
+            continue
         cycles_variant_results = []
         for num_cycles in range(1, max_runs + 1):
             _, variant_result = _run_single_variant(
@@ -109,6 +111,7 @@ def run(
                 correction_settings=correction_settings,
                 num_cycles=num_cycles,
                 batched_decoder=batched_decoder,
+                use_cache=use_cache,
             )
             # variant result is a list
             cycles_variant_results.extend(variant_result)
@@ -116,7 +119,11 @@ def run(
         results.extend(cycles_variant_results)
         memristor_results.extend(
             post_recog_memristor_results(
-                descriptor=f"{model.descriptor}_memristor_{variant.descriptor}",
+                descriptor=(
+                    f"{model.descriptor}_memristor_cache_{variant.descriptor}"
+                    if use_cache
+                    else f"{model.descriptor}_memristor_{variant.descriptor}"
+                ),
                 corpora=corpora,
                 recog_results=cycles_variant_results,
             )
@@ -149,29 +156,17 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
 
 def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
     variants = []
-    params = [
-        (0.1, 0.6),
-        # (0.1, 0.8),
-        # (0.1, 0.9),
-        (0.2, 0.6),
-        (0.2, 0.7),
-        (0.2, 0.8),
-        (0.2, 0.8),
+    params = sorted([
         (0.3, 0.5),
         (0.3, 0.6),
-        (0.3, 0.7),
         (0.4, 0.5),
         (0.4, 0.6),
-        (0.5, 0.6),
-        (0.6, 0.6),
-    ]
+    ])
     for ilm_scale, ext_lm_scale in params:
         variants.append(
             TransducerRecogVariant(
                 descriptor=f"tree_4gram_ilm{ilm_scale}_elm{ext_lm_scale}",
-                search_mode_params=OfflineRecogParameters(
-                    gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0
-                ),
+                search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0),
                 search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                     collapse_repeated_labels=False,
                     word_lm_params=librispeech_lm.ArpaLmParams(scale=ext_lm_scale),
@@ -230,9 +225,7 @@ def param_sweep_tree_lstm_recog_variants() -> List[TransducerRecogVariant]:
 def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
         descriptor="lexfree",
-        search_mode_params=OfflineRecogParameters(
-            gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0
-        ),
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0),
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1],
@@ -268,9 +261,7 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
 def mbs1024_offline_tree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
         descriptor="tree_mbs1024",
-        search_mode_params=OfflineRecogParameters(
-            gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0
-        ),
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[18.0],
@@ -395,7 +386,9 @@ def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
 
 
 def _get_label_scorer_configs(
-    model: TrainedModel[FFNNTransducerQATEncoderConfig], variant: TransducerRecogVariant
+    model: TrainedModel[QATFFNNTransducerConfig],
+    variant: TransducerRecogVariant,
+    use_cache: bool = False,
 ) -> List[RasrConfig]:
     bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
     use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
@@ -408,6 +401,7 @@ def _get_label_scorer_configs(
             blank_penalty=variant.blank_penalty,
             max_batch_size=2048,
             use_gpu=use_gpu,
+            use_cache=use_cache,
         )
     ]
 
@@ -424,7 +418,7 @@ def _get_label_scorer_configs(
 
 
 def _convert_model_for_memristor(
-    model: TrainedModel[BaseFFNNTransducerQATEncoderConfig],
+    model: TrainedModel[QATFFNNTransducerConfig],
     variant: TransducerRecogVariant,
     converter_hardware_settings: DacAdcHardwareSettings,
     pos_enc_converter_hardware_settings: DacAdcHardwareSettings,
@@ -434,7 +428,7 @@ def _convert_model_for_memristor(
     memristor_model, memristor_config = convert_model_for_memristor(
         checkpoint=model.get_checkpoint(variant.epoch),
         config=model.model_config,
-        model_class=BaseFFNNTransducerQATEncoderModel,
+        model_class=BaseQATFFNNTransducerModel,
         converter_hardware_settings=converter_hardware_settings,
         pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
         correction_settings=correction_settings,
@@ -467,7 +461,7 @@ def _get_model_serializers(
 
 
 def _run_single_variant(
-    model: TrainedModel[BaseFFNNTransducerQATEncoderConfig],
+    model: TrainedModel[BaseQATFFNNTransducerConfig],
     variant: TransducerRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
     converter_hardware_settings: DacAdcHardwareSettings,
@@ -475,6 +469,7 @@ def _run_single_variant(
     correction_settings: Optional[CycleCorrectionSettings],
     num_cycles: int,
     batched_decoder: bool = False,
+    use_cache: bool = False,
 ) -> Tuple[int, List[RecogResult]]:
 
     memristor_model = _convert_model_for_memristor(
@@ -489,15 +484,19 @@ def _run_single_variant(
 
     if batched_decoder:
         variant_prefix = f"{variant_prefix}batched_decoder_"
+        if use_cache:
+            variant_prefix = f"{variant_prefix}cache_"
         variant = replace(variant, search_mode_params=replace(variant.search_mode_params, batched_decoder=True))
 
     variant = replace(variant, descriptor=f"{variant_prefix}{variant.descriptor}", num_cycles=num_cycles)
 
-    label_scorer_configs = _get_label_scorer_configs(model=memristor_model, variant=variant)
+    label_scorer_configs = _get_label_scorer_configs(model=memristor_model, variant=variant, use_cache=use_cache)
     return run_single_bpe_variant(
         model_descriptor=memristor_model.descriptor,
         checkpoint=memristor_model.get_checkpoint(variant.epoch),
-        encoder_serializers=_get_model_serializers(FFNNTransducerQATEncoder, memristor_model.model_config),
+        encoder_serializers=_get_model_serializers(
+            QATFFNNTransducerEncoder, memristor_model.model_config
+        ),
         label_scorer_configs=label_scorer_configs,
         bpe_size=vocab_to_bpe_size(memristor_model.model_config.target_size - 1),
         blank_index=memristor_model.model_config.target_size - 1,

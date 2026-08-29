@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import Tuple, Union, Optional, Literal, Dict, List, Callable
+from typing import Tuple, Union, Optional, Literal, Dict, List, Callable, ClassVar
 
 import torch
 
@@ -21,7 +21,6 @@ from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_paddi
 
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
-
 
 
 @dataclass
@@ -39,6 +38,7 @@ class FFNNTransducerQATEncoderConfig(ModelConfiguration):
     joiner_dim: int
     joiner_activation: torch.nn.Module
     target_size: int
+    hash_control: ClassVar[Optional[str]] = None
 
     def __sis_state__(self):
         import dataclasses, torch
@@ -47,8 +47,9 @@ class FFNNTransducerQATEncoderConfig(ModelConfiguration):
         def _sanitize(v):
             if isinstance(v, torch.dtype):
                 return str(v)
+                # return (str(v) + self.hash_control) if self.hash_control is not None else str(v)
             if isinstance(v, tk.Path):
-                return v                 # keep for path extraction
+                return v  # keep for path extraction
             if dataclasses.is_dataclass(v):
                 return {f.name: _sanitize(getattr(v, f.name)) for f in dataclasses.fields(v)}
             if isinstance(v, dict):
@@ -57,7 +58,7 @@ class FFNNTransducerQATEncoderConfig(ModelConfiguration):
                 return type(v)(_sanitize(x) for x in v)
             return v
 
-        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self)}
+        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self) if f.name != "hash_control"}
 
     def __sis_hash__(self):
         return str(type(self))
@@ -248,7 +249,9 @@ class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
     ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T', E], [B]
-        encoder_states, encoder_states_size = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+        encoder_states, encoder_states_size = self.forward_encoder(
+            audio_samples=audio_samples, audio_samples_size=audio_samples_size
+        )
         return encoder_states, encoder_states_size
 
 

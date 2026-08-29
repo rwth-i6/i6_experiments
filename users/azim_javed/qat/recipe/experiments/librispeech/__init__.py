@@ -4,6 +4,7 @@ from sisyphus import tk
 from ...model_pipelines.common.report import register_memristor_report, register_recog_report
 from . import training, recognition, finetuning
 from ...baseline_rep.experiments.librispeech import training as baseline_training
+from ...baseline_rep.experiments.librispeech import recognition as baseline_recognition
 
 from .recognition import memristor as memristor_recognition
 
@@ -27,6 +28,10 @@ def run_all(filename):
     )
     models = {
         "ffnn_transducer_bpe": baseline_training.ffnn_transducer_bpe.run(descriptor="ffnn_transducer_bpe"),
+        "ffnn_transducer_bpe_125epochs": baseline_training.ffnn_transducer_bpe.run(
+            descriptor="ffnn_transducer_bpe_125epochs",
+            train_options=baseline_training.ffnn_transducer_bpe.get_train_options(num_epochs=125),
+        ),
         "ffnn_transducer_bpe_highbs_200epochs": baseline_training.ffnn_transducer_bpe_param_sync.run(
             descriptor="ffnn_transducer_bpe_highbs_200epochs",
             train_options=baseline_training.ffnn_transducer_bpe_param_sync.get_train_options(num_epochs=200),
@@ -39,6 +44,17 @@ def run_all(filename):
         ),
         "ffnn_transducer_qat_encoder": training.ffnn_transducer_qat_encoder_bpe.run(
             descriptor="ffnn_transducer_qat_encoder", qat_args=w8_a8_qat_config
+        ),
+        "ffnn_transducer_qat_encoder_125epochs": training.ffnn_transducer_qat_encoder_bpe.run(
+            descriptor="ffnn_transducer_qat_encoder_125epochs",
+            qat_args=w8_a8_qat_config,
+            train_options=training.ffnn_transducer_qat_encoder_bpe.get_train_options2(num_epochs=125),
+        ),
+        "ffnn_transducer_qat_encoder_w4_a8": training.ffnn_transducer_qat_encoder_bpe.run(
+            descriptor="ffnn_transducer_qat_encoder_w4_a8", qat_args=w4_a8_qat_config
+        ),
+        "ffnn_transducer_qat_encoder_v2_seed": training.ffnn_transducer_qat_encoder_bpe.run(
+            descriptor="ffnn_transducer_qat_encoder_v2_seed", qat_args=w8_a8_qat_config, seed=383
         ),
         "ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs": training.ffnn_transducer_qat_encoder_prediction_bpe.run(
             descriptor="ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs", qat_args=w8_a8_qat_config
@@ -61,11 +77,11 @@ def run_all(filename):
         "ffnn_transducer_qat_encoder_bpe_param_sync": training.ffnn_transducer_qat_encoder_bpe_param_sync.run(
             descriptor="ffnn_transducer_qat_encoder_bpe_param_sync", qat_args=w8_a8_qat_config
         ),
-        "ffnn_transducer_qat_encoder_bpe_highbs_150epochs": training.ffnn_transducer_qat_encoder_bpe_param_sync.run(
-            descriptor="ffnn_transducer_qat_encoder_bpe_highbs_200epochs",
-            qat_args=w8_a8_qat_config,
-            train_options=training.ffnn_transducer_qat_encoder_bpe_param_sync.get_train_options(num_epochs=200),
-        ),
+        # "ffnn_transducer_qat_encoder_bpe_highbs_200epochs": training.ffnn_transducer_qat_encoder_bpe_param_sync.run(
+        #     descriptor="ffnn_transducer_qat_encoder_bpe_highbs_200epochs",
+        #     qat_args=w8_a8_qat_config,
+        #     train_options=training.ffnn_transducer_qat_encoder_bpe_param_sync.get_train_options(num_epochs=200),
+        # ),
         "full_ctx_transducer_qat_encoder_param_sync_bpe": training.full_ctx_transducer_qat_encoder_bpe.run(
             descriptor="full_ctx_transducer_qat_encoder_param_sync_bpe", qat_args=w8_a8_qat_config
         ),
@@ -90,19 +106,68 @@ def run_all(filename):
             descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe",
             qat_args=w8_a8_qat_config,
         ),
+        "ffnn_transducer_qat_encoder_pred_w8_a8_bpe___ffnn_transducer_bpe": finetuning.ffnn_transducer_qat_encoder_pred_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_pred_bpe___ffnn_transducer_bpe",
+            qat_args=w8_a8_qat_config,
+        ),
+        "qat_ffnn_transducer_w8_a8_bpe___ffnn_transducer_bpe": finetuning.qat_ffnn_transducer_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="qat_ffnn_transducer_w8_a8_bpe___ffnn_transducer_bpe",
+            qat_args=w8_a8_qat_config,
+        ),
+        "ffnn_transducer_qat_encoder_bpe_w8a8___ffnn_transducer_qat_encoder_bpe_w8a8": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_qat_encoder_bpe.run(
+            base_model=models["ffnn_transducer_qat_encoder"],
+            descriptor="ffnn_transducer_qat_encoder_bpe_w8a8___ffnn_transducer_qat_encoder_bpe_w8a8",
+            train_options=finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_qat_encoder_bpe.get_train_options(
+                num_epochs=25, gpu_mem_rqmt=24
+            ),
+            qat_args=w8_a8_qat_config,
+        ),
+        "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8",
+            qat_args=w4_a8_qat_config,
+        ),
+        "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2",
+            qat_args=w8_a8_qat_config,
+            seed=383,
+        ),
         "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
             base_model=models["ffnn_transducer_bpe"],
             descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr",
             qat_args=w8_a8_qat_config,
             train_options=finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.get_train_options(
-                learning_rate_config=hilmes_lr_config, gpu_mem_rqmt=24
+                learning_rate_config=hilmes_lr_config, gpu_mem_rqmt=48
             ),
         ),
     }
     recog_results = []
     recog_results.extend(
+        baseline_recognition.ffnn_transducer_bpe.run(
+            model=models["ffnn_transducer_bpe_highbs_200epochs"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        baseline_recognition.ffnn_transducer_bpe.run(
+            model=models["ffnn_transducer_bpe_125epochs"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
         recognition.ffnn_transducer_qat_encoder_bpe.run(
             model=models["ffnn_transducer_qat_encoder"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=models["ffnn_transducer_qat_encoder_v2_seed"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=models["ffnn_transducer_qat_encoder_w4_a8"], corpora=["dev-other"]
         )
     )
     recog_results.extend(
@@ -116,8 +181,33 @@ def run_all(filename):
         )
     )
     recog_results.extend(
+        recognition.qat_ffnn_transducer_bpe.run(
+            model=models["qat_ffnn_transducer_full_quant_v2_lowbs"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.qat_ffnn_transducer_aux_no_quant_bpe.run(
+            model=models["qat_ffnn_transducer_aux_no_quant_bpe"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
         recognition.full_ctx_transducer_qat_encoder_bpe.run(
             model=models["full_ctx_transducer_qat_encoder_param_sync_bpe"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.full_ctx_transducer_qat_encoder_prediction_bpe.run(
+            model=models["full_ctx_transducer_qat_encoder_prediction_bpe_v2_lowbs"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.qat_full_ctx_transducer_bpe.run(
+            model=models["qat_full_ctx_transducer_bpe_v2_low_bs"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.full_ctx_transducer_qat_encoder_bpe.run(
+            model=models["full_ctx_transducer_qat_encoder_bpe"], corpora=["dev-other"]
         )
     )
     recog_results.extend(
@@ -139,6 +229,21 @@ def run_all(filename):
     recog_results.extend(
         recognition.ffnn_transducer_qat_encoder_bpe.run(
             model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe_w8a8___ffnn_transducer_qat_encoder_bpe_w8a8"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8"], corpora=["dev-other"]
         )
     )
     recog_results.extend(
@@ -187,6 +292,16 @@ def run_debug(filename):
         weight_pruning_config=None,
     )
 
+    hilmes_lr_config = OCLRConfig(
+        init_lr=7e-06,
+        peak_lr=5e-04,
+        decayed_lr=1e-07,
+        final_lr=1e-07,
+        inc_epochs=500 // 2,
+        dec_epochs=500 // 2,
+        final_epochs=0,
+    )
+
     models = {
         "ffnn_transducer_bpe": baseline_training.ffnn_transducer_bpe.run(descriptor="ffnn_transducer_bpe"),
         "qat_ctc_bpe_w4_a8": training.qat_ctc_bpe_param_sync.run(
@@ -201,6 +316,15 @@ def run_debug(filename):
         "full_ctx_transducer_qat_encoder_param_sync_bpe": training.full_ctx_transducer_qat_encoder_bpe.run(
             descriptor="full_ctx_transducer_qat_encoder_param_sync_bpe", qat_args=w8_a8_qat_config
         ),
+        "full_ctx_transducer_qat_encoder_bpe": training.full_ctx_transducer_qat_encoder_bpe_low_bs.run(
+            descriptor="full_ctx_transducer_qat_encoder_bpe", qat_args=w8_a8_qat_config
+        ),
+        "ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs": training.ffnn_transducer_qat_encoder_prediction_bpe.run(
+            descriptor="ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs", qat_args=w8_a8_qat_config
+        ),
+        "qat_ffnn_transducer_full_quant_v2_lowbs": training.qat_ffnn_transducer_bpe.run(
+            descriptor="qat_ffnn_transducer_full_quant_v2_lowbs", qat_args=w8_a8_qat_config
+        ),
     }
 
     finetunes = {
@@ -208,7 +332,26 @@ def run_debug(filename):
             base_model=models["ffnn_transducer_bpe"],
             descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe",
             qat_args=w8_a8_qat_config,
-        )
+        ),
+        "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8",
+            qat_args=w4_a8_qat_config,
+        ),
+        "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2",
+            qat_args=w8_a8_qat_config,
+            seed=383,
+        ),
+        "ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr": finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.run(
+            base_model=models["ffnn_transducer_bpe"],
+            descriptor="ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr",
+            qat_args=w8_a8_qat_config,
+            train_options=finetuning.ffnn_transducer_qat_encoder_bpe__ffnn_transducer_bpe.get_train_options(
+                learning_rate_config=hilmes_lr_config, gpu_mem_rqmt=48
+            ),
+        ),
     }
 
     converter_hardware_settings = DacAdcHardwareSettings(
@@ -266,6 +409,31 @@ def run_debug(filename):
         )
     )
     recog_results.append(
+        memristor_recognition.ffnn_transducer_qat_encoder_prediction_bpe.run(
+            model=models["ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+            batch_size_seconds=360,
+        )
+    )
+    recog_results.append(
+        memristor_recognition.ffnn_transducer_qat_encoder_prediction_bpe.run(
+            model=models["ffnn_transducer_qat_encoder_prediction_bpe_v2_lowbs"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+            batch_size_seconds=360,
+            use_cache=True,
+        )
+    )
+    recog_results.append(
         memristor_recognition.ffnn_transducer_qat_encoder_bpe.run(
             model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe"],
             corpora=["dev-other"],
@@ -278,8 +446,66 @@ def run_debug(filename):
         )
     )
     recog_results.append(
+        memristor_recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_v2"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+            batch_size_seconds=360,
+        )
+    )
+    recog_results.append(
+        memristor_recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_w4_a8"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+            batch_size_seconds=360,
+        )
+    )
+    recog_results.append(
+        memristor_recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=finetunes["ffnn_transducer_qat_encoder_bpe___ffnn_transducer_bpe_hilmeslr"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+            batch_size_seconds=360,
+        )
+    )
+    # recog_results.append(
+    #     memristor_recognition.full_ctx_transducer_qat_encoder_bpe.run(
+    #         model=models["full_ctx_transducer_qat_encoder_param_sync_bpe"],
+    #         corpora=["dev-other"],
+    #         converter_hardware_settings=converter_hardware_settings,
+    #         pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+    #         correction_settings=correction_settings,
+    #         max_runs=3,
+    #         batched_decoder=True,
+    #     )
+    # )
+    recog_results.append(
         memristor_recognition.full_ctx_transducer_qat_encoder_bpe.run(
-            model=models["full_ctx_transducer_qat_encoder_param_sync_bpe"],
+            model=models["full_ctx_transducer_qat_encoder_bpe"],
+            corpora=["dev-other"],
+            converter_hardware_settings=converter_hardware_settings,
+            pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
+            correction_settings=correction_settings,
+            max_runs=3,
+            batched_decoder=True,
+        )
+    )
+    recog_results.append(
+        memristor_recognition.qat_ffnn_transducer_bpe.run(
+            model=models["qat_ffnn_transducer_full_quant_v2_lowbs"],
             corpora=["dev-other"],
             converter_hardware_settings=converter_hardware_settings,
             pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,

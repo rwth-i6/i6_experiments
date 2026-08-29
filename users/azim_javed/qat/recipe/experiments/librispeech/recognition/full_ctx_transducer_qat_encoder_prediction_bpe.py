@@ -11,8 +11,13 @@ from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
 from ....model_pipelines.common.train import TrainedModel
-from ....model_pipelines.qat_ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
-from ....model_pipelines.qat_ffnn_transducer.pytorch_modules import QATFFNNTransducerConfig, QATFFNNTransducerEncoder
+from ....model_pipelines.full_ctx_transducer_qat_encoder_pred.label_scorer_config import (
+    get_lstm_transducer_label_scorer_config,
+)
+from ....model_pipelines.full_ctx_transducer_qat_encoder_pred.pytorch_modules import (
+    LstmTransducerQATEncoderPredictionConfig,
+    LstmTransducerQATEncoderPredictionEncoder,
+)
 from .common import BaseRecogVariant, run_single_bpe_variant
 
 
@@ -25,7 +30,7 @@ class TransducerRecogVariant(BaseRecogVariant):
 
 
 def run(
-    model: TrainedModel[QATFFNNTransducerConfig],
+    model: TrainedModel[LstmTransducerQATEncoderPredictionConfig],
     variants: Optional[List[TransducerRecogVariant]] = None,
     corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
 ) -> List[RecogResult]:
@@ -43,20 +48,26 @@ def run(
 
 
 def default_recog_variants() -> List[TransducerRecogVariant]:
-    return [
-        default_offline_lexfree_recog_variant(),
-        # default_offline_lexfree_lstm_recog_variant(),
-        # default_offline_tree_recog_variant(),
-        # default_offline_tree_4gram_recog_variant(),
-        # default_offline_tree_lstm_recog_variant(),
-        mbs1024_offline_tree_recog_variant(),
-        # default_offline_tree_lstm_4gram_recog_variant(),
-        # default_offline_tree_trafo_recog_variant(),
-        # default_offline_tree_trafo_recog_variant_gpu(),
-        # default_streaming_lexfree_recog_variant(),
-        # default_streaming_tree_4gram_recog_variant(),
-    # ]
-    ] + param_sweep_tree_4gram_recog_variants() + param_sweep_lexfree_lstm_recog_variants() + param_sweep_tree_lstm_recog_variants()
+    return (
+        [
+            default_offline_lexfree_recog_variant(),
+            # default_offline_lexfree_lstm_recog_variant(),
+            # default_offline_tree_recog_variant(),
+            # default_offline_tree_4gram_recog_variant(),
+            # default_offline_tree_lstm_recog_variant(),
+            mbs1024_offline_tree_recog_variant(),
+            # mbs2048_offline_tree_recog_variant(),
+            # default_offline_tree_lstm_4gram_recog_variant(),
+            # default_offline_tree_trafo_recog_variant(),
+            # default_offline_tree_trafo_recog_variant_gpu(),
+            # default_streaming_lexfree_recog_variant(),
+            # default_streaming_tree_4gram_recog_variant(),
+            # ]
+        ]
+        + param_sweep_tree_4gram_recog_variants()
+        + param_sweep_tree_lstm_recog_variants()
+        + param_sweep_lexfree_lstm_recog_variants()
+    )
 
 
 def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
@@ -65,7 +76,8 @@ def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"tree_4gram_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"tree_4gram_ilm{ilm_scale}_elm{ext_lm_scale}",
+                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         word_lm_params=librispeech_lm.ArpaLmParams(scale=ext_lm_scale),
@@ -86,12 +98,13 @@ def param_sweep_lexfree_lstm_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"lexfree_bpe-LSTM_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"lexfree_bpe-LSTM_ilm{ilm_scale}_elm{ext_lm_scale}",
                     search_algorithm_params=LexiconfreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         max_beam_sizes=[2048, 512],
                         score_thresholds=[18.0, 12.0],
                     ),
+                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
                     ilm_scale=ilm_scale,
                     bpe_lstm_lm_scale=ext_lm_scale,
                 )
@@ -105,32 +118,23 @@ def param_sweep_tree_lstm_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"tree_bpe-LSTM_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"tree_bpe-LSTM_ilm{ilm_scale}_elm{ext_lm_scale}",
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         max_beam_sizes=[2048, 512],
                         score_thresholds=[18.0, 14.0],
                     ),
+                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
                     ilm_scale=ilm_scale,
                     bpe_lstm_lm_scale=ext_lm_scale,
                 )
             )
     return variants
 
-def mbs1024_offline_tree_recog_variant() -> TransducerRecogVariant:
-    return TransducerRecogVariant(
-        descriptor="tree_mbs1024",
-        # search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11, mem_rqmt=32, dataloader_num_workers=0),
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=False,
-            score_thresholds=[18.0],
-            max_beam_sizes=[1024],
-        ),
-    )
 
 def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="lexfree",
+        descriptor="recog_lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1],
@@ -141,7 +145,7 @@ def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="lexfree_bpe-LSTM",
+        descriptor="recog_lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[512, 256],
@@ -154,7 +158,7 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree",
+        descriptor="recog_tree",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[8],
@@ -162,10 +166,30 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
         ),
     )
 
+def mbs1024_offline_tree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="tree_mbs1024",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[18.0],
+            max_beam_sizes=[1024],
+        ),
+    )
+
+def mbs2048_offline_tree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="tree_mbs2048",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[18.0],
+            max_beam_sizes=[2048],
+        ),
+    )
+
 
 def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_4gram",
+        descriptor="recog_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
@@ -180,7 +204,7 @@ def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_bpe-LSTM",
+        descriptor="recog_tree_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[40, 20],
@@ -193,7 +217,7 @@ def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_4gram_bpe-LSTM",
+        descriptor="recog_tree_4gram_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[16, 16],
@@ -209,7 +233,7 @@ def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_trafo_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_trafoLM",
+        descriptor="recog_tree_trafoLM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[16.0],
@@ -225,7 +249,7 @@ def default_offline_tree_trafo_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_trafo_recog_variant_gpu() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_trafoLM_gpu",
+        descriptor="recog_tree_trafoLM_gpu",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[16.0],
@@ -241,7 +265,7 @@ def default_offline_tree_trafo_recog_variant_gpu() -> TransducerRecogVariant:
 
 def default_streaming_lexfree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="streaming_lexfree",
+        descriptor="recog_streaming_lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[256],
@@ -253,7 +277,7 @@ def default_streaming_lexfree_recog_variant() -> TransducerRecogVariant:
 
 def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="streaming_tree_4gram",
+        descriptor="recog_streaming_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1024],
@@ -268,18 +292,17 @@ def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
 
 
 def _get_label_scorer_configs(
-    model: TrainedModel[QATFFNNTransducerConfig], variant: TransducerRecogVariant
+    model: TrainedModel[LstmTransducerQATEncoderPredictionConfig], variant: TransducerRecogVariant
 ) -> List[RasrConfig]:
     bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
     use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
 
     label_scorer_configs = [
-        get_ffnn_transducer_label_scorer_config(
+        get_lstm_transducer_label_scorer_config(
             model_config=model.model_config,
             checkpoint=model.get_checkpoint(variant.epoch),
             ilm_scale=variant.ilm_scale,
             blank_penalty=variant.blank_penalty,
-            use_gpu=use_gpu,
         )
     ]
     if variant.bpe_lstm_lm_scale != 0.0:
@@ -295,14 +318,14 @@ def _get_label_scorer_configs(
 
 
 def _run_single_variant(
-    model: TrainedModel[QATFFNNTransducerConfig],
+    model: TrainedModel[LstmTransducerQATEncoderPredictionConfig],
     variant: TransducerRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
 ) -> List[RecogResult]:
     return run_single_bpe_variant(
         model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
-        encoder_serializers=get_model_serializers(QATFFNNTransducerEncoder, model.model_config),
+        encoder_serializers=get_model_serializers(LstmTransducerQATEncoderPredictionEncoder, model.model_config),
         label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
         bpe_size=vocab_to_bpe_size(model.model_config.target_size - 1),
         blank_index=model.model_config.target_size - 1,

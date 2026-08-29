@@ -11,20 +11,24 @@ from typing import Tuple, Union, Optional, Literal, Dict, List, Callable
 
 import torch
 
-from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
-from ..common.memristor_layers import LinearQuant, EmbeddingQuant, ActivationQuantizer
+from ...common.assemblies.conformer import ConformerEncoderQuantV1Config
+from ...common.assemblies.conformer.mem_inited import ConformerEncoderQuant
+from ...common.memristor_layers import LinearQuant, EmbeddingQuant, ActivationQuantizer
 
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
-from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
+from ...common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
+
+import synaptogen_ml
 
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 from synaptogen_ml.memristor_modules.embedding import TiledMemristorEmbedding
 
 from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+
 
 @dataclass
 class FFNNTransducerQATEncoderPredictionConfig(ModelConfiguration):
@@ -122,191 +126,10 @@ class FFNNTransducerQATEncoderPredictionRecogConfig(FFNNTransducerQATEncoderPred
     blank_penalty: float
 
 
-class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
-    def __init__(self, cfg: FFNNTransducerQATEncoderPredictionConfig, **_):
-        super().__init__()
-        self.target_size = cfg.target_size
-
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
-        self.specaug_config = cfg.specaug_cfg
-        self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
-
-        self.enc_output_in_q = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=2,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.enc_output_out_q = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=2,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.encoder_output = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout),
-            self.enc_output_in_q,
-            LinearQuant(
-                cfg.enc_dim,
-                self.target_size,
-                weight_bit_prec=cfg.weight_bit_prec,
-                weight_quant_dtype=cfg.weight_quant_dtype,
-                weight_quant_method=cfg.weight_quant_method,
-                bias=True,
-            ),
-            self.enc_output_out_q,
-        ) # only for loss, but quantized just for consistency
-
-        self.context_history_size = cfg.context_history_size
-
-        self.token_embedding = EmbeddingQuant(
-            num_embeddings=self.target_size,
-            embedding_dim=cfg.context_embedding_dim,
-            padding_idx=cfg.target_size - 1,
-            weight_bit_prec=cfg.weight_bit_prec,
-            weight_quant_dtype=cfg.weight_quant_dtype,
-            weight_quant_method=cfg.weight_quant_method,
-        )
-
-        prediction_layers = []
-        prev_size = self.context_history_size * cfg.context_embedding_dim
-        for _ in range(cfg.pred_num_layers):
-            prediction_layers.append(torch.nn.Dropout(cfg.dropout))
-            prediction_layers.append(
-                ActivationQuantizer(
-                    bit_precision=cfg.activation_bit_prec,
-                    dtype=cfg.activation_quant_dtype,
-                    method=cfg.activation_quant_method,
-                    channel_axis=1,
-                    moving_avrg=cfg.moving_average,
-                )
-            )
-            prediction_layers.append(
-                LinearQuant(
-                    prev_size,
-                    cfg.pred_dim,
-                    weight_bit_prec=cfg.weight_bit_prec,
-                    weight_quant_dtype=cfg.weight_quant_dtype,
-                    weight_quant_method=cfg.weight_quant_method,
-                    bias=True,
-                )
-            )
-            prediction_layers.append(
-                ActivationQuantizer(
-                    bit_precision=cfg.activation_bit_prec,
-                    dtype=cfg.activation_quant_dtype,
-                    method=cfg.activation_quant_method,
-                    channel_axis=1,
-                    moving_avrg=cfg.moving_average,
-                )
-            )
-            prediction_layers.append(cfg.pred_activation)
-            prev_size = cfg.pred_dim
-        self.prediction_net = torch.nn.Sequential(*prediction_layers)
-
-        self.prediction_output_in_q = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.prediction_output_out_q = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.prediction_output = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout),
-            self.prediction_output_in_q,
-            LinearQuant(
-                cfg.pred_dim,
-                self.target_size,
-                weight_bit_prec=cfg.weight_bit_prec,
-                weight_quant_dtype=cfg.weight_quant_dtype,
-                weight_quant_method=cfg.weight_quant_method,
-                bias=True,
-            ),
-            self.prediction_output_out_q,
-        ) # only for loss, but quantized just for consistency
-
-        self.joint_net = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout),
-            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
-            cfg.joiner_activation,
-            torch.nn.Dropout(cfg.dropout),
-            torch.nn.Linear(cfg.joiner_dim, self.target_size),
-        )
-
-        self.converter_hardware_settings = cfg.converter_hardware_settings
-        self.correction_settings = cfg.correction_settings
-        self.num_cycles = cfg.num_cycles
-
-    def _convert_linear(self, lin: LinearQuant, in_quant: ActivationQuantizer) -> torch.nn.Module:
-
-        lin.weight_quantizer.set_scale_and_zp()
-        in_quant.set_scale_and_zp()
-        if lin.pruning_config is not None:
-            with torch.no_grad():
-                lin.weight.data = lin.pruning_config.apply(lin.weight.data, training=False)
-        weight_prec = lin.weight_bit_prec if lin.weight_bit_prec != 1.5 else 2
-        mem_lin = TiledMemristorLinear(
-            in_features=lin.in_features,
-            out_features=lin.out_features,
-            weight_precision=weight_prec,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-        )
-        mem_lin.init_from_linear_quant(
-            activation_quant=in_quant,
-            linear_quant=lin,
-            num_cycles_init=self.num_cycles,
-            correction_settings=self.correction_settings,
-        )
-        return mem_lin
-
-    def _convert_embedding(self, emb: EmbeddingQuant) -> torch.nn.Module:
-        emb.weight_quantizer.set_scale_and_zp()
-        if emb.pruning_config is not None:
-            with torch.no_grad():
-                emb.weight.data = emb.pruning_config.apply(emb.weight.data, training=False)
-        weight_prec = emb.weight_bit_prec if emb.weight_bit_prec != 1.5 else 2
-        mem_emb = TiledMemristorEmbedding(
-            num_embeddings=emb.num_embeddings,
-            embedding_dim=emb.embedding_dim,
-            weight_precision=weight_prec,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-            padding_idx=emb.padding_idx,
-        )
-        mem_emb.init_from_embedding_quant(
-            embedding_quant=emb,
-            num_cycles_init=self.num_cycles,
-            correction_settings=self.correction_settings,
-        )
-        return mem_emb
+class FFNNTransducerQATEncoderPredictionBase(torch.nn.Module):
 
     def prep_quant(self):
-        self.conformer.prep_quant()
-
-        self.token_embedding = self._convert_embedding(self.token_embedding)
-
-        for base in range(0, len(self.prediction_net), 5):
-            self.prediction_net[base + 2] = self._convert_linear(
-                self.prediction_net[base + 2], self.prediction_net[base + 1]
-            )
-            self.prediction_net[base + 1] = torch.nn.Identity()
-
+        pass
 
     def forward_encoder(
         self,
@@ -331,11 +154,10 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
                         time_max_mask_per_n_frames=self.specaug_config.time_max_mask_per_n_frames,
                         time_mask_max_size=self.specaug_config.time_mask_max_size,
                         freq_min_num_masks=self.specaug_config.freq_min_num_masks,
-                        freq_max_num_masks=self.specaug_config.freq_max_num_masks,
+                        freq_max_mask_per_n_frames=self.specaug_config.freq_max_mask_per_n_frames,
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
-        features = features * sequence_mask.unsqueeze(-1)  # [B, T, F]
         encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, E], [B, T]
         encoder_states = encoder_states[-1]
 
@@ -398,36 +220,331 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
         return joint_output
 
 
-class FFNNTransducerQATEncoderPredictionEncoder(FFNNTransducerQATEncoderPredictionModel):
+class FFNNTransducerQATEncoderPredictionModel(FFNNTransducerQATEncoderPredictionBase):
     def __init__(self, cfg: FFNNTransducerQATEncoderPredictionConfig, **_):
-        super().__init__(cfg=cfg)
+        super().__init__()
+        self.target_size = cfg.target_size
+
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
+        self.specaug_config = cfg.specaug_cfg
+        self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
+
+        self.enc_output_in_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.enc_output_out_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.encoder_output = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            self.enc_output_in_q,
+            LinearQuant(
+                cfg.enc_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
+            self.enc_output_out_q,
+        )  # only for loss, but quantized just for consistency
+
+        self.context_history_size = cfg.context_history_size
+
+        self.token_embedding = TiledMemristorEmbedding(
+            num_embeddings=self.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_precision=cfg.weight_bit_prec,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+
+        # self.token_embedding = EmbeddingQuant(
+        #     num_embeddings=self.target_size,
+        #     embedding_dim=cfg.context_embedding_dim,
+        #     padding_idx=cfg.target_size - 1,
+        #     weight_bit_prec=cfg.weight_bit_prec,
+        #     weight_quant_dtype=cfg.weight_quant_dtype,
+        #     weight_quant_method=cfg.weight_quant_method,
+        # )
+
+        prediction_layers = []
+        prev_size = self.context_history_size * cfg.context_embedding_dim
+        for _ in range(cfg.pred_num_layers):
+            prediction_layers.append(torch.nn.Dropout(cfg.dropout))
+            prediction_layers.append(torch.nn.Identity())
+            prediction_layers.append(
+                TiledMemristorLinear(
+                    in_features=prev_size,
+                    out_features=cfg.pred_dim,
+                    weight_precision=cfg.weight_bit_prec,
+                    converter_hardware_settings=cfg.converter_hardware_settings,
+                    memristor_inputs=128,
+                    memristor_outputs=128,
+                )
+                # LinearQuant(
+                #     prev_size,
+                #     cfg.pred_dim,
+                #     weight_bit_prec=cfg.weight_bit_prec,
+                #     weight_quant_dtype=cfg.weight_quant_dtype,
+                #     weight_quant_method=cfg.weight_quant_method,
+                #     bias=True,
+                # )
+            )
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(cfg.pred_activation)
+            prev_size = cfg.pred_dim
+        self.prediction_net = torch.nn.Sequential(*prediction_layers)
+
+        self.prediction_output_in_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.prediction_output_out_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.prediction_output = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            self.prediction_output_in_q,
+            LinearQuant(
+                cfg.pred_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
+            self.prediction_output_out_q,
+        )  # only for loss, but quantized just for consistency
+
+        self.joint_net = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
+            cfg.joiner_activation,
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.joiner_dim, self.target_size),
+        )
+
+        self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.correction_settings = cfg.correction_settings
+        self.num_cycles = cfg.num_cycles
+        self.prep_quant()
+
+    def _convert_linear(self, lin: LinearQuant, in_quant: ActivationQuantizer) -> torch.nn.Module:
+
+        lin.weight_quantizer.set_scale_and_zp()
+        in_quant.set_scale_and_zp()
+        if lin.pruning_config is not None:
+            with torch.no_grad():
+                lin.weight.data = lin.pruning_config.apply(lin.weight.data, training=False)
+        weight_prec = lin.weight_bit_prec if lin.weight_bit_prec != 1.5 else 2
+        mem_lin = TiledMemristorLinear(
+            in_features=lin.in_features,
+            out_features=lin.out_features,
+            weight_precision=weight_prec,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+        mem_lin.init_from_linear_quant(
+            activation_quant=in_quant,
+            linear_quant=lin,
+            num_cycles_init=self.num_cycles,
+            correction_settings=self.correction_settings,
+        )
+        return mem_lin
+
+    def _convert_embedding(self, emb: EmbeddingQuant) -> torch.nn.Module:
+        emb.weight_quantizer.set_scale_and_zp()
+        if emb.pruning_config is not None:
+            with torch.no_grad():
+                emb.weight.data = emb.pruning_config.apply(emb.weight.data, training=False)
+        weight_prec = emb.weight_bit_prec if emb.weight_bit_prec != 1.5 else 2
+        mem_emb = TiledMemristorEmbedding(
+            num_embeddings=emb.num_embeddings,
+            embedding_dim=emb.embedding_dim,
+            weight_precision=weight_prec,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+            padding_idx=emb.padding_idx,
+        )
+        mem_emb.init_from_embedding_quant(
+            embedding_quant=emb,
+            num_cycles_init=self.num_cycles,
+            correction_settings=self.correction_settings,
+        )
+        return mem_emb
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.conformer.prep_quant()
+
+        self.token_embedding.initialized = True
+
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 2].initialized = True
+
+
+class FFNNTransducerQATEncoderPredictionEncoder(FFNNTransducerQATEncoderPredictionBase):
+    def __init__(self, cfg: FFNNTransducerQATEncoderPredictionConfig, **_):
+        super().__init__()
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
+        self.specaug_config = cfg.specaug_cfg
+        self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
         self.enc_output_indices = []
+        self.prep_quant()
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.conformer.prep_quant()
 
     def forward(
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
     ) -> torch.Tensor:  # [B, T', E]
-        encoder_states, _ = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
-        return encoder_states  # [B, T', E]
+        encoder_states, encoder_states_len = self.forward_encoder(
+            audio_samples=audio_samples, audio_samples_size=audio_samples_size
+        )
+        return encoder_states, encoder_states_len  # [B, T', E]
 
 
-class FFNNTransducerQATEncoderPredictionScorer(FFNNTransducerQATEncoderPredictionModel):
+class FFNNTransducerQATEncoderPredictionScorer(FFNNTransducerQATEncoderPredictionBase):
     def __init__(self, cfg: FFNNTransducerQATEncoderPredictionRecogConfig, **_):
-        super().__init__(cfg=cfg)
+        super().__init__()
+        self.target_size = cfg.target_size
+        self.context_history_size = cfg.context_history_size
+
+        self.token_embedding = TiledMemristorEmbedding(
+            num_embeddings=self.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_precision=cfg.weight_bit_prec,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+
+        prediction_layers = []
+        prev_size = self.context_history_size * cfg.context_embedding_dim
+        for _ in range(cfg.pred_num_layers):
+            prediction_layers.append(torch.nn.Dropout(cfg.dropout))
+            prediction_layers.append(torch.nn.Identity())
+            prediction_layers.append(
+                TiledMemristorLinear(
+                    in_features=prev_size,
+                    out_features=cfg.pred_dim,
+                    weight_precision=cfg.weight_bit_prec,
+                    converter_hardware_settings=cfg.converter_hardware_settings,
+                    memristor_inputs=128,
+                    memristor_outputs=128,
+                )
+            )
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(cfg.pred_activation)
+            prev_size = cfg.pred_dim
+        self.prediction_net = torch.nn.Sequential(*prediction_layers)
+
+        self.joint_net = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
+            cfg.joiner_activation,
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.joiner_dim, self.target_size),
+        )
+
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty
+        self.prediction_net_cache = {}
+
+        self.prep_quant()
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.token_embedding.initialized = True
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 2].initialized = True
+
+    def cached_prediction_net_forward(
+        self, history: torch.Tensor, use_cache: bool = False
+    ) -> torch.Tensor:  # [B, H] -> [B, P]
+        if not use_cache:
+            embedding = self.token_embedding(history)  # [B, H, A]
+            embedding = torch.reshape(
+                embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
+            )  # [B, H*A]
+            pred_state = self.prediction_net(embedding)  # [B, P]
+            return pred_state
+        else:
+            assert (
+                self.context_history_size == 1
+            ), "Attempting to cache for context history > 1, might work but untested."
+
+        last_label_ids = history[:, -self.context_history_size].tolist()  # [B]
+        uniq = set(last_label_ids)
+        misses = [x for x in uniq if x not in self.prediction_net_cache]
+
+        if misses:
+            miss_hist = torch.tensor(misses, dtype=torch.long, device=history.device).view(-1, 1)  # [M, H]
+            miss_emb = self.token_embedding(miss_hist)  # [M, H, A]
+            miss_emb = miss_emb.reshape(miss_emb.size(0), -1)  # [M, H*A]
+            pred_miss = self.prediction_net(miss_emb)  # [M, P]
+            for i, p in zip(misses, pred_miss):
+                self.prediction_net_cache[i] = p
+
+        pred_state = torch.stack([self.prediction_net_cache[i] for i in last_label_ids], dim=0)  # [B, P]
+
+        return pred_state
 
     def forward(
         self,
         encoder_state: torch.Tensor,  # [1, E]
         history: torch.Tensor,  # [B, H]
+        use_cache: bool = False,
     ) -> torch.Tensor:  # [B, V]
-        embedding = self.token_embedding(history)  # [B, H, A]
-        embedding = torch.reshape(
-            embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
-        )  # [B, H*A]
-        pred_state = self.prediction_net(embedding)  # [B, P]
+        # embedding = self.token_embedding(history)  # [B, H, A]
+        # embedding = torch.reshape(
+        #     embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
+        # )  # [B, H*A]
+        pred_state = self.cached_prediction_net_forward(history, use_cache=use_cache)  # [B, P]
 
         joint_input = torch.concat([encoder_state.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
         joint_output = self.joint_net(joint_input)  # [B, V]

@@ -127,7 +127,7 @@ def default_recog_variants() -> List[CTCRecogVariant]:
         # default_offline_lexfree_lstm_recog_variant(),
         # default_offline_lexfree_trafo_recog_variant(),
         # default_offline_tree_recog_variant(),
-        # memristor_eq_base_tree_recog_variant(),
+        memristor_eq_base_tree_recog_variant(),
         # default_offline_tree_4gram_recog_variant(),
         # default_offline_tree_lstm_recog_variant(),
         # default_offline_tree_lstm_4gram_recog_variant(),

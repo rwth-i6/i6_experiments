@@ -16,13 +16,12 @@ from ....data.librispeech.bpe import bpe_to_vocab_size
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.common.train import TrainedModel, train
+from ....model_pipelines.common.train import FinetuneOptions, TrainedModel, train
 from ....model_pipelines.ffnn_transducer_qat_encoder.pytorch_modules import (
     FFNNTransducerQATEncoderConfig,
     FFNNTransducerQATEncoderModel,
-    FFNNTransducerQATEncoderScorer,
-    FFNNTransducerQATEncoderRecogConfig,
 )
+
 from ....model_pipelines.ffnn_transducer_qat_encoder.train import (
     FFNNTransducerQATEncoderTrainOptions,
     get_train_step_import,
@@ -40,9 +39,12 @@ from ....model_pipelines.common.assemblies.conformer import (
 
 def run(
     descriptor: str,
+    base_model: TrainedModel[FFNNTransducerQATEncoderConfig],
     qat_args: Optional[dict] = None,
     model_config: Optional[FFNNTransducerQATEncoderConfig] = None,
     train_options: Optional[FFNNTransducerQATEncoderTrainOptions] = None,
+    finetune_options: Optional[FinetuneOptions] = None,
+    hash_control: Optional[str] = None,
     seed: Optional[int] = None,
 ) -> TrainedModel[FFNNTransducerQATEncoderConfig]:
     if model_config is None:
@@ -50,14 +52,21 @@ def run(
             raise ValueError("Either model_config or qat_args must be provided")
         model_config = get_model_config(**qat_args)
     if train_options is None:
-        train_options = get_train_options()
+        train_options = get_train_options(num_epochs=25)
+    if finetune_options is None:
+        finetune_options = get_finetune_options(base_model)
+
+    train_step_import = get_train_step_import(train_options)
+    if hash_control is not None:
+        train_step_import.hashed_arguments["_hash_control"] = hash_control
 
     return train(
         descriptor=descriptor,
         model_class=FFNNTransducerQATEncoderModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_train_step_import(train_options),
+        train_step_import=train_step_import,
+        finetune_options=finetune_options,
         seed=seed,
     )
 
@@ -253,39 +262,10 @@ def get_model_config(
     )
 
 
-def get_train_options3(bpe_size: int = 128) -> FFNNTransducerQATEncoderTrainOptions:
-    return FFNNTransducerQATEncoderTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
-            weight_decay=0.01,
-            decoupled_weight_decay=True,
-        ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
-            decayed_lr=5e-05,
-            final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
-        ),
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=48,
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
-        max_seqs=None,
-        max_seq_length={"audio_features": 35 * 16000},
-    )
 
-
-def get_train_options(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATEncoderTrainOptions:
+def get_train_options(
+    bpe_size: int = 128, num_epochs: int = 25, learning_rate_config: OCLRConfig = None, gpu_mem_rqmt: int = 48
+) -> FFNNTransducerQATEncoderTrainOptions:
     train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
     cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
 
@@ -293,6 +273,17 @@ def get_train_options(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATE
 
     save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
     save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    if learning_rate_config is None:
+        learning_rate_config = OCLRConfig(
+            init_lr=7e-06,
+            peak_lr=5e-04,
+            decayed_lr=5e-05,
+            final_lr=1e-07,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            final_epochs=4 * partition_epoch,
+        )
 
     return FFNNTransducerQATEncoderTrainOptions(
         train_data_config=train_data_config,
@@ -305,19 +296,11 @@ def get_train_options(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATE
             weight_decay=0.01,
             decoupled_weight_decay=True,
         ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
-            decayed_lr=5e-05,
-            final_lr=1e-07,
-            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
-            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
-            final_epochs=4 * partition_epoch,
-        ),
+        lr_config=learning_rate_config,
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
+        gpu_mem_rqmt=gpu_mem_rqmt,
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
         max_seqs=None,
@@ -325,41 +308,11 @@ def get_train_options(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATE
     )
 
 
-def get_train_options2(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATEncoderTrainOptions:
-    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
-    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
-
-    partition_epoch = train_data_config.partition_epoch
-
-    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
-    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
-
-    return FFNNTransducerQATEncoderTrainOptions(
-        train_data_config=train_data_config,
-        cv_data_config=cv_data_config,
-        save_epochs=save_subepochs,
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
-            weight_decay=0.01,
-            decoupled_weight_decay=True,
-        ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
-            decayed_lr=5e-05,
-            final_lr=1e-07,
-            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
-            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
-            final_epochs=4 * partition_epoch,
-        ),
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
-        max_seqs=None,
-        max_seq_length=None,
+def get_finetune_options(base_model: TrainedModel[FFNNTransducerQATEncoderConfig]) -> FinetuneOptions:
+    return FinetuneOptions(
+        label="conformer_encoder",
+        filename=base_model.get_checkpoint(),
+        init_for_train=True,
+        ignore_missing=False,
     )
+

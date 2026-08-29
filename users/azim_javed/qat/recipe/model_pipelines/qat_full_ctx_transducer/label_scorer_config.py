@@ -1,12 +1,17 @@
 __all__ = ["get_lstm_transducer_label_scorer_config"]
 
-from dataclasses import fields
-
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
+from i6_experiments.common.setups.serialization import Import
 
-from .export import export_scorer, export_state_initializer, export_state_updater
-from .pytorch_modules import QATLstmTransducerConfig, QATLstmTransducerRecogConfig
+from ...experiments.librispeech.training.qat_full_ctx_transducer_bpe import get_model_config
+from .pytorch_modules import (
+    QATLstmTransducerConfig,
+    QATLstmTransducerRecogConfig,
+    QATLstmTransducerScorer,
+    QATLstmTransducerStateInitializer,
+    QATLstmTransducerStateUpdater,
+)
 
 
 def get_lstm_transducer_label_scorer_config(
@@ -14,47 +19,38 @@ def get_lstm_transducer_label_scorer_config(
     checkpoint: PtCheckpoint,
     ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
+    scale: float = 1.0,
+    use_gpu: bool = False,
 ) -> RasrConfig:
-    recog_model_config = QATLstmTransducerRecogConfig(
-        **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-        ilm_scale=ilm_scale,
-        blank_penalty=blank_penalty,
-    )
 
-    scorer_onnx_model = export_scorer(model_config=recog_model_config, checkpoint=checkpoint)
-    state_initializer_onnx_model = export_state_initializer(model_config=model_config, checkpoint=checkpoint)
-    state_updater_onnx_model = export_state_updater(model_config=model_config, checkpoint=checkpoint)
+    label_scorer_type = "stateful-py"
 
     rasr_config = RasrConfig()
-    rasr_config.type = "stateful-transducer-onnx"
+    rasr_config.type = label_scorer_type
+    rasr_config.start_label_index = model_config.target_size - 1
 
-    rasr_config.scorer_model = RasrConfig()
-    rasr_config.scorer_model.session = RasrConfig()
-    rasr_config.scorer_model.session.file = scorer_onnx_model
-    rasr_config.scorer_model.session.inter_op_num_threads = 2
-    rasr_config.scorer_model.session.intra_op_num_threads = 2
+    rasr_config.recognition = RasrConfig()
+    rasr_config.recognition.ilm_scale = ilm_scale
+    rasr_config.recognition.blank_penalty = blank_penalty
+    rasr_config.recognition.scale = scale
+    rasr_config.recognition.model_path = checkpoint
+    rasr_config.recognition.experiment = "full_ctx_transducer_qat_encoder"
+    rasr_config.recognition.device = "cuda" if use_gpu else "cpu"
 
-    rasr_config.scorer_model.io_map = RasrConfig()
-    rasr_config.scorer_model.io_map.scores = "scores"
-    rasr_config.scorer_model.io_map.input_feature = "encoder_state"
+    imports = [
+        Import(f"{QATLstmTransducerScorer.__module__}.{QATLstmTransducerScorer.__name__}", import_as="ScorerModel"),
+        Import(f"{QATLstmTransducerStateInitializer.__module__}.{QATLstmTransducerStateInitializer.__name__}", import_as="StateInitializerModel"),
+        Import(f"{QATLstmTransducerStateUpdater.__module__}.{QATLstmTransducerStateUpdater.__name__}", import_as="StateUpdaterModel"),
+        Import(f"{QATLstmTransducerRecogConfig.__module__}.{QATLstmTransducerRecogConfig.__name__}", import_as="RecogConfig"),
+        Import(f"{get_model_config.__module__}.{get_model_config.__name__}", import_as="get_model_config"),
+    ]
+    rasr_config.recognition.imports = " ".join(
+        imp.get().strip() if hasattr(imp, "get") else str(imp).strip() for imp in imports
+    )
 
-    rasr_config.state_initializer_model = RasrConfig()
-    rasr_config.state_initializer_model.session = RasrConfig()
-    rasr_config.state_initializer_model.session.file = state_initializer_onnx_model
-    rasr_config.state_initializer_model.session.inter_op_num_threads = 2
-    rasr_config.state_initializer_model.session.intra_op_num_threads = 2
-
-    rasr_config.state_updater_model = RasrConfig()
-    rasr_config.state_updater_model.session = RasrConfig()
-    rasr_config.state_updater_model.session.file = state_updater_onnx_model
-    rasr_config.state_updater_model.session.inter_op_num_threads = 2
-    rasr_config.state_updater_model.session.intra_op_num_threads = 2
-
-    rasr_config.state_updater_model.io_map = RasrConfig()   
-    # rasr_config.state_updater_model.io_map.lstm_c_in = "lstm_c"
-    # rasr_config.state_updater_model.io_map.lstm_h_in = "lstm_h"
-    # rasr_config.state_updater_model.io_map.lstm_c_out = "lstm_c"
-    # rasr_config.state_updater_model.io_map.lstm_h_out = "lstm_h"
-    rasr_config.state_updater_model.io_map.token = "token"
+    rasr_config.recognition.qat.weight_bit_prec = 8
+    rasr_config.recognition.qat.activation_bit_prec = 8
+    rasr_config.recognition.qat.weight_dropout = 0.0
+    rasr_config.recognition.qat.weight_pruning_config = None
 
     return rasr_config

@@ -134,10 +134,8 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
 
 def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
     variants = []
-    params = [
+    params = sorted([
         (0.1, 0.6),
-        # (0.1, 0.8),
-        # (0.1, 0.9),
         (0.2, 0.6),
         (0.2, 0.7),
         (0.2, 0.8),
@@ -146,7 +144,17 @@ def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
         (0.3, 0.6),
         (0.3, 0.7),
         (0.4, 0.6),
-    ]
+        (0.4, 0.7),
+        (0.5, 0.3),
+        (0.5, 0.4),
+        (0.5, 0.5),
+        (0.5, 0.6),
+        (0.5, 0.7),
+        (0.6, 0.4),
+        (0.6, 0.5),
+        (0.6, 0.6),
+        (0.7, 0.5),
+    ])
     for ilm_scale, ext_lm_scale in params:
         variants.append(
             TransducerRecogVariant(

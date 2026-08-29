@@ -28,6 +28,7 @@ class MemristorModelConversionJob(Job):
         print(f"Converting model for memristor with config: {self.out_config}", flush=True)
         model = self.model_class(cfg=self.out_config)
         model.load_state_dict(checkpoint_data["model"])
+        model.eval()
         model.prep_quant()
         torch.save({"model": model.state_dict()}, self.out_checkpoint.path)
 
