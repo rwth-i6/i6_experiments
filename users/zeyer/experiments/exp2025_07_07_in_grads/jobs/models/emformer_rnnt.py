@@ -214,6 +214,9 @@ class EmformerRnnt(BaseModelInterface):
         feats, flen = self.feature_extractor(wav.cpu())  # [T_feat, 80] (extractor is CPU numpy-ish)
         feats = feats.to(dev)
         t_feat = int(feats.shape[0])
+        if t_feat > self.LONGFORM_T_FEAT:
+            # full-utterance encoder attention + the [T,U+1,V] joint both OOM here
+            return self._forward_longform(feats, t_feat, orig_n_samples, words, sub_ids, word_ranges, collect_lattice)
         grad_leaf = feats.detach().unsqueeze(0).requires_grad_(True)  # [1, T_feat, 80]
         grad_leaf.retain_grad()
 
@@ -269,6 +272,107 @@ class EmformerRnnt(BaseModelInterface):
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
+        )
+
+    # Above this many feature frames (100 Hz; ~80 s), the full-utterance encoder attention
+    # OOMs (verified: 10-min track = 83 GB on an H100), so forward() switches to the
+    # streaming long-form path below.
+    LONGFORM_T_FEAT = 8000
+
+    def _forward_longform(
+        self, feats, t_feat, orig_n_samples, words, sub_ids, word_ranges, collect_lattice
+    ) -> ForwardOutput:
+        """Long-form forward for the native-viterbi forced alignment.
+
+        Encoder: Emformer's native streaming inference (transcribe_streaming, carried state),
+        segment-wise -- numerically identical to the full forward (verified: max diff 8.6e-6),
+        memory O(segment) instead of O(T^2) attention.
+        Joint: evaluated in time chunks and immediately reduced to the gathered lattice
+        (blank + next-target log-prob per (t, u)); the full [T, U+1, V] joint would be
+        ~540 GB at 10 min. No grads, no exit scores: only collect_lattice consumers
+        (the native-viterbi job) are supported.
+        """
+        dev = self.device
+        assert collect_lattice is not None, "long-form EmformerRnnt forward: only the native-viterbi path is supported"
+        assert self.per_token_score == "emission", f"long-form: unsupported {self.per_token_score=}"
+        s_len = len(sub_ids)
+
+        tf = self.model.transcriber.transformer
+        red = 4  # time-reduction factor of the bundle (16 feat frames -> 4 enc frames per segment)
+        seg_feat = tf.segment_length * red
+        rc_feat = tf.right_context_length * red
+        # the full transcribe() would emit this many frames (validated on 20 s / 60 s probes)
+        t_enc = (t_feat - rc_feat - 1) // red
+
+        outs = []
+        state = None
+        with torch.no_grad():
+            for i in range(0, t_feat, seg_feat):
+                chunk = feats[i : i + seg_feat + rc_feat]
+                n = int(chunk.shape[0])
+                if n < seg_feat + rc_feat:
+                    chunk = torch.nn.functional.pad(chunk, (0, 0, 0, seg_feat + rc_feat - n))
+                out, _, state = self.model.transcribe_streaming(
+                    chunk[None], torch.tensor([chunk.shape[0]], device=dev), state
+                )
+                outs.append(out[0])
+            enc = torch.cat(outs, dim=0)[None]  # [1, >=T_enc, H]
+            assert enc.shape[1] >= t_enc, f"{enc.shape=} vs {t_enc=}"
+            enc = enc[:, :t_enc]
+
+            tgt = torch.tensor([[self.blank_idx] + sub_ids], dtype=torch.int32, device=dev)
+            tgt_len = torch.tensor([tgt.shape[1]], dtype=torch.int32, device=dev)
+            pred, pred_len, _ = self.model.predict(tgt, tgt_len, None)  # [1, U+1, H]
+
+            ys_t = torch.tensor(sub_ids, dtype=torch.long, device=dev)
+            logblank = torch.empty((t_enc, s_len + 1), device=dev)
+            loglab = torch.empty((t_enc, s_len), device=dev)
+            chunk_t = 64  # [64, U+1, V] joint chunk ~ 2.3 GB transient
+            for t0 in range(0, t_enc, chunk_t):
+                t1 = min(t0 + chunk_t, t_enc)
+                logits, _, _ = self.model.join(
+                    enc[:, t0:t1],
+                    torch.tensor([t1 - t0], device=dev),
+                    pred,
+                    pred_len,
+                )  # [1, tau, U+1, V]
+                lsm = torch.log_softmax(logits[0].float(), dim=-1)
+                logblank[t0:t1] = lsm[:, :, self.blank_idx]
+                loglab[t0:t1] = lsm[:, :s_len, :].gather(2, ys_t[None, :, None].expand(t1 - t0, -1, -1))[:, :, 0]
+                del logits, lsm
+
+            collect_lattice.append(
+                dict(
+                    logblank=logblank.cpu().numpy(),
+                    loglab=loglab.cpu().numpy(),
+                    log_dur=None,
+                    durations=None,
+                )
+            )
+            partial = torch.logsumexp(loglab, dim=0)  # [S], crude time-marginal emission score
+
+        partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1], exit slot
+        targets = torch.tensor([sub_ids + [self.blank_idx]], dtype=torch.long, device=dev)
+        word_start_end = [[a, b] for (a, b) in word_ranges] + [[s_len, s_len + 1]]
+        input_slice = (
+            torch.tensor([0], dtype=torch.int64),
+            torch.tensor([t_feat], dtype=torch.int64),
+        )
+        edges = torch.arange(t_feat + 1, dtype=torch.float64) * (orig_n_samples / max(t_feat, 1))
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(0)
+        print(
+            f"[fwd longform] words={len(words)} subwords={s_len} T_feat={t_feat} T_enc={t_enc} (streaming encoder)",
+            flush=True,
+        )
+        return ForwardOutput(
+            inputs=feats.unsqueeze(0),
+            input_seq_lens=torch.tensor([t_feat]),
+            input_slice_start_end=input_slice,
+            input_raw_start_end=input_raw_start_end,
+            targets=targets,
+            target_seq_lens=torch.tensor([targets.shape[1]]),
+            target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=None),
         )
 
     # ---- log_probs -------------------------------------------------------
