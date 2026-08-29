@@ -2432,6 +2432,63 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-bench-fixdelta-padded_eager.json", job.out_results)
 
+    # ONE-PROTOCOL ABLATION CELLS (2026-08-29): 300 steps, warmup_steps 0, same cfg/seed/GPU,
+    # so s/step AND peak memory are comparable across every row of the two ablation tables.
+    # The training logs cannot serve this: they mix warmup_steps 2 and 0, and the older ones
+    # predate the pool-inclusive mem_usage fix, so their peaks are not on one scale.
+    # Execution-mode table: padded_eager / packed_compiled / packed_graphc exist above,
+    # packed_eager at 300 steps is the missing cell (the old one ran 31 steps, profiled).
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_eager",
+        num_steps=300,
+        version=23,
+        config_overrides={"behavior_version": 29, "packed_tensors": _v2_packed_tensors},
+    )
+    tk.register_output("returnn/loq-bench-fixdelta-packed_eager.json", job.out_results)
+
+    # Batching/ordering table: single-variable steps away from the warmup0 graphc cell above
+    # (that one is the batch_size budget under laplace). Budgets, text budgets, batch bounds
+    # and max_seqs are the values of the corresponding trainings; the layout stays the frozen
+    # per_key one so the ONLY difference per row is the budget resp. the ordering.
+    for _tag, _budget, _text_budget, _bs_bound, _ordering in [
+        ("pbs16m", 16_192_320, 4_000, 200, None),
+        ("pbs16m-randshuf", 16_192_320, 4_000, 200, "random"),
+        ("pbs28m-randshuf", 28_000_000, 6_917, 346, "random"),
+    ]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=300,
+            version=23,
+            seq_ordering=_ordering,
+            config_overrides={
+                "behavior_version": 29,
+                "packed_tensors": _v2_packed_tensors,
+                # batch_size must go, else the padded accounting binds first and the content
+                # budget is a no-op (same reason the pbs trainings set it to None)
+                "batch_size": None,
+                "packed_batch_size": {"audio": _budget, "text": _text_budget},
+                "max_seqs": _bs_bound,
+                "torch_cuda_graph": {
+                    **_v2_graph_opts,
+                    "warmup_steps": 0,
+                    "batch_size_bound": _bs_bound,
+                    # bound = budget + the alignment reserve. The usable content bound is
+                    # packed_total_bound - batch_size_bound * (gap + align - 1), while the
+                    # batcher fills to the budget, so at align 960 a bound == budget overflows
+                    # on the first long batch (measured: 16_030_361 > 16_000_520).
+                    # The pbs TRAININGS avoid this by running packed_tensors True (align 1);
+                    # here the layout stays fixed so the budget is the only variable.
+                    "packed_total_bound": {
+                        "audio": _budget + _bs_bound * (_v2_align - 1),
+                        "text": _text_budget,
+                    },
+                },
+            },
+        )
+        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-{_tag}.json", job.out_results)
+
 
 def _loq_batch_size_factor():
     """the raw-sample batch-size factor of the baseline configs"""
