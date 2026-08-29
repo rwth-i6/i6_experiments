@@ -1293,6 +1293,51 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # Same arm on the instance store instead of the mean table,
+    # so the pair isolates real dynamics against an averaged shape.
+    # A mean is smooth by construction; a real slice pays in repetition instead.
+    _train_tts_encoder(
+        "pseudo-enc-ctcsubword-inst-lerp-packed-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=4_000,
+        max_phon_len=200,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_instance_table=_ctc_subword_instances().out_instance_table,
+        pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_gap_frac=0.25,
+        pseudo_enc_max_len_factor=30,
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        train_seq_ordering="random",
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 4_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 200},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # Same, but durations scaled to 0.7, so ~30% shorter sequences at ~1 encoder frame per phoneme.
     # Differs from the run above in exactly this one knob.
     _train_tts_encoder(
@@ -1997,6 +2042,47 @@ def _ctc_subword_tables(*, fill_within_words: bool = False):
     return job
 
 
+@functools.cache
+def _ctc_subword_instances(*, total_gb: float = 3.0, floor_frames: int = 100):
+    """
+    Store of real log-mel slices per subword, from the same alignment as the mean table.
+
+    The mean table is smooth by construction,
+    so its interior moves far less than real speech does.
+    A stored slice is real speech, and trades that smoothness for repetition.
+
+    :param total_gb: size of the store
+    :param floor_frames: frames every unit gets before the rest is shared by frequency
+    :return: the collection job, with out_instance_table for the pseudo-enc
+    """
+    from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_raw_audio_only
+    from i6_experiments.users.zeyer.datasets.librispeech_ctc_subword_stats import CollectCtcSubwordInstancesJob
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_librispeech_base
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_slow_fast_rna_fzj import _ls_align_hdfs
+
+    # The instance lengths come from the mean table, so both have to be built the same way.
+    stats_job = _ctc_subword_tables(fill_within_words=True)
+    with disable_register_output():
+        model = _train_librispeech_base().get_last_fixed_epoch()
+    job = CollectCtcSubwordInstancesJob(
+        align_hdfs=_ls_align_hdfs(model, keys=["train"])["train"],
+        dataset_dict=get_librispeech_raw_audio_only(main_key="train").get_main_dataset(),
+        returnn_root=tools_paths.get_returnn_root(),
+        mean_table=stats_job.out_mean_table,
+        stats=stats_job.out_stats,
+        fill_within_words=True,
+        total_gb=total_gb,
+        floor_frames=floor_frames,
+    )
+    name = f"ctc_subword_instances_{total_gb:g}gb"
+    job.add_alias(f"datasets/LibriSpeech/{name}")
+    tk.register_output(f"datasets/LibriSpeech/{name}.npz", job.out_instance_table)
+    tk.register_output(f"datasets/LibriSpeech/{name}_stats.json", job.out_stats)
+    return job
+
+
 def _train_asr_base_multigpu(
     name: str,
     *,
@@ -2206,6 +2292,7 @@ def _train_tts_encoder(
     pseudo_enc_start_layer: Optional[int] = None,
     pseudo_enc_array_table: Optional[tk.Path] = None,
     pseudo_enc_array_duration_table: Optional[tk.Path] = None,
+    pseudo_enc_instance_table: Optional[tk.Path] = None,
     pseudo_enc_smooth_boundary_width: Optional[int] = None,
     pseudo_enc_gap_frac: Optional[float] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
@@ -2304,7 +2391,7 @@ def _train_tts_encoder(
     # vocab the CTC alignment and its table are indexed by. It reuses the phoneme stream and all its
     # plumbing, so only the vocab dim and the map_seq differ; renaming the stream would rehash
     # every existing packed arm.
-    if pseudo_enc_array_table is not None:
+    if pseudo_enc_array_table is not None or pseudo_enc_instance_table is not None:
         phon_dim = Dim(spm_dim.dimension + 1, name="subword_units")
         phon_extern = {k: v for k, v in phon_extern.items() if k != "vocab"}
         phon_extern["sparse_dim"] = phon_dim
@@ -2449,6 +2536,15 @@ def _train_tts_encoder(
                         "pseudo_enc_array_duration_table": pseudo_enc_array_duration_table,
                     }
                     if pseudo_enc_array_table is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "pseudo_enc_units": "spm",
+                        "pseudo_enc_instance_table": pseudo_enc_instance_table,
+                        "pseudo_enc_array_duration_table": pseudo_enc_array_duration_table,
+                    }
+                    if pseudo_enc_instance_table is not None
                     else {}
                 ),
                 **(
@@ -2633,6 +2729,15 @@ def _train_tts_encoder(
                 if pseudo_enc_array_table is not None
                 else {}
             ),
+            **(
+                {
+                    "pseudo_enc_units": "spm",
+                    "pseudo_enc_instance_table": pseudo_enc_instance_table,
+                    "pseudo_enc_array_duration_table": pseudo_enc_array_duration_table,
+                }
+                if pseudo_enc_instance_table is not None
+                else {}
+            ),
             **({"pseudo_enc_gap_frac": pseudo_enc_gap_frac} if pseudo_enc_gap_frac is not None else {}),
             **(
                 {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
@@ -2763,12 +2868,13 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             lerp=config.bool("pseudo_enc_lerp", False),
             array_table=config.typed_value("pseudo_enc_array_table", None),
             array_duration_table=config.typed_value("pseudo_enc_array_duration_table", None),
+            instance_table=config.typed_value("pseudo_enc_instance_table", None),
             smooth_boundary_width=config.typed_value("pseudo_enc_smooth_boundary_width", None),
             gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
-        if config.typed_value("pseudo_enc_array_table", None):
-            # The table comes from a CTC alignment over the ASR's own subwords,
-            # so it is indexed by that vocab plus a silence row, and holds log-mel.
+        if config.typed_value("pseudo_enc_array_table", None) or config.typed_value("pseudo_enc_instance_table", None):
+            # Both tables come from a CTC alignment over the ASR's own subwords,
+            # so they are indexed by that vocab plus a silence row, and hold log-mel.
             assert units == "spm", "the subword array table is indexed by the ASR subword vocab"
             assert start_layer < 0, "the array table lives in the front-end feature space"
         frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
@@ -2854,6 +2960,7 @@ class PseudoSpeechEncoder(rf.Module):
         lerp: bool = False,
         array_table: Optional[str] = None,
         array_duration_table: Optional[str] = None,
+        instance_table: Optional[str] = None,
         smooth_boundary_width: Optional[int] = None,
         gap_frac: float = 0.0,
     ):
@@ -2921,7 +3028,10 @@ class PseudoSpeechEncoder(rf.Module):
         self.gap_frac = gap_frac
         self.array_table = None
         self.array_lengths = None
+        self.array_offsets = None
+        self.array_counts = None
         self.array_frames = 0
+        assert not (array_table and instance_table), "array_table and instance_table are exclusive"
         if array_table:
             import numpy
 
@@ -2937,6 +3047,27 @@ class PseudoSpeechEncoder(rf.Module):
             self.array_table.initial = means.reshape(-1, means.shape[2])
             self.array_lengths = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
             self.array_lengths.initial = lengths
+        # Instance store: several real slices per unit instead of one mean, already flat.
+        # A unit's arrays start at its offset, plus the drawn slot times its length.
+        if instance_table:
+            import numpy
+
+            npz = numpy.load(instance_table, allow_pickle=True)
+            data, lengths = npz["data"].astype("float32"), npz["lengths"].astype("int32")
+            offsets, counts = npz["unit_offsets"].astype("int32"), npz["counts"].astype("int32")
+            assert lengths.shape == (self.wb_vocab_dim.dimension,), (
+                f"instance table {lengths.shape} vs with-blank vocab {self.wb_vocab_dim}"
+            )
+            assert data.shape[1] == out_dim.dimension, f"instance table {data.shape} vs out dim {out_dim}"
+            self.array_flat_dim = Dim(int(data.shape[0]), name="unit_frame_entries")
+            self.array_table = rf.Parameter([self.array_flat_dim, out_dim], dtype="float32", trainable=False)
+            self.array_table.initial = data
+            self.array_lengths = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
+            self.array_lengths.initial = lengths
+            self.array_offsets = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
+            self.array_offsets.initial = offsets
+            self.array_counts = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
+            self.array_counts.initial = counts
         if array_duration_table:
             import numpy
 
@@ -2967,12 +3098,14 @@ class PseudoSpeechEncoder(rf.Module):
     def _array_forward(self, labels_wb: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         """Per-unit stored array, resampled to the sampled duration.
 
-        Each unit holds ``lengths[u]`` frames of its own trajectory, which is stretched or
-        compressed onto the frames the duration draw gives it, so the duration model and the
-        spectral shape stay independent. Reads are two gathers into the flattened table plus a
-        lerp between them, which keeps it traceable and free of host reads.
+        Each unit holds ``lengths[u]`` frames of its own trajectory,
+        stretched or compressed onto the frames the duration draw gives it,
+        so the duration model and the spectral shape stay independent.
+        Reads are two gathers into the flattened table plus a lerp between them,
+        which keeps it traceable and free of host reads.
 
         :param labels_wb: unit indices, already tagged with the with-blank vocab
+        :param spatial_dim: over the unit sequence
         :return: (features, output spatial dim)
         """
         train = rf.get_run_ctx().train_flag
@@ -2993,14 +3126,30 @@ class PseudoSpeechEncoder(rf.Module):
         # with the duration, which stops short units from losing most of their body.
         # The final unit has nothing to glide into, so it keeps all its frames.
         gap = rf.zeros(durations.dims, dtype="int32")
-        nxt = labels_wb
         if self.gap_frac:
             gap = rf.cast(rf.cast(durations, "float32") * self.gap_frac + 0.5, "int32")
             gap = rf.clip_by_value(gap, 1, rf.maximum(durations - 1, 1))
             last_pos = spatial_dim.get_size_tensor(device=durations.device) - 1
             gap = rf.where(rf.range_over_dim(spatial_dim) >= last_pos, 0, gap)
-            nxt = rf.gather(labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True)
         body = rf.maximum(durations - gap, 1)
+
+        # Where this unit's stored array starts.
+        # The mean table has one array per unit at a fixed stride;
+        # the instance store has several, so a slot is drawn per occurrence.
+        # Eval takes slot 0, to keep dev scores stable.
+        if self.array_offsets is not None:
+            n_slots = rf.gather(self.array_counts, indices=labels_wb, axis=self.wb_vocab_dim)
+            draw = rf.random_uniform(labels_wb.dims, dtype="float32") * rf.cast(n_slots, "float32")
+            slot = rf.clip_by_value(rf.cast(draw, "int32"), 0, rf.maximum(n_slots - 1, 0))
+            slot = rf.where(train, slot, rf.zeros(labels_wb.dims, dtype="int32"))
+            unit_len = rf.gather(self.array_lengths, indices=labels_wb, axis=self.wb_vocab_dim)
+            base = rf.gather(self.array_offsets, indices=labels_wb, axis=self.wb_vocab_dim) + slot * unit_len
+        else:
+            base = labels_wb * self.array_frames
+        # The glide out of a unit targets the next unit's own array, so it follows the same draw.
+        nxt_base = base
+        if self.gap_frac:
+            nxt_base = rf.gather(base, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True)
 
         seg_start = rf.cumsum(durations, spatial_dim=spatial_dim) - durations
         unit_rep, out_spatial_dim = rf.repeat(
@@ -3014,7 +3163,10 @@ class PseudoSpeechEncoder(rf.Module):
         )
         body_rep, _ = rf.repeat(body, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
         gap_rep, _ = rf.repeat(gap, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
-        nxt_rep, _ = rf.repeat(nxt, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
+        base_rep, _ = rf.repeat(base, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim)
+        nxt_base_rep, _ = rf.repeat(
+            nxt_base, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+        )
         pos = rf.range_over_dim(out_spatial_dim)
         offset = pos - start_rep
         # Divisor is body-1, not body as on the lerp path: there the fraction glides toward the next
@@ -3031,7 +3183,7 @@ class PseudoSpeechEncoder(rf.Module):
         lo = rf.cast(rf.floor(src), "int32")
         hi = rf.minimum(lo + 1, rf.maximum(len_rep - 1, 0))
         w = src - rf.cast(lo, "float32")
-        flat = unit_rep * self.array_frames
+        flat = base_rep
         a = rf.gather(self.array_table, indices=flat + lo, axis=self.array_flat_dim)
         b = rf.gather(self.array_table, indices=flat + hi, axis=self.array_flat_dim)
         w = rf.cast(w, a.dtype)
@@ -3040,7 +3192,7 @@ class PseudoSpeechEncoder(rf.Module):
             # Trailing frames glide from this unit's last stored frame to the next unit's first.
             gf = rf.cast(offset - body_rep + 1, "float32") / rf.cast(gap_rep + 1, "float32")
             last_v = rf.gather(self.array_table, indices=flat + rf.maximum(len_rep - 1, 0), axis=self.array_flat_dim)
-            first_v = rf.gather(self.array_table, indices=nxt_rep * self.array_frames, axis=self.array_flat_dim)
+            first_v = rf.gather(self.array_table, indices=nxt_base_rep, axis=self.array_flat_dim)
             gf = rf.cast(rf.clip_by_value(gf, 0.0, 1.0), last_v.dtype)
             out = rf.where(offset < body_rep, out, last_v * (1.0 - gf) + first_v * gf)
         out.feature_dim = self.out_dim
@@ -4194,6 +4346,11 @@ def _subword_units_map_seq(
     so no lexicon is involved. The phoneme path brackets every sequence with ``[start]``/``[end]``
     at probability 1; there is no subword analogue of those, so the boundary is silence instead.
 
+    :param seq: the raw sequence from the dataset
+    :param target_key: key of the spm target in the output
+    :param spm_dim: spm vocab dim
+    :param units_dim: unit vocab dim, i.e. spm plus the silence entry
+    :param rng: for the silence placement
     :param sil_between_words: per-boundary probability, mirroring add_silence_between_words
     :param sil_begin: leading silence probability, standing in for ``[start]``
     :param sil_end: trailing silence probability, standing in for ``[end]``
