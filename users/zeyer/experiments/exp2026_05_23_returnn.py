@@ -2521,6 +2521,7 @@ class TrainStepBenchmarkJob(Job):
         "returnn_config_file": None,
         "load_checkpoint": None,
         "seq_ordering": None,
+        "nsys": None,
         "version": 1,
     }
 
@@ -2535,6 +2536,7 @@ class TrainStepBenchmarkJob(Job):
         config_overrides: Optional[Dict[str, Any]] = None,
         load_checkpoint: Optional[tk.Path] = None,
         seq_ordering: Optional[str] = None,
+        nsys: Optional[str] = None,
         version: int = 1,
     ):
         """
@@ -2552,6 +2554,9 @@ class TrainStepBenchmarkJob(Job):
             exactly the effect a packed-vs-padded throughput measurement is about
             (measured on the real durations: padded/packed = 1.105 under laplace:.1000,
             2.19 under random).
+        :param nsys: ``"<delay_s>,<duration_s>"`` runs RETURNN under nsys and keeps the report,
+            for comparing the kernel mix of two arms.
+            The delay skips compile and capture, which would otherwise dominate the summary.
         :param version: behavior version, bump to force a re-run (hash-neutral at the default)
         """
         assert mode in (
@@ -2577,6 +2582,7 @@ class TrainStepBenchmarkJob(Job):
         self.num_steps = num_steps
         self.random_seed = random_seed
         self.config_overrides = config_overrides
+        self.nsys = nsys
         self.version = version
         self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
         self.out_results = self.output_path("results.json")
@@ -2773,9 +2779,22 @@ class TrainStepBenchmarkJob(Job):
         # needed to map buffers in nan-assert failures to ops
         env.setdefault("TORCHINDUCTOR_CACHE_DIR", work + "/inductor-cache")
 
+        cmd = [sys.executable, returnn_root + "/rnn.py", cfg_path]
+        if self.nsys:
+            delay, duration = (int(x) for x in self.nsys.split(","))
+            cmd = [
+                "nsys", "profile",
+                "-o", os.path.join(os.path.dirname(self.out_results.get_path()), "profile"),
+                "--force-overwrite=true",
+                "--trace=cuda",
+                "--sample=none",
+                "--cpuctxsw=none",
+                f"--delay={delay}",
+                f"--duration={duration}",
+            ] + cmd
         with open(log_path, "wt", encoding="utf-8") as logf:
             proc = subprocess.Popen(
-                [sys.executable, returnn_root + "/rnn.py", cfg_path],
+                cmd,
                 stdout=logf,
                 stderr=subprocess.STDOUT,
                 cwd=work,
