@@ -897,6 +897,8 @@ def loq_train(
         [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
     )
 
+    # the in-graph search, for the backends that compile a graph
+    _in_graph_search = train_config.get("backend") in ("tensorflow", "jax")
     exp = _aed_train_exp(
         name,
         train_config,
@@ -908,12 +910,13 @@ def loq_train(
         train_vocab_opts=train_vocab_opts,
         dataset_train_opts=dataset_train_opts,
         env_updates=env_updates,
-        # TF: the in-graph search, else the graph unrolls over the frames. Same results.
+        # TF and JAX: the in-graph search, else the graph unrolls over the frames. Same results.
+        # Unrolling costs one compile per frame under JAX, since the label history grows each step.
         # None keeps the aed default (aed.model_recog), which is the same def the in-graph one mirrors.
         recog_def=(
-            (_ctc_model_recog_while_loop if train_config.get("backend") == "tensorflow" else _ctc_model_recog)
+            (_ctc_model_recog_while_loop if _in_graph_search else _ctc_model_recog)
             if recog_def_ctc_only
-            else (_aed_model_recog_while_loop if train_config.get("backend") == "tensorflow" else None)
+            else (_aed_model_recog_while_loop if _in_graph_search else None)
         ),
         search_config={"aux_loss_layers": [aux_ctc_layer]} if recog_def_ctc_only else None,
     )
