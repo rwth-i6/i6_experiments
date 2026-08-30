@@ -1311,6 +1311,16 @@ def bench_packed():
         num_steps=31,
     )
     tk.register_output("returnn/jax-packed-bench.json", job.out_results)
+
+    # JAX row of the backend table, at the real model size and the paper's protocol
+    # (300 steps, same harness as the torch and TF rows).
+    # The cell above stays at 31 steps as the quick smoke.
+    job = TrainStepBenchmarkJob(
+        returnn_config=exp.get_training_job().returnn_config,
+        mode="packed_jax",
+        num_steps=300,
+    )
+    tk.register_output("returnn/backend-bench-base-jax.json", job.out_results)
     # same arm under nsys, for the kernel mix.
     # Separate job: profiling must not perturb the timing the bench above reports.
     # More steps, so the profile window covers steady state after the compile.
