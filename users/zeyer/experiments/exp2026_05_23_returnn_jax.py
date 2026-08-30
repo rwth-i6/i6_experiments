@@ -1301,6 +1301,16 @@ def bench_packed():
         num_steps=31,
     )
     tk.register_output("returnn/jax-packed-bench.json", job.out_results)
+    # same arm under nsys, for the kernel mix.
+    # Separate job: profiling must not perturb the timing the bench above reports.
+    # More steps, so the profile window covers steady state after the compile.
+    prof = TrainStepBenchmarkJob(
+        returnn_config=exp.get_training_job().returnn_config,
+        mode="packed_jax",
+        num_steps=80,
+        nsys="185,40",
+    )
+    tk.register_output("returnn/jax-packed-bench-nsys.json", prof.out_results)
 
 
 def bench_vs_full():
