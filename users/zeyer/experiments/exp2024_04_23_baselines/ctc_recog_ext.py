@@ -27,7 +27,11 @@ from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
-from i6_experiments.users.zeyer.returnn.convert_checkpoint import checkpoint_for_backend, checkpoint_as_backend
+from i6_experiments.users.zeyer.returnn.convert_checkpoint import (
+    backend_of,
+    checkpoint_for_backend,
+    checkpoint_as_backend,
+)
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
 from .lm import lm_model_def
@@ -1696,7 +1700,10 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     from .ctc import _ctc_model_def_blank_idx
 
     if recog_def is None:
-        from .recog_ext.ctc import model_recog_with_recomb as recog_def
+        if backend_of(ctc_model.definition) == "tensorflow":
+            from .recog_ext.ctc import model_recog_with_recomb_while_loop as recog_def
+        else:
+            from .recog_ext.ctc import model_recog_with_recomb as recog_def
 
     if ctc_only_recog_version is None:
         ctc_only_recog_version = recog_version
@@ -1753,16 +1760,6 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         base_config = dict_update_deep(base_config, extra_config)
         if "__serialization_version_stats" in base_config:
             base_config.pop("__serialization_version_stats")  # this is for prior above, should not be needed below
-    if getattr(ctc_model.definition, "backend", None) == "tensorflow" and "tf_static_shapes" not in base_config:
-        # TF-engine SEARCH steps: the beam-search recog_def is a build-time (unrolled) loop,
-        # so every dim needs a static bound (tf_static_shapes; TF TensorArray ops).
-        # base_config feeds only the search configs -- the prior/rescore steps have their own
-        # and would just waste compute on the bound padding.
-        # Bounds generous; the engine asserts WITH the observed sizes when exceeded.
-        base_config["tf_static_shapes"] = {
-            "batch_size_bound": 200,
-            "dim_capacity": {"audio": 576_000, "text": 1024},
-        }
     if ctc_soft_collapse_threshold is not None:
         base_config.update(
             {

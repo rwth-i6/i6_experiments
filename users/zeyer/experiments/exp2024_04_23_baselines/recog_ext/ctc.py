@@ -378,7 +378,7 @@ def model_recog_with_recomb(
             prev_target,
         )  # Batch, Beam -> Vocab
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
-        if got_new_label_cpu.raw_tensor.sum().item() > 0:
+        if not rf.is_executing_eagerly() or got_new_label_cpu.raw_tensor.sum().item() > 0:
             seq_label = rf.nested.mask_nested(
                 _seq_label_append(seq_label, target),
                 mask=got_new_label,
@@ -408,7 +408,7 @@ def model_recog_with_recomb(
                 raise ValueError(f"invalid recog_recomb {recomb!r}")
 
         if lm is not None:
-            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+            if not rf.is_executing_eagerly() or got_new_label_cpu.raw_tensor.sum().item() > 0:
                 (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
                     (target, lm_state),
                     mask=got_new_label,
@@ -416,7 +416,8 @@ def model_recog_with_recomb(
                     dims=batch_dims + [beam_dim],
                 )
                 # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
-                assert packed_new_label_dim.get_dim_value() > 0
+                if not rf.is_static_traceable():
+                    assert packed_new_label_dim.get_dim_value() > 0
 
                 lm_logits_, lm_state_ = lm(
                     target_,
@@ -476,6 +477,294 @@ model_recog_with_recomb.output_blank_label = "<blank>"
 model_recog_with_recomb.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
+def model_recog_with_recomb_while_loop(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Like :func:`model_recog_with_recomb`, but the frame loop is :func:`rf.while_loop`, i.e. in the graph.
+    Same structure as :func:`recog_ext.aed_ctc.model_recog_with_recomb_while_loop`,
+    with the external LM in place of the AED decoder.
+
+    The eager version cannot be built on a graph backend: its trip count is
+    ``int(enc_spatial_dim.get_dim_value())``, a host-side value.
+    Two more things there are not expressible with fixed shapes, and are replaced here:
+
+    - the LM runs for every beam, not only for those with a new label
+      (:func:`rf.nested.masked_select_nested` packs a data-dependent number of beams);
+      the result is selected by the same mask afterwards, so the scores are the same, only the compute is more.
+    - the label history is a fixed-capacity buffer (at most one label per frame) with an explicit length,
+      instead of a growing history; recombination compares buffer and length.
+      The slots beyond the length are never written, so equal prefixes give equal buffers.
+
+    The final invalid-beam removal is also left out (data-dependent),
+    so recombined-away hypotheses stay in the beam with score -inf.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from returnn.config import get_global_config
+    from i6_experiments.users.zeyer.nn_rf.soft_collapse_repeated import soft_collapse_repeated
+
+    config = get_global_config()
+    beam_size = config.int("beam_size", 12)
+    recomb = config.typed_value("recog_recomb", None)  # None, "max", "sum"
+    ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
+    ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
+    lm_softmax_temperature = config.typed_value("lm_softmax_temperature", 1.0)
+
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
+
+    if ctc_soft_collapse_threshold is not None:
+        label_log_prob, enc_spatial_dim = soft_collapse_repeated(
+            label_log_prob,
+            spatial_dim=enc_spatial_dim,
+            classes_dim=model.wb_target_dim,
+            threshold=ctc_soft_collapse_threshold,
+            reduce_type=ctc_soft_collapse_reduce_type,
+        )
+
+    neg_inf = float("-inf")
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=neg_inf),
+    )
+    label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+    beam_dim = Dim(beam_size, name="beam")
+    step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
+    batch_dims_ = [beam_dim] + batch_dims
+    # at most one label per frame, so the frames bound both the LM KV cache and the label history
+    max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
+    label_cap_dim = Dim(enc_spatial_dim.get_dim_value_tensor(), name="label-hist-capacity")
+
+    if getattr(model, "lm", None) is None:
+        lm: Optional[TransformerDecoder] = None
+        lm_scale: Optional[float] = None
+        labelwise_prior: Optional[rf.Parameter] = None
+    else:
+        # noinspection PyUnresolvedReferences
+        lm: TransformerDecoder = model.lm
+        # noinspection PyUnresolvedReferences
+        lm_scale: float = model.lm_scale
+        # noinspection PyUnresolvedReferences
+        labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+
+    def _lm_log_probs(target: Tensor, lm_state: rf.State) -> Tuple[Tensor, rf.State]:
+        lm_logits, lm_state = lm(target, spatial_dim=single_step_dim, state=lm_state)  # Batch, Beam, Vocab / ...
+        if lm_softmax_temperature != 1.0:
+            lm_logits = lm_logits / lm_softmax_temperature
+        log_probs = rf.log_softmax(lm_logits, axis=model.target_dim) * lm_scale
+        if labelwise_prior is not None:
+            log_probs -= labelwise_prior  # prior scale already applied
+        return log_probs, lm_state
+
+    if lm is not None:
+        lm_state0 = lm.default_initial_state(batch_dims=batch_dims_)
+        # Only a new label re-runs the LM here, so the hypotheses diverge:
+        # both the position and the KV history length are per hypothesis, not shared.
+        lm_state0.pos = lm_state0.pos + rf.zeros(batch_dims_, dtype="int32")
+        for _layer_key, _layer_state in lm_state0.items():
+            if _layer_key == "pos":
+                continue
+            att_state = _layer_state.self_att
+            hist_dim = Dim(rf.zeros(batch_dims_, dtype="int32"), name="self_att_hist")  # empty, as the initial one
+            att_state.k_accum, _ = rf.replace_dim(att_state.k_accum, in_dim=att_state.accum_axis, out_dim=hist_dim)
+            att_state.v_accum, _ = rf.replace_dim(att_state.v_accum, in_dim=att_state.accum_axis, out_dim=hist_dim)
+            att_state.accum_axis = hist_dim
+        lm_log_probs0, lm_state0 = _lm_log_probs(
+            rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim), lm_state0
+        )
+    else:
+        lm_state0 = None
+        lm_log_probs0 = None
+
+    def _body(state):
+        (
+            t,
+            seq_log_prob_,
+            target_,
+            target_wb_,
+            label_hist_,
+            label_hist_len_,
+            lm_log_probs_,
+            lm_state_,
+            targets_wb_ta_,
+            backrefs_ta_,
+        ) = state
+        prev_target = target_
+        prev_target_wb = target_wb_
+
+        # both sides broadcast, which is implicit only up to some behavior versions
+        seq_log_prob_ = rf.combine(
+            seq_log_prob_, "+", label_log_prob_ta[t], allow_broadcast_all_sources=True
+        )  # Batch, InBeam, VocabWB
+        if lm_state_ is not None:
+            # add the LM score where the align label starts a new label, else 0
+            seq_log_prob_ += rf.where(
+                (prev_target_wb == model.blank_idx)
+                | rf.compare(
+                    prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim), allow_broadcast_all_sources=True
+                ),
+                _target_dense_extend_blank(
+                    lm_log_probs_,
+                    target_dim=model.target_dim,
+                    wb_target_dim=model.wb_target_dim,
+                    blank_idx=model.blank_idx,
+                    value=0.0,
+                ),
+                0.0,
+            )  # Batch, InBeam, VocabWB
+
+        seq_log_prob_, (backrefs, target_wb_), _ = rf.top_k(
+            seq_log_prob_, k_dim=step_beam_dim, axis=[beam_dim, model.wb_target_dim]
+        )
+        # replace_dim, not v2: same static size, and v2 is eager-only
+        seq_log_prob_, _ = rf.replace_dim(seq_log_prob_, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs, _ = rf.replace_dim(backrefs, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs = rf.cast(backrefs, "int32")  # top_k index dtype is backend specific, loop var dtype is not
+        backrefs.sparse_dim = beam_dim
+        target_wb_, _ = rf.replace_dim(target_wb_, in_dim=step_beam_dim, out_dim=beam_dim)
+        target_wb_ = rf.cast(target_wb_, "int32")
+        target_wb_.sparse_dim = model.wb_target_dim
+
+        if lm_state_ is not None:
+            lm_log_probs_ = rf.gather(lm_log_probs_, indices=backrefs)  # Batch, Beam, Vocab
+            lm_state_ = rf.nested.gather_nested(lm_state_, indices=backrefs)
+        label_hist_ = rf.gather(label_hist_, indices=backrefs)
+        label_hist_len_ = rf.gather(label_hist_len_, indices=backrefs)
+        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+
+        got_new_label = (target_wb_ != model.blank_idx) & (target_wb_ != prev_target_wb)  # Batch, Beam -> 0|1
+        target_ = rf.where(
+            got_new_label,
+            _target_remove_blank(
+                target_wb_, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+            ),
+            prev_target,
+        )  # Batch, Beam -> Vocab
+        label_hist_ = rf.where(
+            got_new_label
+            & rf.compare(rf.range_over_dim(label_cap_dim), "==", label_hist_len_, allow_broadcast_all_sources=True),
+            target_,
+            label_hist_,
+        )
+        label_hist_len_ = label_hist_len_ + rf.where(got_new_label, 1, 0)
+
+        if recomb:
+            # Recombine paths with the same label seq. The eager version does this only in steps where some
+            # beam got a new label, so gate on the same (global) condition -- without it, paths that became
+            # equal earlier would be recombined one step sooner and a hypothesis would drop out.
+            any_new_label = rf.reduce_any(got_new_label, axis=got_new_label.dims)
+            label_hist_dual, beam_dual_dim = rf.replace_dim(label_hist_, in_dim=beam_dim)
+            label_hist_len_dual, _ = rf.replace_dim(label_hist_len_, in_dim=beam_dim, out_dim=beam_dual_dim)
+            same_seq_labels = rf.logical_and(
+                rf.reduce_all(rf.compare_bc(label_hist_, "==", label_hist_dual), axis=label_cap_dim),
+                rf.compare_bc(label_hist_len_, "==", label_hist_len_dual),
+            )  # Batch, Beam, BeamDual
+            seq_log_prob_ext, _ = rf.replace_dim(seq_log_prob_, in_dim=beam_dim, out_dim=beam_dual_dim)
+            seq_log_prob_ext = rf.where(same_seq_labels, seq_log_prob_ext, neg_inf)  # Batch, Beam, BeamDual
+            if recomb == "sum":
+                seq_log_prob_recomb = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+            elif recomb == "max":
+                seq_log_prob_recomb = seq_log_prob_
+            else:
+                raise ValueError(f"invalid recog_recomb {recomb!r}")
+            argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
+            mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
+            seq_log_prob_recomb = rf.where(mask, seq_log_prob_recomb, neg_inf)
+            seq_log_prob_ = rf.where(any_new_label, seq_log_prob_recomb, seq_log_prob_)
+            # don't re-eval the LM when masked out
+            got_new_label = rf.where(any_new_label, got_new_label & mask, got_new_label)
+
+        if lm_state_ is not None:
+            # unlike the eager version, this runs for all beams, and the mask selects afterwards
+            lm_log_probs_new, lm_state_new = _lm_log_probs(target_, lm_state_)
+            lm_log_probs_, lm_state_ = rf.nested.mask_nested(
+                (lm_log_probs_new, lm_state_new),
+                mask=got_new_label,
+                mask_value=(lm_log_probs_, lm_state_),
+            )
+
+        return (
+            t + 1,
+            seq_log_prob_,
+            target_,
+            target_wb_,
+            label_hist_,
+            label_hist_len_,
+            lm_log_probs_,
+            lm_state_,
+            targets_wb_ta_.push_back(target_wb_),
+            backrefs_ta_.push_back(backrefs),
+        )
+
+    target_wb_template = Tensor("target_wb", dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim)
+    backrefs_template = Tensor("backrefs", dims=batch_dims_, dtype="int32", sparse_dim=beam_dim)
+    _, seq_log_prob, _, _, _, _, lm_log_probs, _, seq_targets_wb_ta, seq_backrefs_ta = rf.while_loop(
+        cond=lambda state: state[0] < max_seq_len_cpu,
+        body=_body,
+        initial=(
+            rf.constant(0, dims=(), dtype="int32", device="cpu"),
+            rf.where(rf.range_over_dim(beam_dim) == 0, rf.constant(0.0, dims=batch_dims_), neg_inf),
+            rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
+            rf.constant(model.blank_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim),
+            rf.zeros(batch_dims_ + [label_cap_dim], dtype="int32", sparse_dim=model.target_dim),
+            rf.constant(0, dims=batch_dims_, dtype="int32"),
+            lm_log_probs0,
+            lm_state0,
+            TensorArray(target_wb_template),
+            TensorArray(backrefs_template),
+        ),
+    )
+    if lm_log_probs is not None:
+        # LM EOS score at the end, as in the eager version
+        seq_log_prob += rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+
+    # Backtrack via backrefs, resolve beams. Backwards, so the result is flipped below.
+    def _backtrack_body(state):
+        t, indices, out_ta_ = state
+        out_ta_ = out_ta_.push_back(rf.gather(seq_targets_wb_ta[t], indices=indices))  # FinalBeam -> VocabWB
+        indices = rf.gather(seq_backrefs_ta[t], indices=indices)  # FinalBeam -> PrevBeam
+        return t - 1, indices, out_ta_
+
+    # already with the batch dims: a loop var keeps its dims, and the gather in the body has them
+    indices0 = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for dim in batch_dims:
+        indices0 = rf.expand_dim(indices0, dim=dim)
+    indices0.sparse_dim = beam_dim
+    _, _, seq_targets_rev_ta = rf.while_loop(
+        cond=lambda state: state[0] >= 0,
+        body=_backtrack_body,
+        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_wb_template)),
+    )
+    out_spatial_dim = enc_spatial_dim
+    seq_targets_wb = seq_targets_rev_ta.stack(axis=out_spatial_dim)
+    # Flip over the PADDED extent: entry i is frame max_seq_len-1-i for every sequence,
+    # so clipping to the per-seq length would fold a short sequence onto its last frame.
+    rev_indices = max_seq_len_cpu - 1 - rf.range_over_dim(out_spatial_dim, device="cpu")
+    seq_targets_wb = rf.gather(
+        seq_targets_wb, indices=rf.copy_to_device(rev_indices, seq_targets_wb.device), axis=out_spatial_dim
+    )
+
+    return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_with_recomb_while_loop: RecogDef[Model]
+model_recog_with_recomb_while_loop.output_with_beam = True
+model_recog_with_recomb_while_loop.output_blank_label = "<blank>"
+model_recog_with_recomb_while_loop.batch_size_dependent = True  # as model_recog_with_recomb
+
+
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
     assert target.sparse_dim == wb_target_dim
     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
@@ -499,6 +788,8 @@ def _seq_label_history_init_state(*, vocab_dim: Dim, batch_dims: Sequence[Dim]) 
 
 def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
     hist_dim: Dim = state.hist_dim
+    if new_label.dtype != state.history.dtype:
+        new_label = rf.cast(new_label, state.history.dtype)
     new_history, new_hist_dim = rf.cum_concat_step(new_label, prev_accum=state.history, axis=hist_dim)
     return rf.State(hist_dim=new_hist_dim, history=new_history)
 

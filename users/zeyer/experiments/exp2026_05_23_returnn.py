@@ -2713,6 +2713,7 @@ class TrainStepBenchmarkJob(Job):
             + import_model_line
             + f"learning_rate_file = {work + '/learning_rates'!r}\n"
             "use_train_proc_manager = False\n"
+            "log_batch_size = True\n"
             f"random_seed = {self.random_seed}\n"
             + self._mode_overrides[self.mode]
             + "".join(f"{k} = {v!r}\n" for k, v in (self.config_overrides or {}).items())
@@ -2806,7 +2807,10 @@ class TrainStepBenchmarkJob(Job):
 
         # "ep 1 train, step 3, <losses>[, num_seqs N, max_size:k N, sum_size:k N (log_batch_size)],
         #  mem_usage:cuda 46.9GB[, mem_graph_pool:cuda 38.3GB][, 0.398 sec/step], ..."
-        step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda ([0-9.]+)([KMGT]?B)(.*)")
+        step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:\w+ ([0-9.]+)([KMGT]?B)(.*)")
+        # the JAX engine reports no memory under the platform allocator (it keeps no stats),
+        # so accept a line without the field, with mem_usage_gb unknown for those steps
+        step_re_no_mem = re.compile(r"ep \d+ train, step (\d+), (.*?)(, [0-9.]+ sec/step.*)$")
         pool_re = re.compile(r"mem_graph_pool:cuda ([0-9.]+)([KMGT]?B)")
         sec_re = re.compile(r"([0-9.]+) sec/step")
         gb_per = {"B": 1 / 1024**3, "KB": 1 / 1024**2, "MB": 1 / 1024, "GB": 1.0, "TB": 1024.0}
@@ -2814,8 +2818,13 @@ class TrainStepBenchmarkJob(Job):
         with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
             for line in f:
                 m = step_re.search(line)
-                if not m:
-                    continue
+                if m:
+                    mem_val, mem_unit, tail = m.group(3), m.group(4), m.group(5)
+                else:
+                    m = step_re_no_mem.search(line)
+                    if not m:
+                        continue
+                    mem_val, mem_unit, tail = None, None, m.group(3)
                 losses = {}
                 sizes = {}
                 for part in m.group(2).split(", "):
@@ -2829,7 +2838,6 @@ class TrainStepBenchmarkJob(Job):
                         losses[name] = float(value)
                     except ValueError:
                         pass
-                tail = m.group(5)
                 m_pool = pool_re.search(tail)
                 m_sec = sec_re.search(tail)
                 steps.append(
@@ -2837,7 +2845,7 @@ class TrainStepBenchmarkJob(Job):
                         "step": int(m.group(1)),
                         "losses": losses,
                         "sizes": sizes,
-                        "mem_usage_gb": float(m.group(3)) * gb_per[m.group(4)],
+                        "mem_usage_gb": float(mem_val) * gb_per[mem_unit] if mem_val else None,
                         "graph_pool_gb": float(m_pool.group(1)) * gb_per[m_pool.group(2)] if m_pool else None,
                         "sec_per_step": float(m_sec.group(1)) if m_sec else None,
                     }
@@ -2872,7 +2880,7 @@ class TrainStepBenchmarkJob(Job):
             "seqs_per_sec": mean_seqs / median_sec if (mean_seqs and median_sec) else None,
             "content_frames_per_sec": mean_content / median_sec if (mean_content and median_sec) else None,
             # peak GPU need INCL the CUDA-graph private pool (the engine reports the sum)
-            "max_mem_usage_gb": max((s["mem_usage_gb"] for s in steps), default=None),
+            "max_mem_usage_gb": max((s["mem_usage_gb"] for s in steps if s["mem_usage_gb"] is not None), default=None),
             "graph_pool_gb": next((s["graph_pool_gb"] for s in reversed(steps) if s["graph_pool_gb"]), None),
             "steps": steps,
         }
