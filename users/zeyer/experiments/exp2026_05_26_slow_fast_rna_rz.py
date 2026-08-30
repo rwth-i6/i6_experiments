@@ -35,6 +35,7 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import model_recog as aed_model_recog
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import model_recog as base_ctc_model_recog
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def, model_recog_ctc
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
@@ -125,6 +126,60 @@ def _recog_chunked_base_aed():
             name=name,
         )
         tk.register_output(name, res.output)
+    # Control: the base's CTC-only recog through this setup's own pipeline and batching.
+    # The source setup scores 9.41 on dev; reproducing it here proves the decode path
+    # (batched recog, conv masking under bhv24) is sound, so the weak AED-only number is real.
+    ctc_name = prefix + "/chunked-base-aed/recog-dev-ctc"
+    ctc_res = recog_model(
+        task=task,
+        model=exp.get_last_fixed_epoch(),
+        recog_def=base_ctc_model_recog,
+        config={
+            "aux_loss_layers": [16],
+            "batch_size": 10_000 * configs._batch_size_factor,
+            "max_seqs": 100,
+        },
+        dev_sets=["dev"],
+        name=ctc_name,
+    )
+    tk.register_output(ctc_name, ctc_res.output)
+
+
+def _train_rnnt_mono_framewise_scaled_rz(scale: float, tag: str):
+    """Full-size framewise-CE with the main-loss scale knob.
+
+    Small-model (20ep, delay5) showed scale x2-4 lifts framewise-CE past full-sum (14.5 vs 15.9),
+    while full-size still runs scale 1.0 and loses to full-sum (12.72 vs 9.87).
+    Tests whether the full-size gap is just an under-weighted main loss.
+    """
+    return _train_variant_rz(
+        f"rnnt-mono-framewise-scale{tag}-1gpu",
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=4),
+        train_def=rnnt_scaled_training,
+        recog_def=rnnt_model_recog,
+        target_mode="rna_frame",
+        extra_config={"framewise_main_loss_scale": scale},
+    )
+
+
+def _train_framewise_delay_ls0_rz():
+    """framewise + delay 2.5s without decoder label smoothing (baseline uses 0.1).
+
+    Label smoothing flattens the output distribution by construction,
+    a known cause of poor beam-search ranking;
+    the oracle-vs-1best gap (4.91 vs 9.54 at beam 32) says our scores rank badly.
+    Sole change vs framewise-delay2p5.
+    """
+    return _train_variant_rz(
+        "framewise-delay2p5-ls0-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=42, version=2
+        ),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        extra_config={"label_smoothing": 0.0},
+    )
 
 
 def py():
@@ -164,6 +219,8 @@ def py():
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
+    _train_rnnt_mono_framewise_scaled_rz(2.0, "2")
+    _train_framewise_delay_ls0_rz()
     _train_framewise_wordchunk_rz()
     _train_framewise_wordchunk_end_rz()
     _train_framewise_delay0p3_rz()
