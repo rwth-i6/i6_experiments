@@ -1321,6 +1321,18 @@ def bench_packed():
         num_steps=300,
     )
     tk.register_output("returnn/backend-bench-base-jax.json", job.out_results)
+
+    # Second sample of the same cell.
+    # The small-v2 arm died on this path with an illegal memory access,
+    # on the same node where this one passed,
+    # so one measurement is not enough to print a number from it.
+    job = TrainStepBenchmarkJob(
+        returnn_config=exp.get_training_job().returnn_config,
+        mode="packed_jax",
+        num_steps=300,
+        version=2,
+    )
+    tk.register_output("returnn/backend-bench-base-jax-rep2.json", job.out_results)
     # same arm under nsys, for the kernel mix.
     # Separate job: profiling must not perturb the timing the bench above reports.
     # More steps, so the profile window covers steady state after the compile.
