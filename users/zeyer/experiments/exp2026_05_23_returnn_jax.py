@@ -157,7 +157,7 @@ _BUCKETS = [
 
 def py():
     """Sisyphus entry point."""
-    loq_train(
+    small_jax_exp, _, _ = loq_train(
         "base-small-v2-jax",
         {},
         config_overrides={
@@ -192,6 +192,16 @@ def py():
     # the packed step is complete (no fallbacks, every attention on a native packed kernel)
     # and matches eager step for step on the small model,
     # but its speed vs the PT packed setup is what has to come first.
+    # JAX row of the backend table.
+    # The torch and TF rows are the same cell on the same small-v2 config,
+    # in exp2026_05_23_returnn.py.
+    # Mode as_is adds no override text, so each arm is measured as it trains:
+    # the arms carry options with no cross-backend counterpart.
+    job = TrainStepBenchmarkJob(
+        returnn_config=small_jax_exp.get_training_job().returnn_config, mode="as_is", num_steps=300
+    )
+    tk.register_output("returnn/backend-bench-small-v2-jax.json", job.out_results)
+
     _packed_jax_anchor()
     bench_packed()
 
