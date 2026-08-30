@@ -1251,7 +1251,20 @@ def py_aed_graphc_loquacious():
     # then degenerate ce~4.5 plateau (visible by ep 50) -> even 64-dim heads at width 256 die; -> -small-fixdelta.
     # the padded-eager counterpart: the convergence control that makes a small-model collapse
     # interpretable (same role as base-v2 for the full size)
-    loq_train("base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides})
+    small_pt_exp, _, _ = loq_train(
+        "base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides}
+    )
+
+    # Backend comparison cell.
+    # The small-v2 arms are the only place where torch, TF and JAX run the same model,
+    # data and LR schedule with nothing but the backend differing.
+    # Mode as_is measures each arm as it trains:
+    # an injected override would only measure the injection.
+    # The JAX row lives in exp2026_05_23_returnn_jax.py, its own recipe and manager.
+    job = TrainStepBenchmarkJob(
+        returnn_config=small_pt_exp.get_training_job().returnn_config, mode="as_is", num_steps=300
+    )
+    tk.register_output("returnn/backend-bench-small-v2-pt.json", job.out_results)
 
     # The same model, data and LR schedule on RETURNN's pure-TF RF backend
     # (backend = "tensorflow" -> returnn/tf/engine_rf.py), as the backend comparison:
@@ -1259,7 +1272,7 @@ def py_aed_graphc_loquacious():
     # The torch_* options have TF counterparts (tf_amp) or no equivalent
     # (torch_dataloader_opts: this engine batches in the main process),
     # and the engine rejects any it would otherwise ignore silently.
-    loq_train(
+    small_tf_exp, _, _ = loq_train(
         "base-small-v2-tf",
         {},
         config_overrides={
@@ -1273,6 +1286,12 @@ def py_aed_graphc_loquacious():
         # post config are dropped by train() itself, by backend
         config_deletes=["train.torch_amp"],
     )
+
+    # TF row of the backend table, see the PT cell above
+    job = TrainStepBenchmarkJob(
+        returnn_config=small_tf_exp.get_training_job().returnn_config, mode="as_is", num_steps=300
+    )
+    tk.register_output("returnn/backend-bench-small-v2-tf.json", job.out_results)
 
     # Same again, but with CTC on RETURNN's native op,
     # the TFBackend.ctc_loss default since the TF 2.20 port of native_op.cpp
@@ -2421,6 +2440,25 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-bench-fixdelta-packed_graphc-warmup0-pinmem.json", job.out_results)
 
+    # Loader scaling: the graphc warmup-0 twin above,
+    # with only the MultiProcDataset worker count changed (production runs 25).
+    # This sizes what the pipeline contributes,
+    # which is also the confound behind the small and medium rows of the per-scale table.
+    for _workers in [4, 12]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=300,
+            version=23,
+            config_overrides={
+                "behavior_version": 29,
+                "packed_tensors": _v2_packed_tensors,
+                "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
+                "__multi_proc_dataset_opts": {"num_workers": _workers},
+            },
+        )
+        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-mpd{_workers}.json", job.out_results)
+
     # padded_eager at 300 steps on the same base config: the uniform base-scale counterpart
     # for the per-scale ratio table (the old padded_eager cell ran only 31 steps).
     job = TrainStepBenchmarkJob(
@@ -2432,12 +2470,14 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-bench-fixdelta-padded_eager.json", job.out_results)
 
-    # ONE-PROTOCOL ABLATION CELLS (2026-08-29): 300 steps, warmup_steps 0, same cfg/seed/GPU,
-    # so s/step AND peak memory are comparable across every row of the two ablation tables.
-    # The training logs cannot serve this: they mix warmup_steps 2 and 0, and the older ones
-    # predate the pool-inclusive mem_usage fix, so their peaks are not on one scale.
-    # Execution-mode table: padded_eager / packed_compiled / packed_graphc exist above,
-    # packed_eager at 300 steps is the missing cell (the old one ran 31 steps, profiled).
+    # One protocol for every row of the two ablation tables:
+    # 300 steps, warmup_steps 0, same config, seed and GPU,
+    # so step time and peak memory are comparable.
+    # The training logs cannot serve this:
+    # they mix warmup_steps 2 and 0,
+    # and the older ones predate the pool-inclusive mem_usage fix.
+    # Execution modes: padded_eager / packed_compiled / packed_graphc exist above,
+    # packed_eager at 300 steps is the missing cell.
     job = TrainStepBenchmarkJob(
         returnn_config=cfg,
         mode="packed_eager",
@@ -2447,10 +2487,11 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-bench-fixdelta-packed_eager.json", job.out_results)
 
-    # Batching/ordering table: single-variable steps away from the warmup0 graphc cell above
-    # (that one is the batch_size budget under laplace). Budgets, text budgets, batch bounds
-    # and max_seqs are the values of the corresponding trainings; the layout stays the frozen
-    # per_key one so the ONLY difference per row is the budget resp. the ordering.
+    # Batching and ordering, one variable at a time
+    # away from the warmup0 graphc cell above (batch_size budget under laplace).
+    # Budgets, text budgets, batch bounds and max_seqs are the trainings' own values.
+    # The layout stays the frozen per_key one,
+    # so each row differs only in the budget or the ordering.
     for _tag, _budget, _text_budget, _bs_bound, _ordering in [
         ("pbs16m", 16_192_320, 4_000, 200, None),
         ("pbs16m-randshuf", 16_192_320, 4_000, 200, "random"),
@@ -2474,11 +2515,12 @@ def _loq_cost_decomposition(cfg, classes_cap):
                     **_v2_graph_opts,
                     "warmup_steps": 0,
                     "batch_size_bound": _bs_bound,
-                    # bound = budget + the alignment reserve. The usable content bound is
-                    # packed_total_bound - batch_size_bound * (gap + align - 1), while the
-                    # batcher fills to the budget, so at align 960 a bound == budget overflows
-                    # on the first long batch (measured: 16_030_361 > 16_000_520).
-                    # The pbs TRAININGS avoid this by running packed_tensors True (align 1);
+                    # bound = budget + the alignment reserve:
+                    # the usable content bound is
+                    # packed_total_bound - batch_size_bound * (gap + align - 1),
+                    # while the batcher fills to the budget,
+                    # so at align 960 a bound equal to the budget overflows on the first long batch.
+                    # The pbs trainings avoid it via packed_tensors True (align 1);
                     # here the layout stays fixed so the budget is the only variable.
                     "packed_total_bound": {
                         "audio": _budget + _bs_bound * (_v2_align - 1),
@@ -2560,6 +2602,12 @@ class TrainStepBenchmarkJob(Job):
         :param version: behavior version, bump to force a re-run (hash-neutral at the default)
         """
         assert mode in (
+            # measure the config exactly as it trains, no override text at all.
+            # The only fair mode for a backend comparison:
+            # the arms differ in options with no counterpart across backends
+            # (torch_cuda_graph, jax_jit buckets, tf_amp),
+            # and injected torch-shaped overrides would be rejected there anyway.
+            "as_is",
             "padded_eager",
             "packed_eager",
             "packed_compiled",
@@ -2585,6 +2633,9 @@ class TrainStepBenchmarkJob(Job):
         self.nsys = nsys
         self.version = version
         self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
+        if nsys:
+            # bounded profile window, so a short request backfills
+            self.rqmt["time"] = 0.5
         self.out_results = self.output_path("results.json")
         self.out_log = self.output_path("returnn.log")
 
@@ -2595,6 +2646,7 @@ class TrainStepBenchmarkJob(Job):
         yield Task("run", rqmt=self.rqmt, resume="run")
 
     _mode_overrides = {
+        "as_is": "",
         "packed_jax": "",
         "padded_eager": "packed_tensors = None\ntorch_cuda_graph = None\n",
         "packed_eager": "torch_cuda_graph = None\n",
@@ -2783,8 +2835,10 @@ class TrainStepBenchmarkJob(Job):
         if self.nsys:
             delay, duration = (int(x) for x in self.nsys.split(","))
             cmd = [
-                "nsys", "profile",
-                "-o", os.path.join(os.path.dirname(self.out_results.get_path()), "profile"),
+                "nsys",
+                "profile",
+                "-o",
+                os.path.join(os.path.dirname(self.out_results.get_path()), "profile"),
                 "--force-overwrite=true",
                 "--trace=cuda",
                 "--sample=none",
