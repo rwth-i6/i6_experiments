@@ -773,6 +773,9 @@ def py():
     # Emformer: the T x (U+1) x V joint lattice OOMs on full-transcript U).
     # A 30s chunk holds at most ~100 words, so the caps are semantically free.
     _zoo_max_words = {
+        # decoder budget 1024 learned positions; uncapped, the seg job feeds the whole
+        # remaining transcript as candidates (~2000 tokens) and hits the budget assert
+        "canary-1b-flash": 120,
         "whisper-base": 120,
         "whisper-large-v3": 120,
         "whisper-large-v3-noprev": 120,
