@@ -1700,7 +1700,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     from .ctc import _ctc_model_def_blank_idx
 
     if recog_def is None:
-        if backend_of(ctc_model.definition) == "tensorflow":
+        # TF and JAX: the in-graph search; unrolling costs one compile per frame under JAX
+        if backend_of(ctc_model.definition) in ("tensorflow", "jax"):
             from .recog_ext.ctc import model_recog_with_recomb_while_loop as recog_def
         else:
             from .recog_ext.ctc import model_recog_with_recomb as recog_def
