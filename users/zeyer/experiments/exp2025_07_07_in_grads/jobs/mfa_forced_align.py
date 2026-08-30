@@ -110,7 +110,7 @@ class MfaForcedAlignJob(Job):
     __sis_version__ = 4  # strict per-word count+identity sanity check (no silent skip); see what fails
 
     # excluded value = pre-flag behavior
-    __sis_hash_exclude__ = {"allow_failed_seqs": False}
+    __sis_hash_exclude__ = {"allow_failed_seqs": False, "boost_silence": None}
 
     def __init__(
         self,
@@ -126,6 +126,7 @@ class MfaForcedAlignJob(Job):
         dataset_offset_factors: int = 1,
         beam: int = 10,
         retry_beam: int = 400,
+        boost_silence: Optional[float] = None,
         allow_failed_seqs: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
@@ -142,6 +143,9 @@ class MfaForcedAlignJob(Job):
         # Kaldi alignment beams. Hashed (not excluded) so sweeping them is a deliberate new run.
         self.beam = beam
         self.retry_beam = retry_beam
+        # Kaldi silence-likelihood boost (None = MFA default 1.0);
+        # >1 helps the silence model absorb untranscribed speech (long-form interviewer turns).
+        self.boost_silence = boost_silence
         # Tolerate seqs MFA fails to align at all (long-form: even retry_beam can give up on a whole
         # track): fill them with word-uniform boundaries over the audio duration (no gold leak),
         # report true coverage, and keep the strict raise for everything else recombinable.
@@ -252,6 +256,8 @@ class MfaForcedAlignJob(Job):
         align_config = os.path.join(scratch, "align_config.yaml")
         with open(align_config, "w") as f:
             f.write(f"beam: {self.beam}\nretry_beam: {self.retry_beam}\n")
+            if self.boost_silence is not None:
+                f.write(f"boost_silence: {self.boost_silence}\n")
         # NOTE: default textgrid cleanup (recombine clitics) keeps MFA's word count 1:1 with the
         # reference; --no_textgrid_cleanup splits clitics and breaks the count match.
         cmd = [
@@ -330,6 +336,4 @@ class MfaForcedAlignJob(Job):
         self.out_wbe.set(metrics["wbe"])
         self.out_metrics.set(metrics)
         self.out_acc50.set(metrics["acc_50ms"])
-        self.out_coverage.set(
-            {"covered": len(utt_errs), "total": n_total, "fraction": len(utt_errs) / n_total}
-        )
+        self.out_coverage.set({"covered": len(utt_errs), "total": n_total, "fraction": len(utt_errs) / n_total})

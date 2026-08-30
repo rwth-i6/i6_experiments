@@ -73,6 +73,7 @@ class CanaryQwen(BaseModelInterface):
         audio_time_stretch: float = 1.0,
         ensure_audio_long_enough: bool = False,
         attn_implementation: Optional[str] = None,
+        collect_attn_heads: Optional[List[List[int]]] = None,
         version: int = 1,
     ):
         """
@@ -160,6 +161,8 @@ class CanaryQwen(BaseModelInterface):
         print(f"  ({time.time() - start_time:.1f}s)")
         print("model type:", type(self.model).__name__)
 
+        # long-form: capture only these (layer, head) attentions, see CaptureSelectedAttn
+        self.collect_attn_heads = collect_attn_heads
         self.attn_implementation = attn_implementation
         if attn_implementation is not None:
             llm = self.model.llm
@@ -410,13 +413,32 @@ class CanaryQwen(BaseModelInterface):
         )
 
         # LLM forward; keep last hidden state for log_probs.
-        res = self.model.llm(
-            inputs_embeds=input_embs,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
-            output_attentions=collect_attentions is not None,
-            return_dict=True,
-        )
+        _cap = None
+        if collect_attentions is not None and self.collect_attn_heads is not None:
+            from .base import CaptureSelectedAttn, find_hf_decoder_layers
+
+            # heads capture = attention extraction only, no grads:
+            # all layers' retained weights + activations OOM on long-form input
+            _cap = CaptureSelectedAttn(
+                [_l.self_attn for _l in find_hf_decoder_layers(self.model.llm)],
+                [(int(_li), int(_hi)) for _li, _hi in self.collect_attn_heads],
+            )
+            with _cap, torch.no_grad():
+                res = self.model.llm(
+                    inputs_embeds=input_embs,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                    output_attentions=True,
+                    return_dict=True,
+                )
+        else:
+            res = self.model.llm(
+                inputs_embeds=input_embs,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                output_attentions=collect_attentions is not None,
+                return_dict=True,
+            )
         torch.cuda.synchronize()
         last_out = res.hidden_states[-1]
         if collect_attentions is not None:
@@ -424,23 +446,25 @@ class CanaryQwen(BaseModelInterface):
             # rows = the positions PREDICTING each target token, cols = the audio block
             # (the single audio_locator token expanded into n_audio_real frames).
             # Requires attn_implementation="eager" (SDPA returns no weights).
-            assert res.attentions is not None and res.attentions[0] is not None, (
-                "no attention weights returned -- construct with attn_implementation='eager'"
-            )
             audio_pos = (input_ids[0] == self.audio_locator_tag_id).nonzero(as_tuple=True)[0]
             assert audio_pos.numel() == 1, "expected exactly one audio_locator tag"
             a0 = int(audio_pos[0])
             a1 = a0 + n_audio_real
             n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
             r0 = dst_text_start + n_audio_real - 1 - 1  # predictor of the first target token
-            rows = torch.arange(r0, r0 + n_tgt, device=input_embs.device)
-            collect_attentions.append(
-                dict(
-                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
-                    n_audio=n_audio_real,
-                    n_audio_real=n_audio_real,
+            if _cap is not None:
+                # nested dict {layer: {head: [S, n_audio]}}; the extract job indexes attns[li][hi]
+                rows_c = torch.arange(r0, r0 + n_tgt)
+                attns = {
+                    _li: {_hi: w[rows_c][:, a0:a1] for _hi, w in _hs.items()} for _li, _hs in _cap.captured.items()
+                }
+            else:
+                assert res.attentions is not None and res.attentions[0] is not None, (
+                    "no attention weights returned -- construct with attn_implementation='eager'"
                 )
-            )
+                rows = torch.arange(r0, r0 + n_tgt, device=input_embs.device)
+                attns = [a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions]
+            collect_attentions.append(dict(attns=attns, n_audio=n_audio_real, n_audio_real=n_audio_real))
         del res
         print(
             f"[fwd] llm forward ok; last_out.shape={tuple(last_out.shape)}",

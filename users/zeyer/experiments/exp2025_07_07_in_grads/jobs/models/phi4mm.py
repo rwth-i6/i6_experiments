@@ -90,6 +90,7 @@ class Phi4MM(BaseModelInterface):
         unwrap_checkpoint_wrappers: bool = False,
         target_start_end_to_device: bool = False,
         attn_implementation: Optional[str] = None,
+        collect_attn_heads: Optional[List[List[int]]] = None,
         model_dtype: Optional[str] = None,
         omitted_ctx_marker: bool = True,
     ):
@@ -107,6 +108,8 @@ class Phi4MM(BaseModelInterface):
             raise ValueError(f"char_level_brackets must be None / 'char' / 'word', got {char_level_brackets!r}")
 
         self.device = device
+        # long-form: capture only these (layer, head) attentions, see CaptureSelectedAttn
+        self.collect_attn_heads = collect_attn_heads
         self.model_dir = model_dir
         self.speech_prompt = speech_prompt
         self.grad_wrt = grad_wrt
@@ -543,13 +546,32 @@ class Phi4MM(BaseModelInterface):
         # so num_logits_to_keep=1 is the best we can do.
         # We then will compute only the needed logits below,
         # and for that, we need the last layer output, thus output_hidden_states=True.
-        try:
-            res = self.model(
-                **inputs,
-                output_hidden_states=True,
-                num_logits_to_keep=1,
-                output_attentions=collect_attentions is not None,
+        _cap = None
+        if collect_attentions is not None and self.collect_attn_heads is not None:
+            from .base import CaptureSelectedAttn, find_hf_decoder_layers
+
+            # heads capture = attention extraction only, no grads:
+            # all layers' retained weights + activations OOM on long-form input
+            _cap = CaptureSelectedAttn(
+                [_l.self_attn for _l in find_hf_decoder_layers(self.model)],
+                [(int(_li), int(_hi)) for _li, _hi in self.collect_attn_heads],
             )
+        try:
+            if _cap is not None:
+                with _cap, torch.no_grad():
+                    res = self.model(
+                        **inputs,
+                        output_hidden_states=True,
+                        num_logits_to_keep=1,
+                        output_attentions=True,
+                    )
+            else:
+                res = self.model(
+                    **inputs,
+                    output_hidden_states=True,
+                    num_logits_to_keep=1,
+                    output_attentions=collect_attentions is not None,
+                )
         finally:
             if self.grad_wrt == "encoder_out":
                 _hook_handle.remove()
@@ -569,16 +591,18 @@ class Phi4MM(BaseModelInterface):
             a0, a1 = int(audio_pos[0]), int(audio_pos[-1]) + 1
             assert a1 - a0 == int(audio_pos.numel()), "audio token block not contiguous"
             n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
-            rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
             # Batch-1 phi4 sizes the audio-token block to the real audio (no Whisper-style
             # 30 s pad), so every audio token is real -> n_audio_real == n_audio.
-            collect_attentions.append(
-                dict(
-                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
-                    n_audio=a1 - a0,
-                    n_audio_real=a1 - a0,
-                )
-            )
+            if _cap is not None:
+                # nested dict {layer: {head: [S, n_audio]}}; the extract job indexes attns[li][hi]
+                rows_c = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt)
+                attns = {
+                    _li: {_hi: w[rows_c][:, a0:a1] for _hi, w in _hs.items()} for _li, _hs in _cap.captured.items()
+                }
+            else:
+                rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
+                attns = [a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions]
+            collect_attentions.append(dict(attns=attns, n_audio=a1 - a0, n_audio_real=a1 - a0))
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)

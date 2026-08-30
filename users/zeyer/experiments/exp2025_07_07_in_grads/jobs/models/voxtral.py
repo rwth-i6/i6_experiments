@@ -80,6 +80,7 @@ class Voxtral(BaseModelInterface):
         char_level_sep: Optional[str] = None,
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
         attn_implementation: Optional[str] = None,
+        collect_attn_heads: Optional[List[List[int]]] = None,
         omitted_ctx_marker: bool = True,
         version: int = 1,
     ):
@@ -122,6 +123,8 @@ class Voxtral(BaseModelInterface):
         # "... " marker prepended when prev words were omitted (chunked decoding);
         # False = feed nothing (no continuation cue) -- ablation.
         self._omitted_ctx_marker = omitted_ctx_marker
+        # long-form: capture only these (layer, head) attentions, see CaptureSelectedAttn
+        self.collect_attn_heads = collect_attn_heads
         self.logits_transform = make_logits_transform(logits_transform)
         # NOTE on these version asserts:
         # only the >= 3 floor is a genuine behaviour fix (the v1/v2 splice / n_audio_real bugs).
@@ -615,12 +618,30 @@ class Voxtral(BaseModelInterface):
         )
 
         report_dev_memory_stats(dev)
-        res = self.model(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
-            output_attentions=collect_attentions is not None,
-        )
+        _cap = None
+        if collect_attentions is not None and self.collect_attn_heads is not None:
+            from .base import CaptureSelectedAttn, find_hf_decoder_layers
+
+            # heads capture = attention extraction only, no grads:
+            # all layers' retained weights + activations OOM on long-form input
+            _cap = CaptureSelectedAttn(
+                [_l.self_attn for _l in find_hf_decoder_layers(self.model)],
+                [(int(_li), int(_hi)) for _li, _hi in self.collect_attn_heads],
+            )
+            with _cap, torch.no_grad():
+                res = self.model(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                    output_attentions=True,
+                )
+        else:
+            res = self.model(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                output_attentions=collect_attentions is not None,
+            )
         torch.cuda.synchronize()
         print(
             f"[fwd] model(...) returned; hidden_states={len(res.hidden_states)} layers, last shape={tuple(res.hidden_states[-1].shape)}",
@@ -634,11 +655,19 @@ class Voxtral(BaseModelInterface):
             a0, a1 = int(audio_pos[0]), int(audio_pos[-1]) + 1
             assert a1 - a0 == int(audio_pos.numel()), "audio token block not contiguous"
             n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
-            rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
             _ca_tok_samples = int(round(0.08 * raw_inputs_sample_rate))  # 80 ms audio tokens
+            if _cap is not None:
+                # nested dict {layer: {head: [S, n_audio]}}; the extract job indexes attns[li][hi]
+                rows_c = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt)
+                attns = {
+                    _li: {_hi: w[rows_c][:, a0:a1] for _hi, w in _hs.items()} for _li, _hs in _cap.captured.items()
+                }
+            else:
+                rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
+                attns = [a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions]
             collect_attentions.append(
                 dict(
-                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
+                    attns=attns,
                     n_audio=a1 - a0,
                     n_audio_real=min(a1 - a0, -(-orig_n_samples // _ca_tok_samples)),
                 )

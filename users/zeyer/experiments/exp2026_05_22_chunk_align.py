@@ -1050,6 +1050,34 @@ def py():
     _lf_metric(_lf_mfa.out_word_boundaries_hdf, "chunk-align/native-longform/mfa")
     reg("chunk-align/native-longform/mfa-coverage.txt", _lf_mfa.out_coverage)
 
+    # MFA option probes on the interviewer-turn failure (seq5 etc., see project notes):
+    # a wide initial beam tests the pruning hypothesis
+    # (the beam-10 first pass may discard the stay-in-silence path),
+    # boost_silence tests the model hypothesis
+    # (the silence GMM loses against transcript-words-on-interviewer-speech).
+    # the stay-in-silence path accumulates its deficit over the whole untranscribed prefix
+    # (~82 s on seq5) before paying off, so the needed beam can be in the thousands
+    for _lf_mfa_name, _lf_mfa_kw in [
+        ("mfa-beam100", dict(beam=100, retry_beam=1000)),
+        ("mfa-beam1000", dict(beam=1000, retry_beam=4000)),
+        ("mfa-boost4", dict(boost_silence=4.0)),
+        ("mfa-beam100-boost4", dict(beam=100, retry_beam=1000, boost_silence=4.0)),
+    ]:
+        _lf_mfa_v = MfaForcedAlignJob(
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            mfa_exe=_mfa_exe.out_exe,
+            model_root=_mfa_models.out_model_root,
+            dataset_offset_factors=_lf_off,
+            allow_failed_seqs=True,
+            **_lf_mfa_kw,
+        )
+        # wide beams on 10-min utterances are slow (Kaldi CPU decode)
+        _lf_mfa_v.rqmt = {**_lf_mfa_v.rqmt, "time": 24}
+        _lf_mfa_v.add_alias(f"chunk-align/native-longform/{_lf_mfa_name}")
+        _lf_metric(_lf_mfa_v.out_word_boundaries_hdf, f"chunk-align/native-longform/{_lf_mfa_name}")
+        reg(f"chunk-align/native-longform/{_lf_mfa_name}-coverage.txt", _lf_mfa_v.out_coverage)
+
     # Speech-LLM decoder self-attention DTW + OWLS cross-attention DTW,
     # directly on the long-form tracks.
     # Head selection (TIMIT val, gold) is byte-identical to the grad-align recipe,
@@ -1086,7 +1114,12 @@ def py():
             time_upsample_when_short=_lf_sa_ups,
         )
         _lf_sa_ex = ExtractSelfAttnPerTokenJob(
-            dataset_dir=_lf_dir, dataset_key="val", model_config=_lf_sa_cfg, heads=_lf_sa_sel.out_heads
+            dataset_dir=_lf_dir,
+            dataset_key="val",
+            # collect_attn_heads: the wrapper captures only the selected heads' matrices
+            # (plain output_attentions retains every layer's [H, L, L] and OOMs on 10-min tracks)
+            model_config={**_lf_sa_cfg, "collect_attn_heads": _lf_sa_sel.out_heads},
+            heads=_lf_sa_sel.out_heads,
         )
         _lf_sa_nm = f"chunk-align/native-longform/{_lf_sa_name}-{_lf_sa_kind}"
         _lf_sa_ex.add_alias(f"{_lf_sa_nm}-extract")
@@ -1242,7 +1275,16 @@ def py():
         + [
             # MFA aligns the long-form tracks directly but is no chunk-scoring model,
             # so the chunk-align side stays empty
-            {"family": "Ref.", "model": "MFA", "acc": "--", "err_p95_sec": "--", "frac_gt_1s": "--", **_nat4("mfa")}
+            # best-effort MFA (beam 1000/4000, full coverage); default beams derail on long-form,
+            # see the mfa vs mfa-beam* probe outputs and the paper prose
+            {
+                "family": "Ref.",
+                "model": "MFA",
+                "acc": "--",
+                "err_p95_sec": "--",
+                "frac_gt_1s": "--",
+                **_nat4("mfa-beam1000"),
+            }
         ]
     )
     # contiguous family blocks (stable within-family order; phi4mm groups with the speech LLMs)

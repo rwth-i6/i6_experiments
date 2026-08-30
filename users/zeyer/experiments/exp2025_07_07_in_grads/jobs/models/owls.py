@@ -94,6 +94,7 @@ class Owls(BaseModelInterface):
         char_level: bool = False,
         char_level_sep: Optional[str] = "▁",
         grad_wrt: str = "log_mel",
+        collect_attn_heads: Optional[List[List[int]]] = None,
         version: int = 1,
     ):
         super().__init__()
@@ -105,6 +106,8 @@ class Owls(BaseModelInterface):
         self._char_level = char_level
         self._char_level_sep = char_level_sep
         self.grad_wrt = grad_wrt
+        # long-form: capture only these (layer, head) src_attn matrices (see forward)
+        self.collect_attn_heads = collect_attn_heads
         self.version = version
 
         print("Import / load OWLS (ESPnet S2T)...")
@@ -171,7 +174,7 @@ class Owls(BaseModelInterface):
         self.vocab_size = len(token_list)
         print(f"  ({time.time() - start_time:.1f}s) prefix={self.prefix_ids} eos={self.eos_id} vocab={self.vocab_size}")
 
-    def _encode_leaf(self, wav: torch.Tensor, n_samples: int):
+    def _encode_leaf(self, wav: torch.Tensor, n_samples: int, *, with_grad: bool = True):
         """Run the frontend and encode, leaf-ifying at ``self.grad_wrt``:
         ``log_mel`` = the frontend output [1,T,80] @100 Hz (the default);
         ``enc_L<N>`` = the output of encoder block N (1-indexed; 25 Hz after the conv2d input layer),
@@ -181,6 +184,32 @@ class Owls(BaseModelInterface):
         slens = torch.tensor([n_samples], device=self.device)
         with torch.no_grad():
             feats, flens = self.model._extract_feats(speech, slens)  # [1, T, 80] log-mel @100Hz
+        if not with_grad:
+            # attention extraction only: no leaf, no autograd.
+            # espnet attention stores self.attn per module ([H, T, T], huge on long-form input);
+            # clear it right after each layer so only one matrix is ever alive.
+            from espnet.nets.pytorch_backend.transformer.attention import MultiHeadedAttention
+
+            def _clear_attn(_mod, _inp, _out):
+                _mod.attn = None
+
+            _hooks = []
+            for m in self.model.encoder.modules():
+                if isinstance(m, MultiHeadedAttention):
+                    # sdpa never materializes the [H, T, T] scores
+                    # (the eager transients alone OOM at 10 min)
+                    m.use_sdpa = True
+                    _hooks.append(m.register_forward_hook(_clear_attn))
+            try:
+                with torch.no_grad():
+                    nfeats, nflens = (
+                        self.model.normalize(feats, flens) if getattr(self.model, "normalize", None) else (feats, flens)
+                    )
+                    enc = self.model.encoder(nfeats, nflens)
+            finally:
+                for _h in _hooks:
+                    _h.remove()
+            return feats, enc[0], enc[1], int(feats.shape[1])
         if self.grad_wrt == "log_mel":
             leaf = feats.detach().requires_grad_(True)
             leaf.retain_grad()
@@ -243,7 +272,10 @@ class Owls(BaseModelInterface):
         words = raw_targets[0]
         orig_n_samples = int(raw_input_seq_lens[0])
 
-        leaf, enc_out, enc_lens, t_feat = self._encode_leaf(raw_inputs[0].float(), orig_n_samples)
+        _cap_mode = collect_attentions is not None and self.collect_attn_heads is not None
+        leaf, enc_out, enc_lens, t_feat = self._encode_leaf(
+            raw_inputs[0].float(), orig_n_samples, with_grad=not _cap_mode
+        )
 
         transc_ids: List[int] = []
         words_start_end: List[List[int]] = []
@@ -284,9 +316,44 @@ class Owls(BaseModelInterface):
         ys_in = torch.tensor([self.prefix_ids + transc_ids], dtype=torch.long, device=dev)
         ys_lens = torch.tensor([ys_in.shape[1]], device=dev)
         dst_text_start = len(self.prefix_ids)
-        with torch.enable_grad():
-            dec = self.model.decoder(enc_out, enc_lens, ys_in, ys_lens)
-            logits = dec[0]  # [1, L, V] (output_layer applied)
+        if _cap_mode:
+            # long-form: stash only the selected (layer, head) src_attn rows on CPU,
+            # drop every stored full matrix right away (all layers retained OOMs), no grads
+            _cap_heads = {}
+            for _li, _hi in self.collect_attn_heads:
+                _cap_heads.setdefault(int(_li), []).append(int(_hi))
+            _cap_stash = {}
+
+            def _make_src_hook(_li):
+                def _hook(_mod, _inp, _out):
+                    _a = _mod.attn
+                    if _a is not None:
+                        for _hi in _cap_heads.get(_li, ()):
+                            _cap_stash.setdefault(_li, {})[_hi] = _a[0, _hi].detach().to("cpu", torch.float32)
+                    _mod.attn = None
+
+                return _hook
+
+            def _clear_attn(_mod, _inp, _out):
+                _mod.attn = None
+
+            _cap_hooks = []
+            for _li, _layer in enumerate(self.model.decoder.decoders):
+                _cap_hooks.append(_layer.src_attn.register_forward_hook(_make_src_hook(_li)))
+                # sdpa for the decoder self-attention (no weights needed there)
+                _layer.self_attn.use_sdpa = True
+                _cap_hooks.append(_layer.self_attn.register_forward_hook(_clear_attn))
+            try:
+                with torch.no_grad():
+                    dec = self.model.decoder(enc_out, enc_lens, ys_in, ys_lens)
+                    logits = dec[0]  # [1, L, V] (output_layer applied)
+            finally:
+                for _h in _cap_hooks:
+                    _h.remove()
+        else:
+            with torch.enable_grad():
+                dec = self.model.decoder(enc_out, enc_lens, ys_in, ys_lens)
+                logits = dec[0]  # [1, L, V] (output_layer applied)
 
         if collect_attentions is not None:
             # Decoder->encoder cross-attention, the OWLS analog of Whisper's cross-attn DTW.
@@ -294,11 +361,18 @@ class Owls(BaseModelInterface):
             # during the call above; keep only the transcript-token rows (drop the prompt prefix),
             # so row j aligns with words_start_end (0-based on transc_ids), matching the grad HDF schema.
             # n_audio_real = the encoder frame count (no padding at batch 1); the cross-attn is over those.
-            attns = []
-            for _layer in self.model.decoder.decoders:
-                _a = getattr(_layer.src_attn, "attn", None)
-                assert _a is not None, "OWLS decoder src_attn stored no weights (unexpected attention impl)"
-                attns.append(_a[0, :, dst_text_start : dst_text_start + n_targets, :].detach().cpu())
+            if _cap_mode:
+                # nested dict {layer: {head: [n_targets, T_audio]}}; the extract job indexes attns[li][hi]
+                attns = {
+                    _li: {_hi: w[dst_text_start : dst_text_start + n_targets] for _hi, w in _hs.items()}
+                    for _li, _hs in _cap_stash.items()
+                }
+            else:
+                attns = []
+                for _layer in self.model.decoder.decoders:
+                    _a = getattr(_layer.src_attn, "attn", None)
+                    assert _a is not None, "OWLS decoder src_attn stored no weights (unexpected attention impl)"
+                    attns.append(_a[0, :, dst_text_start : dst_text_start + n_targets, :].detach().cpu())
             collect_attentions.append({"attns": attns, "n_audio_real": int(enc_out.shape[1])})
 
         targets = torch.tensor([transc_ids + [self.eos_id]], dtype=torch.long, device=dev)

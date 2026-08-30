@@ -142,3 +142,68 @@ def _get_cls(cls_name: str) -> type:
     if cls_name not in _classes:
         raise ValueError(f"Class {cls_name} not found in available classes: {list(_classes.keys())}")
     return _classes[cls_name]
+
+
+def find_hf_decoder_layers(model: torch.nn.Module) -> List[torch.nn.Module]:
+    """Resolve the HF decoder layer list (each with a ``self_attn``)
+    from the known attribute chains of our model zoo; fail loudly otherwise."""
+    for chain in (
+        "model.layers",
+        "language_model.layers",
+        "language_model.model.layers",
+        "layers",
+        # PEFT/LoRA-wrapped causal LMs (e.g. canary-qwen's SALM LLM)
+        "base_model.model.model.layers",
+        "base_model.model.layers",
+    ):
+        obj = model
+        for attr in chain.split("."):
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                break
+        if obj is not None and len(obj) > 0 and hasattr(obj[0], "self_attn"):
+            return list(obj)
+    raise AttributeError(f"no decoder layer list found on {type(model).__name__}")
+
+
+class CaptureSelectedAttn:
+    """Capture only the selected (layer, head) attention matrices during a forward.
+
+    With ``output_attentions=True``, HF retains every layer's full ``[H, L, L]`` weights
+    until the model returns, which OOMs on long-form input.
+    This context manager patches each layer's ``self_attn.forward``:
+    the selected heads' weights are stashed on CPU (``captured[layer][head]``, float32),
+    and ``None`` is returned upstream, so each full matrix stays a per-layer transient.
+    """
+
+    def __init__(self, attn_modules: List[torch.nn.Module], heads: List[Tuple[int, int]]):
+        self.attn_modules = attn_modules
+        self.heads_by_layer = {}
+        for li, hi in heads:
+            assert 0 <= li < len(attn_modules), f"layer {li} out of range ({len(attn_modules)} layers)"
+            self.heads_by_layer.setdefault(int(li), []).append(int(hi))
+        self.captured = {}  # layer -> head -> [L_q, L_k] cpu float32
+        self._origs = []
+
+    def __enter__(self):
+        for li, mod in enumerate(self.attn_modules):
+            orig = mod.forward
+
+            def wrapped(*args, _orig=orig, _li=li, **kwargs):
+                out = _orig(*args, **kwargs)
+                if not isinstance(out, tuple) or len(out) < 2 or not isinstance(out[1], torch.Tensor):
+                    return out
+                w = out[1]  # [1, H, L_q, L_k]
+                for hi in self.heads_by_layer.get(_li, ()):
+                    self.captured.setdefault(_li, {})[hi] = w[0, hi].detach().to("cpu", torch.float32)
+                return (out[0], None) + out[2:]
+
+            mod.forward = wrapped
+            self._origs.append((mod, orig))
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for mod, orig in self._origs:
+            mod.forward = orig
+        self._origs = []
+        return False
