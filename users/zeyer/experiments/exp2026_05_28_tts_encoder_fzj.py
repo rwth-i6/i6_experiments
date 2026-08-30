@@ -1338,6 +1338,52 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # The same two arms at a smaller audio budget.
+    # Subword units are ~2.8x denser than phonemes, so at 11.2M they fill the batch with audio and
+    # give 4637 steps/epoch against the phoneme arm's 6470, i.e. 0.72x the updates over nep 38.
+    # 8.0M restores the step count, so the subword-vs-phoneme comparison is equal-update.
+    _train_tts_encoder(
+        "pseudo-enc-ctcsubword-inst-lerp-packed-bs8m-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=4_000,
+        max_phon_len=200,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_instance_table=_ctc_subword_instances().out_instance_table,
+        pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_gap_frac=0.25,
+        pseudo_enc_max_len_factor=30,
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        train_seq_ordering="random",
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 8_000_000, "classes": 5_000, "phonemes": 4_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 200},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # Same, but durations scaled to 0.7, so ~30% shorter sequences at ~1 encoder frame per phoneme.
     # Differs from the run above in exactly this one knob.
     _train_tts_encoder(
