@@ -1481,54 +1481,56 @@ def py():
     # it runs 6475 steps/epoch against dur07's 17487 (0.370x), so the specaug ramp lands later
     # in the run and total decoupled weight decay is 0.370x, exactly the regime
     # asr-base-...-packed-graphc-specaug60-stepcomp corrected for 4.20 -> 3.97.
-    # Factor 60 is that sweep's best (82 and 70 both gave 4.10).
     # Specaug runs once over the concatenated batch here, so this weakens masking
     # on the real and pseudo rows alike, which is what the ASR arm did too.
-    _train_tts_encoder(
-        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug60-stepcomp",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=70_000,
-        batch_size_phon=6_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
-        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
-        pseudo_enc_duration_sigma=0.45,
-        pseudo_enc_duration_scale=0.7,
-        pseudo_enc_max_len_factor=10,
-        train_seq_ordering="random",
-        pseudo_enc_lerp=True,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=6,
-        single_stream=True,
-        interleave_gumbel_scale=1.0,
-        glow_tts_add_silence_between_words=0.15,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        behavior_version=29,  # packed tensors need >= 29
-        pseudo_enc_frontend_concat=True,
-        extra_config_updates={
-            "optimizer.class": rf.build_dict(Muon)["class"],
-            "packed_tensors": True,
-            "torch_distributed": {"reduce_type": "grad_explicit"},
-            "batch_size": None,
-            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
-            "batching": "random",
-            "torch_cuda_graph": {
-                "batch_size_bound": 500,
-                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
-                "warmup_steps": 0,
-                "compile": True,
+    # 60 took this arm from 3.76 to 3.56, the best injection result so far,
+    # and on the ASR side 50 beat 60, so 50 asks whether that holds here.
+    for _sa in (60, 50):
+        _train_tts_encoder(
+            f"pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug{_sa}-stepcomp",
+            prefix=prefix,
+            text_train_epoch_split=75,
+            batch_size_audio_frames=70_000,
+            batch_size_phon=6_000,
+            max_phon_len=300,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+            pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+            pseudo_enc_duration_sigma=0.45,
+            pseudo_enc_duration_scale=0.7,
+            pseudo_enc_max_len_factor=10,
+            train_seq_ordering="random",
+            pseudo_enc_lerp=True,
+            pseudo_enc_blank_duration_range=(0, 0),
+            pseudo_enc_specaug_max_width=6,
+            single_stream=True,
+            interleave_gumbel_scale=1.0,
+            glow_tts_add_silence_between_words=0.15,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            behavior_version=29,  # packed tensors need >= 29
+            pseudo_enc_frontend_concat=True,
+            extra_config_updates={
+                "optimizer.class": rf.build_dict(Muon)["class"],
+                "packed_tensors": True,
+                "torch_distributed": {"reduce_type": "grad_explicit"},
+                "batch_size": None,
+                "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                "batching": "random",
+                "torch_cuda_graph": {
+                    "batch_size_bound": 500,
+                    "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                    "warmup_steps": 0,
+                    "compile": True,
+                },
+                "optimizer.weight_decay": 0.027,  # 0.01 / 0.370
+                "specaugment_num_spatial_mask_factor": _sa,
+                "specaugment_steps": (1850, 5550, 9250),  # (5000, 15000, 25000) * 0.370
             },
-            "optimizer.weight_decay": 0.027,  # 0.01 / 0.370
-            "specaugment_num_spatial_mask_factor": 60,
-            "specaugment_steps": (1850, 5550, 9250),  # (5000, 15000, 25000) * 0.370
-        },
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+            extra_config_deletes=["optimizer.epsilon"],
+        )
 
     # dur07-packed reached 3.75 dev-other in 44 h, but on only 246k updates,
     # against 524k for pseudo-enc-layer4-noblank (3.70) and 805k for the TTS-enc arms (3.55).
