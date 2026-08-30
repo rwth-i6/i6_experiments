@@ -543,6 +543,20 @@ def model_recog_with_recomb_while_loop(
     batch_dims_ = [beam_dim] + batch_dims
     # at most one label per frame, so the frames bound both the LM KV cache and the label history
     max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
+    # the accumulators run one entry per frame.
+    # A graph loop that cannot grow its carry (JAX) needs that count up front.
+    max_seq_len_int = int(enc_spatial_dim.get_dim_value())
+    # The loop control lives where the loop runs.
+    # TF drives it from the host, so the bound and the counter stay on CPU;
+    # JAX runs the loop on the device, and a CPU-committed operand would split it across devices.
+    _loop_on_device = rf.get_selected_backend() == "jax"
+    loop_bound = max_seq_len_int if _loop_on_device else max_seq_len_cpu
+    loop_counter_device = None if _loop_on_device else "cpu"
+    backtrack_start = (
+        rf.constant(max_seq_len_int - 1, dims=(), dtype="int32", device=None)
+        if _loop_on_device
+        else max_seq_len_cpu - 1
+    )
     label_cap_dim = Dim(enc_spatial_dim.get_dim_value_tensor(), name="label-hist-capacity")
 
     if getattr(model, "lm", None) is None:
@@ -710,10 +724,10 @@ def model_recog_with_recomb_while_loop(
     target_wb_template = Tensor("target_wb", dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim)
     backrefs_template = Tensor("backrefs", dims=batch_dims_, dtype="int32", sparse_dim=beam_dim)
     _, seq_log_prob, _, _, _, _, lm_log_probs, _, seq_targets_wb_ta, seq_backrefs_ta = rf.while_loop(
-        cond=lambda state: state[0] < max_seq_len_cpu,
+        cond=lambda state: state[0] < loop_bound,
         body=_body,
         initial=(
-            rf.constant(0, dims=(), dtype="int32", device="cpu"),
+            rf.constant(0, dims=(), dtype="int32", device=loop_counter_device),
             rf.where(rf.range_over_dim(beam_dim) == 0, rf.constant(0.0, dims=batch_dims_), neg_inf),
             rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
             rf.constant(model.blank_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim),
@@ -721,8 +735,8 @@ def model_recog_with_recomb_while_loop(
             rf.constant(0, dims=batch_dims_, dtype="int32"),
             lm_log_probs0,
             lm_state0,
-            TensorArray(target_wb_template),
-            TensorArray(backrefs_template),
+            TensorArray(target_wb_template, capacity=max_seq_len_int),
+            TensorArray(backrefs_template, capacity=max_seq_len_int),
         ),
     )
     if lm_log_probs is not None:
@@ -744,7 +758,7 @@ def model_recog_with_recomb_while_loop(
     _, _, seq_targets_rev_ta = rf.while_loop(
         cond=lambda state: state[0] >= 0,
         body=_backtrack_body,
-        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_wb_template)),
+        initial=(backtrack_start, indices0, TensorArray(target_wb_template, capacity=max_seq_len_int)),
     )
     out_spatial_dim = enc_spatial_dim
     seq_targets_wb = seq_targets_rev_ta.stack(axis=out_spatial_dim)
