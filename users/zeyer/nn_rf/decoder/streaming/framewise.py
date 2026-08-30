@@ -137,8 +137,10 @@ def framewise_train_forward(
     *,
     data: Tensor,
     data_spatial_dim: Dim,
-    rna_targets: Tensor,
-    rna_targets_spatial_dim: Dim,
+    rna_targets: Optional[Tensor] = None,
+    rna_targets_spatial_dim: Optional[Dim] = None,
+    labels: Optional[Tensor] = None,
+    labels_spatial_dim: Optional[Dim] = None,
 ) -> Dict[str, Tuple[Tensor, Dim]]:
     """
     Teacher-forced frame-synchronous RNA training.
@@ -150,14 +152,33 @@ def framewise_train_forward(
 
     :return: dict ``name -> (loss, inv_norm_spatial_dim)``.
     """
-    collected_outputs = {} if model.enc_aux_logits else None
+    collected_outputs = {} if (model.enc_aux_logits or rna_targets is None) else None
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    # Re-align the RNA target onto the encoder length (pad blank / cut blank padding),
-    # so the encoder chunking is free to differ from the dataset's fixed pad-to-chunk-multiple
-    # (dynamic chunk pools, offline, ...).
-    rna = rna_targets_on_enc_spatial(
-        rna_targets, in_spatial_dim=rna_targets_spatial_dim, enc_spatial_dim=enc_spatial_dim, blank_idx=model.blank_idx
-    )
+    if rna_targets is not None:
+        # Re-align the RNA target onto the encoder length (pad blank / cut blank padding),
+        # so the encoder chunking is free to differ from the dataset's fixed pad-to-chunk-multiple
+        # (dynamic chunk pools, offline, ...).
+        rna = rna_targets_on_enc_spatial(
+            rna_targets,
+            in_spatial_dim=rna_targets_spatial_dim,
+            enc_spatial_dim=enc_spatial_dim,
+            blank_idx=model.blank_idx,
+        )
+    else:
+        # On-the-fly alignment: Viterbi path of the model's OWN top aux CTC head,
+        # label_loop=False == RNA topology, so blank removal (no collapse) gives back the labels.
+        # Self-aligned, so it tracks the chunked encoder's own timing
+        # instead of the offline base's fixed alignment.
+        aux_logits = model.aux_logits_from_collected_outputs(model.enc_aux_logits[-1], collected_outputs)
+        rna = rf.ctc_best_path(
+            logits=aux_logits,
+            targets=labels,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=labels_spatial_dim,
+            blank_index=model.blank_idx,
+            label_loop=False,
+        )
+        rna.sparse_dim = model.target_dim_ext
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
 
@@ -215,6 +236,25 @@ def framewise_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: T
 
 
 framewise_training.learning_rate_control_error_measure = "ce"
+
+
+def framewise_ctc_align_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
+    """
+    TrainDef: ``targets`` is the plain transcript (target_mode="labels");
+    the RNA alignment is derived on-the-fly from the model's own aux CTC head each step.
+    """
+    losses = framewise_train_forward(
+        model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        labels=targets,
+        labels_spatial_dim=targets_spatial_dim,
+    )
+    for name, (loss, norm_dim) in losses.items():
+        loss.mark_as_loss(name, custom_inv_norm_factor=norm_dim.get_size_tensor(), use_normalized_loss=True)
+
+
+framewise_ctc_align_training.learning_rate_control_error_measure = "ce"
 
 
 def model_recog(

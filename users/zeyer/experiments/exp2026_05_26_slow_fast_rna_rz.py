@@ -54,6 +54,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
     framewise_training,
     model_recog as framewise_model_recog,
     model_recog_beam as framewise_model_recog_beam,
+    framewise_ctc_align_training,
     model_recog_beam_rescore_check as framewise_model_recog_beam_rescore_check,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
@@ -145,6 +146,25 @@ def _recog_chunked_base_aed():
     tk.register_output(ctc_name, ctc_res.output)
 
 
+def _train_framewise_ctc_align_rz():
+    """
+    framewise trained on an on-the-fly alignment (own aux CTC head, rf.ctc_best_path label_loop=False),
+    instead of the fixed alignment from the offline base.
+
+    The fixed alignment carries the offline base's timing, which mismatches the chunked encoder:
+    the delay knob (2.5s) recovers 3.4 WER on top of it (13.02 -> 9.64).
+    A self-derived alignment should already sit at the model's own timing,
+    so this runs with delay 0 to test exactly that.
+    """
+    return _train_variant_rz(
+        "framewise-ctcalign-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=framewise_ctc_align_training,
+        recog_def=framewise_model_recog,
+        target_mode="labels",
+    )
+
+
 def _train_rnnt_mono_framewise_scaled_rz(scale: float, tag: str):
     """Full-size framewise-CE with the main-loss scale knob.
 
@@ -220,6 +240,7 @@ def py():
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
     _train_rnnt_mono_framewise_scaled_rz(2.0, "2")
+    _train_framewise_ctc_align_rz()
     _train_framewise_delay_ls0_rz()
     _train_framewise_wordchunk_rz()
     _train_framewise_wordchunk_end_rz()
