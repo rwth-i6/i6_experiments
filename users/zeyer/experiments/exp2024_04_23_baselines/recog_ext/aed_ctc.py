@@ -270,14 +270,9 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
-    _backend = getattr(aed_ctc_model.definition, "backend", None)
-    if _backend == "tensorflow" and "tf_static_shapes" not in base_config:
-        # TF-engine SEARCH steps need static bounds (build-time unrolled beam search);
-        # see ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale for the same block.
-        base_config["tf_static_shapes"] = {
-            "batch_size_bound": 200,
-            "dim_capacity": {"audio": 576_000, "text": 1024},
-        }
+    _backend = backend_of(aed_ctc_model.definition)
+    # TF: the in-graph search, else the graph unrolls over the frames. Same results.
+    recog_def = model_recog_with_recomb_while_loop if _backend == "tensorflow" else model_recog_with_recomb
     if _backend == "jax" and "jax_static_shapes" not in base_config:
         # the in-graph search needs the same bounds, so one program covers every batch.
         # audio capacity covers the longest seq of the recog sets (measured 636_784 samples),
@@ -293,7 +288,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     ctc_scores = search_dataset(
         dataset=dataset,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
@@ -312,7 +307,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
     )
     tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
@@ -356,7 +351,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
@@ -389,7 +384,7 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     res = recog_model(
         task=task,
         model=model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={
             **base_config,
             "beam_size": first_pass_recog_beam_size,
