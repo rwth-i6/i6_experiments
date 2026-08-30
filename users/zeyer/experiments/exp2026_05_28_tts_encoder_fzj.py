@@ -1694,12 +1694,13 @@ def py():
     # The mask count: bv28 draws it from each seq's own length, where bv25 used the batch max,
     # which on this data is 252k samples against a true mean of 206k, i.e. 1.227x more;
     # 100/1.227 = 82 restores that strength, 70 goes past it to test whether it was the optimum.
-    # It was not: final dev-other is 4.08 at 82, 4.12 at 70, 3.93 at 60, 3.89 at 50,
-    # so 60 already beats the padded baseline's 4.01, and the gain has nearly flattened by 50.
-    # 40 tests where it stops.
+    # It was not: final dev-other is 4.08 at 82, 4.12 at 70, 3.93 at 60, 3.89 at 50, 3.89 at 40,
+    # so 60 already beats the padded baseline's 4.01. dev-other flattens at 50,
+    # but test-other keeps falling (4.21 at 50, 4.06 at 40), so the ladder continues
+    # until a factor degrades.
     # specaugment_steps is a step schedule, so its ramp finished at ep 7.9 instead of ep 6.3.
     # Decoupled weight decay shrinks by lr*wd per step, so its total is 0.794x as well.
-    for _sa_factor in (82, 70, 60, 50, 40):
+    for _sa_factor in (82, 70, 60, 50, 40, 30):
         _train_asr_base_multigpu(
             f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug{_sa_factor}-stepcomp",
             prefix=prefix,
@@ -2342,6 +2343,7 @@ def _train_tts_encoder(
     pseudo_enc_array_table: Optional[tk.Path] = None,
     pseudo_enc_array_duration_table: Optional[tk.Path] = None,
     pseudo_enc_instance_table: Optional[tk.Path] = None,
+    pseudo_enc_instance_blend: Optional[float] = None,
     pseudo_enc_smooth_boundary_width: Optional[int] = None,
     pseudo_enc_gap_frac: Optional[float] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
@@ -2596,6 +2598,7 @@ def _train_tts_encoder(
                     if pseudo_enc_instance_table is not None
                     else {}
                 ),
+                **({"pseudo_enc_instance_blend": pseudo_enc_instance_blend} if pseudo_enc_instance_blend else {}),
                 **(
                     {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
                     if pseudo_enc_smooth_boundary_width is not None
@@ -2787,6 +2790,7 @@ def _train_tts_encoder(
                 if pseudo_enc_instance_table is not None
                 else {}
             ),
+            **({"pseudo_enc_instance_blend": pseudo_enc_instance_blend} if pseudo_enc_instance_blend else {}),
             **({"pseudo_enc_gap_frac": pseudo_enc_gap_frac} if pseudo_enc_gap_frac is not None else {}),
             **(
                 {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
@@ -2918,6 +2922,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             array_table=config.typed_value("pseudo_enc_array_table", None),
             array_duration_table=config.typed_value("pseudo_enc_array_duration_table", None),
             instance_table=config.typed_value("pseudo_enc_instance_table", None),
+            instance_blend=config.typed_value("pseudo_enc_instance_blend", None),
             smooth_boundary_width=config.typed_value("pseudo_enc_smooth_boundary_width", None),
             gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
@@ -3010,6 +3015,7 @@ class PseudoSpeechEncoder(rf.Module):
         array_table: Optional[str] = None,
         array_duration_table: Optional[str] = None,
         instance_table: Optional[str] = None,
+        instance_blend: Optional[float] = None,
         smooth_boundary_width: Optional[int] = None,
         gap_frac: float = 0.0,
     ):
@@ -3080,7 +3086,11 @@ class PseudoSpeechEncoder(rf.Module):
         self.array_offsets = None
         self.array_counts = None
         self.array_frames = 0
-        assert not (array_table and instance_table), "array_table and instance_table are exclusive"
+        # Blending needs both: the mean array is the anchor, the instances supply the deviation.
+        assert not (array_table and instance_table and not instance_blend), (
+            "array_table and instance_table are exclusive unless instance_blend is set"
+        )
+        assert not (instance_blend and not (array_table and instance_table)), "instance_blend needs both tables"
         if array_table:
             import numpy
 
@@ -3108,6 +3118,21 @@ class PseudoSpeechEncoder(rf.Module):
                 f"instance table {lengths.shape} vs with-blank vocab {self.wb_vocab_dim}"
             )
             assert data.shape[1] == out_dim.dimension, f"instance table {data.shape} vs out dim {out_dim}"
+            if instance_blend:
+                # A raw slice has real dynamics but the wrong realisation, which measures worse
+                # than the mean alone. Centring it on the unit's level and keeping only a fraction
+                # of the deviation holds the mean's accuracy while restoring part of the movement.
+                mean_npz = numpy.load(array_table, allow_pickle=True)
+                marr, mlen = mean_npz["means"].astype("float32"), mean_npz["lengths"].astype("int32")
+                assert (mlen == lengths).all(), "the two tables must share the per-unit stored length"
+                for u in range(lengths.shape[0]):
+                    n, ln, off = int(counts[u]), int(lengths[u]), int(offsets[u])
+                    if n <= 0 or ln <= 0:
+                        continue
+                    base = marr[u, :ln]
+                    blk = data[off : off + n * ln].reshape(n, ln, -1)
+                    blk = blk - blk.mean(axis=1, keepdims=True) + base.mean(axis=0)[None, None, :]
+                    data[off : off + n * ln] = (base[None] + instance_blend * (blk - base[None])).reshape(n * ln, -1)
             self.array_flat_dim = Dim(int(data.shape[0]), name="unit_frame_entries")
             self.array_table = rf.Parameter([self.array_flat_dim, out_dim], dtype="float32", trainable=False)
             self.array_table.initial = data
