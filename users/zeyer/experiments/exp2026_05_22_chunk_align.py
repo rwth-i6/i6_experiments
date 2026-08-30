@@ -67,6 +67,8 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.w
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_flash import CanaryFlash
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.granite_speech import GraniteSpeech
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_self_attn import (
     SelectSelfAttnAlignHeadsJob,
     ExtractSelfAttnPerTokenJob,
@@ -662,6 +664,10 @@ def py():
     dl_voxtral = download_voxtral_mini_3b_model()
     dl_canary = download_canary_qwen_2_5b_model()
     dl_qwen3 = download_qwen3_1_7b_model()
+    # Open ASR Leaderboard additions (2026-08-30): a top-10 AED with a hard decoder-length cap
+    # and a top-3 LLM decoder without one (the long-form contrast pair).
+    dl_canary_flash = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/canary-1b-flash", repo_type="model")
+    dl_granite = DownloadHuggingFaceRepoJobV2(repo_id="ibm-granite/granite-speech-3.3-8b", repo_type="model")
 
     _fc_att = [70, 6]
     _zoo = [  # (name, model_config, pass_omitted_prev_words)
@@ -755,6 +761,12 @@ def py():
             rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, version=3),
             False,
         ),
+        (
+            "canary-1b-flash",
+            rf.build_dict(CanaryFlash, model_dir=dl_canary_flash.out_hub_cache_dir, overlay_path=_NEMO_OVERLAY),
+            False,
+        ),
+        ("granite-speech-8b", rf.build_dict(GraniteSpeech, model_dir=dl_granite.out_hub_cache_dir), False),
     ]
     # Cap candidate words per chunk for limited-context models
     # (Whisper: 448 decoder positions incl. the <|startofprev|> prompt;
@@ -1106,6 +1118,12 @@ def py():
             False,
         ),
         ("phi4mm", "selfattn", _phi4mm_model_config(dl_phi4mm_dir, attn_implementation="eager"), False),
+        (
+            "granite-speech-8b",
+            "selfattn",
+            rf.build_dict(GraniteSpeech, model_dir=dl_granite.out_hub_cache_dir, attn_implementation="eager"),
+            False,
+        ),
     ]:
         _lf_sa_sel = SelectSelfAttnAlignHeadsJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -1240,8 +1258,15 @@ def py():
         "whisper-large-v3": ("AED", "Whisper-large-v3", ("note", _whisper_lf_note)),
         "crisperwhisper": ("AED", "CrisperWhisper", ("note", _whisper_lf_note)),
         "owls-1b-180k": ("AED", "OWLS-1B", "owls-1b-180k-crossattn"),
+        # verified: decoder budget 1024 learned positions, a 10-min transcript needs ~4000
+        "canary-1b-flash": (
+            "AED",
+            "Canary-1B-Flash",
+            ("note", "input too long for the model \\\\ (learned decoder pos., 1024 tokens)"),
+        ),
         "voxtral": ("Speech LLM", "Voxtral", "voxtral-selfattn"),
         "canary-qwen": ("Speech LLM", "Canary-Qwen", "canary-qwen-selfattn"),
+        "granite-speech-8b": ("Speech LLM", "Granite-Speech-8B", "granite-speech-8b-selfattn"),
     }
 
     _nat_keys = ["nat_wbe", "nat_acc50", "nat_acc", "nat_err_p95", "nat_frac_gt_1s"]
@@ -1468,6 +1493,71 @@ def py():
             ]
         ],
     )
+    # Native-aligner degradation, utterance-level (segmented Buckeye val, segA) -> raw long-form.
+    # Segmented WBE = the finished grad-align setup outputs, referenced by absolute path
+    # (WriteTableDataJob reads Path cells; re-instantiating those job graphs here is not worth it).
+    _ga_out = "/home/az668407/setups/2026-05-23-grad-align/output"
+    _sa_sfx = "selfattn-buckeye-segA-5h-asotTrue-bs-5-en0.5-sil1.0-wbe.txt"  # under output/align/
+    _deg_rows = [
+        ("CTC", "MMS-FA", "baseline-mms_fa-buckeye-segA-5h-wbe.txt", "mms-fa"),
+        ("CTC", "XLS-R (Phoneme)", "baseline-phoneme-fa-buckeye-segA-5h-word-wbe.txt", "w2v-phoneme"),
+        ("CTC", "Parakeet CTC", "baseline-parakeet-ctc-1.1b-buckeye-segA-5h-wbe.txt", "parakeet-ctc-1.1b"),
+        ("CTC", "OWSM-CTC", "baseline-owsm-ctc-v4-1b-buckeye-segA-5h-wbe.txt", "owsm-ctc-v4-1b"),
+        (
+            "CTC",
+            "FastConformer (streaming)",
+            "baseline-fastconformer-stream-ctc-buckeye-segA-5h-wbe.txt",
+            "fastconformer-stream-ctc",
+        ),
+        (
+            "Transd.",
+            "Parakeet RNN-T",
+            "baseline-parakeet-rnnt-1.1b-native-viterbi-buckeye-segA-5h-wbe.txt",
+            "parakeet-rnnt-1.1b-native-viterbi",
+        ),
+        (
+            "Transd.",
+            "Parakeet TDT",
+            "baseline-parakeet-tdt-0.6b-v2-native-viterbi-buckeye-segA-5h-wbe.txt",
+            "parakeet-tdt-0.6b-v2-native-viterbi",
+        ),
+        (
+            "Transd.",
+            "FastConformer (streaming)",
+            "baseline-fastconformer-stream-rnnt-native-viterbi-buckeye-segA-5h-wbe.txt",
+            "fastconformer-stream-rnnt-native-viterbi",
+        ),
+        (
+            "Transd.",
+            "Emformer (streaming)",
+            "baseline-emformer-rnnt-native-viterbi-buckeye-segA-5h-wbe.txt",
+            "emformer-rnnt-native-viterbi",
+        ),
+        (
+            "AED",
+            "OWLS-1B",
+            "align/baseline-owls-1B-180K-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5-en0.5-sil1.0-wbe.txt",
+            "owls-1b-180k-crossattn",
+        ),
+        ("Speech LLM", "Phi-4-MM", f"align/baseline-phi4mm-{_sa_sfx}", "phi4mm-selfattn"),
+        ("Speech LLM", "Voxtral", f"align/baseline-voxtral-{_sa_sfx}", "voxtral-selfattn"),
+        ("Speech LLM", "Canary-Qwen", f"align/baseline-canary-qwen-{_sa_sfx}", "canary-qwen-selfattn"),
+        ("GM-HMM", "MFA", "baseline-mfa-buckeye-segA-5h-wbe.txt", "mfa-beam1000"),
+    ]
+    _table(
+        "longform-degradation",
+        ["family", "model", "wbe_seg", "wbe_lf"],
+        [
+            {
+                "family": _t_f,
+                "model": _t_d,
+                "wbe_seg": tk.Path(f"{_ga_out}/{_t_seg}"),
+                "wbe_lf": _table_results.get(f"chunk-align/native-longform/{_t_n}-wbe.txt"),
+            }
+            for _t_f, _t_d, _t_seg, _t_n in _deg_rows
+        ],
+    )
+
     # DP vs the no-DP baselines (same model, same metric)
     _table(
         "baselines",
