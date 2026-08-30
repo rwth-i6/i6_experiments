@@ -1127,11 +1127,35 @@ def py_aed_graphc_loquacious():
     # 29 masks the conv-block BatchNorm statistics (padded counted its padding frames until now),
     # 27 keeps the module output dtype under autocast, 28 draws specaugment masks per seq.
     # Everything else stays at the loq base defaults, so this is padded, eager, no graph capture.
-    loq_train(
+    base_v2_exp, _, _ = loq_train(
         "base-v2",
         {},
         config_overrides={"model.behavior_version": 29, "train._hash_only_returnn_2026_08_06": True},
     )
+
+    # Backend rows at the real model size.
+    # The small-v2 arms carry the TF and JAX trainings,
+    # but a backend number is only worth quoting at the size the paper reports.
+    # No training is scheduled here: the anchors exist to build the config the bench measures.
+    # tf_jit is the realistic TF arm, plain graph mode the reference point within TF.
+    for _tf_tag, _tf_jit in [("tf", False), ("tf-jit", True)]:
+        with disable_register_output():
+            _tf_exp, _, _ = loq_train(
+                f"base-v2-{_tf_tag}",
+                {},
+                config_overrides={
+                    "model.behavior_version": 29,
+                    "train._hash_only_returnn_2026_08_06": True,
+                    "train.backend": "tensorflow",
+                    "train.tf_amp": "bfloat16",
+                    **({"train.tf_jit": True} if _tf_jit else {}),
+                },
+                config_deletes=["train.torch_amp"],
+            )
+        job = TrainStepBenchmarkJob(
+            returnn_config=_tf_exp.get_training_job().returnn_config, mode="as_is", num_steps=300
+        )
+        tk.register_output(f"returnn/backend-bench-base-{_tf_tag}.json", job.out_results)
 
     # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
     # Every earlier number used the padded-derived batch size, so the memory packing frees
