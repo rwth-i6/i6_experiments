@@ -1244,18 +1244,21 @@ def py():
         "canary-qwen": ("Speech LLM", "Canary-Qwen", "canary-qwen-selfattn"),
     }
 
+    _nat_keys = ["nat_wbe", "nat_acc50", "nat_acc", "nat_err_p95", "nat_frac_gt_1s"]
+
     def _nat4(_t_n):
         """Native long-form metric cells, see the ``_zoo_family`` third-entry forms."""
         if _t_n is None:
-            return {"nat_wbe": None, "nat_acc50": None, "nat_acc": None, "nat_frac_gt_1s": None}
+            return dict.fromkeys(_nat_keys)
         if isinstance(_t_n, tuple):
             _t_kind, _t_txt = _t_n
             assert _t_kind == "note", _t_n
-            return {"nat_wbe": _t_txt, "nat_acc50": _t_txt, "nat_acc": _t_txt, "nat_frac_gt_1s": _t_txt}
+            return dict.fromkeys(_nat_keys, _t_txt)
         return {
             "nat_wbe": _table_results.get(f"chunk-align/native-longform/{_t_n}-wbe.txt"),
             "nat_acc50": _table_results.get(f"chunk-align/native-longform/{_t_n}-acc50.txt"),
             "nat_acc": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-accuracy.txt"),
+            "nat_err_p95": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-error-p95-sec.txt"),
             "nat_frac_gt_1s": _table_results.get(f"chunk-align/native-longform/{_t_n}-chunk-frac-gt-1s.txt"),
         }
 
@@ -1278,7 +1281,7 @@ def py():
             # best-effort MFA (beam 1000/4000, full coverage); default beams derail on long-form,
             # see the mfa vs mfa-beam* probe outputs and the paper prose
             {
-                "family": "Ref.",
+                "family": "GM-HMM",
                 "model": "MFA",
                 "acc": "--",
                 "err_p95_sec": "--",
@@ -1288,11 +1291,11 @@ def py():
         ]
     )
     # contiguous family blocks (stable within-family order; phi4mm groups with the speech LLMs)
-    _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM", "Ref."]
+    _zoo_fam_order = ["CTC", "Transd.", "AED", "Speech LLM", "GM-HMM"]
     _zoo_rows.sort(key=lambda _r: _zoo_fam_order.index(_r["family"]))
     _table(
         "zoo",
-        ["family", "model", "acc", "err_p95_sec", "frac_gt_1s", "nat_wbe", "nat_acc50", "nat_acc", "nat_frac_gt_1s"],
+        ["family", "model", "acc", "err_p95_sec", "nat_wbe", "nat_acc50", "nat_acc", "nat_err_p95"],
         _zoo_rows,
     )
     # one context-ablation pair per family with a label context to ablate
