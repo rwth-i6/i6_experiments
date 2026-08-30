@@ -24,6 +24,7 @@ use this wrapper only in granite-only jobs.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Union
+import os
 import sys
 import time
 
@@ -86,6 +87,11 @@ class GraniteSpeech(BaseModelInterface):
         self.logits_transform = make_logits_transform(logits_transform)
         self.collect_attn_heads = collect_attn_heads
         self.version = version
+
+        # Compute nodes are offline; the main model loads by path,
+        # but the peft LoRA adapter resolves by repo id through the hub cache.
+        os.environ["HF_HUB_CACHE"] = str(model_dir)
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
         print("Import transformers (from overlay) / load GraniteSpeech...")
         start_time = time.time()
