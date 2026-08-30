@@ -2468,7 +2468,10 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # with only the MultiProcDataset worker count changed (production runs 25).
     # This sizes what the pipeline contributes,
     # which is also the confound behind the small and medium rows of the per-scale table.
-    for _workers in [4, 12]:
+    # 2 is the discriminator: 4 and 12 measured identically (0.387 s/step),
+    # which a worker sweep should not do.
+    # If 2 lands there too, the override is not reaching the dataset.
+    for _workers in [2, 4, 12]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
             mode="packed_graphc",
