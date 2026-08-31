@@ -1338,6 +1338,53 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # A per-unit table carries each unit's own level but nothing at sentence scale, and by ear
+    # that is what makes the subword output hard to follow. A borrowed real contour is worse
+    # than none, since it is uncorrelated with our content and amplifies silence into noise;
+    # declination plus a word-initial lift carries no content, so it cannot fight it.
+    _train_tts_encoder(
+        "pseudo-enc-ctcsubword-decl-lerp-packed-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=4_000,
+        max_phon_len=200,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_array_table=_ctc_subword_tables(fill_within_words=True).out_mean_table,
+        pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
+        pseudo_enc_contour_decl=0.35,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_gap_frac=0.25,
+        pseudo_enc_max_len_factor=30,
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        train_seq_ordering="random",
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 4_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 200},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # The same two arms at a smaller audio budget.
     # Subword units are ~2.8x denser than phonemes, so at 11.2M they fill the batch with audio and
     # give 4637 steps/epoch against the phoneme arm's 6470, i.e. 0.72x the updates over nep 38.
@@ -2344,6 +2391,7 @@ def _train_tts_encoder(
     pseudo_enc_array_duration_table: Optional[tk.Path] = None,
     pseudo_enc_instance_table: Optional[tk.Path] = None,
     pseudo_enc_instance_blend: Optional[float] = None,
+    pseudo_enc_contour_decl: Optional[float] = None,
     pseudo_enc_smooth_boundary_width: Optional[int] = None,
     pseudo_enc_gap_frac: Optional[float] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
@@ -2599,6 +2647,7 @@ def _train_tts_encoder(
                     else {}
                 ),
                 **({"pseudo_enc_instance_blend": pseudo_enc_instance_blend} if pseudo_enc_instance_blend else {}),
+                **({"pseudo_enc_contour_decl": pseudo_enc_contour_decl} if pseudo_enc_contour_decl else {}),
                 **(
                     {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
                     if pseudo_enc_smooth_boundary_width is not None
@@ -2791,6 +2840,7 @@ def _train_tts_encoder(
                 else {}
             ),
             **({"pseudo_enc_instance_blend": pseudo_enc_instance_blend} if pseudo_enc_instance_blend else {}),
+            **({"pseudo_enc_contour_decl": pseudo_enc_contour_decl} if pseudo_enc_contour_decl else {}),
             **({"pseudo_enc_gap_frac": pseudo_enc_gap_frac} if pseudo_enc_gap_frac is not None else {}),
             **(
                 {"pseudo_enc_smooth_boundary_width": pseudo_enc_smooth_boundary_width}
@@ -2923,6 +2973,8 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             array_duration_table=config.typed_value("pseudo_enc_array_duration_table", None),
             instance_table=config.typed_value("pseudo_enc_instance_table", None),
             instance_blend=config.typed_value("pseudo_enc_instance_blend", None),
+            contour_decl=config.typed_value("pseudo_enc_contour_decl", None),
+            contour_word_lift=config.float("pseudo_enc_contour_word_lift", 0.25),
             smooth_boundary_width=config.typed_value("pseudo_enc_smooth_boundary_width", None),
             gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
@@ -3016,6 +3068,8 @@ class PseudoSpeechEncoder(rf.Module):
         array_duration_table: Optional[str] = None,
         instance_table: Optional[str] = None,
         instance_blend: Optional[float] = None,
+        contour_decl: Optional[float] = None,
+        contour_word_lift: float = 0.25,
         smooth_boundary_width: Optional[int] = None,
         gap_frac: float = 0.0,
     ):
@@ -3086,6 +3140,10 @@ class PseudoSpeechEncoder(rf.Module):
         self.array_offsets = None
         self.array_counts = None
         self.array_frames = 0
+        # Slow energy contour over the sentence, which no per-unit table can carry.
+        self.contour_decl = contour_decl
+        self.contour_word_lift = contour_word_lift
+        self.word_start_tab = None
         # Blending needs both: the mean array is the anchor, the instances supply the deviation.
         assert not (array_table and instance_table and not instance_blend), (
             "array_table and instance_table are exclusive unless instance_blend is set"
@@ -3106,6 +3164,11 @@ class PseudoSpeechEncoder(rf.Module):
             self.array_table.initial = means.reshape(-1, means.shape[2])
             self.array_lengths = rf.Parameter([self.wb_vocab_dim], dtype="int32", trainable=False)
             self.array_lengths.initial = lengths
+            if contour_decl is not None:
+                # SentencePiece marks a word start, which is where the lift goes.
+                ws = numpy.array([1.0 if str(s).startswith("\u2581") else 0.0 for s in npz["labels"]], dtype="float32")
+                self.word_start_tab = rf.Parameter([self.wb_vocab_dim], dtype="float32", trainable=False)
+                self.word_start_tab.initial = ws
         # Instance store: several real slices per unit instead of one mean, already flat.
         # A unit's arrays start at its offset, plus the drawn slot times its length.
         if instance_table:
@@ -3269,6 +3332,18 @@ class PseudoSpeechEncoder(rf.Module):
             first_v = rf.gather(self.array_table, indices=nxt_base_rep, axis=self.array_flat_dim)
             gf = rf.cast(rf.clip_by_value(gf, 0.0, 1.0), last_v.dtype)
             out = rf.where(offset < body_rep, out, last_v * (1.0 - gf) + first_v * gf)
+        if self.contour_decl is not None:
+            # A per-unit table holds each unit's own level but nothing at sentence scale.
+            # Borrowing a real contour hurts: it is uncorrelated with our content, so it
+            # amplifies silence into noise. Declination plus a word-initial lift carries no
+            # content, so it cannot fight it.
+            last_pos_c = out_spatial_dim.get_size_tensor(device=out.device) - 1
+            rel = rf.cast(pos, "float32") / rf.cast(rf.maximum(last_pos_c, 1), "float32")
+            contour = (1.0 - 2.0 * rel) * self.contour_decl
+            if self.word_start_tab is not None and self.contour_word_lift:
+                lift = rf.gather(self.word_start_tab, indices=unit_rep, axis=self.wb_vocab_dim)
+                contour = contour + lift * self.contour_word_lift
+            out = out + rf.cast(contour, out.dtype)
         out.feature_dim = self.out_dim
         if self.smooth is not None:
             # out_spatial_dim passed explicitly so "same" padding reuses that dim
