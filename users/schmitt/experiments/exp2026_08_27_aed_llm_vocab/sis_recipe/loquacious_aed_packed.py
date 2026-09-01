@@ -280,15 +280,33 @@ def train(
 
     assert not config, f"unhandled config keys: {sorted(config)}"
 
-    task = _get_task(
-        vocab=vocab,
-        subset_name=subset,
-        train_epoch_split=train_epoch_split,
-        # Unlike aed_train_exp's ignored kwarg, this one actually reaches the dataset.
-        train_vocab_opts=train_vocab_opts,
-        multi_proc=multi_proc,
-        **({"train_seq_ordering": train_seq_ordering} if train_seq_ordering is not None else {}),
-    )
+    if vocab == "qwen-restricted":
+        # The restricted Qwen2 LLM vocab (see sis_recipe.llm_vocab): the point of this setup.
+        # Its own task builder, because get_loquacious_task_raw_v2 resolves `vocab` via
+        # get_vocab_by_str (SPM only) and hardcodes the SPM recog post-processing.
+        from .llm_vocab import get_loquacious_task_qwen_restricted
+
+        # train_vocab_opts here means RETURNN vocab opts for the TRAIN split only, e.g.
+        # {"bpe_dropout": 0.1} -- the byte-level-BPE analogue of the spm10k run's
+        # SamplingBytePairEncoding. Verified to work with the pruned tokenizer; see
+        # RestrictedQwenVocab.copy for the measured caveats.
+        task = get_loquacious_task_qwen_restricted(
+            subset_name=subset,
+            train_epoch_split=train_epoch_split,
+            train_vocab_opts=train_vocab_opts,
+            multi_proc=multi_proc,
+            **({"train_seq_ordering": train_seq_ordering} if train_seq_ordering is not None else {}),
+        )
+    else:
+        task = _get_task(
+            vocab=vocab,
+            subset_name=subset,
+            train_epoch_split=train_epoch_split,
+            # Unlike aed_train_exp's ignored kwarg, this one actually reaches the dataset.
+            train_vocab_opts=train_vocab_opts,
+            multi_proc=multi_proc,
+            **({"train_seq_ordering": train_seq_ordering} if train_seq_ordering is not None else {}),
+        )
 
     aux_ctc_layer = max(
         i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]
@@ -373,6 +391,28 @@ def py():
             "train_seq_ordering": "random",
         },
     )
+
+    # THE experiment this setup exists for: the same AED, from scratch, on the restricted Qwen2
+    # LLM vocab (39_922) instead of spm10k -- so the encoder is trained to produce features
+    # decodable into the LLM's own token inventory, and can later seed a speech LLM.
+    #
+    # Only the vocab differs from base-v2-packed. Model size 713M vs 711M at spm10k (the vocab
+    # dimension appears 5x in this model, but 39_922 is close enough to spm10k's 10_025 that it
+    # costs little; the full 151_646 vocab would have been 1_285M).
+    #
+    # Target lengths measured on train with this tokenizer: mean 26.97, p99 87, MAX 229 -- so the
+    # inherited _TEXT_DIM_CAP of 384 has ample headroom over a hard measured maximum (there is no
+    # SPM-style sampling here to inflate it). Tokens per second of audio is 2.84 vs spm10k's
+    # ~2.88, so the packed text budget carries over unchanged.
+    # train(
+    #     "base-v2-packed-qwenVocab",
+    #     config_overrides={
+    #         **_packed_overrides,
+    #         "train_seq_ordering": "random",
+    #         "vocab": "qwen-restricted",
+    #         "train_vocab_opts": None,
+    #     },
+    # )
 
     text_seq_len_stats()
 
