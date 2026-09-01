@@ -131,9 +131,19 @@ def get_model_config(
     )
 
 
-def get_train_options(num_epochs: int = 40) -> TrainOptions:
-    train_data_config = loquacious_datasets.get_medium_byte_train_data()
-    cv_data_config = loquacious_datasets.get_medium_byte_cv_data()
+def get_train_options(
+    num_epochs: int = 40,
+    peak_normalization: bool = True,
+    preemphasis: Optional[float] = 0.97,
+) -> TrainOptions:
+    train_data_config = loquacious_datasets.get_medium_byte_train_data(
+        peak_normalization=peak_normalization,
+        preemphasis=preemphasis,
+    )
+    cv_data_config = loquacious_datasets.get_medium_byte_cv_data(
+        peak_normalization=peak_normalization,
+        preemphasis=preemphasis,
+    )
 
     partition_epoch = train_data_config.partition_epoch
 

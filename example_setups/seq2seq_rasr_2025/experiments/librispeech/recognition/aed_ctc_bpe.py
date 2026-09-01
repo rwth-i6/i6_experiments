@@ -75,6 +75,7 @@ def default_lexfree_recog_variant() -> AEDCTCRecogVariant:
             score_thresholds=[4.0, 4.0],
             max_beam_sizes=[8, 4],
             length_norm_scale=0.0,
+            pruning_mode="separate",
         ),
         ctc_score_scale=0.5,
     )

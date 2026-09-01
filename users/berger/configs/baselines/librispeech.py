@@ -641,7 +641,7 @@ def run() -> None:
     variants = []
     for score_threshold in [True, False]:
         for max_beam_size in [4, 16, 64, 128, 512, 1024]:
-            variant = recognition.ffnn_transducer_bpe.default_offline_tree_trafo_recog_variant()
+            # variant = recognition.ffnn_transducer_bpe.default_offline_tree_trafo_recog_variant()
             # variant.descriptor += f"_beam-{max_beam_size}"
             # variant.search_mode_params.gpu_mem_rqmt = 24
             # if score_threshold:
@@ -652,6 +652,8 @@ def run() -> None:
             #     variant.search_algorithm_params.word_end_score_threshold = None
             # variant.search_algorithm_params.max_beam_sizes = [max_beam_size]
             # variants.append(variant)
+            if not score_threshold and max_beam_size >= 128:
+                continue
 
             variant = recognition.ffnn_transducer_bpe.default_offline_tree_trafo_recog_variant_gpu()
             variant.descriptor += f"_beam-{max_beam_size}"
@@ -723,7 +725,7 @@ def run() -> None:
             variant.search_algorithm_params.word_end_score_threshold = None
         variants.append(variant)
 
-    for score_threshold in [True, False]:
+    for score_threshold in [True]:
         variant = recognition.ctc_bpe.default_offline_tree_trafo_recog_variant_gpu()
         # variant.search_algorithm_params.max_beam_sizes = [128]
         variant.search_mode_params.mem_rqmt = 32
@@ -761,7 +763,7 @@ def run() -> None:
             variant.search_algorithm_params.word_end_score_threshold = None
         variants.append(variant)
 
-    for score_threshold in [True, False]:
+    for score_threshold in [True]:
         variant = recognition.ctc_phoneme.default_offline_trafo_gpu_recog_variant()
         # variant.search_algorithm_params.max_beam_sizes = [128]
         variant.search_mode_params.mem_rqmt = 32
@@ -851,7 +853,7 @@ def run() -> None:
             variant.search_algorithm_params.word_end_score_threshold = None
         variants.append(variant)
 
-    for score_threshold in [True, False]:
+    for score_threshold in [True]:
         variant = recognition.ffnn_transducer_bpe.default_offline_tree_trafo_recog_variant_gpu()
         # variant.search_algorithm_params.max_beam_sizes = [512]
         variant.search_mode_params.mem_rqmt = 32
@@ -910,6 +912,8 @@ def run() -> None:
 
     for score_threshold in [None, 4.0, 8.0, 10.0, 12.0, 14.0, 16.0]:
         for max_beam_size in [16, 32, 64, 128, 256, 512, 1024]:
+            if not score_threshold and max_beam_size >= 128:
+                continue
             variant = recognition.ffnn_transducer_bpe.default_offline_tree_trafo_recog_variant_gpu()
             variant.descriptor += f"_score-{score_threshold}_beam-{max_beam_size}"
             variant.search_mode_params.mem_rqmt = 32

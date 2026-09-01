@@ -33,7 +33,7 @@ TRANSDUCER_PYTHON_ENCODER_TYPE = "ffnn-transducer-python-encoder"
 class TransducerByteSpeechLmRecogVariant(BaseRecogVariant):
     transducer_epoch: Optional[int] = None
     speech_lm_score_scale: float = 0.3
-    transducer_score_scale: float = 0.7
+    transducer_score_scale: float = 1.0
     ilm_scale: float = 0.0
     blank_penalty: float = 0.0
 
@@ -76,10 +76,10 @@ def default_tree_speech_lm_recog_variant() -> TransducerByteSpeechLmRecogVariant
         descriptor="recog_tree_speech_llm",
         search_algorithm_params=LoquaciousTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[256, 16],
-            score_thresholds=[14.0, 8.0],
-            max_word_end_beam_size=16,
-            word_end_score_threshold=2.0,
+            max_beam_sizes=[128, 128],
+            score_thresholds=[10.0, 10.0],
+            max_word_end_beam_size=64,
+            word_end_score_threshold=1.0,
             recombination_mode="on",
         ),
     )

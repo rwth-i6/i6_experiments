@@ -45,12 +45,15 @@ class OggZipDataConfig:
     seq_ordering: str = "sorted"
     target_config: Optional[dict] = None
     segment_file: Optional[tk.Path] = None
+    peak_normalization: bool = True
+    preemphasis: Optional[float] = 0.97
 
     @classmethod
     def from_bliss(
         cls,
         bliss_corpus_files: List[tk.Path],
         ogg_segments: int = 1,
+        no_conversion: bool = False,
         **kwargs,
     ) -> Self:
         oggzip_files = []
@@ -63,6 +66,7 @@ class OggZipDataConfig:
                     if ogg_segments > 1
                     else None
                 ),
+                no_conversion=no_conversion,
                 returnn_root=returnn_root,
                 returnn_python_exe=returnn_python_exe,
             )
@@ -75,8 +79,8 @@ class OggZipDataConfig:
     def get_returnn_data(self, dataset_type: Literal["train", "dev", "forward_data"]) -> ReturnnConfig:
         audio_config = {
             "features": "raw",
-            "peak_normalization": True,
-            "preemphasis": 0.97,
+            "peak_normalization": self.peak_normalization,
+            "preemphasis": self.preemphasis,
         }
 
         if self.speed_perturbation:
@@ -339,9 +343,15 @@ class HuggingFaceTokenByteBlissLexiconJob(Job):
     Lemmas are written in tokenizer-id order, so tree-search lemma labels stay aligned with the LLM vocabulary.
     """
 
-    def __init__(self, huggingface_repo_dir: tk.Path, add_blank: bool = True) -> None:
+    def __init__(
+        self,
+        huggingface_repo_dir: tk.Path,
+        add_blank: bool = True,
+        uppercase: bool = True,
+    ) -> None:
         self.huggingface_repo_dir = huggingface_repo_dir
         self.add_blank = add_blank
+        self.uppercase = uppercase
         self.out_lexicon = self.output_path("lexicon.xml.gz")
 
     def tasks(self):
@@ -366,6 +376,20 @@ class HuggingFaceTokenByteBlissLexiconJob(Job):
             return bytes(byte_decoder[char] for char in token)
         text = tokenizer.convert_tokens_to_string([token])
         return text.encode("utf-8")
+
+    @classmethod
+    def _token_to_acoustic_bytes(
+        cls,
+        tokenizer,
+        token: str,
+        *,
+        uppercase: bool = True,
+    ) -> bytes:
+        acoustic_token = token.upper() if uppercase else token
+        acoustic_bytes = cls._token_to_bytes(tokenizer, acoustic_token)
+        if not acoustic_bytes:
+            raise ValueError(f"Token {token!r} has an empty acoustic byte sequence")
+        return acoustic_bytes
 
     @staticmethod
     def _special_lemma_type(token_id: int, tokenizer) -> Optional[str]:
@@ -401,7 +425,11 @@ class HuggingFaceTokenByteBlissLexiconJob(Job):
             if special in {"sentence-begin", "sentence-end"}:
                 phon = ""
             else:
-                token_bytes = self._token_to_bytes(tokenizer, token)
+                token_bytes = self._token_to_acoustic_bytes(
+                    tokenizer,
+                    token,
+                    uppercase=self.uppercase,
+                )
                 phon = " ".join(f"<byte-{byte:02x}>" for byte in token_bytes)
 
             lexicon.add_lemma(
@@ -413,16 +441,24 @@ class HuggingFaceTokenByteBlissLexiconJob(Job):
                 )
             )
 
+        # Allow the acoustic model to emit spaces without consuming a token in the SLM.
+        lexicon.add_lemma(Lemma(orth=["[SPACE]"], phon=["<byte-20>"], synt=[], eval=[[]]))
+
         if self.add_blank:
             lexicon.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], synt=[], special="blank"))
 
         write_xml(self.out_lexicon.get_path(), lexicon.to_xml())
 
 
-def get_hf_token_byte_bliss_lexicon(huggingface_repo_dir: tk.Path, add_blank: bool = True) -> tk.Path:
+def get_hf_token_byte_bliss_lexicon(
+    huggingface_repo_dir: tk.Path,
+    add_blank: bool = True,
+    uppercase: bool = True,
+) -> tk.Path:
     return HuggingFaceTokenByteBlissLexiconJob(
         huggingface_repo_dir=huggingface_repo_dir,
         add_blank=add_blank,
+        uppercase=uppercase,
     ).out_lexicon
 
 

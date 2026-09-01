@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 from i6_core.returnn import PtCheckpoint
 from sisyphus import tk
 
-from ...model_pipelines.common.recog import RecogResult
+from ...model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ...model_pipelines.common.report import register_recog_report
 from ...model_pipelines.common.train import TrainedModel
 from . import recognition, training
@@ -39,6 +39,20 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
         "aed_byte": training.medium.aed_byte.run(descriptor="aed_byte"),
         "ctc_byte": training.medium.ctc_byte.run(descriptor="ctc_byte"),
         "ffnn_transducer_byte": training.medium.ffnn_transducer_byte.run(descriptor="ffnn_transducer_byte"),
+        # "ctc_byte_slm_audio": training.medium.ctc_byte.run(
+        #     descriptor="ctc_byte_slm_audio",
+        #     train_options=training.medium.ctc_byte.get_train_options(
+        #         peak_normalization=False,
+        #         preemphasis=None,
+        #     ),
+        # ),
+        # "ffnn_transducer_byte_slm_audio": training.medium.ffnn_transducer_byte.run(
+        #     descriptor="ffnn_transducer_byte_slm_audio",
+        #     train_options=training.medium.ffnn_transducer_byte.get_train_options(
+        #         peak_normalization=False,
+        #         preemphasis=None,
+        #     ),
+        # ),
     }
 
     recog_results = []
@@ -124,6 +138,15 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
             huggingface_repo_dir=tokenizer_huggingface_repo_dir,
         )
     )
+    recog_results.extend(
+        recognition.speech_llm.run(
+            model_descriptor="slm_robin",
+            model_kwargs=model_kwargs,
+            checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            recog_data_source="oggzip",
+        )
+    )
 
     variants = []
     for ctc_scale in [0.0, 0.3]:
@@ -151,14 +174,113 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
         )
     )
 
-    # recog_results.extend(
-    #     recognition.ctc_byte_speech_llm.run(
-    #         model=models["ctc_byte"],
-    #         speech_lm_model_kwargs=model_kwargs,
-    #         speech_lm_checkpoint=checkpoint,
-    #         huggingface_repo_dir=tokenizer_huggingface_repo_dir,
-    #     )
-    # )
+    recog_results.extend(
+        recognition.ctc_byte_speech_llm.run(
+            model=models["ctc_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+        )
+    )
+
+    ctc_byte_speech_llm_gpu_variant = recognition.ctc_byte_speech_llm.default_tree_speech_lm_recog_variant()
+    ctc_byte_speech_llm_gpu_variant.descriptor += "_gpu"
+    ctc_byte_speech_llm_gpu_variant.search_mode_params = OfflineRecogParameters(
+        mem_rqmt=24,
+        gpu_mem_rqmt=24,
+        encoder_frame_shift_seconds=0.04,
+    )
+    recog_results.extend(
+        recognition.ctc_byte_speech_llm.run(
+            model=models["ctc_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            variants=[ctc_byte_speech_llm_gpu_variant],
+            corpora=["dev.all"],
+        )
+    )
+
+    recog_results.extend(
+        recognition.ffnn_transducer_byte_speech_llm.run(
+            model=models["ffnn_transducer_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+        )
+    )
+
+    ffnn_transducer_byte_speech_llm_gpu_variant = (
+        recognition.ffnn_transducer_byte_speech_llm.default_tree_speech_lm_recog_variant()
+    )
+    ffnn_transducer_byte_speech_llm_gpu_variant.descriptor += "_gpu"
+    ffnn_transducer_byte_speech_llm_gpu_variant.search_mode_params = OfflineRecogParameters(
+        mem_rqmt=24,
+        gpu_mem_rqmt=24,
+        encoder_frame_shift_seconds=0.04,
+    )
+    recog_results.extend(
+        recognition.ffnn_transducer_byte_speech_llm.run(
+            model=models["ffnn_transducer_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            variants=[ffnn_transducer_byte_speech_llm_gpu_variant],
+            corpora=["dev.all"],
+        )
+    )
+
+    variants = []
+    for lm_scale in [0.3, 0.6, 0.9]:
+        for score_threshold in [6.0, 8.0]:
+            for max_beam_size in [16]:
+                variant = recognition.ctc_byte_speech_llm.default_tree_speech_lm_recog_variant()
+                variant.descriptor += f"_lm-{lm_scale}_score-{score_threshold}_beam-{max_beam_size}"
+                variant.speech_lm_score_scale = lm_scale
+                variant.search_algorithm_params.max_beam_sizes = [max_beam_size, max_beam_size]
+                variant.search_algorithm_params.score_thresholds = [score_threshold, score_threshold]
+                variant.max_word_end_beam_size = None
+                variant.word_end_score_threshold = None
+
+                variants.append(variant)
+
+    recog_results.extend(
+        recognition.ctc_byte_speech_llm.run(
+            model=models["ctc_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            variants=variants,
+            corpora=["dev.all"],
+        )
+    )
+
+    variants = []
+    for prior_scale in [0.1, 0.2]:
+        for speech_lm_scale in [0.8, 1.0, 1.2]:
+            for word_exit_score in [0.4, 0.5, 0.6, 0.7]:
+                variant = recognition.ctc_byte_speech_llm.default_tree_speech_lm_recog_variant()
+                variant.descriptor += f"_ctc-1.0_prior-{prior_scale}_slm-{speech_lm_scale}_word-exit-{word_exit_score}"
+                variant.ctc_score_scale = 1.0
+                variant.ctc_prior_scale = prior_scale
+                variant.speech_lm_score_scale = speech_lm_scale
+                variant.word_exit_score = word_exit_score
+                variant.search_algorithm_params.max_beam_sizes = [100, 100, 100]
+                variant.search_algorithm_params.max_word_end_beam_size = 3
+                variant.search_algorithm_params.score_thresholds = [12.0, 12.0, 12.0]
+                variant.search_algorithm_params.word_end_score_threshold = 1.0
+                variants.append(variant)
+
+    recog_results.extend(
+        recognition.ctc_byte_speech_llm.run(
+            model=models["ctc_byte"],
+            speech_lm_model_kwargs=model_kwargs,
+            speech_lm_checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            variants=variants,
+            corpora=["dev.all"],
+        )
+    )
 
     if report_filename is not None:
         register_recog_report(recog_results, filename=report_filename)

@@ -32,10 +32,11 @@ CTC_PYTHON_ENCODER_TYPE = "ctc-python-encoder"
 @dataclass
 class CTCByteSpeechLmRecogVariant(BaseRecogVariant):
     ctc_epoch: Optional[int] = None
-    speech_lm_score_scale: float = 0.7
-    ctc_score_scale: float = 0.3
-    ctc_prior_scale: float = 0.0
+    speech_lm_score_scale: float = 0.3
+    ctc_score_scale: float = 1.0
+    ctc_prior_scale: float = 0.2
     ctc_blank_penalty: float = 0.0
+    word_exit_score: Optional[float] = None
 
 
 def run(
@@ -81,7 +82,7 @@ def default_tree_speech_lm_recog_variant() -> CTCByteSpeechLmRecogVariant:
             max_beam_sizes=[64, 64],
             score_thresholds=[10.0, 10.0],
             max_word_end_beam_size=16,
-            word_end_score_threshold=6.0,
+            word_end_score_threshold=1.0,
             recombination_mode="on",
         ),
     )
@@ -119,7 +120,16 @@ def _get_label_scorer_configs(
         use_gpu=use_gpu,
     )
 
-    return [ctc_label_scorer_config, speech_lm_label_scorer_config]
+    label_scorer_configs = [ctc_label_scorer_config, speech_lm_label_scorer_config]
+    if variant.word_exit_score is not None:
+        transition_label_scorer_config = RasrConfig()
+        transition_label_scorer_config.type = "transition"
+        transition_label_scorer_config.transition_preset = "none"
+        transition_label_scorer_config.extra_transition_types = "word-exit"
+        transition_label_scorer_config.word_exit_score = variant.word_exit_score
+        label_scorer_configs.append(transition_label_scorer_config)
+
+    return label_scorer_configs
 
 
 def _get_ctc_recog_config(
@@ -196,5 +206,5 @@ def _run_single_variant(
         blank_index=model.model_config.target_size - 1,
         variant=variant,
         corpora=corpora,
-        recog_data_config_fn=(lambda _corpus: loquacious_datasets.get_hf_recog_data(_corpus)),
+        # recog_data_config_fn=(lambda _corpus: loquacious_datasets.get_hf_recog_data(_corpus)),
     )

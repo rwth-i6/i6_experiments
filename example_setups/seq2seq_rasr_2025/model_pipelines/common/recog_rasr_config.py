@@ -121,6 +121,7 @@ class LexiconfreeLabelsyncRecogParams:
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
     recombination_mode: Optional[str] = None
+    pruning_mode: Optional[str] = None
 
 
 def get_lexiconfree_labelsync_recog_config(
@@ -178,6 +179,9 @@ def get_lexiconfree_labelsync_recog_config(
 
     if params.recombination_mode is not None:
         rasr_config.lib_rasr.search_algorithm.recombination_mode = params.recombination_mode
+
+    if params.pruning_mode is not None:
+        rasr_config.lib_rasr.search_algorithm.pruning_mode = params.pruning_mode
 
     _add_label_scorers_to_rasr_config(label_scorer_configs, rasr_config.lib_rasr)
 

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, replace
+from typing import Callable, List, Literal, Optional
 
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
@@ -7,6 +7,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchMo
 from i6_experiments.common.setups.serialization import Collection, Import
 from sisyphus import tk
 
+from ....data.base import DataConfig, OggZipDataConfig
 from ....data.loquacious import datasets as loquacious_datasets
 from ....data.loquacious.recog import LoquaciousTreeTimesyncRecogParams
 from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
@@ -25,6 +26,18 @@ class SLMRecogVariant(BaseRecogVariant):
     ctc_score_scale: float = 0.0
 
 
+def _get_oggzip_recog_data(corpus: loquacious_datasets.EvalSet) -> OggZipDataConfig:
+    return replace(
+        loquacious_datasets.get_default_recog_data(
+            corpus,
+            no_conversion=True,
+            test_dataset_version=2,
+        ),
+        peak_normalization=False,
+        preemphasis=None,
+    )
+
+
 def run(
     model_descriptor: str,
     model_kwargs: dict,
@@ -32,12 +45,22 @@ def run(
     huggingface_repo_dir: tk.Path,
     variants: Optional[List[SLMRecogVariant]] = None,
     corpora: Optional[List[loquacious_datasets.EvalSet]] = None,
+    recog_data_source: Literal["huggingface", "oggzip"] = "huggingface",
 ) -> List[RecogResult]:
     if variants is None:
         variants = default_recog_variants()
 
     if corpora is None:
         corpora = ["dev.all"]
+
+    recog_data_config_fn: Callable[[loquacious_datasets.EvalSet], DataConfig]
+    if recog_data_source == "huggingface":
+        recog_data_config_fn = loquacious_datasets.get_hf_recog_data
+    elif recog_data_source == "oggzip":
+        recog_data_config_fn = _get_oggzip_recog_data
+        variants = [replace(variant, descriptor=f"{variant.descriptor}_oggzip") for variant in variants]
+    else:
+        raise ValueError(f"Invalid recog_data_source {recog_data_source!r}")
 
     results = []
 
@@ -50,6 +73,7 @@ def run(
                 huggingface_repo_dir=huggingface_repo_dir,
                 variant=variant,
                 corpora=corpora,
+                recog_data_config_fn=recog_data_config_fn,
             )
         )
     return results
@@ -148,6 +172,7 @@ def _run_single_variant(
     huggingface_repo_dir: tk.Path,
     variant: SLMRecogVariant,
     corpora: List[loquacious_datasets.EvalSet],
+    recog_data_config_fn: Callable[[loquacious_datasets.EvalSet], DataConfig],
 ) -> List[RecogResult]:
     if isinstance(variant.search_algorithm_params, (LexiconfreeTimesyncRecogParams, LoquaciousTreeTimesyncRecogParams)):
         blank_index = 151936  # TODO: set dynamically
@@ -176,5 +201,5 @@ def _run_single_variant(
         sentence_end_index=151643,
         variant=variant,
         corpora=corpora,
-        recog_data_config_fn=(lambda _corpus: loquacious_datasets.get_hf_recog_data(_corpus)),
+        recog_data_config_fn=recog_data_config_fn,
     )

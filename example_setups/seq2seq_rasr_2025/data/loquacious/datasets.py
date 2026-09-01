@@ -1,5 +1,5 @@
 import functools
-from typing import List, Literal, get_args
+from typing import List, Literal, Optional, get_args
 
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
@@ -134,7 +134,10 @@ def get_medium_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
     )
 
 
-def get_medium_byte_train_data() -> MetaOggZipDataConfig:
+def get_medium_byte_train_data(
+    peak_normalization: bool = True,
+    preemphasis: Optional[float] = 0.97,
+) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
         oggzip_files=[
             get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["train.medium"]
@@ -143,6 +146,8 @@ def get_medium_byte_train_data() -> MetaOggZipDataConfig:
         partition_epoch=50,
         seq_ordering="laplace:.1000",
         target_config=get_default_byte_target_config(),
+        peak_normalization=peak_normalization,
+        preemphasis=preemphasis,
     )
 
 
@@ -234,7 +239,10 @@ def get_medium_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
     )
 
 
-def get_medium_byte_cv_data() -> MetaOggZipDataConfig:
+def get_medium_byte_cv_data(
+    peak_normalization: bool = True,
+    preemphasis: Optional[float] = 0.97,
+) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
         oggzip_files=[get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["dev.all"]],
         speed_perturbation=False,
@@ -242,6 +250,8 @@ def get_medium_byte_cv_data() -> MetaOggZipDataConfig:
         seq_ordering="sorted",
         target_config=get_default_byte_target_config(),
         segment_file=_get_dev_short_segments(),
+        peak_normalization=peak_normalization,
+        preemphasis=preemphasis,
     )
 
 
@@ -338,11 +348,17 @@ def get_prior_data(train_corpus_key: TrainSet) -> MetaOggZipDataConfig:
     )
 
 
-def get_default_recog_data(corpus_name: EvalSet) -> OggZipDataConfig:
+def get_default_recog_data(
+    corpus_name: EvalSet,
+    *,
+    no_conversion: bool = False,
+    test_dataset_version: int = 1,
+) -> OggZipDataConfig:
     return OggZipDataConfig.from_bliss(
-        bliss_corpus_files=[get_bliss_corpus_dict()[corpus_name]],
+        bliss_corpus_files=[get_bliss_corpus_dict(test_dataset_version=test_dataset_version)[corpus_name]],
         speed_perturbation=False,
         ogg_segments=1,
+        no_conversion=no_conversion,
         partition_epoch=1,
         seq_ordering="sorted",
     )

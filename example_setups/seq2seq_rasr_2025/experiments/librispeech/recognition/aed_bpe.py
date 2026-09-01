@@ -63,7 +63,7 @@ def default_lexfree_recog_variant() -> AEDRecogVariant:
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
             max_beam_sizes=[1],
             score_thresholds=[0.0],
-            length_norm_scale=None,
+            length_norm_scale=1.0,
         ),
     )
 
