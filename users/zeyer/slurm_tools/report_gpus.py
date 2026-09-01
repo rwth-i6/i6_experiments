@@ -86,10 +86,13 @@ def parse_tres(tres_str: str) -> Dict[str, int]:
         factor = 1
         if value.endswith("M"):
             value = value[:-1]
-            factor = 1024 * 1024
+            factor = 1024 ** 2
         elif value.endswith("G"):
             value = value[:-1]
-            factor = 1024 * 1024 * 1024
+            factor = 1024 ** 3
+        elif value.endswith("T"):
+            value = value[:-1]
+            factor = 1024 ** 4
         res[key] = (float(value) if "." in value else int(value)) * factor
     return res
 
