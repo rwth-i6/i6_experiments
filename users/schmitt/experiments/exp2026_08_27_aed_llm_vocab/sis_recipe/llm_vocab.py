@@ -236,3 +236,187 @@ def py():
     # not make some eval reference unreachable.
     for split in ("dev", "test"):
         get_loquacious_vocab_usage(subset_name="large", split=split, use_lowercase=True, alias_prefix=prefix)
+
+
+# --- restricted (pruned) Qwen vocab, and the Loquacious task built on it ------------------------
+
+
+@cache
+def get_restricted_qwen_tokenizer(
+    *,
+    model_id: str = _DEFAULT_MODEL_ID,
+    subset_name: str = "large",
+    min_count: int = 1,
+):
+    """
+    Qwen2 tokenizer pruned to the ids the (lowercased) Loquacious train transcripts actually use.
+
+    Measured on train-large: 39_558 used ids -> 39_922 after adding the 256 byte tokens, the
+    133-token merge closure and the 3 specials, i.e. 26.3% of the original 151_646. The job
+    verifies that the pruned tokenizer segments identically to the original (200k sequences
+    re-tokenized, 0 mismatches) and emits the id mapping in both directions.
+
+    :return: the :class:`PruneHuggingFaceTokenizerJob`
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import get_train_corpus_text
+
+    from .prune_tokenizer import PruneHuggingFaceTokenizerJob
+
+    usage = get_loquacious_vocab_usage(subset_name=subset_name, split="train", use_lowercase=True, model_id=model_id)
+    job = PruneHuggingFaceTokenizerJob(
+        tokenizer_dir=get_qwen_tokenizer_repo(model_id),
+        used_ids=usage.out_used_ids,
+        counts=usage.out_counts,
+        min_count=min_count,
+        # Qwen2 is byte-level BPE with byte_fallback=false and unk=None: a byte missing from the
+        # vocab makes text containing it untokenizable. Only 28 of 256 occur in the corpus.
+        keep_all_byte_tokens=True,
+        verify_text_file=get_train_corpus_text(name=subset_name),
+        lowercase_verify=True,
+    )
+    job.add_alias(f"vocab/qwen2-restricted-{subset_name}" + (f"-minCount{min_count}" if min_count > 1 else ""))
+    return job
+
+
+def get_restricted_qwen_vocab_opts(**kwargs) -> Dict[str, Any]:
+    """:return: RETURNN vocab opts for the pruned tokenizer, with lowercasing."""
+    return {
+        "class": "HuggingFaceTokenizer",
+        "huggingface_repo_dir": get_restricted_qwen_tokenizer(**kwargs).out_tokenizer_dir,
+        "text_preprocessing": lowercase,
+    }
+
+
+class RestrictedQwenVocab:
+    """
+    :class:`VocabConfig` over the pruned Qwen2 tokenizer.
+
+    ``get_num_classes`` returns the job's ``out_vocab_size`` Variable, so the dim is resolved from
+    the job output rather than hardcoded.
+    """
+
+    def __init__(self, *, extra_opts: Optional[Dict[str, Any]] = None, **kwargs):
+        self._job = get_restricted_qwen_tokenizer(**kwargs)
+        self._kwargs = kwargs
+        # e.g. {"bpe_dropout": 0.1} for the train-side vocab only
+        self._extra_opts = dict(extra_opts or {})
+
+    def __repr__(self):
+        return f"RestrictedQwenVocab({self._kwargs}, {self._extra_opts})"
+
+    def get_num_classes(self):
+        """:return: vocab size (sisyphus Variable, resolved at job-run time)"""
+        return self._job.out_vocab_size
+
+    def get_opts(self) -> Dict[str, Any]:
+        """:return: RETURNN vocab opts"""
+        return {**get_restricted_qwen_vocab_opts(**self._kwargs), **self._extra_opts}
+
+    def get_eos_idx(self):
+        """eos == the tokenizer's <|endoftext|>; also used as bos (RETURNN reports bos None)."""
+        return None  # resolved by RETURNN from the tokenizer itself
+
+    def copy(self, **opts):
+        """
+        :param opts: extra RETURNN vocab opts for a variant, notably ``bpe_dropout`` for the
+            train-side vocab. Verified to work with the PRUNED tokenizer: it can only ever emit
+            in-vocab ids (the pruned merge list contains only merges whose output is kept), so
+            dropout cannot produce an OOV id.
+
+            Caveat, measured on 200k train sentences: under dropout the ORIGINAL tokenizer emits a
+            few tokens our pruned one cannot (22 / 27 / 47 distinct ids at p = 0.05 / 0.1 / 0.2,
+            i.e. 0.08-0.16%). These are "alternative merge path" tokens -- dropping a
+            high-priority merge lets a lower-priority one fire and produce a token that is not on
+            the merge tree of any fully-merged token, so the closure never kept it. The pruned
+            tokenizer falls back to finer pieces instead. The effect on the result is negligible:
+            mean target length agrees to two decimals (30.42 / 32.49 / 37.85 vs 30.42 / 32.49 /
+            37.86).
+
+            NOTE lengths grow with dropout (sampled max 229 -> 238 / 249 / 273 at p = 0.05 / 0.1 /
+            0.2), and dim_capacity["text"] is a HARD per-sequence bound that aborts training when
+            exceeded. The configured 384 covers all of these, but the numbers above are a sampled
+            max over 200k of 9.5M sequences, so keep headroom if you raise p.
+        """
+        return RestrictedQwenVocab(extra_opts={**self._extra_opts, **opts}, **self._kwargs)
+
+
+def qwen_bpe_to_words(bpe):
+    """
+    Byte-level BPE labels -> words, the analogue of ``loquacious._spm_to_words``.
+
+    RETURNN writes a hypothesis as its labels joined by spaces
+    (``'and Ġwhat Ġabout Ġinteroper ability'``); byte-level BPE marks a word start with U+0120
+    'Ġ' instead of SPM's U+2581. Applied to BOTH hypothesis and reference (see
+    ``generic_sclite_score_recog_out``), so the two stay consistent.
+    """
+    from i6_core.returnn.search import SearchOutputRawReplaceJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+    words = SearchOutputRawReplaceJob(bpe.output, [(" ", ""), ("Ġ", " ")], output_gzip=True).out_search_results
+    return RecogOutput(output=words)
+
+
+def get_loquacious_task_qwen_restricted(
+    *,
+    subset_name: str = "large",
+    train_epoch_split: int = 25,
+    train_seq_ordering: str = "laplace:.1000",
+    multi_proc: int = 25,
+    min_count: int = 1,
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+):
+    """
+    The Loquacious task with the restricted Qwen2 vocab instead of spm10k.
+
+    Mirrors :func:`i6_experiments.users.zeyer.datasets.loquacious.get_loquacious_task_raw_v2`,
+    changing only the vocab and the recog post-processing (byte-level BPE instead of SPM).
+
+    CASING: the vocab lowercases via ``text_preprocessing``, so the model predicts lowercase.
+    The scoring reference is regenerated from the eval dataset through the SAME vocab
+    (``generic_sclite_score_recog_out`` -> ``ReturnnDatasetToTextDictJob``), so it is lowercased
+    too and WER stays comparable to the uppercase spm10k baseline -- lowercasing both sides is a
+    pure relabeling, it cannot merge or split words here (the transcripts are A-Z + space only).
+    """
+    from functools import partial
+
+    from i6_experiments.users.zeyer.datasets.task import Task, MeasureType
+    from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import generic_sclite_score_recog_out
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        DevSplits,
+        TestSplits,
+        get_loquacious_hf_ogg,
+        _make_hf_dataset,
+        _make_hf_dataset_train_v2,
+    )
+
+    vocab = RestrictedQwenVocab(subset_name=subset_name, min_count=min_count)
+    recog_post_proc_funcs = [qwen_bpe_to_words]
+    hf_data_dir = get_loquacious_hf_ogg(name=subset_name)
+
+    train_dataset = _make_hf_dataset_train_v2(
+        hf_data_dir=hf_data_dir,
+        vocab=vocab,
+        # train_vocab is used for the train split only; dev/devtrain keep the plain vocab, so a
+        # regulariser like bpe_dropout can never leak into evaluation.
+        train_vocab=vocab.copy(**train_vocab_opts) if train_vocab_opts else None,
+        train_epoch_split=train_epoch_split,
+        train_seq_ordering=train_seq_ordering,
+        multi_proc=multi_proc,
+    )
+    eval_datasets = {
+        "dev": _make_hf_dataset(hf_data_dir=hf_data_dir, split="dev", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in DevSplits},
+        "test": _make_hf_dataset(hf_data_dir=hf_data_dir, split="test", vocab=vocab),
+        **{k: _make_hf_dataset(hf_data_dir=hf_data_dir, split=k, vocab=vocab) for k in TestSplits},
+    }
+    return Task(
+        name="loquacious",
+        train_dataset=train_dataset,
+        train_epoch_split=train_epoch_split,
+        dev_dataset=eval_datasets["dev"],
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev",
+        score_recog_output_func=partial(generic_sclite_score_recog_out, post_proc_funcs=recog_post_proc_funcs),
+        recog_post_proc_funcs=recog_post_proc_funcs,
+    )
