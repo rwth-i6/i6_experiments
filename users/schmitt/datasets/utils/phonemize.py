@@ -358,7 +358,11 @@ class DumpPhonemeIndicesToHdfJob(Job):
                 hdf_writer.insert_batch(
                     data,
                     seq_len=seq_lens,
-                    seq_tag=[f"lm-data-{i}" if seq_tag is None else seq_tag],
+                    # without an input seq-tag file we invent a tag. It MUST contain the
+                    # task/shard id: `i` restarts at 0 in every task, so a bare `lm-data-{i}`
+                    # repeats across the `concurrent` output HDFs and any tag-based lookup
+                    # (`seq_list_filter_file`, `get_data_by_seq_tag`) over the full set breaks.
+                    seq_tag=[f"lm-data-{task_id}-{i}" if seq_tag is None else seq_tag],
                     extra={"seq_sizes": batch_seq_sizes},
                 )
 
