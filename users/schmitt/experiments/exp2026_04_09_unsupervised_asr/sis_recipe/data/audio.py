@@ -92,23 +92,31 @@ def featurize_audio(
         concurrent=featurize_concurrent,
     )
 
-    npy_file, seq_lengths_file, tsv_file = [
-        DelayedFormat(f"{{}}/{file_name}", featurize_job.out_features_precompute_pca512_cls128_mean_pooled)
-        for file_name in ("train.npy", "train.lengths", "train.tsv")
-    ]
-    reformat_feature_seq_tags = _reformat_tsv_seq_tags(
-        tsv_paths=[tsv_file],
-        librispeech_key=librispeech_key
-    )
-    dump_features_to_hdf_job = DumpNumpyFeaturesToHdfJobV2(
-        npy_file=npy_file,
-        seq_lengths_file=seq_lengths_file,
-        tsv_file=None,  # use the reformatted seq_tag_file instead
-        concurrent=dump_hdf_concurrent,
-        fixed_random_subset=fixed_random_subset,
-        max_abs_value=max_abs_value,
-        seq_tag_file=reformat_feature_seq_tags,
-    )
+    # The silence-removal job splits the corpus into a "train" and a "valid" manifest (valid_percent=0.01),
+    # and the featurize job carries that split through to its outputs. Both splits are part of the corpus, so
+    # dump both and hand out both HDFs -- the cluster-id path below likewise concatenates train+valid. (Dumping
+    # only "train" silently loses ~1% of every corpus, which crashes a MetaDataset whose control dataset does
+    # cover them; see the "Feature HDFs cover only the fairseq `train` split" gotcha in CLAUDE.md.)
+    feature_hdfs = []
+    for split, split_dump_hdf_concurrent in (("train", dump_hdf_concurrent), ("valid", 1)):
+        npy_file, seq_lengths_file, tsv_file = [
+            DelayedFormat(f"{{}}/{file_name}", featurize_job.out_features_precompute_pca512_cls128_mean_pooled)
+            for file_name in (f"{split}.npy", f"{split}.lengths", f"{split}.tsv")
+        ]
+        reformat_feature_seq_tags = _reformat_tsv_seq_tags(
+            tsv_paths=[tsv_file],
+            librispeech_key=librispeech_key
+        )
+        dump_features_to_hdf_job = DumpNumpyFeaturesToHdfJobV2(
+            npy_file=npy_file,
+            seq_lengths_file=seq_lengths_file,
+            tsv_file=None,  # use the reformatted seq_tag_file instead
+            concurrent=split_dump_hdf_concurrent,
+            fixed_random_subset=fixed_random_subset,
+            max_abs_value=max_abs_value,
+            seq_tag_file=reformat_feature_seq_tags,
+        )
+        feature_hdfs += list(dump_features_to_hdf_job.out_hdfs.values())
 
     cluster_id_file_train, cluster_id_file_valid = [
         DelayedFormat(f"{{}}/CLUS128/{set}.src", featurize_job.out_features) for set in ("train", "valid")
@@ -138,7 +146,7 @@ def featurize_audio(
     )
 
     return (
-        list(dump_features_to_hdf_job.out_hdfs.values()),
+        feature_hdfs,
         featurize_job.out_features_clusters,
         featurize_job.out_features_pca,
         list(dump_cluster_ids_to_hdf_job.out_hdfs.values()),

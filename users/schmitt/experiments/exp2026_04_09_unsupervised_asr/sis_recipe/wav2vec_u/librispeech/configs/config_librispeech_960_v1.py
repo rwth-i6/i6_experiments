@@ -24,7 +24,10 @@ settings = DatasetSettings(
     train_partition_epoch=1,
     train_seq_ordering="laplace:.1000",
 )
-train_data = build_training_datasets(settings=settings, max_abs_value=1e5)
+# `max_abs_value` selects the feature dump job (it skips seqs whose features exceed it), so train and test
+# must pass the same value -- otherwise the two come from separate dump jobs.
+max_abs_value = 1e5
+train_data = build_training_datasets(settings=settings, max_abs_value=max_abs_value)
 test_data_dict = build_test_datasets()
 
 num_gpus = 1

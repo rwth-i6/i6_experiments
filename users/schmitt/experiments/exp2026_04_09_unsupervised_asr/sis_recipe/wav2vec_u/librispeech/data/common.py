@@ -231,7 +231,14 @@ def build_text_only_training_datasets(
     )
 
 
-def build_test_datasets():
+def build_test_datasets(max_abs_value: Optional[float] = None):
+    """
+    :param max_abs_value:
+    """
+    assert max_abs_value is None, "We must not filter seqs for testing! Otherwise not comparable."
+
+    _, all_dev_other_seq_tags = text.get_text("dev-other")
+
     _, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
@@ -245,37 +252,27 @@ def build_test_datasets():
         dump_hdf_concurrent=1,
         featurize_concurrent=1,
         remove_cluster_repetitions=True,
+        max_abs_value=max_abs_value,
     )
 
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
-    phoneme_dev_hdfs, _, _, dev_seq_tags = text.get_phonemized_text(
+    phoneme_dev_hdfs, _, _, _ = text.get_phonemized_text(
         "dev-other",
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
     )
 
-    # The wav2vec features cover only the fairseq *train* split of the manifest: `featurize_audio` dumps
-    # only `precompute_pca512_cls128_mean_pooled/train.{npy,lengths,tsv}`, while the silence-removal job
-    # splits off `valid_percent=0.01` into a `valid` split (the cluster-id path concatenates train+valid,
-    # the feature path does not). On dev-other that leaves 29 of the 2712 phonemized seqs without
-    # features. The MetaDataset hands the seq list of its control dataset ("phon_indices") to the feature
-    # dataset, which then raises a KeyError for those, so restrict the seq list to the intersection.
-    # NB this drops ~1% of dev-other, so PER here is not exactly comparable to the other setups'.
-    dev_seq_tags = FilterSeqListByHdfSeqTagsJob(
-        seq_list=dev_seq_tags, hdf_files=features_dev_other_hdfs
-    ).out_seq_list
-
     return {
         "dev-other": MetaDataset(
             datasets={
                 "features": HdfDataset(
                     files=features_dev_other_hdfs,
-                    segment_file=dev_seq_tags,
+                    segment_file=all_dev_other_seq_tags,
                 ),
                 "phon_indices": HdfDataset(
                     files=phoneme_dev_hdfs,
-                    segment_file=dev_seq_tags,
+                    segment_file=all_dev_other_seq_tags,
                 ),
             },
             data_map={
