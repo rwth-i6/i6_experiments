@@ -104,6 +104,7 @@ def train_step(
     text_expansion_opts: Optional[Dict] = None,
     aux_loss_scales: Optional[Sequence[float]] = None,
     codebook_diversity_loss_scale: float = 0.0,
+    output_stats_opts: Optional[Dict] = None,
     adv_loss_scale: float = 0.0,
     adv_loss_type: str = "bce",
     grad_penalty_scale: float = 0.0,
@@ -113,6 +114,12 @@ def train_step(
     :param text_expansion_opts: if given ({"min_dup", "max_dup"}), upsample the text encoder input by
         duplicating tokens so it becomes longer than the (unchanged) text reconstruction target,
         simulating the audio>text length ratio. Only applied to the text modality.
+    :param output_stats_opts: if given, add the corpus-level output-statistics matching losses
+        (see ``train_steps.output_stats``): the text branch accumulates the reference phoneme
+        statistics from its labels, and the audio branch is pushed to reproduce them through the
+        **text** CTC head -- the cross-modal projection that recognition uses but that the
+        same-modality CTC losses never train. Keys: ``unigram_scale``, ``length_scale``,
+        ``bigram_scale``, ``warmup_steps`` (defaults in ``output_stats.DEFAULT_OPTS``).
     :param adv_loss_scale: if > 0, add the domain-adversarial GAN loss that pushes the shared
         encoder to produce modality-invariant states (a discriminator tries to tell audio from text
         encoder states, the encoder tries to fool it). Requires the model to have a discriminator
@@ -175,6 +182,7 @@ def train_step(
         input_expansion_opts=text_expansion_opts,
         aux_loss_scales=aux_loss_scales,
         codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+        output_stats_opts=output_stats_opts,
         adv_loss_scale=adv_loss_scale,
         adv_loss_type=adv_loss_type,
         grad_penalty_scale=grad_penalty_scale,
@@ -201,6 +209,7 @@ def train_step(
         masking_opts=audio_masking_opts,
         aux_loss_scales=aux_loss_scales,
         codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+        output_stats_opts=output_stats_opts,
         adv_loss_scale=adv_loss_scale,
         adv_loss_type=adv_loss_type,
         grad_penalty_scale=grad_penalty_scale,

@@ -13,6 +13,7 @@ from returnn.tensor import Tensor as ReturnnTensor
 from returnn.tensor import TensorDict
 
 from .util import get_random_mask, mask_sequence, expand_sequence
+from . import output_stats
 
 
 class DenoisingAedModel(Protocol):
@@ -61,6 +62,7 @@ def train_step(
     adv_stash: Optional[Dict] = None,
     true_adv_target: Optional[int] = None,
     codebook_diversity_loss_scale: float = 0.0,
+    output_stats_opts: Optional[Dict] = None,
     input_expansion_opts: Optional[Dict] = None,
     **_kwargs,
 ):
@@ -163,6 +165,22 @@ def train_step(
         )
         if ctx.stage == "train_step":
             ctx.mark_as_loss(q_out["prob_perplexity"], f"codebook_prob_ppl{loss_suffix}", dims=[], as_error=True)
+
+    # corpus-level output-statistics matching (see train_steps.output_stats): the text branch
+    # accumulates the reference phoneme statistics, the audio branch is pushed to reproduce them
+    # through the *text* CTC head -- the cross-modal projection that the same-modality CTC losses
+    # never train. Only active when the caller passes output_stats_opts.
+    if output_stats_opts is not None and loss_name in ("audio", "text"):
+        output_stats.update_and_compute_losses(
+            model=model,
+            modality=loss_name,
+            encoder_output=encoder_output,
+            encoder_lens=encoder_lens,
+            target_indices=target_indices,
+            target_indices_lens=target_indices_lens,
+            opts=output_stats_opts,
+            loss_suffix=loss_suffix,
+        )
 
     if adv_loss_name != "disc" and (ce_loss_scale > 0.0 or masked_ce_loss_scale > 0.0):
         # only compute the reconstruction loss, if we are not training the discriminator
