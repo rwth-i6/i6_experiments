@@ -5,6 +5,7 @@ from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
+from i6_experiments.users.schmitt.datasets.utils.extract_seq_list import FilterSeqListByHdfSeqTagsJob
 from i6_experiments.users.schmitt.datasets.combine import CombinedDataset
 from i6_experiments.common.setups.returnn.datastreams.base import FeatureDatastream
 
@@ -253,6 +254,17 @@ def build_test_datasets():
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
     )
+
+    # The wav2vec features cover only the fairseq *train* split of the manifest: `featurize_audio` dumps
+    # only `precompute_pca512_cls128_mean_pooled/train.{npy,lengths,tsv}`, while the silence-removal job
+    # splits off `valid_percent=0.01` into a `valid` split (the cluster-id path concatenates train+valid,
+    # the feature path does not). On dev-other that leaves 29 of the 2712 phonemized seqs without
+    # features. The MetaDataset hands the seq list of its control dataset ("phon_indices") to the feature
+    # dataset, which then raises a KeyError for those, so restrict the seq list to the intersection.
+    # NB this drops ~1% of dev-other, so PER here is not exactly comparable to the other setups'.
+    dev_seq_tags = FilterSeqListByHdfSeqTagsJob(
+        seq_list=dev_seq_tags, hdf_files=features_dev_other_hdfs
+    ).out_seq_list
 
     return {
         "dev-other": MetaDataset(
