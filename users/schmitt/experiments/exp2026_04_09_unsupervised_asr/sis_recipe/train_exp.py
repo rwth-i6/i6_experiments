@@ -10,7 +10,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 
 from . import learning_rate_configs
 from .tune_eval import eval_model, eval_model_rasr
-from .analysis import analyze_encoder_states, analyze_cross_attention
+from .analysis import analyze_encoder_states, analyze_cross_attention, analyze_codebook
 from .ppl import compute_ppl
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
@@ -298,6 +298,36 @@ def run_cross_att_analysis(
     )
 
 
+def run_codebook_analysis(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "codebook",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    recog_model_args: Optional[Dict] = None,
+    **analysis_kwargs,
+):
+    # like run_analysis, the forward step/callback are fixed (analysis.CODEBOOK_* defaults), NOT the
+    # config's __forward_step_module/__callback_module (which are the beam-search recog).
+    train_args = _with_recog_overrides(train_args, recog_model_args=recog_model_args)
+    analyze_codebook(
+        config={**config["general"], **config.get("recog", {})},
+        training_name=training_name,
+        analysis_name=analysis_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=checkpoints,
+        extra_forward_config=extra_forward_config,
+        **analysis_kwargs,
+    )
+
+
 def run_ppl(
     training_name: str,
     train_job,
@@ -349,6 +379,7 @@ def run_experiment(
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     analysis_opts: Optional[Dict[str, Any]] = None,
     cross_att_opts: Optional[Dict[str, Any]] = None,
+    codebook_analysis_opts: Optional[Dict[str, Any]] = None,
     ppl_opts: Optional[Dict[str, Any]] = None,
     recog_variants: Optional[List[Dict[str, Any]]] = None,
     rasr_recog_opts: Optional[Dict] = None,
@@ -361,6 +392,12 @@ def run_experiment(
         e.g. ``{"checkpoints": [1000], "max_plotted_seqs": 20}`` for the audio->text (ASR) direction.
         Uses the same (paired) ``test_data_dict`` as the encoder-PCA analysis, so the plotted seqs
         are the same.
+    :param codebook_analysis_opts: if given, additionally run the codebook (GumbelVectorQuantizer)
+        usage analysis (models.analysis.codebook) via :func:`run_codebook_analysis`. Only meaningful
+        for models with ``model_args.codebook_opts`` set. A kwargs dict for it, e.g.
+        ``{"checkpoints": [1000]}``. Needs a dataset exposing both modalities (the paired
+        ``MetaDataset`` test set); may set its own ``"test_data_dict"`` to override the recognition
+        one for this job only.
     :param recog_model_args: model ``net_args`` used for every *forward* job (recognition and all
         analysis/PPL jobs) instead of the training ones -- e.g. to evaluate with
         ``codebook_opts.codebook_prob = 1.0`` while training used 0.5. An individual analysis may
@@ -419,6 +456,24 @@ def run_experiment(
             if cross_att_test_data_dict is not None
             else (test_data_dict if score_data_dict is None else score_data_dict),
             **cross_att_opts,
+        )
+
+    if codebook_analysis_opts is not None:
+        # like the cross-attention analysis this wants a paired dataset (both modalities per
+        # utterance); it may point at its own via a "test_data_dict" key.
+        codebook_analysis_opts = dict(codebook_analysis_opts)
+        codebook_analysis_opts.setdefault("recog_model_args", recog_model_args)
+        codebook_test_data_dict = codebook_analysis_opts.pop("test_data_dict", None)
+        run_codebook_analysis(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=codebook_test_data_dict
+            if codebook_test_data_dict is not None
+            else (test_data_dict if score_data_dict is None else score_data_dict),
+            **codebook_analysis_opts,
         )
 
     if ppl_opts is not None:

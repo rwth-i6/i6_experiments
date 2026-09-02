@@ -308,6 +308,10 @@ def py():
             "output_modality": "text",
             "max_plotted_seqs": 20,
         },
+        # how audio and text share the discrete space: usage histograms, joint (group-tuple)
+        # distributions, code <-> input-symbol tables. Only counts are accumulated, so this runs
+        # over the whole test set.
+        # codebook_analysis_opts={"checkpoints": get_keep_epochs(base_num_epochs)},
     )
 
     # NOTE: the single-task text-only reference moved to config_librispeech_960_text_only_v1.py
@@ -570,4 +574,5 @@ def py():
                 "output_modality": "text",
                 "max_plotted_seqs": 20,
             },
+            # codebook_analysis_opts={"checkpoints": get_keep_epochs(num_epochs)},
         )

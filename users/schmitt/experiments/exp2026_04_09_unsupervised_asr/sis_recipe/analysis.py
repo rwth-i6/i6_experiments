@@ -1,6 +1,6 @@
 """
-Pipeline for running analysis forward jobs (the shared-encoder state PCA visualization and the
-decoder cross-attention plots).
+Pipeline for running analysis forward jobs (the shared-encoder state PCA visualization, the
+decoder cross-attention plots, and the codebook usage analysis).
 
 This mirrors :func:`tune_eval.eval_model` but, instead of beam search + scoring, it just runs a
 RETURNN forward job whose ``forward_step``/``forward_callback`` implement the analysis (see
@@ -27,6 +27,9 @@ ENCODER_PCA_CALLBACK_MODULE = "analysis.encoder_state_pca.callback.EncoderStateP
 
 CROSS_ATT_FORWARD_STEP_MODULE = "analysis.cross_attention.forward_step.forward_step"
 CROSS_ATT_CALLBACK_MODULE = "analysis.cross_attention.callback.CrossAttentionWeightsCallback"
+
+CODEBOOK_FORWARD_STEP_MODULE = "analysis.codebook.forward_step.forward_step"
+CODEBOOK_CALLBACK_MODULE = "analysis.codebook.callback.CodebookUsageCallback"
 
 
 @dataclass
@@ -265,6 +268,139 @@ def analyze_cross_attention(
         callback_opts=callback_opts,
         # the callback decodes the teacher-forced labels for the plots' query axis
         vocab_key=base_att_config.target_data_key,
+        add_text_to_extern_data=True,
+    )
+
+    if rqmt is None:
+        rqmt = {}
+
+    for checkpoint_name in checkpoints:
+        if isinstance(checkpoint_name, int):
+            checkpoint = get_checkpoint(training_name, train_job, get_specific_checkpoint=checkpoint_name)
+        elif checkpoint_name == "best":
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(1, loss_name))
+        else:
+            assert checkpoint_name == "best4", f"unknown checkpoint spec: {checkpoint_name!r}"
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(4, loss_name))
+
+        for key, dataset in test_data_dict.items():
+            forward_config = copy.deepcopy(returnn_forward_config)
+            forward_config.config["forward_data"] = dataset.as_returnn_opts()
+
+            prefix_name = f"{training_name}/{analysis_name}/{checkpoint_name}/{key}"
+            forward_job = ReturnnForwardJobV2(
+                model_checkpoint=checkpoint,
+                returnn_config=forward_config,
+                log_verbosity=5,
+                mem_rqmt=rqmt.get("mem", 20),
+                time_rqmt=rqmt.get("time", 1),
+                device="gpu",
+                cpu_rqmt=rqmt.get("cpu", 4),
+                returnn_python_exe=RETURNN_EXE,
+                returnn_root=RETURNN_ROOT,
+                output_files=[out_dir_name],
+            )
+            gpu_mem = rqmt.get("gpu_mem", None)
+            if gpu_mem is not None and gpu_mem != 11:
+                forward_job.rqmt["gpu_mem"] = gpu_mem
+            forward_job.add_alias(prefix_name + "/forward")
+            tk.register_output(prefix_name + f"/{out_dir_name}", forward_job.out_files[out_dir_name])
+
+
+@dataclass
+class CodebookAnalysisConfig:
+    """forward_init args passed to the codebook analysis ``forward_step`` (hashed)."""
+
+    audio_data_key: str = "data"
+    text_data_key: str = "target"
+
+
+def analyze_codebook(
+    *,
+    config: Dict[str, Any],
+    training_name: str,
+    train_job: Optional[ReturnnTrainingJob],
+    train_args: Dict[str, Any],
+    train_data: TrainingDatasets,
+    test_data_dict: Dict[str, Any],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "codebook",
+    forward_step_module: str = CODEBOOK_FORWARD_STEP_MODULE,
+    callback_module: str = CODEBOOK_CALLBACK_MODULE,
+    base_analysis_config: Optional[CodebookAnalysisConfig] = None,
+    audio_masking_opts: Optional[Dict[str, Any]] = None,
+    text_masking_opts: Optional[Dict[str, Any]] = None,
+    text_expansion_opts: Optional[Dict[str, Any]] = None,
+    max_run_length: Optional[int] = None,
+    top_shared_codes: Optional[int] = None,
+    top_labels_per_code: Optional[int] = None,
+    save_plots: Optional[bool] = None,
+    out_dir_name: str = "codebook",
+    loss_name: str = "dev_loss_ce",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    rqmt: Optional[Dict[str, Any]] = None,
+):
+    """
+    Run the codebook (GumbelVectorQuantizer) analysis forward job for one or more checkpoints /
+    test datasets. Only meaningful for models with ``model_args.codebook_opts`` set.
+
+    The job runs the shared encoder over both modalities, maps every frame to its codebook entry and
+    reports how the audio and text modalities use the shared discrete space: usage histograms, joint
+    (group-tuple) distributions, code <-> input-symbol contingency tables, quantization error and
+    selection confidence. See ``models.analysis.codebook.callback`` and ``CODEBOOK.md``.
+
+    Unlike the encoder-PCA analysis this marks only small integer/scalar outputs and aggregates them
+    into counts, so it can run over the whole test set (no ``max_plotted_seqs`` cap).
+
+    Needs a dataset exposing BOTH modalities -- the paired ``MetaDataset`` test set (as used by the
+    cross-attention and PPL jobs). A ``CombinedDataset`` also works (the modalities then simply
+    arrive in different batches), but per-utterance pairing is lost.
+
+    :param base_analysis_config: forward_step keys; if None, derived from the config's
+        ``default_data_key`` / ``default_target_key``.
+    :param audio_masking_opts: if given, mask the audio encoder input like in training
+        (``mask_prob``/``min_span``/``max_span``).
+    :param text_masking_opts: if given, mask the text encoder input like in training.
+    :param text_expansion_opts: if given (``{"min_dup", "max_dup"}``), upsample the (masked) text
+        encoder input like the train-time text upsampling (applied after masking).
+    """
+    if base_analysis_config is None:
+        base_analysis_config = CodebookAnalysisConfig(
+            audio_data_key=config.get("default_data_key", "data"),
+            text_data_key=config.get("default_target_key", "target"),
+        )
+
+    # Only put an option into callback_opts / forward_step_args when it is non-default, so adding a
+    # new option later does not re-hash the jobs that ran before it existed.
+    callback_opts: Dict[str, Any] = {"out_dir": out_dir_name}
+    if max_run_length is not None:
+        callback_opts["max_run_length"] = max_run_length
+    if top_shared_codes is not None:
+        callback_opts["top_shared_codes"] = top_shared_codes
+    if top_labels_per_code is not None:
+        callback_opts["top_labels_per_code"] = top_labels_per_code
+    if save_plots is not None:
+        callback_opts["save_plots"] = save_plots
+
+    forward_step_args = asdict(base_analysis_config)
+    if audio_masking_opts is not None:
+        forward_step_args["audio_masking_opts"] = audio_masking_opts
+    if text_masking_opts is not None:
+        forward_step_args["text_masking_opts"] = text_masking_opts
+    if text_expansion_opts is not None:
+        forward_step_args["text_expansion_opts"] = text_expansion_opts
+
+    # both modalities must be available to the forward_step, so declare the text key in extern_data
+    returnn_forward_config = get_forward_config(
+        config=config,
+        network_module=train_args["network_module"],
+        extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
+        net_args=train_args["net_args"],
+        decoder_args=forward_step_args,
+        decoder=forward_step_module,
+        callback_module=callback_module,
+        datastreams=train_data.datastreams,
+        callback_opts=callback_opts,
         add_text_to_extern_data=True,
     )
 
