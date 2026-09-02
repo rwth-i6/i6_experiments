@@ -759,12 +759,13 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         data = self.text_embedding(indices)  # (B, T, F)
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers_text)
+        encoder_outputs[-1] = self._maybe_quantize(encoder_outputs[-1])
         assert len(self.out_text_aux_logits) <= len(encoder_outputs)
         out_aux_logits = [
             aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_audio_aux_logits, encoder_outputs)
         ]
         out_seq_lens = out_mask.sum(dim=-1)
-        return self._maybe_quantize(encoder_outputs[-1]), out_aux_logits, out_seq_lens, out_mask
+        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 
     def forward_audio(self, indices: Tensor, seq_lens: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
@@ -779,10 +780,11 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         data = self.audio_embedding(indices)  # (B, T, F)
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers_audio)
+        encoder_outputs[-1] = self._maybe_quantize(encoder_outputs[-1])
         assert len(self.out_audio_aux_logits) <= len(encoder_outputs)
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_text_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
-        return self._maybe_quantize(encoder_outputs[-1]), out_aux_logits, out_seq_lens, out_mask
+        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 
     def decode_text_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
         state = self.decoder.transform_encoder_output(
