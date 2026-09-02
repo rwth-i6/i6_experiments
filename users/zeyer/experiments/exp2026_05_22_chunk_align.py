@@ -788,6 +788,9 @@ def py():
     # (both norm variants collapsed them); emformer best with "consumed";
     # whisper best with the naive True norm (paired with the timestamp exit above).
     _zoo_start_norm = {
+        # AED token scores are position-insensitive like Whisper's
+        # (first shot without norm: acc 0.16, p95 216 s)
+        "canary-1b-flash": True,
         "whisper-base": True,
         "whisper-large-v3": True,
         "whisper-large-v3-noprev": True,
