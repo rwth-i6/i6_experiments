@@ -445,6 +445,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         codebook_opts: Optional[Dict[str, Any]] = None,
         fix_decode_text_seq_for_shared_dec: bool = False,
         freeze_params_list: Optional[List[str]] = None,
+        dec_share_emb: bool = False,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -575,7 +576,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
                     if share_decoder
                     else (self.text_out_dim if name == "text" else self.audio_out_dim),
                     logits_bias=logits_bias,
-                    share_embedding=False,
+                    share_embedding=dec_share_emb,
                 )
                 for name in (["shared"] if share_decoder else ["text", "audio"])
             }
