@@ -30,7 +30,15 @@ class PhonemizeTextDataJob(Job):
         python_env: Optional[tk.Path] = None,
         seq_tag_file: Optional[tk.Path] = None,
         surround_w_sil: bool = True,
+        apply_lid_filter: bool = True,
     ):
+        """
+        :param apply_lid_filter: run the fasttext language-ID filter over the input lines. This makes sense for
+            a raw (web) LM corpus, but for a corpus that is known to be in ``language`` already (e.g. LibriSpeech
+            transcriptions) it only drops lines: on dev-other it removes 5 of 2864 utterances. Set to False for
+            eval sets, where losing sequences makes the scores incomparable. NB the text normalization itself
+            (the character filter) is always applied.
+        """
         self.text_file = text_file
         self.fairseq_root = fairseq_root
         self.python_exe = python_exe
@@ -43,6 +51,7 @@ class PhonemizeTextDataJob(Job):
         self.min_phoneme_occurrence = min_phoneme_occurrence
         self.phonemizer_engine = phonemizer_engine
         self.surround_w_sil = surround_w_sil
+        self.apply_lid_filter = apply_lid_filter
 
         self.out_lexicon_file = self.output_path("lexicon_filtered.lst")
         self.out_phoneme_text = self.output_path("text.phonemes.txt")
@@ -66,9 +75,9 @@ class PhonemizeTextDataJob(Job):
         lid_threshold: float,
         fasttext_model: str,
         seq_tags_file: Optional[str],
+        apply_lid_filter: bool = True,
     ):
         import regex
-        import fasttext as ft
         import sys
 
         filter_r = regex.compile(r"[^\p{L}\p{N}\p{M}\' \-]")
@@ -82,7 +91,13 @@ class PhonemizeTextDataJob(Job):
         else:
             seq_tags = None
 
-        if os.path.exists(fasttext_model):
+        if not apply_lid_filter:
+            print("Language-ID filtering disabled, keeping all lines.", file=sys.stderr)
+            model = None
+        elif os.path.exists(fasttext_model):
+            # imported lazily so that apply_lid_filter=False does not need fasttext at all
+            import fasttext as ft
+
             model = ft.load_model(fasttext_model)
         else:
             print(
@@ -234,6 +249,7 @@ class PhonemizeTextDataJob(Job):
                 lid_threshold=0.4,
                 fasttext_model=self.lid_path.get_path(),
                 seq_tags_file=self.seq_tag_file.get_path() if self.seq_tag_file is not None else None,
+                apply_lid_filter=self.apply_lid_filter,
             )
             seq_tag_file = (
                 os.path.join(os.getcwd(), "seq-tags-after-norm-and-filter.txt")
@@ -283,7 +299,163 @@ class PhonemizeTextDataJob(Job):
     def hash(cls, parsed_args: Dict[str, Any]) -> str:
         if parsed_args["surround_w_sil"]:
             del parsed_args["surround_w_sil"]
+        # only hash the new option when it deviates from the old (only) behavior, to keep existing job hashes
+        if parsed_args.get("apply_lid_filter", True):
+            parsed_args.pop("apply_lid_filter", None)
         return super().hash(parsed_args)
+
+
+class ExtendLexiconWithG2PJob(Job):
+    """
+    Add G2P-generated pronunciations for every word of ``text_file`` that is missing from ``lexicon_file``.
+
+    Motivation: :class:`PhonemizeTextDataJob` silently *drops every line* that contains a word which is not in
+    the lexicon (``phonemize_with_sil``). On LibriSpeech dev-other that removes 147 of 2864 utterances (83
+    distinct OOV words, nearly all proper names absent from the ``lm_minus_librivox`` lexicon), so the reported
+    WER/PER is computed on 94.7% of the corpus only. Feeding :class:`PhonemizeTextDataJob` the extended lexicon
+    produced here keeps all sequences.
+
+    The words are phonemized with ``g2p_en`` (the same tool fairseq's wav2vec-U ``prepare_text.sh`` uses to
+    build its lexicon), run in a separate venv via ``python_exe`` since it is not installed in the sisyphus
+    environment. Stress markers are stripped, and every resulting phoneme is asserted to already occur in
+    ``lexicon_file`` -- otherwise the phoneme vocab (which stays pinned to the one derived from the LM corpus)
+    would not cover it.
+    """
+
+    def __init__(
+        self,
+        text_file: tk.Path,
+        lexicon_file: tk.Path,
+        python_exe: tk.Path,
+        nltk_data: Optional[tk.Path] = None,
+    ):
+        """
+        :param text_file: one sequence per line, in the same form as given to :class:`PhonemizeTextDataJob`
+            (the character normalization of ``normalize_and_filter_text`` is reproduced here)
+        :param lexicon_file: existing lexicon, ``<word> <phoneme>+`` per line
+        :param python_exe: python of a venv with ``g2p_en`` installed, see ``default_tools.get_g2p_python_exe``
+        :param nltk_data: pre-downloaded nltk data dir, so no network access is needed on the compute node
+        """
+        self.text_file = text_file
+        self.lexicon_file = lexicon_file
+        self.python_exe = python_exe
+        self.nltk_data = nltk_data
+
+        self.out_lexicon_file = self.output_path("lexicon_extended.lst")
+        self.out_new_entries = self.output_path("new_entries.lst")
+        self.out_num_new_words = self.output_var("num_new_words")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 1})
+
+    def run(self):
+        script = os.path.join(os.getcwd(), "g2p_oov_words.py")
+        with open(script, "w") as f:
+            f.write(_G2P_OOV_SCRIPT)
+
+        env = os.environ.copy()
+        if self.nltk_data is not None:
+            env["NLTK_DATA"] = self.nltk_data.get_path()
+
+        sp.check_call(
+            [
+                self.python_exe.get_path(),
+                script,
+                "--text-file",
+                self.text_file.get_path(),
+                "--lexicon-file",
+                self.lexicon_file.get_path(),
+                "--out-lexicon-file",
+                self.out_lexicon_file.get_path(),
+                "--out-new-entries",
+                self.out_new_entries.get_path(),
+                "--out-num-new-words",
+                "num_new_words.txt",
+            ],
+            env=env,
+        )
+
+        with open("num_new_words.txt", "r") as f:
+            self.out_num_new_words.set(int(f.read().strip()))
+
+
+# Run in a separate venv (``g2p_en`` is not available in the sisyphus environment), hence a script and not a
+# function of the job above.
+_G2P_OOV_SCRIPT = r'''
+import argparse
+import re
+import sys
+
+import regex
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--text-file", required=True)
+    parser.add_argument("--lexicon-file", required=True)
+    parser.add_argument("--out-lexicon-file", required=True)
+    parser.add_argument("--out-new-entries", required=True)
+    parser.add_argument("--out-num-new-words", required=True)
+    args = parser.parse_args()
+
+    known_words = set()
+    known_phonemes = set()
+    with open(args.lexicon_file, "r", encoding="utf-8") as f:
+        lexicon_lines = f.readlines()
+    for line in lexicon_lines:
+        items = line.split()
+        assert len(items) > 1, line
+        known_words.add(items[0])
+        known_phonemes.update(items[1:])
+    print(f"lexicon: {len(known_words)} words, {len(known_phonemes)} phonemes", file=sys.stderr)
+
+    # same normalization as PhonemizeTextDataJob.normalize_and_filter_text
+    filter_r = regex.compile(r"[^\p{L}\p{N}\p{M}\' \-]")
+    oov_words = {}  # word -> first line idx, dict for a deterministic (first-occurrence) order
+    with open(args.text_file, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            line = " ".join(filter_r.sub(" ", line.strip()).split())
+            for word in line.split():
+                if word not in known_words:
+                    oov_words.setdefault(word, i)
+    print(f"{len(oov_words)} OOV words in {args.text_file}", file=sys.stderr)
+
+    from g2p_en import G2p
+
+    g2p = G2p()
+
+    new_entries = []
+    failed = []
+    for word in oov_words:
+        phonemes = [re.sub(r"\d", "", p) for p in g2p(word)]
+        phonemes = [p for p in phonemes if p.strip()]
+        if not phonemes or any(p not in known_phonemes for p in phonemes):
+            failed.append((word, phonemes))
+            continue
+        new_entries.append((word, phonemes))
+
+    assert not failed, (
+        f"G2P produced no usable pronunciation for {len(failed)} word(s), which would still be dropped by the "
+        f"OOV filter of PhonemizeTextDataJob (phonemes outside the lexicon's inventory cannot be represented by "
+        f"the pinned phoneme vocab either): {failed[:20]}"
+    )
+
+    with open(args.out_lexicon_file, "w", encoding="utf-8") as f:
+        for line in lexicon_lines:
+            f.write(line if line.endswith("\n") else line + "\n")
+        for word, phonemes in new_entries:
+            f.write(f"{word}\t{' '.join(phonemes)}\n")
+    with open(args.out_new_entries, "w", encoding="utf-8") as f:
+        for word, phonemes in new_entries:
+            f.write(f"{word}\t{' '.join(phonemes)}\n")
+    with open(args.out_num_new_words, "w", encoding="utf-8") as f:
+        f.write(f"{len(new_entries)}\n")
+    print(f"added {len(new_entries)} lexicon entries", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
+'''
 
 
 class DumpPhonemeIndicesToHdfJob(Job):

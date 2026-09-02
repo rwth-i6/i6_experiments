@@ -39,6 +39,23 @@ def get_fasttext_python_exe() -> tk.Path:
     return tk.Path(path, hash_overwrite="FASTTEXT_PYTHON_EXE")
 
 
+def get_g2p_python_exe() -> tk.Path:
+    """
+    Python of a venv with ``g2p_en`` installed (see ``ExtendLexiconWithG2PJob``).
+    """
+    path = getattr(gs, "G2P_PYTHON_EXE", "/work/asr4/schmitt/venvs/g2p_env/bin/python")
+    return tk.Path(path, hash_overwrite="G2P_PYTHON_EXE")
+
+
+def get_nltk_data() -> tk.Path:
+    """
+    Pre-downloaded nltk data (``averaged_perceptron_tagger[_eng]``, ``cmudict``) needed by ``g2p_en``,
+    so that the job does not require network access on the compute node.
+    """
+    path = getattr(gs, "NLTK_DATA", "/work/asr4/schmitt/venvs/g2p_env/nltk_data")
+    return tk.Path(path, hash_overwrite="NLTK_DATA")
+
+
 def get_returnn_root() -> tk.Path:
     path = getattr(gs, "RETURNN_ROOT", "returnn")
     return tk.Path(path, hash_overwrite="DEFAULT_RETURNN_ROOT")
