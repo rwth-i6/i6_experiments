@@ -60,6 +60,7 @@ NOT included here (out of scope for reproducing this one training): the Transfor
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 from sisyphus import tk
@@ -68,6 +69,7 @@ from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_modu
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
 from i6_experiments.users.zeyer.datasets.task import Task
+from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs as _baseline_configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
@@ -241,7 +243,11 @@ def train(
     Register one Loquacious AED training + its recogs.
 
     :param name: experiment name, used in the alias/output prefix
-    :param config_overrides: deep-merged onto :data:`_base_config` (dotted keys, e.g. "train.batch_size")
+    :param config_overrides: deep-merged onto :data:`_base_config` (dotted keys, e.g. "train.batch_size").
+        Besides the :data:`_base_config` keys, ``"train_dataset_opts"`` (a dict) is accepted: it is
+        merged into the TRAIN dataset dict at its top level, see :func:`_with_train_dataset_opts`.
+        This is how a variant reaches DistributeFilesDataset options that the task builders do not
+        expose (e.g. ``distrib_shard_files`` for multi-GPU training).
     :param config_deletes: applied BEFORE the overrides, so a variant can drop an option that does
         not apply to it instead of having to set it to a no-op value
     :param recog_def_ctc_only: use the cheap CTC time-sync search for the per-epoch recog instead
@@ -277,6 +283,7 @@ def train(
     env_updates = config.pop("env_updates")
     # Only passed on when set, so the default call stays as-is.
     train_seq_ordering = config.pop("train_seq_ordering", None)
+    train_dataset_opts = config.pop("train_dataset_opts", None)
 
     assert not config, f"unhandled config keys: {sorted(config)}"
 
@@ -308,6 +315,9 @@ def train(
             **({"train_seq_ordering": train_seq_ordering} if train_seq_ordering is not None else {}),
         )
 
+    if train_dataset_opts:
+        task = _with_train_dataset_opts(task, train_dataset_opts)
+
     aux_ctc_layer = max(
         i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]
     )
@@ -338,6 +348,33 @@ def train(
         )
 
     return exp, task, aux_ctc_layer
+
+
+def _with_train_dataset_opts(task: Task, opts: Dict[str, Any]) -> Task:
+    """
+    Copy of ``task`` whose TRAIN dataset dict has ``opts`` merged in at its top level.
+
+    The Loquacious train dataset is a ``DistributeFilesDataset`` (see
+    ``_make_hf_dataset`` in :mod:`i6_experiments.users.zeyer.datasets.loquacious`), and neither task
+    builder exposes its options, so this is the hook for e.g. ``distrib_shard_files``.
+    Only the train dict is touched: the dev/devtrain eval sets and the recog datasets are plain
+    ``HuggingFaceDataset`` dicts, and sharding does not apply to them.
+
+    Copies instead of mutating: the Task and its DatasetConfigStatic may be shared with other
+    experiments (the ``get_loquacious_task_raw_v2`` cache, or simply the same ``py()`` run).
+    Adding keys changes the train dataset dict and thus the training job hash -- intended, this is
+    a different training.
+    """
+    task = copy.copy(task)
+    ds = copy.copy(task.train_dataset)
+    assert isinstance(ds, DatasetConfigStatic), f"unexpected train dataset config type {type(ds)}"
+    assert isinstance(ds.train_dataset, dict), f"unexpected train dataset {ds.train_dataset!r}"
+    assert ds.train_dataset.get("class") == "DistributeFilesDataset", (
+        f"train_dataset_opts are DistributeFilesDataset options, got class {ds.train_dataset.get('class')!r}"
+    )
+    ds.train_dataset = {**ds.train_dataset, **opts}
+    task.train_dataset = ds
+    return task
 
 
 # The packed configuration. Kept as a module-level dict so that the step-4 smoke/ablation cells
@@ -391,28 +428,6 @@ def py():
             "train_seq_ordering": "random",
         },
     )
-
-    # THE experiment this setup exists for: the same AED, from scratch, on the restricted Qwen2
-    # LLM vocab (39_922) instead of spm10k -- so the encoder is trained to produce features
-    # decodable into the LLM's own token inventory, and can later seed a speech LLM.
-    #
-    # Only the vocab differs from base-v2-packed. Model size 713M vs 711M at spm10k (the vocab
-    # dimension appears 5x in this model, but 39_922 is close enough to spm10k's 10_025 that it
-    # costs little; the full 151_646 vocab would have been 1_285M).
-    #
-    # Target lengths measured on train with this tokenizer: mean 26.97, p99 87, MAX 229 -- so the
-    # inherited _TEXT_DIM_CAP of 384 has ample headroom over a hard measured maximum (there is no
-    # SPM-style sampling here to inflate it). Tokens per second of audio is 2.84 vs spm10k's
-    # ~2.88, so the packed text budget carries over unchanged.
-    # train(
-    #     "base-v2-packed-qwenVocab",
-    #     config_overrides={
-    #         **_packed_overrides,
-    #         "train_seq_ordering": "random",
-    #         "vocab": "qwen-restricted",
-    #         "train_vocab_opts": None,
-    #     },
-    # )
 
     text_seq_len_stats()
 
