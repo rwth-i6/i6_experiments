@@ -4,12 +4,17 @@ from typing import List, Dict
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
 from ....train_exp import run_experiment
+from ....lm_fused_recog import run_lm_fused_recog
 from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
 
 from .config_librispeech_960_v1 import base_config, base_num_epochs
 from .config_librispeech_960_wo_sil_v1 import train_data, test_data_dict_wo_sil
+from ....phoneme_lm.librispeech.configs.config_librispeech_960_wo_sil_v1 import (
+    lm_model_args as phoneme_lm_model_args,
+    lm_training_name as phoneme_lm_training_name,
+)
 
 
 def get_keep_epochs(num_epochs: int) -> List[int]:
@@ -38,8 +43,9 @@ def py(checkpoints: Dict):
         (1e-4, 1e-4, True),
         (1e-4, 1e-4, False),
     ]:
-        run_experiment(
-            training_name=f"{prefix_name}/baseline_low-lr-{low_lr}_peak-lr-{peak_lr}_freeze-enc{'_freeze-emb' if freeze_emb_layers else ''}",
+        training_name = f"{prefix_name}/baseline_low-lr-{low_lr}_peak-lr-{peak_lr}_freeze-enc{'_freeze-emb' if freeze_emb_layers else ''}"
+        train_job = run_experiment(
+            training_name=training_name,
             config=dict_update_deep(
                 copy.deepcopy(base_config_),
                 {
@@ -74,3 +80,25 @@ def py(checkpoints: Dict):
             skip_eval=False,
             # score_data_dict=test_data_dict_wo_sil,
         )
+
+        if freeze_emb_layers:
+            lm_ckpts = checkpoints[phoneme_lm_training_name]
+            run_lm_fused_recog(
+                training_name=training_name,
+                config={
+                    **base_config_["general"],
+                    **base_config_.get("recog", {}),
+                    "__callback_module": base_config_["__callback_module"],
+                },
+                train_job=train_job,
+                train_args={"net_args": base_config_["model_args"]},
+                train_data=train_data,
+                test_data_dict=test_data_dict_wo_sil,
+                checkpoints=[20],
+                lm_checkpoint=lm_ckpts[1000],
+                lm_args=phoneme_lm_model_args,
+                beam_size=12,
+                lm_scales=(0.0, 1.0),
+                length_rewards=(0.0,),
+                rqmt={"time": 2, "gpu_mem": 24},
+            )
