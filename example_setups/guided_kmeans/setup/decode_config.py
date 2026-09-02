@@ -28,6 +28,7 @@ from .. import tools
 
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.decode import ClusteringDecodeCallback
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.model import load_gaussian_model
+from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.chunked.models import load_forward_model
 
 @dataclass
 class DecodeRecogResult:
@@ -63,6 +64,24 @@ def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     )
     return load_call
 
+def build_artifact_model_object(model_dir: tk.Path) -> CallImport:
+    """
+    Score with whatever model class wrote ``model_dir``, per its manifest.
+
+    The alternative - a ``mixtures=`` argument here beside ``covs=`` - would
+    need repeating for every parameter set a model might carry, and the decode
+    side has no business knowing them. A directory plus its manifest is what
+    the epoch job already produces.
+    """
+    return CallImport(
+        code_object_path=load_forward_model,
+        unhashed_package_root=None,
+        hashed_arguments={"model_dir": model_dir},
+        unhashed_arguments={},
+        import_as="gaussian_model",
+    )
+
+
 def get_callback_config(
     centroids: tk.Path,
     recognition_config: tk.Path,
@@ -76,6 +95,7 @@ def get_callback_config(
     num_workers: int = 7,
     write_frame_labels: bool = False,
     legacy_hash_num_workers: bool = False,
+    model_dir: tk.Path | None = None,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -105,7 +125,20 @@ def get_callback_config(
     else:
         unhashed_args["num_workers"] = num_workers
 
-    if cov_path is not None:
+    # model_dir first: it is the general form, and it is only ever set by a
+    # caller that opted into it, so nothing that predates it changes hash.
+    if model_dir is not None:
+        if cov_path is not None:
+            raise TypeError(
+                "pass either model_dir or centroids/cov_path, not both - the model "
+                "directory already carries every artifact its class needs"
+            )
+        serializer_objs.append(build_artifact_model_object(model_dir))
+        arguments.update(
+            gaussian_model=CodeWrapper("gaussian_model"),
+            centroids_file=None
+        )
+    elif cov_path is not None:
         serializer_objs.append(build_gaussian_model_object(centroids, cov_path))
         arguments.update(
             gaussian_model=CodeWrapper("gaussian_model"),
@@ -130,10 +163,15 @@ def get_callback_config(
 class DecodeConfig:
     centroids: tk.Path
     recog_rasr_config: tk.Path
+    # Set instead of centroids/covs to score with a whole model directory, which
+    # is the only way to decode a model whose parameters are not (centroids,
+    # covs) - a mixture model, say. `centroids` stays required because callers
+    # and reports still key on it; it is ignored for scoring when this is set.
     distance_scale: float
     subsampling: int | None = None
     pooling_function: str = "maxpool_time_np"
     covs: tk.Path | None = None
+    model_dir: tk.Path | None = None
     verbosity: int = 1
     num_workers: int = 7
     write_frame_labels: bool = False
@@ -173,6 +211,7 @@ def _decode(
         exclude_lemmata=["[SILENCE]"],
         rasr_path=rasr_path,
         cov_path=config.covs,
+        model_dir=config.model_dir,
         num_workers=config.num_workers,
         write_frame_labels=config.write_frame_labels,
         legacy_hash_num_workers=config.legacy_hash_num_workers,

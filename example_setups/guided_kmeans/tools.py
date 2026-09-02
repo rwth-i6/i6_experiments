@@ -16,5 +16,10 @@ else:
     RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
 
     RASR_PATH = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard")
-    # no dedicated forward-backward build here yet; fall back to the linear-search binaries
-    RASR_PATH_FORWARD_BACKWARD = RASR_PATH
+    # Local forward-backward build. lkleppel's build cannot be used from this setup:
+    # it is compiled in the Ubuntu-24.04 image and ships librasr.cpython-312-*.so,
+    # which RETURNN_PYTHON_EXE (3.11) does not even recognize as a module, so the FB
+    # worker pool dies with "ModuleNotFoundError: No module named 'librasr'".
+    # This build is the same source compiled against python 3.11 (MODULE_CUDA=OFF,
+    # MODULE_TENSORFLOW=OFF); see build_with_python.sh next to it.
+    RASR_PATH_FORWARD_BACKWARD = tk.Path("/work/asr3/michel/mann/tools/rasr/fwd_bwd/arch/linux-x86_64-standard")

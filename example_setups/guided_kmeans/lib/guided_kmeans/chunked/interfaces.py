@@ -151,6 +151,11 @@ class ScoreModel(Protocol):
     disk is a module-level function, not part of this protocol.
     """
 
+    #: Width of the score matrix, i.e. how many labels the recognizer chooses
+    #: between - *not* necessarily how many parameter sets the model carries.
+    #: For :class:`.models.GaussianMixtureModel` a label is backed by several
+    #: densities, so this is its label count and the densities are counted
+    #: separately by ``num_densities``.
     num_clusters: int
     dim: int
 
@@ -253,6 +258,32 @@ class Accumulator(Protocol):
     accumulator state has to be a sufficient statistic of the observations,
     never something order-dependent.
     """
+
+    def bind_model(self, model: ScoreModel) -> None:
+        """
+        Hand over the model this epoch recognizes with, once, before the first
+        ``observe``.
+
+        Most accumulators ignore it: a sufficient statistic of *labelled
+        frames* needs nothing but the frames and their labels. It exists for
+        updating routines whose E-step is defined against the current
+        parameters - a mixture model's recognizer reports posteriors over
+        labels, and turning those into posteriors over the densities behind
+        each label requires the very model being re-estimated.
+
+        A binding hook rather than a constructor argument on purpose. The model
+        is needed only while observing: ``merge``, ``finalize`` and
+        ``load_state_dict`` run in the reduce step, which builds empty
+        accumulators through a zero-argument factory
+        (:func:`.runner.reduce_chunks`) and supplies the previous model to
+        ``finalize`` explicitly. Taking it in ``__init__`` would force a model
+        on every accumulator - including those that have no use for one - and
+        would build it a second time in every chunk task.
+
+        Called exactly once per chunk, before any ``observe``, with the model
+        held fixed for the whole epoch. That is what keeps ``merge``
+        associative even for an accumulator that uses it.
+        """
 
     def observe(self, features: np.ndarray, posteriors: Posteriors) -> None: ...
 

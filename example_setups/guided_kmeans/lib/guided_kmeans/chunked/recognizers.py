@@ -12,7 +12,13 @@ Adding an n-best or full-sum recognizer means implementing
 
 from __future__ import annotations
 
-__all__ = ["PhonemeIdxMap", "RasrViterbiRecognizer", "SerialRasrRecognizer", "RasrFBRecognizer"]
+__all__ = [
+    "ArgmaxRecognizer",
+    "PhonemeIdxMap",
+    "RasrViterbiRecognizer",
+    "SerialRasrRecognizer",
+    "RasrFBRecognizer",
+]
 
 from collections import UserDict
 from dataclasses import dataclass
@@ -64,6 +70,79 @@ def traceback_to_labels(traceback: List[Any], phoneme_map: PhonemeIdxMap) -> np.
     if segments.size == 0:
         return np.zeros((0,), dtype=np.int64)
     return segments_to_array(segments).astype(np.int64)
+
+
+class ArgmaxRecognizer:
+    """
+    Unguided assignment: every frame takes its own lowest-cost cluster.
+
+    This is what turns the guided pipeline into plain Lloyd's k-means. No
+    lexicon, no language model, no transition costs and no search - so nothing
+    couples neighbouring frames, and the "recognition" is a per-frame argmin
+    over the score matrix the model already computed.
+
+    Two consequences worth being explicit about, because they are what make an
+    unguided epoch a different kind of object from a guided one:
+
+    * **No traceback.** There is no discrete path to report, so
+      :attr:`.interfaces.RecognitionResult.traceback` stays empty. The Viterbi
+      statistics counters read tracebacks, so they record nothing here and the
+      flavor leaves ``statistics`` unset rather than wiring up counters that
+      would report zeros. ``out_hypotheses`` comes out as empty lines for the
+      same reason, which also makes ``score_reference`` meaningless for an
+      unguided run - there is no label inventory to score against.
+    * **No distance scale.** ``argmin`` is invariant under multiplication by a
+      positive constant, so a scale would be a parameter that provably cannot
+      change the result. The RASR recognizers take one because a search weighs
+      acoustic costs against LM and transition costs, and only the *ratio*
+      matters there; with nothing to weigh against, the knob disappears.
+
+    It also removes essentially all of an epoch's cost: the RASR search is
+    ~99.6% of guided epoch wall time (see the module docstring), so an unguided
+    epoch is bounded by reading features and computing scores. ``num_chunks``
+    stops being about parallelizing search and becomes about parallelizing I/O.
+
+    :param num_clusters: label inventory size. Optional and only used to check
+        the score matrix has the width the pipeline thinks it does - the model
+        decides that, and a mismatch here means the flavor is inconsistent.
+    """
+
+    def __init__(self, num_clusters: Optional[int] = None):
+        self.num_clusters = num_clusters
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
+
+    @property
+    def num_labels(self) -> Optional[int]:
+        return self.num_clusters
+
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
+        self._on_result = on_result
+
+    def submit(self, seq_tag: str, scores: np.ndarray) -> None:
+        assert self._on_result is not None, "start() must be called before submit()"
+        scores = np.asarray(scores)
+        if scores.ndim != 2:
+            raise ValueError(f"expected a [T, K] score matrix, got {scores.shape}")
+        if self.num_clusters is not None and scores.shape[1] != self.num_clusters:
+            raise ValueError(
+                f"{seq_tag}: model scored {scores.shape[1]} clusters, recognizer was "
+                f"configured for {self.num_clusters}"
+            )
+        # Synchronous, like SerialRasrRecognizer: there is no work to hand to a
+        # worker pool, and run_chunk parks the features before calling submit()
+        # precisely so a result may come back from inside it.
+        self._on_result(
+            RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=scores.argmin(axis=1).astype(np.int64),
+            )
+        )
+
+    def drain(self) -> None:
+        pass  # submit() is synchronous
+
+    def shutdown(self) -> None:
+        self._on_result = None
 
 
 class RasrViterbiRecognizer:

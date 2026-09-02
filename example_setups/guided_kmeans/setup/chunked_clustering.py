@@ -16,12 +16,27 @@ untouched and keeps working; migrating a config means swapping the call.
 from __future__ import annotations
 
 __all__ = [
+    "ClusteringFlavor",
     "GuidedClusteringEpochJob",
     "IdentityCovsJob",
+    "MaterializeModelJob",
     "MergeEpochStatisticsJob",
     "RandomCentroidsJob",
+    "DuplicateCovsJob",
+    "GlobalCovarianceJob",
+    "ClusterCovarianceJob",
+    "RandomMixturesJob",
+    "RepeatCovsJob",
+    "SelectCovJob",
+    "SplitCentroidsJob",
+    "UniformMixturesJob",
     "ChunkedClusteringExpResult",
     "chunked_clustering",
+    "euclidean_flavor",
+    "gaussian_flavor",
+    "mixture_flavor",
+    "per_label_mixture_flavor",
+    "unguided_flavor",
     "prepare_worker_sys_path",
 ]
 
@@ -38,24 +53,27 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from sisyphus import Job, Task, tk
 
+import numpy as np
+
+from .array_job import ArrayJob
 from .score import JiwerScoringJob, ScoreResult
-from ..lib.guided_kmeans.util import DEFAULT_EXCLUDED_LEMMATA, traceback_to_text
+from ..lib.guided_kmeans.util import DEFAULT_EXCLUDED_LEMMATA, ProgressLogger, traceback_to_text
 from ..lib.guided_kmeans.chunked import (
+    ClusteringFlavor,
     EuclideanModel,
-    GaussianAccumulator,
     GaussianModel,
     HDFFeatureSource,
-    MeanAccumulator,
-    RasrFBRecognizer,
-    RasrViterbiRecognizer,
-    SoftGaussianAccumulator,
+    per_label_mixture_flavor,
     Spec,
     default_stats_hooks,
+    euclidean_flavor,
+    gaussian_flavor,
+    mixture_flavor,
+    unguided_flavor,
     reduce_chunks,
     run_chunk,
     save_chunk,
 )
-from ..lib.guided_kmeans.statistics import FBStatisticsCounter
 
 _CHUNK_FILE = "chunk.{num_chunks}.{index}.pkl"
 
@@ -238,9 +256,11 @@ class GuidedClusteringEpochJob(Job):
         # sisyphus' own Task.run error handling records the task as failed.
         # Nothing to do here beyond letting it propagate.
         self._prepare_worker_sys_path()
+
+        model = self.model.build()
         result = run_chunk(
             features=self.features.build(chunk=index, num_chunks=self.num_chunks),
-            model=self.model.build(),
+            model=model,
             recognizer=self.recognizer.build(),
             accumulator=self._build_accumulator(),
             counter=self._build_statistics(),
@@ -307,62 +327,838 @@ class MergeEpochStatisticsJob(Job):
             json.dump(merged, fp, indent=4)
 
 
-class RandomCentroidsJob(Job):
+class MaterializeModelJob(Job):
+    """Write a model built from loose artifact files out as a model directory.
+
+    Epoch 0 - whatever a run was initialized with - is the one model in a run
+    that exists only as separate ``.npy`` files, because it was never produced
+    by an epoch job. Everything that consumes a *model* rather than a pair of
+    arrays therefore could not see it: notably decoding, since
+    ``DecodeConfig(model_dir=...)`` is the only way to score with a model whose
+    parameters are not exactly ``(centroids, covs)``.
+
+    That gap matters more than it sounds. The initialization is the one point
+    in a run whose quality is known in advance - for a cheating init it should
+    already recognize well - so being unable to decode it removes the obvious
+    way to tell a broken update from a broken model.
+
+    Takes the model :class:`Spec` rather than the artifacts, so it works for
+    any model class without being told which: the spec already knows how to
+    build one, and ``save`` already knows how to write one.
+    """
+
+    def __init__(self, model: Spec, rqmt: Optional[Dict[str, Any]] = None):
+        self.model = model
+        self.out_model = self.output_path("model", directory=True)
+        # Not a mini-task: constructing a covariance model inverts every
+        # covariance eagerly, which at 120 densities and D=512 is a few hundred
+        # megabytes and more than the local engine's default allowance.
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+        if rqmt:
+            self.rqmt.update(rqmt)
+
+    @classmethod
+    def hash(cls, kwargs):
+        return super().hash({k: v for k, v in kwargs.items() if k != "rqmt"})
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        self.model.build().save(self.out_model.get_path())
+
+
+class RandomCentroidsJob(ArrayJob):
     """Sample K random frames from a feature HDF as initial centroids.
 
-    Reads only K rows from ``inputs`` (total-frames × feature-dim), so memory
-    usage is O(K × feature-dim) regardless of corpus size.
+    Reads only K rows from ``inputs`` (total-frames x feature-dim), so memory
+    usage is O(K x feature-dim) regardless of corpus size.
     """
+
+    OUTPUTS = ("centroids",)
 
     def __init__(self, features_hdf: tk.Path, num_clusters: int, seed: int = 42):
         self.features_hdf = features_hdf
         self.num_clusters = num_clusters
         self.seed = seed
-        self.out_centroids = self.output_path("centroids.npy")
+        super().__init__()
 
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
+    def compute(self):
         import h5py
-        import numpy as np
 
         rng = np.random.RandomState(self.seed)
         with h5py.File(self.features_hdf.get_path(), "r") as f:
             total_frames = f["inputs"].shape[0]
             indices = np.sort(rng.choice(total_frames, size=self.num_clusters, replace=False))
-            centroids = f["inputs"][indices]
-        np.save(self.out_centroids.get_path(), centroids)
+            return f["inputs"][indices]
 
 
-class IdentityCovsJob(Job):
+class IdentityCovsJob(ArrayJob):
     """Write K identity covariance matrices as the initial state for covariance models.
 
     With identity covariances the Mahalanobis distance degenerates to Euclidean,
     so the first epoch of a random-init covariance run behaves like plain k-means.
     Subsequent epochs learn cluster-specific covariances from the data.
+
+    For a less arbitrary start, :class:`DuplicateCovsJob` tiles a real
+    covariance - the corpus-wide one, say - across the same K slots.
     """
+
+    OUTPUTS = ("covs",)
 
     def __init__(self, num_clusters: int, feature_dim: int = 512):
         self.num_clusters = num_clusters
         self.feature_dim = feature_dim
+        super().__init__()
+
+    def compute(self):
+        return np.stack([np.eye(self.feature_dim) for _ in range(self.num_clusters)])
+
+
+class GlobalCovarianceJob(ArrayJob):
+    """The covariance of every frame in the corpus, in one pass.
+
+    ``out_cov`` is ``[D, D]`` and feeds :class:`DuplicateCovsJob` directly, so a
+    run can start every density from the shape of the data rather than from the
+    identity without any covariance having to exist beforehand - which is what
+    makes a mixture config self-contained. ``out_mean`` comes along for free and
+    is worth a look: the encoder's output is not centred, and how far the mean
+    is from zero says something about what the distances are measuring.
+
+    Reads through :class:`...lib.guided_kmeans.chunked.HDFFeatureSource` with a
+    single chunk rather than over the raw ``inputs`` rows. That costs
+    per-sequence reads instead of big block reads, and buys exactness: segment
+    filtering and subsampling are applied the same way the clustering applies
+    them, so the covariance describes the frames the model will actually see.
+    Pass the same ``segments``/``subsampling``/``pooling_function`` the run
+    uses, or the two disagree silently.
+
+    One pass, O(D^2) memory. Accumulated about a shift - the first sequence's
+    mean - rather than as raw second moments. The per-cluster accumulators can
+    use raw moments because they sum over a cluster's frames at a scale where
+    the cancellation is harmless (see SoftGaussianAccumulator); here the sum
+    runs over every frame in the corpus, tens of millions of them, and shifting
+    costs one subtraction to remove the question entirely.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None}
+
+    OUTPUTS = ("cov", "mean")
+
+    def __init__(
+        self,
+        features_hdf: Union[tk.Path, Sequence[tk.Path]],
+        segments: Optional[tk.Path] = None,
+        subsampling: Optional[int] = None,
+        pooling_function: str = "maxpool_time_np",
+        rqmt: Optional[Dict[str, Any]] = None,
+    ):
+        self.features_hdf = features_hdf
+        self.segments = segments
+        self.subsampling = subsampling
+        self.pooling_function = pooling_function
+        super().__init__()
+
+        # Dominated by reading the features: ~29 GB for ls-100 over a ~100 MB/s
+        # filesystem, plus a [T, D] x [D, T] product per sequence. Memory is
+        # one sequence plus the two D x D accumulators, i.e. megabytes.
+        self.rqmt = {"cpu": 4, "mem": 8, "time": 4}
+        if rqmt:
+            self.rqmt.update(rqmt)
+
+    def compute(self):
+        files = (
+            list(self.features_hdf)
+            if isinstance(self.features_hdf, (list, tuple))
+            else [self.features_hdf]
+        )
+        source = HDFFeatureSource(
+            files=[f.get_path() for f in files],
+            segments=self.segments.get_path() if self.segments else None,
+            subsampling=self.subsampling,
+            pooling_function=self.pooling_function,
+        )
+
+        num_frames = 0
+        shift = None
+        total = None            # sum of (x - shift)
+        outer = None            # sum of (x - shift)(x - shift)^T
+        progress = ProgressLogger(max(len(source), 1), bar_length=40, logging_step=256)
+        progress.start()
+        for seq_idx, (_seq_tag, features) in enumerate(source):
+            features = np.asarray(features, dtype=np.float64)
+            if shift is None:
+                dim = features.shape[1]
+                # Any constant works; the corpus mean is unknown at this point
+                # and the first sequence's is close enough to keep the shifted
+                # values small.
+                shift = features.mean(axis=0)
+                total = np.zeros(dim, dtype=np.float64)
+                outer = np.zeros((dim, dim), dtype=np.float64)
+            elif features.shape[1] != len(shift):
+                raise ValueError(
+                    f"feature dim changed: {len(shift)} -> {features.shape[1]}"
+                )
+            centered = features - shift
+            num_frames += len(features)
+            total += centered.sum(axis=0)
+            outer += centered.T @ centered
+            progress.progress(seq_idx)
+
+        if not num_frames:
+            raise RuntimeError("no frames read; check the segment list and the HDF files")
+
+        offset = total / num_frames                     # mean - shift
+        mean = shift + offset
+        # sum (x - shift)(x - shift)^T = sum (x - mean)(x - mean)^T + n * offset offset^T
+        cov = (outer - num_frames * np.outer(offset, offset)) / num_frames
+        cov = (cov + cov.T) / 2
+
+        # Checked here rather than left to blow up inside np.linalg.inv two
+        # jobs downstream, where nothing points back at the cause. The test is
+        # numerical rank, not strict positivity: a direction the data does not
+        # span comes out as a tiny *positive* eigenvalue rather than a negative
+        # one, and inverting that is what produces the garbage. Same threshold
+        # np.linalg.matrix_rank uses.
+        eigenvalues = np.linalg.eigvalsh(cov)
+        threshold = eigenvalues.max() * len(eigenvalues) * np.finfo(np.float64).eps
+        if eigenvalues.min() <= threshold:
+            raise ValueError(
+                f"covariance is numerically singular over {num_frames} frames: "
+                f"{int((eigenvalues <= threshold).sum())} of {len(eigenvalues)} eigenvalues "
+                f"are at or below {threshold:.3g} (smallest {eigenvalues.min():.3g}, "
+                f"condition {eigenvalues.max() / max(eigenvalues.min(), np.finfo(np.float64).tiny):.3g}). "
+                f"Expected with fewer frames than dimensions; otherwise some feature "
+                f"dimensions are linearly dependent, and every model inverting this "
+                f"covariance would produce nonsense"
+            )
+        print(
+            f"{num_frames} frames, dim {len(mean)}: |mean| {np.linalg.norm(mean):.3f}, "
+            f"eigenvalues {eigenvalues.min():.4g}..{eigenvalues.max():.4g}, "
+            f"condition {eigenvalues.max() / eigenvalues.min():.3g}"
+        )
+        return {"cov": cov, "mean": mean}
+
+
+class ClusterCovarianceJob(Job):
+    """Per-cluster covariances over a fixed partition - the plan's "stage 2".
+
+    Takes a codebook that some earlier run converged on, assigns every frame in
+    the corpus to its nearest centroid, and estimates one covariance per
+    cluster from the frames that landed there. Nothing is re-partitioned: the
+    centroids are an input and come out unchanged, so this measures the shape
+    of a partition rather than looking for one.
+
+    A separate job rather than an epoch flavor because it is not an epoch. It
+    runs once between a partition-finding stage and whatever consumes the
+    covariances, its output plugs straight into ``mixture_flavor(covs=...)`` as
+    a ``[K, D, D]`` array like any other, and re-estimating with a different
+    ``structure`` or ``ridge`` re-runs this alone rather than a clustering run.
+
+    **The point of ``structure``.** A full ``[D, D]`` covariance has D(D+1)/2
+    free parameters - 131k at D=512 - and ls-100 supplies roughly 18M frames
+    total, so at K=512 each cluster gets ~35k frames: a quarter of a parameter's
+    worth of evidence each, and the estimate is singular by construction rather
+    than by bad luck. Frames within a segment are strongly correlated too, so
+    the effective count is lower still. The three settings span what can be done
+    about that:
+
+    ``"full"``
+        Every parameter free. Included to be *shown* failing rather than
+        asserted to fail: pair it with a ``ridge`` sweep and the point at which
+        the ridge needed for invertibility is large enough to swamp the
+        estimate is the empirical statement that there was nothing to estimate.
+        ``out_diagnostics`` carries the condition numbers that make that
+        concrete.
+    ``"diagonal"``
+        Diagonal in the space ``assignment_covs`` whitens, which is the
+        "diagonal covariance plus a shared linear transform" arrangement -
+        semi-tied covariances with the transform taken from the corpus
+        covariance rather than re-estimated. D free parameters per cluster
+        instead of D(D+1)/2, a factor of ~256 at D=512, so the evidence per
+        parameter goes from a quarter of a frame to ~70. The result is still
+        written as a dense ``[K, D, D]`` stack, because a covariance of the form
+        ``L diag(v) L^T`` *is* a full covariance - the constraint is on how it
+        was estimated, not on what it can be used by, and nothing downstream
+        needs to know.
+    ``"shared"``
+        One covariance for every cluster, pooled over the corpus. The control:
+        if per-cluster estimation is worth anything, it has to beat this.
+
+    :param features_hdf: the feature file(s) the partition was found on
+    :param centroids: ``[K, D]`` codebook, e.g. an unguided run's
+        ``out_centroids[N]``
+    :param assignment_covs: ``[K, D, D]`` covariances defining the metric
+        frames are assigned under - normally the same fixed covariance the
+        partition was found with, so that this job reproduces exactly that
+        partition. Omit for squared-Euclidean assignment. Also supplies the
+        whitening transform for ``structure="diagonal"``, which is why it is
+        one argument rather than two: the space clusters are measured in should
+        be the space they were found in.
+    :param ridge: added to each covariance's diagonal as a fraction of its own
+        mean variance, i.e. ``Sigma += ridge * trace(Sigma)/D * I``. Relative
+        rather than absolute so one value means the same thing across feature
+        scalings and across clusters of very different spread. 0.0 leaves the
+        estimate untouched, which is what the ``"full"`` arm wants at the
+        bottom of its sweep.
+    :param min_frames: a cluster with fewer frames than this keeps the pooled
+        corpus covariance instead of its own. Defaults to the feature
+        dimension, below which a sample covariance is singular by rank
+        regardless of ridge; set it higher to decide by evidence rather than by
+        rank.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None}
+
+    def __init__(
+        self,
+        features_hdf: Union[tk.Path, Sequence[tk.Path]],
+        centroids: tk.Path,
+        assignment_covs: Optional[tk.Path] = None,
+        structure: str = "full",
+        ridge: float = 0.0,
+        min_frames: Optional[int] = None,
+        segments: Optional[tk.Path] = None,
+        subsampling: Optional[int] = None,
+        pooling_function: str = "maxpool_time_np",
+        rqmt: Optional[Dict[str, Any]] = None,
+    ):
+        if structure not in ("full", "diagonal", "shared"):
+            raise ValueError(
+                f"structure must be 'full', 'diagonal' or 'shared', got {structure!r}"
+            )
+        if ridge < 0:
+            raise ValueError(f"ridge must be >= 0, got {ridge}")
+        self.features_hdf = features_hdf
+        self.centroids = centroids
+        self.assignment_covs = assignment_covs
+        self.structure = structure
+        self.ridge = ridge
+        self.min_frames = min_frames
+        self.segments = segments
+        self.subsampling = subsampling
+        self.pooling_function = pooling_function
+
         self.out_covs = self.output_path("covs.npy")
+        self.out_counts = self.output_path("counts.npy")
+        self.out_diagnostics = self.output_path("diagnostics.json")
+
+        # Dominated by reading the features (~29 GB for ls-100), as for
+        # GlobalCovarianceJob. Memory is the difference: a full second moment is
+        # K x D x D float64, which at K=512, D=512 is 1.07 GB, and the finished
+        # stack is another. A diagonal run holds K x D and needs almost nothing.
+        self.rqmt = {"cpu": 4, "mem": 8 if structure == "diagonal" else 32, "time": 6}
+        if rqmt:
+            self.rqmt.update(rqmt)
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import numpy as np
+        centroids = np.load(self.centroids.get_path())
+        if centroids.ndim != 2:
+            raise ValueError(f"expected centroids [K, D], got {centroids.shape}")
+        num_clusters, dim = centroids.shape
 
-        covs = np.stack([np.eye(self.feature_dim) for _ in range(self.num_clusters)])
+        assignment_covs = (
+            np.load(self.assignment_covs.get_path()) if self.assignment_covs else None
+        )
+        if assignment_covs is not None and assignment_covs.shape != (num_clusters, dim, dim):
+            raise ValueError(
+                f"expected assignment covariances [{num_clusters}, {dim}, {dim}], "
+                f"got {assignment_covs.shape}"
+            )
+
+        # The same scoring the unguided epoch used, so the partition this job
+        # measures is the partition that run produced rather than a near miss.
+        model = (
+            GaussianModel(centroids, assignment_covs, device="cpu")
+            if assignment_covs is not None
+            else EuclideanModel(centroids)
+        )
+
+        # For "diagonal": the whitening the shared covariance induces. Taken
+        # from cluster 0 because the assignment covariances are one matrix
+        # duplicated - the transform is shared by definition, and a per-cluster
+        # transform would defeat the parameter saving this exists for.
+        transform = None
+        if self.structure == "diagonal":
+            shared = assignment_covs[0] if assignment_covs is not None else np.eye(dim)
+            if assignment_covs is not None and not np.allclose(
+                assignment_covs, shared[np.newaxis], atol=0, rtol=1e-10
+            ):
+                raise ValueError(
+                    "structure='diagonal' needs one shared assignment covariance to take "
+                    "the transform from, but the covariances differ between clusters; "
+                    "a per-cluster transform is a full covariance by another name"
+                )
+            # Sigma_shared = L L^T, y = L^-1 x. Cholesky rather than an
+            # eigendecomposition: it is the transform the Mahalanobis distance
+            # already factors through, so "diagonal in this space" means
+            # diagonal in the coordinates the assignment metric uses.
+            transform = np.linalg.cholesky(shared)
+
+        source = HDFFeatureSource(
+            files=[
+                f.get_path()
+                for f in (
+                    list(self.features_hdf)
+                    if isinstance(self.features_hdf, (list, tuple))
+                    else [self.features_hdf]
+                )
+            ],
+            segments=self.segments.get_path() if self.segments else None,
+            subsampling=self.subsampling,
+            pooling_function=self.pooling_function,
+        )
+
+        counts = np.zeros(num_clusters, dtype=np.float64)
+        # Accumulated about each cluster's own centroid, which is already the
+        # right order of magnitude for its mean - so the second moment needs no
+        # shift trick and the subtraction below cancels almost nothing.
+        first = np.zeros((num_clusters, dim), dtype=np.float64)
+        if self.structure == "diagonal":
+            second = np.zeros((num_clusters, dim), dtype=np.float64)
+        else:
+            second = np.zeros((num_clusters, dim, dim), dtype=np.float64)
+        pooled = np.zeros((dim, dim), dtype=np.float64)
+
+        progress = ProgressLogger(max(len(source), 1), bar_length=40, logging_step=256)
+        progress.start()
+        num_frames = 0
+        for seq_idx, (_seq_tag, features) in enumerate(source):
+            features = np.asarray(features, dtype=np.float64)
+            if features.shape[1] != dim:
+                raise ValueError(f"feature dim {features.shape[1]} != centroid dim {dim}")
+            labels = model.scores(features).argmin(axis=1)
+            num_frames += len(features)
+            for k in np.unique(labels):
+                block = features[labels == k] - centroids[k]
+                counts[k] += len(block)
+                first[k] += block.sum(axis=0)
+                if self.structure == "diagonal":
+                    # Whitened coordinates: y - L^-1 c = L^-1 (x - c).
+                    whitened = np.linalg.solve(transform, block.T).T
+                    second[k] += (whitened ** 2).sum(axis=0)
+                else:
+                    second[k] += block.T @ block
+                    pooled += block.T @ block
+            progress.progress(seq_idx)
+
+        if not num_frames:
+            raise RuntimeError("no frames read; check the segment list and the HDF files")
+
+        min_frames = self.min_frames if self.min_frames is not None else dim
+        alive = counts >= max(min_frames, 1)
+        safe = np.where(counts > 0, counts, 1.0)[:, np.newaxis]
+        offset = first / safe                       # mean - centroid
+
+        if self.structure == "diagonal":
+            # Var along each whitened axis, then back: Sigma = L diag(v) L^T.
+            whitened_offset = np.linalg.solve(transform, offset.T).T
+            variances = second / safe - whitened_offset ** 2
+            variances = np.maximum(variances, 0.0)
+            covs = np.einsum("ij,kj,lj->kil", transform, variances, transform)
+            # Pooled fallback in the same family, so a starved cluster does not
+            # silently get a differently-shaped covariance from its neighbours.
+            pooled_cov = (
+                transform
+                @ np.diag((second[alive].sum(0) / max(counts[alive].sum(), 1.0)))
+                @ transform.T
+                if alive.any()
+                else np.eye(dim)
+            )
+        else:
+            covs = second / safe[:, :, np.newaxis] - offset[:, :, np.newaxis] * offset[:, np.newaxis, :]
+            pooled_cov = pooled / num_frames
+
+        covs = (covs + covs.transpose(0, 2, 1)) / 2
+        pooled_cov = (pooled_cov + pooled_cov.T) / 2
+
+        if self.structure == "shared":
+            covs = np.repeat(pooled_cov[np.newaxis], num_clusters, axis=0)
+            alive = np.ones(num_clusters, dtype=bool)
+
+        # Starved clusters take the pooled covariance rather than their own.
+        # Not a repair of a bad estimate but a refusal to make one: below D
+        # frames the sample covariance is singular by rank, and no ridge that
+        # leaves it meaningful will fix that.
+        starved = ~alive
+        if starved.any():
+            covs[starved] = pooled_cov
+
+        if self.ridge:
+            # Relative to each covariance's own mean variance, so one ridge
+            # value means the same thing for a tight cluster and a diffuse one.
+            scale = np.trace(covs, axis1=1, axis2=2) / dim
+            covs = covs + (self.ridge * scale)[:, None, None] * np.eye(dim)[None]
+
+        eigenvalues = np.linalg.eigvalsh(covs)
+        smallest = eigenvalues[:, 0]
+        largest = eigenvalues[:, -1]
+        condition = largest / np.maximum(smallest, np.finfo(np.float64).tiny)
+        threshold = largest * dim * np.finfo(np.float64).eps
+        singular = smallest <= threshold
+        _, logdet = np.linalg.slogdet(covs)
+
+        diagnostics = {
+            "structure": self.structure,
+            "ridge": self.ridge,
+            "num_clusters": int(num_clusters),
+            "dim": int(dim),
+            "num_frames": int(num_frames),
+            # The headline number for the negative-result arm: how much evidence
+            # each free parameter of a full covariance actually got.
+            "free_parameters_per_cluster": int(dim * (dim + 1) // 2)
+            if self.structure != "diagonal"
+            else int(dim),
+            "frames_per_free_parameter": float(
+                num_frames
+                / num_clusters
+                / (dim * (dim + 1) / 2 if self.structure != "diagonal" else dim)
+            ),
+            "num_singular": int(singular.sum()),
+            "num_starved": int(starved.sum()),
+            "min_frames_threshold": int(min_frames),
+            "counts": {
+                "min": float(counts.min()),
+                "median": float(np.median(counts)),
+                "max": float(counts.max()),
+                "empty_clusters": int((counts == 0).sum()),
+            },
+            "condition_number": {
+                "min": float(condition.min()),
+                "median": float(np.median(condition)),
+                "p95": float(np.percentile(condition, 95)),
+                "max": float(condition.max()),
+            },
+            "log_determinant": {
+                "min": float(logdet.min()),
+                "median": float(np.median(logdet)),
+                "max": float(logdet.max()),
+            },
+            "smallest_eigenvalue": {
+                "min": float(smallest.min()),
+                "median": float(np.median(smallest)),
+            },
+        }
+        print(
+            f"{num_frames} frames over {num_clusters} clusters, structure={self.structure}, "
+            f"ridge={self.ridge}: {diagnostics['frames_per_free_parameter']:.2f} frames per "
+            f"free parameter, {int(singular.sum())} singular, {int(starved.sum())} starved, "
+            f"median condition {np.median(condition):.3g}",
+            flush=True,
+        )
+        if singular.any() and not self.ridge:
+            print(
+                f"WARNING: {int(singular.sum())} of {num_clusters} covariances are "
+                f"numerically singular. Every model inverting them produces nonsense - "
+                f"GaussianModelNumpy uses np.linalg.inv and casts to float32, so this "
+                f"surfaces as meaningless scores rather than as an exception. Raise "
+                f"ridge, raise min_frames, or use structure='diagonal'.",
+                flush=True,
+            )
+
         np.save(self.out_covs.get_path(), covs)
+        np.save(self.out_counts.get_path(), counts)
+        with open(self.out_diagnostics.get_path(), "w") as fp:
+            json.dump(diagnostics, fp, indent=4)
+
+
+class SelectCovJob(ArrayJob):
+    """Pick one matrix out of a stack of covariances.
+
+    ``[K, D, D] -> [D, D]``. Exists because the covariances lying around this
+    setup are mostly stacks - ``constants.SHARED_COVS`` is the corpus-wide
+    covariance already duplicated 40 times - while the jobs that build an
+    initial state from *one* covariance want the single matrix. Composes:
+    ``SelectCovJob(SHARED_COVS) -> DuplicateCovsJob(..., 128)`` re-tiles that
+    same matrix to whatever density count a run needs.
+    """
+
+    OUTPUTS = ("cov",)
+
+    def __init__(self, covs: tk.Path, index: int = 0):
+        self.covs = covs
+        self.index = index
+        super().__init__()
+
+    def compute(self):
+        covs = self.load(self.covs, ndim=3, name="covariances")
+        if not -len(covs) <= self.index < len(covs):
+            raise IndexError(f"index {self.index} out of range for {len(covs)} covariances")
+        return covs[self.index]
+
+
+class DuplicateCovsJob(ArrayJob):
+    """Tile one covariance matrix across ``num_densities`` slots.
+
+    ``[D, D] -> [num_densities, D, D]``. The point of starting every density
+    from the same real covariance - the corpus-wide one, say - rather than from
+    the identity is that the first epoch already scores in a whitened space,
+    so the initial partition reflects the shape of the data instead of the
+    arbitrary scaling of the encoder's dimensions. Each density then specializes
+    from that common starting point.
+
+    This is what ``constants.SHARED_COVS`` was built by hand to be. Accepts a
+    ``[1, D, D]`` input too, since that is how a single matrix often ends up
+    saved.
+    """
+
+    OUTPUTS = ("covs",)
+
+    def __init__(self, cov: tk.Path, num_densities: int):
+        self.cov = cov
+        self.num_densities = num_densities
+        super().__init__()
+
+        # Not a mini-task: a covariance stack at D=512 is 2 MB per matrix, so a few
+        # hundred densities is most of a gigabyte and well past the local engine's
+        # allowance. Set after super().__init__() rather than taken as a constructor
+        # argument, so it stays out of the hash.
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+
+    def compute(self):
+        cov = self.load(self.cov, ndim=(2, 3), name="covariance")
+        if cov.ndim == 3:
+            if len(cov) != 1:
+                raise ValueError(
+                    f"expected a single covariance to duplicate, got a stack of "
+                    f"{len(cov)}; use RepeatCovsJob to expand a stack in place"
+                )
+            cov = cov[0]
+        if cov.shape[0] != cov.shape[1]:
+            raise ValueError(f"expected a square covariance, got {cov.shape}")
+        return np.broadcast_to(cov, (self.num_densities, *cov.shape)).copy()
+
+
+class RepeatCovsJob(ArrayJob):
+    """Repeat each covariance in a stack ``repeats`` times, in place.
+
+    ``[K, D, D] -> [K * repeats, D, D]``, with each input matrix's copies
+    adjacent - the layout :class:`SplitCentroidsJob` produces and
+    :class:`...lib.guided_kmeans.chunked.PerLabelMixtureModel` reads, so the two
+    line up density for density when a label's centroid is split into several.
+    """
+
+    OUTPUTS = ("covs",)
+
+    def __init__(self, covs: tk.Path, repeats: int):
+        self.covs = covs
+        self.repeats = repeats
+        super().__init__()
+
+        # Not a mini-task: a covariance stack at D=512 is 2 MB per matrix, so a few
+        # hundred densities is most of a gigabyte and well past the local engine's
+        # allowance. Set after super().__init__() rather than taken as a constructor
+        # argument, so it stays out of the hash.
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+
+    def compute(self):
+        covs = self.load(self.covs, ndim=3, name="covariances")
+        # repeat(), not tile(): copies of one matrix have to be adjacent.
+        return np.repeat(covs, self.repeats, axis=0)
+
+
+class UniformMixturesJob(ArrayJob):
+    """Uniform mixture weights, the starting point for either mixture layout.
+
+    ``[num_labels, num_densities]`` filled with ``1 / num_densities``. What
+    ``num_densities`` means depends on the layout the weights are for: pass the
+    codebook size for :class:`...lib.guided_kmeans.chunked.GaussianMixtureModel`
+    (every label starts able to use every density equally), or the per-label
+    density count for
+    :class:`...lib.guided_kmeans.chunked.PerLabelMixtureModel`.
+
+    Uniform on purpose: the weights are the one parameter that carries no
+    information at initialization - the densities do - so a uniform start lets
+    the first E-step assign weight from the data rather than from a guess. It
+    also means no weight starts at zero, which matters because zero is
+    absorbing under the default ``mixture_floor=0``.
+
+    Right for per-label densities, **wrong for a shared codebook**: there,
+    identical weights make every label score identically, so the first
+    recognition pass sees no acoustic difference between labels at all. Use
+    :class:`RandomMixturesJob` for that layout.
+    """
+
+    OUTPUTS = ("mixtures",)
+
+    def __init__(self, num_labels: int, num_densities: int):
+        self.num_labels = num_labels
+        self.num_densities = num_densities
+        super().__init__()
+
+    def compute(self):
+        return np.full((self.num_labels, self.num_densities), 1.0 / self.num_densities)
+
+
+class RandomMixturesJob(ArrayJob):
+    """Random mixture weights, one Dirichlet draw per label.
+
+    The initializer to use for a *shared* codebook, where uniform weights are
+    not a neutral starting point but a degenerate one: if every label weights
+    the codebook identically then every label scores identically, and the first
+    recognition pass has no acoustic information to go on at all - it is driven
+    entirely by the language model and the transition costs. Drawing each
+    label's weights separately breaks that symmetry before the first pass.
+
+    Per-label densities do not have this problem, because the densities
+    themselves already differ per label; :class:`UniformMixturesJob` is the
+    right neutral start there.
+
+    :param concentration: Dirichlet parameter. 1.0 draws uniformly from the
+        simplex; below it the draws are sparser, so labels commit harder to a
+        few densities from the outset.
+    """
+
+    OUTPUTS = ("mixtures",)
+
+    def __init__(
+        self,
+        num_labels: int,
+        num_densities: int,
+        concentration: float = 1.0,
+        seed: int = 42,
+    ):
+        self.num_labels = num_labels
+        self.num_densities = num_densities
+        self.concentration = concentration
+        self.seed = seed
+        super().__init__()
+
+    def compute(self):
+        rng = np.random.RandomState(self.seed)
+        mixtures = rng.dirichlet(
+            np.full(self.num_densities, self.concentration), size=self.num_labels
+        )
+        # A draw can underflow to exactly zero, and zero is absorbing unless
+        # mixture_floor is set - which would silently shrink the codebook
+        # before the first epoch. Renormalize away from it.
+        mixtures = np.maximum(mixtures, np.finfo(np.float64).tiny)
+        mixtures /= mixtures.sum(axis=-1, keepdims=True)
+        return mixtures
+
+
+class SplitCentroidsJob(ArrayJob):
+    """Split each centroid into ``num_densities`` displaced copies.
+
+    Takes ``[L, D]`` and produces ``[L * num_densities, D]`` in the layout
+    :class:`...lib.guided_kmeans.chunked.PerLabelMixtureModel` expects - label
+    ``l``'s densities contiguous at ``l * num_densities`` - so a converged
+    single-Gaussian run can seed a per-label mixture run. Pair it with
+    :class:`RepeatCovsJob` on the same centroids' covariances to get a matching
+    ``[L * num_densities, D, D]``.
+
+    The copies must not be identical. Densities that start equal receive equal
+    responsibility for every frame and stay equal forever, so EM would never
+    break the tie and the run would be a slower single-density run.
+
+    How they are displaced depends on whether ``covs`` is given:
+
+    ``covs=None``
+        Isotropic jitter, scaled by the per-dimension spread of the centroid
+        set. Needs no covariance, but knows nothing about the shape of the
+        cluster it is splitting, so some copies land in directions the data
+        never goes.
+
+    ``covs`` given
+        Copies are placed along the cluster's principal axis, at offsets spread
+        symmetrically over ``+/- perturbation * sqrt(largest eigenvalue)``. This
+        is the classic mixture-splitting move: the principal axis is where the
+        cluster is widest, so it is where a second density has something to
+        explain, and the offset is in the units of that spread rather than of
+        the encoder's arbitrary scaling. Deterministic - no seed is used.
+
+    :param covs: ``[L, D, D]``, one covariance per input centroid, or ``[D, D]``
+        to use one shared covariance for every split. Hash-excluded at its
+        default, so adding it left the random-jitter form's hash untouched.
+    :param perturbation: displacement scale. Against ``covs`` it multiplies the
+        principal standard deviation, where ~0.2 is the conventional value;
+        without it, the per-dimension spread of the centroid set.
+    """
+
+    __sis_hash_exclude__ = {"covs": None}
+
+    OUTPUTS = ("centroids",)
+
+    def __init__(
+        self,
+        centroids: tk.Path,
+        num_densities: int,
+        perturbation: float = 0.05,
+        seed: int = 42,
+        covs: Optional[tk.Path] = None,
+    ):
+        self.centroids = centroids
+        self.num_densities = num_densities
+        self.perturbation = perturbation
+        self.seed = seed
+        self.covs = covs
+        super().__init__()
+
+    def _offsets(self) -> np.ndarray:
+        """``[num_densities]`` multiples of the displacement, symmetric about 0.
+
+        ``linspace`` rather than a +/- pair so this generalizes past a binary
+        split; for ``num_densities == 1`` it is a single zero, i.e. a no-op.
+        """
+        if self.num_densities == 1:
+            return np.zeros(1)
+        return np.linspace(-1.0, 1.0, self.num_densities)
+
+    def _principal_axes(self, centroids: np.ndarray) -> np.ndarray:
+        """``[L, D]``: each cluster's widest direction, scaled by its spread."""
+        covs = self.load(self.covs, ndim=(2, 3), name="covariances")
+        if covs.ndim == 2:
+            covs = np.broadcast_to(covs, (len(centroids), *covs.shape))
+        elif len(covs) != len(centroids):
+            raise ValueError(
+                f"got {len(covs)} covariances for {len(centroids)} centroids; pass one "
+                f"per centroid or a single [D, D] to share"
+            )
+        if covs.shape[1:] != (centroids.shape[1], centroids.shape[1]):
+            raise ValueError(
+                f"covariances {covs.shape} do not match centroids {centroids.shape}"
+            )
+        # eigh, not eig: covariances are symmetric, and eigh returns real
+        # eigenvalues in ascending order, so the last column is the principal
+        # axis. Eigenvectors are unit length, so scaling by sqrt(eigenvalue)
+        # makes the offset one standard deviation along that axis.
+        eigenvalues, eigenvectors = np.linalg.eigh(covs)
+        principal = eigenvectors[:, :, -1]                       # [L, D]
+        spread = np.sqrt(np.maximum(eigenvalues[:, -1], 0.0))    # [L]
+        return principal * spread[:, np.newaxis]
+
+    def compute(self):
+        centroids = self.load(self.centroids, ndim=2, name="centroids")
+        # repeat() rather than tile(): label l's copies have to be adjacent,
+        # because the model reads density l * n + k as label l's k-th.
+        split = np.repeat(centroids, self.num_densities, axis=0)
+        offsets = np.tile(self._offsets(), len(centroids))[:, np.newaxis]
+
+        if self.covs is not None:
+            direction = np.repeat(self._principal_axes(centroids), self.num_densities, axis=0)
+        else:
+            rng = np.random.RandomState(self.seed)
+            direction = centroids.std(axis=0, keepdims=True) * rng.randn(*split.shape)
+            # The random form displaces every copy independently rather than
+            # spreading them along one axis, so the offsets would only rescale
+            # an already-random direction - and would put one copy exactly on
+            # the centroid for odd counts.
+            offsets = 1.0
+
+        return split + self.perturbation * offsets * direction
 
 
 @dataclass
 class ChunkedClusteringExpResult:
     """
     ``out_models[epoch]`` is the authoritative result: a model directory that
-    can be loaded without knowing the model class. ``out_centroids`` and
+    can be loaded without knowing the model class. ``out_models[0]`` is the
+    starting point, assembled from the caller's loose files by
+    :class:`MaterializeModelJob` so that every epoch including the initial one
+    can be decoded the same way. ``out_centroids`` and
     ``out_covs`` are conveniences pointing inside those directories, kept
     because the existing decode configs take individual ``tk.Path``s
     (``DecodeConfig(centroids=..., covs=...)``); a model with other parameters
@@ -383,6 +1179,17 @@ class ChunkedClusteringExpResult:
     out_covs: Optional[Dict[int, tk.Path]] = None
     out_hypotheses: Optional[Dict[int, tk.Path]] = None
     out_guided_scores: Optional[Dict[int, ScoreResult]] = None
+    #: ``{epoch: statistics.json}``, one file per epoch job, alongside the merged
+    #: ``out_statistics``. A report on a finished run can read the merged file; one
+    #: on a run still going has to read these, because the merge cannot happen until
+    #: the last epoch does - see ``latex_report.clustering_statistics_per_epoch``.
+    out_epoch_statistics: Optional[Dict[int, tk.Path]] = None
+    #: ``{artifact_name: {epoch: path}}`` for whatever this run's model class
+    #: declares, epoch 0 being the caller's starting point. ``out_centroids``
+    #: and ``out_covs`` are the two named views of it that predate it and that
+    #: the decode configs take directly; a model with other parameters (mixture
+    #: weights, say) is reached through here without adding a field per model.
+    out_artifacts: Optional[Dict[str, Dict[int, tk.Path]]] = None
 
     def guided_score_row(self, epoch: int) -> Dict[str, Any]:
         """
@@ -409,15 +1216,62 @@ class ChunkedClusteringExpResult:
         }
 
 
+def _flavor_from_flags(
+    *,
+    initial_centroids: Optional[tk.Path],
+    initial_covs: Optional[tk.Path],
+    initial_mixtures: Optional[tk.Path],
+    recognition_config: tk.Path,
+    lexicon: tk.Path,
+    num_clusters: int,
+    distance_scale: float,
+    use_forward_backward: bool,
+    num_workers: int,
+    task_timeout: Optional[float],
+) -> ClusteringFlavor:
+    """
+    The pre-flavor keyword form, translated.
+
+    Kept so that every existing config keeps building exactly the jobs it built
+    before - the specs these factories produce are the ones this function used
+    to construct inline, which the recorded hashes in ``test_chunked`` pin
+    down. New combinations should be expressed as a flavor rather than as
+    another initial_* argument here.
+    """
+    if initial_centroids is None:
+        raise TypeError("chunked_clustering() needs either initial_centroids or a flavor")
+    if initial_mixtures is not None and initial_covs is None:
+        raise TypeError("initial_mixtures needs initial_covs: a mixture is a mixture of Gaussians")
+
+    common = dict(
+        recognition_config=recognition_config,
+        lexicon=lexicon,
+        num_clusters=num_clusters,
+        distance_scale=distance_scale,
+        use_forward_backward=use_forward_backward,
+        num_workers=num_workers,
+        task_timeout=task_timeout,
+    )
+    if initial_mixtures is not None:
+        return mixture_flavor(
+            centroids=initial_centroids, covs=initial_covs, mixtures=initial_mixtures, **common
+        )
+    if initial_covs is not None:
+        return gaussian_flavor(centroids=initial_centroids, covs=initial_covs, **common)
+    return euclidean_flavor(centroids=initial_centroids, **common)
+
+
 def chunked_clustering(
     *,
     num_epochs: int,
     features_hdf: Union[tk.Path, Sequence[tk.Path]],
-    recognition_config: tk.Path,
-    lexicon: tk.Path,
+    recognition_config: Optional[tk.Path] = None,
+    lexicon: Optional[tk.Path] = None,
     num_clusters: int,
-    initial_centroids: tk.Path,
+    initial_centroids: Optional[tk.Path] = None,
     initial_covs: Optional[tk.Path] = None,
+    initial_mixtures: Optional[tk.Path] = None,
+    flavor: Optional[ClusteringFlavor] = None,
     segments: Optional[tk.Path] = None,
     subsampling: Optional[int] = None,
     pooling_function: str = "maxpool_time_np",
@@ -455,6 +1309,15 @@ def chunked_clustering(
     different spec form for the first epoch silently breaks continuation, which
     is why ``test_chunked`` asserts the 5+5 == 10 property.
 
+    :param recognition_config: RASR config for the guiding search. Optional
+        only because an unguided flavor has no search to configure - every
+        RASR-guided flavor needs one, and builds its recognizer spec around it.
+    :param lexicon: the label inventory. Optional on the same grounds: it is
+        what makes the cluster axis mean *phonemes*, so a run whose clusters
+        are not labels (:func:`...lib.guided_kmeans.chunked.unguided_flavor`)
+        has none, and the epoch job then records no traceback-driven
+        statistics. Leave ``score_reference`` unset for such a run too - there
+        is nothing to score its hypotheses against.
     :param initial_covs: pass to run with full-covariance Gaussian scoring;
         omit for plain squared-Euclidean k-means. For continuation pass the
         previous result's ``out_covs[N]`` alongside its ``out_centroids[N]``.
@@ -488,46 +1351,38 @@ def chunked_clustering(
             "pooling_function": pooling_function,
         },
     )
-    # num_workers/task_timeout are per-task scheduling knobs, like num_chunks:
-    # they change how fast a chunk runs, never its result.
-    if use_forward_backward:
-        recognizer_spec = Spec(
-            RasrFBRecognizer,
-            {
-                "recognition_config": recognition_config,
-                "num_clusters": num_clusters,
-                "distance_scale": distance_scale,
-            },
-            {"num_workers": num_workers, "task_timeout": task_timeout},
+    # Which model, which search and which updating routine go together is one
+    # decision, not three independent flags, so it arrives as one object. The
+    # legacy keyword form builds the same object here, which is why callers
+    # that never heard of a flavor keep producing the jobs they always did.
+    if flavor is None:
+        flavor = _flavor_from_flags(
+            initial_centroids=initial_centroids,
+            initial_covs=initial_covs,
+            initial_mixtures=initial_mixtures,
+            recognition_config=recognition_config,
+            lexicon=lexicon,
+            num_clusters=num_clusters,
+            distance_scale=distance_scale,
+            use_forward_backward=use_forward_backward,
+            num_workers=num_workers,
+            task_timeout=task_timeout,
         )
-    else:
-        recognizer_spec = Spec(
-            RasrViterbiRecognizer,
-            {
-                "recognition_config": recognition_config,
-                "lexicon_path": lexicon,
-                "distance_scale": distance_scale,
-            },
-            {"num_workers": num_workers, "task_timeout": task_timeout},
+    elif any(a is not None for a in (initial_centroids, initial_covs, initial_mixtures)):
+        raise TypeError(
+            "pass either a flavor or the initial_* artifacts, not both: a flavor "
+            "already carries its own starting point"
         )
-    # Model class and its artifact names are chosen once, here, and then used
-    # to build every epoch's model spec identically. Keeping the *form* of that
-    # spec the same for the first epoch and all later ones is what makes
-    # continuing a run reuse the jobs an uninterrupted run would have created:
-    # picking up from `result.out_centroids[N]` reproduces exactly the spec
-    # epoch N+1 had, because that path *is* epoch N's centroids artifact.
-    if initial_covs is not None:
-        model_cls, artifact_names = GaussianModel, ("centroids", "covs")
-        initial_artifacts = {"centroids": initial_centroids, "covs": initial_covs}
-        accumulator_spec = Spec(
-            SoftGaussianAccumulator if use_forward_backward else GaussianAccumulator, {}
-        )
-    else:
-        model_cls, artifact_names = EuclideanModel, ("centroids",)
-        initial_artifacts = {"centroids": initial_centroids}
-        accumulator_spec = Spec(MeanAccumulator, {})
 
-    model_spec = Spec(model_cls, initial_artifacts)
+    # The model class and its artifact names are fixed for the whole run, and
+    # both come from the flavor rather than from a branch here - which is what
+    # lets a new model be a new factory in lib.guided_kmeans.chunked.flavors
+    # instead of another case in this function.
+    artifact_names = flavor.artifact_names
+    recognizer_spec = flavor.recognizer
+    accumulator_spec = flavor.accumulator
+    statistics_spec = flavor.statistics
+    model_spec = flavor.model
 
     job_rqmt = {"cpu": num_workers + 1, "mem": 16, "time": 168}
     if rqmt:
@@ -536,22 +1391,20 @@ def chunked_clustering(
     jobs: List[GuidedClusteringEpochJob] = []
     out_models: Dict[int, tk.Path] = {}
     statistics: Dict[int, tk.Path] = {}
-    # Epoch 0 is the starting point the caller supplied, exposed in the same
+    # Epoch 0 is the starting point the flavor carries, exposed in the same
     # per-epoch shape as the produced models so decode loops can index it.
-    out_centroids: Dict[int, tk.Path] = {0: initial_centroids}
-    out_covs: Dict[int, tk.Path] = {}
-    if initial_covs is not None:
-        out_covs[0] = initial_covs
+    out_artifacts: Dict[str, Dict[int, tk.Path]] = {
+        name: {0: flavor.model.kwargs[name]} for name in artifact_names
+    }
+    # Epoch 0 as a model directory as well as loose files, so a consumer that
+    # takes whole models - decoding a parameter set that is not (centroids,
+    # covs) - can reach the starting point too. Costs nothing unless something
+    # asks for it: sisyphus only runs jobs a registered output depends on.
+    initial_model_job = MaterializeModelJob(flavor.model)
+    initial_model_job.add_alias(f"{alias_prefix}/epoch_000")
+    out_models[0] = initial_model_job.out_model
     out_hypotheses: Dict[int, tk.Path] = {}
     out_guided_scores: Dict[int, ScoreResult] = {}
-
-    # FBStatisticsCounter replaces the Viterbi traceback counters for FB epochs.
-    # Unhashed: changing which diagnostics are recorded must not alter job identity.
-    statistics_spec = (
-        Spec(FBStatisticsCounter, {"num_clusters": num_clusters})
-        if use_forward_backward
-        else None
-    )
 
     for epoch in range(1, num_epochs + 1):
         job = GuidedClusteringEpochJob(
@@ -571,9 +1424,8 @@ def chunked_clustering(
 
         out_models[epoch] = job.out_model
         statistics[epoch] = job.out_statistics
-        out_centroids[epoch] = job.artifact("centroids")
-        if initial_covs is not None:
-            out_covs[epoch] = job.artifact("covs")
+        for name in artifact_names:
+            out_artifacts[name][epoch] = job.artifact(name)
 
         # Filed under the model that produced them: this job recognized with
         # the model of epoch-1, so its hypotheses describe out_centroids[epoch-1].
@@ -592,17 +1444,20 @@ def chunked_clustering(
         # Structurally identical to the initial spec above - same class, same
         # artifact names, only the paths now point into this epoch's model
         # directory. That sameness is what keeps a continued run hash-identical
-        # to an uninterrupted one.
-        model_spec = Spec(model_cls, {name: job.artifact(name) for name in artifact_names})
+        # to an uninterrupted one, and building it through the flavor is what
+        # stops a model from being able to break it.
+        model_spec = flavor.next_model({name: job.artifact(name) for name in artifact_names})
 
     merge_job = MergeEpochStatisticsJob(statistics)
 
     return ChunkedClusteringExpResult(
         jobs=jobs,
-        out_centroids=out_centroids,
-        out_covs=out_covs or None,
+        out_centroids=out_artifacts["centroids"],
+        out_covs=out_artifacts.get("covs"),
         out_models=out_models,
         out_statistics=merge_job.out_statistics,
         out_hypotheses=out_hypotheses,
         out_guided_scores=out_guided_scores or None,
+        out_epoch_statistics=statistics,
+        out_artifacts=out_artifacts,
     )

@@ -69,6 +69,10 @@ def run_chunk(
     """
     Score, recognize and accumulate one chunk of the corpus.
 
+    The accumulator is handed the model once via ``bind_model`` before the
+    first sequence; the model is fixed for the whole epoch, so this does not
+    make accumulation order-dependent.
+
     Recognition is asynchronous, so features are parked in ``pending`` until
     their result arrives. That dict is bounded by the recognizer's in-flight
     limit (``ParallelSegmentRecognizer`` drains its oldest task once more than
@@ -132,6 +136,13 @@ def run_chunk(
                 traceback=traceback,
             )
         stats["recognized"] += 1
+
+    # Before the first observe(), and before any result can come back: an
+    # accumulator whose E-step is defined against the current parameters (a
+    # mixture model's, say) needs the epoch's model, and asking for it here
+    # keeps it out of every other accumulator's constructor - and out of the
+    # zero-argument factory reduce_chunks() builds empty ones with.
+    accumulator.bind_model(model)
 
     recognizer.start(on_result)
     progress = ProgressLogger(max(len(features), 1), bar_length=40, logging_step=32)

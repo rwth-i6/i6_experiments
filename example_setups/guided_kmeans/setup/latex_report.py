@@ -41,13 +41,23 @@ every column that is constant across the group, which is what produces the
 
 * a name from ``COLUMN_LIBRARY`` (``"epoch"``, ``"per"``, ``"del"``, ``"ins"``,
   ``"sub"``, ``"guided_per"``, ``"l1"``, ``"am_score"``, ...),
-* any other string, which becomes a column reading that key out of ``params``,
+* any other string, which becomes a column reading that key out of ``params`` -
+  note the silent fallback: a misspelled library name does not raise, it becomes
+  an empty params column, so a column that renders blank everywhere is usually a
+  typo rather than a job that has not finished,
 * a ``Column`` built by hand or by ``param()`` / ``statistic()`` / ``prior_l1()``
   when the defaults do not fit.
 
 Leaving ``columns=None`` derives them: the hyperparameters that actually vary, then
 epoch, the decoding scores, and the statistics columns if a statistics source was
 given.
+
+The statistics columns come in two mutually exclusive groups, because the two
+searches record different things: a Viterbi run has ``am_score`` /
+``lm_score`` / ``transition_score`` from the traceback counters, and a
+forward-backward run has ``log_likelihood`` / ``posterior_entropy`` /
+``dead_clusters`` from :class:`...statistics.FBStatisticsCounter`. Asking for
+the wrong group is the blank-column case above.
 
 Rendering the table needs ``\usepackage{multirow}`` in the document, plus
 ``\usepackage[table]{xcolor}`` when ``highlight`` is used.
@@ -59,9 +69,12 @@ __all__ = [
     "LatexTableReport",
     "StatisticsSource",
     "clustering_statistics",
+    "clustering_statistics_per_epoch",
     "param",
     "statistic",
     "prior_l1",
+    "scientific_above",
+    "phoneme_fraction",
     "score",
     "COLUMN_LIBRARY",
     "PARAM_HEADERS",
@@ -70,6 +83,7 @@ __all__ = [
 ]
 
 import itertools
+import math
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable, Sequence
 
@@ -79,7 +93,12 @@ from sisyphus.tools import try_get
 
 from .constants import PHONEME_UNIGRAM_PRIORS
 from .decode_config import DecodeRecogResult
-from .statistics_jobs import ExtractEpochStatisticsJob, PhonemePriorDistanceJob
+from .statistics_jobs import (
+    EpochStatisticsJob,
+    ExtractEpochStatisticsJob,
+    ExtractPhonemeFrequenciesJob,
+    PhonemePriorDistanceJob,
+)
 
 
 class _Missing:
@@ -138,10 +157,35 @@ class _EpochLookup(DelayedBase):
         self.epoch = epoch
         self.key = key
 
-    def get(self):
-        values = try_get(self.a)
+    def _resolve(self):
+        """
+        The epoch's value, from either shape.
+
+        A plain dict means one Variable per epoch, which is what the per-epoch
+        extraction produces; a Variable means one holding every epoch, which is what
+        the merged statistics file produces. Both index the same way from here on.
+        """
+        source = self.a
+        if isinstance(source, dict):
+            epoch = max(source) if self.epoch == "last" else self.epoch
+            return try_get(source[epoch])
+        values = try_get(source)
         epoch = max(values) if self.epoch == "last" else self.epoch
-        value = values[epoch]
+        return values[epoch]
+
+    def is_set(self):
+        if not isinstance(self.a, dict):
+            return super().is_set()
+        # Only this epoch's Variable has to exist; the others are separate jobs and
+        # may well still be running, which is the whole point of the per-epoch form.
+        epochs = self.a
+        if self.epoch == "last":
+            return bool(epochs) and all(self._is_set_helper(v) for v in epochs.values())
+        variable = epochs.get(self.epoch)
+        return variable is not None and self._is_set_helper(variable)
+
+    def get(self):
+        value = self._resolve()
         return value if self.key is None else value[self.key]
 
 
@@ -152,6 +196,8 @@ class StatisticsSource:
 
     :param scalars: ``{epoch: {key: value}}``, from ``ExtractEpochStatisticsJob``
     :param distances: ``{epoch: distance}``, from ``PhonemePriorDistanceJob``, or None
+    :param frequencies: ``{epoch: {phoneme: fraction}}``, from
+        ``ExtractPhonemeFrequenciesJob``, or None
     :param name: used when registering the Variables as outputs; filled in from the
         first row's descriptor when left unset
     :param epoch_offset: added to a row's epoch to get the statistics key, see
@@ -160,6 +206,7 @@ class StatisticsSource:
 
     scalars: tk.Variable
     distances: tk.Variable | None = None
+    frequencies: tk.Variable | None = None
     name: str | None = None
     epoch_offset: int = 0
 
@@ -169,6 +216,7 @@ def clustering_statistics(
     reference_counts: tk.Path | None = PHONEME_UNIGRAM_PRIORS,
     name: str | None = None,
     epoch_offset: int = 0,
+    phoneme_frequencies: bool = True,
     **distance_kwargs,
 ) -> StatisticsSource:
     """
@@ -186,6 +234,9 @@ def clustering_statistics(
         ``1..num_epochs`` with key ``e`` being the pass that used ``centroids[e-1]``,
         so those configs need ``epoch_offset=1``. Columns given an explicit ``epoch=``
         index the file directly and ignore this.
+    :param phoneme_frequencies: also extract the per-epoch phoneme distribution, so
+        the ``"silence"`` column (and any other ``phoneme_fraction``) has something to
+        read. One extra mini-task; set False to skip it.
     :param distance_kwargs: forwarded to ``PhonemePriorDistanceJob``
         (``exclude_phonemes``, ``renormalize``, ``order``)
     """
@@ -193,7 +244,56 @@ def clustering_statistics(
     distances = None
     if reference_counts is not None:
         distances = PhonemePriorDistanceJob(statistics, reference_counts, **distance_kwargs).out_distances
-    return StatisticsSource(scalars=scalars, distances=distances, name=name, epoch_offset=epoch_offset)
+    frequencies = (
+        ExtractPhonemeFrequenciesJob(statistics).out_frequencies if phoneme_frequencies else None
+    )
+    return StatisticsSource(
+        scalars=scalars,
+        distances=distances,
+        frequencies=frequencies,
+        name=name,
+        epoch_offset=epoch_offset,
+    )
+
+
+def clustering_statistics_per_epoch(
+    epoch_statistics: dict,
+    reference_counts: tk.Path | None = PHONEME_UNIGRAM_PRIORS,
+    name: str | None = None,
+    epoch_offset: int = 0,
+    **distance_kwargs,
+) -> StatisticsSource:
+    """
+    Like :func:`clustering_statistics`, but one extraction job per epoch.
+
+    :func:`clustering_statistics` reads the merged ``epoch_statistics.json``, which
+    exists only once every epoch of a run has finished - so a report on a run in
+    progress shows blank statistics columns however many epochs have completed.
+    This takes the per-epoch files instead
+    (``ChunkedClusteringExpResult.out_epoch_statistics``) and builds an
+    :class:`EpochStatisticsJob` for each, so a column fills in as soon as its own
+    epoch is done.
+
+    The columns are the same and so is ``epoch_offset``; only the plumbing differs.
+    Prefer this for any run that will be looked at before it finishes.
+
+    :param epoch_statistics: ``{epoch: statistics.json}`` for the run
+    """
+    jobs = {
+        int(epoch): EpochStatisticsJob(path, reference_counts, **distance_kwargs)
+        for epoch, path in epoch_statistics.items()
+    }
+    return StatisticsSource(
+        scalars={epoch: job.out_scalars for epoch, job in jobs.items()},
+        distances=(
+            {epoch: job.out_distance for epoch, job in jobs.items()}
+            if reference_counts is not None
+            else None
+        ),
+        frequencies={epoch: job.out_frequencies for epoch, job in jobs.items()},
+        name=name,
+        epoch_offset=epoch_offset,
+    )
 
 
 @dataclass
@@ -220,7 +320,8 @@ class Column:
     :param header: header text, or several lines to stack via a nested ``tabular``
     :param value: reads the cell value off a ``Row``; may return a plain value, a
         Variable, a delayed expression, or None
-    :param fmt: ``str.format`` spec applied to the resolved value
+    :param fmt: ``str.format`` spec applied to the resolved value, or a callable
+        taking the value and returning the cell text (see :func:`scientific_above`)
     :param scale: multiplied onto numeric values before formatting, e.g. 100 to turn
         the fractions ``JiwerScoringJob`` reports into percent
     :param align: column alignment letter
@@ -236,7 +337,7 @@ class Column:
     key: str
     header: str | Sequence[str]
     value: Callable[[Row], Any]
-    fmt: str = "{}"
+    fmt: str | Callable[[Any], str] = "{}"
     scale: float | None = None
     align: str = "r"
     span: bool = False
@@ -304,6 +405,18 @@ def _from_distance(epoch: int | str = "row") -> Callable[[Row], Any]:
         if stat_epoch is None:
             return None
         return _EpochLookup(row.statistics.distances, stat_epoch)
+
+    return source
+
+
+def _from_frequency(phoneme: str, epoch: int | str = "row") -> Callable[[Row], Any]:
+    def source(row: Row):
+        if row.statistics is None or row.statistics.frequencies is None:
+            return None
+        stat_epoch = _statistics_epoch(row, epoch)
+        if stat_epoch is None:
+            return None
+        return _EpochLookup(row.statistics.frequencies, stat_epoch, phoneme)
 
     return source
 
@@ -376,6 +489,58 @@ def prior_l1(
     return Column(key="l1", header=header, value=_from_distance(epoch), **kwargs)
 
 
+def phoneme_fraction(
+    phoneme: str = "[SILENCE]",
+    header: str | Sequence[str] | None = None,
+    epoch: int | str = "row",
+    **kwargs,
+) -> Column:
+    """
+    A column with one phoneme's share of the recognized frames.
+
+    :param phoneme: key in ``relative_phoneme_frequencies``, e.g. ``"[SILENCE]"``
+    :param epoch: as in :func:`statistic`
+    """
+    if header is None:
+        label = "Sil." if phoneme == "[SILENCE]" else latex_escape(phoneme)
+        header = (label, "frac.")
+    kwargs.setdefault("fmt", "{:.3f}")
+    kwargs.setdefault("block", "stat")
+    kwargs.setdefault("span", epoch != "row")
+    return Column(
+        key=f"frac_{phoneme}", header=header, value=_from_frequency(phoneme, epoch), **kwargs
+    )
+
+
+def scientific_above(
+    threshold: float = 1e9, digits: int = 2, plain: str = "{:,.0f}"
+) -> Callable[[Any], str]:
+    """
+    Thousands separators for ordinary values, LaTeX scientific notation for huge ones.
+
+    ``{:,.0f}`` is right for a score around $10^5$ and unreadable for one around
+    $10^{20}$ - and a 26-digit cell also drags the whole table past the page. The
+    large values are not noise: a Gaussian whose covariance collapses onto a few
+    frames sends ``0.5 log det`` towards $-\infty$, so a score of that size is a
+    real symptom worth showing rather than truncating.
+
+    :param threshold: absolute value at which to switch to scientific notation
+    :param digits: mantissa decimals
+    :param plain: format string used below the threshold
+    """
+
+    def render(value: Any) -> str:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return str(value)
+        if not math.isfinite(value) or abs(value) < threshold:
+            return plain.format(value)
+        exponent = math.floor(math.log10(abs(value)))
+        mantissa = value / 10.0**exponent
+        return f"${mantissa:.{digits}f} \\times 10^{{{exponent}}}$"
+
+    return render
+
+
 def _percent(name: str) -> str:
     return name + r" [\%]"
 
@@ -427,11 +592,50 @@ COLUMN_LIBRARY: dict = {
     ),
     # statistics
     "l1": prior_l1,
-    "am_score": lambda: statistic("average_am_score", ("Avg. AM", "score"), fmt="{:,.0f}"),
-    "lm_score": lambda: statistic("average_lm_score", ("Avg. LM", "score"), fmt="{:,.0f}"),
-    "total_score": lambda: statistic("average_total_score", ("Avg. total", "score"), fmt="{:,.0f}"),
+    "silence": lambda: phoneme_fraction("[SILENCE]"),
+    "am_score": lambda: statistic(
+        "average_am_score", ("Avg. AM", "score"), fmt=scientific_above()
+    ),
+    "lm_score": lambda: statistic(
+        "average_lm_score", ("Avg. LM", "score"), fmt=scientific_above()
+    ),
+    "transition_score": lambda: statistic(
+        "average_transition_score", ("Avg. trans.", "score"), fmt=scientific_above()
+    ),
+    "total_score": lambda: statistic(
+        "average_total_score", ("Avg. total", "score"), fmt=scientific_above()
+    ),
     "normed_score": lambda: statistic(
         "average_total_normed_score", ("Avg. score", "per frame"), fmt="{:,.2f}"
+    ),
+    # Forward-backward runs. FBStatisticsCounter replaces the Viterbi traceback
+    # counters on that path, so none of the average_*_score keys above exist for
+    # them - these are the corresponding numbers, and a report on an FB run wants
+    # this group where a Viterbi one wants am/lm/transition.
+    #
+    # `log_likelihood` is the quantity to read first: it is the actual EM
+    # objective, so it is monotone under a correct update and a run that stops
+    # improving it has converged in the only sense EM defines.
+    "log_likelihood": lambda: statistic(
+        "mean_log_likelihood_per_frame", ("Avg. log", "lik./frame"), fmt="{:,.3f}"
+    ),
+    # The collapse detector on the FB path, standing in for the AM/LM split that
+    # a Viterbi run gets: it is the mean per-frame entropy of the label
+    # posteriors, so a search that is not separating labels acoustically leaves
+    # it pinned near log(num_labels) - 3.69 nats at 40 phonemes - however well
+    # the total score is doing.
+    "posterior_entropy": lambda: statistic(
+        "mean_posterior_entropy", ("Posterior", "entropy"), fmt="{:.3f}"
+    ),
+    "dead_clusters": lambda: statistic(
+        "dead_cluster_count", ("Dead", "clusters"), fmt="{:,}"
+    ),
+    # add_row(values={"mi": MixtureDiagnosticsJob(...).out_mi}) fills this in.
+    # Reference-free, and unaffected by which search produced the posteriors: it
+    # is a function of the mixture weights alone, so it reads the same for a
+    # Viterbi and a forward-backward run.
+    "mi": lambda: Column(
+        "mi", ("I(L;C)", "nats"), _from_value("mi"), fmt="{:.3f}", block="stat"
     ),
     "loop_frequency": lambda: statistic("relative_loop_frequency", ("Loop", "freq."), fmt="{:.3f}"),
     "loop_count": lambda: statistic("absolute_loop_count", ("Loop", "count"), fmt="{:,}"),
@@ -460,6 +664,7 @@ class LatexTableReport:
         group_by: Sequence[str] | None = None,
         sort_by: Sequence[str] | None = None,
         epochs: Sequence[int] | None = None,
+        drop_empty_rows: bool = False,
         row_filter: Callable[[Row], bool] | None = None,
         caption: str | None = None,
         label: str | None = None,
@@ -476,6 +681,14 @@ class LatexTableReport:
         :param group_by: parameter keys defining a row group; None uses all parameters,
             so consecutive epochs of one experiment end up in the same group
         :param sort_by: parameter keys to sort rows by; None keeps insertion order
+        :param drop_empty_rows: omit rows whose every computed cell is still missing.
+            A run of ``num_epochs`` registers a row per epoch whether or not that
+            epoch has finished, so a table of a run in progress otherwise ends in a
+            block of blank lines - and a float cannot break across pages, so a long
+            enough table is silently truncated rather than continued. With this, the
+            table shows the epochs that exist and grows as the run does. Rows are
+            judged by what renders, so a row is kept as soon as any one of its cells
+            has a value.
         :param epochs: keep only rows on these epochs, e.g. ``(0, 9)`` for a table
             that just contrasts the start and end of training
         :param row_filter: keep only rows this returns True for, applied on top of
@@ -494,6 +707,7 @@ class LatexTableReport:
         self.group_by = list(group_by) if group_by is not None else None
         self.sort_by = list(sort_by) if sort_by is not None else None
         self.epochs = tuple(epochs) if epochs is not None else None
+        self.drop_empty_rows = drop_empty_rows
         self.row_filter = row_filter
         self.caption = caption
         self.label = label
@@ -565,6 +779,7 @@ class LatexTableReport:
             group_by=self.group_by,
             sort_by=self.sort_by,
             epochs=self.epochs,
+            drop_empty_rows=self.drop_empty_rows,
             row_filter=self.row_filter,
             caption=self.caption,
             label=self.label,
@@ -608,11 +823,21 @@ class LatexTableReport:
                 for suffix, variable in (
                     ("statistics", row.statistics.scalars),
                     ("prior_distance", row.statistics.distances),
+                    ("phoneme_frequencies", row.statistics.frequencies),
                 ):
-                    if variable is None or variable.get_path() in _REGISTERED_DEPENDENCIES:
+                    if variable is None:
                         continue
-                    _REGISTERED_DEPENDENCIES.add(variable.get_path())
-                    tk.register_output(f"{stem}.deps/{name}.{suffix}", variable)
+                    # One Variable for the whole run, or one per epoch.
+                    entries = (
+                        [(f"{suffix}.{epoch:03d}", v) for epoch, v in sorted(variable.items())]
+                        if isinstance(variable, dict)
+                        else [(suffix, variable)]
+                    )
+                    for label, entry in entries:
+                        if entry is None or entry.get_path() in _REGISTERED_DEPENDENCIES:
+                            continue
+                        _REGISTERED_DEPENDENCIES.add(entry.get_path())
+                        tk.register_output(f"{stem}.deps/{name}.{label}", entry)
 
         return tk.register_report(output_path, values=self, required=required)
 
@@ -715,7 +940,7 @@ class LatexTableReport:
         if isinstance(value, str) and not column.raw:
             value = latex_escape(value)
         try:
-            return column.fmt.format(value)
+            return column.fmt(value) if callable(column.fmt) else column.fmt.format(value)
         except (ValueError, TypeError, IndexError, KeyError):
             return str(value)
 
@@ -767,12 +992,33 @@ class LatexTableReport:
             )
         return " & ".join(cells) + r" \\ \hline \hline"
 
+    def _row_has_data(self, columns: list, row: Row) -> bool:
+        """
+        True if any computed cell of ``row`` renders as something.
+
+        Judged from the rendered text rather than from the Variables, so what counts
+        as present here is exactly what would show in the table. Cells that are not
+        computed at all - parameters, the epoch index - are ignored, or every row
+        would qualify.
+        """
+        for column in columns:
+            if not isinstance(column.value(row), DelayedBase):
+                continue
+            missing = column.missing if column.missing is not None else self.missing
+            if self._cell_text(column, row) != missing:
+                return True
+        return False
+
     def __call__(self) -> str:
         rows = self._visible_rows()
         if not rows:
             return "% no rows registered for this table\n"
 
         columns = self._resolve_columns(rows)
+        if self.drop_empty_rows:
+            rows = [row for row in rows if self._row_has_data(columns, row)]
+            if not rows:
+                return "% every row is still empty\n"
         groups = self._groups(self._sorted_rows(rows))
 
         lines = []
