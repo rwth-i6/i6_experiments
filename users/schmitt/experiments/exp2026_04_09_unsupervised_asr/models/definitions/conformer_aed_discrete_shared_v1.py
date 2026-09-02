@@ -746,7 +746,9 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         # by default, forward as audio, since this is the final task for the model (ASR)
         return self.forward_audio(indices, seq_lens)
 
-    def forward_text(self, indices: Tensor, seq_lens: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def forward_text(
+        self, indices: Tensor, seq_lens: Tensor, aux_logit_modality: Optional[str] = None
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
 
         Args:
@@ -756,18 +758,22 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         Returns:
 
         """
+        out_aux_logits = self.out_audio_aux_logits
+        if aux_logit_modality == "text":
+            out_aux_logits = self.out_text_aux_logits
+
         data = self.text_embedding(indices)  # (B, T, F)
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers_text)
         encoder_outputs[-1] = self._maybe_quantize(encoder_outputs[-1])
         assert len(self.out_text_aux_logits) <= len(encoder_outputs)
-        out_aux_logits = [
-            aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_audio_aux_logits, encoder_outputs)
-        ]
+        out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
         return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 
-    def forward_audio(self, indices: Tensor, seq_lens: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def forward_audio(
+        self, indices: Tensor, seq_lens: Tensor, aux_logit_modality: Optional[str] = None
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
 
         Args:
@@ -777,12 +783,16 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         Returns:
 
         """
+        out_aux_logits = self.out_text_aux_logits
+        if aux_logit_modality == "audio":
+            out_aux_logits = self.out_audio_aux_logits
+
         data = self.audio_embedding(indices)  # (B, T, F)
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers_audio)
         encoder_outputs[-1] = self._maybe_quantize(encoder_outputs[-1])
         assert len(self.out_audio_aux_logits) <= len(encoder_outputs)
-        out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_text_aux_logits, encoder_outputs)]
+        out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(out_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
         return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 

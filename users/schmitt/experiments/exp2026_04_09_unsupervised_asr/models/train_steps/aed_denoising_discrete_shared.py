@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pack_sequence, unpad_sequence
 import numpy as np
+import functools
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor as ReturnnTensor
@@ -150,7 +151,7 @@ def train_step(
     adv_stash = {} if (adv_loss_scale > 0.0 and adv_loss_type == "wasserstein_interp") else None
 
     model.decode_seq = model.decode_text_seq
-    model.forward = model.forward_text
+    model.forward = functools.partial(model.forward_text, aux_logit_modality="text")
     model.mask_idx = model.text_mask_idx
     model.bos_idx = model.text_bos_idx
     model.eos_idx = model.text_eos_idx
@@ -183,7 +184,7 @@ def train_step(
     )
 
     model.decode_seq = model.decode_audio_seq
-    model.forward = model.forward_audio
+    model.forward = functools.partial(model.forward_audio, aux_logit_modality="audio")
     model.mask_idx = model.audio_mask_idx
     model.bos_idx = model.audio_bos_idx
     model.eos_idx = model.audio_eos_idx
