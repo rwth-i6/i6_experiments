@@ -162,7 +162,19 @@ def build_training_datasets_v2(
 def build_test_datasets(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    # TODO: set to True to score the *full* 2864-utt dev-other, as the wav2vec-U setup now does.
+    #  Kept False here so the existing recog/scoring job hashes -- and thus every PER/WER number
+    #  measured so far -- stay untouched; flipping it re-runs all recog/analysis/PPL jobs of this
+    #  setup and makes the new numbers incomparable to the old ones.
+    #  See "Eval-set sequence coverage (dev-other = 2864 utts)" in CLAUDE.md.
+    keep_all_seqs: bool = False,
 ):
+    """
+    :param keep_all_seqs: phonemize the full corpus instead of dropping the sequences that the language-ID
+        filter and the lexicon-OOV filter of ``PhonemizeTextDataJob`` remove. With the default False,
+        dev-other is scored on 2712 of 2864 utterances only (see "Eval-set sequence coverage" in CLAUDE.md).
+        Only affects forward/scoring jobs, never a training.
+    """
     _, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
@@ -186,6 +198,10 @@ def build_test_datasets(
         vocab_file=phoneme_vocab,
         sil_prob=sil_prob,
         surround_w_sil=surround_w_sil,
+        # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
+        # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
+        apply_lid_filter=not keep_all_seqs,
+        extend_lexicon_w_g2p=keep_all_seqs,
     )
 
     return {
@@ -213,9 +229,17 @@ def build_test_datasets_v2(
     settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    # TODO: set to True to score the *full* 2864-utt dev-other, as the wav2vec-U setup now does.
+    #  Kept False here so the existing recog/scoring job hashes -- and thus every PER/WER number
+    #  measured so far -- stay untouched; flipping it re-runs all recog/analysis/PPL jobs of this
+    #  setup and makes the new numbers incomparable to the old ones.
+    #  See "Eval-set sequence coverage (dev-other = 2864 utts)" in CLAUDE.md.
+    keep_all_seqs: bool = False,
 ):
     """
     Like v1 but uses MultiProcDataset.
     """
-    datasets = build_test_datasets(sil_prob=sil_prob, surround_w_sil=surround_w_sil)
+    datasets = build_test_datasets(
+        sil_prob=sil_prob, surround_w_sil=surround_w_sil, keep_all_seqs=keep_all_seqs
+    )
     return {name: _wrap_in_multiproc(dataset, settings) for name, dataset in datasets.items()}

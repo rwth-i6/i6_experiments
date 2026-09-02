@@ -408,9 +408,13 @@ def build_text_only_training_datasets(
     )
 
 
-def build_test_datasets(max_abs_value: Optional[float] = None):
+def build_test_datasets(max_abs_value: Optional[float] = None, keep_all_seqs: bool = True):
     """
     :param max_abs_value:
+    :param keep_all_seqs: phonemize the full corpus instead of dropping the sequences that the language-ID
+        filter and the lexicon-OOV filter of ``PhonemizeTextDataJob`` remove. Without it, dev-other is scored
+        on 2712 of 2864 utterances (see the "Lost eval sequences" section in CLAUDE.md). Only affects
+        forward/scoring jobs, never a training.
     """
     assert max_abs_value is None, "We must not filter seqs for testing! Otherwise not comparable."
 
@@ -438,6 +442,10 @@ def build_test_datasets(max_abs_value: Optional[float] = None):
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
+        # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
+        # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
+        apply_lid_filter=not keep_all_seqs,
+        extend_lexicon_w_g2p=keep_all_seqs,
     )
 
     return {

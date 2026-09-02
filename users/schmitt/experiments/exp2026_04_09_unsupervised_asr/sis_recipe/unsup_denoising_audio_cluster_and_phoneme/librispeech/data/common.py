@@ -536,7 +536,19 @@ def build_text_only_training_datasets(
 def build_test_datasets(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    # TODO: set to True to score the *full* 2864-utt dev-other, as the wav2vec-U setup now does.
+    #  Kept False here so the existing recog/scoring job hashes -- and thus every PER/WER number
+    #  measured so far -- stay untouched; flipping it re-runs all recog/analysis/PPL jobs of this
+    #  setup and makes the new numbers incomparable to the old ones.
+    #  See "Eval-set sequence coverage (dev-other = 2864 utts)" in CLAUDE.md.
+    keep_all_seqs: bool = False,
 ):
+    """
+    :param keep_all_seqs: phonemize the full corpus instead of dropping the sequences that the language-ID
+        filter and the lexicon-OOV filter of ``PhonemizeTextDataJob`` remove. With the default False,
+        dev-other is scored on 2712 of 2864 utterances only (see "Eval-set sequence coverage" in CLAUDE.md).
+        Only affects forward/scoring jobs, never a training.
+    """
     _, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
@@ -560,6 +572,10 @@ def build_test_datasets(
         vocab_file=phoneme_vocab,
         sil_prob=sil_prob,
         surround_w_sil=surround_w_sil,
+        # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
+        # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
+        apply_lid_filter=not keep_all_seqs,
+        extend_lexicon_w_g2p=keep_all_seqs,
     )
 
     return {
@@ -588,6 +604,14 @@ def build_test_datasets_w_cheating_clusters(
     surround_w_sil: bool = True,
     num_audio_clusters: int = 512,
 ):
+    """
+    NB unlike `build_test_datasets`, this one deliberately keeps the sequence-dropping phonemization
+    (no `keep_all_seqs`): its "dev-other" is an arbitrary 3000-utterance sample of *train*-other-960
+    (the cheating clusters only exist there), so full corpus coverage buys nothing, while un-filtering
+    would enlarge the pool that `TakeNRandomLinesJob` samples from and thus silently re-draw the eval
+    set, invalidating all cheat-seg numbers measured so far. It also shares the phonemization job with
+    the training data, so the un-filtered variant would mean re-phonemizing all 281k train utterances.
+    """
     clusters_960_hdfs = _get_cheating_train_clusters(num_audio_clusters)
 
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
@@ -654,6 +678,11 @@ def build_test_datasets_w_silence_in_input(
     )
 
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    # NB no `keep_all_seqs` here (unlike `build_test_datasets`): the reference of this test set is produced at
+    # runtime by `PhonemizeAndInsertSilence`, which raises on an OOV word instead of skipping the seq, so
+    # recovering the 152 dropped seqs would also require handing the G2P-extended lexicon to that post-proc
+    # func. Left as-is since this legacy setup's trainings ran with `keep=[1000]` and re-running its recogs
+    # would hit the deleted-checkpoint problem (see the Gotchas section in CLAUDE.md).
     _, _, _, dev_other_seq_tags = text.get_phonemized_text(
         "dev-other",
         lexicon_file=lexicon_file,
