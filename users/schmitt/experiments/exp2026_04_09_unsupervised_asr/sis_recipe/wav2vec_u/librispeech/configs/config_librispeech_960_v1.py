@@ -17,6 +17,9 @@ def get_keep_epochs(num_epochs: int) -> List[int]:
     if num_epochs == 15:
         return [5, 10, 15]
 
+    raise ValueError(f"num_epochs: {num_epochs}")
+
+
 settings = DatasetSettings(
     train_partition_epoch=1,
     train_seq_ordering="laplace:.1000",
