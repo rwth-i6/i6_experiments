@@ -73,11 +73,21 @@ base_config = {
 }
 
 
-def py():
-    prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
+# net_args of the LM + the key it registers its checkpoints under, for other configs that want to
+# fuse with it (see lm_fused_recog). Callers must not rebuild this name themselves: the prefix uses
+# *this* package's __setup_base_name__ ("phoneme_lm"), not theirs.
+lm_model_args = base_config["model_args"]
+lm_prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
+lm_training_name = f"{lm_prefix_name}/baseline"
 
-    run_experiment(
-        training_name=f"{prefix_name}/baseline",
+
+def py(checkpoints=None):
+    """:param checkpoints: if given, the trained LM checkpoints are registered here under its
+    training_name, so other configs (LM-fused recognition) can pick them up."""
+    prefix_name = lm_prefix_name
+
+    train_job = run_experiment(
+        training_name=lm_training_name,
         config=copy.deepcopy(base_config),
         train_data=train_data,
         test_data_dict=test_data_dict_wo_sil,
@@ -88,3 +98,5 @@ def py():
             "checkpoints": get_keep_epochs(base_num_epochs),
         },
     )
+    if checkpoints is not None:
+        checkpoints[lm_training_name] = train_job.out_checkpoints
