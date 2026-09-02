@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 from sisyphus import tk
 
@@ -21,6 +22,7 @@ def get_featurized_audio(
     dump_hdf_concurrent: int = 10,
     featurize_concurrent: int = 10,
     remove_cluster_repetitions: bool = True,
+    max_abs_value: Optional[float] = None,
 ):
     rem_audio_manifest = remove_silences_from_audio(librispeech_key)
 
@@ -32,4 +34,5 @@ def get_featurized_audio(
         dump_hdf_concurrent=dump_hdf_concurrent,
         featurize_concurrent=featurize_concurrent,
         remove_cluster_repetitions=remove_cluster_repetitions,
+        max_abs_value=max_abs_value,
     )

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
@@ -14,12 +16,14 @@ def build_training_datasets(
     settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    max_abs_value: Optional[float] = None,
 ):
     features_960_hdfs, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
         featurize_concurrent=10,
         remove_cluster_repetitions=True,
+        max_abs_value=max_abs_value,
     )
     features_dev_other_hdfs, _, _, _ = audio.get_featurized_audio(
         librispeech_key="dev-other",
@@ -28,6 +32,7 @@ def build_training_datasets(
         dump_hdf_concurrent=1,
         featurize_concurrent=1,
         remove_cluster_repetitions=True,
+        max_abs_value=max_abs_value,
     )
     features_dev_clean_hdfs, _, _, _ = audio.get_featurized_audio(
         librispeech_key="dev-clean",
@@ -36,6 +41,7 @@ def build_training_datasets(
         dump_hdf_concurrent=1,
         featurize_concurrent=1,
         remove_cluster_repetitions=True,
+        max_abs_value=max_abs_value,
     )
 
     # we don't pass sil_prob here, because we just want to get the lexicon here

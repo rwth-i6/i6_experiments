@@ -21,7 +21,7 @@ settings = DatasetSettings(
     train_partition_epoch=1,
     train_seq_ordering="laplace:.1000",
 )
-train_data = build_training_datasets(settings=settings)
+train_data = build_training_datasets(settings=settings, max_abs_value=1e5)
 test_data_dict = build_test_datasets()
 
 num_gpus = 1
