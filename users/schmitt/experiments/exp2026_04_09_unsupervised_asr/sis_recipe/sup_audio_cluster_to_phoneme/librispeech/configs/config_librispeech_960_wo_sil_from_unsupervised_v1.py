@@ -12,6 +12,22 @@ from .config_librispeech_960_v1 import base_config, get_keep_epochs, base_num_ep
 from .config_librispeech_960_wo_sil_v1 import train_data, test_data_dict_wo_sil, test_data_dict
 
 
+# extra (early-training) checkpoints the cross-attention analysis looks at, on top of the kept ones.
+_EXTRA_CROSS_ATT_EPOCHS = [5, 20, 50, 100, 150, 200]
+
+# ... but for these two variants RETURNN's `cleanup_old_models` has already deleted them: their
+# training jobs were created when `keep_epochs` (which becomes `cleanup_old_models["keep"]`) was
+# only `get_keep_epochs(...)`, while the earlier-created variants still keep the extra epochs.
+# `keep_epochs` lives in the *unhashed* post_config, so it cannot be fixed after the fact -- the
+# training would not re-run and the checkpoints are gone. The analyses that had already run at
+# those epochs are finished and stay in the graph; the ones that never ran are dropped here,
+# because they can only fail with "Path not available: .../models/epoch.XXX.pt".
+_DELETED_CROSS_ATT_EPOCHS = {
+    (0,): (5, 20, 50),
+    (2,): (5, 20),
+}
+
+
 def py(checkpoints: Dict):
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
@@ -110,7 +126,7 @@ def py(checkpoints: Dict):
                 "test_data_dict": test_data_dict_wo_sil,
             },
             cross_att_opts={
-                "checkpoints": get_keep_epochs(base_num_epochs) + [5, 20, 50, 100, 150, 200],
+                "checkpoints": get_keep_epochs(base_num_epochs) + _EXTRA_CROSS_ATT_EPOCHS,
                 "input_modality": "audio",
                 "output_modality": "text",
                 "max_plotted_seqs": 20,
@@ -165,7 +181,12 @@ def py(checkpoints: Dict):
                 "test_data_dict": test_data_dict_wo_sil,
             },
             cross_att_opts={
-                "checkpoints": get_keep_epochs(base_num_epochs) + [5, 20, 50, 100, 150, 200],
+                "checkpoints": get_keep_epochs(base_num_epochs)
+                + [
+                    ep
+                    for ep in _EXTRA_CROSS_ATT_EPOCHS
+                    if ep not in _DELETED_CROSS_ATT_EPOCHS.get(freeze_emb_layers, ())
+                ],
                 "input_modality": "audio",
                 "output_modality": "text",
                 "max_plotted_seqs": 20,

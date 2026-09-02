@@ -137,6 +137,29 @@ def _recon_variant(num_epochs, *, input_modality, output_modality, recog_name, m
 _TEXT_RECON_SWEEP_MASK_PROBS = (0.0, 0.1, 0.5)
 
 
+# Checkpoints that RETURNN's `cleanup_old_models` has already deleted for the plain
+# `baseline_max-num-sil-*` variants: those training jobs were created while `keep_epochs` still
+# defaulted to `[base_num_epochs]`, so only epoch 1000 survived. `keep_epochs` only ends up in the
+# *unhashed* post_config, so widening it to `get_keep_epochs(...)` afterwards neither re-runs the
+# training nor brings the checkpoints back. Eval/analysis jobs that had already run before the
+# cleanup are finished and stay in the graph; the ones that never ran are listed here per job type
+# and dropped, because they can only fail with "Path not available: .../models/epoch.XXX.pt".
+_DELETED_CKPT_EPOCHS = {
+    # (max_num_sil, max_num_surround_sil): {job type: epochs}
+    (5, 1): {"recog": (250,)},
+    (7, 1): {"recog": (250, 750), "cross_att": (250, 500, 750), "analysis": (250, 750)},
+    (11, 1): {"recog": (250,)},
+    (17, 1): {"cross_att": (250,)},
+    (17, 25): {"recog": (250,), "cross_att": (250, 500)},
+}
+
+
+def _avail_epochs(epochs, max_num_sil, max_num_surround_sil, job_type):
+    """`epochs` minus the checkpoints that no longer exist for this variant (see above)."""
+    deleted = _DELETED_CKPT_EPOCHS.get((max_num_sil, max_num_surround_sil), {}).get(job_type, ())
+    return [ep for ep in epochs if ep not in deleted]
+
+
 def _text_recon_sweep(num_epochs):
     return [
         _recon_variant(
@@ -241,11 +264,25 @@ def py(checkpoints: Dict):
             config=copy.deepcopy(base_config),
             train_data=train_data_var_sil,
             test_data_dict=test_data_dict_w_sil,
-            keep_epochs=get_keep_epochs(base_num_epochs),
+            # recognize only the checkpoints that still exist (see _DELETED_CKPT_EPOCHS); the
+            # cleanup keep-list stays at get_keep_epochs(...) so a re-training would behave as before.
+            keep_epochs=_avail_epochs(
+                get_keep_epochs(base_num_epochs), max_num_sil, max_num_surround_sil, "recog"
+            ),
+            cleanup_old_models={
+                "keep_last_n": 4,
+                "keep_best_n": 4,
+                "keep": get_keep_epochs(base_num_epochs),
+            },
             # skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
             analysis_opts={
-                "checkpoints": get_keep_epochs(base_num_epochs) + (add_epochs if add_epochs else []),
+                "checkpoints": _avail_epochs(
+                    get_keep_epochs(base_num_epochs) + (add_epochs if add_epochs else []),
+                    max_num_sil,
+                    max_num_surround_sil,
+                    "analysis",
+                ),
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
@@ -283,7 +320,9 @@ def py(checkpoints: Dict):
             ],
             score_data_dict=score_data_dict,
             cross_att_opts={
-                "checkpoints": get_keep_epochs(base_num_epochs),
+                "checkpoints": _avail_epochs(
+                    get_keep_epochs(base_num_epochs), max_num_sil, max_num_surround_sil, "cross_att"
+                ),
                 "input_modality": "audio",
                 "output_modality": "text",
                 "max_plotted_seqs": 20,
