@@ -71,7 +71,14 @@ def get_phonemized_text(
     vocab_file: Optional[Path] = None,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    apply_lid_filter: bool = True,
+    extend_lexicon_w_g2p: bool = False,
 ):
+    """
+    :param apply_lid_filter: drop lines not confidently classified as English (see `get_phonemized_data`)
+    :param extend_lexicon_w_g2p: keep lines with OOV words by G2P-extending the lexicon (see
+        `get_phonemized_data`). Both default to the historical behavior; enable them for eval sets only.
+    """
     text_data, seq_tags = get_text(data_name)
 
     return get_phonemized_data(
@@ -84,4 +91,6 @@ def get_phonemized_text(
         vocab_file=vocab_file,
         sil_prob=sil_prob,
         surround_w_sil=surround_w_sil,
+        apply_lid_filter=apply_lid_filter,
+        extend_lexicon_w_g2p=extend_lexicon_w_g2p,
     )
