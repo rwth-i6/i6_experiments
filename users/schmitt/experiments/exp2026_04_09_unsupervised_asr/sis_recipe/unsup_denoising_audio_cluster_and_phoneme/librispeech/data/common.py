@@ -10,6 +10,7 @@ from i6_experiments.users.schmitt.datasets.postprocessing import PostprocessingD
 from i6_experiments.users.schmitt.datasets.lm import LmDataset
 from i6_experiments.users.schmitt.datasets.combine import CombinedDataset
 from i6_experiments.users.schmitt.datasets.utils.hdf import DumpCorpusTextAsUtf8ToHdfJob
+from i6_experiments.users.schmitt.datasets.utils.extract_seq_list import FilterSeqListByHdfSeqTagsJob
 
 from ....data.librispeech import audio, text
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings, _wrap_in_post_proc
@@ -47,6 +48,16 @@ def _get_phonemize_post_proc_func(
         unhashed_package_root=None,
         unhashed_arguments={},
     )
+
+
+def _get_cheating_train_clusters(num_clusters: int):
+    assert num_clusters in (512, 1024, 2048, 8192)
+    return [
+        tk.Path(
+            f"/u/zyang/setups/mini/output/example_setups/librispeech/phmm_standalone_2024/ls960_gmm_oracle_segment_clustering/clustering/k{num_clusters}/compat/cluster_labels_k{num_clusters}.{idx:03d}.returnn_compat.hdf"
+        )
+        for idx in range(20)
+    ]
 
 
 def build_training_datasets(
@@ -175,6 +186,85 @@ def build_training_datasets(
             "data": LabelDatastreamWoVocab(
                 available_for_inference=True,
                 vocab_size=128,
+            ),
+            "phon_indices": LabelDatastream(
+                available_for_inference=False,
+                vocab=phoneme_vocab,
+                vocab_size=41,
+            ),
+        },
+    )
+
+
+def build_training_datasets_w_cheating_clusters(
+    settings: DatasetSettings,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+    num_audio_clusters: int = 512,
+):
+    clusters_960_hdfs = _get_cheating_train_clusters(num_audio_clusters)
+
+    # we don't pass sil_prob here, because we just want to get the lexicon here
+    # we don't use the text-only data for training here
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
+        "train-other-960",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=10,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+
+    devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
+
+    return TrainingDatasets(
+        train=CombinedDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_960_hdfs,
+                    segment_file=train_seq_tags,
+                    partition_epoch=settings.train_partition_epoch,
+                    seq_ordering=settings.train_seq_ordering,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_960_hdfs,
+                    segment_file=train_seq_tags,
+                    partition_epoch=settings.train_partition_epoch,
+                    seq_ordering=settings.train_seq_ordering,
+                ),
+            },
+            data_map={
+                ("phon_indices", "data"): "phon_indices",
+                ("feature_clusters", "data"): "data",
+            },
+            seq_ordering="interleave",
+            partition_epoch=1,
+        ),
+        eval_datasets={
+            "devtrain": CombinedDataset(
+                datasets={
+                    "feature_clusters": HdfDataset(
+                        files=clusters_960_hdfs,
+                        segment_file=devtrain_seq_tags,
+                    ),
+                    "phon_indices": HdfDataset(
+                        files=phoneme_960_hdfs,
+                        segment_file=devtrain_seq_tags,
+                    ),
+                },
+                data_map={
+                    ("phon_indices", "data"): "phon_indices",
+                    ("feature_clusters", "data"): "data",
+                },
+                seq_ordering="sorted",
+                partition_epoch=1,
+            ),
+        },
+        datastreams={
+            "data": LabelDatastreamWoVocab(
+                available_for_inference=True,
+                vocab_size=num_audio_clusters,
             ),
             "phon_indices": LabelDatastream(
                 available_for_inference=False,
@@ -482,6 +572,52 @@ def build_test_datasets(
                 "phon_indices": HdfDataset(
                     files=phoneme_dev_hdfs,
                     segment_file=dev_seq_tags,
+                ),
+            },
+            data_map={
+                "data": ("feature_clusters", "data"),
+                "phon_indices": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+    }
+
+
+def build_test_datasets_w_cheating_clusters(
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+    num_audio_clusters: int = 512,
+):
+    clusters_960_hdfs = _get_cheating_train_clusters(num_audio_clusters)
+
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
+        "train-other-960",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=10,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+    # the cheating clusters and the phoneme HDFs do not cover the exact same set of utterances
+    # (the clusters are missing ~1% of the phonemized seqs). The MetaDataset below hands the seq list of its
+    # control dataset ("phon_indices") to the cluster dataset, which raises a KeyError for the seqs it does not
+    # have, so restrict the seq list to the intersection before sampling from it.
+    train_seq_tags = FilterSeqListByHdfSeqTagsJob(
+        seq_list=train_seq_tags, hdf_files=clusters_960_hdfs
+    ).out_seq_list
+    devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
+
+    return {
+        "dev-other": MetaDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_960_hdfs,
+                    segment_file=devtrain_seq_tags,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_960_hdfs,
+                    segment_file=devtrain_seq_tags,
                 ),
             },
             data_map={
