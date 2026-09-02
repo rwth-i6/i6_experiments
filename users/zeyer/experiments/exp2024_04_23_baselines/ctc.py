@@ -2136,6 +2136,9 @@ def model_recog_while_loop(
     # the loop counter and bound stay on CPU: rf.while_loop wants the cond there,
     # else every iteration syncs the device
     max_seq_len_cpu = rf.copy_to_device(max_seq_len, "cpu")
+    # host int bound for the TensorArrays below: a graph loop with a fixed-size carry
+    # (JAX lax.while_loop) cannot grow them. The eager and TF paths ignore the capacity.
+    max_seq_len_int = int(enc_spatial_dim.get_dim_value())
 
     def _body(state):
         t, seq_log_prob_, targets_ta_, backrefs_ta_ = state
@@ -2165,8 +2168,8 @@ def model_recog_while_loop(
         initial=(
             rf.constant(0, dims=(), dtype="int32", device="cpu"),
             seq_log_prob,
-            TensorArray(target_template),
-            TensorArray(backrefs_template),
+            TensorArray(target_template, capacity=max_seq_len_int),
+            TensorArray(backrefs_template, capacity=max_seq_len_int),
         ),
     )
 
@@ -2185,7 +2188,7 @@ def model_recog_while_loop(
     _, _, seq_targets_rev_ta = rf.while_loop(
         cond=lambda state: state[0] >= 0,
         body=_backtrack_body,
-        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_template)),
+        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_template, capacity=max_seq_len_int)),
     )
     out_spatial_dim = enc_spatial_dim
     seq_targets = seq_targets_rev_ta.stack(axis=out_spatial_dim)

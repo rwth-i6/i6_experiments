@@ -937,6 +937,9 @@ def model_recog_while_loop(
     # the loop counter and bound stay on CPU: rf.while_loop wants the cond there,
     # else every iteration syncs the device
     max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
+    # host int bound for the TensorArrays below: a graph loop with a fixed-size carry
+    # (JAX lax.while_loop) cannot grow them. The eager and TF paths ignore the capacity.
+    max_seq_len_int = int(enc_spatial_dim.get_dim_value())
 
     beam_dim = Dim(beam_size, name="beam")
     step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
@@ -1009,8 +1012,8 @@ def model_recog_while_loop(
             rf.constant(0, dims=batch_dims_, dtype="int32"),
             rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
             model.decoder.default_initial_state(batch_dims=batch_dims_),
-            TensorArray(target_template),
-            TensorArray(backrefs_template),
+            TensorArray(target_template, capacity=max_seq_len_int),
+            TensorArray(backrefs_template, capacity=max_seq_len_int),
         ),
     )
     if length_normalization_exponent != 0:
@@ -1033,7 +1036,7 @@ def model_recog_while_loop(
     _, _, seq_targets_rev_ta = rf.while_loop(
         cond=lambda state: state[0] >= 0,
         body=_backtrack_body,
-        initial=(num_steps - 1, indices0, TensorArray(target_template)),
+        initial=(num_steps - 1, indices0, TensorArray(target_template, capacity=max_seq_len_int)),
     )
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets_rev_ta.stack(axis=out_spatial_dim)
