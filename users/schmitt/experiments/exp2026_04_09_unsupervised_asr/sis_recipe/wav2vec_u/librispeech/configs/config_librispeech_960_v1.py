@@ -89,6 +89,7 @@ base_config = {
             "param_groups_custom": CodeWrapper("wav2vec_u_param_groups"),
         },
     },
+    "recog": {"batch_size": 30_000},
     "model_args": {
         "output_dim": _phon_vocab_size + 1,  # +1 dedicated pad class
         "pad_idx": _phon_vocab_size,
@@ -165,7 +166,7 @@ def py():
         decoder_config=DecoderConfig(),
         # GAN stage only: no ASR recognition/scoring here (fairseq selects a checkpoint via an
         # unsupervised metric, done separately).
-        skip_eval=True,
+        # skip_eval=True,
         additional_configs=[
             ReturnnConfig(
                 config={},
