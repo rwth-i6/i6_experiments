@@ -250,8 +250,10 @@ def run_analysis(
     checkpoints: List[Union[int, str]],
     analysis_name: str = "encoder_pca",
     extra_forward_config: Optional[ReturnnConfig] = None,
+    recog_model_args: Optional[Dict] = None,
     **analysis_kwargs,
 ):
+    train_args = _with_recog_overrides(train_args, recog_model_args=recog_model_args)
     analyze_encoder_states(
         config={**config["general"], **config.get("recog", {})},
         training_name=training_name,
@@ -276,10 +278,12 @@ def run_cross_att_analysis(
     checkpoints: List[Union[int, str]],
     analysis_name: str = "cross_att",
     extra_forward_config: Optional[ReturnnConfig] = None,
+    recog_model_args: Optional[Dict] = None,
     **analysis_kwargs,
 ):
     # like run_analysis, the forward step/callback are fixed (analysis.CROSS_ATT_* defaults), NOT the
     # config's __forward_step_module/__callback_module (which are the beam-search recog).
+    train_args = _with_recog_overrides(train_args, recog_model_args=recog_model_args)
     analyze_cross_attention(
         config={**config["general"], **config.get("recog", {})},
         training_name=training_name,
@@ -304,11 +308,13 @@ def run_ppl(
     checkpoints: List[Union[int, str]],
     ppl_name: str = "ppl",
     extra_forward_config: Optional[ReturnnConfig] = None,
+    recog_model_args: Optional[Dict] = None,
     **ppl_kwargs,
 ):
     # Like run_analysis, the PPL forward step/callback are fixed (compute_ppl's PPL_* defaults), NOT
     # taken from the config's __forward_step_module/__callback_module -- those point at the beam-search
     # recog step for the AED configs, which is unrelated to perplexity scoring.
+    train_args = _with_recog_overrides(train_args, recog_model_args=recog_model_args)
     compute_ppl(
         config={**config["general"], **config.get("recog", {})},
         training_name=training_name,
@@ -355,6 +361,10 @@ def run_experiment(
         e.g. ``{"checkpoints": [1000], "max_plotted_seqs": 20}`` for the audio->text (ASR) direction.
         Uses the same (paired) ``test_data_dict`` as the encoder-PCA analysis, so the plotted seqs
         are the same.
+    :param recog_model_args: model ``net_args`` used for every *forward* job (recognition and all
+        analysis/PPL jobs) instead of the training ones -- e.g. to evaluate with
+        ``codebook_opts.codebook_prob = 1.0`` while training used 0.5. An individual analysis may
+        override it again through its own opts dict.
     :param ppl_opts: if given, additionally run the perplexity forward job (models.scoring.ppl) via
         :func:`run_ppl`. A kwargs dict for :func:`run_ppl`, e.g. ``{"checkpoints": [1000]}`` for the
         phoneme LM (decoder-only), or ``{"checkpoints": [1000], "input_modality": "audio"}`` to score
@@ -379,7 +389,12 @@ def run_experiment(
         cleanup_old_models=cleanup_old_models,
     )
 
+    # every forward job (analysis included) is built with the same recog-time model overrides, so
+    # the analyses describe the model configuration that recognition actually uses. An individual
+    # opts dict may still override it.
     if analysis_opts is not None:
+        analysis_opts = dict(analysis_opts)
+        analysis_opts.setdefault("recog_model_args", recog_model_args)
         run_analysis(
             training_name=training_name,
             train_job=train_job,
@@ -392,6 +407,7 @@ def run_experiment(
 
     if cross_att_opts is not None:
         cross_att_opts = dict(cross_att_opts)
+        cross_att_opts.setdefault("recog_model_args", recog_model_args)
         cross_att_test_data_dict = cross_att_opts.pop("test_data_dict", None)
         run_cross_att_analysis(
             training_name=training_name,
@@ -410,6 +426,7 @@ def run_experiment(
         # model, while recognition still uses the with-silence test_data_dict). If ppl_opts provides
         # a "test_data_dict", it overrides the recognition test_data_dict for the PPL job only.
         ppl_opts = dict(ppl_opts)
+        ppl_opts.setdefault("recog_model_args", recog_model_args)
         ppl_test_data_dict = ppl_opts.pop("test_data_dict", test_data_dict)
         run_ppl(
             training_name=training_name,
