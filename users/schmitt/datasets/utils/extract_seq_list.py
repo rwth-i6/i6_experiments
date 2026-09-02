@@ -470,3 +470,66 @@ class ReorderSeqListJob(Job):
 
             print("Copying to final file:", self.out_target_seq_list_order.get_path())
             shutil.copy(tmp_file.name, self.out_target_seq_list_order.get_path())
+
+
+class FilterSeqListByHdfSeqTagsJob(Job):
+    """
+    Filters a seq list (one seq tag per line) down to the seq tags which are present in the given HDF files.
+
+    Use this when a MetaDataset combines HDFs coming from different sources: MetaDataset hands the seq list of
+    its control dataset to all other sub-datasets, which then raise a KeyError for any seq tag they do not have.
+    """
+
+    def __init__(
+        self,
+        *,
+        seq_list: tk.Path,
+        hdf_files: Sequence[tk.Path],
+    ):
+        """
+        :param seq_list: text file with one seq tag per line
+        :param hdf_files: HDF files whose seq tags the seq list is filtered by
+        """
+        self.seq_list = seq_list
+        self.hdf_files = list(hdf_files)
+
+        self.out_seq_list = self.output_path("out_seq_list.txt")
+        self.out_num_kept = self.output_var("num_kept")
+        self.out_num_removed = self.output_var("num_removed")
+
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import h5py
+
+        hdf_seq_tags = set()
+        for hdf_file in self.hdf_files:
+            with h5py.File(hdf_file.get_path(), "r") as f:
+                hdf_seq_tags.update(
+                    seq_tag.decode("utf8") if isinstance(seq_tag, bytes) else str(seq_tag)
+                    for seq_tag in f["seqTags"][...]
+                )
+        print(f"Got {len(hdf_seq_tags)} seq tags from {len(self.hdf_files)} HDF file(s).")
+
+        num_kept = 0
+        num_removed = 0
+        with uopen(self.seq_list, "rt") as f_in, uopen(self.out_seq_list, "wt") as f_out:
+            for line in f_in:
+                seq_tag = line.strip()
+                if not seq_tag:
+                    continue
+                if seq_tag in hdf_seq_tags:
+                    print(seq_tag, file=f_out)
+                    num_kept += 1
+                else:
+                    if num_removed < 10:
+                        print(f"Seq tag not in HDF files, removing: {seq_tag!r}")
+                    num_removed += 1
+
+        print(f"Kept {num_kept} seq tags, removed {num_removed}.")
+        assert num_kept > 0, "no seq tag of the seq list is in the HDF files"
+        self.out_num_kept.set(num_kept)
+        self.out_num_removed.set(num_removed)
