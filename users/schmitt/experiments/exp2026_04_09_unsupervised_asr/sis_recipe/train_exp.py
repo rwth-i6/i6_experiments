@@ -109,6 +109,32 @@ def run_train(
     return train_job, train_args
 
 
+def _with_recog_overrides(
+    train_args: Dict, network_module: Optional[str] = None, recog_model_args: Optional[Dict] = None
+) -> Dict:
+    """
+    Apply the forward-time (recognition / analysis) model overrides to a *copy* of ``train_args``.
+
+    ``recog_model_args`` replaces the model's ``net_args``, so a forward job can construct the model
+    differently from training without touching the (hashed) training config -- e.g. running
+    recognition with ``codebook_opts.codebook_prob = 1.0`` while training used 0.5. It applies to
+    every forward job (recognition, encoder-PCA / cross-attention / codebook analysis, PPL), so the
+    numbers they report all describe the same model configuration.
+
+    Returns ``train_args`` unchanged (not copied) when there is nothing to override, so callers that
+    pass no overrides keep their existing job hashes.
+    """
+    if network_module is None and recog_model_args is None:
+        return train_args
+    # don't mutate the caller's train_args -- it is reused across several recog/analysis jobs
+    train_args = copy.deepcopy(train_args)
+    if network_module is not None:
+        train_args["network_module"] = network_module
+    if recog_model_args is not None:
+        train_args["net_args"] = recog_model_args
+    return train_args
+
+
 def run_eval(
     training_name: str,
     train_job,
@@ -136,14 +162,7 @@ def run_eval(
     forward_step_module = config.pop("__forward_step_module")
     callback_module = config.pop("__callback_module")
 
-    # don't mutate the caller's train_args (run_eval may be called multiple times, e.g. for several
-    # recog variants), only override on a local copy when needed.
-    if network_module is not None or recog_model_args is not None:
-        train_args = copy.deepcopy(train_args)
-        if network_module is not None:
-            train_args["network_module"] = network_module
-        if recog_model_args is not None:
-            train_args["net_args"] = recog_model_args
+    train_args = _with_recog_overrides(train_args, network_module, recog_model_args)
     eval_model(
         config={**config["general"], **config.get("recog", {})},
         recog_name=recog_name,
@@ -194,14 +213,7 @@ def run_rasr_eval(
     callback_module = config.pop("__rasr_callback_module")
     export_forward_step = config.pop("__onnx_export_forward_step_module")
 
-    # don't mutate the caller's train_args (run_eval may be called multiple times, e.g. for several
-    # recog variants), only override on a local copy when needed.
-    if network_module is not None or recog_model_args is not None:
-        train_args = copy.deepcopy(train_args)
-        if network_module is not None:
-            train_args["network_module"] = network_module
-        if recog_model_args is not None:
-            train_args["net_args"] = recog_model_args
+    train_args = _with_recog_overrides(train_args, network_module, recog_model_args)
     eval_model_rasr(
         recog_config={**config["general"], **config.get("rasr_recog", {})},
         onnx_config={**config["general"]},
