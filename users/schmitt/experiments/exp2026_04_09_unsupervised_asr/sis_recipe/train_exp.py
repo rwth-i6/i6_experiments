@@ -59,6 +59,8 @@ def run_train(
 
     if additional_configs is None:
         additional_configs = []
+    else:
+        additional_configs = copy.deepcopy(additional_configs)
 
     lr_type = lr_opts.pop("type")
     existing_lr_configs = _get_existing_lr_configs()
