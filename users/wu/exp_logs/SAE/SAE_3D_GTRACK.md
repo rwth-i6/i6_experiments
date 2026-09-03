@@ -232,7 +232,7 @@ has now completed with exact pseudo-label coverage and all fixed-endpoint WER ar
 and conclusion 10 record its failed fresh-label gate. Separately, the original packed-reader
 equivalence attempt is invalid evidence: `PackedDecodeAgreementJob.xEBbTHwTJScE` matched only
 289/298 hypotheses. Do not waive exact decoder equivalence for the distinct 960 h arm. Normative
-specification and gate: `PLAN.md` §3d.A.
+specification and gate: `SAE.md` §3d.A.
 
 **2026-08-21 (A5 verified end to end): the scale-arm gate verdict STANDS.** Numbers reproduced
 from the sclite outputs and raw counts (13.11 = 7131/54402 dev-clean, 16.82 = 8572/50948
@@ -248,7 +248,7 @@ comparator recipe's own convention); `partition_epoch=10`, `num_epochs=10`, fixe
 nothing downstream reads it). The 2026-08-20 equivalence hold was satisfied, not waived:
 `PackedDecodeAgreementJob.FATi7mwI43o7` reads 298/298 exact on the registered shard-0 check after
 the PCM16/waveform fix (commits 3d3918698, b2d98a5b1); the failed attempt remains preserved.
-Gate read as pre-registered in `PLAN.md` §3d.A (both splits improve; no split trade-off clause
+Gate read as pre-registered in `SAE.md` §3d.A (both splits improve; no split trade-off clause
 needed); the approach-4 comparison is correctly framed as usability, not superiority. One
 disclosure for readers: all four data-parallel ranks each make one full corpus pass; the
 registered exposure match holds because the comparator recipe shares the convention verbatim.

@@ -7,7 +7,7 @@ question each answers), blockers, next action, proposals for the planner. -->
 State as of 2026-08-25 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
 off-ramp; the whole 1g.10 family is CLOSED by the planner; 1g.11 is COMPLETE through all four
 experiments and its gate is read (clause 3 fails on the control). 1g.2a (H4-LM) items 1-4 are
-complete. The other live implementer work is PLAN_1F entry 8 (SAE_1f.md); PLAN_3E1 D9 is banked
+complete. The other live implementer work is archive/SAE_1f_spec_legacy.md entry 8 (SAE_1f.md); archive/SAE_3e1_spec_legacy.md D9 is banked
 and waits on the user (SAE_3E1.md).
 
 DONE (1g.12 experiment 1): `G12ResourceGateJob.3h2iIpk6lpaB` -- verdict PASS for one count-4
@@ -572,7 +572,7 @@ carries the numbers and verdicts 73-75 read them. Three headlines, none good for
    not a content effect. This is the read the previous State asked for: (d) with its controls from
    the start rather than a bare positive-or-negative number.
 
-THE GATE IS READ AND RULED by the planner 2026-08-25 (`PLAN_1G.md` 1g.13 Status): clause 2 fails
+THE GATE IS READ AND RULED by the planner 2026-08-25 (`archive/SAE_1g_spec_legacy.md` 1g.13 Status): clause 2 fails
 every real start, clause 3 is NOT POSITIVE with the comparability ruling firing on two contrasts,
 clause 4 passes, and (d) is negative and not content-specific. The registered consequence fires
 verbatim -- the failure license extends to "v1-equivalent segmentation does not rescue this channel
@@ -611,7 +611,7 @@ Proposals for the planner:
 ## Approach
 
 This log contains experimental evidence only; the current method, gates, and future work are defined
-in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-free ARPAbet phones. A
+in `archive/SAE_1g_spec_legacy.md`. `T_phi` below means the unpaired text converted to 39 stress-free ARPAbet phones. A
 “rung” is one fixed audio-unit stream: adjacent-deduplicated raw codes or one of the pooled streams
 `seg16`, `seg12.5`, and `seg9`.
 
@@ -704,7 +704,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 4. **Exploratory phone repair rehearsal (E5).** The completed job exercises the soft
    two-sub-state Baum–Welch implementation on `seg12.5`, but its configuration does not implement the
-   corrected experiment in `PLAN_1G.md`:
+   corrected experiment in `archive/SAE_1g_spec_legacy.md`:
 
    | item | completed exploratory implementation |
    |---|---|
@@ -884,7 +884,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     respect.
 
 12. **H4 controlled validation read (1g.2 label boundary).** The planner opened the controlled
-    reference labels on 2026-08-22 (`PLAN_1G.md` Status; `PLAN.md` queue item 1, user priority).
+    reference labels on 2026-08-22 (`archive/SAE_1g_spec_legacy.md` Status; `SAE.md` queue item 1, user priority).
     Two jobs sit on the frozen graph and nothing else: `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj`
     emits the audited maxima -- with EMPTY audit mappings, which is how the local-winner exemption
     is ASSERTED rather than assumed, because that job errors on a sequence winner lacking an audit
@@ -933,7 +933,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 13. **User-funded descriptive PER read over the four real H3 seeds (1g.2, gate already closed).**
     Registered by the planner on 2026-08-22 from the user's request to compute PER on real
     dev-other data, as a measurement over the closed gate rather than a revision of it
-    (`PLAN_1G.md` 1g.2 Status). One CPU job, `H4RealSeedPerJob.vu6Dp6HkJ2pH`, in its own module
+    (`archive/SAE_1g_spec_legacy.md` 1g.2 Status). One CPU job, `H4RealSeedPerJob.vu6Dp6HkJ2pH`, in its own module
     and its own config: plain per-split PER on the 890 selection-role utterances (432 dev-clean,
     458 dev-other) for the four real rows at counts 0/1/2/4, from the frozen surface's EXISTING
     decode artifacts against the same `GoldPhonesJob.ZGSp0hxyd2YP` gold. No decode was run, no
@@ -2075,12 +2075,12 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 9. **WRONG (old Conclusion 5): the descriptor route replaces the failed spectral route.** That was a
    temporary next-step statement. The hard descriptor experiment subsequently ran; both exercised
-   1g.4 routes failed their registered gates. Current funding status belongs in `PLAN_1G.md`.
+   1g.4 routes failed their registered gates. Current funding status belongs in `archive/SAE_1g_spec_legacy.md`.
 
 10. **WRONG / NOT ANSWERABLE (old Conclusion 19): the six-factor soft product failed its registered
     prerequisite.** The implementation counted seven alternative descriptors for one binary target,
     rather than testing six independent memberships. No six-factor channel or prerequisite screen was
-    run, so no experimental verdict exists; current funding status belongs in `PLAN_1G.md`.
+    run, so no experimental verdict exists; current funding status belongs in `archive/SAE_1g_spec_legacy.md`.
 
 11. **WRONG AND SUPERSEDED (old E5 endpoint and hard-stop interpretation).** The completed code uses
     retention 1 for the reference and 0 for a random redraw, fits and evaluates on the same
@@ -2090,7 +2090,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 12. **Approach 5 establishes the seed-provenance constraint.** The original fingerprint and ESPUM
     artifacts saw the evaluation audio and are transductive rows only. Neither qualifies for the
-    held-out gate or can silently inherit its original headline; `PLAN_1G.md` specifies the required
+    held-out gate or can silently inherit its original headline; `archive/SAE_1g_spec_legacy.md` specifies the required
     construction-only operating point.
 
 13. **Approach 5 localizes the preprocessing correction.** The frozen encoder, PCA/K-means, and
@@ -2120,7 +2120,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 17. **Approach 11 persists the five pre-label provisional maxima, and every one of them is a
     local winner.** All 85 starts carry a finite own-minus-donor maximum computed with no label
     read (`contains_labels: false`, `frozen_pre_label: true`), and all 85 winning tuples are
-    `decoder.kind = "local"`. `PLAN_1G.md` requires a frozen-versus-next-beam winner audit only for
+    `decoder.kind = "local"`. `archive/SAE_1g_spec_legacy.md` requires a frozen-versus-next-beam winner audit only for
     a sequence winner and states that a local winner needs none, so the audit precondition standing
     in front of the controlled labels is discharged by construction rather than by running the
     audit. The label-free half of the baseline pre-evaluation-ready condition also reads positive:
@@ -2284,7 +2284,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     loses on pseudo_pair (+0.0006), while order 3 beats order 4 on three of the four. Every real
     start stays in the 0.81-0.91 PER band under every fitting LM, so the start dominates the
     fitting order by an order of magnitude. SCOPE AND STATUS: this is descriptive and reads labels.
-    PLAN_1G 1g.2a Gate says in as many words that perplexity and PER cannot select order, so this
+    archive/SAE_1g_spec_legacy.md 1g.2a Gate says in as many words that perplexity and PER cannot select order, so this
     verdict does not choose a fitting LM, does not authorize the coherent matched-4 arm (item 5) and
     does not close it; the own-minus-donor half of item 4 is still unrun. Artifacts: the 60
     `H4ContextLocalDecodeJob` cells and `H4ContextDiagnosticPerJob.IYHS4cX3j3XV` under
@@ -2315,7 +2315,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     moving coordinate instead of the arm, and it is why the label-free half cannot be read as an
     order preference in either direction. CONSEQUENCE AND SCOPE: item 4 is complete and its answer
     is that a fixed-duration diagnostic at this operating point does not identify a better fitting
-    order -- the label-free statistic and the error rate disagree, and PLAN_1G 1g.2a already forbids
+    order -- the label-free statistic and the error rate disagree, and archive/SAE_1g_spec_legacy.md 1g.2a already forbids
     the error rate from selecting order. This closes no method: per the gate, "a negative
     fixed-duration result cannot close the coherent higher-order method", so the unrun coherent
     matched-4 arm (item 5) is untouched, neither authorized nor refused, and remains the planner's
@@ -2546,7 +2546,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     INADMISSIBLE -- `gaussian random_map tied 4` decodes 0.7832 of gold length, under the 0.80
     floor. I did not surface that when I wrote this verdict and should have, since a reader of
     verdict 45 alone would not know it. The planner ruled it counts as registered
-    (`PLAN_1G.md` 1g.11 Status 2026-08-24, ruling ii): the registration scopes clause 1 to
+    (`archive/SAE_1g_spec_legacy.md` 1g.11 Status 2026-08-24, ruling ii): the registration scopes clause 1 to
     clause-2 readability and names clause 3's controls with no admission precondition, so
     filtering it out after seeing that doing so flips the verdict would be an unregistered gate
     edit -- and would delete the very length pathology the control exists to expose. The verdict's
@@ -2728,7 +2728,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     UPDATE 2026-08-24, the pointer above: the planner ruled on that proposal and the guard is
     amended, so a 1g.13 cell no longer stops at it -- the guard now asserts each route's own
     registered expectation (v1-equivalent: two-state ADMISSIBLE asserted, one-state REPORTED) and
-    the ruling is in PLAN_1G.md 1g.13 Status, not in State.
+    the ruling is in archive/SAE_1g_spec_legacy.md 1g.13 Status, not in State.
 
 62. **A25: all five registered start protocols transport to the v1-equivalent stream unchanged and
     produce five distinct, valid starts -- the transport question of experiment 3 is answered
@@ -3009,7 +3009,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
 ## Verifier feedback
 
 - 2026-08-20 — The pre-rewrite theory battery has been audited by provenance and relevance. The
-  completed, decision-bearing evidence is now summarized in `PLAN_1G.md`: the raw-versus-pooled
+  completed, decision-bearing evidence is now summarized in `archive/SAE_1g_spec_legacy.md`: the raw-versus-pooled
   rate/identity tradeoff, the need for two-state within-symbol structure, the weakness of aggregate
   matching as content evidence, the positional design's rank limitation, the damage from hard unit
   coarsening, and the scoped likelihood/error warning. The generic finite-HMM identifiability theorem
@@ -3067,7 +3067,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   at every retained 0/1/2/4 step in all 85 trajectories; using it would choose count 4 everywhere
   while leaving the rest of the deployment tuple undefined.
 
-  `PLAN_1G.md` now freezes own-minus-donor as the **sole deployment selector**. For tuple `c`, fixed
+  `archive/SAE_1g_spec_legacy.md` now freezes own-minus-donor as the **sole deployment selector**. For tuple `c`, fixed
   source decode `z_ic`, and donor assignment `s`, it is
 
       Delta_ics = log P_Bc(U_i | z_ic)/T_i
@@ -3219,8 +3219,8 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   is implemented as registered: fixed 432/890, 458/890 weights over per-split eligible-row
   means, NO renormalization after `no_swap` removal — all 3,400 weighted means and all 340 `Sel`
   values reproduce exactly. Verdict 17's local-winner reading is frame-correct against
-  `PLAN_1G.md` ("A local winner needs no beam audit"); the ruling opening the controlled
-  reference labels is in `PLAN_1G.md` Status. Both hand-backs CLOSED same day (commit
+  `archive/SAE_1g_spec_legacy.md` ("A local winner needs no beam audit"); the ruling opening the controlled
+  reference labels is in `archive/SAE_1g_spec_legacy.md` Status. Both hand-backs CLOSED same day (commit
   `1c0ab7a88`, verifier-checked): the approach-11 coverage wording now states the 513
   donor-eligible contributing sources and the no-renormalization weights correctly, and the q09
   degeneracies are confirmed as construction at source — `Q_LEVELS` ends at 1.0
@@ -3316,7 +3316,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   artifact itself counts 85 local winners); dead code in the label-reading module (`spearman`
   defined twice, unused `resample_sel`, dead `has_sequence` parameter) was a review hazard —
   removed hash-neutrally in speech-llm `7146bc6` (this note absorbed 2026-08-22); the suite never asserts an end-to-end overall PASS (moot for this
-  NEGATIVE read). Gate consequences are ruled in `PLAN_1G.md` 1g.2 Status (2026-08-22): H4
+  NEGATIVE read). Gate consequences are ruled in `archive/SAE_1g_spec_legacy.md` 1g.2 Status (2026-08-22): H4
   unresolved, selector closed on this combination, maxima frozen, refits and the 1,112-ID
   evaluation stay closed, H4-LM not triggered; the direction fork goes to the user.
 
@@ -3373,7 +3373,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   `c6d85886` for the lowest. (c) Legacy-2g rerun timeline verified on disk: rerun finished
   12:25:39, earliest diagnostic cell started 12:29:31 — the "completed before any cell started"
   narrative holds, with under four minutes of margin. (d) Feedback commits pushed. The State
-  fan-in inode proposal is ACCEPTED and the PLAN.md storage-placement paragraph amended
+  fan-in inode proposal is ACCEPTED and the SAE.md storage-placement paragraph amended
   (planner re-measured: 342 input symlinks in the live gate dir and in each of the three cleared
   copies, 1,026 debris); cleared-dir deletion stays the user's call.
 - 2026-08-22 (1g.2a item 4 descriptive PER half VERIFIED; verdict 24 ACCEPTED, no hand-backs).
@@ -3443,7 +3443,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   traceable origin; the fold pin (gradients on the 6,414 update role, clause-0 read on the
   matched 890 with the update-role posterior beside) — RATIFIED, it removes a stage/fold
   confound the registered clause 0 had left open. Pre-stated by the planner NOW, before any
-  artifact exists (also in `PLAN_1G.md` 1g.9 Status): the clause-0 decision read is the COUNT-4
+  artifact exists (also in `archive/SAE_1g_spec_legacy.md` 1g.9 Status): the clause-0 decision read is the COUNT-4
   row, where posterior and decode read the same repaired emission table; count 0 is context
   only, because there the decode reads the start's direct `Q` while the posterior reads its `B`
   — the asymmetry State itself discloses. Also noted for the clause-0 reading: the frozen local
@@ -3451,7 +3451,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   duration law, so a decoder-resident collapse is a live mechanism this diagnostic can genuinely
   separate, not a straw man.
 - 2026-08-22 (1g.9 experiment-1 result VERIFIED in full; verdicts 26-29 ACCEPTED; clause-0
-  ruling issued in `PLAN_1G.md` 1g.9 Status). Every number in both approach-15 tables
+  ruling issued in `archive/SAE_1g_spec_legacy.md` 1g.9 Status). Every number in both approach-15 tables
   reproduces from `H4CollapseLocateJob.gZ9d6e3E7ZGu/output/collapse_locate.json` under the
   verifier's independent recomputation: all ten (posterior TV, posterior rate residual, decoded
   TV, decoded rate residual, distinct symbols, clause-0 flag) tuples to the printed precision,
@@ -3472,7 +3472,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   satisfied most easily by the channel carrying the least audio information. Clause 0 FIRED;
   experiments 2-3 stay unbuilt (verified: no constrained-arm graph exists); the direction fork
   is with the user.
-- 2026-08-23 (1g.10 launch round; VERIFIED AND ACCEPTED; beam-256 cut ruled in `PLAN_1G.md`
+- 2026-08-23 (1g.10 launch round; VERIFIED AND ACCEPTED; beam-256 cut ruled in `archive/SAE_1g_spec_legacy.md`
   1g.10 Status). A sampled chunk (`H4SequenceDecodeChunkJob.S25eY8DyW2cx`: pseudo-pair, count
   4, beam 256, lm_scale 1.0, insertion penalty -1, chunk 26) traces every constant to the
   registration: KenLM `CreateBinaryLMJob.hvZoC014xnIe`, H1 `Phase1gH1Job.HbxKiuBTJ8aN`, count
@@ -3493,7 +3493,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   have deleted the kept probes. Agreement/drift columns carry their 28-utterance support in
   payload, header and `beam_probe_note` as ruled.
 - 2026-08-23 (1g.10 result round VERIFIED; the duty's block is endorsed; 1g.10a registered in
-  `PLAN_1G.md` 1g.10 Status 2026-08-23 result). Verified on disk: 1,332 chunk dirs with ZERO
+  `archive/SAE_1g_spec_legacy.md` 1g.10 Status 2026-08-23 result). Verified on disk: 1,332 chunk dirs with ZERO
   `error.run*` markers (completion proven by the reader having consumed every merge;
   per-chunk `finished` markers live inside `finished.tar.gz` after auto-cleanup);
   `H4FullModelDecodeReadJob.MXhi20TtG1I0`'s payload carries the duty verdict verbatim
@@ -3517,7 +3517,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   designed (117 of 588 same-winner scores at 1e-9 is description, not a defect count). The
   scouting anomalies (13 same-sequence scores lower at beam 512; 8 lower total retained
   masses) are consistent with non-nested kept sets under this pruning rule and carry no
-  verdict. REPLACEMENT (in `PLAN_1G.md` 1g.10 Status 2026-08-23 re-rule): TEST D
+  verdict. REPLACEMENT (in `archive/SAE_1g_spec_legacy.md` 1g.10 Status 2026-08-23 re-rule): TEST D
   (bit-determinism, double-decode of three disclosed cells at beam 256, 1e-12 nats) and
   TEST U (banked pruned score <= exact all-alignments forced score of the same sequence
   + 1e-6 nats, for all 972 utterance-cells and both beams' winners -- the impossibility
@@ -3526,7 +3526,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   discharges the suspicion as a designed-in approximation and unlocks branches (ii)/(iii)
   as registered.
 - 2026-08-23 (1g.10a launch AND result round VERIFIED; DISCHARGED; consequences applied in
-  `PLAN_1G.md` 1g.10 Status 2026-08-23 discharge). Launch verified: the module docstring
+  `archive/SAE_1g_spec_legacy.md` 1g.10 Status 2026-08-23 discharge). Launch verified: the module docstring
   carries the re-ruled rule verbatim; the exact score is the pre-existing
   `marginal_path_log_score` (the chunk jobs already bank it as `channel_log_probability`),
   so the identity test is not circular -- and the test suite's own load-bearing check (real
@@ -3541,7 +3541,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   planner applies the pre-registered consequences: beam-512 table readable as descriptive
   with per-cell agreement disclosed; 1g.10b (beam-1024 probe, 36 cells x contract shard 28,
   reader extension, 26-of-27 cross-channel bar) is registered and ready to build.
-- 2026-08-23 (1g.10b blocker VERIFIED; ruled OPTION (b) in `PLAN_1G.md` 1g.10 Status
+- 2026-08-23 (1g.10b blocker VERIFIED; ruled OPTION (b) in `archive/SAE_1g_spec_legacy.md` 1g.10 Status
   2026-08-23 ruling). The stop was right and all three load-bearing claims verify in the
   code: `DECODER_BEAMS = (64, 128, 256, 512)` (`channel_h.py`), `cells` is a hashed
   constructor argument of `H4GlobalBeamTableJob` (`h4_beam_jobs.py:399`), and the 1g.10 read
@@ -3562,7 +3562,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   265 job dirs on disk mid-submission; the sizing mechanism (KenLM prefix cost linear in
   hypothesis length under a lengthening bonus) is real and accepted; the production merge
   reuse and the in-code refusal of the excluded pseudo-pair row are both endorsed. The
-  flagged convention is ruled in `PLAN_1G.md` 1g.10 Status 2026-08-23 launch ruling:
+  flagged convention is ruled in `archive/SAE_1g_spec_legacy.md` 1g.10 Status 2026-08-23 launch ruling:
   STRATIFIED resample (within fixed 432/458 splits) is the primary interval, matching the
   fixed-composition estimand and the family convention the implementer correctly pointed to
   (`h4_harness._bootstrap_content_values`); the unstratified interval prints beside as
@@ -3588,7 +3588,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   dir is debris, and it joins the cleared-dir debris list awaiting the user's call. The
   why-the-12-tests-missed-both analysis (fixture-fed statistics, never a direct call into
   `_fold`/`_decoded_statistics`) matches the standing test-the-call principle; endorsed.
-- 2026-08-23 (1g.10c result VERIFIED; planner reading and closure in `PLAN_1G.md` 1g.10
+- 2026-08-23 (1g.10c result VERIFIED; planner reading and closure in `archive/SAE_1g_spec_legacy.md` 1g.10
   Status 2026-08-23 1g.10c result). `H4InsertionBonusReadJob.da3bGeQIkS0R` finished with
   zero outstanding error markers; parity PASS printed by the producer. Every number in the
   Approach 16 table -- all eight paired deltas, both interval columns, frac-improved, the
@@ -3602,7 +3602,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   (every bound within 1e-4) is verified and is the right way to retire a convention ruling.
   Ruled in the plan: 1g.10c CLOSES -- mechanism confirmed causal, truncated-grid concern
   discharged, no further decode-parameter probes on this harness.
-- 2026-08-23 (1g.10b result read by the planner from the artifact; ruling in `PLAN_1G.md`
+- 2026-08-23 (1g.10b result read by the planner from the artifact; ruling in `archive/SAE_1g_spec_legacy.md`
   1g.10 Status 2026-08-23 result). `H4Beam1024ReadJob.tKbQ0MHLdX03`: parity cell PASS (the
   option-(b) identity guard held end to end), 0 of 36 cells clear the 26-of-27 bar (best
   24/27; median 512-vs-1024 agreement 0.704 vs 0.611 at 256-vs-512; drift per unit down in
@@ -3614,11 +3614,11 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   verdict 35): this entry originally claimed drift fell "in every cell" -- WRONG; the
   implementer's 25-down/11-up count is re-verified by the planner from both artifacts and
   is the record. The ruling is unaffected (11 cells with rising drift under a doubling
-  argue harder against escalation, not softer). The same universal claim in the PLAN_1G
+  argue harder against escalation, not softer). The same universal claim in the archive/SAE_1g_spec_legacy.md
   Status entry and in commit 66e4f5bf7's message is corrected by replacement in the plan;
   the commit message stands as history.
 - 2026-08-23 (1g.11 experiment 1 VERIFIED COMPLETE; both flags RULED as Approach amendments,
-  `PLAN_1G.md` 1g.11). Independent verifier reads: the frozen quantizer's `pca_components`
+  `archive/SAE_1g_spec_legacy.md` 1g.11). Independent verifier reads: the frozen quantizer's `pca_components`
   is (96, 1024) and centroids (500, 96) -- flag 1's fact confirmed from the artifact, the
   128 pin discharged as a ceiling-plus-no-refit instruction, sensitivity cell dropped as
   vacuous. Flag 2's token reading RATIFIED (count identity and "that token's frames" both
@@ -3630,7 +3630,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   ratified with the implementer's stated reason. The nested-gold fixture story (a flat read
   would have fitted the scale on evaluation utterances and looked right) is exactly the
   leakage class the fit/assign split exists for -- good catch, nothing further needed.
-- 2026-08-23 (constrained update rule round VERIFIED and RATIFIED; ruling in `PLAN_1G.md`
+- 2026-08-23 (constrained update rule round VERIFIED and RATIFIED; ruling in `archive/SAE_1g_spec_legacy.md`
   1g.11 Status). The clamp-as-constrained-maximizer argument is mathematically sound (per
   component the expected complete-data log likelihood is unimodal in the variance with
   maximum at the weighted second moment, so projection onto `{var >= v_min}` is exact) and
@@ -3696,7 +3696,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   rises) and listing all six rises -- number-identical to the verifier's recomputation;
   the stale eight-utterance sentence in State is cleared. Nothing further on experiment 2.
 
-- 2026-08-24 (experiments 3-4 result round VERIFIED; gate RULED in `PLAN_1G.md` 1g.11 Status:
+- 2026-08-24 (experiments 3-4 result round VERIFIED; gate RULED in `archive/SAE_1g_spec_legacy.md` 1g.11 Status:
   clause 3 FAILS, continuous emissions not funded at this operating point, the
   wav2vec-U-faithful follow-up not funded, route direction to the USER). Verification
   performed: `G11EvaluateJob.sWoS1bP4Nd12/output/evaluate.txt` matches approach 19 cell for
@@ -3717,7 +3717,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   clause-1 status does not remove it from clause 3) are recorded in the plan, not here.
   Nothing further on 1g.11; no new work is licensed by this round.
 
-- 2026-08-24 (1g.12 experiment 1 round VERIFIED; dated verdict line appended to `PLAN_1G.md`
+- 2026-08-24 (1g.12 experiment 1 round VERIFIED; dated verdict line appended to `archive/SAE_1g_spec_legacy.md`
   1g.12 Status). `G12ResourceGateJob.3h2iIpk6lpaB/output/resource_gate.txt` matches approach 20
   cell for cell (all seven table rows, 0.4345 h per E-step, 4 h / 17 h / 4 GiB, PASS one curve
   and RESOURCE_INFEASIBLE single-process). Verdict 53's arithmetic checks (1+39+39^2+39^3 =
@@ -3757,7 +3757,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   verdicts before their controls exist. Nothing to send back.
 
 - 2026-08-24 (results round VERIFIED: approaches 21/22/24, verdicts 55-60; dated lines appended
-  to `PLAN_1G.md` 1g.12 and 1g.13 Status). Recomputed from the banked tables: verdict 58's five
+  to `archive/SAE_1g_spec_legacy.md` 1g.12 and 1g.13 Status). Recomputed from the banked tables: verdict 58's five
   matched-4g gains, both control/reference ratios (1.358, 1.336), verdict 55's reproduction
   range (1.9e-16..2.6e-15, ten of ten at 0 of 890 disagreements), verdict 59's ten count-0
   identity pairs (identical to the symbol in both emission models), verdict 60's collapsed-cell
@@ -3777,7 +3777,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   58 and 60 both refuse to be clause verdicts. Nothing to send back.
 
 - 2026-08-24 (approach 24 results + verdict 61 + proposal 1 round VERIFIED and RULED; ruling in
-  `PLAN_1G.md` 1g.13 Status). The route artifact matches verdict 61 line for line
+  `archive/SAE_1g_spec_legacy.md` 1g.13 Status). The route artifact matches verdict 61 line for line
   (`G13RoutesJob.hStPuE1UqLK6`: p 0.68898090, mean 3.215237, one-state ADMISSIBLE, two-state
   ADMISSIBLE); the ratio arithmetic recomputes (2.2315/0.701 = 3.18 refuted on seg12.5,
   2.2498/1.876 = 1.199 admissible here, band 2; mean durations equal 1/(1-p) both ways). The
@@ -3793,7 +3793,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   v1 route two-state-only with one-state reported, unregistered routes refused; all four g12
   suites re-run clean after the edit (57/57, 50/50, 33/33, 22/22). Proposal 1 discharged.
 
-- 2026-08-24 (1g.13 experiment 3 round VERIFIED; dated line appended to `PLAN_1G.md` 1g.13
+- 2026-08-24 (1g.13 experiment 3 round VERIFIED; dated line appended to `archive/SAE_1g_spec_legacy.md` 1g.13
   Status). Every number in approach 25 and verdicts 62-64 reproduces by independent
   recomputation: emission-table positivity and row sums, the entropy column, the full ten-pair
   total-variation matrix, the espum selections re-derived as the argmin of each curve with the
@@ -3840,7 +3840,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   `G12EngineEquivalenceJob.sWWDLbPKglfP` (verified in the next entry).
 
 - 2026-08-24 (1g.13 experiment 4 re-measured round VERIFIED; dated line appended to
-  `PLAN_1G.md` 1g.13 Status). `G12ResourceGateJob.cQ3wfqsTamPP` matches approach 26 and
+  `archive/SAE_1g_spec_legacy.md` 1g.13 Status). `G12ResourceGateJob.cQ3wfqsTamPP` matches approach 26 and
   verdicts 65-66 in every field, and the sizing arithmetic recomputes: 32 chunks x 128.125 s =
   1.1389 h per E-step, x5 E-steps x1.5 = 8.54 -> 9 h one curve, x5 starts = 42.71 -> 43 h;
   chunk 2 is the heaviest at 48,417 tokens; the artifact names its subphase and carries the
@@ -3863,7 +3863,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   (c); keep it.
 
 - 2026-08-24 (round: 1g.12 experiment 5 seam + experiment 6 build + 1g.13 table port and gate;
-  three rulings appended to `PLAN_1G.md`). VERIFIED, all by independent recomputation:
+  three rulings appended to `archive/SAE_1g_spec_legacy.md`). VERIFIED, all by independent recomputation:
   (1) the accepted-bigram null pair (approach 27) -- `null_segments.pkl` sha bit-exact, 890
   utterances / 77,566 positions / 60,604 retained finite / 16,962 all-NaN with zero mixed rows
   and per-utterance counts matching the arm's real segments file; the readout's ONLY input
@@ -3875,7 +3875,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   destroyed everywhere; and `mu_0`/`var_0` are bit-identical between null and arm, so the
   order-0 row is a PURE observation swap while the order-4 row mixes the swap with a genuine
   refit -- worth keeping in mind when experiment 6 reads the two rows. The both-orders null and
-  the contrast-(c) exclusion are RATIFIED (PLAN_1G.md rulings 1-2); the one-bed condition
+  the contrast-(c) exclusion are RATIFIED (archive/SAE_1g_spec_legacy.md rulings 1-2); the one-bed condition
   already holds on disk (identical whole-draw sha on both cells; the two byte-identical 59.6 MB
   selection artifacts at separate inodes are correct by design, noted for the next inode
   squeeze). The disclosed prose-role-line bug and the hash-neutrality of `c4d3f13` both check
@@ -3887,7 +3887,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   (2) The experiment-6 reader (`G12EvaluateJob.oStN2ghRhR7l`): registered hash confirmed by
   building the graph read-only, 22 cells exactly, unrun confirmed four ways (still no phone
   error rate anywhere in 1g.12); gold sealed at four independent layers; suites re-run 37/37
-  and 32/32. PRE-RUN items, all on the unrun job (PLAN_1G.md ruling 3 makes (a) required) --
+  and 32/32. PRE-RUN items, all on the unrun job (archive/SAE_1g_spec_legacy.md ruling 3 makes (a) required) --
   ALL DISCHARGED, verified same day: seven at speech-llm `77b8982` (code read, suites re-run,
   hash then still `oStN2ghRhR7l` by graph rebuild), and item (c) ultimately done AS ASKED at
   `2c9992c` after a correction round. The direct digest equality item (c) named IS impossible
@@ -3954,7 +3954,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   added to memory).
 
 - 2026-08-24 (round: 1g.12 experiment 5 closure + experiment 6 launch + 1g.13 factorial pilots;
-  dated lines appended to `PLAN_1G.md` 1g.12 and 1g.13 Status). VERIFIED, every number
+  dated lines appended to `archive/SAE_1g_spec_legacy.md` 1g.12 and 1g.13 Status). VERIFIED, every number
   recomputed from disk by the verifier's own agents:
   (1) Experiment 5 CLOSED (approach 27). The matched-4-gram cell and its readout finished; both
   cells record 645,028 redrawn tokens (the 584,424/60,604 update/selection split lives in the
@@ -4041,11 +4041,11 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   registration counts 20, one per cell), graph total 4,798 with zero pre-existing hashes
   moved, both pilots undisturbed at their hashes and still running, and spot-checked new-cell
   requests match their own gates (9 h/30 GiB Gaussian, 10 h/3 GiB table). The supersession of
-  the pilot-first clause and the sharded recovery shape are recorded in `PLAN_1G.md` 1g.13
+  the pilot-first clause and the sharded recovery shape are recorded in `archive/SAE_1g_spec_legacy.md` 1g.13
   Status.
 
 - 2026-08-24 (round: 1g.12 experiment 6 and the gate read; GATE VERDICT written to
-  `PLAN_1G.md` 1g.12 Status). The gate table is VERIFIED at the strongest level this project
+  `archive/SAE_1g_spec_legacy.md` 1g.12 Status). The gate table is VERIFIED at the strongest level this project
   has used: the verifier's agents recomputed every decision number from RAW upstream
   artifacts, not from the job's summaries -- per-utterance correct-phone fractions rebuilt
   with an independently implemented unit-cost edit distance over `gold.json` and the twelve
@@ -4226,7 +4226,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   renderer inside `run()` and the json is dumped before the renderer runs, so no banked number
   could change; suite 79/79 at HEAD; the three render checks fail exactly 3/3 against a
   scratch extraction of the pre-fix module (working tree untouched); no unfinished job
-  re-imports `g12_evaluate.py`. The planner's re-run ruling is in `PLAN_1G.md` 1g.13 Status.
+  re-imports `g12_evaluate.py`. The planner's re-run ruling is in `archive/SAE_1g_spec_legacy.md` 1g.13 Status.
   One identity note recorded here so the (d) read always carries it: the two streams pin
   DIFFERENT espum checkpoints by construction -- seg12.5 update 30,000, this stream update
   24,000, each the stream's own label-free pick (traced through
@@ -4253,7 +4253,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   any Catalog, nothing deleted now.
 
 - 2026-08-25 (round: the USER's insertion question; mechanism read, one discrepancy). The
-  planner's verified answer is in `PLAN_1G.md` 1g.13 Status (dated 2026-08-25). For readers of
+  planner's verified answer is in `archive/SAE_1g_spec_legacy.md` 1g.13 Status (dated 2026-08-25). For readers of
   banked artifacts, the finding recorded here: the "two sub-states, minimum duration 2"
   operating_topology string carried by every 1g.12/1g.13 fitted artifact is a design LABEL the
   transition law does not enforce -- `channel_h.py` repair_hmm gives both sub-states exit arcs,

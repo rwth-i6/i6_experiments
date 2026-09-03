@@ -1,16 +1,16 @@
-# Historical snapshot — PLAN_1G before the 2026-08-19 rewrite
+# Historical snapshot — SAE_1g_spec_legacy.md before the 2026-08-19 rewrite
 
-**This file is non-normative.** The current plan is `../PLAN_1G.md`. This snapshot preserves the
+**This file is non-normative.** The current plan is `../SAE_1g_spec_legacy.md`. This snapshot preserves the
 original registered gates, completed verdicts, and unexercised specifications for provenance.
 Experimental evidence remains in `../SAE_1g.md`.
 
 ---
 
-# PLAN_1G — training-free unsupervised initialization: channel estimation decoded through the text language model
+# SAE_1g_spec_legacy.md — training-free unsupervised initialization: channel estimation decoded through the text language model
 
-Sub-plan of PLAN.md section 1g, registered 2026-08-18 on the USER's phase-1g planning request (five
+Sub-plan of ../SAE.md section 1g, registered 2026-08-18 on the USER's phase-1g planning request (five
 proposed methods, listed and adjudicated in "Proposal adjudication" below). Holds the 1g design
-detail so the PLAN.md section stays a page; collapses to a verdict when 1g's question closes.
+detail so the ../SAE.md section stays a page; collapses to a verdict when 1g's question closes.
 
 **What separates 1g from 1f in one sentence.** Every 1f entry learned a *fixed statistic map* from
 units to text symbols and decoded it by per-segment argmax with no language model anywhere at decode
@@ -200,7 +200,7 @@ constant) and 5.39 BPE-512 tokens/s, so a log-interpolation puts a BPE vocabular
 the 9.77 segments/s of `seg12.5` — the rung every banked null and ceiling already sits on. RULING:
 the primary text side is BPE at the vocabulary whose MEASURED token rate is closest to the chosen
 audio rung, that vocabulary reported not assumed, with characters as the alternative if 1g.0 prefers
-a finer rung. One reference arm only — phones from T_phi — kept for the reason ruling 3 of `PLAN_1F.md`
+a finer rung. One reference arm only — phones from T_phi — kept for the reason ruling 3 of `SAE_1f_spec_legacy.md`
 established: the gap between the arms is the measured price of the pronunciation lexicon, reported
 rather than argued. No further arms; the simplicity instruction binds the arm count too.
 
@@ -217,7 +217,7 @@ the phone reference arm, and the open supervision-cost decision that variant car
 rather than put to the user.
 
 **Honest risk, recorded before the arm runs.** English orthography is irregular and non-local, so a
-memoryless per-symbol channel is a WORSE fit to characters than to phones — `PLAN_1F.md` ruling 3
+memoryless per-symbol channel is a WORSE fit to characters than to phones — `SAE_1f_spec_legacy.md` ruling 3
 recorded this and it has not gone away. The repair is the precedent's own: the word-level language
 model and spelling lexicon at decode, which is exactly the component available here for free. This is
 why the word-level constraint moves from a conditional late rung into the 1g.1 decode battery.
@@ -226,7 +226,7 @@ why the word-level constraint moves from a conditional late rung into the 1g.1 d
 
 ## Scope amendment to the section-1a closure (planner ruling 2026-08-18, pre-run)
 
-PLAN.md section 1a says decipherment is "CLOSED permanently, on a bound", and PLAN_1F's reference
+../SAE.md section 1a says decipherment is "CLOSED permanently, on a bound", and SAE_1f_spec_legacy.md's reference
 verdict rejected arXiv:2603.02285's training loss as "the 1a fertility-HMM decipherment likelihood in
 gradient form". The USER's proposal 1 is that lane, so the closure has to be re-read against what it
 actually measured before 1g may spend anything. Read first-hand in `SAE_1a.md`, the closure rests on
@@ -1336,7 +1336,7 @@ strongest hypothesis-space reduction available here, it is the mechanism the pub
 speech decipherment work actually credits, and under the 2026-08-18 text-side ruling it costs no
 pronunciation lexicon on the primary arm. ALTERNATIVE
 ESTIMATOR, same model, admitted at rung 1 if 1g.2 licenses it and CPU-minutes to run: the
-fixed-core moment estimator parked as ladder entry 1 in `PLAN_1F.md` — fit the channel so that the
+fixed-core moment estimator parked as ladder entry 1 in `SAE_1f_spec_legacy.md` — fit the channel so that the
 unit co-occurrence matrix is reproduced by the text-pinned phone-bigram core, which is the same
 equation as the USER's proposal-4 graph-matching form with the core pinned instead of free, and is
 therefore that proposal in its identifiable form rather than a separate method.
@@ -1533,7 +1533,7 @@ ceiling. The rung is a ceiling measurement, not a search.
 **Experiments.** Nothing new is built until two free reads land. FREE READ 1 is 1g.1's E3 gold-boundary
 ceiling, which splits the 0.4148 into boundary error and unit confusability. FREE READ 2 is already
 registered and pending compute elsewhere: entry 7's full arm runs the reference pipeline's own
-relabeling iterations on this bed, and `PLAN_1F.md` entry-7 stage-A RULING 3 already registers the
+relabeling iterations on this bed, and `SAE_1f_spec_legacy.md` entry-7 stage-A RULING 3 already registers the
 iteration-3-minus-iteration-1 delta as the read on what relabeling buys here. **FREE READ 2 IS
 SUSPENDED 2026-08-18 and is no longer free.** Entry 7's iteration-1 checkpoint failed both arm-gate
 margins with a flat audio-swap control, and the relabeling iterations now in flight were seeded from
@@ -1783,7 +1783,7 @@ projection, now registered inside 1g.5.
 **Proposal 4, Gromov-Wasserstein / graph matching — FUNDED ONLY as an initializer, inside 1g.3 and
 1g.5, which is what the proposal itself recommends.** Two corrections. (i) In its identifiable form —
 pinning the phone-side core from the text corpus instead of matching two free graphs — the equation
-`A = M B M-transpose` is the fixed-core moment estimator already parked as `PLAN_1F.md` ladder entry
+`A = M B M-transpose` is the fixed-core moment estimator already parked as `SAE_1f_spec_legacy.md` ladder entry
 1, so proposal 4 and that entry are one method and 1g merges them rather than running both. (ii) The
 obstacle is not only the many-to-one quotient the proposal names: on every pooled rung the real stream
 BEATS a control that factorizes by construction on the matching objective itself (`SAE_1f.md`
@@ -1842,7 +1842,7 @@ here into "suspect the boundaries", which is why 1g.6 funds the re-segmentation 
 measurement (the gold-boundary ceiling read, 1g.1 E3) and takes the merge operation only in its soft
 row-tying form, merging being bounded above by the data-processing inequality. Part of the proposal is
 already in flight and costs nothing extra: entry 7's full arm runs the reference pipeline's own
-relabeling iterations on this bed, and `PLAN_1F.md` entry-7 stage-A ruling 3 already registers the
+relabeling iterations on this bed, and `SAE_1f_spec_legacy.md` entry-7 stage-A ruling 3 already registers the
 iteration-3-minus-iteration-1 delta as the read on what relabeling buys here.
 
 **Sharpening of these five verdicts by the theory battery (2026-08-18, appended — the verdicts above
@@ -1909,7 +1909,7 @@ keep using when new candidates arrive.
 | BPE (or character) tokenization learned on the raw unpaired corpus | PRIMARY arm, every phase | no lexical knowledge — the corpus tokenizes itself |
 | n-gram language model over those tokens | PRIMARY arm, 1g.1/1g.2/1g.3/1g.5 | derived from the line above, no new cost |
 | word n-gram + SPELLING lexicon (the corpus's own vocabulary) at DECODE | PRIMARY arm, 1g.1 E2 | not a pronunciation lexicon; readable off the text we already consume, so no new line item |
-| pronunciation lexicon + grapheme-to-phoneme, to build the phone text T_phi | REFERENCE arm only | permitted, PLAN.md prior-knowledge table; the arm exists so its gap to the primary arm PRICES this resource |
+| pronunciation lexicon + grapheme-to-phoneme, to build the phone text T_phi | REFERENCE arm only | permitted, ../SAE.md prior-knowledge table; the arm exists so its gap to the primary arm PRICES this resource |
 | pronunciation lexicon a second time, to turn phone output into text | REFERENCE arm only | the extra touchpoint ruling 3 requires disclosing; the primary arm outputs text directly and does not pay it |
 | phone-to-articulatory-feature table (39 rows of textbook phonetic class) | REFERENCE arm option only | DEMOTED 2026-08-18 by the text-side ruling; not on the primary path, no USER decision outstanding |
 | speaker identifiers, for per-speaker normalization before clustering | 1g.6 replacement probe | permitted under the 2026-08-14/16 amendment; disclosed as a supervision cost when used |

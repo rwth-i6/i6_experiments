@@ -1,4 +1,4 @@
-# PLAN_3E1 — Scorer trainability without collapse (sub-plan of PLAN.md §3e.1)
+# Legacy specification — SAE 3e1 — Scorer trainability without collapse (sub-plan of ../SAE.md §3e.1)
 
 Opened 2026-08-07 (planner) after the 14-agent design fan-out (2 grounding readers, 6 literature
 lenses, 3 designs each red-teamed). Question: what update rule / pair construction / scheduling
@@ -1122,7 +1122,7 @@ config, verified at source).**
   psi's spelling-specific emissions round over round — a mechanism no frozen-scorer arm
   has.
 - GROUND-TRUTH CORRECTION THE ARM IS BUILT ON (2026-08-17 planner audit, at source): the
-  live psi conditions on GRAPHEMIC BPE — there is NO G2P anywhere in the reward (PLAN.md
+  live psi conditions on GRAPHEMIC BPE — there is NO G2P anywhere in the reward (../SAE.md
   §3e formula corrected same day). Homophone spellings are therefore NOT
   reward-invariant: the reconstruction term carries a structural per-state price on
   orthographic length (the minimal-state exploit's substrate) plus learned
@@ -1791,7 +1791,7 @@ not evidence that an online same-speaker negative cannot work; verdict 67's trad
 same-speaker discrimination bought a significantly larger insertion discount, and the external
 usage-gate widening is almost entirely the null side) is the recorded legacy a future design
 must break rather than re-tune. The clause-3 point-versus-CI eligibility convention remains
-DUAL-REPORTED per the user's pending blessing (PLAN.md queue item 2) and is not pinned here.
+DUAL-REPORTED per the user's pending blessing (../SAE.md queue item 2) and is not pinned here.
 
 **D8 -- posterior-weighted multi-hypothesis scorer refit (soft EM over sampled rollouts;
 USER-proposed 2026-08-21, registered same day; UNFUNDED).**
@@ -2300,7 +2300,7 @@ directive -- the USER is the one authority above a registration. What survives u
 tau, temperature, support or coefficient is selected from the failed D8.2 tables; both
 operating points stay frozen exactly as trained (candidate-acoustic at tau_star 0.05, fixed
 final; the D7 exact control, fixed final). The reopening adds a measurement, not a rescue.
-Standing rules (added same day to `PLAN.md` North star & hard constraints): (1) every
+Standing rules (added same day to `../SAE.md` North star & hard constraints): (1) every
 model-evaluation comparison is PAIRED -- same items, per-item deltas, resampled CI, never two
 pooled numbers; (2) proxy clause batteries (corruption ladders, constructed discrimination
 statistics) may gate spend inside a phase but never close one -- a phase-closing
@@ -2340,7 +2340,7 @@ ranking-quality (eta) read, pre-declared before any statistic exists:
 The build is ACCEPTED IN STRUCTURE with ONE REQUIRED CORRECTION before the verdict may be read.
 Ratified: step zero's answer (verified on the class -- `PsiScorerParityJob` re-scores ONE arm's
 own rerank through the online path against its own `recon` column; no second arm, no eta, so it
-cannot discharge D8.4); the reuse of PLAN_3A's paired instrument at the pinned `n_boot=10000`,
+cannot discharge D8.4); the reuse of SAE_3a_spec_legacy.md's paired instrument at the pinned `n_boot=10000`,
 `seed=42`; the three-way reading in the producing module's docstring, which carries the
 registered rule verbatim; the refusal tests; the manager replacement. REQUIRED: the launched
 rerank pair consumes `ReturnnForwardJobV2.QbIYruVEI0fF` (alias `forkep2_tc100full_g12_T0.7`) --

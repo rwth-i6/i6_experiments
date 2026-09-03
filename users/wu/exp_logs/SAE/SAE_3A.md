@@ -261,7 +261,7 @@ the posterior `log p(z|u)` with no weight chosen on the data.
 15. (8) The 2S-era ruling "post-adapter WINS, substrate CLOSED" (2026-07-31) is **WRONG** under this
     scorer family — `enc125_sft` is the only arm with spearman >= incumbent on both beds, so the adapter
     is free but not useful, and what that ruling measured was mostly the rate change.
-16. (8) PLAN_3A §5b's premise that "the AV's w2v2 encoder is frozen during SFT" is **WRONG** —
+16. (8) archive/SAE_3a_spec_legacy.md §5b's premise that "the AV's w2v2 encoder is frozen during SFT" is **WRONG** —
     `config_sae_2s_av_sft_w2v2_v1` passes `encoder_trainable=True` (conv front end frozen, transformer
     fine-tuned); the flag differs by phase and era, and the 2026-07-18 wav2vec2 pivot flipped SFT to
     trainable.

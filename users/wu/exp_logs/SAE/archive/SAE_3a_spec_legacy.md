@@ -1,10 +1,10 @@
-# PLAN §3a sub-plan — psi_align, the monotonic-alignment reconstruction scorer
+# Legacy specification — SAE §3a sub-plan — psi_align, the monotonic-alignment reconstruction scorer
 
-Planner-owned design document (normative), 2026-08-05. PLAN.md §3a holds the decision and the
+Planner-owned design document (normative), 2026-08-05. ../SAE.md §3a holds the decision and the
 gate summary and points here; this file holds the full design. The implementer's execution log is
 `SAE_3A.md` (open it on first build; this file records *what to build and why*, that one records
 *what happened*). Renamed from `SAE_3A_SCORER_DESIGN.md` the same day it was written (user call:
-PLAN.md stays lean, sub-plans carry the detail).
+../SAE.md stays lean, sub-plans carry the detail).
 
 Fired by the user 2026-08-05 ("do a research on what exact neural architecture to use for an ideal
 AR, read TTS and TTE papers") — this is the escalation §3a pre-registered on 2026-07-18
@@ -239,7 +239,7 @@ maps which phones the units resolve.
 | P1 build + G0 | `speech_llm/sae/psi_align.py` + tests: forward-sum == brute-force path enumeration on toy lattices (T,U ≤ 6); per-state normalization sums to 1; batch-size invariance; fp32-under-autocast; prior anneal | login-node pytest | green tests |
 | P2 train | `PsiAlignTrainJob`, seed pairs per §4.5 | ≤ 1 GPU-h | ckpt + monitors |
 | P3 gate G1 (+ G2 diagnostic) | `PsiAlignInfoGateJob`: dev-5000 true + length-matched deranged pairings → ce_loo usage gate and text-explained (§6 convention as amended), NLL/frame secondary, ce_emis reported-only, length-only-null control, Viterbi + leave-one-out frame accuracy | ~0.5 GPU-h | gate table |
-| P4 gate G3 — **runs unconditionally, not gated behind P3** | `PsiAlignRerankJob`: re-score the **existing** n=512 × G=12 rollout dumps (theta_0 bed primary; AR_G bed secondary) — no new sampling; UNK-primary OOV convention; gap_true, spearman, audio margin, eta-at-G for the record | ~0.5–1 GPU-h | PLAN.md §2.5(d) table |
+| P4 gate G3 — **runs unconditionally, not gated behind P3** | `PsiAlignRerankJob`: re-score the **existing** n=512 × G=12 rollout dumps (theta_0 bed primary; AR_G bed secondary) — no new sampling; UNK-primary OOV convention; gap_true, spearman, audio margin, eta-at-G for the record | ~0.5–1 GPU-h | ../SAE.md §2.5(d) table |
 
 Total < 3 GPU-h to the decisive read. B0 synergy: retraining psi_align per candidate stream
 ({k100, brown_k100, perutt_k500}) is minutes each — those slot into the matrix below as

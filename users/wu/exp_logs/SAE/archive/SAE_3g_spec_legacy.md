@@ -1,4 +1,4 @@
-# PLAN_3G — Z-track: from-scratch fully-unsupervised joint loop
+# Legacy specification — SAE 3g — Z-track: from-scratch fully-unsupervised joint loop
 
 Sub-plan of PLAN §3g (moved here 2026-08-14 because the track outgrew a page; all four
 registered arms are now closed). The Z-track asks the user's question "real unsupervised ASR

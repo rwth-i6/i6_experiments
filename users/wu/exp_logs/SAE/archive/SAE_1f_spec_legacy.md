@@ -1,8 +1,8 @@
-# PLAN_1F — Statistics-matching initialization: design space (planner sub-plan)
+# Legacy specification — SAE 1f — Statistics-matching initialization: design space (planner sub-plan)
 
-Sub-plan of PLAN.md section 1f (registered 2026-08-12). Created 2026-08-16 from a five-agent
+Sub-plan of ../SAE.md section 1f (registered 2026-08-12). Created 2026-08-16 from a five-agent
 fan-out (grounding + two web sweeps + brainstorm, adversarial merge; 28 candidates screened).
-Holds the 1f design detail so the PLAN.md section stays a page; collapses back to a verdict
+Holds the 1f design detail so the ../SAE.md section stays a page; collapses back to a verdict
 when 1f's question closes. The two prerequisite kill conditions stand as registered; the arm
 gate was REPLACED 2026-08-16 by the USER's better-than-unpaired criterion (see Verdicts and
 rulings below).
@@ -114,7 +114,7 @@ far short of demanding near-oracle from a seed. Registered while candidate and b
 are unmeasured; only the oracle ceilings are known.
 
 **USER ruling 3 (2026-08-16, lexicon-free text side).** The initialization screens run TWO
-text-side arms, the PLAN_3A section-5c pattern transplanted: (a) phone-level REFERENCE arm —
+text-side arms, the SAE_3a_spec_legacy.md section-5c pattern transplanted: (a) phone-level REFERENCE arm —
 statistics from the phonemized corpus T_phi, i.e. the form everything above assumes; (b)
 LEXICON-FREE arm — the same solver against text statistics that involve no pronunciation
 input: text-BPE-512 tokens (the scorer's adopted carry-forward text side, learned on the
@@ -130,7 +130,7 @@ English orthographic irregularity enters the channel, which a fixed-statistics s
 cannot learn away (the neural aligner could only because it trains on seed pairs). The
 arm gate and margins above apply to each arm unchanged, nulls built per representation
 and per text side; PER stays the scored read for both (phonemizing a text output for
-evaluation is eval-only lexicon use, licensed at PLAN.md's prior-knowledge table). The
+evaluation is eval-only lexicon use, licensed at ../SAE.md's prior-knowledge table). The
 lexicon-free arm's oracle-ceiling read needs one new eval-only ingredient: gold word
 alignments plus BPE tokenization of the gold transcript. If the loop's reward ever moves
 to the BPE-graph scorer, that is a SEPARATE decision gated on the audio-margin control
@@ -1106,7 +1106,7 @@ and exactly as pre-registered: both arms sit far above the 0.8446 margin and bot
 are flat, so this is a contrast between two uninformative decodes rather than between two losses. The
 condition was written before either number existed and is applied as written; no further spend is
 licensed against stage A, and clause (4)'s clip-ceiling re-run remains a USER option rather than a
-recommendation. Consequence carried elsewhere: `PLAN_1G.md` 1g.6's FREE READ 2 stays SUSPENDED, since
+recommendation. Consequence carried elsewhere: `SAE_1g_spec_legacy.md` 1g.6's FREE READ 2 stays SUSPENDED, since
 the relabeling iterations it would read were seeded from an iteration-1 checkpoint that fails both
 margins, and `GuaTrainJob.EwdQgD4XqYPI` now has no registered consumer at all.
 
@@ -1382,7 +1382,7 @@ outside ruling 6's stage scope, so LAUNCH AWAITS THE USER'S WORD — planner rec
 fund cells 1-4 (the stage-A decodes, the control, and the re-banked nulls; cheap CPU-side
 decoding on 572 utterances); cell 5 optional second. The 1g-side companion (LM-aware decode
 of the espum CHANNEL projection) is already funded as part of 1g.10 experiment (1),
-`PLAN_1G.md`.
+`SAE_1g_spec_legacy.md`.
 
 2026-08-23 launch ruling (cells 1-2 LAUNCHED on the user's word, given in the implementer
 session; build ACCEPTED; all three flagged proposals RULED; ANCHOR PIN DISCHARGED). Verified:
@@ -1489,10 +1489,10 @@ PER 1.68 is, to within measurement, REBORN Table 7's published `wav2vec-U (k-mea
 28.5 Hz, PER over 100 percent, 0 of 5 seeds converged — i.e. it faithfully reproduced an ablation the
 literature explicitly discards, and the step it is missing is a PREPROCESSING step: the canonical
 wav2vec-U recipe runs `merge_clusters.py` then `mean_pool.py --subsample-rate 0.5` before the
-generator ever sees the stream. NOTE FOR §1g: this also means `PLAN_1G.md` 1g.13's description of
+generator ever sees the stream. NOTE FOR §1g: this also means `SAE_1g_spec_legacy.md` 1g.13's description of
 "segments = cluster-ID runs at their natural ~28/s rate" as the wav2vec-U v1-equivalent stream is
 INACCURATE — v1 does not stop at cluster-ID runs — and 1g.13's contrast (d) SEGMENTATION verdict must
-be re-read with that scope; carried to `PLAN_1G.md` as a verifier item, no 1g verdict is reopened here.
+be re-read with that scope; carried to `SAE_1g_spec_legacy.md` as a verifier item, no 1g verdict is reopened here.
 
 **Purpose.** Decide, by measurement rather than by argument, whether ANY fixed low-order
 statistics matcher can recover the map on a bed we own — and if one can, name the exact configuration

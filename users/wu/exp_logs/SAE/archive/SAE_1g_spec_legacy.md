@@ -1,12 +1,12 @@
-# PLAN_1G — A simple weak starting point for the SAE loop
+# Legacy specification — SAE 1g — A simple weak starting point for the SAE loop
 
-Sub-plan of `PLAN.md` Phase 1g. Rewritten 2026-08-19 after the user clarified the role of
+Sub-plan of `../SAE.md` Phase 1g. Rewritten 2026-08-19 after the user clarified the role of
 Phase 1: it should provide a simple, weak initialization for the speech autoencoder (SAE) loop,
 not solve ASR by itself.
 
 This rewrite replaces the old live specification from 2026-08-19 onward. It does not rewrite any completed
 gate or result. The pre-rewrite plan is preserved in
-`archive/PLAN_1G_pre_rewrite_2026-08-19.md`. Detailed measurements and artifact records belong in
+`archive/SAE_1g_spec_pre_rewrite_2026-08-19.md`. Detailed measurements and artifact records belong in
 `SAE_1g.md` and the earlier phase logs; the durable scientific conclusions that determine the live
 direction are summarized here.
 
@@ -461,7 +461,7 @@ SAE handoff.
 
 - Results log: `SAE_1g.md`
 - Historical detailed specification:
-  `archive/PLAN_1G_pre_rewrite_2026-08-19.md`
+  `archive/SAE_1g_spec_pre_rewrite_2026-08-19.md`
 - Completed exploratory E5 job:
   `work/speech_llm/sae/seed_basin/SeedBasinJob.Zm3EuTveSGBL`
 - Current E5 implementation:
@@ -1164,7 +1164,7 @@ sequence-level correctness. Reading: the row carries no sequence-level signal wo
 transplanting; its margin over the random-map control is unigram-statistics deep. Planner
 recommendation: do NOT initialize SAE from any real H4 start; the project's banked label-free
 anchor for usable phone quality is the Rung 0 CTC student at 0.172 dev-other phone PER
-(PLAN.md phase 1d), which no fitting-order change moves an 0.81-PER collapsed channel toward.
+(../SAE.md phase 1d), which no fitting-order change moves an 0.81-PER collapsed channel toward.
 1g.2a (H4-LM) remains available as user-fundable science on the order question — a D-style
 diagnostic on this start is cheap (dense-tensor exact engine; the registered resource preflight
 binds the contract) — but it is registered as an estimator-family question, not a performance
@@ -1873,7 +1873,7 @@ reference (`H4RepairJob.x1TyHJMfEVpb`, count 4), and the espum start
 (`H4RepairJob.ViPSmq4Am8vX`, count 4) on the 890 selection-role utterances, all 12 grid
 points, beams 256 and 512 (espum added 2026-08-23, replacing the same-day two-start form,
 because the USER asked for the old PUSM approach decoded with an LM — the espum channel is
-its projection into this route; the fairseq-side companion is `PLAN_1F.md` entry 8). A true
+its projection into this route; the fairseq-side companion is `SAE_1f_spec_legacy.md` entry 8). A true
 count-0 direct-Q sequence decode is NOT mechanically supported (the Q-start artifact schema
 `phase1g-h4-q-start-v1` fails the sequence decoder's `phase1g-phone-channel-v1` gate) and is
 NOT funded — no new modeling code stands; the count-0 B-table cell is decodable but is a
@@ -1905,7 +1905,7 @@ the implementer proposes shard/resource sizing in `SAE_1g.md` State before launc
 experiment (1) is amended by replacement to include the espum start's count-4 cells (see the
 replacement note in Experiments); the extension clause now covers fingerprint and random-map
 only. The fairseq-side LM-decoded PER of the PUSM/ESPUM arms is registered separately as
-`PLAN_1F.md` entry 8 and awaits the user's launch word there.
+`SAE_1f_spec_legacy.md` entry 8 and awaits the user's launch word there.
 2026-08-23 latest (planner ruling on the launched build; verifier round in `SAE_1g.md`). The
 launch is VERIFIED AND ACCEPTED: constants trace (banked KenLM `CreateBinaryLMJob.hvZoC014xnIe`,
 frozen H1 `Phase1gH1Job.HbxKiuBTJ8aN`, count adapters, selection resource contract
@@ -2139,7 +2139,7 @@ real-arm operating point beyond the edge. (iii) No further decode-parameter prob
 this harness: beam escalation closed by 1g.10b, the insertion axis closed here, and the
 stratification ruling closed as immaterial by verdict 37 (every bound within 1e-4 of the
 unstratified read -- reported, not load-bearing). 1g.10c CLOSES. The decode route's remaining
-live measurement is the fairseq-side companion (`PLAN_1F.md` entry 8, cells 1-2 running), which
+live measurement is the fairseq-side companion (`SAE_1f_spec_legacy.md` entry 8, cells 1-2 running), which
 decodes the real generator with the real flashlight decoder rather than this channel harness.
 
 ### 1g.11 — Continuous-emission twin of the table channel (USER-proposed and greenlit 2026-08-23)
@@ -2156,7 +2156,7 @@ ceiling gain). Mechanism: a 500-way table can represent ANY unit-phone assignmen
 landscape is dense with content-free optima that satisfy marginal and LM statistics (verdict
 28's mechanism); a tied diagonal Gaussian can only represent geometrically coherent feature
 regions, pruning EM's search space to acoustically plausible solutions. Disclosure: the same
-single-variable swap ran once on the 3a scorer bed (`PLAN_3A` §5b.1 cell M2) and was
+single-variable swap ran once on the 3a scorer bed (`SAE_3a_spec_legacy.md` §5b.1 cell M2) and was
 INDISTINGUISHABLE at the decision temperature (delta eta +0.0027 [-0.027, +0.035]; worse at
 T=1.0) — but M2 asked whether continuous observations improve a TRAINED scorer's ranking, not
 whether they rescue unsupervised EM from content-free optima; that question is untested and is
@@ -2258,7 +2258,7 @@ bias, not information loss; segmentation shared with the comparator rung rather 
 re-derived; the frozen PCA basis truncated to 128, never refit; M2 disclosed. USER-greenlit
 2026-08-23 ("I greenlight 1g 11") — the 1g work hold, previously lifted for 1g.10 only, is
 lifted for 1g.11 by that word. Nothing launched; evidence goes to `SAE_1g.md`. Entry 8 cells
-3-4 (`PLAN_1F.md`) remain a separate open user decision.
+3-4 (`SAE_1f_spec_legacy.md`) remain a separate open user decision.
 2026-08-23 result (experiment 1 COMPLETE and VERIFIED; both implementer flags RULED as the
 Approach amendments above). `G11ContinuousSegmentsJob.hImWJG0X4eZh` (speech-llm 16b1063):
 8,416 utterances, 919,248 token vectors, 921,432 Ward segments, frozen PCA dimension 96 kept
@@ -2330,7 +2330,7 @@ against a smallest clause-2 gap of 0.0090). The registered wav2vec-U-faithful fo
 NOT funded (it required a clause-3 pass); whether the shared segmentation itself comes under
 suspicion is a separate planner decision, currently not raised. 1g.11's question is ANSWERED;
 what the answer means for the phone route's direction is the USER's call and joins entry 8
-cells 3-4 (`PLAN_1F.md`) on their desk.
+cells 3-4 (`SAE_1f_spec_legacy.md`) on their desk.
 2026-08-24 (verifier's ad-hoc unigram read of the banked hypotheses, on the USER's question
 "do the Gaussian outputs look less collapsed" -- descriptive, decides nothing, and any
 load-bearing use needs a registered reader; convention: unigram over all decoded symbols of

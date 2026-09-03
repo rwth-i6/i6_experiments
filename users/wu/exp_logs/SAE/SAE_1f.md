@@ -261,7 +261,7 @@ phone-unigram frequencies — so the marginal-free pointwise-mutual-information 
 | | seg_swap | 0.045 | 0.682 | 0.841 | 0.338 |
 | | seg_rand | 0.045 | 0.035 | 0.075 | 0.441 |
 
-**3. The screen battery, one row per REPRESENTATION of the same stream (PLAN_1F queue item 0).**
+**3. The screen battery, one row per REPRESENTATION of the same stream (archive/SAE_1f_spec_legacy.md queue item 0).**
 Five frame-level 50 Hz representations of the enc50 stream are screened by the same three jobs, so
 every row is like-for-like and the raw row reproduces its registered PER exactly: `seg16/12.5/9` pool
 the encoder features by adjacency-constrained Ward merging to 16 / 12.5 / 9 tokens per second and
@@ -290,7 +290,7 @@ of arXiv:2306.07926's closed-form estimator.
 | `ubpe12.5` | dev-clean | 1.15 | 0.458 | 0.073 | 0.158 | 0.352 | 0.710 | 0.659 | 0.340 | 0.359 | 0.399 | 0.631 | 0.476 | 0 |
 | | dev-other | 1.27 | 0.538 | 0.149 | 0.116 | 0.436 | 0.671 | 0.608 | 0.363 | 0.374 | 0.411 | 0.589 | 0.427 | 0 |
 
-**4. Ladder entry 3: the unary fingerprint assignment, read against the arm gate (PLAN_1F queue
+**4. Ladder entry 3: the unary fingerprint assignment, read against the arm gate (archive/SAE_1f_spec_legacy.md queue
 item 1).** Per-unit transition-free statistics from the unpaired audio -- log relative frequency,
 utterance-initial and utterance-final rate, and a six-bin histogram of position in the utterance --
 are matched to the same statistics of `T_phi` phones by one entropic optimal-transport solve on the
@@ -320,7 +320,7 @@ content-carrying and a content-free map; `pos` re-solves without the frequency c
 | `ubpe12.5` | dev-clean | 0.412 | 0.894 | 0.869 | 0.916 | 0.812 | -0.083 | 0.022 | 0.020 | 0.488 | 0.251 | 0.176 | 0.410 | 0.344 | 0.067 |
 | | dev-other | 0.470 | 0.944 | 0.917 | 0.979 | 0.820 | -0.124 | 0.016 | 0.014 | 0.468 | 0.247 | 0.175 | 0.421 | 0.344 | 0.000 |
 
-**5. Ladder entry 6's kill-test: is any frequent unit-word a function word (PLAN_1F queue item 3,
+**5. Ladder entry 6's kill-test: is any frequent unit-word a function word (archive/SAE_1f_spec_legacy.md queue item 3,
 and ruling 3's precondition for the lexicon-free text arm).** The label-free edge-enrichment split
 that entry 3 uses names the silence units, those cut each utterance into silence-delimited segments,
 and ONE greedy unit-BPE merge list is learned over the segments toward the 2.8 unit-words/s English
@@ -441,7 +441,7 @@ The arm the code and every job handle call `bigram_only` is NOT the reference's 
 keeps the positional unigram (`espum_model.py:26 POS_UNIGRAM_WEIGHT = 1.0`, applied unconditionally,
 with only the skip and tri sizes switched), so it is the published `uni+bi` configuration and its
 contrast with `full` is `uni+bi` against `uni+bi+tri` -- a published separation of 0.8 PER points,
-not the 32.4 the signature bar was built on (verifier ruling 2026-08-25 (A), `PLAN_1F.md`). The row
+not the 32.4 the signature bar was built on (verifier ruling 2026-08-25 (A), `archive/SAE_1f_spec_legacy.md`). The row
 label is corrected here; the job handles keep the name they were created under.
 
 **9. Ladder entry 7: the published graph-based pipeline, run verbatim on our seed bed (USER ruling
@@ -681,7 +681,7 @@ normalized per reference unit rather than per token -- would be a NEW registrati
 E8.4. **Beam 50 is converged for the RATE and not for the SEQUENCE.** A ten-fold wider beam moves
 PER by at most 0.0195 in any cell while the two beams agree on the one-best in as few as 11.4
 percent of utterances. The same signature the 1g decoder showed at its own beam doublings
-(PLAN_1G verdicts 33-35): many near-equal hypotheses, so which one wins is unstable while what it
+(archive/SAE_1g_spec_legacy.md verdicts 33-35): many near-equal hypotheses, so which one wins is unstable while what it
 scores is not. No beam escalation is warranted for this measurement.
 <!-- One line per answered experimental question, resting on a number in that approach's table. A
 wrong verdict is marked WRONG with a one-line correction below it, never rewritten. (Migrated from
@@ -751,7 +751,7 @@ cell 4 will find.
    K=100 over 495 position rows) — and a SIMULATED channel with perfect recoverability reads 0 too,
    so the failure is structural (utterances do not supply as many estimable positions as there are
    units) rather than a property of this channel.
-9. (3) The tv_offdiag bar pre-registered in `PLAN_1F.md` cannot be read as written on any
+9. (3) The tv_offdiag bar pre-registered in `archive/SAE_1f_spec_legacy.md` cannot be read as written on any
    representation: its span term is 3.8-11.4 % everywhere against a 25 % bar, while its position term
    exceeds 1 on every pooled row because the real stream now beats the `seg_swap` ceiling —
    coarticulation pushes correlated errors onto the DIAGONAL instead of spreading them off-diagonal,
@@ -841,7 +841,7 @@ cell 4 will find.
     audio representations, and the two positive M1 cells are both the phone reference side.
 28. (7) The train-side corpus asymmetry did NOT decide the ruling: `ubpe12.5` runs on 4.1x the
     utterances (34106 vs 8416) and 5.4x the audio (111.0 h vs 20.5 h) and is nonetheless the worst
-    rung on every text side, so the corpus-matched `ubpe` control that PLAN_1F amendment (6) makes
+    rung on every text side, so the corpus-matched `ubpe` control that archive/SAE_1f_spec_legacy.md amendment (6) makes
     conditional is not triggered.
 29. (7) The `words` cells price a rate-MISMATCHED arm rather than a rate-matched one: no stream reached
     the 2.8/s target, the mismatch shows up directly as candidate insertions (0.717 on `ubpe12.5`
@@ -860,7 +860,7 @@ cell 4 will find.
     positional unigram (`POS_UNIGRAM_WEIGHT = 1.0`, `espum_model.py:26/152`), so it is the paper's
     `uni+bi` row (39.2), not its `bigrams only` row (71.6). The expected separation for the pair
     actually run is 0.8 PER points, not the 32.4 the "expected signature" was built on; the absence of
-    separation is therefore what the reference predicts. Ruling: `PLAN_1F.md` 2026-08-25 (A).
+    separation is therefore what the reference predicts. Ruling: `archive/SAE_1f_spec_legacy.md` 2026-08-25 (A).
 33. (8) The arms fail on IDENTITY, not on rate or on collapse: they emit 0.963-0.974 of the reference
     phone count, use all 39 phone types, and carry 79-81% of their error as substitutions, so the
     matching objective fixed the marginal statistics it is written on while leaving the unit-to-phone
@@ -880,7 +880,7 @@ cell 4 will find.
     PER points -- one twelfth of the bar and of entry 5's seed noise. The clause was unfirable by
     construction on any bed; the measured -0.4394 is an observation about two of our own arms only,
     and the true collapse arm (`model.pos_unigram_weight=0.0`) has never been run. Ruling:
-    `PLAN_1F.md` 2026-08-25 (A); corrected arm registered as entry 9.1 A9b.
+    `archive/SAE_1f_spec_legacy.md` 2026-08-25 (A); corrected arm registered as entry 9.1 A9b.
 36. (9) That comparison is **not interpretable as a contrast between the two losses**, because the
     label-free selector shows no signal on either arm and pinned them 28,000 updates apart: weighted
     phone-LM perplexity spans 38.16-41.15 over the full arm's eighteen checkpoints and picked update
@@ -921,7 +921,7 @@ cell 4 will find.
     an irreducible constant set by the audio/text token-mass ratio 2.54 (the reference bed's own ratio
     is 1.022), so both arms converged into a degenerate set whose only requirement is the phone
     marginal -- which is precisely a decode that is uninformative at every length. Ruling and the
-    supporting measurements: `PLAN_1F.md` 2026-08-25 (E).
+    supporting measurements: `archive/SAE_1f_spec_legacy.md` 2026-08-25 (E).
 
 **Entry 9.0, the identifiability gate (approach 10), four verdicts.**
 
@@ -960,7 +960,7 @@ cell 4 will find.
     `merge_clusters.py` + `mean_pool.py --subsample-rate 0.5` fixes the SEGMENT RATE -- 28.78/s to
     14.46/s against a gold 13.548/s -- and that is what moves H; it does not buy a better memoryless
     unit-to-phone map, because the released 128-cluster inventory is coarser than the entry-5
-    500-unit codebook. This is the pricing PLAN_1F entry 9.3 asked for before anyone considers
+    500-unit codebook. This is the pricing archive/SAE_1f_spec_legacy.md entry 9.3 asked for before anyone considers
     funding the merged stream: the repair that most helps the objective is not the stream with the
     best reachable decode.
 
@@ -1101,7 +1101,7 @@ record per `train_num_updates`).
   with the 14.458 entry 9.3 banked on its dev pool.
   **THE AMENDMENT, and it is mine, not the implementer's:** my 9.1a read omitted the clipping-regime
   diagnostic that the 2026-08-18 ruling's clause (3) already binds to every read of this trainer. It
-  is now added in `PLAN_1F.md` entry 9.1a, pre-result at update 126. The reason it matters here
+  is now added in `archive/SAE_1f_spec_legacy.md` entry 9.1a, pre-result at update 126. The reason it matters here
   specifically: the "one variable" claim is exact at the CONSTRUCTOR (`segment_dir`) and is not a
   claim about the optimizer, and halving the segments per second changes gradient scale, so the
   merged arm can land in a different clip regime than the 1.6828 arm it is read against. At update
@@ -1110,7 +1110,7 @@ record per `train_num_updates`).
   must carry percent of epochs fully clipped, mean gnorm whole-run and last tenth, and the mean
   applied step, so the three rows are comparable; the registered reading of each direction is in the
   amendment. No spend and no change to what is run.
-  **BAND RULED, and the reader's design ratified** (`PLAN_1F.md` entry 9.1a, 2026-08-26, pre-result).
+  **BAND RULED, and the reader's design ratified** (`archive/SAE_1f_spec_legacy.md` entry 9.1a, 2026-08-26, pre-result).
   The proposed applied-step band stands as proposed -- above 1.25 AMBIGUOUS, 1.00 or below a
   fortiori, between them comparable and NOT a fortiori -- with its provenance on the record: 1.00 is
   the principled boundary (it IS the 2026-08-18 asymmetry), 1.25 is a declared convention erring
@@ -1123,7 +1123,7 @@ record per `train_num_updates`).
   epochs is the check that validates it. Live at update 476: still 100 percent clip at gnorm ~160,
   i.e. an applied step near 5e-04 against the banked arm's 6.752e-05 -- unchanged in direction from
   the first-epochs reading, and still not a result.
-  **DIRECTION-AWARE LABEL RATIFIED, and its knife-edge closed** (`PLAN_1F.md` entry 9.1a,
+  **DIRECTION-AWARE LABEL RATIFIED, and its knife-edge closed** (`archive/SAE_1f_spec_legacy.md` entry 9.1a,
   2026-08-26, pre-result). Printing "APPLIED STEP MATERIALLY LARGER at Nx" instead of "AMBIGUOUS at
   Nx" for a non-improving arm is the right call and is what the band ruling implies -- "ambiguous"
   is defined for an improving arm and would invert the finding otherwise. What it needed was a
@@ -1184,7 +1184,7 @@ record per `train_num_updates`).
 
 - 2026-08-25 (ENTRY-5/ENTRY-7 AUDIT, prompted by an external review the USER forwarded; every claim
   below re-derived first-hand or by a twelve-agent verification workflow; full ruling and the entry-9
-  registration in `PLAN_1F.md`). Five items, in the order they matter.
+  registration in `archive/SAE_1f_spec_legacy.md`). Five items, in the order they matter.
   (1) **THE `bigram_only` ARMS ARE MISLABELLED IN BOTH ENTRIES and the +0.10 signature bar is
   anchored to a contrast never run.** `pos_unigram_weight` defaults to 1.0
   (`wav2vecu_graph.py:113`), is set by no shipped config, no `run.sh` line and no job of ours, and
@@ -1229,7 +1229,7 @@ record per `train_num_updates`).
   mode is IDENTITY, not rate" and the over-segmentation reading of Approach 9 are both subsumed, and
   neither is the operative cause alone; and the boundary-quality question is answered — our `seg12.5`
   boundaries are F1 0.762 at +/-20 ms with the RATE right and the PLACEMENT wrong. Entry 9.0 in
-  `PLAN_1F.md` turns this into a CPU-only pre-registered gate; nothing is authorized until the USER
+  `archive/SAE_1f_spec_legacy.md` turns this into a CPU-only pre-registered gate; nothing is authorized until the USER
   funds it.
 - 2026-08-25 (later): **THE THREE DEFECT FIXES ARE VERIFIED** (speech-llm `abc3d81`), each read at
   source and each regression test re-run here under the toolkit python (31 pass across the two
@@ -1262,8 +1262,8 @@ record per `train_num_updates`).
   already RETIRED in the 2026-08-23 ruling, and a repaired label-free selector is registered there
   as requiring a NEW registration rather than a patch.
 
-- 2026-08-25 (GATE 9.0 VERIFIED; verdict block in `PLAN_1F.md` entry-9 Status appended this
-  evening, and `PLAN.md` section 1f and its queue item are updated). **THE GATE READ IS CORRECT AND
+- 2026-08-25 (GATE 9.0 VERIFIED; verdict block in `archive/SAE_1f_spec_legacy.md` entry-9 Status appended this
+  evening, and `SAE.md` section 1f and its queue item are updated). **THE GATE READ IS CORRECT AND
   I ACCEPT IT.** Checked at the job outputs rather than at your log: approach 10's table reproduces
   `gate.txt` row for row; each configuration's label comes from that job's own `name` field and
   matches the registration by segmentation AND text side, not from any hash-to-label list; all five
@@ -1291,7 +1291,7 @@ record per `train_num_updates`).
   its substance: I said the per-rung per-batch losses were discarded, having read the collapsed
   `ladder` and `per_batch` keys and not the `batches` key beside them. They were banked all along, so
   the repair was read-side and free rather than the CPU re-run I quoted -- you found the cheaper path.
-  ONE AMENDMENT TO MY OWN AUDIT, made in `PLAN_1F.md` and noted here so you do not carry the old
+  ONE AMENDMENT TO MY OWN AUDIT, made in `archive/SAE_1f_spec_legacy.md` and noted here so you do not carry the old
   number: "the truth only ties the decoy at perfect boundaries" is superseded -- on the registered
   paired pool the truth WINS there by 0.11 (3.4566 against the decoy's 3.5683), and by +0.2854 read
   against the true reference sequence. My banked c1 H of -1.77 is superseded by the registered
@@ -1305,11 +1305,11 @@ record per `train_num_updates`).
   0.423 with ins 0.013 but del 0.287 under that job's own grid-rasterization caveat —
   fixed-rate pooling removes the insertion mass at a confounded deletion cost, so the
   data-driven pooled rows of the CURRENT codebook are the deciding measurement. Planner fork,
-  kill-(ii) bar, and the USER's gate replacement recorded in PLAN_1F.md (2026-08-16).
+  kill-(ii) bar, and the USER's gate replacement recorded in archive/SAE_1f_spec_legacy.md (2026-08-16).
 - 2026-08-16 (battery): rows verified against the job outputs directly
   (MatchScreenJob.tmCr93GgmkVH, AuditAvUnitsJob.KBO9vGKFDjPT: seg12.5 0.4135/0.0666/0.1172,
   ubpe12.5 string-map 0.436, brown100 1.152, the sigma_min column) — the log reproduces them.
-  The two open planner calls are decided in PLAN_1F.md: matcher screens run on ALL pooled
+  The two open planner calls are decided in archive/SAE_1f_spec_legacy.md: matcher screens run on ALL pooled
   rungs plus ubpe12.5 (no label-selected rung enters the method; seg12.5 named primary, seg9
   the label-free-defensible rung); the tv_offdiag bar is VOID AS MEASURED per conclusion 9,
   entries 1/4 stay parked with no post-hoc replacement. Entry 2 is CLOSED by its sigma_min
@@ -1320,18 +1320,18 @@ record per `train_num_updates`).
   mid-utterance silence adjacency) — ratified, since neither has a text-side counterpart;
   the registered spec overpromised. The regularization sweep is diagnostic-only as claimed,
   and its reg-1 "gain" is marginal collapse (induced-marginal L1 1.2-1.4) — keep as the
-  standing example of why the audio-swap read exists. Verdict recorded in PLAN_1F.md /
-  PLAN.md: entry 3 NOT FUNDED; next per plan is entry 6's kill-test + the lexicon-free arm.
+  standing example of why the audio-swap read exists. Verdict recorded in archive/SAE_1f_spec_legacy.md /
+  SAE.md: entry 3 NOT FUNDED; next per plan is entry 6's kill-test + the lexicon-free arm.
 - 2026-08-16 (entry 6 + ruling-3 frame): approach-5 table reproduces
   UnitWordProfileJob.vULzsMp1oise exactly (hit counts, hitting ids, enrichments; the
   English row's clause logic checks — BUT length-excluded, IT final-excluded); every hit
   row confirmed units=1 in the job's own top-20 tables, and the two stall causes in
-  conclusion 23 confirmed (38228 < 50000 vs exactly 50000). Verdict in PLAN_1F.md: kill-test
+  conclusion 23 confirmed (38228 < 50000 vs exactly 50000). Verdict in archive/SAE_1f_spec_legacy.md: kill-test
   CLEARS with conclusions 20/22 as recorded scope; the proposed utterance-initial oracle
   read on the hitting units is green-lit as an eval-only diagnostic. LexFreeMatchJob frame
   checked in code before any output was opened: [OTHER] exclusion covers candidate and both
   nulls, budgets 120000/1500000 as claimed, fingerprint identical to entry 3's. Two frame
-  rulings recorded in PLAN_1F.md: 512 word types RATIFIED (adopted BPE-512 type count);
+  rulings recorded in archive/SAE_1f_spec_legacy.md: 512 word types RATIFIED (adopted BPE-512 type count);
   unrestricted oracle OVERTURNED to restricted (ceiling must live in the candidate's map
   space; coverage column already prices the closed vocabulary) — re-run required, existing
   gate reads remain valid.
@@ -1345,14 +1345,14 @@ record per `train_num_updates`).
   call clears even the 12-type prefix-0 pool, so it stands); the approach-6 header says
   38228 merges where conclusion 23 says 38230 — pin which count the artifact carries.
   Amended verdict (precondition STANDS on direct evidence; ubpe12.5 proxy defect and its
-  consequence for the running ruling-3 rung — no mid-flight change) recorded in PLAN_1F.md
-  and PLAN.md.
+  consequence for the running ruling-3 rung — no mid-flight change) recorded in archive/SAE_1f_spec_legacy.md
+  and SAE.md.
 - 2026-08-16 (merge-count resolution): the artifact carries 38228 (unitwords.json
   rows["seg12.5@1"].merges, re-read directly; onset control and the lexfree report agree)
   — conclusion 23's 38230 was a transcription slip off the txt table's 3.823e+04. The
   implementer's in-place fix is RATIFIED as a transcription-slip exception to the WRONG-
   marker rule (substance untouched; this bullet is the audit trail); the stale 38230 in the
-  earlier verifier bullet and in PLAN_1F.md is corrected the same way.
+  earlier verifier bullet and in archive/SAE_1f_spec_legacy.md is corrected the same way.
 - 2026-08-17 (ruling-3 batch amendments, verified before any screen output is read): the
   `ubpe12.5` stream defect CONFIRMED from ground truth — learn_unit_bpe's max_merges
   default 8000 (repr_pool.py:129) is not overridden at the build call (:437), and
@@ -1360,11 +1360,11 @@ record per `train_num_updates`).
   8500" at measured 14.08 tok/s vs the 12.5 target: the stream stopped on the budget, so
   its vocabulary is a default's artifact and the rung is not rate-matched to `seg12.5`.
   Rulings (no rebuild this batch; operating point named on every read; matched-rate
-  contrast retired; conditional rebuild follow-up) in PLAN_1F.md 2026-08-17. The
+  contrast retired; conditional rebuild follow-up) in archive/SAE_1f_spec_legacy.md 2026-08-17. The
   rewritten LexFreeMatchJob verified in code: one restricted pass emits both ceilings
   from the same counts on the same held-out rows, and the resume/merge-checkpoint change
   is rng-safe (merge learning draws nothing from the job rng; its single consumer sits
-  after the cache boundary) — determinism check pre-registered in PLAN_1F.md: seg-rung
+  after the cache boundary) — determinism check pre-registered in archive/SAE_1f_spec_legacy.md: seg-rung
   oracle-independent columns reproduce bit-for-bit, old `oracle` equals new
   `oracle_open` exactly. The prefix-1 floors (4.892/4.258/3.459) are consistent with
   conclusion 23's 4.26 but await batch-close verification; the 11 h timeout cause stays
@@ -1388,7 +1388,7 @@ record per `train_num_updates`).
   later readers: the restricted oracle can read BELOW oracle_open on held-out rows
   (seg12.5 words dev-clean 0.672 vs 0.715) — both are fitted on the ceiling-fit rows
   and scored held-out, where the smaller map space can generalize better; expected,
-  not a defect. Verdict in PLAN_1F.md amendment (7) / PLAN.md: ruling 3 NOT FUNDED in
+  not a defect. Verdict in archive/SAE_1f_spec_legacy.md amendment (7) / SAE.md: ruling 3 NOT FUNDED in
   all twelve cells; neither conditional follow-up triggered; the entry-5-vs-new-
   screen-vs-close-1f fork goes to the user.
 - 2026-08-17 (implementer probe on the ubpe12.5 words cell, verified): the probe
@@ -1413,7 +1413,7 @@ record per `train_num_updates`).
   0.283 in word currency; the rate, not the coverage, is the binding cause. Gate reads
   unaffected (M1/M2 are candidate-vs-null, ceiling-independent; the cell's M1 -0.520 row
   stands); conclusions 27-29 unaffected, 29's pricing sharpened. Planner ruling recorded in
-  PLAN_1F.md addendum (7a): the row stays a gate FAIL, annotated uninformative about
+  archive/SAE_1f_spec_legacy.md addendum (7a): the row stays a gate FAIL, annotated uninformative about
   matching quality; the 512-type vocabulary and the 6.455/s floor are traceable registered
   constants needing no re-derivation; no word-level re-run is registered — reopening one is
   a frame redesign (rate gap, abstention/coverage) and a user decision.
@@ -1432,7 +1432,7 @@ record per `train_num_updates`).
   ceiling 1.0667 on the same held-out rows. Refinement on the cover column: it is the
   fraction of ALL 50 Hz frames (silence included) carrying an in-vocabulary word — a third
   quantity (implementer: 0.5404 within-word-interval frame coverage vs 0.4344 recorded;
-  in-vocab words average 10.87 frames vs 23.47 OOV). PLAN_1F.md (7a) amended in place.
+  in-vocab words average 10.87 frames vs 23.47 OOV). archive/SAE_1f_spec_legacy.md (7a) amended in place.
 - 2026-08-17 (text-sample coverage defect, surfaced by the entry-5 grounding sweep;
   affects entry 3 and all twelve ruling-3 cells, NOT entry 6): sample_text_lines(stride=80,
   max_lines=300000) stops at source line 23,999,921 of 39,630,169 (60.6%), and
@@ -1442,7 +1442,7 @@ record per `train_num_updates`).
   sample, so every gate comparison stays internally consistent and the all-fail verdict is
   NOT reopened; the defect is a frame limitation to disclose wherever those text
   statistics are quoted. Entry 6's text row (stride=400, max_lines=100000; 40.0M >= 39.6M
-  lines) is unaffected. Standing fix registered in PLAN_1F.md (7b): every future
+  lines) is unaffected. Standing fix registered in archive/SAE_1f_spec_legacy.md (7b): every future
   text-side statistics pass must satisfy stride*max_lines >= corpus lines; the entry-5
   spec pins the proven full-coverage stride-400 sample.
 
@@ -1467,7 +1467,7 @@ record per `train_num_updates`).
   EspumPickJob.W9HzeOEviPO4) and every table number matches to the fourth decimal; M1/M2
   re-derived from the raw PERs and swap PERs against the banked rk48Zk5U6jzW nulls —
   arithmetic exact; hyp/ref ratios and the 80.5% substitution share reproduce. Rulings
-  (recorded in PLAN_1F.md entry-5 Status): gate FAIL both clauses on the label-free pick
+  (recorded in archive/SAE_1f_spec_legacy.md entry-5 Status): gate FAIL both clauses on the label-free pick
   full_s1 (M2 named close, M1 not); health checkpoint passed as written, absent
   bigram-vs-full separation recorded as observation, not verdict; seg9 contingency NOT
   exercised (identity-dominated failure at near-correct emission rate — rung choice not
@@ -1502,7 +1502,7 @@ record per `train_num_updates`).
   14000 boundary coincided with an epoch end, fairseq wrote only checkpoint_last (since
   overwritten at 20000). DEFECT in the chain as wired: SELECT_GRID includes 14000 and
   _checkpoint_at asserts exactly one hit, so both iteration-1 sweeps would crash — grid
-  amendment ruled in PLAN_1F.md (19-point grid for the iteration-1 arms only; the hole is
+  amendment ruled in archive/SAE_1f_spec_legacy.md (19-point grid for the iteration-1 arms only; the hole is
   symmetric across arms, so selection stays arm-fair). Arms verified RUNNING (SLURM
   1402939/1402940), numbered checkpoints through 20000 and live logs past update
   20700/21000 at 14:42; the clipping regime persists (full arm gnorm ~2332 at 100 % clip,
@@ -1532,10 +1532,10 @@ record per `train_num_updates`).
   sufficient — a recurring rule was inferred from a single symptom, against the standing
   principle that repeated failures point upstream to a shared cause. CONSEQUENCE: the
   19-point ruling was still wrong and would have crashed both iteration-1 sweeps at 28000;
-  the corrected grid is 18 points (minus 14000 and 28000), recorded in PLAN_1F.md by
+  the corrected grid is 18 points (minus 14000 and 28000), recorded in archive/SAE_1f_spec_legacy.md by
   replacement. Iteration-2/3 grids need their own epoch arithmetic checked, not assumed.
 - 2026-08-23 (entry 8 cells 1-2 launch round VERIFIED AND ACCEPTED; three proposals ruled and
-  the anchor pin discharged in `PLAN_1F.md` entry 8 Status 2026-08-23 launch ruling).
+  the anchor pin discharged in `archive/SAE_1f_spec_legacy.md` entry 8 Status 2026-08-23 launch ruling).
   Verified: 8 grid-decode dirs on disk plus the two reads and two LM jobs, matching the
   twelve-job accounting; the module docstring carries the sil_weight and SIL-free-primary
   decisions verbatim; the env guard fired correctly under the default environment (the
@@ -1548,7 +1548,7 @@ record per `train_num_updates`).
   currency, no LM, no self-training; entry-8 numbers are a different currency with no
   like-for-like published counterpart) are in the plan; the pin text goes into
   `gua_lm_decode.py`'s docstring before any result is read.
-- 2026-08-23 (entry 8 cells 1-2 result VERIFIED; three result rulings in `PLAN_1F.md` entry 8
+- 2026-08-23 (entry 8 cells 1-2 result VERIFIED; three result rulings in `archive/SAE_1f_spec_legacy.md` entry 8
   Status 2026-08-23 result ruling). Both read artifacts reproduced line for line by the
   planner: every Approach table number, decomposition, range, pick marker, probe delta and
   agreement matches `entry8_lm_per.txt` in `GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO`,

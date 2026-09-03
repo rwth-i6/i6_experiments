@@ -1,4 +1,4 @@
-# SAE §3e.1 — scorer trainability without collapse (ladder D0–D4, `PLAN_3E1.md`)
+# SAE §3e.1 — scorer trainability without collapse (ladder D0–D4, `archive/SAE_3e1_spec_legacy.md`)
 
 ## State
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
@@ -86,7 +86,7 @@ first was that D8.4 could not make this call until after its refits had been tra
   actual call in the config, and writing that test caught a bug in the test itself, which had split
   the call at the first parenthesis and would have passed a broken config.
 
-**D9.1 IS BUILT, TESTED AND LAUNCHED** (planner authorization 2026-08-23 in `PLAN_3E1.md` D9
+**D9.1 IS BUILT, TESTED AND LAUNCHED** (planner authorization 2026-08-23 in `archive/SAE_3e1_spec_legacy.md` D9
 Status latest; speech-llm `a42fa37`; manager `sae_3e1_d9_1`). Eighteen jobs and no others, verified
 against the graph's own job dirs -- ten sampled dump shards over the 960 h bed from the pinned
 checkpoint, the pseudo-text bed and pool built from that dump's own greedy rows, and the two refit
@@ -150,7 +150,7 @@ once arm 2 finishes -- that is expected, not a stall to repair.
 - ARM 2 IS UNAFFECTED and running: it reads the pool index and the pseudo-text bed, never the
   weight artifact, so the 1-best refit stands on its own.
 
-RULED 2026-08-24 (`PLAN_3E1.md` D9 Status): option (i) ADOPTED, (ii) not funded, (iii) rejected as a
+RULED 2026-08-24 (`archive/SAE_3e1_spec_legacy.md` D9 Status): option (i) ADOPTED, (ii) not funded, (iii) rejected as a
 post-hoc gate edit. D9.2 is amended BY REPLACEMENT to a TWO-ARM read -- arm 2 (1-best refit) against
 arm 1 (incumbent), per-group eta, paired per-group delta eta, `bootstrap_delta_eta` at n_boot 10000
 seed 42, D8.4 machinery and constants verbatim; the read set is the groups where BOTH arms score
@@ -354,7 +354,7 @@ by measuring ranking quality (eta) in a fair paired comparison.
   count sits at or just below the registered 512, so the 28,539-group fork bed cannot pass as the
   operative one. `scripts/d8_eta_test.py` 12/12 covers both directions of that refusal and that a
   context pair pointing the other way cannot move the verdict.
-- THE PAIRING INSTRUMENT IS PLAN_3A's OWN `PsiAlignPairedCompareJob`, reused unchanged except that
+- THE PAIRING INSTRUMENT IS archive/SAE_3a_spec_legacy.md's OWN `PsiAlignPairedCompareJob`, reused unchanged except that
   its per-temperature cell now also carries the shared `mean_wer`/`oracle_wer`/`sel_wer` it already
   computed. It is instantiated twice -- once per bed. That addition is hash-neutral (only `__init__` kwargs hash) and it lets the reader
   restate delta eta in its plain-WER form without recomputing the pairing on a second,
@@ -375,7 +375,7 @@ by measuring ranking quality (eta) in a fair paired comparison.
   BLOCKED list; two managers over the shared reranks would double-submit them.
 
 **D8.4 IS COMPLETE AND ITS VERDICT IS WITH THE USER: INDISTINGUISHABLE, resolving to the control**
-(verdict 84; `D8EtaReadJob.KwmHTXqiJMGr`; planner reading in PLAN_3E1 D8 Status 2026-08-23 verdict).
+(verdict 84; `D8EtaReadJob.KwmHTXqiJMGr`; planner reading in archive/SAE_3e1_spec_legacy.md D8 Status 2026-08-23 verdict).
 Paired delta eta -0.0293 [-0.0697, +0.0085] on the re-pinned operative bed, guard passing at 512 of
 512 shared groups. Nothing here closes the phase: this is a measurement, and the closure question
 is the USER's with the D8.3 authorization attached.
@@ -548,7 +548,7 @@ Proposal for the planner: none outstanding.
 
 ## Approach
 
-**1. AR text-usage gate along the co-trained trajectory** (PLAN.md §3e.1 queue item 2, first half).
+**1. AR text-usage gate along the co-trained trajectory** (SAE.md §3e.1 queue item 2, first half).
 The §3c 100 h replay arm (`freeze_ar=False`, the only trainable-scorer run on record) is re-read with
 the §2.5 usage gate at each of its own checkpoints: `gate = ln(ppl_shuffled) - ln(ppl_true)` on the
 10 h seed dev subset (5000 utts), avunits k500 stream, within-dev derangement at seed 42, p=1.0
@@ -698,7 +698,7 @@ set is 9.77 at cps 1.5 and 3.92 at cps 0.5. `beta_to`, `spearman` and `steerable
 are the D0-dump re-reads at T=0.7 with every arm re-ranking the SAME rollouts, so those three columns
 are cross-arm comparable even for `d2_states`; contrast coverage itself is arm-invariant at 0.2334,
 so `steerable` moves only through the scorer. All four candidates PASS `PsiScorerParityJob` at
-max |online - offline| = 0, and all four clear the three G3 bars of `PLAN_3A` §6 (gap_true >= 0.0248,
+max |online - offline| = 0, and all four clear the three G3 bars of `archive/SAE_3a_spec_legacy.md` §6 (gap_true >= 0.0248,
 spearman >= 0.17, audio-margin CI excluding zero; margins +0.146 to +0.154, all CIs overlapping).
 
 **9. D3 frozen-repaired G-track control arm** (D3). The winner's scorer is frozen into the same
@@ -1454,7 +1454,7 @@ not made here and does not need to be: clause 2 already fails.
 
 
 **36. D6-PERIODIC/GAN-FROZEN completes: the frozen-scorer control against the periodic arm, all
-eight legs.** The registered schedule-only control (`PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN, user-
+eight legs.** The registered schedule-only control (`archive/SAE_3e1_spec_legacy.md` D6-PERIODIC/GAN-FROZEN, user-
 directed 2026-08-20): the D6-PERIODIC/GAN policy graph verbatim from theta_0^G, with round 1's
 scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` frozen at all eight legs, so scorer recency
 is the only experimental difference. Both arms finished 2026-08-22.
@@ -1482,7 +1482,7 @@ Reference levels on the same reading: the no-loop init theta_0^G is 13.89 / 18.3
 
 **33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
 2026-08-21 on the §3d.A scale read (`SAE_3D_GTRACK.md` approach 5, verdict 11), registered by the
-planner in `PLAN_3E1.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
+planner in `archive/SAE_3e1_spec_legacy.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
 eight segmented policy legs, the same round-robin 960 h shard per leg, shaped reward, temperature
 0.7, cosine offsets, fresh optimizer state per leg, and round 1's completed `d_min=2` scorer
 `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` held frozen at EVERY leg -- with exactly one
@@ -1535,7 +1535,7 @@ is nonzero on the binding slice the verdict is UNRESOLVED, never a no-go. Every 
 The superseded v1 reads are kept as the evidence that motivated the guard:
 `D8FeasibilityReadJob.iCuYuvkL6bwr` (theta_0^G, verdict NO-GO) and `.onK5ekDuoLLA` (fork epoch).
 
-**v3, the ruled operative-frame read** (clause-(a) ruling, `PLAN_3E1.md` D8 Status 2026-08-22).
+**v3, the ruled operative-frame read** (clause-(a) ruling, `archive/SAE_3e1_spec_legacy.md` D8 Status 2026-08-22).
 Exactly one thing changes: the structural-infeasibility exclusion is evaluated against `T_i` from
 the frozen raw 50 Hz store `S/quantize_states/PackUnitsJob.I0uzRMfUrKWC` -- the frame every
 D8.1a/D8.1b training aligns to -- instead of each dump's own joined store, with coverage over the
@@ -1748,10 +1748,10 @@ control's held read is on the same texts, which is why the held targets are the 
 TRAINING target was drawn. The field is renamed in the next schema revision -- renaming it now
 would re-hash the finished job and orphan the artifact for a wording fix.
 
-**38. D8.4: the paired ranking-quality (eta) read on the operative theta_0^G bed.** PLAN_3E1's
+**38. D8.4: the paired ranking-quality (eta) read on the operative theta_0^G bed.** archive/SAE_3e1_spec_legacy.md's
 D8.4 registration, built after the user reopened D8: a clause battery gates spend but never closes
 a phase, so the phase question is answered by ranking quality measured in a fair paired comparison.
-One instrument (`PsiAlignPairedCompareJob`, PLAN_3A's, reused unchanged), two arms differing in
+One instrument (`PsiAlignPairedCompareJob`, archive/SAE_3a_spec_legacy.md's, reused unchanged), two arms differing in
 `model_pt` alone, both reranking the SAME frozen rollout dump at the SAME temperature; the reader
 (`D8EtaReadJob`) restates delta eta in its plain-WER form and refuses any bed that is not the
 registered one. Bootstrap pins `n_boot=10000`, `seed=42`. Two beds are instantiated: the OPERATIVE
@@ -1976,7 +1976,7 @@ work directories, destroying nothing.
     its frequency-drawn insertion discount is 2.5x the incumbent's (0.1475 vs 0.0584), which is what a
     control pool of ~2.7-state words must do once every word's state count is cut. Neither reading can
     be checked against the other from the shipped outputs, so the length-matched control pool
-    (`PLAN_3E1` D1 build item (b)) was built and read the same day — approach 10.
+    (`archive/SAE_3e1_spec_legacy.md` D1 build item (b)) was built and read the same day — approach 10.
     - **Resolved (2026-08-08, approach 10):** the ladder was right and the discount was artifact. Under
       the state-matched control `d2_states` charges +0.0125 against the incumbent's +0.0172 — a real
       reduction, not a 2.5x blow-up — so the entire apparent regression was the frequency-drawn pool
@@ -2708,7 +2708,7 @@ function-word pairs rather than broad spelling diversity.
     DESCRIPTIVE, ADOPTING NOTHING -- it is a measurement of one dump from one checkpoint at one
     temperature, and it licenses no claim about the loop family without a temperature sweep that
     is not registered and not run. Its reach beyond D9 is the planner's reading
-    (`PLAN_3E1.md` D9 Status 2026-08-24), not this verdict's.
+    (`archive/SAE_3e1_spec_legacy.md` D9 Status 2026-08-24), not this verdict's.
 
 86. **A39: D9.2 answers the evolved-point question -- the 1-best refit and the incumbent are
     INDISTINGUISHABLE, and the tie resolves to the incumbent by rule.** Paired delta eta
@@ -2895,7 +2895,7 @@ the absolute beta, is what carries the contamination claim.
   lm_prior_units at matched WER; `_bias` runs only on the two reward keys). An external word LM
   plausibly PAYS for a high-frequency function word, so this one arm-invariant row from the same
   dump is required before lm_prior_units is admitted as a curation view; registered as a D4
-  admissibility condition in `PLAN_3E1.md`.
+  admissibility condition in `archive/SAE_3e1_spec_legacy.md`.
 - 2026-08-07 (D1/D2 audit, numbers): approaches 4–7 reproduce from the cited job outputs to the
   printed precision (probe battery incl. paired CIs; coverage_T to <1e-12; the repair's exact
   joint rate solve; the frozen held draw re-executed byte-identically, disjointness from all
@@ -2914,12 +2914,12 @@ the absolute beta, is what carries the contamination claim.
   which word, not whether. The decisive equal-state contrast ("to" vs IN/IT/HE) is not computable
   from the dumps (`per_item` stripped before `probes.json`, `:1887`); a length-matched control
   pool (1-emitting-state words, ~18 % of current pool mass) with per-item dump is registered as a
-  D1 amendment in `PLAN_3E1.md` and is required for any D2 admission read. c9's power-check
+  D1 amendment in `archive/SAE_3e1_spec_legacy.md` and is required for any D2 admission read. c9's power-check
   failure itself stands on the paired design.
 - 2026-08-07 (D1/D2 audit, gate): the held set's provenance (the §1d decoder's own dev output)
   domain-confounds gate v2 (i)'s improvement clause — held ce_loo orders the three arms by
   training-text domain match (2.72/3.02/3.14), not quality, so a repaired-text candidate would be
-  structurally rejected against the unrepaired incumbent; amendment registered in `PLAN_3E1.md`
+  structurally rejected against the unrepaired incumbent; amendment registered in `archive/SAE_3e1_spec_legacy.md`
   (floor-only for changed-text candidates), flagged for the user's blessing.
 - 2026-08-07 (approach 8/9 + c12 audit): c12's numbers all reproduce from `probes.json`
   (`ce_emis` + `nll` per corruption; there is no transition field — the "transition" is the
@@ -2960,7 +2960,7 @@ the absolute beta, is what carries the contamination claim.
   and it is the only thing removing d2_both (argmax unchanged at k=1/k=4 if admitted; at the
   omitted k=2 d2_both out-reduces d2_contrast, n.s.); (b) the ladder floor's "not below" is
   CI-read in the log but point-read in the rule text, and under the point reading only d2_states
-  is eligible — the winner flips to d2_states. Pins proposed in `PLAN_3E1.md` (need the user's
+  is eligible — the winner flips to d2_states. Pins proposed in `archive/SAE_3e1_spec_legacy.md` (need the user's
   blessing); the hard-coded WINNER='d2_contrast' in `config_sae_3e1_d3_v1.py:37-38` is
   provisional until then. Also: d2_states is admitted through the improvement halves of (i)/(ii)
   on ce_loo numbers approach 8 itself marks (*) cps-incomparable — only the absolute floors bind
@@ -3000,7 +3000,7 @@ the absolute beta, is what carries the contamination claim.
   pair went the other way (frozen Goodharted 14.47/17.09, joint won 13.15/16.13), and the two
   100 h jointAR siblings lack the collapse signature. Temporal order (CE_true crossed the unit
   marginal after one sub-epoch while dev WER was still 18.79) supports scorer-first but is not
-  attribution. D5 (the freeze_ar=True control, `PLAN_3E1.md`) is registered to settle it.
+  attribution. D5 (the freeze_ar=True control, `archive/SAE_3e1_spec_legacy.md`) is registered to settle it.
 - 2026-08-09 (approaches 11-15 + c16-c22 full audit; five independent recomputes from raw
   artifacts): every logged table cell reproduces to the last digit. Approach 11: seed=42 /
   n_boot=10000 are hashed job inputs, both ladder-floor readings printed, winners
@@ -3069,7 +3069,7 @@ the absolute beta, is what carries the contamination claim.
   2.6343 / 2.7928 / 2.9771 at sub-eps 1/2/3 (`PsiHeldNllJob.LTg9xnjtl8Zs` / `.SFOP6DaI3Zpv`
   / `.vJnzFU0eRSyl`) against own-decode ce_loo 2.6270 / 2.4726 / 2.2994
   (`.8DHdEHY7HZ2b` / `.2WmXVQYlCjnF` / `.uEc3jigALnmE`) — the D5 gate verdict these decide
-  is recorded in `PLAN_3E1.md`.
+  is recorded in `archive/SAE_3e1_spec_legacy.md`.
 - 2026-08-17: c37 VERIFIED from `PsiGateClauseTableJob.qYRE7JWyUcJQ` / `.H9QbX4VgXAwf`
   (clauses.txt, paired n=1442): every quoted number reproduces exactly — ce_loo
   2.3774 / 2.7168 / 2.7198, filler_ins +0.0849 [0.0635, 0.1058] and lmins +0.0488
@@ -3079,7 +3079,7 @@ the absolute beta, is what carries the contamination claim.
   filler_sub -0.0146, while its matched insertion discount is CI-LOWER at k=4 (-0.0182
   [-0.0276, -0.0085], p=0.000; k=1 n.s.) — the topology's insertion-pricing gain grows
   with k while eligibility fails on the substitution/deletion side. Plan verdict recorded
-  in `PLAN_3E1.md` D6 Status same day.
+  in `archive/SAE_3e1_spec_legacy.md` D6 Status same day.
 - 2026-08-17: HOM-0a rerun (`HomophoneClassStatsJob.our76yheSD0c`) verified — share
   7.68 % against the untouched 5 % floor, PASS; planner eyeball of the full 142-class
   list: no strikes (weakest admitted member "ad" at 8,084 LM occurrences vs the 8,033
@@ -3088,7 +3088,7 @@ the absolute beta, is what carries the contamination claim.
   members carrying dominant LM mass (by, sea, right, side, air, fair, they're) total
   ~0.5-0.6 % of corpus tokens, and they're=0 is a decoder commitment, not an alphabet
   artifact (apostrophe forms it's/i'll/there's all attested). HOM-0b/0c reading
-  amended pre-run in `PLAN_3E1.md` (bars untouched): swaps reported split repair-type
+  amended pre-run in `archive/SAE_3e1_spec_legacy.md` (bars untouched): swaps reported split repair-type
   vs diversity-type, top-8 per-class medians beside the aggregate.
 - 2026-08-17 (HOM augmentation machinery): HomophoneAugmentJob.k2OwZiTcKpEG verified by
   an independent token-level diff of the augmented corpus against the source — every
@@ -3099,7 +3099,7 @@ the absolute beta, is what carries the contamination claim.
   the draw 0a's arithmetic assumed. Class list consumed from the ratified artifact
   (stats-job hash unchanged); the SFT stays unwired, gated on 0b. New fact for 0b:
   in/inn alone carries 19% of rewrites — 0b/0c reporting amended pre-run in
-  PLAN_3E1.md (in/inn's median named explicitly; aggregate-without-in/inn beside the
+  archive/SAE_3e1_spec_legacy.md (in/inn's median named explicitly; aggregate-without-in/inn beside the
   gated aggregate; day/dey added to the named watch); admission bars untouched.
 - 2026-08-18 (D6-PERIODIC-WARM, approach 24, code verification): every submitted claim
   verified at source and artifact. Commit 5773910 on haotian_modality_matching_jupiter
@@ -3115,7 +3115,7 @@ the absolute beta, is what carries the contamination claim.
   (`ReturnnTrainingJob.5FqdnhWTOf1f`) finished. Planner re-ran the warm-start test:
   passes, warm held NLL 1.1869 vs cold 2.2609 after one epoch, source best 1.4341,
   output unigram re-pinned on the fit corpus (matches all submitted numbers).
-- 2026-08-18 (same submission, rulings — normative text in PLAN_3E1.md D6-PERIODIC
+- 2026-08-18 (same submission, rulings — normative text in archive/SAE_3e1_spec_legacy.md D6-PERIODIC
   Status): warm source = the INCUMBENT's model, ratified; four-clause gate KEPT with a
   registered non-read — accept counts are never compared across the warm arm and the
   sibling; binding read = plain WER trajectory at matched parent sub-epochs vs the
@@ -3137,7 +3137,7 @@ the absolute beta, is what carries the contamination claim.
   a pool-zero member). The 0c artifact substitution is RATIFIED as a frame repair --
   the registered dump has DUMP_GROUP_SIZE=1 (config verified) and cannot express
   within-group coverage by construction; plan definition amended by replacement and
-  the scoping reading recorded in PLAN_3E1.md (diversity already reachable by
+  the scoping reading recorded in archive/SAE_3e1_spec_legacy.md (diversity already reachable by
   sampling; repair in the dead band, reachable only by an SFT-side support change).
 - 2026-08-18 (finding 1 verified from the four verdict jsons): r2 and r3 fail (iii')
   at CI, the dry rule enters force at r4 (dry_started_here true), r4 passes all four
@@ -3145,7 +3145,7 @@ the absolute beta, is what carries the contamination claim.
   conclusions 41 and 42 check against the artifacts, both accurate as written. The
   periodic-arm verdict, the warm-read amendment, and a pre-registered warm-source
   fork (registered while the round-2 warm verdict does not exist; its refit was at
-  epoch 26/30 at check time) are in PLAN_3E1.md D6-PERIODIC Status, 2026-08-18.
+  epoch 26/30 at check time) are in archive/SAE_3e1_spec_legacy.md D6-PERIODIC Status, 2026-08-18.
 - 2026-08-18 (finding 2, handed audit closed): SAE_3A approach 9's lam_lm sweep rows
   are NOT invalidated -- the parts dump (config_sae_2s_rewardrank_parts_v1 sets no
   reward_kwargs at all) and the arms live at sweep time both ran the legacy per-token
@@ -3165,7 +3165,7 @@ the absolute beta, is what carries the contamination claim.
   both directions -- even lm_prior penalizes repair swaps on median -- which hardens the
   mechanism-reversal reading. Conclusions 43-45 check against the artifacts as written;
   gate verdict (aggregate PASS, arm admitted, SFT licensed), the ordered
-  std_within_group read, and the user surfacing are in PLAN_3E1.md HOM Status. Commits
+  std_within_group read, and the user surfacing are in archive/SAE_3e1_spec_legacy.md HOM Status. Commits
   9fa9ecc (terminator fix; diagnosis matches the artifact distribution 1724/2000 at -1,
   2000/2000 at 0) and 1216064 (dump-norm documentation at both production sites)
   verified.
@@ -3176,7 +3176,7 @@ the absolute beta, is what carries the contamination claim.
   per-token column -- internally consistent throughout, matching the audit conclusion.
 - 2026-08-18 (user ruling on the warm source, relayed): reading B -- the gate-controlled
   incumbent -- stands under every verdict; my pre-registered rejection fork is REPLACED
-  in PLAN_3E1.md, and a dry-contingency decision rule (no further legs at two
+  in archive/SAE_3e1_spec_legacy.md, and a dry-contingency decision rule (no further legs at two
   consecutive rejections; user's resource call; planner recommends stop) is registered
   in its place. Label-free-clause correction recorded there too: (ii) reads gold held
   text; code fix directed after the pending round-2 verdict job lands.
@@ -3185,7 +3185,7 @@ the absolute beta, is what carries the contamination claim.
   .2TDm8VwIZzjv); the approach-22 table matches the planner's PRE-deletion first-hand
   artifact reads clause for clause and verdict for verdict, and its leg-1 row is
   consistent with the earlier 0.29/0.24 replication submission; the Catalog's relaunch
-  note and new id rows are in place. All superseded rulings annotated in PLAN_3E1.md.
+  note and new id rows are in place. All superseded rulings annotated in archive/SAE_3e1_spec_legacy.md.
 - 2026-08-18 (two dirs survived the teardown; one holds a bankable verdict):
   PsiRefreshAcceptJob.lWmT0OpDXfSp and .uXG53BObiW55 were still on disk at planner
   check, contrary to the teardown report. uXG53BObiW55 is FINISHED: the warm round-2
@@ -3201,13 +3201,13 @@ the absolute beta, is what carries the contamination claim.
   schedule evolution with noise. The run-to-run measure is the five PAIRED matched-
   point deltas against the one-shot arm at the same global sub-epoch (planner-computed
   from the two logged tables): dev-clean 0.29/0.03/0.32/0.36/0.19, dev-other
-  0.24/0.30/0.32/1.30/0.11; floor and reading rule registered in PLAN_3E1.md. The
+  0.24/0.30/0.32/1.30/0.11; floor and reading rule registered in archive/SAE_3e1_spec_legacy.md. The
   table's numbers are untouched; the sentence is the implementer's to amend.
 - 2026-08-18 (answers): refresh_gate.py constant/docstring fix -- yes, at leisure, the
   module is still the D4-prime machinery's. HOM SFT hold ENDORSED; recorded with the
-  user surfacing in PLAN_3E1.md HOM Status.
+  user surfacing in archive/SAE_3e1_spec_legacy.md HOM Status.
 - 2026-08-18 (fourth round: HOM SFT launch verified; the user's greenlight was given in
-  the implementer's session and is recorded as relayed in PLAN_3E1.md HOM Status).
+  the implementer's session and is recorded as relayed in archive/SAE_3e1_spec_legacy.md HOM Status).
   Commit b44952e verified: theta_0^G_hom is theta0g_av_sft called with hf_data_dir as
   the single moving argument (plain-function kwarg, no job-ctor change; theta_0^G hash
   2fb02hGUdHNj unmoved — finished marker and every checkpoint mtime untouched since
@@ -3355,7 +3355,7 @@ the absolute beta, is what carries the contamination claim.
   (21.2 % of the damage mass), 0.637 over all 81 (68.9 % mass) -- the latter driven by in/inn
   reading 1.000 off those four observations. So the aggregate 0.529 is, to a good
   approximation, one confusion pair's number.
-- 2026-08-18 (CORRECTION to my own claim in the bullet above and in PLAN_3E1: "no number from
+- 2026-08-18 (CORRECTION to my own claim in the bullet above and in archive/SAE_3e1_spec_legacy.md: "no number from
   the plain-policy read may be quoted as a prediction of this arm's recovery" was too strong,
   and I had not considered the slice that refutes it). The same job's AWAY-from-reference
   cell (n=19,328) covers 99.7 % of the hom damage mass -- because the plain policy spells
@@ -3407,7 +3407,7 @@ the absolute beta, is what carries the contamination claim.
   `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read periodic round 1's exact d_min=2 scorer
   `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Thus scorer
   recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 was verified running at
-  15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
+  15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `archive/SAE_3e1_spec_legacy.md`
   D6-PERIODIC/GAN-FROZEN.
 - 2026-08-20 (D7.3 gate correction): the former absolute 13.89/17.84 clause was unsupported for a
   one-leg causal read. Conditional on required scorer parity, the exact matched control is
@@ -3494,7 +3494,7 @@ the absolute beta, is what carries the contamination claim.
   Caveats a reader of D7.1 numbers must know (rewritten 2026-08-21 after the fix verification
   below; the resolved resume-RNG, donor-infeasibility and parity-gap caveats are absorbed):
   (i) prior weight is 0 from step 0, a forced deviation from the refit's 4-epoch prior anneal,
-  entailed by carrying `L_U->z` across a single pass (definition pinned in `PLAN_3E1.md`);
+  entailed by carrying `L_U->z` across a single pass (definition pinned in `archive/SAE_3e1_spec_legacy.md`);
   (ii) the ~0.035% max-generation-length truncation tail of the argmax decoder is the decoder's
   established operating point, not a D7 deviation — and the equivalence check ran once the shards
   finished: the D7 merge agrees with `ReturnnForwardJobV2.66pIzBzffnK2` on the 28,539 shared
@@ -3535,7 +3535,7 @@ the absolute beta, is what carries the contamination claim.
   `PsiAlignTrainJob.dsMKgPHQApyR` trained after "pairs: 28538 (27111 train / 1427 held out),
   1 dropped as U > 2T" — so the raise was an implementation over-strengthening of the
   exact-control-recipe-verbatim contract. Drop-and-count amendment with a named-four-row bound
-  registered in `PLAN_3E1.md` D7 Status (including the D8 bed-wide-greedy-feasibility
+  registered in `archive/SAE_3e1_spec_legacy.md` D7 Status (including the D8 bed-wide-greedy-feasibility
   consequence); one implementer edit in `_make_items` plus one further user-run d7 manager
   restart (clearing both train error markers) are pending.
 - 2026-08-22 (round verification: D7 drop law, D8.0, both VERIFIED; clause-(a) ruling issued).
@@ -3566,7 +3566,7 @@ the absolute beta, is what carries the contamination claim.
   read, no reference input); the v1 jobs are preserved as superseded evidence; the store joins
   and medians confirm verdict 59's frame diagnosis (dump-joined pooled store median 169 vs raw
   50 Hz 674/695), and the raw store covers all 512 binding-slice tags — so the registered v3
-  read (clause-(a) ruling, `PLAN_3E1.md` D8 Status 2026-08-22) is executable offline with no
+  read (clause-(a) ruling, `archive/SAE_3e1_spec_legacy.md` D8 Status 2026-08-22) is executable offline with no
   new dump. ONE DISCREPANCY, label only: "exercised on 256 groups / 25 groups" counts collapse
   CLASSES, not groups — 256 classes across 237 groups at T=0.7 and 25 across 24 at T=1.0; the
   job docstring at d8_feasibility.py:45 shares the mislabel (code :274-279 increments per
@@ -3627,7 +3627,7 @@ the absolute beta, is what carries the contamination claim.
   digit (0.3000/0.2857/0.3132/0.5497/0.6593; fork 1.0000), verdict 63's corrected range
   0.2857-0.6593 is the exact min/max, the State pin names `3843918`, and the mechanics test
   reproduces 47/47 PASS live at branch head. The D7.2 clause-2 flag is acknowledged in
-  `PLAN_3E1.md` D7 Status: the gate does not move, and a failure closes D7 without a policy leg
+  `archive/SAE_3e1_spec_legacy.md` D7 Status: the gate does not move, and a failure closes D7 without a policy leg
   per the registered law — D7.2 is authorized to build and run as registered, no new word needed.
 
 - 2026-08-22 (D7.2 closure round VERIFIED; D7 CLOSED on clause 2; D8.1a-b released by ruling).
@@ -3658,12 +3658,12 @@ the absolute beta, is what carries the contamination claim.
   registered to decide nothing) is also worse for the candidate at every k with CIs excluding
   zero; 448 of 448,256 donor draws are structurally impossible and contribute exactly 0 to both
   arms by documented design (`d7_online.py:446-451`). Process finding promoted to a registered
-  D8 requirement (`PLAN_3E1.md` D8 Status): the admission job persists NO per-anchor arrays, so
+  D8 requirement (`archive/SAE_3e1_spec_legacy.md` D8 Status): the admission job persists NO per-anchor arrays, so
   its paired mean, negative share and bootstrap bound cannot be re-derived from surviving
   artifacts — harmless here because the gate closed on clause 2's deterministic comparison, but
   the D8.2 admission job must dump per-anchor deltas and cluster ids before any D8.2 number is
   read. The clause-3 point-versus-CI eligibility convention stays DUAL-REPORTED per the user's
-  still-pending blessing (PLAN.md queue item 2); it decided nothing here and is not pinned by
+  still-pending blessing (SAE.md queue item 2); it decided nothing here and is not pinned by
   the planner.
 
 - 2026-08-22 (D8.1a build/launch VERIFIED at code and graph level; five pre-run weight-job fixes
@@ -3698,7 +3698,7 @@ the absolute beta, is what carries the contamination claim.
   recon on a STRUCTURALLY FEASIBLE member is silently excluded — count and report it as its own
   category feeding the valve (a feasible member with -inf recon under the operative store is
   exactly the v1 anomaly class and must be loud), and fix the exclusion counters double-counting
-  repeated infeasible texts. REGISTRATION DEVIATION RULED (PLAN_3E1.md D8 Status 2026-08-22):
+  repeated infeasible texts. REGISTRATION DEVIATION RULED (archive/SAE_3e1_spec_legacy.md D8 Status 2026-08-22):
   the registered support reuses the D7 pool's greedy 1-best at identical hash, but the launched
   dump REGENERATES greedy through a different code path (`SaeGrpoModelV1`/`_greedy_argmax_decode`
   vs the D7 `SpeechLmV3` path, same checkpoint and max_gen_len); the regenerated greedy is
@@ -3741,7 +3741,7 @@ the absolute beta, is what carries the contamination claim.
   re-running both suites (47/47, 46/46 — the D8.1a suite grew by seven covering exactly these)
   and by a second independent graph rebuild: weight `lF7OF4pQu66m`, merge `XPXsAbeeZWVE`,
   equivalence `XTdRp3OO3LNf` all unmoved at `e7fc5ef`, so the running shards were again
-  untouched. Ruling noted in PLAN_3E1.md D8 Status: the equivalence read staying a sibling output
+  untouched. Ruling noted in archive/SAE_3e1_spec_legacy.md D8 Status: the equivalence read staying a sibling output
   rather than a `D8WeightJob` dependency is ACCEPTED as a process gate — the planner is the
   only consumer of the verdict and acceptance requires the read — so no hash-moving rewiring
   is spent on it.
@@ -3826,7 +3826,7 @@ the absolute beta, is what carries the contamination claim.
   chained legs on this arm need no alarm as long as the successor's load timestamp postdates a
   complete checkpoint pair, which is the check to repeat if it ever looks off.
 
-- 2026-08-22 (D8.1a equivalence round VERIFIED; verdict 70 accepted; fork RULED in PLAN_3E1.md).
+- 2026-08-22 (D8.1a equivalence round VERIFIED; verdict 70 accepted; fork RULED in archive/SAE_3e1_spec_legacy.md).
   Verified read-only (the verifier session's shell is still down on the /tmp outage).
   `greedy_equivalence.json` confirms every verdict-70 claim: NOT EQUIVALENT, 31,562 mismatches,
   compared 281,241 of 281,241 expected, greedy rows in dump 281,241, and the three coverage
@@ -3840,7 +3840,7 @@ the absolute beta, is what carries the contamination claim.
   planner exactly as ruling (1) pre-registered. The double-outage handling is within the rerun
   rules: both killed downstream jobs are stateless deterministic reads with no consumers,
   cleared and rerun once writes returned — correctly never applied to a training job. The fork
-  is RULED in `PLAN_3E1.md` D8 Status (2026-08-22 latest+1): support restored to the
+  is RULED in `archive/SAE_3e1_spec_legacy.md` D8 Status (2026-08-22 latest+1): support restored to the
   registration's own reader rule (2) — the D7 pool greedy at identical hash becomes an explicit
   weight-job input, dump `kind=="rollout"` whitelist, the dump's regenerated greedy quarantined
   as the divergence record, same-string scoring law for the differing minority, both-sides
@@ -3854,7 +3854,7 @@ the absolute beta, is what carries the contamination claim.
   the timestamp read settles the rerun narrative in approach 14's favor (rerun finished
   12:25:39, earliest cell started 12:29:31); the suite re-runs and entropy cross-check results
   are in the SAE_1g.md feedback entry; every exp_logs commit is pushed (the implementer's
-  570bcb9b7/b0ab4f527 carried the log entries, the planner's 65182acd8 the PLAN_3E1 ruling).
+  570bcb9b7/b0ab4f527 carried the log entries, the planner's 65182acd8 the archive/SAE_3e1_spec_legacy.md ruling).
   Post-outage health, planner-observed 20:58: GAN960-FROZEN is fine — manager pid 3514914
   alive 23.5 h, legs 2/3 (`liehXoiGoRI0`/`VEE2CPJ5jHn0`) finished with markers, the current leg
   RUNNING under slurm (1457982_1, 1.2 h in). The D8 manager pid 2554047 and the `sae_3e1_hom`
@@ -3877,7 +3877,7 @@ the absolute beta, is what carries the contamination claim.
   (155,890 classes / 17,874 lm_prior-differ / 17,713 spread>0.01 / max 65.0) nor the
   with-quarantined-greedy population (198,172 / 84,649 / 74,410 / 65.0) — not blocking, since
   no verdict rests on them, but the banked diagnostic must state its population rule. The
-  ruling (PLAN_3E1.md D8 Status, latest+2): survivor rule unchanged for D8.1a (arm-shared,
+  ruling (archive/SAE_3e1_spec_legacy.md D8 Status, latest+2): survivor rule unchanged for D8.1a (arm-shared,
   registered); diagnostic extended report-only inside the already-moving weight hash;
   piece 3 binds to the dataset-text-pipeline score definition (D7.1-control parity) with the
   non-degeneracy check and a 64-tag overlap probe whose recon must match the dump's stored
@@ -3944,7 +3944,7 @@ the absolute beta, is what carries the contamination claim.
   +9.17 nats, mean +9.53, range +6.94..+17.69), driven by the decode path always spending more
   tokens (delta -1 median, -3 minimum, negative 64/64). Holding the differing pass on that was
   the correct escalation: the mixed convention is one-sided and three orders above the collapse
-  diagnostic's materiality line, and the ruling (PLAN_3E1.md D8 Status latest+3) rejects it —
+  diagnostic's materiality line, and the ruling (archive/SAE_3e1_spec_legacy.md D8 Status latest+3) rejects it —
   text-path prior columns for the member on all 281,241 tags (full-bed pass, or the built four
   shards plus an exactly-validated text-only prior scorer), recon reuse stays valid, mechanism
   line required, convention-sensitivity line pre-registered in the three-together read, and
@@ -3974,7 +3974,7 @@ the absolute beta, is what carries the contamination claim.
   anchored on D7.1 control-consumption parity; the banked sensitivity block and artifacts let
   the member-weight shift be read directly at verdict time.
 - 2026-08-23 (D8.1a completion round VERIFIED IN FULL; verdicts 72-74 ACCEPTED; GO accepted and
-  D8.1b authorized in `PLAN_3E1.md` D8 Status). The decisive check is a fresh independent
+  D8.1b authorized in `archive/SAE_3e1_spec_legacy.md` D8 Status). The decisive check is a fresh independent
   implementation of the registered definitions streamed over all 281,241 frozen groups of
   `D8WeightJob.juRpzTNHKCSq/output/supports.jsonl`: every gate statistic reproduces to the last
   digit — median distinct 13, median shaped ESS at all five taus (2.982409 and 5.32854 inside
@@ -4016,7 +4016,7 @@ the absolute beta, is what carries the contamination claim.
   greedy-draw fraction against the predicted ~0.25. D8.2's admission start remains a plan
   decision after the refit finishes.
 - 2026-08-23 (D8.1b completion VERIFIED; verdicts 75-77 ACCEPTED; two hand-backs, neither
-  touching a number; D8.2 authorized in `PLAN_3E1.md` D8 Status). Verified from the banked
+  touching a number; D8.2 authorized in `archive/SAE_3e1_spec_legacy.md` D8 Status). Verified from the banked
   artifacts: `sampling.json`'s 67,628 greedy draws over 267,175 visits give exactly the quoted
   0.25312, which meets the frozen artifact's mean greedy weight (verifier's own stream: 0.2527)
   to 4.6e-04; 0 infeasible drawn members and 0 infeasible donor pairs; the 68,164
@@ -4049,7 +4049,7 @@ the absolute beta, is what carries the contamination claim.
   built, none gated on another's expected outcome; the control is reused at its existing hash.
   The D8.2 verdict is the planner's read once `admission.json` and the clause table land.
 - 2026-08-23 (D8.2 result round VERIFIED IN FULL; verdicts 78-81 ACCEPTED; D8 CLOSED in
-  `PLAN_3E1.md` D8 Status). Clause 1 is verified at the strongest level available: the
+  `archive/SAE_3e1_spec_legacy.md` D8 Status). Clause 1 is verified at the strongest level available: the
   verifier recomputed mean (-0.012475352516886666), delta_NI (0.004825604859880695), the
   one-sided upper bound (-0.011799971482361846) and the negative share (0.6555255297966149)
   BIT-EXACTLY from the persisted `per_anchor.jsonl` with a fresh implementation of the pinned
@@ -4060,14 +4060,14 @@ the absolute beta, is what carries the contamination claim.
   below zero; insertion-discount improvements at every k as quoted; ce_loo 2.2342825843 vs
   reference 2.2588296056 from `PsiHeldNllJob.BhUn7Sa3CW67`, clauses i/ii true — the candidate
   fails ONLY ladder-not-below, under both the point and CI readings). The closure wording
-  verdict 81 quotes is the registered gate text verbatim (`PLAN_3E1.md:1986`). Verdict 81's
+  verdict 81 quotes is the registered gate text verbatim (`archive/SAE_3e1_spec_legacy.md:1986`). Verdict 81's
   fencing and localization are endorsed as written. Both earlier hand-backs are ABSORBED:
   D8.1b is renumbered approach 37 with verdicts repointed, and the admission artifact names
   `held_target` explicitly, resolving the sampling.json `target` ambiguity at the successor
   schema. Clause 4 remains to be read for the record when `PsiScorerParityJob.sRJ7LUmF4nMw`
   finishes; it cannot move the closed verdict.
 - 2026-08-23 (D8.4 launch round; build ACCEPTED IN STRUCTURE, one REQUIRED correction; ruling
-  in `PLAN_3E1.md` D8 Status 2026-08-23 latest). Verified: the step-zero answer is right on
+  in `archive/SAE_3e1_spec_legacy.md` D8 Status 2026-08-23 latest). Verified: the step-zero answer is right on
   the class (parity re-scores one arm against its own `recon`; no second arm, no eta); the
   module docstring carries the registered reporting rule verbatim with the pinned
   `bootstrap_delta_eta` at `n_boot=10000`/`seed=42`; the candidate rerank
@@ -4091,7 +4091,7 @@ the absolute beta, is what carries the contamination claim.
   the reader, the per-dump unit-store join, and the State's plain self-correction are all as
   ruled. Awaiting results: the two operative reranks, the fork-pair candidate rerank, then the
   compares and `D8EtaReadJob.S3NTCZAOfSnZ`.
-- 2026-08-23 closing (D8.4 fail-closed round VERIFIED; ruling = bed re-pin, in `PLAN_3E1.md` D8
+- 2026-08-23 closing (D8.4 fail-closed round VERIFIED; ruling = bed re-pin, in `archive/SAE_3e1_spec_legacy.md` D8
   Status 2026-08-23 closing; ONE required correction). Every number in approach 38 and verdicts
   82-83 reproduces on disk: the reader's refusal traceback (46 shared groups vs bed 512), both
   compares' JSONs (primary +0.004347 [-0.10196, +0.12570] on 46 groups; fork context -0.003273
@@ -4138,7 +4138,7 @@ the absolute beta, is what carries the contamination claim.
   +0.0018 / headroom 0.0600 = delta eta -0.0293, matching `delta_eta_from_wer_identity`);
   `n_boot=10000`/`seed=42` as registered; the printed text carries the registered three-way
   rule and the incumbent-tie resolution verbatim. INDISTINGUISHABLE, resolves to control;
-  planner reading and recommendation in `PLAN_3E1.md` D8 Status 2026-08-23 verdict; the
+  planner reading and recommendation in `archive/SAE_3e1_spec_legacy.md` D8 Status 2026-08-23 verdict; the
   closure question is with the USER.
 - 2026-08-23 (verdict-banking and true-up round VERIFIED; hand-back ABSORBED). Verdict 84 is
   faithful to the reader's artifact, including its licenses fence (indistinguishable, not
@@ -4179,7 +4179,7 @@ the absolute beta, is what carries the contamination claim.
   T=None reference rows) were fixed with regression tests before the gate artifact was
   produced -- no logged number rests on the buggy calls, so no correction entry is needed.
 - 2026-08-23 (D9.1 launch round VERIFIED; both flagged decisions RATIFIED in the plan --
-  pool-from-dump and recipe-matched arm 2; rationale in `PLAN_3E1.md` D9 Status). Verifier
+  pool-from-dump and recipe-matched arm 2; rationale in `archive/SAE_3e1_spec_legacy.md` D9 Status). Verifier
   checks beyond the State entry: the ten dump shards exist on disk and are submitted/running;
   the five downstream job dirs (merge, pool, weights, two trainings) correctly do NOT exist
   yet -- sisyphus materializes them as inputs finish, so "launched" here means the
@@ -4191,7 +4191,7 @@ the absolute beta, is what carries the contamination claim.
   `D8WeightJob` (two added methods, one optional argument -- no constructor changes), which
   also confirms the hash-safety claim structurally. Wall-clock projection method endorsed:
   anchored to two measured step rates of this policy and D8.1a, not assumed.
-- 2026-08-24 (arm-3 NO-GO round VERIFIED; fallback RULED in `PLAN_3E1.md` D9 Status: option
+- 2026-08-24 (arm-3 NO-GO round VERIFIED; fallback RULED in `archive/SAE_3e1_spec_legacy.md` D9 Status: option
   (i) adopted -- D9.2 becomes the two-arm read; threshold edit rejected as post-hoc; a
   diversity re-dump not funded). Verification performed: `D9WeightJob.uyKXr4ZiGj9R`'s report
   and JSON support every State claim -- the distinct-support histogram sums to exactly
@@ -4207,7 +4207,7 @@ the absolute beta, is what carries the contamination claim.
   weight-job table (descriptive, adopting nothing) and may build D9.2's reader against the
   amended two-arm registration once arm 2 finishes.
 - 2026-08-24 (D9.2 result round VERIFIED; verdict 86 accepted; the model-pin build decision
-  RATIFIED; recommendation to the USER recorded in `PLAN_3E1.md` D9 Status). Verification
+  RATIFIED; recommendation to the USER recorded in `archive/SAE_3e1_spec_legacy.md` D9 Status). Verification
   performed: `D9EtaReadJob.A7QvXl7VR7wl/output/eta_read.txt` matches approach 39's table line
   for line (delta eta, per-arm eta, the WER identity, spearman, the arm-internal nulls, the
   7,168/0/0 row censuses); the eta/WER identity recomputes consistently from the printed
