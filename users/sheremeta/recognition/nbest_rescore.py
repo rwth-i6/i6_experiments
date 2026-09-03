@@ -79,6 +79,8 @@ class NbestKenLmRescoreJob(Job):
 class NbestCtcRescoreJob(Job):
     """Fuse n-best AM scores with per-hypothesis CTC sequence scores, best hyp per sequence, once per ``ctc_scale``."""
 
+    __sis_hash_exclude__ = {"tuned_scale": None}
+
     def __init__(
         self,
         *,
@@ -86,16 +88,20 @@ class NbestCtcRescoreJob(Job):
         ctc_scores_file,
         ctc_scales,
         am_scale: float = 1.0,
+        tuned_scale=None,
     ):
         # both files are {seq_tag: [(score, text), ...]} with matching seq_tags and per-seq hyp order
         self.nbest_file = nbest_file
         self.ctc_scores_file = ctc_scores_file
         self.ctc_scales = tuple(float(s) for s in ctc_scales)
         self.am_scale = float(am_scale)
+        self.tuned_scale = tuned_scale
 
         self.out_search_results = {
             cs: self.output_path(f"search_out.ctc{cs}.py") for cs in self.ctc_scales
         }
+        if tuned_scale is not None:
+            self.out_search_results["tuned"] = self.output_path("search_out.ctctuned.py")
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1}
 
@@ -122,7 +128,12 @@ class NbestCtcRescoreJob(Job):
                 lst.append((float(am_score), float(ctc_score), am_text))
             joined[seq_tag] = lst
 
-        for ctc_scale in self.ctc_scales:
+        scale_by_key = {cs: cs for cs in self.ctc_scales}
+        if self.tuned_scale is not None:
+            value = self.tuned_scale.get() if hasattr(self.tuned_scale, "get") else self.tuned_scale
+            scale_by_key["tuned"] = float(value)
+
+        for key, ctc_scale in scale_by_key.items():
             results = {}
             for seq_tag, lst in joined.items():
                 best_text, best_score = "", None
@@ -132,7 +143,7 @@ class NbestCtcRescoreJob(Job):
                         best_score, best_text = score, text
                 results[seq_tag] = best_text
 
-            with open(self.out_search_results[ctc_scale].get_path(), "wt") as f:
+            with open(self.out_search_results[key].get_path(), "wt") as f:
                 f.write("{\n")
                 for seq_tag, text in results.items():
                     f.write(f"{repr(str(seq_tag))}: {repr(text)},\n")
