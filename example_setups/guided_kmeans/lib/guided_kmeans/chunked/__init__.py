@@ -38,6 +38,7 @@ from .models import (
     GaussianModel,
     MixtureModelBase,
     PerLabelMixtureModel,
+    VectorQuantizedModel,
     load_forward_model,
     load_model,
     neg_log_matmul,
@@ -57,6 +58,7 @@ from .accumulators import (
     MixtureGaussianAccumulator,
     NullAccumulator,
     SoftGaussianAccumulator,
+    VectorQuantizedAccumulator,
     alive_mask,
     if_alive_else,
     keep_previous_where_dead,
@@ -68,6 +70,7 @@ from .flavors import (
     gaussian_flavor,
     mixture_flavor,
     per_label_mixture_flavor,
+    vq_flavor,
 )
 from .runner import ChunkResult, load_chunk, reduce_chunks, run_chunk, save_chunk
 from .stats import default_stats_hooks, fb_stats_hooks, merge_counters
@@ -96,6 +99,7 @@ __all__ = [
     "GaussianModel",
     "MixtureModelBase",
     "PerLabelMixtureModel",
+    "VectorQuantizedModel",
     "load_forward_model",
     "load_model",
     "neg_log_matmul",
@@ -110,6 +114,7 @@ __all__ = [
     "MeanAccumulator",
     "MixtureGaussianAccumulator",
     "SoftGaussianAccumulator",
+    "VectorQuantizedAccumulator",
     "NullAccumulator",
     "alive_mask",
     "if_alive_else",
@@ -120,6 +125,7 @@ __all__ = [
     "gaussian_flavor",
     "mixture_flavor",
     "per_label_mixture_flavor",
+    "vq_flavor",
     "ChunkResult",
     "load_chunk",
     "reduce_chunks",

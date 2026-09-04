@@ -274,6 +274,7 @@ def create_recog_rasr_config(
     corpus=None,
     cheating=False,
     loop_log_odds=None,
+    lm_path=None,
 ):
     if loop_log_odds is not None:
         if transition_scale is not None:
@@ -290,10 +291,16 @@ def create_recog_rasr_config(
     if transition_scale is None:
         transition_scale = lm_scale
 
-    if use_eow_phonemes:
-        lm_path = phonetic_eow_lm_dict[lm_order]
-    else:
-        lm_path = phonetic_lm_dict[lm_order]
+    if lm_path is None:
+        # The default is this setup's own count LM, picked by order. An explicit
+        # path overrides it wholesale - which is how a differently *trained* LM
+        # (a neural one distilled to ARPA, say) gets used without pretending it
+        # has an "order" in the same sense. lm_order still names the file when
+        # no override is given, so every existing call is unaffected.
+        if use_eow_phonemes:
+            lm_path = phonetic_eow_lm_dict[lm_order]
+        else:
+            lm_path = phonetic_lm_dict[lm_order]
 
     lm_config=get_lm_config(lm_path, lm_scale)
     if cheating:

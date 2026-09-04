@@ -38,6 +38,7 @@ __all__ = [
     "GaussianMixtureModel",
     "MixtureModelBase",
     "PerLabelMixtureModel",
+    "VectorQuantizedModel",
     "neg_log_matmul",
     "load_model",
     "read_manifest",
@@ -582,6 +583,151 @@ class PerLabelMixtureModel(MixtureModelBase):
         # A density belongs to one label, so there is nothing to sum over l:
         # flattening [T, L, n] is already the [T, C] density posterior.
         return joint.reshape(len(features), self.num_densities), joint.sum(axis=0)
+
+
+class VectorQuantizedModel(ArtifactModel):
+    """
+    A discrete-density HMM: quantize the frame, then look the label up in a table.
+
+    ``centroids [C, D]`` is a codebook and ``table [L, C]`` is ``p(codeword |
+    label)``, rows summing to 1. Scoring a frame is two steps and no arithmetic
+    in between: find the nearest centroid, then read off ``-log p(q | l)`` for
+    every label. Nothing about *how* near it was survives the first step.
+
+    That is the whole difference from :class:`GaussianMixtureModel`, and it is
+    smaller than it looks. A mixture at this feature dimension is already almost
+    hard - measured on a trained K=128 model, the best density beats the second
+    by a median 16.9 nats, so it carries ~7 orders of magnitude more weight, and
+    ``score_l = cost_{c*} - log w_{l,c*}`` reproduces the mixture's own label
+    ranking on 97.7% of frames. The leftover ``cost_{c*}`` is the same for every
+    label, and a label-independent per-frame offset cancels in both searches: in
+    Viterbi every path consumes every frame, so it shifts all paths equally,
+    and in forward-backward it divides out of the per-frame posterior.
+
+    So this is not a more expressive model, nor a less expressive one in any way
+    the search can see. What it *is* is drastically cheaper and better
+    conditioned: no covariances, no ``[D, D]`` inverses, no ``neg_log_matmul``,
+    no float32 Mahalanobis at magnitude ~1400, and an accumulator whose state is
+    ``[L, C]`` instead of ``[C, D, D]``. It is also exactly the model a
+    vector-quantized HMM baseline uses, which is what makes results comparable
+    against one.
+
+    **The codebook is an input, never re-estimated.** ``centroids`` is indexed
+    by codeword and ``table`` by label, so the two artifacts do not share a
+    first axis and the generic
+    :func:`.accumulators.keep_previous_where_dead` rule cannot be applied
+    across both. :class:`.accumulators.VectorQuantizedAccumulator` sidesteps
+    that by only ever updating ``table`` - the same split
+    :class:`MixtureGaussianAccumulator` makes between its density arrays and
+    its label-indexed weights.
+
+    **Zeros are meaningful and dangerous.** ``table[l, c] == 0`` says label
+    ``l`` never emits codeword ``c``, and scores it ``+inf`` - correct, and how
+    a discrete model expresses a hard constraint. But a supervised table is
+    mostly zeros (measured: 63.6% of entries on a 40x512 table from a real
+    alignment), so an unsmoothed table will forbid far more than intended and,
+    for a codeword no label admits, leave a frame with no viable label at all.
+    That case is reported by :meth:`scores` rather than allowed to become a
+    silently unsearchable lattice; use the accumulator's ``table_floor`` to
+    avoid it arising.
+
+    :param centroids: ``[C, D]`` codebook, or a path to its ``.npy``
+    :param table: ``[L, C]`` ``p(codeword | label)``, or a path to its ``.npy``
+    """
+
+    ARTIFACT_NAMES = ("centroids", "table")
+
+    def __init__(
+        self,
+        centroids: Union[np.ndarray, str],
+        table: Union[np.ndarray, str],
+        device: Optional[str] = None,
+    ):
+        self.centroids = _as_array(centroids)
+        self.table = _as_array(table)
+        if self.centroids.ndim != 2:
+            raise ValueError(f"expected centroids [C, D], got {self.centroids.shape}")
+        if self.table.ndim != 2:
+            raise ValueError(f"expected table [L, C], got {self.table.shape}")
+        if self.table.shape[1] != self.centroids.shape[0]:
+            raise ValueError(
+                f"table has {self.table.shape[1]} columns but the codebook has "
+                f"{self.centroids.shape[0]} centroids; the table's second axis is the "
+                f"codeword axis"
+            )
+        if (self.table < 0).any():
+            raise ValueError("table entries must be non-negative")
+        if not np.allclose(self.table.sum(axis=1), 1.0):
+            raise ValueError(
+                "table rows are not normalized; row sums range over "
+                f"[{self.table.sum(1).min():.6g}, {self.table.sum(1).max():.6g}]"
+            )
+        if not (self.table > 0).any(axis=1).all():
+            raise ValueError(
+                "every label needs at least one codeword with nonzero probability; "
+                f"labels {np.flatnonzero(~(self.table > 0).any(1)).tolist()} have none"
+            )
+        self.device = device
+        # A zero is a legitimate hard zero, so -inf here is the right value and
+        # errstate rather than a floor is the right handling - see the class
+        # docstring on where smoothing belongs.
+        with np.errstate(divide="ignore"):
+            self.neg_log_table = -np.log(self.table)
+        # Codewords no label can emit. Precomputed so scores() can check a whole
+        # sequence in O(T) instead of scanning the score matrix for infinities.
+        self._orphan_codewords = ~(self.table > 0).any(axis=0)
+
+    @property
+    def num_clusters(self) -> int:
+        """Score width, i.e. the label count - not the codebook size."""
+        return self.table.shape[0]
+
+    @property
+    def num_labels(self) -> int:
+        return self.table.shape[0]
+
+    @property
+    def num_codewords(self) -> int:
+        return self.centroids.shape[0]
+
+    @property
+    def dim(self) -> int:
+        return self.centroids.shape[1]
+
+    def quantize(self, features: np.ndarray) -> np.ndarray:
+        """
+        ``[T, D] -> [T]``, the nearest centroid to each frame.
+
+        Plain squared Euclidean, deliberately: it is what k-means libraries
+        (FAISS included) minimize, so a codebook trained elsewhere partitions
+        here exactly as it did there. Scoring the same centroids under a
+        Mahalanobis metric would be a different partition, and quietly so.
+        """
+        return cdist(features, self.centroids, metric="sqeuclidean").argmin(axis=1)
+
+    def scores(self, features: np.ndarray) -> np.ndarray:
+        codewords = self.quantize(features)
+        orphaned = self._orphan_codewords[codewords]
+        if orphaned.any():
+            raise FloatingPointError(
+                f"{int(orphaned.sum())} of {len(codewords)} frames quantize to a codeword "
+                f"no label can emit (e.g. codeword {int(codewords[orphaned][0])}), so they "
+                f"have no viable label and the search has no path through them. Give the "
+                f"table a nonzero floor - see VectorQuantizedAccumulator's table_floor."
+            )
+        # [L, C] -> [L, T] -> [T, L]. A gather, not a matmul: the frame's whole
+        # contribution is one column of the table.
+        return self.neg_log_table[:, codewords].T
+
+    def artifacts(self) -> Dict[str, np.ndarray]:
+        return {"centroids": self.centroids, "table": self.table}
+
+    def meta(self) -> Dict[str, Any]:
+        return {"num_labels": int(self.num_labels), "num_codewords": int(self.num_codewords)}
+
+    @classmethod
+    def from_artifacts(cls, arrays, meta) -> "VectorQuantizedModel":
+        return cls(centroids=arrays["centroids"], table=arrays["table"])
 
 
 def _as_array(value: Union[np.ndarray, str]) -> np.ndarray:

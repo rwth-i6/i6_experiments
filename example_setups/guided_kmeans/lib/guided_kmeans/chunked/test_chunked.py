@@ -16,12 +16,14 @@ The load-bearing claim is that every accumulator's ``merge`` is associative.
 of chunks is silently changing results across job re-runs that share a hash.
 """
 
+import pickle
 import sys
 
 import numpy as np
 
 from .accumulators import (
     FixedCovarianceAccumulator,
+    VectorQuantizedAccumulator,
     GaussianAccumulator,
     MeanAccumulator,
     MixtureGaussianAccumulator,
@@ -43,6 +45,7 @@ from .recognizers import ArgmaxRecognizer, RasrFBRecognizer
 from .features import plan_chunks
 from .models import (
     ArtifactModel,
+    VectorQuantizedModel,
     EuclideanModel,
     GaussianMixtureModel,
     GaussianModel,
@@ -2197,6 +2200,386 @@ def main() -> int:
         "ArrayJob rejects a compute() that disagrees with OUTPUTS",
         _raises(lambda: _MislabelledJob().run(), ValueError)
         and _raises(lambda: _TooManyOutputsJob().run(), TypeError),
+    )
+
+    print("VectorQuantizedModel")
+    vq_C = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]])
+    vq_T = np.array([[0.5, 0.5, 0.0], [0.0, 0.2, 0.8]])
+    vq = VectorQuantizedModel(vq_C, vq_T)
+    vq_X = np.array([[0.1, 0.0], [9.0, 0.0], [0.0, 9.0]])
+    _check(
+        "quantization is plain L2 argmin - the metric a k-means codebook was built under",
+        np.array_equal(vq.quantize(vq_X), [0, 1, 2]),
+    )
+    vq_S = vq.scores(vq_X)
+    _check(
+        "scoring is a table gather: -log p(q | l), one column per frame",
+        vq_S.shape == (3, 2)
+        and np.isclose(vq_S[0, 0], -np.log(0.5))
+        and np.isclose(vq_S[2, 1], -np.log(0.8)),
+    )
+    _check(
+        "a forbidden (label, codeword) pair is +inf, not a small number",
+        np.isinf(vq_S[0, 1]) and np.isinf(vq_S[2, 0]),
+    )
+    _check(
+        "the counts are label x codeword, and the two axes are told apart",
+        vq.num_clusters == 2 and vq.num_labels == 2 and vq.num_codewords == 3 and vq.dim == 2,
+    )
+    # A codeword no label admits leaves a frame with no viable label at all -
+    # an unsearchable lattice rather than a bad one, so it is reported.
+    _orphan = VectorQuantizedModel(vq_C, np.array([[0.5, 0.5, 0.0], [0.5, 0.5, 0.0]]))
+    _check(
+        "a codeword no label can emit is reported where it is produced",
+        _raises(lambda: _orphan.scores(np.array([[0.0, 9.0]])), FloatingPointError),
+    )
+    _check(
+        "an unnormalized table and a wrong-width table are both refused",
+        _raises(lambda: VectorQuantizedModel(vq_C, np.array([[0.5, 0.5, 0.5], [0.2, 0.2, 0.6]])), ValueError)
+        and _raises(lambda: VectorQuantizedModel(vq_C, np.array([[1.0, 0.0], [0.0, 1.0]])), ValueError)
+        and _raises(lambda: VectorQuantizedModel(vq_C, np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])), ValueError),
+    )
+    with tempfile.TemporaryDirectory() as vq_dir:
+        vq.save(vq_dir)
+        vq_back = load_model(vq_dir)
+        _check(
+            "it round-trips through the manifest, so a decode needs no VQ-specific code",
+            type(vq_back) is VectorQuantizedModel
+            and np.allclose(vq_back.scores(vq_X), vq_S, equal_nan=True)
+            and np.allclose(load_forward_model(vq_dir).forward(vq_X), vq_S, equal_nan=True),
+        )
+
+    print("supervised VQ baseline jobs")
+    import h5py
+    from i6_experiments.example_setups.guided_kmeans.setup.vq_baseline import (
+        SegmentedFeaturesFromAlignmentJob,
+        SupervisedVQTableJob,
+    )
+
+    with tempfile.TemporaryDirectory() as vq_tmp:
+        # Two utterances. The first is the case that decides whether silence is
+        # dropped before or after segmentation: label 1, silence, label 1 again.
+        # Dropping first would merge the two 1s into a single segment and lose a
+        # realization; segmenting first keeps them apart.
+        vq_align = {
+            "rec/a": np.array([1, 1, 0, 0, 1, 2, 2]),
+            "rec/b": np.array([2, 3, 3, 0]),
+        }
+        vq_feats = np.arange(11 * 2, dtype=np.float64).reshape(11, 2)
+        vq_hdf = os.path.join(vq_tmp, "raw.hdf")
+        with h5py.File(vq_hdf, "w") as fp:
+            fp["inputs"] = vq_feats.astype(np.float32)
+            fp["seqLengths"] = np.array([[7, 0], [4, 0]], dtype=np.int32)
+            fp.create_dataset(
+                "seqTags", data=[b"corpus/rec/a", b"corpus/rec/b"],
+                dtype=h5py.special_dtype(vlen=bytes),
+            )
+        vq_ali = os.path.join(vq_tmp, "ali.pkl")
+        with open(vq_ali, "wb") as fp:
+            pickle.dump(vq_align, fp)
+
+        def _run_features(alignment_override=None, **kwargs):
+            job = SegmentedFeaturesFromAlignmentJob(
+                tk.Path(vq_hdf), alignment_override or tk.Path(vq_ali), **kwargs
+            )
+            out = tempfile.mkdtemp(dir=vq_tmp)
+            job.out_features = tk.Path(os.path.join(out, "f.hdf"))
+            job.out_labels = tk.Path(os.path.join(out, "l.pkl"))
+            job.out_segments = tk.Path(os.path.join(out, "s.txt"))
+            job.out_statistics = tk.Path(os.path.join(out, "st.json"))
+            job.run()
+            with open(job.out_labels.get_path(), "rb") as fp:
+                labels = pickle.load(fp)
+            with h5py.File(job.out_features.get_path(), "r") as fp:
+                feats = np.asarray(fp["inputs"][:], dtype=np.float64)
+                lens = fp["seqLengths"][:][:, 0].tolist()
+            return job, labels, feats, lens
+
+        job_all, labels_all, feats_all, lens_all = _run_features(exclude_labels=())
+        _check(
+            "with nothing excluded the segmentation is the alignment's own runs",
+            lens_all == [4, 3] and labels_all["corpus/rec/a"].tolist() == [1, 0, 1, 2],
+        )
+        job_sil, labels_sil, feats_sil, lens_sil = _run_features(exclude_labels=(0,))
+        _check(
+            "silence is dropped after segmenting, so a phoneme split by a pause stays two segments",
+            labels_sil["corpus/rec/a"].tolist() == [1, 1, 2] and lens_sil == [3, 2],
+            f"got {labels_sil['corpus/rec/a'].tolist()}",
+        )
+        _check(
+            "mean pooling averages each run - the pooling the existing segmented files use",
+            np.allclose(feats_sil[0], vq_feats[0:2].mean(0))
+            and np.allclose(feats_sil[1], vq_feats[4:5].mean(0)),
+        )
+        _, _, feats_max, _ = _run_features(exclude_labels=(0,), pooling="max")
+        _check(
+            "max pooling is available and is a different answer",
+            np.allclose(feats_max[0], vq_feats[0:2].max(0))
+            and not np.allclose(feats_max[0], feats_sil[0]),
+        )
+        # A segmented feature file passed where an unsegmented one belongs is the
+        # easy mistake here, and it shows up as a length disagreement.
+        vq_bad_ali = os.path.join(vq_tmp, "bad_ali.pkl")
+        with open(vq_bad_ali, "wb") as fp:
+            pickle.dump({"rec/a": np.array([1, 1]), "rec/b": np.array([2, 3, 3, 0])}, fp)
+
+        def _run_bad():
+            job = SegmentedFeaturesFromAlignmentJob(tk.Path(vq_hdf), tk.Path(vq_bad_ali))
+            out = tempfile.mkdtemp(dir=vq_tmp)
+            job.out_features = tk.Path(os.path.join(out, "f.hdf"))
+            job.out_labels = tk.Path(os.path.join(out, "l.pkl"))
+            job.out_segments = tk.Path(os.path.join(out, "s.txt"))
+            job.out_statistics = tk.Path(os.path.join(out, "st.json"))
+            job.run()
+
+        _check(
+            "an alignment that is not frame-synchronous with the features is refused",
+            _raises(_run_bad, ValueError),
+        )
+
+
+        # --- alignments arrive in two storage forms and must agree
+        from i6_experiments.example_setups.guided_kmeans.setup.vq_baseline import (
+            _load_alignment,
+            _strip_corpus_prefix,
+        )
+
+        _check(
+            "the corpus prefix is stripped, so train-clean-100 and train-other-960 join",
+            _strip_corpus_prefix("train-clean-100/a-b-c/a-b-c") == "a-b-c/a-b-c"
+            and _strip_corpus_prefix("train-other-960/a-b-c/a-b-c") == "a-b-c/a-b-c"
+            and _strip_corpus_prefix("a-b-c/a-b-c") == "a-b-c/a-b-c",
+        )
+        # The same alignment written both ways has to load identically.
+        vq_ali_hdf = os.path.join(vq_tmp, "ali.hdf")
+        _flat = np.concatenate([vq_align["rec/a"], vq_align["rec/b"]]).astype(np.int32)
+        with h5py.File(vq_ali_hdf, "w") as fp:
+            fp["inputs"] = _flat
+            fp["seqLengths"] = np.array([[7], [4]], dtype=np.int32)
+            fp.create_dataset(
+                "seqTags",
+                data=[b"train-other-960/rec/a", b"train-other-960/rec/b"],
+                dtype=h5py.special_dtype(vlen=bytes),
+            )
+        _from_pkl = _load_alignment(tk.Path(vq_ali))
+        _from_hdf = _load_alignment(tk.Path(vq_ali_hdf))
+        _check(
+            "a pickle and an HDF shard load to the same thing, prefix aside",
+            set(_from_pkl) == set(_from_hdf)
+            and all(np.array_equal(_from_pkl[k], _from_hdf[k]) for k in _from_pkl),
+        )
+        _check(
+            "wanted= bounds the load - a 960h alignment is ~140M frames",
+            set(_load_alignment(tk.Path(vq_ali_hdf), wanted={"rec/a"})) == {"rec/a"}
+            and _load_alignment(tk.Path(vq_ali_hdf), wanted={"nope"}) == {},
+        )
+        # Stripping the prefix could collide if two corpora carried one recording.
+        vq_dup = os.path.join(vq_tmp, "dup.hdf")
+        with h5py.File(vq_dup, "w") as fp:
+            fp["inputs"] = vq_align["rec/a"].astype(np.int32)
+            fp["seqLengths"] = np.array([[7]], dtype=np.int32)
+            fp.create_dataset(
+                "seqTags", data=[b"train-clean-100/rec/a"],
+                dtype=h5py.special_dtype(vlen=bytes),
+            )
+        _check(
+            "the same sequence arriving under two corpus names is refused, not silently kept",
+            _raises(
+                lambda: _load_alignment([tk.Path(vq_ali_hdf), tk.Path(vq_dup)]), ValueError
+            ),
+        )
+        # And the job takes either form for the same result.
+        _, labels_from_hdf, feats_from_hdf, _ = _run_features(
+            exclude_labels=(0,), alignment_override=tk.Path(vq_ali_hdf)
+        )
+        _check(
+            "the features job produces the same output from either alignment form",
+            np.allclose(feats_from_hdf, feats_sil)
+            and labels_from_hdf["corpus/rec/a"].tolist()
+            == labels_sil["corpus/rec/a"].tolist(),
+        )
+
+        # Counting: the table is exactly the normalized co-occurrence.
+        vq_cent = os.path.join(vq_tmp, "cent.npy")
+        np.save(vq_cent, np.array([[0.0, 1.0], [8.0, 9.0], [18.0, 19.0]]))
+        table_job = SupervisedVQTableJob(
+            job_sil.out_features, job_sil.out_labels, tk.Path(vq_cent),
+            num_labels=4, table_floor=0.0, heldout_fraction=0.0,
+        )
+        out = tempfile.mkdtemp(dir=vq_tmp)
+        table_job.out_model = tk.Path(os.path.join(out, "model"))
+        os.makedirs(table_job.out_model.get_path(), exist_ok=True)
+        table_job.out_table = tk.Path(os.path.join(out, "t.npy"))
+        table_job.out_counts = tk.Path(os.path.join(out, "c.npy"))
+        table_job.out_diagnostics = tk.Path(os.path.join(out, "d.json"))
+        table_job.out_accuracy = tk.Variable(os.path.join(out, "acc"))
+        table_job.out_heldout_segments = tk.Path(os.path.join(out, "ho.txt"))
+        table_job.out_train_segments = tk.Path(os.path.join(out, "tr.txt"))
+        table_job.run()
+        vq_counts = np.load(table_job.out_counts.get_path())
+        vq_table = np.load(table_job.out_table.get_path())
+        _check(
+            "counts are the label x codeword co-occurrence over all observations",
+            vq_counts.sum() == sum(lens_sil),
+        )
+        _check(
+            "rows normalize to a distribution, and a label never seen gets a uniform row",
+            np.allclose(vq_table.sum(1), 1.0) and np.allclose(vq_table[0], 1 / vq_counts.shape[1]),
+        )
+        _check(
+            "the model directory it writes loads back as a VectorQuantizedModel",
+            type(load_model(table_job.out_model.get_path())) is VectorQuantizedModel,
+        )
+        with open(table_job.out_train_segments.get_path()) as fp:
+            train_tags = [line for line in fp.read().split("\n") if line]
+        _check(
+            "at heldout_fraction=0 everything is training data and the split files say so",
+            len(train_tags) == 2 and os.path.getsize(table_job.out_heldout_segments.get_path()) == 0,
+        )
+        # Without a floor a counted table is mostly zeros, every zero is +inf,
+        # and a codeword no label admits makes a frame unsearchable.
+        floored_job = SupervisedVQTableJob(
+            job_sil.out_features, job_sil.out_labels, tk.Path(vq_cent),
+            num_labels=4, table_floor=1e-2, heldout_fraction=0.0,
+        )
+        out = tempfile.mkdtemp(dir=vq_tmp)
+        floored_job.out_model = tk.Path(os.path.join(out, "model"))
+        os.makedirs(floored_job.out_model.get_path(), exist_ok=True)
+        floored_job.out_table = tk.Path(os.path.join(out, "t.npy"))
+        floored_job.out_counts = tk.Path(os.path.join(out, "c.npy"))
+        floored_job.out_diagnostics = tk.Path(os.path.join(out, "d.json"))
+        floored_job.out_accuracy = tk.Variable(os.path.join(out, "acc"))
+        floored_job.out_heldout_segments = tk.Path(os.path.join(out, "ho.txt"))
+        floored_job.out_train_segments = tk.Path(os.path.join(out, "tr.txt"))
+        floored_job.run()
+        floored = np.load(floored_job.out_table.get_path())
+        _check(
+            "a floor puts mass on every codeword, so no score comes out +inf",
+            (floored > 0).all()
+            and (np.load(table_job.out_table.get_path()) == 0).any()
+            and np.isfinite(
+                load_model(floored_job.out_model.get_path()).scores(feats_sil)
+            ).all(),
+        )
+
+    print("VectorQuantizedAccumulator")
+    va_C = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]])
+    va_T = np.array([[0.5, 0.3, 0.2], [0.2, 0.3, 0.5]])
+    va_model = VectorQuantizedModel(va_C, va_T)
+    va_rng = np.random.RandomState(3)
+    va_X = np.concatenate([
+        va_rng.randn(40, 2) * 0.3,
+        va_rng.randn(40, 2) * 0.3 + [10.0, 0.0],
+        va_rng.randn(40, 2) * 0.3 + [0.0, 10.0],
+    ])
+    va_labels = va_rng.randint(0, 2, size=len(va_X))
+
+    def _vq_acc(groups, **kwargs):
+        built = []
+        for g in groups:
+            acc = VectorQuantizedAccumulator(num_clusters=2, **kwargs)
+            acc.bind_model(va_model)
+            acc.observe(va_X[g], va_labels[g])
+            built.append(acc)
+        merged = built[0]
+        for acc in built[1:]:
+            merged = merged.merge(acc)
+        return merged
+
+    va_whole = _vq_acc([np.arange(len(va_X))])
+    va_split = _vq_acc([np.arange(0, 37), np.arange(37, 81), np.arange(81, len(va_X))])
+    _check(
+        "merge is associative - the partition cannot change the counts",
+        np.array_equal(va_whole.counts, va_split.counts),
+    )
+    # The counts are the co-occurrence, which is checkable directly.
+    va_q = va_model.quantize(va_X)
+    va_expected = np.zeros((2, 3))
+    np.add.at(va_expected, (va_labels, va_q), 1.0)
+    _check(
+        "counts are exactly N_lc = #{t : label_t = l, q(x_t) = c}",
+        np.array_equal(va_whole.counts, va_expected),
+    )
+    _check(
+        "the state is [L, C] and carries no feature-dimension arithmetic",
+        va_whole.counts.shape == (2, 3),
+    )
+    va_next = va_whole.finalize(va_model)
+    _check(
+        "finalize normalizes each row and leaves the codebook untouched",
+        type(va_next) is VectorQuantizedModel
+        and np.allclose(va_next.table.sum(1), 1.0)
+        and np.array_equal(va_next.centroids, va_C),
+    )
+    _check(
+        "with no floor the table is the plain relative frequency",
+        np.allclose(va_next.table, va_expected / va_expected.sum(1, keepdims=True)),
+    )
+    va_floored = _vq_acc([np.arange(len(va_X))], table_floor=1.0).finalize(va_model)
+    _check(
+        "a floor smooths every entry, so no score comes out +inf",
+        (va_floored.table > 0).all()
+        and np.isfinite(va_floored.scores(va_X)).all()
+        and np.allclose(va_floored.table.sum(1), 1.0),
+    )
+    # Soft posteriors are the same statistic with non-integer weights, which is
+    # what makes a forward-backward epoch work without any change here.
+    va_soft = VectorQuantizedAccumulator(num_clusters=2)
+    va_soft.bind_model(va_model)
+    va_gammas = np.zeros((len(va_X), 2))
+    va_gammas[np.arange(len(va_X)), va_labels] = 1.0
+    va_soft.observe(va_X, va_gammas)
+    _check(
+        "dense posteriors give the same counts as hard labels when they are one-hot",
+        np.array_equal(va_soft.counts, va_whole.counts),
+    )
+    va_reload = VectorQuantizedAccumulator(num_clusters=2).load_state_dict(va_whole.state_dict())
+    _check(
+        "state survives the reduce step's round-trip",
+        np.array_equal(va_reload.counts, va_whole.counts)
+        and np.allclose(va_reload.finalize(va_model).table, va_next.table),
+    )
+    _check(
+        "a label nothing aligned to keeps its previous row rather than being zeroed",
+        np.allclose(
+            _vq_acc([np.flatnonzero(va_labels == 0)]).finalize(va_model).table[1], va_T[1]
+        ),
+    )
+    _check(
+        "a model that cannot quantize is refused with a pointer",
+        _raises(lambda: VectorQuantizedAccumulator(num_clusters=2).bind_model(
+            EuclideanModel(va_C)), TypeError),
+    )
+
+    print("NormalTableJob")
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        NormalTableJob,
+    )
+
+    nt = NormalTableJob(4, 64, sigma=0.1, seed=7).compute()
+    _check(
+        "rows are normalized distributions",
+        nt.shape == (4, 64) and np.allclose(nt.sum(1), 1.0) and (nt > 0).all(),
+    )
+    _check(
+        "it is reproducible from the seed and the seed changes it",
+        np.array_equal(nt, NormalTableJob(4, 64, sigma=0.1, seed=7).compute())
+        and not np.array_equal(nt, NormalTableJob(4, 64, sigma=0.1, seed=8).compute()),
+    )
+    # sigma is what survives renormalization, so it has to move the spread and
+    # therefore how far the run starts from the degenerate uniform table.
+    _spreads = [
+        NormalTableJob(8, 256, sigma=s, seed=1).compute().std(1).mean() for s in (0.05, 0.5)
+    ]
+    _check(
+        "sigma controls the spread - the only symmetry break a frozen codebook has",
+        _spreads[0] < _spreads[1],
+        f"std {_spreads[0]:.2e} -> {_spreads[1]:.2e}",
+    )
+    _wide = NormalTableJob(8, 256, sigma=0.05, seed=1).compute()
+    _check(
+        "a small sigma really is near-uniform, which is the failure mode to avoid",
+        abs(_wide.max() - _wide.min()) < 0.5 * _wide.mean(),
     )
 
     print("epoch statistics — Viterbi and forward-backward counter sets")

@@ -26,6 +26,7 @@ __all__ = [
     "GlobalCovarianceJob",
     "ClusterCovarianceJob",
     "RandomMixturesJob",
+    "NormalTableJob",
     "RepeatCovsJob",
     "SelectCovJob",
     "SplitCentroidsJob",
@@ -37,6 +38,7 @@ __all__ = [
     "mixture_flavor",
     "per_label_mixture_flavor",
     "unguided_flavor",
+    "vq_flavor",
     "prepare_worker_sys_path",
 ]
 
@@ -70,6 +72,7 @@ from ..lib.guided_kmeans.chunked import (
     gaussian_flavor,
     mixture_flavor,
     unguided_flavor,
+    vq_flavor,
     reduce_chunks,
     run_chunk,
     save_chunk,
@@ -1038,6 +1041,77 @@ class RandomMixturesJob(ArrayJob):
         mixtures = np.maximum(mixtures, np.finfo(np.float64).tiny)
         mixtures /= mixtures.sum(axis=-1, keepdims=True)
         return mixtures
+
+
+class NormalTableJob(ArrayJob):
+    """Initial ``p(codeword | label)``: a normal draw per entry, rows normalized.
+
+    ``table[l, c] = max(1 + sigma * z, eps)`` with ``z ~ N(0, 1)``, then each row
+    divided by its sum. Written around a mean of 1 rather than ``1/C`` because
+    normalization removes the mean anyway - what survives it is the *relative*
+    spread, so ``sigma`` is the coefficient of variation and means the same
+    thing at any codebook size.
+
+    This is the only place an unsupervised run's symmetry can be broken. With a
+    frozen codebook the table is the entire model, so a table that starts
+    (near-)uniform gives every label the same score column, leaves the first
+    search with nothing acoustic to separate labels by, and hands the counting
+    step an alignment produced by the language model alone. ``sigma`` is
+    therefore a real hyperparameter and not a nuisance: it decides how far from
+    that degenerate point a run begins.
+
+    For calibration against :class:`RandomMixturesJob`, whose Dirichlet draws do
+    the same job for the mixture models: a Dirichlet(alpha) row over C
+    categories has coefficient of variation ``sqrt((C-1)/(C*alpha+1))``, so at
+    C=512 alpha=1.0 corresponds to ``sigma`` near 1.0, alpha=0.1 to about 3.1.
+    Small ``sigma`` is the *weak* break, not the safe one.
+
+    :param sigma: relative standard deviation before normalizing
+    :param clip: floor applied to a draw before normalizing. Normal draws go
+        negative once ``sigma`` approaches 1 (16% of entries at sigma=1), and a
+        negative probability is not a small problem - the fraction clipped is
+        reported so a sigma large enough to distort the distribution is visible
+        rather than silent.
+    """
+
+    OUTPUTS = ("table",)
+
+    def __init__(
+        self,
+        num_labels: int,
+        num_codewords: int,
+        sigma: float = 0.1,
+        seed: int = 42,
+        clip: float = 1e-6,
+    ):
+        self.num_labels = num_labels
+        self.num_codewords = num_codewords
+        self.sigma = sigma
+        self.seed = seed
+        self.clip = clip
+        super().__init__()
+
+    def compute(self):
+        rng = np.random.RandomState(self.seed)
+        draws = 1.0 + self.sigma * rng.randn(self.num_labels, self.num_codewords)
+        clipped = int((draws < self.clip).sum())
+        if clipped:
+            print(
+                f"WARNING: {clipped} of {draws.size} entries "
+                f"({100 * clipped / draws.size:.1f}%) were negative at sigma={self.sigma} "
+                f"and were clipped to {self.clip}. The draw is no longer normal at this "
+                f"width; treat sigma as a shape knob rather than a standard deviation.",
+                flush=True,
+            )
+        draws = np.maximum(draws, self.clip)
+        table = draws / draws.sum(axis=1, keepdims=True)
+        print(
+            f"table [{self.num_labels}, {self.num_codewords}] at sigma={self.sigma}: "
+            f"row min {table.min():.3e}, row max {table.max():.3e}, "
+            f"relative spread {table.std() / table.mean():.3f}",
+            flush=True,
+        )
+        return table
 
 
 class SplitCentroidsJob(ArrayJob):

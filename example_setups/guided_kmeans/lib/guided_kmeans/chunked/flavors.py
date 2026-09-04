@@ -31,6 +31,7 @@ __all__ = [
     "gaussian_flavor",
     "mixture_flavor",
     "per_label_mixture_flavor",
+    "vq_flavor",
 ]
 
 from dataclasses import dataclass
@@ -43,12 +44,14 @@ from .accumulators import (
     MeanAccumulator,
     MixtureGaussianAccumulator,
     SoftGaussianAccumulator,
+    VectorQuantizedAccumulator,
 )
 from .models import (
     EuclideanModel,
     GaussianMixtureModel,
     GaussianModel,
     PerLabelMixtureModel,
+    VectorQuantizedModel,
 )
 from .recognizers import ArgmaxRecognizer, RasrFBRecognizer, RasrViterbiRecognizer
 from .spec import Spec
@@ -428,4 +431,62 @@ def per_label_mixture_flavor(
         update_densities=update_densities,
         num_workers=num_workers,
         task_timeout=task_timeout,
+    )
+
+
+def vq_flavor(
+    *,
+    centroids,
+    table,
+    recognition_config,
+    lexicon,
+    num_clusters: int,
+    distance_scale: float = 1.0,
+    use_forward_backward: bool = False,
+    table_floor: float = 0.0,
+    min_mass: float = 0.0,
+    num_workers: int = 8,
+    task_timeout: Optional[float] = 1800.0,
+) -> ClusteringFlavor:
+    """
+    A discrete-density HMM over a frozen codebook
+    (:class:`.models.VectorQuantizedModel`).
+
+    The whole model is ``p(codeword | label)``: an epoch quantizes each frame,
+    counts which label the search assigned it to, and normalizes. There are no
+    covariances and no feature-dimension arithmetic in the update at all, so
+    this is the cheapest flavor here by a wide margin - the per-chunk statistic
+    is ``[L, C]``, 160 kB at 40 labels and 512 codewords.
+
+    Takes either search: a Viterbi alignment is the one-hot case of the dense
+    posteriors forward-backward reports, and the counting is unchanged by
+    which arrives.
+
+    :param centroids: the codebook, held fixed for the whole run. Quantization
+        is plain L2, so a codebook trained with a k-means library partitions
+        here exactly as it did there.
+    :param table: initial ``p(codeword | label)``. This is the only thing a run
+        learns, so it is also the only place a run's symmetry can be broken -
+        see :class:`...setup.chunked_clustering.NormalTableJob`.
+    :param table_floor: smoothing applied at every re-estimation. Worth
+        setting: a zero entry is an ``+inf`` score and is absorbing under a
+        frozen codebook, and a codeword no label admits leaves a frame with no
+        viable label at all.
+    """
+    return ClusteringFlavor(
+        model=Spec(VectorQuantizedModel, {"centroids": centroids, "table": table}),
+        accumulator=Spec(
+            VectorQuantizedAccumulator,
+            {"table_floor": table_floor, "min_mass": min_mass},
+        ),
+        recognizer=_recognizer_spec(
+            recognition_config=recognition_config,
+            lexicon=lexicon,
+            num_clusters=num_clusters,
+            distance_scale=distance_scale,
+            use_forward_backward=use_forward_backward,
+            num_workers=num_workers,
+            task_timeout=task_timeout,
+        ),
+        statistics=_statistics_spec(num_clusters, use_forward_backward),
     )

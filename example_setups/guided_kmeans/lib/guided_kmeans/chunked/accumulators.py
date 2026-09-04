@@ -17,6 +17,7 @@ __all__ = [
     "MixtureGaussianAccumulator",
     "NullAccumulator",
     "SoftGaussianAccumulator",
+    "VectorQuantizedAccumulator",
     "alive_mask",
     "if_alive_else",
     "keep_previous_where_dead",
@@ -1075,6 +1076,185 @@ class MixtureGaussianAccumulator:
             else np.asarray(state["weighted_c"], dtype=np.float64)
         )
         self.gaussian_accumulator.load_state_dict(state["gaussian"])
+        return self
+
+
+class VectorQuantizedAccumulator:
+    """
+    Sufficient statistics for a :class:`.models.VectorQuantizedModel`: how often
+    each label emitted each codeword.
+
+        N_lc = sum_t gamma_tl [ q(x_t) = c ]
+
+    and ``finalize`` normalizes each row. That is the entire update - one pass,
+    no iteration inside it, and no arithmetic that depends on the feature
+    dimension. Supervised counting and unsupervised training differ only in
+    where ``gamma`` comes from: a reference alignment makes it one-hot and this
+    reduces to :class:`...setup.vq_baseline.SupervisedVQTableJob`.
+
+    **The codebook is never re-estimated.** ``quantize`` is taken from the bound
+    model and the model's ``centroids`` are copied into the next one unchanged,
+    so the partition is an input to the whole run. This is what keeps the two
+    artifacts' different first axes (``centroids`` by codeword, ``table`` by
+    label) from colliding in the dead-entry rule - only the label-indexed one is
+    ever updated, the same split :class:`MixtureGaussianAccumulator` makes.
+
+    **Merge is exact.** Quantization is a function of the epoch's model, which
+    is fixed across every chunk, so the counts are plain sums and partitioning
+    the corpus cannot change them - the property ``num_chunks`` being excluded
+    from the job hash rests on.
+
+    State is ``[L, C]`` and nothing else: 160 kB at 40 labels and 512
+    codewords, against ~1 GB for the full-covariance mixture accumulator at the
+    same codebook size. That is the practical reason this scales to a 32M-vector
+    corpus where the mixture did not.
+
+    :param num_clusters: the label count L, injected by the epoch job
+    :param num_codewords: codebook size, if it has to be fixed before a model is
+        bound; otherwise taken from the model
+    :param table_floor: added to every count before normalizing. A zero entry
+        scores ``+inf``, and with the codebook frozen a label that loses a
+        codeword can never regain it, so zero is absorbing exactly as
+        ``mixture_floor`` is for the mixture models. Unlike there, it is also
+        what stops a frame from having no viable label at all - see
+        :meth:`.models.VectorQuantizedModel.scores`.
+    :param min_mass: evidence a label needs before its row is re-estimated;
+        below it the previous table's row is kept.
+    """
+
+    def __init__(
+        self,
+        num_clusters: int,
+        num_codewords: Optional[int] = None,
+        table_floor: float = 0.0,
+        min_mass: float = 0.0,
+        **runtime_args,
+    ):
+        self.num_clusters = num_clusters
+        self.num_codewords = num_codewords
+        self.table_floor = table_floor
+        self.min_mass = min_mass
+        self.model: Optional[ScoreModel] = None
+        self.counts = None
+        if num_codewords is not None:
+            self._allocate(num_codewords)
+
+    @property
+    def num_labels(self) -> int:
+        return self.num_clusters
+
+    def _allocate(self, num_codewords: int) -> None:
+        if self.num_codewords is not None and self.num_codewords != num_codewords:
+            raise ValueError(
+                f"codebook size changed: {self.num_codewords} -> {num_codewords}"
+            )
+        self.num_codewords = num_codewords
+        self.counts = np.zeros((self.num_clusters, num_codewords), dtype=np.float64)
+
+    def bind_model(self, model: ScoreModel) -> None:
+        if not hasattr(model, "quantize"):
+            raise TypeError(
+                f"{type(self).__name__} needs a model that can quantize a frame to a "
+                f"codeword (a quantize() method), got {type(model).__name__}"
+            )
+        if model.num_clusters != self.num_clusters:
+            raise ValueError(
+                f"label count mismatch: accumulator has {self.num_clusters}, "
+                f"{type(model).__name__} scores {model.num_clusters}"
+            )
+        self.model = model
+        if self.counts is None:
+            self._allocate(model.num_codewords)
+        elif self.counts.shape[1] != model.num_codewords:
+            raise ValueError(
+                f"codebook size mismatch: accumulator holds {self.counts.shape[1]}, "
+                f"model has {model.num_codewords}"
+            )
+
+    def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
+        if self.model is None:
+            raise RuntimeError(
+                "bind_model() must be called before observe(): the codeword a frame "
+                "counts towards is defined by the model this epoch recognized with"
+            )
+        features = np.asarray(features, dtype=np.float64)
+        if features.ndim != 2:
+            raise ValueError(f"features must be 2-D [T, D], got shape {features.shape}")
+        gammas = as_dense_responsibilities(posteriors, self.num_clusters)
+        if len(gammas) != len(features):
+            raise ValueError(
+                f"frame count mismatch: {len(features)} features vs {len(gammas)} posteriors"
+            )
+        codewords = self.model.quantize(features)
+        # Scattered into a [C, L] buffer and transposed once, rather than into a
+        # transposed view: add.at on a view is correct but subtle, and this is
+        # one small allocation per sequence against a statistic that is read for
+        # the rest of the epoch.
+        contribution = np.zeros((self.num_codewords, self.num_clusters), dtype=np.float64)
+        np.add.at(contribution, codewords, gammas)
+        self.counts += contribution.T
+
+    def merge(self, other: "VectorQuantizedAccumulator") -> "VectorQuantizedAccumulator":
+        if self.num_clusters != other.num_clusters:
+            raise ValueError(
+                f"label count mismatch: {self.num_clusters} vs {other.num_clusters}"
+            )
+        if other.counts is None:
+            return self
+        if self.counts is None:
+            self._allocate(other.num_codewords)
+        self.counts += other.counts
+        return self
+
+    def finalize(self, previous: ScoreModel) -> ScoreModel:
+        if self.counts is None:
+            raise RuntimeError("nothing accumulated; cannot finalize")
+        arrays = previous.artifacts()
+        missing = {"centroids", "table"} - set(arrays)
+        if missing:
+            raise TypeError(
+                f"{type(self).__name__} needs a model carrying {sorted(missing)}, got "
+                f"{type(previous).__name__} with {sorted(arrays)}"
+            )
+        if arrays["table"].shape != self.counts.shape:
+            raise ValueError(
+                f"table shape mismatch: accumulated {self.counts.shape} vs "
+                f"{type(previous).__name__}'s {arrays['table'].shape}"
+            )
+
+        mass = self.counts.sum(axis=1)
+        alive = alive_mask(mass, self.min_mass)
+        floored = self.counts + self.table_floor
+        table = floored / if_alive_else(floored.sum(axis=1), 0.0)[:, np.newaxis]
+        # A label nothing aligned to keeps its previous row: an unnormalized or
+        # zeroed row would violate the model's own invariant and leave the label
+        # with no emission probability at all.
+        table[~alive] = arrays["table"][~alive]
+        return type(previous)(
+            centroids=arrays["centroids"],
+            table=table,
+            device=getattr(previous, "device", None),
+        )
+
+    def state_dict(self) -> dict:
+        return {
+            "num_clusters": self.num_clusters,
+            "num_codewords": self.num_codewords,
+            "counts": self.counts,
+            "table_floor": self.table_floor,
+        }
+
+    def load_state_dict(self, state: dict) -> "VectorQuantizedAccumulator":
+        if int(state["num_clusters"]) != self.num_clusters:
+            raise ValueError(
+                f"label count mismatch: {state['num_clusters']} vs {self.num_clusters}"
+            )
+        num_codewords = state["num_codewords"]
+        if num_codewords is not None and self.counts is None:
+            self._allocate(int(num_codewords))
+        self.counts = (
+            None if state["counts"] is None else np.asarray(state["counts"], dtype=np.float64)
+        )
         return self
 
 
