@@ -408,3 +408,109 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_beam(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Frame-synchronous beam search for two_tower (cf. :func:`model_recog`); beam_size from config (default 12).
+    The text (label-rate) stack is stepped incrementally, only on the beams that emitted a label last frame
+    (masked select/scatter), and its new state is written into the text buffer at slot ``n_emitted``;
+    the cross-attn mask (key label idx <= n_t) is unchanged. Blanks stripped.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import frame_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+    max_labels = config.int("max_labels", 0) or 200
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    dec = model.decoder
+    blank, bos = model.blank_idx, model.bos_idx
+    model_dim = dec.model_dim
+    label_dim = Dim(max_labels, name="emit_labels")
+    text_ext_dim = label_dim + 1  # BOS row + emitted-label text states
+    key_label_idx = rf.range_over_dim(text_ext_dim)
+    ext_range = rf.range_over_dim(text_ext_dim)
+
+    def _init(bd):
+        text_ext = rf.constant(0.0, dims=bd + [text_ext_dim, model_dim])
+        text_ext.feature_dim = model_dim
+        return {
+            "speech_state": dec.speech_initial_state(batch_dims=bd),
+            "text_state": dec.text_initial_state(batch_dims=bd),
+            "text_ext": text_ext,
+            "prev_label": rf.constant(bos, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32"),
+            "n_emitted": rf.constant(0, dims=bd, dtype="int32"),
+        }
+
+    def _step(prev, enc_t, state):
+        speech_state, text_state = state["speech_state"], state["text_state"]
+        text_ext, prev_label, n_emitted = state["text_ext"], state["prev_label"], state["n_emitted"]
+
+        emit = rf.logical_and(prev != blank, prev != bos)
+        emit_cpu = rf.copy_to_device(emit, "cpu")
+        if emit_cpu.raw_tensor.sum().item() > 0:
+            # The text stack at label position u consumes the label emitted before it.
+            (label_e, text_state_e), packed_dim, packed_map = rf.nested.masked_select_nested(
+                (prev_label, text_state), mask=emit, mask_cpu=emit_cpu, dims=list(prev.dims)
+            )
+            t_new_e, text_state_e = dec.text_forward(label_e, spatial_dim=single_step_dim, state=text_state_e)
+            t_new, text_state = rf.nested.masked_scatter_nested(
+                (t_new_e, text_state_e),
+                (rf.gather(text_ext, indices=n_emitted, axis=text_ext_dim), text_state),
+                mask=emit,
+                mask_cpu=emit_cpu,
+                dims=list(prev.dims),
+                in_dim=packed_dim,
+                masked_select_dim_map=packed_map,
+            )
+            # Write the new text state at slot n_emitted+1 (slot 0 stays the BOS row).
+            write = rf.logical_and(emit, ext_range == n_emitted + 1)
+            text_ext = rf.where(write, t_new, text_ext)
+            text_ext.feature_dim = model_dim
+            prev_label = rf.where(emit, prev, prev_label)
+            n_emitted = n_emitted + rf.cast(emit, "int32")
+
+        text_kv = dec.transform_text(text_ext, axis=text_ext_dim)
+        logits, speech_state = dec.speech_forward(
+            prev,
+            enc_t,
+            spatial_dim=single_step_dim,
+            state=speech_state,
+            text_kv=text_kv,
+            text_ext_spatial_dim=text_ext_dim,
+            query_n_t=n_emitted,
+            key_label_idx=key_label_idx,
+        )
+        return rf.log_softmax(logits, axis=model.target_dim_ext), {
+            "speech_state": speech_state,
+            "text_state": text_state,
+            "text_ext": text_ext,
+            "prev_label": prev_label,
+            "n_emitted": n_emitted,
+        }
+
+    return frame_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim_ext=model.target_dim_ext,
+        bos_idx=bos,
+        blank_idx=blank,
+        enc=enc,
+        enc_spatial_dim=enc_spatial_dim,
+        beam_size=beam_size,
+        init_state=_init,
+        step=_step,
+    )
+
+
+model_recog_beam: RecogDef
+model_recog_beam.output_with_beam = True
+model_recog_beam.output_blank_label = None
+model_recog_beam.batch_size_dependent = False

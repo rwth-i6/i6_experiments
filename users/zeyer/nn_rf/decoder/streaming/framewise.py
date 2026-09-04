@@ -257,6 +257,32 @@ def framewise_ctc_align_training(*, model, data: Tensor, data_spatial_dim: Dim, 
 framewise_ctc_align_training.learning_rate_control_error_measure = "ce"
 
 
+def framewise_scaled_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
+    """TrainDef: like :func:`framewise_training`, but the main framewise CE is weighted by
+    ``framewise_main_loss_scale`` from the config (aux CTC unscaled), as in ...streaming.rnnt_scaled.
+    """
+    from returnn.config import get_global_config
+
+    scale = get_global_config().float("framewise_main_loss_scale", 1.0)
+    losses = framewise_train_forward(
+        model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        rna_targets=targets,
+        rna_targets_spatial_dim=targets_spatial_dim,
+    )
+    for name, (loss, norm_dim) in losses.items():
+        loss.mark_as_loss(
+            name,
+            scale=scale if name == "ce" else 1.0,
+            custom_inv_norm_factor=norm_dim.get_size_tensor(),
+            use_normalized_loss=True,
+        )
+
+
+framewise_scaled_training.learning_rate_control_error_measure = "ce"
+
+
 def model_recog(
     *,
     model,

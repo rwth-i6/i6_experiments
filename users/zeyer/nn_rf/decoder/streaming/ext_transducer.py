@@ -307,3 +307,98 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_beam(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Frame-synchronous beam search for the slow+fast extended transducer (cf. :func:`model_recog`);
+    beam_size from config (default 12).
+    The slow (label-rate) stack is stepped incrementally, only on the beams that emitted a label
+    last frame (masked select/scatter, as in ...recog_ext.aed_ctc.model_recog_with_recomb),
+    so there is no re-scan of the emitted-label buffer per frame. Blanks stripped.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import frame_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    dec = model.decoder
+    blank, bos = model.blank_idx, model.bos_idx
+    model_dim, encoder_dim = dec.model_dim, dec.encoder_dim
+
+    def _init(bd):
+        current_slow = rf.constant(0.0, dims=bd + [model_dim])  # BOS slow state
+        current_slow.feature_dim = model_dim
+        prev_enc = rf.constant(0.0, dims=bd + [encoder_dim])
+        prev_enc.feature_dim = encoder_dim
+        return {
+            "fast_state": dec.fast_initial_state(batch_dims=bd),
+            "slow_state": dec.slow_initial_state(batch_dims=bd),
+            "current_slow": current_slow,
+            "prev_label": rf.constant(bos, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32"),
+            "prev_enc": prev_enc,
+        }
+
+    def _step(prev, enc_t, state):
+        fast_state, slow_state = state["fast_state"], state["slow_state"]
+        current_slow, prev_label, prev_enc = state["current_slow"], state["prev_label"], state["prev_enc"]
+
+        # `prev` was emitted at the previous frame, whose encoder frame is `prev_enc`;
+        # the slow stack at that label position consumes the label emitted before it (`prev_label`).
+        emit = rf.logical_and(prev != blank, prev != bos)
+        emit_cpu = rf.copy_to_device(emit, "cpu")
+        if emit_cpu.raw_tensor.sum().item() > 0:
+            (label_e, h_e, slow_state_e), packed_dim, packed_map = rf.nested.masked_select_nested(
+                (prev_label, prev_enc, slow_state), mask=emit, mask_cpu=emit_cpu, dims=list(prev.dims)
+            )
+            s_new_e, slow_state_e = dec.slow_forward(label_e, h_e, spatial_dim=single_step_dim, state=slow_state_e)
+            current_slow, slow_state = rf.nested.masked_scatter_nested(
+                (s_new_e, slow_state_e),
+                (current_slow, slow_state),
+                mask=emit,
+                mask_cpu=emit_cpu,
+                dims=list(prev.dims),
+                in_dim=packed_dim,
+                masked_select_dim_map=packed_map,
+            )
+            prev_label = rf.where(emit, prev, prev_label)
+        current_slow.feature_dim = model_dim
+
+        logits, fast_state = dec.fast_forward(
+            prev, enc_t, current_slow, spatial_dim=single_step_dim, state=fast_state
+        )
+        enc_t_b = enc_t + rf.zeros(dims=list(prev.dims), dtype=enc_t.dtype)  # carry this frame's h over the beam
+        enc_t_b.feature_dim = encoder_dim
+        return rf.log_softmax(logits, axis=model.target_dim_ext), {
+            "fast_state": fast_state,
+            "slow_state": slow_state,
+            "current_slow": current_slow,
+            "prev_label": prev_label,
+            "prev_enc": enc_t_b,
+        }
+
+    return frame_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim_ext=model.target_dim_ext,
+        bos_idx=bos,
+        blank_idx=blank,
+        enc=enc,
+        enc_spatial_dim=enc_spatial_dim,
+        beam_size=beam_size,
+        init_state=_init,
+        step=_step,
+    )
+
+
+model_recog_beam: RecogDef
+model_recog_beam.output_with_beam = True
+model_recog_beam.output_blank_label = None
+model_recog_beam.batch_size_dependent = False

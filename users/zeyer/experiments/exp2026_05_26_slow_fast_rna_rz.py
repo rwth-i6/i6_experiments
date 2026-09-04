@@ -55,17 +55,20 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
     model_recog as framewise_model_recog,
     model_recog_beam as framewise_model_recog_beam,
     framewise_ctc_align_training,
+    framewise_scaled_training,
     model_recog_beam_rescore_check as framewise_model_recog_beam_rescore_check,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
     ExtTransducerDecoder,
     ext_transducer_training,
     model_recog as ext_transducer_model_recog,
+    model_recog_beam as ext_transducer_model_recog_beam,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.two_tower import (
     TwoTowerDecoder,
     two_tower_training,
     model_recog as two_tower_model_recog,
+    model_recog_beam as two_tower_model_recog_beam,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
     RnntDecoder,
@@ -144,6 +147,26 @@ def _recog_chunked_base_aed():
         name=ctc_name,
     )
     tk.register_output(ctc_name, ctc_res.output)
+
+
+def _train_framewise_delay_scaled_rz(scale: float, tag: str):
+    """Best full-size model (framewise + delay 2.5s) with the main-loss scale knob.
+
+    The small sweep tuned delay and scale TOGETHER (its best points were delay5 + scale2/4, 14.57/14.50,
+    vs 15.80 at scale1), so scale is only tested here on top of the delay,
+    not in isolation. Full size takes the delay optimum measured at full size (42 frames),
+    since the delay curve did not transfer from small (optimum 3 frames there).
+    """
+    return _train_variant_rz(
+        f"framewise-delay2p5-scale{tag}-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=42, version=2
+        ),
+        train_def=framewise_scaled_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        extra_config={"framewise_main_loss_scale": scale},
+    )
 
 
 def _train_framewise_ctc_align_rz():
@@ -241,6 +264,7 @@ def py():
     _train_framewise_delay_rz()
     _train_rnnt_mono_framewise_scaled_rz(2.0, "2")
     _train_framewise_ctc_align_rz()
+    _train_framewise_delay_scaled_rz(4.0, "4")
     _train_framewise_delay_ls0_rz()
     _train_framewise_wordchunk_rz()
     _train_framewise_wordchunk_end_rz()
@@ -464,6 +488,7 @@ def _train_ext_transducer_rz():
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
         target_mode="rna_frame",
+        beam_verify=(ext_transducer_model_recog_beam, [1, 4, 8, 12]),
     )
 
 
@@ -477,6 +502,7 @@ def _train_two_tower_rz():
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
+        beam_verify=(two_tower_model_recog_beam, [1, 4, 8, 12]),
     )
 
 
