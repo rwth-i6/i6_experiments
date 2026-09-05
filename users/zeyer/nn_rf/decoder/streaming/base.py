@@ -284,7 +284,7 @@ def rna_targets_on_enc_spatial(
     With equal lengths this is just the old dim re-tag, numerically identical.
     """
     idx = rf.range_over_dim(enc_spatial_dim, device=rna_targets.device)  # [enc_spatial]
-    tgt_lens = rf.copy_to_device(in_spatial_dim.get_size_tensor(), rna_targets.device)  # [B]
+    tgt_lens = in_spatial_dim.get_size_tensor(device=rna_targets.device)  # [B]
     valid = idx < tgt_lens  # [B, enc_spatial]
     gathered = rf.gather(rna_targets, indices=rf.minimum(idx, tgt_lens - 1), axis=in_spatial_dim)
     blank = rf.constant(blank_idx, dims=(), sparse_dim=rna_targets.sparse_dim, dtype=rna_targets.dtype)
