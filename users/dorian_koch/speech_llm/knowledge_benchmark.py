@@ -574,7 +574,12 @@ class LLMGrading(Job):
             for line in f:
                 results.append(json.loads(line))
 
-        with vllm_server(self.llm_name, max_model_len=8192) as llm_url:
+        # 0.85, not the 0.9 default: the judge has KV to spare (8192 needs ~4.2 GiB of the ~12 GiB
+        # that 0.9 leaves after 58.9 GiB of weights), so giving some back buys tolerance for a card
+        # that is not perfectly clean. 0.85 asks for 67.3 GiB and survives ~11.9 GiB of residue --
+        # it would have survived the 10.8 GiB that killed this job on n25g0004 (2026-09-06). Do NOT
+        # copy this to LLMPreprocess, whose 12288 context needs every GiB that 0.9 provides.
+        with vllm_server(self.llm_name, max_model_len=8192, gpu_memory_utilization=0.85) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()  # block until the server is ready to serve
 

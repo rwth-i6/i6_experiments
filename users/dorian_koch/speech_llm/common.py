@@ -151,11 +151,18 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 
 
 @contextmanager
-def vllm_server(hf_model: str, max_model_len: int | None = None):
+def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_utilization: float = 0.9):
     # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts are <1k tokens)
     # can pass a small value so the judge's KV cache fits c25g's 80 GB H100 at TP=1 -- otherwise the
     # dict's large context (gemma 65536 -> ~12 GiB KV) only fits c23g's 94 GB cards, forcing the job onto
     # the scarce c23g queue. None keeps the per-model dict default (dialogue-gen needs the long context).
+    #
+    # `gpu_memory_utilization` override: 0.9 demands 71.26 of the card's 79.18 GiB and vLLM REFUSES TO
+    # START if that much is not free, so a few GiB left on the card by anyone else kills the job --
+    # and one errored job stalls the entire Sisyphus graph. Seen 2026-09-06: LLMGrading landed on
+    # n25g0004 with 10.8 GiB already resident (68.38 free vs 71.26 wanted) and died. Lower this ONLY
+    # for callers with KV headroom to spare; it is a straight trade of KV cache for tolerance of a
+    # dirty card, and LLMPreprocess (12288) has none to give.
     port = pick_free_port(18998)
     print(f"Selected port {port} for vLLM server")
     cmd = [
@@ -169,7 +176,7 @@ def vllm_server(hf_model: str, max_model_len: int | None = None):
         "--model",
         hf_model,
         "--gpu-memory-utilization",
-        "0.9",
+        str(gpu_memory_utilization),
         "--enable-prefix-caching",
         "true",
     ]
