@@ -574,12 +574,24 @@ class LLMGrading(Job):
             for line in f:
                 results.append(json.loads(line))
 
-        # 0.85, not the 0.9 default: the judge has KV to spare (8192 needs ~4.2 GiB of the ~12 GiB
-        # that 0.9 leaves after 58.9 GiB of weights), so giving some back buys tolerance for a card
-        # that is not perfectly clean. 0.85 asks for 67.3 GiB and survives ~11.9 GiB of residue --
-        # it would have survived the 10.8 GiB that killed this job on n25g0004 (2026-09-06). Do NOT
-        # copy this to LLMPreprocess, whose 12288 context needs every GiB that 0.9 provides.
-        with vllm_server(self.llm_name, max_model_len=8192, gpu_memory_utilization=0.85) as llm_url:
+        # Both numbers are MEASURED, and they trade against each other -- pick them together.
+        #
+        # Prompt: over all 1,000 real graded rows the worst prompt is 8,905 chars (~2,544 tokens;
+        # median 249, p95 480). The long tail is the `aliases` list, not the transcription -- the
+        # old "<1k tokens" claim in vllm_server's docstring was wrong. The completion is a short
+        # JSON verdict (~200 tokens). So 4096 is ~1.6x the worst case end to end.
+        #
+        # KV budget on c25g, derived from two real vLLM startups on this model (79.18 GiB card):
+        #     KV_available(util) = util * 79.18 - 63.05 GiB      [63.05 = weights + overhead]
+        #     KV_needed(len)     = 6.89 GiB * len / 8192
+        # 4096 needs 3.45 GiB; at util 0.85 there is 4.25 GiB. Fits, with residue tolerance of
+        # (1 - 0.85) * 79.18 = 11.9 GiB -- which covers the 10.8 GiB of someone else's memory that
+        # killed this job on n25g0004 (2026-09-06).
+        #
+        # ⚠ The obvious-looking 8192 @ 0.85 does NOT work: 8192 needs 6.89 GiB against 4.25
+        # available. That was tried and failed the same day; lowering util without re-checking
+        # KV_needed is exactly the half-of-the-arithmetic mistake this comment exists to stop.
+        with vllm_server(self.llm_name, max_model_len=4096, gpu_memory_utilization=0.85) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()  # block until the server is ready to serve
 

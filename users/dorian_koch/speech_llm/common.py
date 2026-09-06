@@ -152,8 +152,9 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 
 @contextmanager
 def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_utilization: float = 0.9):
-    # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts are <1k tokens)
-    # can pass a small value so the judge's KV cache fits c25g's 80 GB H100 at TP=1 -- otherwise the
+    # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts measure ~2.5k
+    # tokens worst case over the real data, median 249) can pass a small value so the judge's KV cache
+    # fits c25g's 80 GB H100 at TP=1 -- otherwise the
     # dict's large context (gemma 65536 -> ~12 GiB KV) only fits c23g's 94 GB cards, forcing the job onto
     # the scarce c23g queue. None keeps the per-model dict default (dialogue-gen needs the long context).
     #
