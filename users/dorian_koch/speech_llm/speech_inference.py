@@ -67,6 +67,26 @@ class ResolveOverlayCheckpoint(Job):
     def tasks(self):
         yield Task("run", mini_task=True)
 
+    @staticmethod
+    def _link(target: Path, link_name: str) -> None:
+        """Symlink ``target`` -> ``link_name``, refusing a target that does not exist.
+
+        ``os.symlink`` creates a DANGLING link without complaining, so a wrong ``overlay_kind``
+        used to make this job finish successfully while pointing at files the checkpoint never
+        wrote. Sisyphus then marked it finished, released the downstream SpeechInference, and that
+        died with a bare "Job isn't runnable, probably some inputs are not ready" -- an empty
+        error.run.1, no log.run.1, and a SLURM state of COMPLETED in one second. Two weeks of the
+        graph stalled on a failure that named neither the missing file nor the job that wanted it
+        (a11_full, 2026-08-21). Fail here instead, where the path is still in hand.
+        """
+        assert target.exists(), (
+            f"{target} does not exist, so symlinking it would create a dangling link that only "
+            f"fails much later, in a downstream job, with no mention of this path. Check that "
+            f"overlay_kind matches what this run actually wrote: "
+            f"{sorted(p.name for p in target.parent.iterdir()) if target.parent.is_dir() else f'{target.parent} is not a directory'}"
+        )
+        os.symlink(target, link_name)
+
     def run(self):
         if self.overlay_kind in ("lora", "audex_stage0", "full"):
             ckpt_root = Path(self.run_dir.get()) / "checkpoints"
@@ -80,16 +100,16 @@ class ResolveOverlayCheckpoint(Job):
             consolidated = chosen / "consolidated"
             print(f"Resolved {self.overlay_kind} checkpoint: {chosen.name}", flush=True)
             if self.overlay_kind == "lora":
-                os.symlink(consolidated / "config.json", self.out_config.get())
-                os.symlink(consolidated / "lora.safetensors", self.out_weights.get())
+                self._link(consolidated / "config.json", self.out_config.get())
+                self._link(consolidated / "lora.safetensors", self.out_weights.get())
             elif self.overlay_kind == "full":  # whole state dict, no LoRA config to carry
-                os.symlink(consolidated / "model.safetensors", self.out_weights.get())
+                self._link(consolidated / "model.safetensors", self.out_weights.get())
             else:  # audex_stage0/stage1: partial state-dict overlay, no config
                 import glob as _glob
 
                 cands = sorted(_glob.glob(str(consolidated / "stage*.safetensors")))
                 assert len(cands) == 1, f"expected one stage*.safetensors in {consolidated}, got {cands}"
-                os.symlink(cands[0], self.out_weights.get())
+                self._link(Path(cands[0]), self.out_weights.get())
         else:  # personaplex_heads
             consolidated = Path(self.run_dir.get()) / "consolidated"
             name = (
@@ -100,7 +120,7 @@ class ResolveOverlayCheckpoint(Job):
                 f"{chosen} not found; have {[p.name for p in consolidated.glob('trained_heads*.safetensors')]}"
             )
             print(f"Resolved PersonaPlex checkpoint: {chosen.name}", flush=True)
-            os.symlink(chosen, self.out_weights.get())
+            self._link(chosen, self.out_weights.get())
 
 
 class SpeechInference(BackendInferenceMixin, Job):

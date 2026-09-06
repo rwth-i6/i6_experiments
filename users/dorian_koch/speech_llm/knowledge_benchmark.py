@@ -281,13 +281,26 @@ class ChatterboxSingleSpeakerInference(Job):
 # ---------------------------------------------------------------------------
 
 
-def resolve_lora(moshi_checkpoint, checkpoint_step=None):
-    """Map a MoshiFinetune run_dir (+ optional step) to (lora_weights, lora_config) output
-    handles, or (None, None) for the base model. Shared by both benchmark builders. Backed by
-    the unified ResolveOverlayCheckpoint (overlay_kind="lora")."""
+def resolve_lora(moshi_checkpoint, checkpoint_step=None, overlay_kind="lora"):
+    """Map a moshi-family run_dir (+ optional step) to (weights, config) output handles, or
+    (None, None) for the base model. Shared by both benchmark builders. Backed by the unified
+    ResolveOverlayCheckpoint.
+
+    ``overlay_kind`` must be the ARM'S kind, not this function's name: a **full** finetune
+    resolves ``model.safetensors`` and has no LoRA config, so it returns ``(weights, None)``.
+    Hardcoding "lora" here is what silently broke a11_full (2026-08-21) -- it produced symlinks
+    to a ``lora.safetensors`` and a ``config.json`` that a full-FT checkpoint never writes, and
+    ``os.symlink`` creates a dangling link without complaining, so the resolver reported success
+    and the SpeechInference downstream died on "inputs are not ready" with no log. The default
+    keeps every existing LoRA arm's hash unchanged.
+    """
     if moshi_checkpoint is None:
         return None, None
-    ckpt = ResolveOverlayCheckpoint(run_dir=moshi_checkpoint, overlay_kind="lora", step=checkpoint_step)
+    assert overlay_kind in ("lora", "full"), (
+        f"resolve_lora handles the moshi checkpoint layouts (lora | full); got {overlay_kind!r}. "
+        f"PersonaPlex and Audex have their own resolve_* helpers."
+    )
+    ckpt = ResolveOverlayCheckpoint(run_dir=moshi_checkpoint, overlay_kind=overlay_kind, step=checkpoint_step)
     return ckpt.out_weights, ckpt.out_config
 
 

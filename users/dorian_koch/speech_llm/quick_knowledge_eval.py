@@ -198,6 +198,9 @@ def quick_knowledge_eval_py(
     tag: str,
     moshi_checkpoint: tk.Path | None = None,
     checkpoint_step: int | None = None,
+    #: Overlay layout of ``moshi_checkpoint``: "lora" (adapter) or "full" (whole state dict).
+    #: Must match the ARM; see resolve_lora. Default keeps existing LoRA hashes.
+    moshi_overlay_kind: str = "lora",
     pplex_checkpoint: tk.Path | None = None,
     pplex_step: int | None = None,
     audex_checkpoint: tk.Path | None = None,
@@ -255,7 +258,7 @@ def quick_knowledge_eval_py(
     elif pplex_checkpoint is not None:
         lora_weights, lora_config = resolve_personaplex_weights(pplex_checkpoint, pplex_step), None
     elif moshi_checkpoint is not None:
-        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
+        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step, moshi_overlay_kind)
     else:
         lora_weights, lora_config = None, None
 
