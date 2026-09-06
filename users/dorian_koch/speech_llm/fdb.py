@@ -356,6 +356,9 @@ def fdb_benchmark_py(
     tag: str = "moshi_base",
     moshi_checkpoint: tk.Path | None = None,
     checkpoint_step: int | None = None,
+    #: Overlay layout of ``moshi_checkpoint``: "lora" (adapter) or "full" (whole state dict).
+    #: Must match the ARM; see resolve_lora. Default keeps existing LoRA hashes.
+    moshi_overlay_kind: str = "lora",
     pplex_checkpoint: tk.Path | None = None,
     pplex_step: int | None = None,
     server_venv_python: tk.AbstractPath | None = None,
@@ -382,7 +385,7 @@ def fdb_benchmark_py(
     if pplex_checkpoint is not None:
         lora_weights, lora_config = resolve_personaplex_weights(pplex_checkpoint, pplex_step), None
     else:
-        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
+        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step, moshi_overlay_kind)
 
     asr_venv_python = fdb_asr_venv()
     eval_jobs: dict = {}
