@@ -1338,10 +1338,11 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
-    # A per-unit table carries each unit's own level but nothing at sentence scale, and by ear
-    # that is what makes the subword output hard to follow. A borrowed real contour is worse
-    # than none, since it is uncorrelated with our content and amplifies silence into noise;
-    # declination plus a word-initial lift carries no content, so it cannot fight it.
+    # A per-unit table carries each unit's own level but nothing at sentence scale,
+    # and by ear that is what makes the subword output hard to follow.
+    # A borrowed real contour is worse than none:
+    # it is uncorrelated with our content and amplifies silence into noise.
+    # Declination plus a word-initial lift carries no content, so it cannot fight it.
     _train_tts_encoder(
         "pseudo-enc-ctcsubword-decl-lerp-packed-single-gumbel-muon-nep38",
         prefix=prefix,
@@ -1354,6 +1355,54 @@ def py():
         pseudo_enc_array_table=_ctc_subword_tables(fill_within_words=True).out_mean_table,
         pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
         pseudo_enc_contour_decl=0.35,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_gap_frac=0.25,
+        pseudo_enc_max_len_factor=30,
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        train_seq_ordering="random",
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 4_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 200},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
+    # A raw stored slice measured worse than the mean alone: real dynamics, wrong realisation.
+    # Centring each slice on its unit's level and keeping a quarter of the deviation
+    # is the only variant that loses nothing on either axis;
+    # numbers in projects/2026-05-28-tts-encoder.md.
+    _train_tts_encoder(
+        "pseudo-enc-ctcsubword-instblend025-lerp-packed-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=4_000,
+        max_phon_len=200,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_array_table=_ctc_subword_tables(fill_within_words=True).out_mean_table,
+        pseudo_enc_instance_table=_ctc_subword_instances().out_instance_table,
+        pseudo_enc_instance_blend=0.25,
+        pseudo_enc_array_duration_table=_ctc_subword_tables(fill_within_words=True).out_duration_table,
         pseudo_enc_duration_sigma=0.45,
         pseudo_enc_gap_frac=0.25,
         pseudo_enc_max_len_factor=30,
@@ -1530,9 +1579,11 @@ def py():
     # asr-base-...-packed-graphc-specaug60-stepcomp corrected for 4.20 -> 3.97.
     # Specaug runs once over the concatenated batch here, so this weakens masking
     # on the real and pseudo rows alike, which is what the ASR arm did too.
-    # 60 took this arm from 3.76 to 3.56, the best injection result so far,
-    # and on the ASR side 50 beat 60, so 50 asks whether that holds here.
-    for _sa in (60, 50):
+    # 60 took this arm from 3.76 to 3.56, and 50 to 3.40, which beats the offline-TTS
+    # reference (3.53) at 44 h against its own pipeline cost.
+    # The step from 60 to 50 is 0.18 here against 0.04 on the ASR side, so this ladder is
+    # far from flat and 40 and 30 continue it. On ASR the turn came at 30.
+    for _sa in (60, 50, 40, 30):
         _train_tts_encoder(
             f"pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug{_sa}-stepcomp",
             prefix=prefix,
@@ -3182,9 +3233,9 @@ class PseudoSpeechEncoder(rf.Module):
             )
             assert data.shape[1] == out_dim.dimension, f"instance table {data.shape} vs out dim {out_dim}"
             if instance_blend:
-                # A raw slice has real dynamics but the wrong realisation, which measures worse
-                # than the mean alone. Centring it on the unit's level and keeping only a fraction
-                # of the deviation holds the mean's accuracy while restoring part of the movement.
+                # A raw slice has real dynamics but the wrong realisation.
+                # Centring it on the unit's level and keeping a fraction of the deviation
+                # holds the mean's accuracy while restoring part of the movement.
                 mean_npz = numpy.load(array_table, allow_pickle=True)
                 marr, mlen = mean_npz["means"].astype("float32"), mean_npz["lengths"].astype("int32")
                 assert (mlen == lengths).all(), "the two tables must share the per-unit stored length"
@@ -3334,9 +3385,9 @@ class PseudoSpeechEncoder(rf.Module):
             out = rf.where(offset < body_rep, out, last_v * (1.0 - gf) + first_v * gf)
         if self.contour_decl is not None:
             # A per-unit table holds each unit's own level but nothing at sentence scale.
-            # Borrowing a real contour hurts: it is uncorrelated with our content, so it
-            # amplifies silence into noise. Declination plus a word-initial lift carries no
-            # content, so it cannot fight it.
+            # A borrowed real contour is uncorrelated with our content,
+            # so it amplifies silence into noise;
+            # declination plus a word-initial lift carries no content, so it cannot fight it.
             last_pos_c = out_spatial_dim.get_size_tensor(device=out.device) - 1
             rel = rf.cast(pos, "float32") / rf.cast(rf.maximum(last_pos_c, 1), "float32")
             contour = (1.0 - 2.0 * rel) * self.contour_decl
