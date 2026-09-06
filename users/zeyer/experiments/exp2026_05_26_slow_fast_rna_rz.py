@@ -169,6 +169,103 @@ def _train_framewise_delay_scaled_rz(scale: float, tag: str):
     )
 
 
+def _bench_graphc_framewise():
+    """
+    Packed tensors + Inductor compile + CUDA graphs on the best config (framewise + delay 2.5s).
+
+    A 31-step fit and speed check,
+    before committing GPU hours to a full training,
+    following the packed_graphc pattern of exp2026_05_23_returnn.
+    Adaptation for this setup:
+    our target is the per-frame RNA alignment, not spm labels,
+    so the "rna_targets" capacity must cover encoder frames,
+    19.5s * 16.67Hz = 325, plus the 42 delay frames,
+    not the spm target length the offline AED base uses.
+    """
+    from i6_experiments.users.zeyer.experiments.exp2026_05_23_returnn import TrainStepBenchmarkJob
+
+    audio_cap = 312_960  # 19.56 s * 16 kHz, the max_seq_length_default_input filter
+    text_cap = 512  # enc frames (325) + delay (42) + headroom; raises loudly in _copy_in if too small
+    # Packed batch bounds are per key, in that key's own unit:
+    # audio in samples, kept at our usual batch size,
+    # so the training regime does not change,
+    # and text in encoder frames,
+    # i.e. audio samples / 960 at the 16.67 Hz frame rate, with headroom.
+    audio_bound = 50_000 * configs._batch_size_factor  # same as the training batch
+    text_bound = 20_000
+    with disable_register_output():
+        exp = _train_variant_rz(
+            "framewise-delay2p5-graphc-1gpu",
+            dec_build_dict=rf.build_dict(
+                FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=42, version=2
+            ),
+            train_def=framewise_training,
+            recog_def=framewise_model_recog,
+            target_mode="rna_frame",
+            # The dynamic chunk pools draw the chunk size as a tensor and read it back with .item(),
+            # a data-dependent host read that Inductor refuses to trace
+            # (DataDependentOutputException: aten._local_scalar_dense),
+            # and a per-step-varying chunk size would change the captured shapes anyway.
+            # Fixed chunking (C=5, L=80, R=4) for the speed measurement.
+            # TODO fix...
+            enc_dynamic=False,
+            train_seq_ordering="random",
+            extra_config={
+                "behavior_version": 29,
+                "train_seq_ordering": "random",
+                "batching": "random",
+                "batch_size": None,
+                "packed_tensors": True,
+                "packed_batch_size": {"data": audio_bound, "rna_targets": text_bound},
+                # The capture sizes its static buffers by batch_size_bound * dim_capacity,
+                # so the bound must match the real batch, not exceed it:
+                # 8M samples is ~500 s of audio, far fewer than the 200 seqs first tried,
+                # which over-provisioned the buffers and ran the 94 GB card out of memory.
+                "max_seqs": 64,
+                "torch_cuda_graph": {
+                    "batch_size_bound": 64,
+                    "dim_capacity": {"data": audio_cap, "rna_targets": text_cap},
+                    "warmup_steps": 0,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+                "optimizer.capturable": True,
+            },
+        )
+    cfg = exp.get_training_job().returnn_config
+    prefix = get_setup_prefix_for_module(__name__)
+    for mode in ["packed_graphc"]:  # padded_eager parity only if results look wrong later
+        job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31)
+        tk.register_output(f"{prefix}/graphc-bench/framewise-delay2p5-{mode}.json", job.out_results)
+
+
+def _train_framewise_factblank_rz():
+    """
+    framewise + delay 2.5s with a factorized blank head.
+
+    log P(blank) = log_sigmoid(b) from its own head,
+    log P(label) = log_sigmoid(-b) + log_softmax over the labels,
+    instead of blank being one more entry of the single vocab softmax.
+    This decouples the blank/label decision from the label distribution.
+    Sole change vs framewise-delay2p5.
+    """
+    return _train_variant_rz(
+        "framewise-delay2p5-factblank-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder,
+            model_dim=1024,
+            num_layers=6,
+            num_heads=8,
+            delay_frames=42,
+            factorized_blank=True,
+            version=2,
+        ),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+    )
+
+
 def _train_framewise_ctc_align_rz():
     """
     framewise trained on an on-the-fly alignment (own aux CTC head, rf.ctc_best_path label_loop=False),
@@ -265,6 +362,8 @@ def py():
     _train_rnnt_mono_framewise_scaled_rz(2.0, "2")
     _train_framewise_ctc_align_rz()
     _train_framewise_delay_scaled_rz(4.0, "4")
+    _train_framewise_factblank_rz()
+    _bench_graphc_framewise()
     _train_framewise_delay_ls0_rz()
     _train_framewise_wordchunk_rz()
     _train_framewise_wordchunk_end_rz()
@@ -272,7 +371,9 @@ def py():
     _train_framewise_wordchunk_end_delay0p3_rz()
 
 
-def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode: str):
+def _loq_chunk_align_dataset(
+    base_model, *, base_aux_ctc_layer: int, target_mode: str, train_seq_ordering: str = "laplace:.1000"
+):
     """The full ~25k h Loquacious ChunkAlignDataset, byte-identical to the FZJ full-train wiring.
 
     The train alignment is co-sharded with the audio arrow shards (``train_coshard``, -> ``eD69``) and dev
@@ -298,7 +399,9 @@ def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode
         audio_has_feature_dim=False,
         train_mpd_num_workers=None,
         postproc_num_workers=2,
-        train_coshard=_loq_coshard_train_parts(base_model, aux_ctc_layer=base_aux_ctc_layer),
+        train_coshard=_loq_coshard_train_parts(
+            base_model, aux_ctc_layer=base_aux_ctc_layer, seq_ordering=train_seq_ordering
+        ),
     )
     dataset = ChunkAlignDataset(
         oggzip=_LoqAudioProvider(train_subset_seqs=None),
@@ -323,6 +426,8 @@ def _train_variant_rz(
     recog_extra: Optional[Dict[str, Any]] = None,
     dec_aux_loss_layers: Sequence[int] = (),
     enc_num_layers: int = 16,
+    enc_dynamic: bool = True,  # dynamic chunk/history/lookahead train pools
+    train_seq_ordering: str = "laplace:.1000",
     aux_loss_layers: Sequence[int] = (4, 10, 16),
     nep: int = 100,
     extra_config: Optional[Dict[str, Any]] = None,
@@ -344,11 +449,14 @@ def _train_variant_rz(
     base_model = exp_base.get_last_fixed_epoch()  # WQbKY, checkpoint copied from FZJ
 
     dataset, aug_vocab, vocab_size = _loq_chunk_align_dataset(
-        base_model, base_aux_ctc_layer=base_aux_ctc_layer, target_mode=target_mode
+        base_model,
+        base_aux_ctc_layer=base_aux_ctc_layer,
+        target_mode=target_mode,
+        train_seq_ordering=train_seq_ordering,
     )
 
     model_config = {
-        "enc_build_dict": _enc_build_dict(num_layers=enc_num_layers, out_dim=1024, num_heads=8, dynamic=True),
+        "enc_build_dict": _enc_build_dict(num_layers=enc_num_layers, out_dim=1024, num_heads=8, dynamic=enc_dynamic),
         "dec_build_dict": dec_build_dict,
         "chunk_size": _CHUNK_SIZE,
         "aux_loss_layers": list(aux_loss_layers),
@@ -686,6 +794,13 @@ def _train_framewise_delay_rz():
             ("b32-norecomb", framewise_model_recog_beam, {"beam_size": 32, "recog_recomb": None}),
             ("b4-norecomb", framewise_model_recog_beam, {"beam_size": 4, "recog_recomb": None}),
             ("b32-rescore-check", framewise_model_recog_beam_rescore_check, {"beam_size": 32}),
+            # Joint decoding with the aux CTC head, at the beam optimum.
+            # The oracle within the beam is 4.91 against a 1-best of 9.54,
+            # so ranking is the limit, and the base model gains 9.41 -> 8.06 from AED+CTC.
+        ]
+        + [
+            (f"b4-ctc{tag}", framewise_model_recog_beam, {"beam_size": 4, "ctc_scale": scale})
+            for scale, tag in [(0.3, "0p3"), (0.5, "0p5"), (1.0, "1p0")]
         ],
     )
 

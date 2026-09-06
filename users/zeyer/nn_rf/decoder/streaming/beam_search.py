@@ -48,6 +48,7 @@ def frame_sync_beam_search(
     num_flush_frames: int = 0,
     recomb: Optional[str] = "max",
     return_alignment: bool = False,
+    frame_scores: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Frame-synchronous beam search (RNA), blanks stripped.
@@ -57,6 +58,10 @@ def frame_sync_beam_search(
     :param init_state: builds the state tree over ``[beam(1)] + batch_dims``.
     :param num_flush_frames: extra emit steps for the delayed-tail labels (framewise delay_frames).
     :param recomb: "max" (Viterbi), "sum" (marginalize), or None.
+    :param frame_scores: optional per-frame log-probs over target_dim_ext, on enc_spatial_dim,
+        added to the decoder log-probs of that frame.
+        This is the joint-decoding term, e.g. the scaled aux CTC head,
+        which is frame-synchronous over the same encoder frames.
     :return: (seq_targets {beam,batch,out_spatial} over target_dim_ext, seq_log_prob {beam,batch},
         out_spatial_dim, beam_dim)
     """
@@ -82,6 +87,9 @@ def frame_sync_beam_search(
         enc_t = rf.where(audio_valid, enc_t, 0.0)  # silence during flush + padding
 
         log_probs, state = step(prev, enc_t, state)  # [beam, batch, vocab]
+        if frame_scores is not None:
+            scores_t = rf.gather(frame_scores, indices=idx, axis=enc_spatial_dim)
+            log_probs = log_probs + rf.where(audio_valid, scores_t, 0.0)
         log_probs = rf.where(emit_valid, log_probs, force_blank)  # past the emit window: forced blank, zero cost
         seq_log_prob = seq_log_prob + log_probs
 

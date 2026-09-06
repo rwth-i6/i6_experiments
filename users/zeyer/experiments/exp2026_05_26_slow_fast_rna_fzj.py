@@ -301,7 +301,9 @@ def _loq_coshard_align_dir(model, *, aux_ctc_layer: int) -> tk.Path:
     )
 
 
-def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int = 25) -> Dict[str, Any]:
+def _loq_coshard_train_parts(
+    model, *, aux_ctc_layer: int, partition_epoch: int = 25, seq_ordering: str = "laplace:.1000"
+) -> Dict[str, Any]:
     """Ingredients for :attr:`ChunkAlignDataset.train_coshard` (full ~25k h train): the audio
     DistributeFilesDataset's own lazy arrow-shard ``files`` callable + per-subepoch audio builder, the
     per-arrow-shard alignment dir, and the DFD ``partition_epoch`` (25 -> ~1000 h/subepoch, matching the
@@ -311,7 +313,7 @@ def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int 
 
     hf_dir = get_loquacious_hf_ogg(name="large")
     audio_dfd = _make_hf_dataset(
-        hf_data_dir=hf_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True, seq_ordering="laplace:.1000"
+        hf_data_dir=hf_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True, seq_ordering=seq_ordering
     ).main_dataset
     assert audio_dfd["class"] == "DistributeFilesDataset", audio_dfd["class"]
     return dict(

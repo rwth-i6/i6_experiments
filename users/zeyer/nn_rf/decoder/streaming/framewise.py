@@ -73,6 +73,7 @@ class FramewiseDecoder(rf.Module):
         dropout: float = 0.1,
         att_dropout: float = 0.1,
         delay_frames: int = 0,  # DSM audio->text delay in encoder frames (0 = label sits at its acoustic frame)
+        factorized_blank: bool = False,  # separate sigmoid blank head instead of blank as a vocab entry
         version: int = 1,
     ):
         super().__init__()
@@ -103,6 +104,10 @@ class FramewiseDecoder(rf.Module):
         )
         self.final_ln = rf.RMSNorm(model_dim)
         self.logits = rf.Linear(model_dim, vocab_dim)
+        # Separated blank, as in ...exp2024_04_23_baselines.aed.log_probs_with_eos_separated:
+        # the blank logit is the existing entry at blank_idx, so there are no extra parameters.
+        self.factorized_blank = factorized_blank
+        self.returns_log_probs = factorized_blank  # then __call__ returns log-probs, not logits
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         return rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in self.layers.items()})
@@ -129,7 +134,48 @@ class FramewiseDecoder(rf.Module):
         for name, layer in self.layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
         x = self.final_ln(x)
-        return self.logits(x), new_state
+        logits = self.logits(x)
+        if not self.factorized_blank:
+            return logits, new_state
+        return log_probs_with_blank_separated(logits, vocab_dim=self.vocab_dim, blank_idx=self.blank_idx), new_state
+
+
+def log_probs_with_blank_separated(logits: Tensor, *, vocab_dim: Dim, blank_idx: int) -> Tensor:
+    """
+    Log-probs with the blank probability separated from the label distribution.
+
+    log P(blank) = log_sigmoid(logit_blank),
+    log P(y) = log_sigmoid(-logit_blank) + log_softmax over the labels.
+    The blank logit is the existing entry at ``blank_idx``, so this adds no parameters.
+    Mirrors ...exp2024_04_23_baselines.aed.log_probs_with_eos_separated,
+    which splits off index 0; here blank is the last entry.
+    """
+    assert blank_idx == vocab_dim.dimension - 1, f"blank {blank_idx} is not the last of {vocab_dim}"
+    labels_dim = Dim(vocab_dim.dimension - 1, name="labels_wo_blank")
+    blank_feat_dim = Dim(1, name="blank_feat")
+    logits_wo_blank, logits_blank = rf.split(logits, axis=vocab_dim, out_dims=[labels_dim, blank_feat_dim])
+    log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=labels_dim)
+    log_probs_blank = rf.log_sigmoid(logits_blank)
+    log_probs_not_blank = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=blank_feat_dim)
+    log_probs, _ = rf.concat(
+        (log_probs_wo_blank + log_probs_not_blank, labels_dim),
+        (log_probs_blank, blank_feat_dim),
+        out_dim=vocab_dim,
+    )
+    log_probs.feature_dim = vocab_dim
+    return log_probs
+
+
+def _decoder_log_probs(model, logits: Tensor) -> Tensor:
+    """
+    Log-probs from the decoder output.
+
+    With a factorized blank head the decoder already returns log-probs
+    (blank sigmoid times label softmax), so a second log_softmax would be wrong.
+    """
+    if model.decoder.returns_log_probs:
+        return logits
+    return rf.log_softmax(logits, axis=model.target_dim_ext)
 
 
 def framewise_train_forward(
@@ -201,7 +247,7 @@ def framewise_train_forward(
 
     state = model.decoder.default_initial_state(batch_dims=batch_dims)
     logits, _ = model.decoder(input_labels, enc_dec, spatial_dim=dec_spatial_dim, state=state)
-    log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+    log_probs = _decoder_log_probs(model, logits)
     log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna_dec, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
     mark_frame_error(log_probs, targets=rna_dec, axis=model.target_dim_ext)
@@ -232,13 +278,17 @@ def framewise_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: T
         rna_targets_spatial_dim=targets_spatial_dim,
     )
     for name, (loss, norm_dim) in losses.items():
-        loss.mark_as_loss(name, custom_inv_norm_factor=norm_dim.get_size_tensor(), use_normalized_loss=True)
+        loss.mark_as_loss(
+            name, custom_inv_norm_factor=norm_dim.get_size_tensor(device=loss.device), use_normalized_loss=True
+        )
 
 
 framewise_training.learning_rate_control_error_measure = "ce"
 
 
-def framewise_ctc_align_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
+def framewise_ctc_align_training(
+    *, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim
+):
     """
     TrainDef: ``targets`` is the plain transcript (target_mode="labels");
     the RNA alignment is derived on-the-fly from the model's own aux CTC head each step.
@@ -251,7 +301,9 @@ def framewise_ctc_align_training(*, model, data: Tensor, data_spatial_dim: Dim, 
         labels_spatial_dim=targets_spatial_dim,
     )
     for name, (loss, norm_dim) in losses.items():
-        loss.mark_as_loss(name, custom_inv_norm_factor=norm_dim.get_size_tensor(), use_normalized_loss=True)
+        loss.mark_as_loss(
+            name, custom_inv_norm_factor=norm_dim.get_size_tensor(device=loss.device), use_normalized_loss=True
+        )
 
 
 framewise_ctc_align_training.learning_rate_control_error_measure = "ce"
@@ -275,7 +327,7 @@ def framewise_scaled_training(*, model, data: Tensor, data_spatial_dim: Dim, tar
         loss.mark_as_loss(
             name,
             scale=scale if name == "ce" else 1.0,
-            custom_inv_norm_factor=norm_dim.get_size_tensor(),
+            custom_inv_norm_factor=norm_dim.get_size_tensor(device=loss.device),
             use_normalized_loss=True,
         )
 
@@ -326,7 +378,7 @@ def model_recog(
         enc_t = rf.gather(enc, indices=idx, axis=enc_spatial_dim)  # [batch, enc_dim]
         enc_t = rf.where(audio_valid, enc_t, 0.0)  # silence (zero) frames during flush + padding
         logits, state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
-        log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+        log_probs = _decoder_log_probs(model, logits)
         sym = rf.cast(rf.reduce_argmax(log_probs, axis=model.target_dim_ext), "int32")
         sym.sparse_dim = model.target_dim_ext
         sym = rf.where(emit_valid, sym, blank)  # outside the emit window -> blank (dropped later)
@@ -361,20 +413,33 @@ def model_recog_beam(
     """
     Frame-synchronous beam search (cf. :func:`model_recog`); beam_size from config (default 12),
     beam_size=1 == greedy. Blanks stripped.
+    With ctc_scale > 0 the encoder's aux CTC head is added per frame (joint decoding).
     """
     from returnn.config import get_global_config
     from .beam_search import frame_sync_beam_search
 
     config = get_global_config(return_empty_if_none=True)
     beam_size = config.int("beam_size", 12)
+    # The aux CTC head is frame-synchronous over the same encoder frames as this decoder,
+    # so its log-probs can be added per frame. 0 keeps the decoder-only search.
+    ctc_scale = config.float("ctc_scale", 0.0)
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    delay = getattr(model.decoder, "delay_frames", 0)
+    collected_outputs = {} if ctc_scale else None
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    frame_scores = None
+    if ctc_scale:
+        aux_logits = model.aux_logits_from_collected_outputs(model.enc_aux_logits[-1], collected_outputs)
+        ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        # both label spaces are the spm labels plus blank last, but they are distinct Dims
+        frame_scores = rf.replace_dim_v2(ctc_log_probs, in_dim=model.wb_target_dim, out_dim=model.target_dim_ext)
+        frame_scores = frame_scores * ctc_scale
+    delay = model.decoder.delay_frames
 
     def _step(prev, enc_t, state):
         logits, new_state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
-        return rf.log_softmax(logits, axis=model.target_dim_ext), new_state
+        log_probs = _decoder_log_probs(model, logits)
+        return log_probs, new_state
 
     return frame_sync_beam_search(
         batch_dims=batch_dims,
@@ -388,6 +453,7 @@ def model_recog_beam(
         step=_step,
         num_flush_frames=delay,
         recomb=config.typed_value("recog_recomb", "max"),
+        frame_scores=frame_scores,
     )
 
 
@@ -422,7 +488,8 @@ def model_recog_beam_rescore_check(
 
     def _step(prev, enc_t, state):
         logits, new_state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
-        return rf.log_softmax(logits, axis=model.target_dim_ext), new_state
+        log_probs = _decoder_log_probs(model, logits)
+        return log_probs, new_state
 
     align, search_score, out_spatial_dim, beam_dim = frame_sync_beam_search(
         batch_dims=batch_dims,
