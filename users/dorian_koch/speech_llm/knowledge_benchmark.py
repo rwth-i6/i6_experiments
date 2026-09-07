@@ -245,7 +245,13 @@ class ChatterboxSingleSpeakerInference(Job):
         # object file" -- 9 minutes in, after the GPU is allocated. Declared as a CAPABILITY, not a
         # partition, so settings.py owns the mapping (same as ChatterboxInference). rqmt is not part
         # of the Sisyphus hash, so adding this re-runs nothing.
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24, "requires": ["system_ffmpeg"]}
+        # mem 48, not 16: under storage="hf" the worker holds every clip in memory and hands the
+        # whole set to Dataset.from_dict, which copies it again into arrow -- so peak is ~2x the
+        # corpus. 16 GB was sized for the n=1000 benchmark; the 12,000-prompt rehearsal corpus
+        # OOM-killed at 2 h 09 m with nothing written (2026-09-07). rqmt is not hashed, so this
+        # re-runs nothing. The other half of that fix is in the worker's write_clips, which was
+        # boxing every sample as a Python float.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 24, "requires": ["system_ffmpeg"]}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

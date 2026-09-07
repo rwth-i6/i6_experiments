@@ -23,6 +23,8 @@ import random
 import socket
 import sys
 import types
+
+import numpy as np
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -140,6 +142,84 @@ if "seed_for_dialogue" not in conv or "sha1" not in conv:
     failures.append("chatterbox_inference.py: no stable per-dialogue seed (seed_for_dialogue/sha1)")
 ok("TTS determinism     both workers seed torch per item, from a stable (non-salted) hash", _n)
 
+
+# --- chatterbox_benchmark_inference.write_clips: the deliberate copy must not drift ---------------
+# This worker runs in the chatterbox venv, where i6_experiments is not importable, so it carries its
+# own write_clips and SAYS it "mirrors clip_store". On 2026-09-07 it did not: clip_store used
+# np.asarray, the copy used `[float(x) for x in samples]`, which boxes every audio sample as a Python
+# float -- ~8x the array's memory, allocated for ALL clips at once just before Dataset.from_dict. The
+# 12,000-prompt rehearsal corpus ran 2 h 09 m, jumped 11.3 -> 16.1 GB in ten seconds and was
+# OOM-killed with nothing written. A copy that claims to mirror something has to be checked against it.
+_n = len(failures)
+_bench_src = (
+    SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_benchmark_inference.py"
+).read_text()
+
+# Match the CODE line that appends audio, not the file text: the docstring legitimately quotes the
+# old buggy expression to explain why it is gone, and a loose substring search flags that as the bug.
+_audio_appends = [
+    ln.strip() for ln in _bench_src.splitlines() if "rows[COL_AUDIO].append(" in ln and not ln.strip().startswith("#")
+]
+if len(_audio_appends) != 1:
+    failures.append(f"expected exactly one rows[COL_AUDIO].append in the worker, found {_audio_appends}")
+elif "np.asarray" not in _audio_appends[0]:
+    failures.append(
+        f"chatterbox_benchmark_inference.write_clips appends audio as {_audio_appends[0]!r}. It must "
+        f"use np.asarray, as clip_store does: a Python-float comprehension there is ~8x the memory of "
+        f"the float32 array, for every clip at once, and OOM-killed the 12,000-prompt rehearsal corpus."
+    )
+# Behavioural half: exec the real function (with `datasets` stubbed so from_dict/save_to_disk are
+# captured rather than run) and assert what it hands to arrow is a float32 ARRAY, not a list.
+_captured = {}
+
+
+class _FakeDataset:
+    @staticmethod
+    def from_dict(rows):
+        _captured["rows"] = rows
+        return _FakeDataset()
+
+    def save_to_disk(self, path):
+        _captured["path"] = path
+
+
+_ns = {
+    "__name__": "bench_worker_under_test",
+    "np": np,
+    "Dataset": _FakeDataset,
+    "COL_INDEX": "index",
+    "COL_AUDIO": "audio",
+    "COL_SR": "sampling_rate",
+    "COL_MONOLOGUE": "monologue",
+    "COL_TRACE": "trace_json",
+}
+_src = _bench_src.split("def write_clips(")[1]
+_src = "def write_clips(" + _src.split("\n\n\n")[0]
+try:
+    exec(compile(_src, "write_clips", "exec"), _ns)
+    _ns["write_clips"](
+        "/tmp/unused", [(0, np.zeros(4, dtype=np.float32), 24000), (1, np.ones(4, dtype=np.float32), 24000)]
+    )
+    audio = _captured["rows"]["audio"]
+    if not all(isinstance(a, np.ndarray) and a.dtype == np.float32 for a in audio):
+        failures.append(
+            f"write_clips handed arrow {[type(a).__name__ for a in audio]} instead of float32 arrays "
+            f"-- a Python list here is the OOM"
+        )
+    # ...and a duplicate index must be refused, same rule as clip_store: downstream joins are BY index.
+    try:
+        _ns["write_clips"](
+            "/tmp/unused", [(0, np.zeros(2, dtype=np.float32), 24000), (0, np.ones(2, dtype=np.float32), 24000)]
+        )
+        failures.append(
+            "write_clips accepted a duplicate clip index -- one clip is silently dropped "
+            "and every downstream join misaligns"
+        )
+    except ValueError:
+        pass
+    ok("write_clips  keeps float32 arrays (no Python-float boxing) and rejects duplicate indices", _n)
+except Exception as exc:
+    failures.append(f"could not exercise chatterbox_benchmark_inference.write_clips: {exc!r}")
 
 # --- chatterbox_inference: reproducibility-critical helpers -------------------------------------
 

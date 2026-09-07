@@ -10,6 +10,7 @@ import gc
 import os
 import random
 
+import numpy as np
 import torch
 import torchaudio
 from chatterbox.tts_turbo import ChatterboxTurboTTS
@@ -24,11 +25,27 @@ COL_MONOLOGUE, COL_TRACE = "monologue", "trace_json"
 
 
 def write_clips(out_path, items):
-    """Write (index, samples, sample_rate) triples as one arrow dataset. Mirrors clip_store."""
+    """Write (index, samples, sample_rate) triples as one arrow dataset. Mirrors clip_store.
+
+    ``samples`` stays a float32 NUMPY array. It used to be ``[float(x) for x in samples]``, which
+    boxes every audio sample as a Python float -- ~8x the memory of the array, allocated for ALL
+    clips at once just before ``from_dict``. On the 12,000-prompt rehearsal corpus that is a few
+    billion boxed floats: the job ran 2 h 09 m, jumped 11.3 -> 16.1 GB in ten seconds and was
+    OOM-killed with zero output (2026-09-07). ``clip_store.write_clips`` -- which this file is a
+    deliberate copy of, because the worker runs in a venv with no i6_experiments -- always used
+    ``np.asarray``; the copy had silently diverged from the thing it says it mirrors.
+    """
     rows = {COL_INDEX: [], COL_AUDIO: [], COL_SR: [], COL_MONOLOGUE: [], COL_TRACE: []}
+    seen = set()
     for index, samples, sr in items:
-        rows[COL_INDEX].append(int(index))
-        rows[COL_AUDIO].append([float(x) for x in samples])
+        index = int(index)
+        if index in seen:
+            # Same rule as clip_store: downstream joins address clips BY INDEX, so a duplicate
+            # silently drops one clip and misaligns every row after it.
+            raise ValueError(f"duplicate clip index {index} -- downstream joins address clips by index")
+        seen.add(index)
+        rows[COL_INDEX].append(index)
+        rows[COL_AUDIO].append(np.asarray(samples, dtype=np.float32).reshape(-1))
         rows[COL_SR].append(int(sr))
         rows[COL_MONOLOGUE].append(None)
         rows[COL_TRACE].append(None)
