@@ -1,0 +1,946 @@
+"""
+Chunked conformer encoder for static compute graphs (CUDA-graph capture, Inductor).
+
+Copy of chunked_conformer_v2, with the parts that make the graph depend on the batch removed:
+
+- the chunk size, history and lookahead are device values, not Python ints,
+  so one captured graph covers the whole training pool
+  (chunked_conformer_v2 samples them on the host and bakes them into the shapes).
+- shapes come from the configured maxima, and a step masks down to its actual sizes,
+  so nothing about the graph varies per step.
+- no host reads of dynamic dims,
+  so adapt_chunk_history_for_short_seqs is gone (it read int(in_spatial_dim.get_dim_value())).
+
+Everything else follows chunked_conformer_v2; keep the two in sync when that one changes.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import copy as _copy
+import inspect
+from dataclasses import dataclass
+
+from returnn.util.basic import NotSpecified
+from returnn.util.math import ceil_div
+from returnn.tensor import Tensor, Dim
+import returnn.frontend as rf
+from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
+from returnn.frontend.encoder.conformer import (
+    ConformerEncoderLayer,
+    ConformerConvSubsample,
+    make_ff,
+    make_norm,
+    conv_norm_use_mask_default,
+)
+from returnn.frontend.build_from_dict import _get_cls
+
+
+class ChunkedConformerEncoderStatic(rf.Module):
+    """
+    Represents Conformer encoder architecture
+    """
+
+    def __init__(
+        self,
+        in_dim: Dim,
+        out_dim: Union[int, Dim] = Dim(512, name="conformer-enc-default-out-dim"),
+        *,
+        num_layers: int,
+        input_layer: Optional[Union[ConformerConvSubsample, ISeqDownsamplingEncoder, rf.Module, Any]],
+        input_dropout: float = 0.1,
+        ff_dim: Dim = NotSpecified,
+        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
+        dropout: float = 0.1,
+        conv_kernel_size: int = 32,
+        conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
+        num_heads: int = 4,
+        att_dropout: float = 0.1,
+        encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
+        encoder_layer_opts: Optional[Dict[str, Any]] = None,
+        encoder_layer_per_layer: Optional[List[Any]] = None,
+        chunk_size: Optional[int],
+        chunk_history_size: int,
+        chunk_lookahead_size: int,
+        chunk_num_overlaps: int = 1,
+        chunk_size_pool: Optional[List[int]] = None,
+        version: int = 1,
+        adapt_chunk_history_for_short_seqs: bool = True,
+        mem_chunks_grad_checkpointing: bool = False,
+        use_chunk_type_embedding: bool = False,
+        chunk_type_embedding_at_output_boundary: bool = False,
+        overlap_mse_loss_scale: float = 0.0,
+    ):
+        """
+        :param out_dim: the output feature dimension
+        :param num_layers: the number of encoder layers
+        :param input_layer: input/frontend/prenet with potential subsampling.
+            (x, in_spatial_dim) -> (y, out_spatial_dim). Must have a downsample_factor attribute.
+        :param input_dropout: applied after input_projection(input_layer(x))
+        :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
+        :param ff_activation: activation function for feed-forward network
+        :param dropout: the dropout value for the FF block
+        :param conv_kernel_size: the kernel size of depthwise convolution in the conv block
+        :param conv_norm: used for the conv block. Batch norm originally
+        :param num_heads: the number of attention heads
+        :param att_dropout: attention dropout value
+        :param encoder_layer: an instance of :class:`ConformerEncoderLayer` or similar
+        :param encoder_layer_opts: options for the encoder layer
+        :param chunk_size: encoder frames per chunk (stride). None = no chunking (full context).
+        :param chunk_history_size: encoder frames of left context (history). 0 = no history.
+        :param chunk_lookahead_size: encoder frames of right lookahead context. 0 = no lookahead.
+        :param chunk_num_overlaps: how many chunks cover each output frame. 1 = no overlap (default).
+            chunk_stride = chunk_size // chunk_num_overlaps
+        :param chunk_size_pool: if not None, sample the chunk size from this list per step.
+            The sizes are device values here, so all of them share one captured graph;
+            the shapes follow max(chunk_size_pool), and a step masks down to its own size.
+            during training. None element in list means no chunking for that choice.
+        :param chunk_history_size_train_pool: if not None, randomly sample chunk_history_size from this list
+            during training.
+        :param chunk_lookahead_size_train_pool: if not None, randomly sample chunk_lookahead_size from this list
+            during training.
+        :param chunk_num_overlaps_train_pool: if not None, randomly sample chunk_num_overlaps from this list
+            during training.
+        :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
+        :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
+            when the input is shorter than what the configured chunk sizes require.
+        :param mem_chunks_grad_checkpointing: if True, use torch.utils.checkpoint per encoder layer during
+            training to trade memory for recompute. Only effective during training.
+        :param use_chunk_type_embedding: if True, add a learned embedding (in out_dim space) to every encoder
+            frame after input_projection that encodes whether the frame is a center frame (index 0, will be
+            used in the output) or a lookahead/future-context frame (index 1, discarded after encoding).
+            In the offline case (chunk_size=None) all frames get type 0.
+            Disabled by default.
+        """
+        super().__init__()
+
+        if isinstance(out_dim, int):
+            out_dim = Dim(out_dim, name="model")
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.dropout = dropout
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+
+        self.chunk_size = chunk_size
+        self.chunk_history_size = chunk_history_size
+        self.chunk_lookahead_size = chunk_lookahead_size
+        self.chunk_num_overlaps = chunk_num_overlaps
+        self.chunk_size_pool = chunk_size_pool
+        self.max_chunk_size = max(chunk_size_pool) if chunk_size_pool else chunk_size
+        self.version = version
+        self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
+        self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
+        # If > 0, mark MSE between overlapping chunk views (before averaging) as an auxiliary
+        # training loss; encourages the per-chunk encoder outputs to agree on overlapped frames.
+        self.overlap_mse_loss_scale = float(overlap_mse_loss_scale)
+        self.chunk_type_embedding_at_output_boundary = bool(chunk_type_embedding_at_output_boundary)
+        assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
+
+        self._chunk_type_dim = Dim(2, name="chunk_type")
+        if use_chunk_type_embedding:
+            self.chunk_type_embedding = rf.Embedding(self._chunk_type_dim, out_dim)
+        else:
+            self.chunk_type_embedding = None
+
+        if isinstance(input_layer, dict):
+            input_layer = rf.build_from_dict(input_layer, in_dim)
+            input_layer: ConformerConvSubsample  # maybe not true, but assume for some attribs
+
+        self.input_layer = input_layer
+
+        self._input_downsample_factor = input_layer.downsample_factor if input_layer is not None else 1
+
+        self.input_projection = rf.Linear(
+            self.input_layer.out_dim if self.input_layer else self.in_dim, self.out_dim, with_bias=False
+        )
+        self.input_dropout = input_dropout
+
+        def _opts_for(target):
+            # Encoder auto-default kwargs forwarded to layer construction
+            # (both the default ``encoder_layer`` and any ``encoder_layer_per_layer`` entries).
+            # Filtered per target via :func:`_filter_opts_for_target` so kwargs the target
+            # doesn't declare are dropped at the source.
+            # The user-supplied ``encoder_layer_opts`` is merged *after* the filter --
+            # those are kwargs the user passed deliberately,
+            # so an unknown one should surface as the constructor's ``TypeError``,
+            # not be silently absorbed.
+            default_encoder_layer_opts = dict(
+                out_dim=out_dim,
+                ff_dim=ff_dim,
+                ff_activation=ff_activation,
+                dropout=dropout,
+                conv_kernel_size=conv_kernel_size,
+                conv_norm=conv_norm,
+                num_heads=num_heads,
+                att_dropout=att_dropout,
+                version=version,
+                mem_chunks_grad_checkpointing=mem_chunks_grad_checkpointing,
+            )
+            default_encoder_layer_opts = {
+                k: v for (k, v) in default_encoder_layer_opts.items() if v is not NotSpecified
+            }
+            _opts = _filter_opts_for_target(default_encoder_layer_opts, target)
+            if encoder_layer_opts:
+                _opts.update(encoder_layer_opts)
+            return _opts
+
+        if not encoder_layer or isinstance(encoder_layer, (dict, type)):
+            if not encoder_layer:
+                encoder_layer = ChunkedConformerEncoderLayerStatic(**_opts_for(ChunkedConformerEncoderLayerStatic))
+            elif isinstance(encoder_layer, type):
+                encoder_layer = encoder_layer(**_opts_for(encoder_layer))
+            elif isinstance(encoder_layer, dict):
+                _opts = _opts_for(encoder_layer)
+                # Kwargs already set in the spec dict still win.
+                _opts = {k: v for (k, v) in _opts.items() if k not in encoder_layer}
+                encoder_layer = rf.build_from_dict(encoder_layer, **_opts)
+            else:
+                raise TypeError(f"unexpected encoder_layer {encoder_layer!r}")
+        else:
+            if not callable(encoder_layer):
+                raise TypeError(f"{self}: invalid non-callable encoder_layer {encoder_layer!r}")
+
+        if encoder_layer_per_layer is None:
+            self.layers = rf.Sequential(_copy.deepcopy(encoder_layer) for _ in range(num_layers))
+        else:
+            assert len(encoder_layer_per_layer) == num_layers, (
+                f"encoder_layer_per_layer has {len(encoder_layer_per_layer)} entries, expected {num_layers}"
+            )
+            _per_layer = []
+            for _spec in encoder_layer_per_layer:
+                if _spec is None:
+                    _per_layer.append(_copy.deepcopy(encoder_layer))
+                elif isinstance(_spec, dict):
+                    _opts = _opts_for(_spec)
+                    # Kwargs already set in the spec dict still win.
+                    _opts = {k: v for (k, v) in _opts.items() if k not in _spec}
+                    _per_layer.append(rf.build_from_dict(_spec, **_opts))
+                elif isinstance(_spec, type):
+                    _per_layer.append(_spec(**_opts_for(_spec)))
+                else:
+                    if not callable(_spec):
+                        raise TypeError(f"{self}: per-layer entry not callable: {_spec!r}")
+                    _per_layer.append(_copy.deepcopy(_spec))
+            self.layers = rf.Sequential(_per_layer)
+
+    def __call__(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+    ) -> Tuple[Tensor, Dim]:
+        """forward"""
+        # Determine chunking settings, optionally sampling from training pools.
+        chunk_size = self.chunk_size
+        chunk_history_size = self.chunk_history_size
+        chunk_lookahead_size = self.chunk_lookahead_size
+        chunk_num_overlaps = self.chunk_num_overlaps
+
+        if rf.get_run_ctx().train_flag:
+            if self.chunk_size_pool is not None:
+                # The drawn size stays on the device: reading it back would fix it into the graph,
+                # and .item() is a data-dependent host read that Inductor rejects.
+                pool = rf.convert_to_tensor(self.chunk_size_pool, dims=[self._chunk_pool_dim])
+                idx = rf.random_uniform([], dtype="int32", minval=0, maxval=len(self.chunk_size_pool))
+                chunk_size = rf.gather(pool, indices=idx, axis=self._chunk_pool_dim)
+
+        if chunk_size is None:
+            # No chunking (full-context / offline mode).
+            chunking = None
+            chunk_size_dim = None
+            spatial_dim = in_spatial_dim
+        else:
+            # Derive input-level chunking parameters from encoder-level params.
+            ds = self._input_downsample_factor
+            chunk_stride = chunk_size // chunk_num_overlaps
+            input_chunk_size = (chunk_size + chunk_lookahead_size) * ds
+            input_chunk_stride = chunk_stride * ds
+            chunk_history = chunk_history_size // chunk_stride
+
+            input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size")
+            end_chunk_size_dim = Dim(chunk_stride, name="chunk_stride")
+            chunk_size_dim = (
+                Dim(chunk_num_overlaps * chunk_stride, name="chunk_size")
+                if chunk_num_overlaps > 1
+                else end_chunk_size_dim
+            )
+
+            if self.adapt_chunk_history_for_short_seqs:
+                # Potentially reduce chunk sizes / history if the input is not long enough.
+                max_input_chunk_size_dim = Dim(int(in_spatial_dim.get_dim_value()), name="max_input_chunk_size")
+                max_chunk_size_dim = (
+                    self.input_layer.get_out_spatial_dim(max_input_chunk_size_dim)
+                    if self.input_layer
+                    else max_input_chunk_size_dim
+                )
+                if end_chunk_size_dim.dimension > max_chunk_size_dim.dimension:
+                    end_chunk_size_dim = max_chunk_size_dim
+                    chunk_num_overlaps = 1
+                    chunk_size_dim = end_chunk_size_dim
+                if input_chunk_size_dim.dimension > max_input_chunk_size_dim.dimension:
+                    input_chunk_size_dim = max_input_chunk_size_dim
+                    chunk_history = 0
+                elif end_chunk_size_dim.dimension * chunk_history > max_chunk_size_dim.dimension - 1:
+                    chunk_history = ceil_div(max_chunk_size_dim.dimension - 1, end_chunk_size_dim.dimension)
+
+            source, chunked_time_dim = rf.window(
+                source,
+                spatial_dim=in_spatial_dim,
+                window_dim=input_chunk_size_dim,
+                window_left=0,
+                stride=input_chunk_stride,
+                pad_value=0.0,
+            )
+            spatial_dim = input_chunk_size_dim
+
+            chunking = _BatchChunkingSettings(
+                chunk_history=chunk_history,
+                end_chunk_size_dim=end_chunk_size_dim,
+                chunked_time_dim=chunked_time_dim,
+            )
+
+        if self.input_layer:
+            x_subsample, spatial_dim = self.input_layer(source, in_spatial_dim=spatial_dim)
+        else:
+            x_subsample = source
+        x_linear = self.input_projection(x_subsample)
+
+        if self.chunk_type_embedding is not None:
+            frame_pos = rf.range_over_dim(spatial_dim, device=source.device)
+            if chunk_size is not None:
+                # Center frames (type 0) are [0, boundary); lookahead (type 1) is [boundary, ...).
+                # If the window was shortened by adapt_chunk_history_for_short_seqs,
+                # spatial_dim may be smaller than the boundary,
+                # so frame_pos >= boundary may never fire,
+                # which correctly treats all surviving frames as center.
+                # Default boundary = chunk_size.
+                # With overlap where chunk_size is not divisible by chunk_num_overlaps,
+                # the per-chunk output region (chunk_size_dim) is smaller than chunk_size,
+                # so the last center-marked frame's output is dropped in _unchunk;
+                # chunk_type_embedding_at_output_boundary aligns the boundary to chunk_size_dim.
+                ctembed_boundary = (
+                    chunk_size_dim.dimension
+                    if self.chunk_type_embedding_at_output_boundary and chunk_size_dim is not None
+                    else chunk_size
+                )
+                frame_type = rf.cast(frame_pos >= ctembed_boundary, dtype="int32")
+            else:
+                # Offline / no chunking: no lookahead, all frames are center (type 0).
+                frame_type = rf.zeros((), dtype="int32", device=source.device)
+            frame_type.sparse_dim = self._chunk_type_dim
+            x_linear = x_linear + self.chunk_type_embedding(frame_type)
+
+        x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
+        x = self.layers(
+            x,
+            spatial_dim=spatial_dim,
+            chunking=chunking,
+            collected_outputs=collected_outputs,
+        )
+
+        def _unchunk(
+            x: Tensor,
+            out_spatial_dim: Optional[Dim] = None,
+            *,
+            compute_mse: bool = False,
+        ) -> Tuple[Tensor, Dim]:
+            x, _ = rf.slice(x, axis=spatial_dim, size=chunk_size_dim)
+            if chunk_num_overlaps > 1:
+                if compute_mse and self.overlap_mse_loss_scale > 0 and rf.get_run_ctx().train_flag:
+                    x, mse = _average_overlapping_chunks(
+                        x,
+                        chunked_time_dim=chunking.chunked_time_dim,
+                        chunk_size_dim=chunk_size_dim,
+                        chunk_stride_enc_dim=chunking.end_chunk_size_dim,
+                        compute_mse=True,
+                    )
+                    mse_scalar = rf.reduce_mean(mse, axis=mse.dims)
+                    mse_scalar.mark_as_loss(name="overlap_mse", scale=self.overlap_mse_loss_scale, as_error=False)
+                else:
+                    x = _average_overlapping_chunks(
+                        x,
+                        chunked_time_dim=chunking.chunked_time_dim,
+                        chunk_size_dim=chunk_size_dim,
+                        chunk_stride_enc_dim=chunking.end_chunk_size_dim,
+                    )
+            x, out_spatial_dim_ = rf.merge_dims(
+                x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
+            )
+            return x, out_spatial_dim_
+
+        if chunking:
+            x, out_spatial_dim = _unchunk(x, compute_mse=True)
+        else:
+            out_spatial_dim = spatial_dim
+
+        if chunking and collected_outputs:
+            for k, v in list(collected_outputs.items()):
+                collected_outputs[k], _ = _unchunk(v, out_spatial_dim)
+
+        return x, out_spatial_dim
+
+
+class ChunkedConformerEncoderLayerStatic(rf.Module):
+    """
+    Represents a conformer block
+    """
+
+    def __init__(
+        self,
+        out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
+        *,
+        ff: Union[type, Dict[str, Any], rf.Module] = NotSpecified,
+        ff_dim: Dim = NotSpecified,
+        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
+        dropout: float = 0.1,
+        conv_kernel_size: int = 32,
+        conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
+        conv_norm_opts: Optional[Dict[str, Any]] = None,
+        num_heads: int = 4,
+        self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
+        self_att_opts: Optional[Dict[str, Any]] = None,
+        att_dropout: float = 0.1,
+        norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
+        version: int = 1,
+        mem_chunks_grad_checkpointing: bool = False,
+    ):
+        """
+        :param out_dim: the output feature dimension
+        :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
+        :param ff_activation: activation function for feed-forward network
+        :param dropout: the dropout value for the FF block
+        :param conv_kernel_size: the kernel size of depthwise convolution in the conv block
+        :param conv_norm: used for the conv block. Batch norm originally
+        :param conv_norm_opts: for nn.BatchNorm or other conv_norm type.
+          In case of nn.BatchNorm, uses use_mask=False by default.
+            use_mask means whether to properly mask the spatial dim in batch norm.
+            Most existing implementations don't do this. Except of RETURNN.
+            It's faster when you don't do this.
+        :param num_heads: the number of attention heads
+        :param self_att: the self-attention layer. RelPosSelfAttention originally and default
+        :param self_att_opts: options for the self-attention layer, for :class:`nn.RelPosSelfAttention`
+        :param att_dropout: attention dropout value
+        :param version: version of chunked conformer layer
+        :param mem_chunks_grad_checkpointing: if True, wrap the self-attention and conv-block calls
+            (which use _mem_chunks) under torch.utils.checkpoint during training.
+            Only effective when chunking is active (chunking=None path is unchanged).
+        """
+        super().__init__()
+
+        self.dropout = dropout
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+        self.out_dim = out_dim
+        self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
+
+        self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn1_layer_norm = make_norm(norm, out_dim)
+
+        self.ffn2 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn2_layer_norm = make_norm(norm, out_dim)
+
+        if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
+            conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
+            conv_norm_opts.setdefault("use_mask", conv_norm_use_mask_default())
+            conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
+        elif isinstance(conv_norm, type):
+            conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
+        self.conv_block = ChunkedConformerConvBlockV2(
+            out_dim=out_dim,
+            kernel_size=conv_kernel_size,
+            norm=conv_norm,
+        )
+        self.conv_layer_norm = make_norm(norm, out_dim)
+
+        if self_att is None or isinstance(self_att, (type, dict)):
+            self_att_opts_ = dict(
+                in_dim=out_dim,
+                proj_dim=out_dim,
+                key_dim_total=out_dim,
+                value_dim_total=out_dim,
+                num_heads=num_heads,
+                att_dropout=att_dropout,
+                version=version,
+            )
+            if self_att_opts:
+                self_att_opts_.update(self_att_opts)
+            if self_att is None:
+                self.self_att = ChunkedRelPosSelfAttentionV2(**self_att_opts_)
+            elif isinstance(self_att, type):
+                self.self_att = self_att(**self_att_opts_)
+            else:  # dict
+                self_att_opts_ = {k: v for (k, v) in self_att_opts_.items() if k not in self_att}
+                self.self_att = rf.build_from_dict(self_att, **self_att_opts_)
+        else:
+            self.self_att = self_att
+        self.self_att_layer_norm = make_norm(norm, out_dim)
+
+        self.final_layer_norm = make_norm(norm, out_dim)
+
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
+        """forward"""
+        use_mem_grad_ckpt = self.mem_chunks_grad_checkpointing and chunking is not None and rf.get_run_ctx().train_flag
+
+        # FFN
+        x_ffn1_ln = self.ffn1_layer_norm(inp)
+        x_ffn1 = self.ffn1(x_ffn1_ln)
+        x_ffn1_out = 0.5 * rf.dropout(x_ffn1, self.dropout, axis=self.dropout_broadcast and self.out_dim) + inp
+
+        # MHSA
+        x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
+        if use_mem_grad_ckpt:
+            import torch.utils.checkpoint
+
+            def _self_att_fn(raw_inp, _tmpl=x_mhsa_ln):
+                inp_ = _tmpl.copy_template()
+                inp_.raw_tensor = raw_inp
+                return self.self_att(inp_, axis=spatial_dim, chunking=chunking).raw_tensor
+
+            raw_mhsa = torch.utils.checkpoint.checkpoint(_self_att_fn, x_mhsa_ln.raw_tensor, use_reentrant=False)
+            x_mhsa = x_mhsa_ln.copy_template()
+            x_mhsa.raw_tensor = raw_mhsa
+        else:
+            x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunking=chunking)
+        x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
+        x_mhsa_out = x_mhsa + x_ffn1_out
+
+        # Conv
+        x_conv_ln = self.conv_layer_norm(x_mhsa_out)
+        if use_mem_grad_ckpt:
+
+            def _conv_fn(raw_inp, _tmpl=x_conv_ln):
+                inp_ = _tmpl.copy_template()
+                inp_.raw_tensor = raw_inp
+                return self.conv_block(inp_, spatial_dim=spatial_dim, chunking=chunking).raw_tensor
+
+            raw_conv = torch.utils.checkpoint.checkpoint(_conv_fn, x_conv_ln.raw_tensor, use_reentrant=False)
+            x_conv = x_conv_ln.copy_template()
+            x_conv.raw_tensor = raw_conv
+        else:
+            x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunking=chunking)
+        x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
+
+        # FFN
+        x_ffn2_ln = self.ffn2_layer_norm(x_conv_out)
+        x_ffn2 = self.ffn2(x_ffn2_ln)
+        x_ffn2_out = 0.5 * rf.dropout(x_ffn2, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_conv_out
+
+        # last LN layer
+        return self.final_layer_norm(x_ffn2_out)
+
+
+class ChunkedConformerConvBlockV2(rf.Module):
+    """
+    Conformer convolution block
+        FF -> GLU -> depthwise conv -> BN -> Swish -> FF
+    """
+
+    def __init__(
+        self,
+        out_dim: Dim,
+        *,
+        kernel_size: int,
+        norm: Union[rf.BatchNorm, Any],
+    ):
+        """
+        :param out_dim: output feature dimension
+        :param kernel_size: kernel size of depthwise convolution
+        :param norm: Batch norm originally
+        """
+        super().__init__()
+        self.out_dim = out_dim
+
+        self.positionwise_conv1 = rf.Linear(out_dim, 2 * out_dim)
+        self.depthwise_conv = rf.Conv1d(
+            out_dim, out_dim, filter_size=kernel_size, groups=out_dim.dimension, padding="same"
+        )
+        self.positionwise_conv2 = rf.Linear(out_dim, out_dim)
+        self.norm = norm
+
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
+        """forward"""
+        x_conv1 = self.positionwise_conv1(inp)
+        x_act, _ = rf.gating(x_conv1)
+        if chunking:
+            needed_left_ctx = self.depthwise_conv.filter_size[0].dimension // 2
+            needed_mem_size = (
+                needed_left_ctx + chunking.end_chunk_size_dim.dimension - 1
+            ) // chunking.end_chunk_size_dim.dimension
+            mem_size = min(chunking.chunk_history, needed_mem_size)
+        else:
+            mem_size = None
+        if chunking and mem_size:
+            x_act, ext_spatial_dim = _mem_chunks(
+                x_act,
+                spatial_dim=spatial_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=mem_size,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+        else:
+            ext_spatial_dim = spatial_dim
+        x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=ext_spatial_dim)
+        if chunking and mem_size:
+            x_depthwise_conv, _ = rf.slice(
+                x_depthwise_conv,
+                axis=ext_spatial_dim,
+                start=mem_size * chunking.end_chunk_size_dim.get_dim_value_tensor(),
+                out_dim=spatial_dim,
+            )
+        x_normed = self.norm(x_depthwise_conv)
+        x_swish = rf.swish(x_normed)
+        x_conv2 = self.positionwise_conv2(x_swish)
+        return x_conv2
+
+
+class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
+    """
+    Same attention logic as :class:`ChunkedRelPosSelfAttention` (V1), but with a different calling
+    convention: all chunking settings are passed at call time via the Optional[_BatchChunkingSettings]
+    bundle, enabling an explicit non-chunking path (chunking=None).
+
+    Requires version=3. Old default (version=1) raises AssertionError to prevent silent behavior change.
+    """
+
+    def __init__(self, *, version: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+        assert version == 3, f"{self}: only version=3 is supported (got {version})"
+
+    def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
+        """forward"""
+        q, k, v = self.forward_qkv(source)
+        hist_dim = Dim(None, name=f"{axis.description}:kv")
+        k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
+        v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
+        q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
+        q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
+
+        if chunking:
+            # NOTE: This changed from the earlier RF/TF implementation.
+            query_offset = chunking.chunk_history * (
+                chunking.end_chunk_size_dim.dimension
+                if chunking.end_chunk_size_dim.is_static()
+                else chunking.end_chunk_size_dim.get_size_tensor(device=source.device)
+            )
+            # Extend k and v with history before the matmul,
+            # so current queries attend to history keys/values.
+            k, hist_dim_ = _mem_chunks(
+                k,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+            v, _ = _mem_chunks(
+                v,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
+        else:
+            query_offset = None
+            hist_dim_ = hist_dim
+
+        if self.learned_pos_emb is not None:
+            pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(
+                query_spatial_dim=axis,
+                key_value_spatial_dim=hist_dim_,
+                query_offset=query_offset,
+            )
+        else:
+            pos_emb, pos_emb_spatial_dim = rf.relative_positional_encoding(
+                query_spatial_dim=axis,
+                key_value_spatial_dim=hist_dim_,
+                feat_dim=self.pos_emb_feat_dim,
+                query_offset=query_offset,
+                device=source.device,
+            )
+        if self.pos_emb_dropout:
+            pos_emb = rf.dropout(pos_emb, self.pos_emb_dropout)
+        if self.linear_pos is not None:
+            pos_emb = self.linear_pos(pos_emb)
+        if self.separate_pos_emb_per_head:
+            pos_emb = rf.split_dims(pos_emb, axis=self.key_dim_total, dims=(self.num_heads, self.key_dim_per_head))
+        # pos_emb: (head, 2*time1-1, d_k)
+
+        # compute attention score
+        # first compute matrix a and matrix c
+        # as described in https://arxiv.org/abs/1901.02860 Section 3.3
+        # (batch, head, time1, time2)
+        matrix_ac = rf.matmul(q_with_bias_u, k, reduce=self.key_dim_per_head)
+
+        # compute matrix b and matrix d
+        # (batch, head, time1, 2*time1-1)
+        matrix_bd = rf.matmul(q_with_bias_v, pos_emb, reduce=self.key_dim_per_head)
+        matrix_bd = self._rel_shift(matrix_bd, axis, pos_emb_spatial_dim, hist_dim_)
+
+        scores = matrix_ac + matrix_bd  # (batch, head, time1, time2)
+        scores *= self.key_dim_per_head.dimension**-0.5
+        att_weights = rf.softmax(scores, axis=hist_dim_)
+        att_weights = rf.dropout(att_weights, self.att_dropout, axis=self.att_dropout_broadcast and hist_dim_)
+        # Masking not needed because softmax should already have masked,
+        # so we have 0.0 att weights for padded frames.
+        att = rf.matmul(att_weights, v, reduce=hist_dim_, use_mask=False)
+
+        output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
+        if self.proj:
+            output = self.proj(output)
+        return output
+
+
+class ChunkedRotaryPosSelfAttentionStatic(rf.RotaryPosSelfAttention):
+    """
+    Chunked RoPE self-attention for :class:`ChunkedConformerEncoderLayerStatic`.
+
+    Drop-in replacement for :class:`ChunkedRelPosSelfAttentionV2` that uses RoPE instead of
+    Transformer-XL relative PE.
+
+    For the chunked path, positions are assigned so that:
+    - current chunk frames have positions 0 ... (spatial_dim - 1) (same as non-chunked q)
+    - history frames from n chunks ago start at -(n * end_chunk_size)
+
+    Because RoPE attention scores only depend on the difference pos_q - pos_k, this correctly
+    encodes the actual inter-frame distance across chunk boundaries.
+
+    The non-chunking path (chunking=None) is identical to :class:`rf.RotaryPosSelfAttention`.
+    """
+
+    def __init__(self, *, version: int = 3, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+        assert version == 3, f"{self}: only version=3 is supported (got {version})"
+
+    def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
+        """forward"""
+        from returnn.frontend.attention import _apply_rope
+
+        q, k, v = self.forward_qkv(source)
+        rope_base = 10_000 ** (1 - 2 / self.key_dim_per_head.dimension)
+
+        if chunking:
+            # query_offset = number of history frames = chunk_history * end_chunk_size
+            query_offset = chunking.chunk_history * (
+                chunking.end_chunk_size_dim.dimension
+                if chunking.end_chunk_size_dim.is_static()
+                else chunking.end_chunk_size_dim.get_size_tensor(device=source.device)
+            )
+
+            # Apply RoPE to queries with local positions 0 … (axis - 1).
+            q_pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=axis, feat_dim=self.key_dim_per_head, base=rope_base, device=source.device
+            )
+            q = _apply_rope(q, q_pos_enc, self.key_dim_per_head)
+
+            # Extend k and v with history.
+            hist_dim = Dim(None, name=f"{axis.description}:kv")
+            k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
+            v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
+            k, hist_dim_ = _mem_chunks(
+                k,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+            v, _ = _mem_chunks(
+                v,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
+
+            # Apply RoPE to extended k with positions -(query_offset) … (spatial_dim - 1).
+            # The negative offset ensures history frames carry positions that are smaller than
+            # the query positions, so pos_q - pos_k gives the true frame distance.
+            k_pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=hist_dim_,
+                feat_dim=self.key_dim_per_head,
+                offset=-query_offset,
+                base=rope_base,
+                device=source.device,
+            )
+            k = _apply_rope(k, k_pos_enc, self.key_dim_per_head)
+        else:
+            # Standard RoPE — identical to rf.RotaryPosSelfAttention.__call__.
+            pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=axis, feat_dim=self.key_dim_per_head, base=rope_base, device=source.device
+            )
+            q = _apply_rope(q, pos_enc, self.key_dim_per_head)
+            k = _apply_rope(k, pos_enc, self.key_dim_per_head)
+
+            hist_dim_ = Dim(None, name=f"{axis.description}:kv")
+            k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim_)
+            v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim_)
+
+        return self.attention(q, k, v, kv_axis=hist_dim_)
+
+
+@dataclass
+class _BatchChunkingSettings:
+    chunk_history: int
+    end_chunk_size_dim: Dim
+    chunked_time_dim: Dim
+
+
+def _average_overlapping_chunks(
+    x: Tensor,
+    *,
+    chunked_time_dim: Dim,
+    chunk_size_dim: Dim,
+    chunk_stride_enc_dim: Dim,
+    compute_mse: bool = False,
+) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+    """
+    Uniformly average overlapping encoder chunk outputs.
+
+    :param x: [*, chunked_time_dim, chunk_size_dim, *feat*]
+    :param chunked_time_dim: the chunk axis
+    :param chunk_size_dim: Dim with dimension = chunk_num_overlaps * chunk_stride
+    :param chunk_stride_enc_dim: Dim with dimension = chunk_stride
+    :param compute_mse: if True, also return the mean squared distance of each per-shift
+        view from the resulting average (averaged over shifts). Same layout as the mean.
+    :return: [*, chunked_time_dim, chunk_stride_enc_dim, *feat*] averaged output, or
+        (averaged, mse) tuple if compute_mse=True.
+    """
+    chunk_size = chunk_size_dim.dimension
+    chunk_stride = chunk_stride_enc_dim.dimension
+    n_shifts = chunk_size // chunk_stride  # = chunk_num_overlaps
+
+    # Build the n_shifts per-shift views aligned to the chunked_time axis:
+    # group_s = x[..., s*chunk_stride : (s+1)*chunk_stride, ...] shifted right by s.
+    # After shifting, chunk i sees group s as the view from original chunk i-s.
+    groups: List[Tensor] = []
+    for s in range(n_shifts):
+        group_s, _ = rf.slice(x, axis=chunk_size_dim, start=s * chunk_stride, size=chunk_stride_enc_dim)
+        if s > 0:
+            group_s = rf.shift_right(group_s, axis=chunked_time_dim, amount=s, pad_value=0.0)
+        groups.append(group_s)
+
+    mean = groups[0]
+    for g in groups[1:]:
+        mean = mean + g
+    mean = mean * (1.0 / n_shifts)
+
+    # Note, strictly speaking, not for all frames we have n_shifts overlaps.
+    # But only for the boundary cases this is violated, and it greatly simplifies the logic here.
+    if not compute_mse:
+        return mean
+
+    # Mean squared distance of each per-shift view from the average, averaged over shifts.
+    # Boundary chunks (first n_shifts - 1) have padded-zero contributions from shifts that
+    # were never valid; we accept the slight inflation for simplicity (same as for `mean`).
+    mse = (groups[0] - mean) ** 2
+    for g in groups[1:]:
+        mse = mse + (g - mean) ** 2
+    mse = mse * (1.0 / n_shifts)
+    return mean, mse
+
+
+def _mem_chunks(
+    source: rf.Tensor,
+    *,
+    spatial_dim: Dim,
+    chunked_time_dim: Dim,
+    mem_size: int,
+    end_chunk_size_dim: Dim,
+    out_spatial_dim: Optional[Dim] = None,
+    external_left_context: Optional[Tensor] = None,
+    external_left_context_time_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Dim]:
+    """
+    Concat the prev chunks to the current chunk, i.e. add history / memory.
+
+    :param source: (batch..., chunked_time, spatial_dim=chunk_size, feat)
+    :param spatial_dim: chunk size / window size
+    :param chunked_time_dim: the chunks
+    :param mem_size: how many previous chunks to concat
+    :param end_chunk_size_dim: ...?
+    :param out_spatial_dim: if given, use this as output spatial dim
+    :param external_left_context: optional cache from a previous segment, shape
+        ``(batch..., external_left_context_time_dim, end_chunk_size_dim, feat)``.
+        When provided, the shift-right padding region is filled with this cache
+        content instead of zeros, so streaming forward passes can match offline
+        attention exactly. Cache must have ``external_left_context_time_dim``
+        size == ``mem_size`` for full equivalence (smaller is also accepted and
+        the missing chunks default back to zero-pad).
+    :param external_left_context_time_dim: the chunked-time dim of the cache.
+    :return: concatenated prev chunks, concatenated spatial dim
+    """
+    source_sliced, _ = rf.slice(source, axis=spatial_dim, size=end_chunk_size_dim)
+
+    if external_left_context is not None:
+        assert external_left_context_time_dim is not None, (
+            "external_left_context requires external_left_context_time_dim"
+        )
+        # Prepend cache to source_sliced along chunked_time. After shift_right on
+        # the combined tensor, positions [cache_len, cache_len+T_orig) contain
+        # the original positions with the shift-pad region naturally filled by
+        # cache values. We then slice back to those positions.
+        combined_time_dim = external_left_context_time_dim + chunked_time_dim
+        source_sliced_combined, _ = rf.concat(
+            (external_left_context, external_left_context_time_dim),
+            (source_sliced, chunked_time_dim),
+            out_dim=combined_time_dim,
+            allow_broadcast=True,
+        )
+    else:
+        source_sliced_combined = source_sliced
+        combined_time_dim = chunked_time_dim
+
+    concats = []
+    for shift_amount in range(mem_size, 0, -1):
+        shifted = rf.shift_right(source_sliced_combined, axis=combined_time_dim, amount=shift_amount, pad_value=0.0)
+        if external_left_context is not None:
+            # Take only the original chunked_time positions.
+            shifted, _ = rf.slice(
+                shifted,
+                axis=combined_time_dim,
+                start=external_left_context_time_dim.get_dim_value_tensor(),
+                out_dim=chunked_time_dim,
+            )
+        concats.append((shifted, end_chunk_size_dim))
+    concats.append((source, spatial_dim))
+    return rf.concat(*concats, out_dim=out_spatial_dim, allow_broadcast=True)
+
+
+def _filter_opts_for_target(opts: Dict[str, Any], target) -> Dict[str, Any]:
+    """
+    Drop keys from ``opts`` that the target callable's ``__init__`` doesn't declare.
+
+    The encoder builds ``default_encoder_layer_opts`` from its own conformer-baseline kwargs
+    (``conv_kernel_size``, ``num_heads``, ``att_dropout``, ``mem_chunks_grad_checkpointing``, ...)
+    and forwards them to every per-layer spec, plus the default encoder-layer construction.
+    For a conformer-baseline layer (:class:`ChunkedConformerEncoderLayerStatic` & subclasses)
+    every key is consumed, so nothing is dropped.
+    For a custom layer (DeltaNet, Mamba-2, ...) the unconsumed keys would otherwise show up
+    in the constructor call -- either silently absorbed via ``**kwargs`` (hides typos)
+    or surfaced as ``TypeError``.
+    Filtering at the source -- i.e. only putting a key into the per-target opts dict
+    if the target actually declares it as a parameter -- is the cleanest place to handle this.
+
+    ``target`` accepts a class / callable directly, or an ``rf.build_dict`` spec dict
+    (``{"class": "path.to.Cls", ...}``);
+    in the latter case the class is resolved via the same loader
+    :func:`rf.build_from_dict` uses.
+    If the target's signature can't be introspected (C extensions, etc.) or it accepts ``**kwargs``,
+    ``opts`` is returned unchanged.
+    """
+    cls = target
+    if isinstance(target, dict):
+        if "class" not in target:
+            return opts
+        cls = _get_cls(target["class"])
+    try:
+        sig = inspect.signature(cls)
+    except (TypeError, ValueError):
+        return opts
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return opts
+    return {k: v for (k, v) in opts.items() if k in params}
