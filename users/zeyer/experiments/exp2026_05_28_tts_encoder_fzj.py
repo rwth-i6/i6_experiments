@@ -1682,6 +1682,85 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # Ablations of the winning specaug50 recipe, one ingredient flipped each: the dursig ladder
+    # probes the lognormal duration jitter (0 = deterministic medians); nolerp = step-function
+    # upsampling; unidur = uniform 5-10 frames (rate-matched to dur07's 7.5 mean) vs the per-phone
+    # structure; dursilonly keeps only the sil-vs-speech duration distinction; trainemb = trained
+    # embedding instead of the frozen MFA table (the acoustics half); sil0 = no [space] between
+    # words; dur05/dur10 vary the duration scale around 0.7 (dur10 unscaled, wider bound like specaug70).
+    _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
+    for _abl_name, _abl_kwargs in [
+        (f"{_abl_prefix}-dursig0", {"pseudo_enc_duration_sigma": 0.0}),
+        (f"{_abl_prefix}-dursig02", {"pseudo_enc_duration_sigma": 0.2}),
+        (f"{_abl_prefix}-dursig07", {"pseudo_enc_duration_sigma": 0.7}),
+        (f"{_abl_prefix}-nolerp", {"pseudo_enc_lerp": False}),
+        (
+            f"{_abl_prefix}-unidur",
+            {
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (5, 10),
+            },
+        ),
+        (f"{_abl_prefix}-dursilonly", {"pseudo_enc_duration_sil_only": True}),
+        (f"{_abl_prefix}-trainemb", {"pseudo_enc_frozen_table": None}),
+        (f"{_abl_prefix}-sil0", {"glow_tts_add_silence_between_words": 0.0}),
+        (
+            "pseudo-enc-logmel-mfatable-realdur2-lerp-dur05-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {"pseudo_enc_duration_scale": 0.5},
+        ),
+        (
+            "pseudo-enc-logmel-mfatable-realdur2-lerp-dur10-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {"pseudo_enc_duration_scale": None, "pseudo_enc_max_len_factor": 15},
+        ),
+    ]:
+        _abl_base = dict(
+            text_train_epoch_split=75,
+            batch_size_audio_frames=70_000,
+            batch_size_phon=6_000,
+            max_phon_len=300,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+            pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+            pseudo_enc_duration_sigma=0.45,
+            pseudo_enc_duration_scale=0.7,
+            pseudo_enc_max_len_factor=10,
+            train_seq_ordering="random",
+            pseudo_enc_lerp=True,
+            pseudo_enc_blank_duration_range=(0, 0),
+            pseudo_enc_specaug_max_width=6,
+            single_stream=True,
+            interleave_gumbel_scale=1.0,
+            glow_tts_add_silence_between_words=0.15,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            behavior_version=29,  # packed tensors need >= 29
+            pseudo_enc_frontend_concat=True,
+            extra_config_updates={
+                "optimizer.class": rf.build_dict(Muon)["class"],
+                "packed_tensors": True,
+                "torch_distributed": {"reduce_type": "grad_explicit"},
+                "batch_size": None,
+                "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                "batching": "random",
+                "torch_cuda_graph": {
+                    "batch_size_bound": 500,
+                    "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                    "warmup_steps": 0,
+                    "compile": True,
+                },
+                "optimizer.weight_decay": 0.027,  # 0.01 / 0.370
+                "specaugment_num_spatial_mask_factor": 50,
+                "specaugment_steps": (1850, 5550, 9250),  # (5000, 15000, 25000) * 0.370
+            },
+            extra_config_deletes=["optimizer.epsilon"],
+        )
+        _abl_base.update(_abl_kwargs)
+        _train_tts_encoder(_abl_name, prefix=prefix, **_abl_base)
+
     # dur07-packed reached 3.75 dev-other in 44 h, but on only 246k updates,
     # against 524k for pseudo-enc-layer4-noblank (3.70) and 805k for the TTS-enc arms (3.55).
     # nep 38 -> 76 doubles the updates to ~492k, matching layer4-noblank,
@@ -2484,6 +2563,7 @@ def _train_tts_encoder(
     pseudo_enc_duration_sigma: Optional[float] = None,
     pseudo_enc_duration_walk_sigma: Optional[float] = None,
     pseudo_enc_duration_scale: Optional[float] = None,
+    pseudo_enc_duration_sil_only: bool = False,
     pseudo_enc_max_len_factor: Optional[int] = None,
     behavior_version: int = 25,
     pseudo_enc_frontend_concat: bool = False,
@@ -2771,6 +2851,7 @@ def _train_tts_encoder(
                     if pseudo_enc_duration_table is not None
                     else {}
                 ),
+                **({"pseudo_enc_duration_sil_only": True} if pseudo_enc_duration_sil_only else {}),
                 **(
                     {"pseudo_enc_duration_sigma": pseudo_enc_duration_sigma}
                     if pseudo_enc_duration_sigma is not None
@@ -2907,6 +2988,7 @@ def _train_tts_encoder(
                 if pseudo_enc_duration_table is not None
                 else {}
             ),
+            **({"pseudo_enc_duration_sil_only": True} if pseudo_enc_duration_sil_only else {}),
             **(
                 {"pseudo_enc_duration_sigma": pseudo_enc_duration_sigma}
                 if pseudo_enc_duration_sigma is not None
@@ -3074,6 +3156,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             smooth_sigma=config.typed_value("pseudo_enc_smooth_sigma", None),
             smooth_box_width=config.typed_value("pseudo_enc_smooth_box_width", None),
             duration_table=config.typed_value("pseudo_enc_duration_table", None),
+            duration_sil_only=config.bool("pseudo_enc_duration_sil_only", False),
             duration_sigma=config.float("pseudo_enc_duration_sigma", 0.45),
             duration_walk_sigma=config.typed_value("pseudo_enc_duration_walk_sigma", None),
             duration_scale=config.float("pseudo_enc_duration_scale", 1.0),
@@ -3168,6 +3251,7 @@ class PseudoSpeechEncoder(rf.Module):
         smooth_sigma: Optional[float] = None,
         smooth_box_width: Optional[int] = None,
         duration_table: Optional[str] = None,
+        duration_sil_only: bool = False,
         duration_sigma: float = 0.45,
         duration_walk_sigma: Optional[float] = None,
         duration_walk_clip: Tuple[float, float] = (0.9, 1.2),
@@ -3231,6 +3315,14 @@ class PseudoSpeechEncoder(rf.Module):
             npz = numpy.load(duration_table, allow_pickle=True)
             med = npz["medians"].astype("float32")
             assert med.shape == (vocab_dim.dimension,), f"duration table {med.shape} vs vocab {vocab_dim}"
+            if duration_sil_only:
+                # never-observed rows ([start]) carry the stats job's global speech median,
+                # so this collapses every speech phone to that one value; [space] keeps its own.
+                labels_list = [str(x) for x in npz["labels"]]
+                glob = float(med[labels_list.index("[start]")])
+                sil = float(med[labels_list.index("[space]")])
+                med = numpy.full_like(med, glob)
+                med[labels_list.index("[space]")] = sil
             # Blank row: 1 frame. Blank is not a phone, and with blank_duration_range=(0,0)
             # (the standard here) it is never emitted anyway.
             self.duration_medians = numpy.concatenate([med, numpy.ones((1,), dtype="float32")])
