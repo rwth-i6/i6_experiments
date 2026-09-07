@@ -18,6 +18,7 @@ from __future__ import annotations
 __all__ = [
     "ClusteringFlavor",
     "GuidedClusteringEpochJob",
+    "BatchedEMAEpochJob",
     "IdentityCovsJob",
     "MaterializeModelJob",
     "MergeEpochStatisticsJob",
@@ -305,6 +306,149 @@ class GuidedClusteringEpochJob(Job):
             json.dump(statistics, fp, indent=4, default=str)
 
         print(f"Epoch done: {totals}")
+
+
+class BatchedEMAEpochJob(Job):
+    """
+    One VQ epoch with within-epoch EMA table updates.
+
+    Instead of accumulating over the whole corpus and performing one update,
+    the corpus is streamed in mini-batches of ``ema_minibatch_size`` sequences.
+    After each mini-batch the table is updated as:
+
+        table <- ema_alpha * table + (1 - ema_alpha) * table_minibatch
+
+    where ``table_minibatch`` is the normalised p(codeword | label) from that
+    mini-batch alone, computed by the same :class:`.VectorQuantizedAccumulator`
+    as the full-epoch job. Centroids are never re-estimated.
+
+    Runs as a **single task** (no job array). Parallelism comes from the
+    recogniser's ``num_workers`` RASR processes, which handle each mini-batch
+    concurrently inside :func:`.run_chunk`.
+
+    :param ema_alpha: weight on the old table. 0.8 is the default; 0.0 would
+        replace the table after every mini-batch; 1.0 would never update it.
+    :param ema_minibatch_size: sequences processed per EMA update step. Memory
+        usage scales with this: at 2 000 sequences, ~120 frames each, 512-D
+        float64, expect ~1 GB in the mini-batch buffer.
+    """
+
+    def __init__(
+        self,
+        *,
+        features: Spec,
+        model: Spec,
+        recognizer: Spec,
+        accumulator: Spec,
+        num_clusters: int,
+        ema_alpha: float,
+        ema_minibatch_size: int,
+        lexicon: Optional[tk.Path] = None,
+        rasr_path: Optional[tk.Path] = None,
+        statistics: Optional[Spec] = None,
+        verbosity: int = 1,
+        rqmt: Optional[Dict[str, Any]] = None,
+    ):
+        self.features = features
+        self.model = model
+        self.recognizer = recognizer
+        self.accumulator = accumulator
+        self.num_clusters = num_clusters
+        self.ema_alpha = ema_alpha
+        self.ema_minibatch_size = ema_minibatch_size
+        self.lexicon = lexicon
+        self.rasr_path = rasr_path
+        self.statistics = statistics
+        self.verbosity = verbosity
+
+        self.rqmt = {"cpu": 9, "mem": 16, "time": 168}
+        if rqmt:
+            self.rqmt.update(rqmt)
+
+        self.out_model = self.output_path("model", directory=True)
+        self.out_statistics = self.output_path("statistics.json")
+        # Written empty: the streaming loop does not collect per-sequence
+        # transcriptions. Kept as an output so chunked_clustering() can populate
+        # out_hypotheses with the same code path as for GuidedClusteringEpochJob.
+        self.out_hypotheses = self.output_path("hyp.txt.gz")
+
+    @classmethod
+    def hash(cls, kwargs):
+        unhashed = {"statistics", "verbosity", "rqmt"}
+        return super().hash(
+            {
+                k: (v.hashed() if isinstance(v, Spec) else v)
+                for k, v in kwargs.items()
+                if k not in unhashed
+            }
+        )
+
+    def artifact(self, name: str) -> tk.Path:
+        return self.out_model.join_right(f"{name}.npy")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def _build_accumulator(self):
+        return self.accumulator.build(num_clusters=self.num_clusters)
+
+    def run(self):
+        prepare_worker_sys_path(self.rasr_path)
+
+        current_model = self.model.build()
+        # chunk=0, num_chunks=1 -> the whole corpus in one shot, read lazily.
+        source = self.features.build(chunk=0, num_chunks=1)
+
+        totals = {"num_seqs": 0, "num_frames": 0, "num_recognized": 0}
+        num_updates = 0
+
+        batch: list = []
+        for item in source:
+            batch.append(item)
+            if len(batch) >= self.ema_minibatch_size:
+                current_model = self._run_and_ema(batch, current_model, totals)
+                num_updates += 1
+                batch = []
+
+        if batch:  # trailing partial mini-batch
+            current_model = self._run_and_ema(batch, current_model, totals)
+            num_updates += 1
+
+        current_model.save(self.out_model.get_path())
+
+        with gzip.open(self.out_hypotheses.get_path(), "wt") as fp:
+            pass
+
+        statistics = dict(totals)
+        statistics["num_ema_updates"] = num_updates
+        with open(self.out_statistics.get_path(), "w") as fp:
+            json.dump(statistics, fp, indent=4, default=str)
+
+        print(f"Epoch done: {totals}, {num_updates} EMA updates", flush=True)
+
+    def _run_and_ema(self, batch, current_model, totals):
+        result = run_chunk(
+            features=batch,
+            model=current_model,
+            recognizer=self.recognizer.build(),
+            accumulator=self._build_accumulator(),
+            verbosity=self.verbosity,
+        )
+        totals["num_seqs"] += result.num_seqs
+        totals["num_frames"] += result.num_frames
+        totals["num_recognized"] += result.num_recognized
+
+        acc = self._build_accumulator().load_state_dict(result.accumulator_state)
+        pi_new = acc.finalize(current_model)
+
+        old_table = current_model.artifacts()["table"]
+        new_table = pi_new.artifacts()["table"]
+        ema_table = self.ema_alpha * old_table + (1.0 - self.ema_alpha) * new_table
+        return type(pi_new)(
+            centroids=pi_new.artifacts()["centroids"],
+            table=ema_table,
+            device=getattr(current_model, "device", None),
+        )
 
 
 class MergeEpochStatisticsJob(Job):
@@ -1358,6 +1502,8 @@ def chunked_clustering(
     task_timeout: Optional[float] = 1800.0,
     rqmt: Optional[Dict[str, Any]] = None,
     alias_prefix: str = "guided_kmeans/chunked",
+    ema_alpha: float = 0.0,
+    ema_minibatch_size: int = 2000,
 ) -> ChunkedClusteringExpResult:
     """
     Chain ``num_epochs`` clustering epochs.
@@ -1481,18 +1627,33 @@ def chunked_clustering(
     out_guided_scores: Dict[int, ScoreResult] = {}
 
     for epoch in range(1, num_epochs + 1):
-        job = GuidedClusteringEpochJob(
-            features=features_spec,
-            model=model_spec,
-            recognizer=recognizer_spec,
-            accumulator=accumulator_spec,
-            num_clusters=num_clusters,
-            lexicon=lexicon,
-            rasr_path=rasr_path,
-            num_chunks=num_chunks,
-            statistics=statistics_spec,
-            rqmt=job_rqmt,
-        )
+        if ema_alpha > 0.0:
+            job = BatchedEMAEpochJob(
+                features=features_spec,
+                model=model_spec,
+                recognizer=recognizer_spec,
+                accumulator=accumulator_spec,
+                num_clusters=num_clusters,
+                ema_alpha=ema_alpha,
+                ema_minibatch_size=ema_minibatch_size,
+                lexicon=lexicon,
+                rasr_path=rasr_path,
+                statistics=statistics_spec,
+                rqmt=job_rqmt,
+            )
+        else:
+            job = GuidedClusteringEpochJob(
+                features=features_spec,
+                model=model_spec,
+                recognizer=recognizer_spec,
+                accumulator=accumulator_spec,
+                num_clusters=num_clusters,
+                lexicon=lexicon,
+                rasr_path=rasr_path,
+                num_chunks=num_chunks,
+                statistics=statistics_spec,
+                rqmt=job_rqmt,
+            )
         job.add_alias(f"{alias_prefix}/epoch_{epoch:03d}")
         jobs.append(job)
 
