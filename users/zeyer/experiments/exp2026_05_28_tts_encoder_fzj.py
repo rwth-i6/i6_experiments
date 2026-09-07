@@ -1630,6 +1630,58 @@ def py():
             extra_config_deletes=["optimizer.epsilon"],
         )
 
+    # The table's [start]/[end] rows are the global-mean frame with pooled fallback durations
+    # (MFA never observes them), but real utterances start and end with silence:
+    # drop [start]/[end] and bound the seq with [space] at probability 1 instead.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp-silbound",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_duration_scale=0.7,
+        pseudo_enc_max_len_factor=10,
+        train_seq_ordering="random",
+        pseudo_enc_lerp=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        glow_tts_add_silence_between_words=0.15,
+        glow_tts_add_silence_beginning=1.0,
+        glow_tts_add_silence_end=1.0,
+        glow_tts_no_start_end=True,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+            "optimizer.weight_decay": 0.027,  # 0.01 / 0.370
+            "specaugment_num_spatial_mask_factor": 50,
+            "specaugment_steps": (1850, 5550, 9250),  # (5000, 15000, 25000) * 0.370
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+
     # dur07-packed reached 3.75 dev-other in 44 h, but on only 246k updates,
     # against 524k for pseudo-enc-layer4-noblank (3.70) and 805k for the TTS-enc arms (3.55).
     # nep 38 -> 76 doubles the updates to ~492k, matching layer4-noblank,
@@ -2437,6 +2489,9 @@ def _train_tts_encoder(
     pseudo_enc_frontend_concat: bool = False,
     pseudo_enc_lerp: bool = False,
     glow_tts_add_silence_between_words: Optional[float] = None,
+    glow_tts_add_silence_beginning: Optional[float] = None,
+    glow_tts_add_silence_end: Optional[float] = None,
+    glow_tts_no_start_end: bool = False,
     pseudo_enc_start_layer: Optional[int] = None,
     pseudo_enc_array_table: Optional[tk.Path] = None,
     pseudo_enc_array_duration_table: Optional[tk.Path] = None,
@@ -2925,7 +2980,11 @@ def _train_tts_encoder(
                 get_vocab_by_str(vocab).copy(**train_vocab_opts) if train_vocab_opts else get_vocab_by_str(vocab)
             ).get_opts(),
             "glow_tts_phone_info": get_glow_tts_phone_info(
-                train=True, add_silence_between_words=glow_tts_add_silence_between_words
+                train=True,
+                add_silence_between_words=glow_tts_add_silence_between_words,
+                add_silence_beginning=glow_tts_add_silence_beginning,
+                add_silence_end=glow_tts_add_silence_end,
+                with_start_end_lemmas=not glow_tts_no_start_end,
             ),
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
             # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily,

@@ -194,35 +194,52 @@ def get_glow_tts_phoneme_dataset_dict(
     }
 
 
-def get_glow_tts_phone_info(*, train: bool, add_silence_between_words: Optional[float] = None) -> Dict[str, Any]:
+def get_glow_tts_phone_info(
+    *,
+    train: bool,
+    add_silence_between_words: Optional[float] = None,
+    add_silence_beginning: Optional[float] = None,
+    add_silence_end: Optional[float] = None,
+    with_start_end_lemmas: bool = True,
+) -> Dict[str, Any]:
     """``phone_info`` for RETURNN's ``PhoneSeqGenerator``: text -> GlowTTS phonemes via the lexicon.
 
     :param train: training variant (random silence / pronunciation variants) vs deterministic
     :param add_silence_between_words: override the per-word-boundary silence probability, train-only.
         The default 0.95 yields ~30 [space] per utterance,
         while real LibriSpeech has 4.76, i.e. ~0.15.
+    :param add_silence_beginning: override the leading-silence probability (default 0.01), train-only
+    :param add_silence_end: override the trailing-silence probability (default 0.01), train-only
+    :param with_start_end_lemmas: bracket every seq with [start]/[end].
+        False drops them, to bound the seq with [space] silence instead
+        (via add_silence_beginning/end), as real utterances start/end with silence.
     """
     # A probability < 1 is random, while the non-train default 1.0 always fires and so is deterministic.
     # For a reproducible random pattern outside training, use the dataset's fixed_random_seed.
-    assert add_silence_between_words is None or train, (
-        "add_silence_between_words is a training-time knob, a probability < 1 is random;"
-        " non-train uses the deterministic 1.0, use the dataset fixed_random_seed instead"
+    assert all(p is None or train for p in (add_silence_between_words, add_silence_beginning, add_silence_end)), (
+        "silence probabilities are training-time knobs, a probability < 1 is random;"
+        " non-train uses deterministic values, use the dataset fixed_random_seed instead"
     )
-    return {
+    out = {
         "lexicon_file": get_glow_tts_lexicon(),
         "phoneme_vocab_file": get_glow_tts_phoneme_vocab(),
         "allo_num_states": 1,
-        "add_silence_beginning": 0.01 if train else 0.0,
+        "add_silence_beginning": (
+            add_silence_beginning if add_silence_beginning is not None else (0.01 if train else 0.0)
+        ),
         "add_silence_between_words": (
             add_silence_between_words if add_silence_between_words is not None else (0.95 if train else 1.0)
         ),
-        "add_silence_end": 0.01 if train else 0.0,
+        "add_silence_end": add_silence_end if add_silence_end is not None else (0.01 if train else 0.0),
         "repetition": 0.01 if train else 0.0,
         "silence_repetition": 0.01 if train else 0.0,
         "silence_lemma_orth": "[space]",
         "extra_begin_lemma": {"phons": [{"phon": "[start]"}]},
         "extra_end_lemma": {"phons": [{"phon": "[end]"}]},
     }
+    if not with_start_end_lemmas:
+        del out["extra_begin_lemma"], out["extra_end_lemma"]
+    return out
 
 
 def get_glow_tts_phoneme_extern_data() -> Dict[str, Any]:
