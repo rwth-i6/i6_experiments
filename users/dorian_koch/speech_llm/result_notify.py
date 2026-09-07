@@ -52,10 +52,20 @@ class ResultNotify(Job):
                 base = os.path.basename(path)
                 if os.path.isfile(path) and (path.endswith(".json") or "summary" in base):
                     entry["content"] = json.load(open(path))
+                elif os.path.isfile(path) and path.endswith(".jsonl"):
+                    entry["metrics"] = summarize_metrics_jsonl(path)
                 elif os.path.isfile(path):
                     entry["preview"] = open(path, encoding="utf-8", errors="replace").read()[:2000]
                 else:
                     entry["is_dir"] = os.path.isdir(path)
+                    if os.path.isdir(path):
+                        # A training arm's only declared output is its run_dir, so the numbers that
+                        # say how the run WENT live in files inside it. Summarise them here or the
+                        # digest records a directory path and nothing else -- which is how a 600-step
+                        # arm could finish, fire its notify, and still tell you nothing.
+                        found = sorted(f for f in os.listdir(path) if f.startswith("metrics") and f.endswith(".jsonl"))
+                        if found:
+                            entry["metrics"] = {f: summarize_metrics_jsonl(os.path.join(path, f)) for f in found}
             except Exception as e:  # a digest read must never fail the notify
                 entry["read_error"] = str(e)
             digest["results"][label] = entry
@@ -77,8 +87,14 @@ class ResultNotify(Job):
                             "tag": self.tag,
                             "note": self.note,
                             "digest": self.out_digest.get(),
+                            # "metrics" before "preview"/"path": the central log is the thing that
+                            # gets SCANNED at session start, so a line saying only where a run_dir
+                            # lives reports that an arm finished and not how it went.
                             "summary": {
-                                k: v.get("content", v.get("preview", v.get("path")))
+                                k: v.get(
+                                    "content",
+                                    v.get("metrics", v.get("preview", v.get("path"))),
+                                )
                                 for k, v in digest["results"].items()
                             },
                         },
@@ -90,6 +106,59 @@ class ResultNotify(Job):
             print(f"[result-notify] central-log append failed: {e}", flush=True)
 
         print(f"[result-notify] {self.tag} -> {self.out_digest.get()} (+ RESULTS.jsonl)", flush=True)
+
+
+#: Scalars worth carrying into a digest, in the order a reader wants them. Anything else in the file
+#: is ignored rather than dumped -- the point of a digest is that it fits in a notification.
+DIGEST_KEYS = (
+    "loss",
+    "text_loss",
+    "audio_loss",
+    "eval_loss",
+    "knowledge_accuracy",
+    "knowledge_avg_quality",
+    "grad_norm",
+    "lr",
+)
+
+
+def summarize_metrics_jsonl(path: str, keys=DIGEST_KEYS) -> dict:
+    """first / last / min / max per tracked scalar in a metrics ``.jsonl``.
+
+    A metrics file must NOT be digested with the generic head-preview branch: it is append-ordered,
+    so the first 2000 characters are step 1 -- the state of the run before it trained, the least
+    informative thing in the file. And it is append- not step-ordered (a preempted run replays steps
+    on resume, see check_train_metrics_plot), so "last row" is not "highest step": rows are sorted by
+    step here before first/last are taken.
+    """
+    rows = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a half-written final line while the writer is still live
+    if not rows:
+        return {"rows": 0}
+    out = {"rows": len(rows)}
+    steps = [r["step"] for r in rows if isinstance(r.get("step"), (int, float))]
+    if steps:
+        out["last_step"] = max(steps)
+    for key in keys:
+        pairs = [
+            (r.get("step", i), r[key])
+            for i, r in enumerate(rows)
+            if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)
+        ]
+        if not pairs:
+            continue
+        pairs.sort(key=lambda sv: sv[0])
+        vals = [v for _, v in pairs]
+        out[key] = {"first": vals[0], "last": vals[-1], "min": min(vals), "max": max(vals), "n": len(vals)}
+    return out
 
 
 def notify_result(tag: str, results: dict, note: str = "") -> ResultNotify:
