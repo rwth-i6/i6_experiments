@@ -57,13 +57,42 @@ def write_clips(out_path, items):
 SEED = 42
 
 
+#: An ``rng_`` speaker is ONE draw from ``SEED`` over ``os.listdir`` order -- so which of the 128
+#: user voices the benchmark asks its questions in has been a property of the FILESYSTEM, not of the
+#: config. It happens to be stable on this cluster, which is why it was never noticed; the listing is
+#: verifiably not in sorted order, so it is stable by luck.
+#:
+#: Sorting the listing is the obvious fix and is the wrong one HERE: with ``sorted()`` the same seed
+#: draws ``prompt_12_prompt_0_voice_4`` instead, i.e. it would silently re-voice the benchmark and
+#: make every existing knowledge number non-comparable with anything measured afterwards. So record
+#: the voice that was actually used instead. This changes no past result and makes it reproducible
+#: rather than incidental. `speaker_name` IS hashed, so the pin cannot live in the recipe without
+#: re-hashing (and re-running) every benchmark that has ever been scored.
+#:
+#: Verified 2026-09-07 against the log of a finished ChatterboxSingleSpeakerInference:
+#:     Using speaker: .../user_voices/prompt_9_prompt_0_voice_7.wav
+PINNED_RNG_SPEAKERS = {"user_voices/rng_a": "prompt_9_prompt_0_voice_7.wav"}
+
+
 def resolve_speaker_path(speaker_dir: str, speaker_name: str) -> str:
     """Resolve speaker path, supporting rng_ prefix for random selection."""
     based = os.path.basename(speaker_name)
     if based.startswith("rng_"):
         dirname = os.path.dirname(speaker_name)
         search_dir = os.path.join(speaker_dir, dirname) if dirname else speaker_dir
-        wavs = [f for f in os.listdir(search_dir) if f.endswith(".wav")]
+        pinned = PINNED_RNG_SPEAKERS.get(speaker_name)
+        if pinned is not None:
+            path = os.path.join(search_dir, pinned)
+            assert os.path.exists(path), (
+                f"pinned speaker {path} is missing. It is the voice every knowledge benchmark to "
+                f"date was measured in -- falling back to a fresh draw would re-voice the benchmark "
+                f"silently, so refuse instead."
+            )
+            return path
+        # sorted(): an unsorted os.listdir makes the seeded draw depend on filesystem order, which
+        # is the bug this whole block exists for. The corpus worker (chatterbox_inference.py) sorts
+        # for exactly this reason; this copy did not.
+        wavs = sorted(f for f in os.listdir(search_dir) if f.endswith(".wav"))
         return os.path.join(search_dir, random.choice(wavs))
     return os.path.join(speaker_dir, speaker_name + ".wav")
 

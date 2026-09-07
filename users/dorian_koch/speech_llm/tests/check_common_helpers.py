@@ -280,6 +280,88 @@ else:
     failures.append("chatterbox_inference.silence_length_sampler missing -- was it renamed or re-nested?")
 
 
+# --- chatterbox_benchmark_inference: the BENCHMARK's voice ---------------------------------------
+#
+# Same bug as available_speakers above, in the sibling worker, missed because this guard only ever
+# covered one of the two copies. `resolve_speaker_path` drew `random.choice(os.listdir(...))` over
+# 128 user voices with NO sort, so which voice the knowledge benchmark asks its questions in was a
+# property of the filesystem. It is stable on this cluster by luck -- the listing is verifiably not
+# in sorted order.
+#
+# The fix is NOT to sort: with sorted() the same seed draws a different voice, which would silently
+# re-voice the benchmark and make every existing knowledge number non-comparable. The historical
+# choice is pinned instead, and sorting applies only to un-pinned aliases.
+
+_HEAVY2 = ["torch", "torchaudio", "chatterbox", "chatterbox.tts_turbo", "datasets"]
+_saved2 = {name: sys.modules.get(name) for name in _HEAVY2}
+for name in _HEAVY2:
+    stub = types.ModuleType(name)
+    stub.__getattr__ = lambda _attr: MagicMock()  # noqa: B023
+    sys.modules[name] = stub
+
+bench_src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_benchmark_inference.py").read_text()
+bench = {"__name__": "chatterbox_benchmark_under_test", "__file__": "chatterbox_benchmark_inference.py"}
+try:
+    exec(compile(bench_src, "chatterbox_benchmark_inference.py", "exec"), bench)
+except Exception as exc:  # pragma: no cover
+    failures.append(f"could not exec chatterbox_benchmark_inference.py with stubbed deps: {exc!r}")
+    bench = {}
+finally:
+    for name, mod in _saved2.items():
+        if mod is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = mod
+
+_n = len(failures)
+if "resolve_speaker_path" in bench and "PINNED_RNG_SPEAKERS" in bench:
+    resolve, pinned = bench["resolve_speaker_path"], bench["PINNED_RNG_SPEAKERS"]
+    if pinned.get("user_voices/rng_a") != "prompt_9_prompt_0_voice_7.wav":
+        failures.append(
+            f"the pinned benchmark voice is {pinned.get('user_voices/rng_a')!r}; every knowledge "
+            f"number to date was measured with 'prompt_9_prompt_0_voice_7.wav' (read off a finished "
+            f"job's log). Changing it re-voices the benchmark and breaks comparability with ~30 "
+            f"published tags -- if that is intended, it needs a new tag, not an edit here."
+        )
+    # Pinned alias: same answer whatever order the filesystem returns, including reversed.
+    listing = [f"prompt_{i}_prompt_0_voice_{j}.wav" for i in range(13) for j in range(8)]
+    got = set()
+    for order in (listing, list(reversed(listing)), sorted(listing)):
+        with patch("os.listdir", return_value=list(order)), patch("os.path.exists", return_value=True):
+            got.add(resolve("/spk", "user_voices/rng_a"))
+    if got != {"/spk/user_voices/prompt_9_prompt_0_voice_7.wav"}:
+        failures.append(f"pinned rng_a resolved to {got} -- it must not depend on listing order")
+    ok(f"benchmark voice     pinned, order-independent: {sorted(got)[0].split('/')[-1]}", _n)
+
+    # A missing pinned voice must REFUSE, not quietly fall back to a fresh draw.
+    _n = len(failures)
+    with patch("os.listdir", return_value=list(listing)), patch("os.path.exists", return_value=False):
+        try:
+            resolve("/spk", "user_voices/rng_a")
+            failures.append("a missing pinned speaker silently fell back to a draw -- it must raise")
+        except AssertionError:
+            pass
+    ok("missing pin         refuses instead of re-voicing the benchmark", _n)
+
+    # Un-pinned rng_ aliases must be sorted -- and the check is non-vacuous only if the unsorted
+    # order would actually have given a different voice.
+    _n = len(failures)
+    picks = set()
+    for order in (listing, list(reversed(listing))):
+        random.seed(bench["SEED"])
+        with patch("os.listdir", return_value=list(order)):
+            picks.add(resolve("/spk", "user_voices/rng_b"))
+    if len(picks) != 1:
+        failures.append(f"un-pinned rng_ draw depends on listing order: {picks}")
+    random.seed(bench["SEED"])
+    unsorted_pick = "/spk/user_voices/" + random.choice(list(reversed(listing)))
+    if unsorted_pick == next(iter(picks)):
+        failures.append("fixture cannot distinguish sorted from unsorted -- the check proves nothing")
+    ok("un-pinned rng_      sorted, order-independent", _n)
+else:
+    failures.append("chatterbox_benchmark_inference.resolve_speaker_path/PINNED_RNG_SPEAKERS missing")
+
+
 if failures:
     print("\nFAILED:", file=sys.stderr)
     for f in failures:
