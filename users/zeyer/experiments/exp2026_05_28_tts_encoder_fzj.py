@@ -3202,6 +3202,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         glow_tts_length_scale_range=tuple(length_scale_range),
         return_waveform=config.bool("tts_waveform", False),  # waveform mode: GL-net + Griffin-Lim -> ASR front-end
         peak_normalize_waveform=config.bool("tts_waveform_peak_norm", False),
+        max_frames_per_phoneme=config.typed_value("glow_tts_max_frames_per_phoneme", 150.0),
         random_durations_jitter=tuple(rnd_dur_jitter) if rnd_dur_jitter is not None else None,
         random_durations_jitter_mult=tuple(rnd_dur_jitter_mult) if rnd_dur_jitter_mult is not None else None,
         fixed_duration=config.typed_value("glow_tts_fixed_duration", None),

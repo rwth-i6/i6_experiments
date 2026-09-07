@@ -176,6 +176,7 @@ class Model(BaseTTSModelV1):
         gen_duration_jitter=None,
         gen_duration_jitter_mult=None,
         gen_fixed_duration=None,
+        gen_max_duration=None,
     ):
         """
         :param gen_duration_jitter: optional (low, high) tuple. If given (generation only),
@@ -224,6 +225,10 @@ class Model(BaseTTSModelV1):
             if gen_fixed_duration is not None:
                 # Fixed duration per phoneme (in frames, e.g. 1), ignoring the duration predictor.
                 w = h_mask * float(gen_fixed_duration)
+            if gen_max_duration is not None:
+                # Caps the lognormal speaker tail of the duration predictor: a rare (text, speaker)
+                # draw can emit a multi-second single silence, which padding amplifies into an OOM.
+                w = torch.clamp(w, max=float(gen_max_duration))
             w_ceil = torch.ceil(w)  # durations ceiled; ceil of positive -> always >= 1 frame per phoneme
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
             y_max_length = None
