@@ -546,6 +546,7 @@ grad_clip: {_yaml_float(hp.get("grad_clip", 1.0))}
 kl_weight: {_yaml_float(hp.get("kl_weight", 0.0))}
 kl_temperature: {_yaml_float(hp.get("kl_temperature", 1.0))}
 l2sp_weight: {_yaml_float(hp.get("l2sp_weight", 0.0))}
+text_lr_mult: {_yaml_float(hp.get("text_lr_mult", 1.0))}
 gradient_checkpointing: true
 save_every: {hp.get("save_every", 500)}
 log_every: 10

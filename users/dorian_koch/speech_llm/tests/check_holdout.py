@@ -15,11 +15,13 @@ of it. The properties that make the cheap version safe are exactly the ones wort
 Run: CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/.../tests/check_holdout.py
 """
 
+import ast
 import os
 import sys
 from pathlib import Path
 
 SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_dir())
+LIB = SETUP / "recipe" / "speech_llm" / "full_duplex"
 sys.path.insert(0, str(SETUP / "recipe"))
 sys.path.insert(0, str(SETUP / "recipe" / "sisyphus"))
 # moshi_train_data does `from moshi_family...` (absolute, as it runs under the job venv where the
@@ -121,10 +123,66 @@ def check_ddp_shards_within_side():
     print(f"PASS  DDP: {world} ranks partition the train side and never touch eval rows")
 
 
+# --- the launcher must actually RUN the eval it built --------------------------------------------
+#
+# `check_holdout` above proves the SPLIT is correct: disjoint, covering, deterministic, DDP-safe.
+# None of that reaches the number, because for a year the launcher built the held-out loader from
+# `holdout_every` and then passed `eval_fn=eval_fn if (do_eval and eval_data) else None` -- gated on
+# the OTHER eval source. A `holdout_every` arm therefore logged
+#
+#     eval: held-out val loss every N steps (K batches) on every Mth row of the training mixture
+#
+# and produced no `metrics.eval.jsonl` at all. Every arm of the knowledge-collapse investigation ran
+# that way (checked 2026-09-07: the only metrics.eval.jsonl in output/ predates the mechanism). This
+# is the exact lesson CLAUDE.md records as "a guard must exercise the caller's wiring, not an
+# idealised version of it" -- so assert the wiring, not just the split.
+
+
+def eval_fn_gate(launcher: Path) -> ast.AST:
+    """The condition guarding `eval_fn=` in the launcher's `run_training(...)` call."""
+    tree = ast.parse(launcher.read_text())
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "run_training"):
+            continue
+        for kw in node.keywords:
+            if kw.arg == "eval_fn":
+                assert isinstance(kw.value, ast.IfExp), (
+                    "eval_fn is no longer a conditional -- re-read this check's premise before deleting it."
+                )
+                return kw.value.test
+    raise AssertionError(f"no run_training(eval_fn=...) call found in {launcher}")
+
+
+def gate_names(test: ast.AST) -> set:
+    return {n.id for n in ast.walk(test) if isinstance(n, ast.Name)}
+
+
+def check_eval_actually_runs():
+    launcher = LIB / "moshi_family/moshi_finetune_launcher.py"
+    names = gate_names(eval_fn_gate(launcher))
+    assert "eval_iter" in names, (
+        f"moshi_finetune_launcher gates eval_fn on {sorted(names)}, which does not include "
+        f"'eval_iter'. eval_iter is the variable that holds whichever eval source was built "
+        f"(holdout_every OR eval_data), so gating on anything else silently disables evaluation for "
+        f"the source that was not named -- which is how holdout_every ran for a year producing "
+        f"nothing. Gate on what was built."
+    )
+    # Non-vacuous: the shipped bug must be rejected, and the fix accepted.
+    bad = ast.parse("run_training(eval_fn=eval_fn if (do_eval and eval_data) else None)")
+    good = ast.parse("run_training(eval_fn=eval_fn if eval_iter is not None else None)")
+    pick = lambda t: gate_names(
+        next(kw.value.test for n in ast.walk(t) if isinstance(n, ast.Call) for kw in n.keywords if kw.arg == "eval_fn")
+    )
+    assert "eval_iter" not in pick(bad), "self-test: the 2026-09-07 bug is no longer detected"
+    assert "eval_iter" in pick(good), "self-test: the fixed form is rejected"
+    print("[ok] eval_fn is gated on the eval source that was actually built")
+
+
 if __name__ == "__main__":
     check_disjoint_and_covering()
     check_deterministic_across_calls()
     check_disabled_is_a_noop()
     check_degenerate_configs_rejected()
     check_ddp_shards_within_side()
+    check_eval_actually_runs()
     print("ALL PASS")
