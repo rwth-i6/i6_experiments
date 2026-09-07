@@ -3,9 +3,10 @@ Chunked conformer encoder for static compute graphs (CUDA-graph capture, Inducto
 
 Copy of chunked_conformer_v2, with the parts that make the graph depend on the batch removed:
 
-- the chunk size, history and lookahead are device values, not Python ints,
+- the chunk size is a device value, not a Python int,
   so one captured graph covers the whole training pool
-  (chunked_conformer_v2 samples them on the host and bakes them into the shapes).
+  (chunked_conformer_v2 samples it on the host and bakes it into the shapes);
+  history and lookahead stay fixed ints.
 - shapes come from the configured maxima, and a step masks down to its actual sizes,
   so nothing about the graph varies per step.
 - no host reads of dynamic dims,
@@ -22,7 +23,6 @@ import inspect
 from dataclasses import dataclass
 
 from returnn.util.basic import NotSpecified
-from returnn.util.math import ceil_div
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
@@ -65,7 +65,6 @@ class ChunkedConformerEncoderStatic(rf.Module):
         chunk_num_overlaps: int = 1,
         chunk_size_pool: Optional[List[int]] = None,
         version: int = 1,
-        adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
         use_chunk_type_embedding: bool = False,
         chunk_type_embedding_at_output_boundary: bool = False,
@@ -95,15 +94,7 @@ class ChunkedConformerEncoderStatic(rf.Module):
             The sizes are device values here, so all of them share one captured graph;
             the shapes follow max(chunk_size_pool), and a step masks down to its own size.
             during training. None element in list means no chunking for that choice.
-        :param chunk_history_size_train_pool: if not None, randomly sample chunk_history_size from this list
-            during training.
-        :param chunk_lookahead_size_train_pool: if not None, randomly sample chunk_lookahead_size from this list
-            during training.
-        :param chunk_num_overlaps_train_pool: if not None, randomly sample chunk_num_overlaps from this list
-            during training.
         :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
-        :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
-            when the input is shorter than what the configured chunk sizes require.
         :param mem_chunks_grad_checkpointing: if True, use torch.utils.checkpoint per encoder layer during
             training to trade memory for recompute. Only effective during training.
         :param use_chunk_type_embedding: if True, add a learned embedding (in out_dim space) to every encoder
@@ -128,8 +119,10 @@ class ChunkedConformerEncoderStatic(rf.Module):
         self.chunk_num_overlaps = chunk_num_overlaps
         self.chunk_size_pool = chunk_size_pool
         self.max_chunk_size = max(chunk_size_pool) if chunk_size_pool else chunk_size
+        self.min_chunk_size = min(chunk_size_pool) if chunk_size_pool else chunk_size
+        # the pool lives as a tensor, so a step can pick from it on the device
+        self._chunk_pool_dim = Dim(len(chunk_size_pool), name="chunk_size_pool") if chunk_size_pool else None
         self.version = version
-        self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
         # If > 0, mark MSE between overlapping chunk views (before averaging) as an auxiliary
         # training loss; encourages the per-chunk encoder outputs to agree on overlapped frames.
@@ -240,6 +233,12 @@ class ChunkedConformerEncoderStatic(rf.Module):
 
         if rf.get_run_ctx().train_flag:
             if self.chunk_size_pool is not None:
+                assert self.chunk_num_overlaps == 1, "chunk_size_pool: overlap averaging not supported"
+                # Capacity only propagates through dim math under tracing
+                # (gated in get_dim_value_tensor),
+                # so eagerly the capacity-wide buffers and the drawn-size dim values disagree;
+                # eager pools are what chunked_conformer_v2 is for.
+                assert rf.is_static_traceable(), "chunk_size_pool draws on device: static tracing only"
                 # The drawn size stays on the device: reading it back would fix it into the graph,
                 # and .item() is a data-dependent host read that Inductor rejects.
                 pool = rf.convert_to_tensor(self.chunk_size_pool, dims=[self._chunk_pool_dim])
@@ -253,44 +252,58 @@ class ChunkedConformerEncoderStatic(rf.Module):
             spatial_dim = in_spatial_dim
         else:
             # Derive input-level chunking parameters from encoder-level params.
+            # The drawn chunk size can be a device value;
+            # every dim derived from it is then dynamic with a static capacity from the maximum,
+            # so the shapes stay the same for every draw and one captured graph covers the pool.
+            # chunk_num_overlaps stays a host int:
+            # it sets how many slices _average_overlapping_chunks takes, i.e. program structure.
             ds = self._input_downsample_factor
             chunk_stride = chunk_size // chunk_num_overlaps
-            input_chunk_size = (chunk_size + chunk_lookahead_size) * ds
+            max_stride = self.max_chunk_size // chunk_num_overlaps
             input_chunk_stride = chunk_stride * ds
-            chunk_history = chunk_history_size // chunk_stride
-
-            input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size")
-            end_chunk_size_dim = Dim(chunk_stride, name="chunk_stride")
-            chunk_size_dim = (
-                Dim(chunk_num_overlaps * chunk_stride, name="chunk_size")
-                if chunk_num_overlaps > 1
-                else end_chunk_size_dim
+            chunk_history = chunk_history_size // (
+                chunk_stride if isinstance(chunk_stride, int) else self.min_chunk_size // chunk_num_overlaps
             )
 
-            if self.adapt_chunk_history_for_short_seqs:
-                # Potentially reduce chunk sizes / history if the input is not long enough.
-                max_input_chunk_size_dim = Dim(int(in_spatial_dim.get_dim_value()), name="max_input_chunk_size")
-                max_chunk_size_dim = (
-                    self.input_layer.get_out_spatial_dim(max_input_chunk_size_dim)
-                    if self.input_layer
-                    else max_input_chunk_size_dim
+            if isinstance(chunk_size, Tensor):
+                input_chunk_size_dim = Dim(
+                    rf.cast((chunk_size + chunk_lookahead_size) * ds, "int32"), name="input_chunk_size"
                 )
-                if end_chunk_size_dim.dimension > max_chunk_size_dim.dimension:
-                    end_chunk_size_dim = max_chunk_size_dim
-                    chunk_num_overlaps = 1
-                    chunk_size_dim = end_chunk_size_dim
-                if input_chunk_size_dim.dimension > max_input_chunk_size_dim.dimension:
-                    input_chunk_size_dim = max_input_chunk_size_dim
-                    chunk_history = 0
-                elif end_chunk_size_dim.dimension * chunk_history > max_chunk_size_dim.dimension - 1:
-                    chunk_history = ceil_div(max_chunk_size_dim.dimension - 1, end_chunk_size_dim.dimension)
+                input_chunk_size_dim.capacity = (self.max_chunk_size + chunk_lookahead_size) * ds
+                end_chunk_size_dim = Dim(rf.cast(chunk_stride, "int32"), name="chunk_stride")
+                end_chunk_size_dim.capacity = max_stride
+            else:
+                input_chunk_size_dim = Dim((chunk_size + chunk_lookahead_size) * ds, name="input_chunk_size")
+                end_chunk_size_dim = Dim(chunk_stride, name="chunk_stride")
+            chunk_size_dim = end_chunk_size_dim * chunk_num_overlaps if chunk_num_overlaps > 1 else end_chunk_size_dim
 
+            # No adapt_chunk_history_for_short_seqs here (chunked_conformer_v2 has it):
+            # it reads int(in_spatial_dim.get_dim_value()) and reshapes the graph per batch,
+            # neither of which a static graph can have.
+            # Short sequences instead give window frames past the sequence end,
+            # which the masking removes, at the cost of some wasted compute on such batches.
+
+            chunked_time_dim = None
+            if isinstance(input_chunk_stride, Tensor):
+                # rf.window can only bound the chunk count by the input capacity (stride 1);
+                # here the stride is at least the smallest pool stride, a much tighter bound,
+                # and the chunk count is real compute in every layer
+                # noinspection PyProtectedMember
+                in_cap = in_spatial_dim.capacity or in_spatial_dim._derived_capacity()
+                min_input_stride = (self.min_chunk_size // chunk_num_overlaps) * ds
+                n_chunks = rf.ceil_divide(
+                    in_spatial_dim.get_size_tensor(device=input_chunk_stride.device),
+                    rf.cast(input_chunk_stride, "int32"),
+                )
+                chunked_time_dim = Dim(n_chunks, name="chunked_time")
+                chunked_time_dim.capacity = -(-in_cap // min_input_stride)
             source, chunked_time_dim = rf.window(
                 source,
                 spatial_dim=in_spatial_dim,
                 window_dim=input_chunk_size_dim,
                 window_left=0,
                 stride=input_chunk_stride,
+                stride_out_spatial_dim=chunked_time_dim,
                 pad_value=0.0,
             )
             spatial_dim = input_chunk_size_dim
@@ -299,6 +312,9 @@ class ChunkedConformerEncoderStatic(rf.Module):
                 chunk_history=chunk_history,
                 end_chunk_size_dim=end_chunk_size_dim,
                 chunked_time_dim=chunked_time_dim,
+                min_end_chunk_size=(
+                    chunk_stride if isinstance(chunk_stride, int) else self.min_chunk_size // chunk_num_overlaps
+                ),
             )
 
         if self.input_layer:
@@ -311,20 +327,20 @@ class ChunkedConformerEncoderStatic(rf.Module):
             frame_pos = rf.range_over_dim(spatial_dim, device=source.device)
             if chunk_size is not None:
                 # Center frames (type 0) are [0, boundary); lookahead (type 1) is [boundary, ...).
-                # If the window was shortened by adapt_chunk_history_for_short_seqs,
-                # spatial_dim may be smaller than the boundary,
-                # so frame_pos >= boundary may never fire,
-                # which correctly treats all surviving frames as center.
                 # Default boundary = chunk_size.
                 # With overlap where chunk_size is not divisible by chunk_num_overlaps,
                 # the per-chunk output region (chunk_size_dim) is smaller than chunk_size,
                 # so the last center-marked frame's output is dropped in _unchunk;
                 # chunk_type_embedding_at_output_boundary aligns the boundary to chunk_size_dim.
-                ctembed_boundary = (
-                    chunk_size_dim.dimension
-                    if self.chunk_type_embedding_at_output_boundary and chunk_size_dim is not None
-                    else chunk_size
-                )
+                # With a drawn chunk size the boundary is a device value; the compare broadcasts.
+                if self.chunk_type_embedding_at_output_boundary and chunk_size_dim is not None:
+                    ctembed_boundary = (
+                        chunk_size_dim.dimension
+                        if chunk_size_dim.is_static()
+                        else chunk_size_dim.get_size_tensor(device=source.device)
+                    )
+                else:
+                    ctembed_boundary = chunk_size
                 frame_type = rf.cast(frame_pos >= ctembed_boundary, dtype="int32")
             else:
                 # Offline / no chunking: no lookahead, all frames are center (type 0).
@@ -365,10 +381,27 @@ class ChunkedConformerEncoderStatic(rf.Module):
                         chunk_size_dim=chunk_size_dim,
                         chunk_stride_enc_dim=chunking.end_chunk_size_dim,
                     )
-            x, out_spatial_dim_ = rf.merge_dims(
-                x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
-            )
-            return x, out_spatial_dim_
+            if chunking.end_chunk_size_dim.is_static():
+                x, out_spatial_dim_ = rf.merge_dims(
+                    x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
+                )
+                return x, out_spatial_dim_
+            # A drawn stride cannot go through merge_dims:
+            # with a dynamic inner dim it collapses the per-seq sizes into one scalar total
+            # (returnn#1694), and every loss downstream needs them.
+            # Instead every output frame t reads chunk t // stride at position t % stride,
+            # one gather.
+            if out_spatial_dim is None:
+                out_spatial_dim = (
+                    self.input_layer.get_out_spatial_dim(in_spatial_dim) if self.input_layer else in_spatial_dim
+                )
+            stride = chunking.end_chunk_size_dim.get_size_tensor(device=x.device)
+            t = rf.range_over_dim(out_spatial_dim, device=x.device)
+            x = rf.gather(x, indices=t // stride, axis=chunking.chunked_time_dim, clip_to_valid=True)
+            pos = t % stride
+            pos.sparse_dim = chunking.end_chunk_size_dim
+            x = rf.gather(x, indices=pos, axis=chunking.end_chunk_size_dim)
+            return x, out_spatial_dim
 
         if chunking:
             x, out_spatial_dim = _unchunk(x, compute_mse=True)
@@ -564,9 +597,12 @@ class ChunkedConformerConvBlockV2(rf.Module):
         x_act, _ = rf.gating(x_conv1)
         if chunking:
             needed_left_ctx = self.depthwise_conv.filter_size[0].dimension // 2
-            needed_mem_size = (
-                needed_left_ctx + chunking.end_chunk_size_dim.dimension - 1
-            ) // chunking.end_chunk_size_dim.dimension
+            stride_bound = (
+                chunking.end_chunk_size_dim.dimension
+                if chunking.end_chunk_size_dim.is_static()
+                else chunking.min_end_chunk_size
+            )
+            needed_mem_size = (needed_left_ctx + stride_bound - 1) // stride_bound
             mem_size = min(chunking.chunk_history, needed_mem_size)
         else:
             mem_size = None
@@ -786,6 +822,10 @@ class _BatchChunkingSettings:
     chunk_history: int
     end_chunk_size_dim: Dim
     chunked_time_dim: Dim
+    # smallest per-step stride end_chunk_size_dim can take (= its size when static);
+    # host-side bounds (e.g. the conv memory depth) must use this, not .dimension,
+    # since a drawn stride's actual value only exists on the device
+    min_end_chunk_size: int = 0
 
 
 def _average_overlapping_chunks(
