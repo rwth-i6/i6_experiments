@@ -3704,10 +3704,12 @@ class PseudoSpeechEncoder(rf.Module):
                 )
             else:
                 l_lo, l_hi = self.label_duration_range
+                sampled = torch.randint(l_lo, l_hi + 1, inter_raw.shape, dtype=torch.int32, device=dev)
+                median = torch.full(inter_raw.shape, (l_lo + l_hi) // 2, dtype=torch.int32, device=dev)
                 label_dur = rf.where(
                     train,
-                    rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32"),
-                    rf.constant((l_lo + l_hi) // 2, dims=interleaved.dims, dtype="int32"),
+                    rf.convert_to_tensor(sampled, dims=[batch_dim, inter_dim]),
+                    rf.convert_to_tensor(median, dims=[batch_dim, inter_dim]),
                 )
             durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
             durations = durations.copy_masked(0, dims=[inter_dim])
