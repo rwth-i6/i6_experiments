@@ -303,7 +303,7 @@ class ChunkedConformerEncoderStatic(rf.Module):
                 window_dim=input_chunk_size_dim,
                 window_left=0,
                 stride=input_chunk_stride,
-                stride_out_spatial_dim=chunked_time_dim,
+                out_spatial_dim=chunked_time_dim,
                 pad_value=0.0,
             )
             spatial_dim = input_chunk_size_dim
