@@ -31,6 +31,7 @@ Run from the setup root, no GPU needed:
 """
 
 import ast
+import builtins
 import re
 import sys
 from pathlib import Path
@@ -200,6 +201,134 @@ for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
             )
 
     print(f"[ok] {name:<42} {len(emitted)} rendered, {len(read)} read")
+
+
+# --- use-before-assignment -------------------------------------------------------------------
+#
+# The third way the knob block goes wrong, and the meanest (2026-09-07). `full_finetuning` was read
+# at the top, but the assert protecting full-FT runs referenced `kl_weight`/`l2sp_weight` which were
+# only assigned 19 lines LOWER. Python evaluates `A and B` lazily, so on every LoRA run
+# (`full_finetuning` False) the undefined names were never touched and the module looked fine --
+# every static check here was green, and the four A16 LoRA arms would have run. The single run shape
+# the assert exists to protect died on `UnboundLocalError` two minutes in, after 17 days queued.
+#
+# Neither of the two rules above can see this: the read IS unconditional and IS above the strict
+# check. What is wrong is purely the order of two lines. So check that too, for every function in
+# every launcher: no local may be LOADED above its first assignment.
+
+
+def _scope_names(fn):
+    """(first_assign_line, first_load_line) for locals of ``fn``, ignoring nested scopes.
+
+    Nested ``def``/``lambda``/comprehensions are separate scopes whose loads are deferred to call
+    time, so a load inside one says nothing about ordering here; they are not descended into.
+    """
+    assigned, loaded, skip = {}, {}, set()
+
+    def visit(node, top=False):
+        if not top and isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.Lambda,
+                ast.ListComp,
+                ast.SetComp,
+                ast.DictComp,
+                ast.GeneratorExp,
+            ),
+        ):
+            return  # separate scope
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            skip.update(node.names)
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            assigned.setdefault(node.name, node.lineno)
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                assigned.setdefault((a.asname or a.name).split(".")[0], node.lineno)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            loaded.setdefault(node.target.id, node.lineno)  # x += 1 reads x first
+        if isinstance(node, ast.Name):
+            book = assigned if isinstance(node.ctx, ast.Store) else loaded
+            book.setdefault(node.id, node.lineno)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs:
+        assigned.setdefault(a.arg, fn.lineno)
+    for a in (fn.args.vararg, fn.args.kwarg):
+        if a:
+            assigned.setdefault(a.arg, fn.lineno)
+    visit(fn, top=True)
+    for name in skip:
+        assigned.pop(name, None)
+        loaded.pop(name, None)
+    return assigned, loaded
+
+
+def use_before_assignment(tree, module_names):
+    """[(function, name, load_line, assign_line)] for every local loaded above its assignment."""
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        assigned, loaded = _scope_names(fn)
+        for name, load_line in sorted(loaded.items(), key=lambda kv: kv[1]):
+            if name in module_names or name in dir(builtins):
+                continue  # a global/builtin of the same name is legal and common
+            assign_line = assigned.get(name)
+            if assign_line is not None and load_line < assign_line:
+                out.append((fn.name, name, load_line, assign_line))
+    return out
+
+
+def module_level_names(tree):
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update((a.asname or a.name).split(".")[0] for a in node.names)
+        else:
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                    names.add(sub.id)
+    return names
+
+
+#: The bug exactly as it shipped, plus its fix. Asserted below, so this check cannot rot into a
+#: no-op: if the detector stops working, BAD stops being flagged and the self-test fails.
+_BAD = """
+def main(cfg):
+    full_finetuning = bool(cfg.get("full_finetuning", False))
+    assert not (full_finetuning and (kl_weight > 0 or l2sp_weight > 0)), "..."
+    kl_weight = float(cfg.get("kl_weight", 0.0))
+    l2sp_weight = float(cfg.get("l2sp_weight", 0.0))
+"""
+_GOOD = """
+def main(cfg):
+    full_finetuning = bool(cfg.get("full_finetuning", False))
+    kl_weight = float(cfg.get("kl_weight", 0.0))
+    l2sp_weight = float(cfg.get("l2sp_weight", 0.0))
+    assert not (full_finetuning and (kl_weight > 0 or l2sp_weight > 0)), "..."
+"""
+
+_bad = use_before_assignment(ast.parse(_BAD), set())
+assert {n for _, n, _, _ in _bad} == {"kl_weight", "l2sp_weight"}, (
+    f"self-test: the detector no longer catches the 2026-09-07 bug it was written for: {_bad}"
+)
+assert not use_before_assignment(ast.parse(_GOOD), set()), "self-test: false positive on valid code"
+
+for launcher in PAIRS:
+    tree = ast.parse(launcher.read_text())
+    for fn_name, name, load_line, assign_line in use_before_assignment(tree, module_level_names(tree)):
+        failures.append(
+            f"{launcher.name}::{fn_name}: reads local '{name}' at line {load_line} but only assigns "
+            f"it at line {assign_line} -- UnboundLocalError whenever that line is reached. Note a "
+            f"short-circuiting `and`/`or` can hide this on every run shape but one."
+        )
+
+print(f"[ok] {'use-before-assignment':<42} {len(PAIRS)} launchers scanned")
 
 if failures:
     print("\nFAILED:", file=sys.stderr)
