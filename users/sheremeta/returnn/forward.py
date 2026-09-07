@@ -9,8 +9,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from sisyphus import Job, Task, tk
 from sisyphus import global_settings as gs
 
-from i6_core.returnn.forward import ReturnnForwardJobV2
-
 __all__ = ["PackedReturnnForwardJob", "pack_names", "visible_device"]
 
 
@@ -65,6 +63,8 @@ class PackedReturnnForwardJob(Job):
 
     @classmethod
     def _returnn_config(cls, spec: Dict[str, Any], log_verbosity: int):
+        from i6_core.returnn.forward import ReturnnForwardJobV2
+
         return ReturnnForwardJobV2.create_returnn_config(
             model_checkpoint=spec["model_checkpoint"],
             returnn_config=spec["returnn_config"],
