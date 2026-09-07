@@ -1137,28 +1137,78 @@ def py_aed_graphc_loquacious():
     )
 
     # Backend rows at the real model size.
-    # The small-v2 arms carry the TF and JAX trainings,
-    # but a backend number is only worth quoting at the size the paper reports.
-    # No training is scheduled here: the anchors exist to build the config the bench measures.
-    # tf_jit is the realistic TF arm, plain graph mode the reference point within TF.
-    for _tf_tag, _tf_jit in [("tf", False), ("tf-jit", True)]:
-        with disable_register_output():
-            _tf_exp, _, _ = loq_train(
-                f"base-v2-{_tf_tag}",
-                {},
-                config_overrides={
-                    "model.behavior_version": 29,
-                    "train._hash_only_returnn_2026_08_06": True,
-                    "train.backend": "tensorflow",
-                    "train.tf_amp": "bfloat16",
-                    **({"train.tf_jit": True} if _tf_jit else {}),
-                },
-                config_deletes=["train.torch_amp"],
-            )
-        job = TrainStepBenchmarkJob(
-            returnn_config=_tf_exp.get_training_job().returnn_config, mode="as_is", num_steps=300
+    # The measured tf / tf-jit as_is cells (2026-09-03) were wrong by construction:
+    # dynamic shapes make XLA recompile per shape signature
+    # (median 3.15 s/step against a 0.44 min = compile time, not compute),
+    # exactly the production caveat in the TF notes.
+    # The realistic TF arm is packed + tf_jit + tf_static_shapes,
+    # the TF spelling of torch_cuda_graph, with the pbs budgets and bounds.
+    with disable_register_output():
+        _tf_exp, _, _ = loq_train(
+            "base-v2-tf",
+            {},
+            config_overrides={
+                "model.behavior_version": 29,
+                "train._hash_only_returnn_2026_08_06": True,
+                "train.backend": "tensorflow",
+                "train.tf_amp": "bfloat16",
+            },
+            config_deletes=["train.torch_amp"],
         )
-        tk.register_output(f"returnn/backend-bench-base-{_tf_tag}.json", job.out_results)
+        _tf_jit_exp, _, _ = loq_train(
+            "base-v2-tf-packed-jit",
+            {},
+            config_overrides={
+                "model.behavior_version": 29,
+                "train._hash_only_returnn_2026_08_06": True,
+                "train.backend": "tensorflow",
+                "train.tf_amp": "bfloat16",
+                "train.packed_tensors": True,
+                "train.batch_size": None,
+                "train.packed_batch_size": {"audio": 16_192_320, "text": 4_000},
+                "train.tf_jit": True,
+                "train.tf_static_shapes": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": 16_192_320, "text": 4_000},
+                },
+            },
+            config_deletes=["train.torch_amp"],
+        )
+
+    # All backend rows in one slurm job, sequentially on one GPU:
+    # the two JAX samples differed 0.531 vs 0.369 s/step purely by node,
+    # so single-sample per-backend jobs on shared nodes cannot carry the table.
+    # (JAX stays outside: its cells need the torch-2.12 env of the JAX recipe's manager.)
+    job = BatchedTrainStepBenchmarkJob(
+        cells={
+            "pt-padded-eager": dict(returnn_config=base_v2_exp.get_training_job().returnn_config, mode="padded_eager"),
+            "pt-packed-graphc": dict(
+                returnn_config=base_v2_exp.get_training_job().returnn_config,
+                mode="packed_graphc",
+                config_overrides={
+                    "packed_tensors": {
+                        "per_key": {
+                            "audio": {"gap": 0, "align": 960},
+                            "text": {"gap": 0, "align": 1},
+                        }
+                    },
+                    "torch_cuda_graph": {
+                        "batch_size_bound": 200,
+                        "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                        "packed_total_bound": {"audio": 16_192_320, "text": 18_000},
+                        "warmup_steps": 0,
+                        "capture_optimizer": True,
+                        "compile": True,
+                    },
+                },
+            ),
+            "tf": dict(returnn_config=_tf_exp.get_training_job().returnn_config, mode="as_is"),
+            "tf-packed-jit": dict(returnn_config=_tf_jit_exp.get_training_job().returnn_config, mode="as_is"),
+        },
+    )
+    for _cell_name in ["pt-padded-eager", "pt-packed-graphc", "tf", "tf-packed-jit"]:
+        tk.register_output(f"returnn/backend-bench-samenode-{_cell_name}.json", job.out_results[_cell_name])
 
     # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
     # Every earlier number used the padded-derived batch size, so the memory packing frees
@@ -1679,6 +1729,102 @@ def _loq_text_seq_len_stats():
     job = ExtractSeqLensJob(dataset=ds.train_dataset, key="text", output_format="py")
     job.rqmt = {"gpu": 0, "cpu": 2, "mem": 8, "time": 8}  # 9.5M seqs to tokenize
     tk.register_output("returnn/loq-train-text-seq-lens.py", job.out_file)
+
+
+class _BenchCellSpec:
+    """
+    Attribute bag with the surface :meth:`TrainStepBenchmarkJob.run` reads,
+    so the batched job below can drive that run body per cell unchanged.
+    """
+
+    def __init__(self, cell: Dict[str, Any], *, num_steps: int, time_h: float, out_results, out_log):
+        self.returnn_config = cell.get("returnn_config")
+        self.returnn_config_file = cell.get("returnn_config_file")
+        self.load_checkpoint = cell.get("load_checkpoint")
+        self.mode = cell["mode"]
+        self.num_steps = cell.get("num_steps", num_steps)
+        self.random_seed = cell.get("random_seed", 42)
+        self.config_overrides = cell.get("config_overrides")
+        self.extra_config_code = cell.get("extra_config_code")
+        self.seq_ordering = cell.get("seq_ordering")
+        self.nsys = None
+        self.rqmt = {"time": time_h}
+        self.out_results = out_results
+        self.out_log = out_log
+        # resolved here at run time; a class attribute would read TrainStepBenchmarkJob
+        # at import time, before that class exists further down the module
+        self._mode_overrides = TrainStepBenchmarkJob._mode_overrides
+
+
+class BatchedTrainStepBenchmarkJob(Job):
+    """
+    Several :class:`TrainStepBenchmarkJob` cells in one slurm job,
+    run sequentially on the same node and the same single GPU.
+    Motivation: on the shared c23g nodes, two runs of an identical config measured
+    0.531 vs 0.369 s/step purely by node placement,
+    so cross-cell comparisons need the cells co-located.
+    Modeled on :class:`i6_experiments.users.zeyer.forward_batched.BatchedReturnnForwardJob`,
+    which packs work items onto a node the same way (there per GPU, here per run slot).
+    """
+
+    __sis_hash_exclude__ = {"version": 1}
+
+    def __init__(self, cells: Dict[str, Dict[str, Any]], *, num_steps: int = 300, version: int = 1):
+        """
+        :param cells: name -> kwargs of one benchmark cell
+            (``returnn_config``, ``mode``, optionally ``config_overrides``, ``num_steps``, ...),
+            the same options :class:`TrainStepBenchmarkJob` takes.
+        :param num_steps: default per cell
+        :param version: bump to force a re-run (hash-neutral at the default)
+        """
+        super().__init__()
+        assert cells
+        for name in cells:
+            assert "/" not in name and name, f"cell name {name!r} must be a path component"
+        self.cells = cells
+        self.num_steps = num_steps
+        self.version = version
+        # one GPU on purpose: co-location is the point; 4h covers compile-heavy cells
+        self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": min(2.0 * len(cells), 11.9)}
+        self.out_results = {name: self.output_path(f"outputs/{name}/results.json") for name in cells}
+        self.out_logs = {name: self.output_path(f"outputs/{name}/returnn.log") for name in cells}
+
+    def tasks(self):
+        """tasks"""
+        # each cell is idempotent and skipped once its results.json exists,
+        # so a walltime kill resumes with the remaining cells
+        yield Task("run", rqmt=self.rqmt, resume="run")
+
+    def completed_fraction(self) -> float:
+        """:return: fraction of cells done (sis progress/ETA)"""
+        import os
+
+        done = sum(1 for p in self.out_results.values() if os.path.exists(p.get_path()))
+        return done / len(self.cells)
+
+    def run(self):
+        """run the cells in order, each in its own subdir of the job work dir"""
+        import os
+
+        cwd = os.getcwd()
+        per_cell_time_h = self.rqmt["time"] / len(self.cells)
+        for name, cell in self.cells.items():
+            if os.path.exists(self.out_results[name].get_path()):
+                continue
+            spec = _BenchCellSpec(
+                cell,
+                num_steps=self.num_steps,
+                time_h=per_cell_time_h,
+                out_results=self.out_results[name],
+                out_log=self.out_logs[name],
+            )
+            item_dir = os.path.join(cwd, "items", name)
+            os.makedirs(item_dir, exist_ok=True)
+            os.chdir(item_dir)
+            try:
+                TrainStepBenchmarkJob.run(spec)
+            finally:
+                os.chdir(cwd)
 
 
 def _loq_cost_decomposition(cfg, classes_cap):
@@ -2471,9 +2617,32 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # with only the MultiProcDataset worker count changed (production runs 25).
     # This sizes what the pipeline contributes,
     # which is also the confound behind the small and medium rows of the per-scale table.
-    # 2 is the discriminator: 4 and 12 measured identically (0.387 s/step),
-    # which a worker sweep should not do.
-    # If 2 lands there too, the override is not reaching the dataset.
+    # The first attempt set `__multi_proc_dataset_opts`, a recipe-time key that the config
+    # never reads: 2, 4 and 12 workers all measured 0.387 s/step, i.e. the production 25.
+    # Rewrite num_workers inside the train dataset dict instead,
+    # the same walk as the seq_ordering rewrite
+    # (the MultiProcDataset dict sits in a functools.partial keyword).
+    _mpd_workers_code = (
+        "import functools as _functools\n"
+        "_mpd_hits = []\n"
+        "def _set_mpd_workers(d):\n"
+        "    if isinstance(d, _functools.partial):\n"
+        "        _set_mpd_workers(d.keywords)\n"
+        "        _set_mpd_workers(list(d.args))\n"
+        "    elif isinstance(d, dict):\n"
+        "        if d.get('class') == 'MultiProcDataset':\n"
+        "            d['num_workers'] = {workers}\n"
+        "            _mpd_hits.append(d)\n"
+        "        for v in d.values():\n"
+        "            _set_mpd_workers(v)\n"
+        "    elif isinstance(d, (list, tuple)):\n"
+        "        for v in d:\n"
+        "            _set_mpd_workers(v)\n"
+        "\n"
+        "_set_mpd_workers(train)\n"
+        # a silently missed dataset would reproduce the 25-worker number again
+        "assert _mpd_hits, 'no MultiProcDataset found in train'\n"
+    )
     for _workers in [2, 4, 12]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
@@ -2484,10 +2653,10 @@ def _loq_cost_decomposition(cfg, classes_cap):
                 "behavior_version": 29,
                 "packed_tensors": _v2_packed_tensors,
                 "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
-                "__multi_proc_dataset_opts": {"num_workers": _workers},
             },
+            extra_config_code=_mpd_workers_code.format(workers=_workers),
         )
-        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-mpd{_workers}.json", job.out_results)
+        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-mpd{_workers}-v2.json", job.out_results)
 
     # padded_eager at 300 steps on the same base config: the uniform base-scale counterpart
     # for the per-scale ratio table (the old padded_eager cell ran only 31 steps).
@@ -2594,6 +2763,7 @@ class TrainStepBenchmarkJob(Job):
         "load_checkpoint": None,
         "seq_ordering": None,
         "nsys": None,
+        "extra_config_code": None,
         "version": 1,
     }
 
@@ -2606,6 +2776,7 @@ class TrainStepBenchmarkJob(Job):
         num_steps: int = 300,
         random_seed: int = 42,
         config_overrides: Optional[Dict[str, Any]] = None,
+        extra_config_code: Optional[str] = None,
         load_checkpoint: Optional[tk.Path] = None,
         seq_ordering: Optional[str] = None,
         nsys: Optional[str] = None,
@@ -2619,6 +2790,9 @@ class TrainStepBenchmarkJob(Job):
         :param random_seed: fixed seed, same across modes
         :param config_overrides: appended (repr) after the mode overrides,
             e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
+        :param extra_config_code: python appended verbatim after config_overrides,
+            for rewrites a plain key assignment cannot express
+            (e.g. patching a value inside the train dataset dict)
         :param load_checkpoint: init the params from this checkpoint (e.g. for ep-2 repro benches)
         :param seq_ordering: rewrite the seq ordering of every train (sub-)dataset that has one,
             e.g. "random" instead of the config's "laplace:.1000".
@@ -2660,6 +2834,7 @@ class TrainStepBenchmarkJob(Job):
         self.num_steps = num_steps
         self.random_seed = random_seed
         self.config_overrides = config_overrides
+        self.extra_config_code = extra_config_code
         self.nsys = nsys
         self.version = version
         self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
@@ -2805,6 +2980,7 @@ class TrainStepBenchmarkJob(Job):
             f"random_seed = {self.random_seed}\n"
             + self._mode_overrides[self.mode]
             + "".join(f"{k} = {v!r}\n" for k, v in (self.config_overrides or {}).items())
+            + (self.extra_config_code or "")
             + "def _strip_epoch_wise_filter(d):\n"
             "    if isinstance(d, dict):\n"
             "        d.pop('epoch_wise_filter', None)\n"
