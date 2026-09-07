@@ -648,6 +648,9 @@ class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
         """forward"""
         q, k, v = self.forward_qkv(source)
         hist_dim = Dim(None, name=f"{axis.description}:kv")
+        if axis.dimension is None:
+            # noinspection PyProtectedMember
+            hist_dim.capacity = axis.capacity or axis._derived_capacity()
         k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
         v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
@@ -773,6 +776,9 @@ class ChunkedRotaryPosSelfAttentionStatic(rf.RotaryPosSelfAttention):
 
             # Extend k and v with history.
             hist_dim = Dim(None, name=f"{axis.description}:kv")
+            if axis.dimension is None:
+                # noinspection PyProtectedMember
+                hist_dim.capacity = axis.capacity or axis._derived_capacity()
             k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
             v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
             k, hist_dim_ = _mem_chunks(
@@ -811,6 +817,9 @@ class ChunkedRotaryPosSelfAttentionStatic(rf.RotaryPosSelfAttention):
             k = _apply_rope(k, pos_enc, self.key_dim_per_head)
 
             hist_dim_ = Dim(None, name=f"{axis.description}:kv")
+            if axis.dimension is None:
+                # noinspection PyProtectedMember
+                hist_dim_.capacity = axis.capacity or axis._derived_capacity()
             k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim_)
             v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim_)
 
