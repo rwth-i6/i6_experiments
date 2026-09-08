@@ -421,16 +421,20 @@ Names: `chunked-<history>-C40-R0`.
 
 That is the first sign that lookahead, not history, is what the model leans on.
 
-Extremes, from a tiny chunk to a nearly-offline one.
-Names: `chunked-<geometry>`.
+Extremes, from a tiny chunk to a nearly-offline one, against the offline model itself.
+Names: `chunked-<geometry>`, plus `base` for the offline reference.
 
 | geometry | dev / test |
 | --- | --- |
 | L80-C2-R3 | {{ctc:chunked-L80-C2-R3:dev_test}} |
 | L80-C10-R8 | {{ctc:chunked-L80-C10-R8:dev_test}} |
 | L100-C100-R15 | {{ctc:chunked-L100-C100-R15:dev_test}} |
+| offline | {{ctc:base:dev_test}} |
 
-A tiny chunk is bad, and a very loose chunk approaches offline but at useless latency.
+A tiny chunk is bad.
+The loosest chunk lands within noise of the offline model,
+so the chunking constraint itself costs almost nothing once the chunk is large enough;
+what it costs is latency, and at C100-R15 that is far past usable.
 
 ### Implementation version and cost knobs
 
