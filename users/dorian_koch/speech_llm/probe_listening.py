@@ -100,7 +100,13 @@ def _pick(values: list, k: int) -> list:
 
 
 def _encode_clip(wav_path: str, clip_seconds: float) -> str | None:
-    """Load a reply wav, trim, resample, encode to ogg-opus, return base64. None on any failure.
+    """Load an exchange wav, trim, encode to ogg-opus, return base64. None on any failure.
+
+    **Channels are preserved.** The probe writes stereo -- the question on channel 0, the reply on
+    channel 1, sample-aligned -- and that pairing is the whole point of listening: it is what shows
+    whether the model answered late, talked over the question, or answered something else. Folding
+    to mono here (the first version of this function took ``data[0]``, i.e. the question alone, and
+    would have silently dropped every reply) throws away the half the page exists to present.
 
     Best effort by design: this is a listening convenience assembled from artifacts a finished run
     already produced, and one unreadable clip must not cost the whole page.
@@ -110,15 +116,16 @@ def _encode_clip(wav_path: str, clip_seconds: float) -> str | None:
         import sphn
 
         data, sr = sphn.read(wav_path)
-        data = data[0] if getattr(data, "ndim", 1) > 1 else data
         data = np.asarray(data, dtype=np.float32)
+        if data.ndim == 1:
+            data = data[None, :]
         if clip_seconds > 0:
-            data = data[: int(clip_seconds * sr)]
+            data = data[:, : int(clip_seconds * sr)]
         if data.size == 0:
             return None
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.opus")
-            sphn.write_opus(p, data, sr)
+            sphn.write_opus(p, data if data.shape[0] > 1 else data[0], sr)
             with open(p, "rb") as f:
                 return base64.b64encode(f.read()).decode("ascii")
     except Exception as e:  # noqa: BLE001
@@ -205,7 +212,11 @@ class ProbeListeningReport(Job):
         head.append(
             '<p class="prov">Model: <b>ours</b> &mdash; a finetune we trained, not a released '
             "checkpoint. Replies are the model&rsquo;s own text stream (inner monologue), which is "
-            "what it says; they are not an ASR transcription of the audio.</p>"
+            "what it says; they are not an ASR transcription of the audio.<br>"
+            "Audio is <b>stereo and sample-aligned</b>: <b>left</b> is the question the model "
+            "heard, <b>right</b> is what it said back, on one timeline. Listen on headphones "
+            "&mdash; overlap, hesitation and answering before the question ends are audible only "
+            "in the pairing.</p>"
         )
         if not recs and not audio:
             head.append(

@@ -40,8 +40,11 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from speech_llm.full_duplex.moshi_family.knowledge_probe import (  # noqa: E402
+    CHANNEL_CHECK_TAIL_S,
+    STEREO_CHANNELS,
     ProbeResult,
     _write_probe_audio,
+    channels_look_swapped,
     coherence_stats,
 )
 from speech_llm.full_duplex.moshi_family.moshi_engine import (  # noqa: E402
@@ -239,10 +242,19 @@ def check_keep_audio_returns_pcm_without_writing():
             f"reach the caller in memory, never through the filesystem."
         )
         assert len(res.audio) == 2, f"expected 2 retained clips, got {len(res.audio)}"
-        assert all(isinstance(a, np.ndarray) for a in res.audio), [type(a) for a in res.audio]
-        # ...and they are the FIRST two clips in input order, so the same questions are captured at
-        # every probe step and the run is comparable to itself over time.
-        assert res.audio[0].shape == (SR // 2,), res.audio[0].shape
+        for clip in res.audio:
+            # Keyed by ROLE. A tuple here would read identically whichever way round it was built,
+            # which is exactly how a duplex channel map gets silently inverted.
+            assert isinstance(clip, dict), type(clip)
+            assert set(clip) == set(STEREO_CHANNELS), sorted(clip)
+            u, a = clip[STEREO_CHANNELS[0]], clip[STEREO_CHANNELS[1]]
+            assert isinstance(u, np.ndarray) and isinstance(a, np.ndarray), (type(u), type(a))
+            # Sample-aligned means SAME LENGTH; a length mismatch is a time offset by another name.
+            assert u.shape == a.shape, (u.shape, a.shape)
+            # Trimmed to the shorter of (input, output) -- the fake model's reply is SR//2.
+            assert u.shape == (SR // 2,), u.shape
+        # The retained clips are the FIRST ones in input order, so the same questions are captured
+        # at every probe step and the run is comparable to itself over time.
         # Default stays off: a run that does not ask for audio must retain nothing at all.
         plain = run_pairs(_FakeModel(), [(p, None) for p in ins], capture_s=0.1, progress_every=0)
         assert plain.audio == [], plain.audio
@@ -256,6 +268,7 @@ def check_audio_dump_cannot_break_a_probe():
     Each case below would have propagated out of the old on-path write and killed the probe step.
     """
     pcm = np.zeros(SR // 4, dtype=np.float32)
+    clip = {STEREO_CHANNELS[0]: pcm, STEREO_CHANNELS[1]: pcm}
     rows = [{"question": "q", "answer": "a", "binary_correct": 1, "monologue": "the answer"}]
 
     with tempfile.TemporaryDirectory() as d:
@@ -263,28 +276,40 @@ def check_audio_dump_cannot_break_a_probe():
 
         # (a) happy path -- it does actually write, or the other cases prove nothing.
         good = tmp / "good"
-        n = _write_probe_audio(str(good), [pcm], SR, rows)
+        n = _write_probe_audio(str(good), [clip], SR, rows)
         assert n == 1, n
         assert (good / "000.wav").exists() and (good / "000.txt").exists(), sorted(good.iterdir())
         txt = (good / "000.txt").read_text()
         assert "the answer" in txt and "gold: a" in txt, txt
+        # The sidecar must state the channel layout: a listener opening a two-channel file has no
+        # other way to know which side is which, and guessing wrong inverts the whole reading.
+        assert f"ch0={STEREO_CHANNELS[0]}" in txt and f"ch1={STEREO_CHANNELS[1]}" in txt, txt
 
         # (b) unwritable parent -> makedirs fails. Returns 0, does not raise.
         ro = tmp / "ro"
         ro.mkdir()
         os.chmod(ro, 0o500)
         try:
-            n = _write_probe_audio(str(ro / "nested"), [pcm], SR, rows)
+            n = _write_probe_audio(str(ro / "nested"), [clip], SR, rows)
             assert n == 0, n
         finally:
             os.chmod(ro, 0o700)
 
-        # (c) unwritable data -> sphn raises per clip. Returns 0, does not raise.
-        n = _write_probe_audio(str(tmp / "bad"), ["not-a-waveform"], SR, rows)
+        # (c) unwritable data -> raises per clip. Returns 0, does not raise.
+        n = _write_probe_audio(
+            str(tmp / "bad"),
+            [{STEREO_CHANNELS[0]: "not-a-waveform", STEREO_CHANNELS[1]: pcm}],
+            SR,
+            rows,
+        )
+        assert n == 0, n
+
+        # (c2) a clip missing a channel entirely -> KeyError, absorbed the same way.
+        n = _write_probe_audio(str(tmp / "half"), [{STEREO_CHANNELS[1]: pcm}], SR, rows)
         assert n == 0, n
 
         # (d) fewer transcript rows than clips -> no IndexError; the wav still lands.
-        n = _write_probe_audio(str(tmp / "short"), [pcm, pcm], SR, [])
+        n = _write_probe_audio(str(tmp / "short"), [clip, clip], SR, [])
         assert n == 2, n
     print("PASS  the audio dump absorbs every filesystem/data failure and never raises")
 
@@ -382,6 +407,91 @@ def check_transcripts_are_the_full_reply():
     print("PASS  transcripts hold the complete reply and ProbeResult defaults are inert")
 
 
+def check_stereo_dump_is_role_ordered_and_aligned():
+    """The dump must put the QUESTION on channel 0 and the REPLY on channel 1, same length.
+
+    This is the assertion CLAUDE.md's channel-seam rule exists for. Both orders produce a
+    well-formed stereo file that plays; only the content says which one was written. So the two
+    channels here are given *distinguishable* content and the file is read back and compared, rather
+    than checking that a stereo file merely appeared.
+    """
+    import sphn
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        n = 3 * SR
+        t = np.arange(n, dtype=np.float32)
+        # The question: energy early, then EXACTLY silent for the last second -- which is what
+        # run_pairs really produces (it pads the prompt with np.zeros over the capture window).
+        user = (0.3 * np.sin(t * 0.02)).astype(np.float32)
+        user[-SR:] = 0.0
+        # The reply: lands in that trailing window, where the question is silent.
+        assistant = np.zeros(n, dtype=np.float32)
+        assistant[-SR:] = (0.3 * np.sin(t[-SR:] * 0.05)).astype(np.float32)
+
+        rows = [{"question": "q", "answer": "a", "binary_correct": 1, "monologue": "reply"}]
+        out = tmp / "st"
+        got = _write_probe_audio(
+            str(out),
+            [{STEREO_CHANNELS[0]: user, STEREO_CHANNELS[1]: assistant}],
+            SR,
+            rows,
+        )
+        assert got == 1, got
+
+        data, sr = sphn.read(str(out / "000.wav"))
+        assert sr == SR, sr
+        assert data.shape == (2, n), data.shape
+        # Channel 0 IS the question and channel 1 IS the reply -- compared by content, so a swap
+        # cannot pass. Tolerance is wav quantisation, not a fudge factor.
+        assert np.max(np.abs(data[0] - user)) < 1e-4, "channel 0 is not the question"
+        assert np.max(np.abs(data[1] - assistant)) < 1e-4, "channel 1 is not the reply"
+        # ...and they really are distinguishable, or the two assertions above are vacuous.
+        assert np.max(np.abs(user - assistant)) > 0.1, "the fixture channels are too alike"
+    print("PASS  the stereo dump puts the question on ch0 and the reply on ch1, sample-aligned")
+
+
+def check_a_swapped_channel_map_is_detected():
+    """The swap detector must FIRE on a swapped clip and stay silent on a correct one.
+
+    A detector that never fires is indistinguishable from a correct channel map, so both directions
+    are asserted -- the failure this guards against is silent by construction.
+    """
+    n = 3 * SR
+    t = np.arange(n, dtype=np.float32)
+    user = (0.3 * np.sin(t * 0.02)).astype(np.float32)
+    user[-SR:] = 0.0
+    assistant = np.zeros(n, dtype=np.float32)
+    assistant[-SR:] = (0.3 * np.sin(t[-SR:] * 0.05)).astype(np.float32)
+
+    assert not channels_look_swapped(user, SR), "a correct channel map was flagged as swapped"
+    assert channels_look_swapped(assistant, SR), (
+        "the reply was accepted as the question channel -- the detector is a no-op, and a swapped "
+        "dump would ship looking exactly like a correct one"
+    )
+    # A clip shorter than the tail window cannot be judged and must not be guessed at.
+    short = np.ones(int(CHANNEL_CHECK_TAIL_S * SR) // 2, dtype=np.float32)
+    assert not channels_look_swapped(short, SR), "a too-short clip must not be flagged"
+
+    # ...and the writer actually warns, rather than the detector being computed and dropped.
+    import contextlib
+    import io
+
+    with tempfile.TemporaryDirectory() as d:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _write_probe_audio(
+                os.path.join(d, "swapped"),
+                [{STEREO_CHANNELS[0]: assistant, STEREO_CHANNELS[1]: user}],
+                SR,
+                [],
+            )
+        assert "probably swapped" in buf.getvalue(), (
+            f"the writer swallowed a swapped channel map silently: {buf.getvalue()!r}"
+        )
+    print("PASS  a swapped channel map is detected and warned about, a correct one is not")
+
+
 if __name__ == "__main__":
     check_disk_mode_still_writes()
     check_memory_mode_writes_nothing()
@@ -392,4 +502,6 @@ if __name__ == "__main__":
     check_dump_happens_after_scoring()
     check_coherence_separates_forgetting_from_incoherence()
     check_transcripts_are_the_full_reply()
+    check_stereo_dump_is_role_ordered_and_aligned()
+    check_a_swapped_channel_map_is_detected()
     print("ALL PASS")

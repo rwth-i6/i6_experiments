@@ -16,6 +16,10 @@ The specific hazards it pins:
   rendering a full-looking page.
 * **A run with nothing recorded must SAY so.** Every arm before 2026-09-08 kept no replies. Rendering
   those as an empty page would read like a broken job and, worse, like an absence of findings.
+* **The audio must stay STEREO through to the page.** The probe writes the question on channel 0 and
+  the reply on channel 1, sample-aligned, and that pairing is the entire point of listening. Folding
+  to mono anywhere in the chain drops one side -- and taking ``data[0]`` drops the side that matters,
+  leaving a page of questions with no answers that looks completely normal.
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_probe_listening.py
@@ -94,8 +98,14 @@ def _make_run(tmp: Path, *, with_audio=True, replay=True) -> str:
             d = run / "probe_audio" / f"step_{step:06d}"
             d.mkdir()
             for q in range(N_Q):
-                tone = (0.1 * np.sin(np.arange(SR) * (0.03 + 0.01 * q))).astype(np.float32)
-                sphn.write_wav(str(d / f"{q:03d}.wav"), tone, SR)
+                # Stereo, exactly as the probe writes it: ch0 the question (silent at the end),
+                # ch1 the reply (which lands in that trailing window). Distinguishable on purpose.
+                t = np.arange(SR, dtype=np.float32)
+                user = (0.2 * np.sin(t * (0.03 + 0.01 * q))).astype(np.float32)
+                user[-SR // 3 :] = 0.0
+                assistant = np.zeros(SR, dtype=np.float32)
+                assistant[-SR // 3 :] = (0.2 * np.sin(t[-SR // 3 :] * 0.07)).astype(np.float32)
+                sphn.write_wav(str(d / f"{q:03d}.wav"), np.stack([user, assistant]), SR)
     return str(run)
 
 
@@ -197,9 +207,46 @@ def check_a_run_with_nothing_says_so():
     print("PASS  a run with nothing recorded says so instead of rendering an empty page")
 
 
+def check_embedded_audio_stays_stereo():
+    """The clip embedded in the page must decode to TWO channels, not one.
+
+    Re-introduces the real hazard: ``_encode_clip`` began as ``data[0] if data.ndim > 1``, which on
+    the probe's stereo dump keeps the QUESTION and silently discards every reply. The page still
+    renders, every player still works, and the one thing it exists to let you hear is gone. So this
+    decodes the embedded payload rather than trusting that a clip appeared.
+    """
+    import base64 as _b64
+    import re
+
+    import sphn
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        run = _make_run(tmp)
+        html, _ = _render(run, d)
+        m = re.search(r'data:audio/ogg;base64,([A-Za-z0-9+/=]+)"', html)
+        assert m, "no embedded audio payload found on the page"
+        blob = _b64.b64decode(m.group(1))
+        assert len(blob) > 500, f"the embedded payload is {len(blob)} bytes -- effectively empty"
+        p = tmp / "embedded.opus"
+        p.write_bytes(blob)
+        data, sr = sphn.read_opus(str(p))
+        assert data.shape[0] == 2, (
+            f"the embedded clip decoded to {data.shape[0]} channel(s). The question/reply pairing "
+            f"is the point of the page; a mono fold drops one side of every exchange."
+        )
+        # ...and the two channels really differ, so "2 channels" is not a duplicated mono track.
+        n = min(data.shape[1], 4000)
+        assert float(np.max(np.abs(data[0, :n] - data[1, :n]))) > 0.01, (
+            "both channels carry the same signal -- the stereo file is a duplicated mono fold"
+        )
+    print("PASS  the embedded clip stays stereo, and the two channels genuinely differ")
+
+
 if __name__ == "__main__":
     check_replayed_step_is_deduped_to_the_later_record()
     check_page_embeds_audio_and_transcripts()
     check_subsampling_keeps_both_endpoints()
     check_a_run_with_nothing_says_so()
+    check_embedded_audio_stays_stereo()
     print("ALL PASS")
