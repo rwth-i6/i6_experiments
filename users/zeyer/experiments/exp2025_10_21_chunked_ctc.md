@@ -153,14 +153,35 @@ Chunked names: `chunked-L80-C5-R4-v2.3` and `-rope` for the fixed rows,
 `chunked-L80-C5-R4-v2.3-dyn-<posenc>-ctembed` for the dynamic ones
 (`dyn-ctembed` is the relpos case, with no posenc marker).
 
+WER, dev / test:
+
 | setting | relpos | rope | learnable relpos |
 | --- | --- | --- | --- |
 | offline | 7.32 / 8.10 | 7.35 / 8.22 | |
 | fixed chunk | 9.46 / 10.29 | 9.31 / 10.16 | |
 | dynamic chunk, +ctembed | 9.65 / 10.44 | 9.41 / 10.29 | 9.99 / 10.87 |
 
+Train time, h, same cells:
+
+| setting | relpos | rope | learnable relpos |
+| --- | --- | --- | --- |
+| offline | 66.2 | 63.7 | |
+| fixed chunk | 168.8 | 237.1 | |
+| dynamic chunk, +ctembed | 107.1 | 128.3 | 107.4 |
+
 RoPE is neutral offline and helps under chunking; learnable relpos is the worst of the three.
 Why RoPE helps only under chunking was never resolved, and the investigation was stopped deliberately.
+
+RoPE also looked much more expensive under chunking, and that part turned out to be an artifact.
+The `-run2` duplicate of `-dyn-rope-ctembed`, same config on a newer RETURNN with a faster `apply_rope`,
+trained in 107.3 h
+against 128.3 h before,
+i.e. parity with the relpos cell, at 9.52 / 10.22
+against 9.41 / 10.29
+(that spread is the run-to-run variance of this setup).
+So the rope timings above are an old-implementation cost, not inherent:
+RoPE is not expected to be cheaper than relpos self-attention when the attention is written out explicitly,
+but it should not be dearer either.
 
 ### Chunk-type embedding
 

@@ -468,6 +468,8 @@ Chunked names: `chunked-L80-C5-R4-v2.3` and `-rope` for the fixed rows,
 `chunked-L80-C5-R4-v2.3-dyn-<posenc>-ctembed` for the dynamic ones
 (`dyn-ctembed` is the relpos case, with no posenc marker).
 
+WER, dev / test:
+
 | setting | relpos | rope | learnable relpos |
 | --- | --- | --- | --- |
 | offline | {{ctc:base:dev_test}} | {{ctc:base-rope:dev_test}} | |
@@ -476,8 +478,30 @@ Chunked names: `chunked-L80-C5-R4-v2.3` and `-rope` for the fixed rows,
 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-relposL-ctembed:dev_test}} |
 
+Train time, h, same cells:
+
+| setting | relpos | rope | learnable relpos |
+| --- | --- | --- | --- |
+| offline | {{hours:base:value|.1f}} | {{hours:base-rope:value|.1f}} | |
+| fixed chunk | {{hours:chunked-L80-C5-R4-v2.3:value|.1f}} \
+| {{hours:chunked-L80-C5-R4-v2.3-rope:value|.1f}} | |
+| dynamic chunk, +ctembed | {{hours:chunked-L80-C5-R4-v2.3-dyn-ctembed:value|.1f}} \
+| {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} \
+| {{hours:chunked-L80-C5-R4-v2.3-dyn-relposL-ctembed:value|.1f}} |
+
 RoPE is neutral offline and helps under chunking; learnable relpos is the worst of the three.
 Why RoPE helps only under chunking was never resolved, and the investigation was stopped deliberately.
+
+RoPE also looked much more expensive under chunking, and that part turned out to be an artifact.
+The `-run2` duplicate of `-dyn-rope-ctembed`, same config on a newer RETURNN with a faster `apply_rope`,
+trained in {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:value|.1f}} h
+against {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} h before,
+i.e. parity with the relpos cell, at {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:dev_test}}
+against {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}}
+(that spread is the run-to-run variance of this setup).
+So the rope timings above are an old-implementation cost, not inherent:
+RoPE is not expected to be cheaper than relpos self-attention when the attention is written out explicitly,
+but it should not be dearer either.
 
 ### Chunk-type embedding
 
