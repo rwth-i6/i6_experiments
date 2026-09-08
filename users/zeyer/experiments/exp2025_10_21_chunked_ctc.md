@@ -84,17 +84,3 @@ which inference cannot do.
 Sharing one exponent c across all three curves keeps E and b per curve,
 giving 7 parameters on 9 points, and the ordering holds.
 Result: dev c=0.54 (rms 0.019 abs), test c=0.58 (rms 0.046 abs).
-
-Read the gaps, not the floors.
-The objective is nearly flat in c, and E slides along with c,
-so the floor values above are not meaningful to two decimals.
-Under 0.07 abs of run noise the differences are far better determined than the floors:
-
-| asymptotic cost | dev (10-90%) | test (10-90%) |
-| --- | --- | --- |
-| chunked training (dyn offline - base offline) | -0.13 to 0.49 | 0.09 to 0.62 |
-| streaming inference (dyn online - dyn offline) | 0.67 to 1.45 | 0.76 to 1.51 |
-
-So training under a chunk pool costs little or nothing at infinite scale,
-while decoding in chunks costs about 1.2 abs and scale does not remove it.
-Three points cannot pin an asymptote; one more scale point (3x or 8x) would constrain it properly.
