@@ -165,27 +165,33 @@ WER, dev / test:
 | fixed chunk | 9.46 / 10.29 | 9.31 / 10.16 | |
 | dynamic chunk, +ctembed | 9.65 / 10.44 | 9.41 / 10.29 | 9.99 / 10.87 |
 
-Train time, h, same cells:
+Train time, h, same cells.
+Rope timings depend on the `apply_rope` implementation, which got much faster in RETURNN in May 2026,
+so a rope cell is only meaningful together with the build it ran on.
+`*` marks a cell measured before that change and never rerun.
 
 | setting | relpos | rope | learnable relpos |
 | --- | --- | --- | --- |
 | offline | 66.2 | 63.7 | |
-| fixed chunk | 168.8 | 237.1 | |
-| dynamic chunk, +ctembed | 107.1 | 128.3 | 107.4 |
+| fixed chunk | 168.8 | 237.1* | |
+| dynamic chunk, +ctembed | 107.1 | 107.3 | 107.4 |
+
+`*` `chunked-L80-C5-R4-v2.3-rope`, RETURNN 2026-04-23.
+Its relpos counterpart is the same build, so the gap was real at the time,
+but it does not carry over to the current implementation.
+The other two rope cells are already past the change and need no caveat:
+the dynamic one is the `-run2` rerun (RETURNN 2026-05-18,
+against 128.3 h
+for the original on 2026-04-23),
+and `base-rope` ran on 2026-06-11.
 
 RoPE is neutral offline and helps under chunking; learnable relpos is the worst of the three.
 Why RoPE helps only under chunking was never resolved, and the investigation was stopped deliberately.
-
-RoPE also looked much more expensive under chunking, and that part turned out to be an artifact.
-The `-run2` duplicate of `-dyn-rope-ctembed`, same config on a newer RETURNN with a faster `apply_rope`,
-trained in 107.3 h
-against 128.3 h before,
-i.e. parity with the relpos cell, at 9.52 / 10.22
-against 9.41 / 10.29
-(that spread is the run-to-run variance of this setup).
-So the rope timings above are an old-implementation cost, not inherent:
-RoPE is not expected to be cheaper than relpos self-attention when the attention is written out explicitly,
-but it should not be dearer either.
+On time it is a wash once the implementation is current:
+the dynamic rope and relpos cells are level, so the WER gain is free.
+The `-run2` WER is 9.52 / 10.22
+against 9.41 / 10.29 for the run in the WER table,
+which is the run-to-run variance of this setup.
 
 ### Chunk-type embedding
 

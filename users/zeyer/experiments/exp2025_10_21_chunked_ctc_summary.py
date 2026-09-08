@@ -280,9 +280,26 @@ def _write_plot(path: str, state: Dict[str, Any]) -> None:
 _PLACEHOLDER = re.compile(r"\{\{([^}]+)\}\}")
 
 
+def _returnn_build(out_dir: str, variant: str) -> str:
+    """Date of the RETURNN build a training ran on, from its train_scores meta.
+
+    Quoted where a timing depends on which implementation was in the build,
+    so the caveat corrects itself if the run is ever redone.
+    """
+    try:
+        with open(f"{out_dir}/{variant}/train_scores") as f:
+            head = f.read(4000)
+    except OSError:
+        return MISSING
+    m = re.search(r"':meta:returnn': '\d+\.(\d{4})(\d{2})(\d{2})", head)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else MISSING
+
+
 def _resolve(out_dir: str, ctx: Dict[str, str], key: str) -> str:
     if key.startswith("fit:"):
         return ctx.get(key, MISSING)
+    if key.startswith("returnn:"):
+        return _returnn_build(out_dir, key.split(":", 1)[1])
     parts = key.split(":")
     if len(parts) == 3:
         recog, variant, field = parts
@@ -482,30 +499,36 @@ WER, dev / test:
 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-relposL-ctembed:dev_test}} |
 
-Train time, h, same cells:
+Train time, h, same cells.
+Rope timings depend on the `apply_rope` implementation, which got much faster in RETURNN in May 2026,
+so a rope cell is only meaningful together with the build it ran on.
+`*` marks a cell measured before that change and never rerun.
 
 | setting | relpos | rope | learnable relpos |
 | --- | --- | --- | --- |
 | offline | {{hours:base:value|.1f}} | {{hours:base-rope:value|.1f}} | |
 | fixed chunk | {{hours:chunked-L80-C5-R4-v2.3:value|.1f}} \
-| {{hours:chunked-L80-C5-R4-v2.3-rope:value|.1f}} | |
+| {{hours:chunked-L80-C5-R4-v2.3-rope:value|.1f}}* | |
 | dynamic chunk, +ctembed | {{hours:chunked-L80-C5-R4-v2.3-dyn-ctembed:value|.1f}} \
-| {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} \
+| {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:value|.1f}} \
 | {{hours:chunked-L80-C5-R4-v2.3-dyn-relposL-ctembed:value|.1f}} |
+
+`*` `chunked-L80-C5-R4-v2.3-rope`, RETURNN {{returnn:chunked-L80-C5-R4-v2.3-rope}}.
+Its relpos counterpart is the same build, so the gap was real at the time,
+but it does not carry over to the current implementation.
+The other two rope cells are already past the change and need no caveat:
+the dynamic one is the `-run2` rerun (RETURNN {{returnn:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2}},
+against {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} h
+for the original on {{returnn:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed}}),
+and `base-rope` ran on {{returnn:base-rope}}.
 
 RoPE is neutral offline and helps under chunking; learnable relpos is the worst of the three.
 Why RoPE helps only under chunking was never resolved, and the investigation was stopped deliberately.
-
-RoPE also looked much more expensive under chunking, and that part turned out to be an artifact.
-The `-run2` duplicate of `-dyn-rope-ctembed`, same config on a newer RETURNN with a faster `apply_rope`,
-trained in {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:value|.1f}} h
-against {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} h before,
-i.e. parity with the relpos cell, at {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:dev_test}}
-against {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}}
-(that spread is the run-to-run variance of this setup).
-So the rope timings above are an old-implementation cost, not inherent:
-RoPE is not expected to be cheaper than relpos self-attention when the attention is written out explicitly,
-but it should not be dearer either.
+On time it is a wash once the implementation is current:
+the dynamic rope and relpos cells are level, so the WER gain is free.
+The `-run2` WER is {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-run2:dev_test}}
+against {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} for the run in the WER table,
+which is the run-to-run variance of this setup.
 
 ### Chunk-type embedding
 
