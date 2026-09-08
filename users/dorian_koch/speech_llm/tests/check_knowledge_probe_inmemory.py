@@ -9,6 +9,15 @@ a8-long ran 5,200 more steps producing no readout while still reporting success.
 The retry/fail-loud policy in ``moshi_finetune_launcher`` is the net for that class of failure. This
 removes the exposure instead: work that never opens a file cannot fail that way.
 
+**The probe writes reply wavs again (2026-09-08) -- and that is not a regression, because of where.**
+Listening to a run across training needs audio, and the probe is the only place it exists at probe
+resolution (checkpoints are 500 steps apart; a17's collapse happened entirely between two of them).
+So ``run_pairs(keep_audio=N)`` keeps the first N replies in MEMORY, scoring completes from memory as
+before, and only then does ``_write_probe_audio`` -- a function that cannot raise -- put them on
+disk. The invariant is therefore no longer "the probe never writes" but the stronger, more useful
+"**no write can affect the measurement**": the scoring path still creates zero files, and every
+hostile filesystem condition costs audio and nothing else. Both halves are asserted below.
+
 Both modes are driven through the REAL ``run_pairs`` with a fake model, rather than asserting on a
 reimplementation -- a guard that builds its own idealised caller is how ``check_mixed_loader`` missed
 a live DDP bug for months (see CLAUDE.md). The assertion that matters is ``os.listdir(tmp) == []``.
@@ -30,6 +39,11 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+from speech_llm.full_duplex.moshi_family.knowledge_probe import (  # noqa: E402
+    ProbeResult,
+    _write_probe_audio,
+    coherence_stats,
+)
 from speech_llm.full_duplex.moshi_family.moshi_engine import (  # noqa: E402
     RunPairsResult,
     run_pairs,
@@ -124,9 +138,7 @@ def check_memory_mode_writes_nothing():
         ins = _inputs(tmp)
         before = sorted(os.listdir(tmp))
 
-        res = run_pairs(
-            _FakeModel(), [(p, None) for p in ins], capture_s=0.1, progress_every=0
-        )
+        res = run_pairs(_FakeModel(), [(p, None) for p in ins], capture_s=0.1, progress_every=0)
         assert sorted(os.listdir(tmp)) == before, (
             f"the in-memory path created files: {set(os.listdir(tmp)) - set(before)}. This is the "
             f"exact exposure that disabled a8-long's probe."
@@ -205,9 +217,179 @@ def check_probe_scores_positionally_against_its_own_entries():
     print("PASS  run_knowledge_probe takes no out_dir and asserts its positional join")
 
 
+def check_keep_audio_returns_pcm_without_writing():
+    """``keep_audio=N`` must hand back N replies as PCM and STILL create zero files.
+
+    This is the load-bearing half of the listening feature: if run_pairs wrote them itself, the
+    audio would be back on the scoring path and one Lustre EIO would again cost a probe step.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        ins = _inputs(tmp)
+        before = sorted(os.listdir(tmp))
+        res = run_pairs(
+            _FakeModel(),
+            [(p, None) for p in ins],
+            capture_s=0.1,
+            progress_every=0,
+            keep_audio=2,
+        )
+        assert sorted(os.listdir(tmp)) == before, (
+            f"keep_audio created files: {set(os.listdir(tmp)) - set(before)} -- the audio must "
+            f"reach the caller in memory, never through the filesystem."
+        )
+        assert len(res.audio) == 2, f"expected 2 retained clips, got {len(res.audio)}"
+        assert all(isinstance(a, np.ndarray) for a in res.audio), [type(a) for a in res.audio]
+        # ...and they are the FIRST two clips in input order, so the same questions are captured at
+        # every probe step and the run is comparable to itself over time.
+        assert res.audio[0].shape == (SR // 2,), res.audio[0].shape
+        # Default stays off: a run that does not ask for audio must retain nothing at all.
+        plain = run_pairs(_FakeModel(), [(p, None) for p in ins], capture_s=0.1, progress_every=0)
+        assert plain.audio == [], plain.audio
+    print("PASS  keep_audio returns PCM in memory, writes nothing, and is off by default")
+
+
+def check_audio_dump_cannot_break_a_probe():
+    """``_write_probe_audio`` must NEVER raise, whatever the filesystem or the data does.
+
+    Scoring has already finished by the time it runs, so its only possible cost is missing audio.
+    Each case below would have propagated out of the old on-path write and killed the probe step.
+    """
+    pcm = np.zeros(SR // 4, dtype=np.float32)
+    rows = [{"question": "q", "answer": "a", "binary_correct": 1, "monologue": "the answer"}]
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+
+        # (a) happy path -- it does actually write, or the other cases prove nothing.
+        good = tmp / "good"
+        n = _write_probe_audio(str(good), [pcm], SR, rows)
+        assert n == 1, n
+        assert (good / "000.wav").exists() and (good / "000.txt").exists(), sorted(good.iterdir())
+        txt = (good / "000.txt").read_text()
+        assert "the answer" in txt and "gold: a" in txt, txt
+
+        # (b) unwritable parent -> makedirs fails. Returns 0, does not raise.
+        ro = tmp / "ro"
+        ro.mkdir()
+        os.chmod(ro, 0o500)
+        try:
+            n = _write_probe_audio(str(ro / "nested"), [pcm], SR, rows)
+            assert n == 0, n
+        finally:
+            os.chmod(ro, 0o700)
+
+        # (c) unwritable data -> sphn raises per clip. Returns 0, does not raise.
+        n = _write_probe_audio(str(tmp / "bad"), ["not-a-waveform"], SR, rows)
+        assert n == 0, n
+
+        # (d) fewer transcript rows than clips -> no IndexError; the wav still lands.
+        n = _write_probe_audio(str(tmp / "short"), [pcm, pcm], SR, [])
+        assert n == 2, n
+    print("PASS  the audio dump absorbs every filesystem/data failure and never raises")
+
+
+def check_dump_happens_after_scoring():
+    """Source-level: the dump must come AFTER the result is built, not inside the scoring path.
+
+    check (b)/(c) above prove the helper is safe; this proves the caller cannot have moved the call
+    back up into the generate/score block, where a failure would once again cost the measurement.
+    """
+    import inspect
+
+    from speech_llm.full_duplex.moshi_family import knowledge_probe
+
+    src = inspect.getsource(knowledge_probe.run_knowledge_probe)
+    i_score = src.index("res = ProbeResult(")
+    i_dump = src.index("_write_probe_audio(")
+    assert i_score < i_dump, (
+        "the audio dump appears BEFORE the ProbeResult is assembled -- a filesystem failure would "
+        "again be able to cost a probe step, which is the 2026-08-05 regression."
+    )
+    assert "out_dir" not in src, "out_dir is gone; the probe must not name a scratch directory"
+    print("PASS  the audio dump runs only after scoring is complete in memory")
+
+
+def check_coherence_separates_forgetting_from_incoherence():
+    """``coherence_stats`` must actually discriminate the two failure modes it exists to tell apart.
+
+    A guard that only asserted "returns a dict with these keys" would pass on a function that
+    returned constants -- and constants are exactly what an incoherence metric must not be. So each
+    metric is asserted to MOVE in the right direction between hand-built populations.
+    """
+    fluent_right = ["The capital of France is Paris, one of the oldest cities in Europe."] * 8
+    fluent_wrong = ["The capital of France is Lyon, which sits on the Rhone river valley."] * 8
+    empty = [""] * 8
+    looping = ["I think I think I think I think I think it is"] * 8
+
+    c_right, c_wrong = coherence_stats(fluent_right), coherence_stats(fluent_wrong)
+    c_empty, c_loop = coherence_stats(empty), coherence_stats(looping)
+
+    # FORGETTING: the reply is just as fluent, only the fact is gone. Every coherence metric must be
+    # essentially unchanged -- this is the case the accuracy number alone cannot distinguish.
+    assert abs(c_right["words_mean"] - c_wrong["words_mean"]) <= 1.0, (c_right, c_wrong)
+    # The claim is not "identical" -- two different sentences differ a little by construction (the
+    # right answer happens to repeat "the"). It is that the forgetting gap is small NEXT TO the
+    # incoherence gap, so a threshold placed between them separates the two cases. Asserting both
+    # sides keeps that comparative, rather than pinning a tolerance that means nothing on its own.
+    forget_gap = abs(c_right["distinct_word_ratio"] - c_wrong["distinct_word_ratio"])
+    assert forget_gap < 0.10, (forget_gap, c_right, c_wrong)
+    assert c_right["empty_frac"] == c_wrong["empty_frac"] == 0.0, (c_right, c_wrong)
+    assert c_right["looping_frac"] == c_wrong["looping_frac"] == 0.0, (c_right, c_wrong)
+
+    # INCOHERENCE, mode 1: the model stops answering.
+    assert c_empty["empty_frac"] == 1.0, c_empty
+    assert c_empty["words_mean"] == 0.0, c_empty
+
+    # INCOHERENCE, mode 2: the model loops. Note it is not SHORT -- a mean-length metric would call
+    # this healthy, which is precisely why distinct_word_ratio and looping_frac exist.
+    assert c_loop["looping_frac"] == 1.0, c_loop
+    assert c_loop["words_mean"] >= c_right["words_mean"] * 0.5, (c_loop, c_right)
+    loop_gap = abs(c_right["distinct_word_ratio"] - c_loop["distinct_word_ratio"])
+    assert c_loop["distinct_word_ratio"] < c_right["distinct_word_ratio"] * 0.6, (c_loop, c_right)
+    assert loop_gap > 3 * forget_gap, (
+        f"forgetting moves distinct_word_ratio by {forget_gap:.3f} and looping by {loop_gap:.3f} -- "
+        f"too close to place a threshold between them, so the metric cannot tell the two apart."
+    )
+
+    # A short reply must never be *called* a loop: below LOOP_MIN_WORDS the test is not meaningful.
+    assert coherence_stats(["yes yes yes"])["looping_frac"] == 0.0
+
+    # Degenerate input must not raise -- the probe runs this on whatever the model produced.
+    assert coherence_stats([])["n"] == 0
+    assert coherence_stats(["", "a b c"])["n"] == 2
+    print("PASS  coherence_stats separates fluent-but-wrong from empty and from looping")
+
+
+def check_transcripts_are_the_full_reply():
+    """The probe's ``transcripts`` must carry the complete reply text, not a truncated preview.
+
+    The whole reason this exists is that the old probe kept a 0/1 bit and discarded the reply, so
+    every A-series run recorded that recall collapsed and nothing about how the output changed.
+    Storing a truncated reply would reproduce that loss in a subtler form.
+    """
+    import inspect
+
+    from speech_llm.full_duplex.moshi_family import knowledge_probe
+
+    src = inspect.getsource(knowledge_probe.run_knowledge_probe)
+    assert '"monologue": mono,' in src, (
+        "the transcript row must store the whole monologue -- a slice here would silently cap "
+        "every reply and the incoherence question would be unanswerable again."
+    )
+    r = ProbeResult(summary={"overall": {"accuracy": 0.0, "avg_quality": 1.0, "n": 0}})
+    assert r.transcripts == [] and r.coherence == {} and r.audio_written == 0, r
+    print("PASS  transcripts hold the complete reply and ProbeResult defaults are inert")
+
+
 if __name__ == "__main__":
     check_disk_mode_still_writes()
     check_memory_mode_writes_nothing()
     check_truncation_accounting_survives_without_a_directory()
     check_probe_scores_positionally_against_its_own_entries()
+    check_keep_audio_returns_pcm_without_writing()
+    check_audio_dump_cannot_break_a_probe()
+    check_dump_happens_after_scoring()
+    check_coherence_separates_forgetting_from_incoherence()
+    check_transcripts_are_the_full_reply()
     print("ALL PASS")

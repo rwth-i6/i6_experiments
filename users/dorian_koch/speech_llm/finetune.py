@@ -563,6 +563,8 @@ knowledge_probe_every: {hp.get("knowledge_probe_every", 100)}
 knowledge_probe_batch_size: {hp.get("knowledge_probe_batch_size", 4)}
 knowledge_probe_capture_s: {_yaml_float(hp.get("knowledge_probe_capture_s", 20.0))}
 knowledge_probe_n: {hp.get("knowledge_probe_n", 0)}
+knowledge_probe_transcripts: {str(bool(hp.get("knowledge_probe_transcripts", True))).lower()}
+knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
 """
 
 
