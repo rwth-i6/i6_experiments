@@ -28,6 +28,7 @@ from moshi_family.train_loop import (  # noqa: E402
     TRAINER_STATE_NAME,
     find_latest_checkpoint,
     is_lora_param,
+    prune_optimizer_state,
     resume_from_checkpoint,
     restore_trained_params,
     save_trained_params,
@@ -155,5 +156,53 @@ step, state = resume_from_checkpoint(
 )
 assert (step, state) == (0, None), (step, state)
 print("[ok] an empty out_dir starts fresh at step 0")
+
+# --- pruning old optimizer state: keep every checkpoint's WEIGHTS, drop the resume sidecars --------
+# Two thirds of a LoRA checkpoint is AdamW moments (1552 MB against 776 MB of weights on a real r128
+# arm), and only the newest complete checkpoint is ever resumed from. Dropping the rest is what makes
+# a dense save_every affordable -- which is what lets a later experiment test the model DURING a
+# collapse instead of only at the two checkpoints that happened to straddle it.
+prune_root = Path(tempfile.mkdtemp(prefix="ckpt-prune-"))
+m_p = Tiny()
+opt_p = torch.optim.AdamW(m_p.parameters(), lr=1e-3)
+m_p(torch.randn(2, 4)).sum().backward()
+opt_p.step()  # give AdamW real moments, so the sidecar is not trivially empty
+for s in (50, 100, 150, 200):
+    d = ckpt_dir(prune_root, s)
+    d.mkdir(parents=True, exist_ok=True)
+    save_trained_params(d / "lora.safetensors", m_p, predicate=is_lora_param)
+    save_trainer_state(d, step=s, optimizer=opt_p)
+
+removed = prune_optimizer_state(prune_root, keep_last=2, log=lambda m: None)
+assert removed == 2, removed
+# The weights survive EVERYWHERE. That is the whole point: a pruned checkpoint must still be
+# loadable by an evaluation invented months later.
+for s in (50, 100, 150, 200):
+    assert (ckpt_dir(prune_root, s) / "lora.safetensors").exists(), s
+for s in (50, 100):
+    assert not (ckpt_dir(prune_root, s) / TRAINER_STATE_NAME).exists(), s
+for s in (150, 200):
+    assert (ckpt_dir(prune_root, s) / TRAINER_STATE_NAME).exists(), s
+print("[ok] pruning keeps every checkpoint's weights and only the newest resume sidecars")
+
+found = find_latest_checkpoint(prune_root, weights_name="lora.safetensors")
+assert found is not None and found[0] == 200, found
+# If the newest sidecar is lost (a kill mid-write), keep_last=2 leaves a REAL fallback rather than
+# sending the run back to step 0. This is why the default is 2 and not 1.
+os.remove(ckpt_dir(prune_root, 200) / TRAINER_STATE_NAME)
+found = find_latest_checkpoint(prune_root, weights_name="lora.safetensors")
+assert found is not None and found[0] == 150, found
+# ...and once no sidecar is left, a pruned checkpoint is SKIPPED rather than resumed weights-only:
+# restarting Adam's moments and the LR schedule mid-run is a different experiment under the same
+# name. Pruning must not weaken that rule.
+os.remove(ckpt_dir(prune_root, 150) / TRAINER_STATE_NAME)
+found = find_latest_checkpoint(prune_root, weights_name="lora.safetensors")
+assert found is None, f"a weights-only checkpoint was offered for resume: {found}"
+print("[ok] resume lands on the newest kept sidecar, falls back once, then refuses weights-only")
+
+# Housekeeping must never take a training run down.
+assert prune_optimizer_state(prune_root / "nope", keep_last=2, log=lambda m: None) == 0
+assert prune_optimizer_state(prune_root, keep_last=0, log=lambda m: None) == 0
+print("[ok] pruning a missing dir, or with keep_last < 1, is a no-op rather than an error")
 
 print("\ncheckpoint/resume round-trips, and refuses every partial checkpoint")
