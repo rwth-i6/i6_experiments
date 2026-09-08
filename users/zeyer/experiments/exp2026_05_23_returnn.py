@@ -1820,6 +1820,8 @@ class BatchedTrainStepBenchmarkJob(Job):
             )
             item_dir = os.path.join(cwd, "items", name)
             os.makedirs(item_dir, exist_ok=True)
+            # output_path only declares; the nested outputs/<name>/ dir is not created for us
+            os.makedirs(os.path.dirname(self.out_results[name].get_path()), exist_ok=True)
             os.chdir(item_dir)
             try:
                 TrainStepBenchmarkJob.run(spec)
@@ -2622,6 +2624,10 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # Rewrite num_workers inside the train dataset dict instead,
     # the same walk as the seq_ordering rewrite
     # (the MultiProcDataset dict sits in a functools.partial keyword).
+    # The MultiProc wrapping of the train dataset is NOT a `"class": "MultiProcDataset"` dict:
+    # `_distribute_files_get_sub_epoch_dataset` gets `multi_proc_dataset={"num_workers": 2}`
+    # as a partial keyword (so production runs 2 workers, not the FZJ module's 25).
+    # Rewrite both shapes; the guard fires if neither is found.
     _mpd_workers_code = (
         "import functools as _functools\n"
         "_mpd_hits = []\n"
@@ -2633,6 +2639,9 @@ def _loq_cost_decomposition(cfg, classes_cap):
         "        if d.get('class') == 'MultiProcDataset':\n"
         "            d['num_workers'] = {workers}\n"
         "            _mpd_hits.append(d)\n"
+        "        if isinstance(d.get('multi_proc_dataset'), dict):\n"
+        "            d['multi_proc_dataset']['num_workers'] = {workers}\n"
+        "            _mpd_hits.append(d)\n"
         "        for v in d.values():\n"
         "            _set_mpd_workers(v)\n"
         "    elif isinstance(d, (list, tuple)):\n"
@@ -2640,10 +2649,12 @@ def _loq_cost_decomposition(cfg, classes_cap):
         "            _set_mpd_workers(v)\n"
         "\n"
         "_set_mpd_workers(train)\n"
-        # a silently missed dataset would reproduce the 25-worker number again
-        "assert _mpd_hits, 'no MultiProcDataset found in train'\n"
+        # a silently missed dataset would reproduce the production number again
+        "assert _mpd_hits, 'no MultiProc wrapping found in train'\n"
     )
-    for _workers in [2, 4, 12]:
+    # production is 2 workers, so sweep 1 / 2 / 4 / 8: 1 shows the cost of no overlap,
+    # 2 must reproduce the twin, above 2 shows whatever headroom the pipeline has
+    for _workers in [1, 2, 4, 8]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
             mode="packed_graphc",
@@ -2766,6 +2777,10 @@ class TrainStepBenchmarkJob(Job):
         "extra_config_code": None,
         "version": 1,
     }
+
+    # class-level default: job instances pickled before this attribute existed
+    # (job.save predates the code) unpickle without it and fall through to this
+    extra_config_code = None
 
     def __init__(
         self,
