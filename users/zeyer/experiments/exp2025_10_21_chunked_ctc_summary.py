@@ -50,10 +50,6 @@ _out_rel = "output/exp2025_10_21_chunked_ctc/aed"
 MISSING = "--"
 PLOT_NAME = "exp2025_10_21_chunked_ctc.scaling.png"
 
-# Run-to-run WER noise, from the run2 duplicate of the dyn baseline (9.41 vs 9.52).
-# Used only for the sensitivity band on the extrapolated floors.
-WER_SIGMA = 0.07
-
 _DYN = "chunked-L80-C5-R4-v2.3-dyn-rope-ctembed"
 
 # Where each recog kind writes its result file, relative to the variant's output dir.
@@ -63,6 +59,12 @@ _RECOG_PATHS = {
     "aedctc": "aed+ctc/recog-1stpass-res.txt",
     "ctclm": "ctc+lm-v2/*/recog-1stpass-res.txt",
     "sweep": "ctc-recog-sweep/{tag}",
+    # One epoch of the per-epoch WER curve, for runs whose last epoch is not the one to quote.
+    "ep": "recog_results_per_epoch/{tag}",
+    # Any other registered output under the variant dir, named by the tag.
+    "out": "{tag}",
+    # Plain-scalar outputs, exposed as the field "value".
+    "hours": "train_time_hours",
 }
 
 # The three scaling curves, at 1x / 2x / 4x.
@@ -117,24 +119,53 @@ def _read_res(out_dir: str, variant: str, recog: str, tag: Optional[str] = None)
         path = f"{base}/{rel}"
     try:
         with open(path) as f:
-            return json.loads(f.read().strip())
-    except (OSError, ValueError):
+            text = f.read().strip()
+    except OSError:
         return {}
+    # Some outputs are a bare scalar (train_time_hours), which is also valid JSON,
+    # so normalize anything non-dict to {"value": ...}.
+    try:
+        v = json.loads(text)
+    except ValueError:
+        try:
+            v = float(text)
+        except ValueError:
+            return {}
+    return v if isinstance(v, dict) else {"value": v}
+
+
+def _get(res: Dict[str, Any], field: str) -> Any:
+    """Look up a field, flat key first, then as a dotted path.
+
+    Flat first because some result keys contain a dot themselves
+    (``tedlium-seg.test``), while others nest (``summary.max_of_max_abs_diff``).
+    """
+    if field in res:
+        return res[field]
+    cur: Any = res
+    for part in field.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
 
 
 def _fmt(res: Dict[str, Any], field: str) -> str:
     """Render one field. ``dev_test`` is the paired form used in most tables.
 
-    Two decimals always, so a WER that happens to be a round number
+    Two decimals by default, so a WER that happens to be a round number
     (JSON 8.1) still lines up with the rest of the column as 8.10.
+    A trailing ``|<spec>`` overrides that, for values that are not WERs.
     """
+    field, _, spec = field.partition("|")
+    spec = spec or ".2f"
     if field == "dev_test":
         dev, test = res.get("dev"), res.get("test")
         if dev is None or test is None:
             return MISSING
-        return f"{dev:.2f} / {test:.2f}"
-    v = res.get(field)
-    return MISSING if v is None else f"{v:.2f}"
+        return f"{dev:{spec}} / {test:{spec}}"
+    v = _get(res, field)
+    return MISSING if v is None else f"{v:{spec}}"
 
 
 # ---------------------------------------------------------------- scaling fit
@@ -182,27 +213,6 @@ def _fit_joint(curves: Dict[str, List[float]], c_grid) -> Tuple[float, Dict[str,
     return float(c_grid[i]), {k: (float(v[0][i]), float(v[1][i])) for k, v in per.items()}, float(total[i])
 
 
-def _gap_ci(curves: Dict[str, List[float]], c_grid, n: int = 2000) -> Dict[str, Tuple[float, float]]:
-    """10-90% range of the two asymptotic gaps under WER run noise.
-
-    The floors themselves move far more than the gaps between them,
-    so the gaps are what the doc quotes.
-    """
-    import numpy as np
-
-    rng = np.random.default_rng(0)
-    train, stream = [], []
-    for _ in range(n):
-        pert = {k: list(np.array(v) + rng.normal(0, WER_SIGMA, len(v))) for k, v in curves.items()}
-        _, pars, _ = _fit_joint(pert, c_grid)
-        train.append(pars["dyn offline"][0] - pars["base offline"][0])
-        stream.append(pars["dyn online"][0] - pars["dyn offline"][0])
-    return {
-        "gap_train": (float(np.percentile(train, 10)), float(np.percentile(train, 90))),
-        "gap_stream": (float(np.percentile(stream, 10)), float(np.percentile(stream, 90))),
-    }
-
-
 def _fit_context(out_dir: str) -> Tuple[Dict[str, str], Optional[Dict[str, Any]]]:
     """Placeholder values derived from the fit, plus what the plot needs."""
     try:
@@ -211,21 +221,18 @@ def _fit_context(out_dir: str) -> Tuple[Dict[str, str], Optional[Dict[str, Any]]
         raise SystemExit("numpy is required; run with the py-env interpreter (see the module docstring)")
 
     c_grid = np.linspace(0.05, 3.0, 4000)
-    ctx: Dict[str, str] = {"fit:sigma:noise": f"{WER_SIGMA}"}
+    ctx: Dict[str, str] = {}
     state: Dict[str, Any] = {}
     for split in ("dev", "test"):
         curves = _curve_values(out_dir, split)
         if curves is None:
             continue
         c, pars, rss = _fit_joint(curves, c_grid)
-        ci = _gap_ci(curves, c_grid)
         state[split] = {"curves": curves, "c": c, "pars": pars}
         ctx[f"fit:{split}:c"] = f"{c:.2f}"
         ctx[f"fit:{split}:rms"] = f"{math.sqrt(rss / 9):.3f}"
         for name, key in _CURVE_KEYS.items():
             ctx[f"fit:{split}:E_{key}"] = f"{pars[name][0]:.2f}"
-        for gap, (lo, hi) in ci.items():
-            ctx[f"fit:{split}:{gap}"] = f"{lo:.2f} to {hi:.2f}"
     # Paired dev / test forms, for the "inf" row of the scale table.
     if "dev" in state and "test" in state:
         for name, key in _CURVE_KEYS.items():
@@ -350,6 +357,296 @@ Vocab size (chunked L80-C5-R4, v1; CTC-only dev):
 | spm10k | {{ctc:chunked-L80-C5-R4-spm10k:dev}} |
 
 Default: spm10k.
+
+## Comparisons
+
+Each section states the question it answers and lists the runs that answer it.
+All numbers are CTC-only WER, dev / test, last epoch.
+`h` is `train_time_hours`.
+
+### Chunk geometry: history, center, lookahead
+
+How much left history, center chunk and right lookahead does a chunked model need?
+The early sweep used the v1 encoder; most of these runs are retired, the numbers stay here.
+
+History, at C20-R15:
+
+| history | dev / test |
+| --- | --- |
+| L0 | {{ctc:chunked-L0-C20-R15:dev_test}} |
+| L20 | {{ctc:chunked-L20-C20-R15:dev_test}} |
+| L40 | {{ctc:chunked-L40-C20-R15:dev_test}} |
+| L60 | {{ctc:chunked-L60-C20-R15:dev_test}} |
+| L80 | {{ctc:chunked-L80-C20-R15:dev_test}} |
+| L160 | {{ctc:chunked-L160-C20-R15:dev_test}} |
+
+History matters most from 0 to 40 and then plateaus.
+Repeated at the tight C5-R4 geometry with the v2.3 encoder, where the L0 case is far more extreme:
+L0 {{ctc:chunked-L0-C5-R4-v2.3:dev_test}},
+L40 {{ctc:chunked-L40-C5-R4-v2.3:dev_test}},
+L80 {{ctc:chunked-L80-C5-R4-v2.3:dev_test}}.
+
+Center and lookahead, at L40:
+
+| geometry | dev / test |
+| --- | --- |
+| C5-R30 | {{ctc:chunked-L40-C5-R30:dev_test}} |
+| C10-R25 | {{ctc:chunked-L40-C10-R25:dev_test}} |
+| C10-R30 | {{ctc:chunked-L40-C10-R30:dev_test}} |
+| C20-R20 | {{ctc:chunked-L40-C20-R20:dev_test}} |
+| C40-R15 | {{ctc:chunked-L40-C40-R15:dev_test}} |
+| C40-R0 | {{ctc:chunked-L40-C40-R0:dev_test}} |
+
+Dropping the lookahead (C40-R0) is the one clear loss, and history does not buy it back:
+at C40-R0, L40 {{ctc:chunked-L40-C40-R0:dev}},
+L80 {{ctc:chunked-L80-C40-R0:dev}},
+L120 {{ctc:chunked-L120-C40-R0:dev}}.
+That is the first sign that lookahead, not history, is what the model leans on.
+
+Extremes: a tiny chunk is bad ({{ctc:chunked-L80-C2-R3:dev_test}} at C2-R3),
+and a very loose chunk approaches offline
+({{ctc:chunked-L100-C100-R15:dev_test}} at C100-R15) but at useless latency.
+Middle point for reference: C10-R8 {{ctc:chunked-L80-C10-R8:dev_test}}.
+
+### Implementation version and cost knobs
+
+Not a WER question but a correctness and throughput one:
+does the rewritten chunked encoder reproduce v1, and what do the options cost?
+v1 and v2.2 used a wrong chunking implementation, fixed from `version=3`.
+
+| variant | dev / test | h |
+| --- | --- | --- |
+| v1 | {{ctc:chunked-L80-C5-R4:dev_test}} | {{hours:chunked-L80-C5-R4:value|.1f}} |
+| v2.1 (bugged) | {{ctc:chunked-L80-C5-R4-v2:dev_test}} | {{hours:chunked-L80-C5-R4-v2:value|.1f}} |
+| v2.2 (bugged) | {{ctc:chunked-L80-C5-R4-v2.2:dev_test}} | {{hours:chunked-L80-C5-R4-v2.2:value|.1f}} |
+| v2.3 | {{ctc:chunked-L80-C5-R4-v2.3:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3:value|.1f}} |
+| v2.3, no short-seq adapt | {{ctc:chunked-L80-C5-R4-v2.3-compat:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-compat:value|.1f}} |
+| v2.3 + grad checkpointing | {{ctc:chunked-L80-C5-R4-v2.3-gdckpt:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-gdckpt:value|.1f}} |
+
+v2.3 matches v1 while training faster.
+The short-sequence adaptation is WER-neutral.
+Grad checkpointing is WER-neutral too and trades time for memory.
+
+### Positional encoding
+
+Relative position vs RoPE vs learnable relative position,
+run in both the fixed and the dynamic setting, with an offline control
+to separate "helps under chunking" from "helps in general".
+
+| setting | relpos | rope | learnable relpos |
+| --- | --- | --- | --- |
+| offline | {{ctc:base:dev_test}} | {{ctc:base-rope:dev_test}} | |
+| fixed chunk | {{ctc:chunked-L80-C5-R4-v2.3:dev_test}} | {{ctc:chunked-L80-C5-R4-v2.3-rope:dev_test}} | |
+| dynamic chunk, +ctembed | {{ctc:chunked-L80-C5-R4-v2.3-dyn-ctembed:dev_test}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-dyn-relposL-ctembed:dev_test}} |
+
+RoPE is neutral offline and helps under chunking; learnable relpos is the worst of the three.
+Why RoPE helps only under chunking was never resolved, and the investigation was stopped deliberately.
+
+### Chunk-type embedding
+
+Does tagging each frame as center or lookahead by its in-chunk position help?
+The comparison only makes sense against whether the geometry varies during training,
+so it is run in both settings with everything else held constant.
+
+| setting | without ctembed | with ctembed |
+| --- | --- | --- |
+| fixed chunk, rope | {{ctc:chunked-L80-C5-R4-v2.3-rope:dev_test}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-rope-ctembed:dev_test}} |
+| dynamic chunk, rope | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope:dev_test}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} |
+
+It pays off only when the chunk geometry varies during training, and slightly hurts at fixed geometry.
+
+### Fixed vs dynamic chunking
+
+Sampling the chunk geometry per batch costs some WER but buys one model for all recog chunk sizes,
+and trains much faster, since a fixed small chunk means many chunks per sequence.
+
+| features | fixed | h | dynamic | h |
+| --- | --- | --- | --- | --- |
+| plain | {{ctc:chunked-L80-C5-R4-v2.3:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3:value|.1f}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-dyn:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3-dyn:value|.1f}} |
+| + rope | {{ctc:chunked-L80-C5-R4-v2.3-rope:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3-rope:value|.1f}} \
+| {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3-dyn-rope:value|.1f}} |
+
+### Dynamic train-pool composition
+
+Given dynamic chunking, what should the pools contain?
+Pools are chunk_size / history / lookahead; rope and ctembed are held fixed.
+
+| pool variant | pools | dev / test |
+| --- | --- | --- |
+| dyn | [5,10,20,40,None] / [80,40] / [4,2] | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} |
+| dynCx3 | oversample C=5 | {{ctc:chunked-L80-C5-R4-v2.3-dynCx3-rope-ctembed:dev_test}} |
+| dynV4 | + 0 in lookahead | {{ctc:chunked-L80-C5-R4-v2.3-dynV4-rope-ctembed:dev_test}} |
+| dynV3 | + 0 in history too | {{ctc:chunked-L80-C5-R4-v2.3-dynV3-rope-ctembed:dev_test}} |
+| dynV2 | + offline oversampled | {{ctc:chunked-L80-C5-R4-v2.3-dynV2-rope-ctembed:dev_test}} |
+
+Every zero added to a pool costs WER, and oversampling the deployment chunk buys nothing.
+The plain pool is the best of the five.
+
+### Generalization across recog-time chunk size
+
+Sweeping the chunk size and lookahead of a trained checkpoint at recog time,
+with controls that never saw varying geometry during training.
+
+Dynamic model:
+
+| recog geometry | dev / test |
+| --- | --- |
+| C5-R2 | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C5-R2:dev_test}} |
+| C5-R4 (deployment) | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C5-R4:dev_test}} |
+| C10-R4 | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C10-R4:dev_test}} |
+| C20-R4 | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C20-R4:dev_test}} |
+| C40-R4 | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C40-R4:dev_test}} |
+| offline | {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:offline:dev_test}} |
+
+A clean monotone curve, and the offline end is what the scaling section uses.
+The fixed-chunk controls degrade off-canonical and collapse at offline recog:
+rope {{sweep:chunked-L80-C5-R4-v2.3-rope:offline:dev_test}},
+rope-ctembed {{sweep:chunked-L80-C5-R4-v2.3-rope-ctembed:offline:dev_test}}.
+
+The complementary control loads the offline-trained base into the chunked encoder,
+verified bit-exact at `chunk_size=None`, then chunks it at recog time only:
+
+| recog geometry | dev / test |
+| --- | --- |
+| offline | {{sweep:base-via-v2.3:offline:dev_test}} |
+| C20-R15 | {{sweep:base-via-v2.3:L80-C20-R15:dev_test}} |
+| C10-R8 | {{sweep:base-via-v2.3:L80-C10-R8:dev_test}} |
+| C5-R4 | {{sweep:base-via-v2.3:L80-C5-R4:dev_test}} |
+
+So chunk-aware training, not just chunk-aware inference, is what matters.
+
+### Overlapping chunks
+
+Overlapping the chunks and averaging the views helps on its own,
+but it doubles the compute, so the control is a plain run at twice the budget.
+
+| variant | dev / test | h |
+| --- | --- | --- |
+| plain v2.3 | {{ctc:chunked-L80-C5-R4-v2.3:dev_test}} | {{hours:chunked-L80-C5-R4-v2.3:value|.1f}} |
+| + overlap | {{ctc:chunked-L80-C5-R4-v2.3-overlap:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-overlap:value|.1f}} |
+| + overlap + MSE | {{ctc:chunked-L80-C5-R4-v2.3-overlap-mse:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-overlap-mse:value|.1f}} |
+| 2x budget, no overlap | {{ctc:chunked-L80-C5-R4-v2.3-2xtrain:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-2xtrain:value|.1f}} |
+
+The 2x control is the one run in this doc whose last epoch must not be read:
+its top CTC head diverged at epoch 200, so the comparable value is its best epoch 190,
+{{ep:chunked-L80-C5-R4-v2.3-2xtrain:190:dev_test}}.
+Read that way it matches overlap for the same compute, so overlap's gain is bought by compute,
+not by overlap.
+On top of the stronger dyn-rope-ctembed base it regresses outright:
+
+| variant | dev / test |
+| --- | --- |
+| no overlap | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} |
+| overlap | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-overlap:dev_test}} |
+| overlap + MSE | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-overlap-mse:dev_test}} |
+| overlap dynamic | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-overlapD:dev_test}} |
+| overlap dynamic + ctembedfix | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-overlapD-ctembedfix:dev_test}} |
+| overlap dynamic, no ctembed | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-overlapD:dev_test}} |
+
+Two further questions closed this line.
+Turning overlap on at recog only, for a model never trained with it, hurts badly:
+C5-R4 {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C5-R4-ov2:dev_test}},
+C5-R2 {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C5-R2-ov2:dev_test}}.
+And overlap does not remove the need for lookahead:
+overlap at R0 gives {{ctc:chunked-L80-C5-R0-v2.3-overlap:dev_test}}.
+
+### Offline init vs from scratch, at matched budget
+
+Is it better to warm-start the streaming model from the offline one, or train it from scratch?
+`impBase` initializes from the 1x base and finetunes for 1x, so 100 + 100 matches the 2x controls.
+
+| variant | dev / test |
+| --- | --- |
+| from scratch, 1x | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} |
+| impBase, finetune LR 0.1 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-impBase-baseLr0.1:dev_test}} |
+| impBase, finetune LR 0.25 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-impBase-baseLr0.25:dev_test}} |
+| impBase, finetune LR 0.5 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-impBase-baseLr0.5:dev_test}} |
+| from scratch, 2x | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed-2xtrain:dev_test}} |
+
+Warm-starting beats 1x from scratch but loses to 2x from scratch,
+so at equal compute the streaming model is better trained from scratch.
+
+### Encoder architecture: attention vs linear-attention recurrence
+
+Can a recurrent layer carry long context more cheaply than chunked attention?
+Eight standard chunked conformer layers interleaved with eight recurrent ones,
+outer chunk structure held fixed so the comparison is direct.
+
+| encoder | dev / test | h |
+| --- | --- | --- |
+| conformer (dyn-rope-ctembed) | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} |
+| + Mamba-2 | {{ctc:chunked-L80-C5-R4-v2.3-mamba2:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-mamba2:value|.1f}} |
+| + Mamba-2, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-mamba2-bidir-ssdchunk256:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-mamba2-bidir-ssdchunk256:value|.1f}} |
+| + DeltaNet | {{ctc:chunked-L80-C5-R4-v2.3-deltanet:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-deltanet:value|.1f}} |
+| + DeltaNet, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-deltanet-bidir:dev_test}} \
+| {{hours:chunked-L80-C5-R4-v2.3-deltanet-bidir:value|.1f}} |
+
+All worse than the conformer, Mamba-2 the best of the set,
+and going bidirectional hurts both, which was the opposite of the expectation.
+
+### Context extremes
+
+What the chunk is worth, bracketed from both sides.
+
+| model | dev / test |
+| --- | --- |
+| offline, full context | {{ctc:base:dev_test}} |
+| chunked C5-R4 | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} |
+| fully causal, unlimited history, no lookahead | {{ctc:base-causal:dev_test}} |
+| chunked C5-R4, no history | {{ctc:chunked-L0-C5-R4-v2.3:dev_test}} |
+| feed-forward encoder, 12 layers | {{ctc:ff12:dev_test}} |
+| feed-forward encoder, 6 layers | {{ctc:ff6:dev_test}} |
+
+The fully-causal model has unlimited left context and still loses badly to the chunked one,
+so the small lookahead does work that history cannot replace.
+The feed-forward rows are the zero-context floor, a sanity bound rather than a competitor.
+
+### Streaming inference correctness
+
+An equivalence check, not a WER comparison: does the KV-cache streaming encoder,
+which carries state across 10 s segments, match batched chunked inference?
+
+Encoder log-probs on 3 sequences:
+max abs diff {{out:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-consistency-kvcache.json\
+:summary.max_of_max_abs_diff|.1e}},
+mean abs diff {{out:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-consistency-kvcache.json\
+:summary.mean_of_mean_abs_diff|.1e}}.
+
+End-to-end WER, same checkpoint:
+streaming {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-kvcache-v2-seg10:dev_test}}
+vs batched chunked {{sweep:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:L80-C5-R4:dev_test}}.
+
+### Long-form vs segmented
+
+Does a streaming model degrade on full-length recordings?
+TEDLium, streaming-KV recog, on the dyn-rope-ctembed model only.
+
+| eval set | WER |
+| --- | --- |
+| segmented (leaderboard) | {{out:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-kvcache-v2-seg10-tedlium:tedlium-seg.test}} |
+| segmented, restricted to the long-form talks \
+| {{out:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-kvcache-v2-seg10-tedlium:tedlium-seg-filtered.test}} |
+| long-form (11 full talks) \
+| {{out:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:streaming-kvcache-v2-seg10-tedlium:tedlium-long.test}} |
+
+The filtered row is the honest comparison, since its references are word-for-word identical to long-form.
+Segmented is level with or slightly better than long-form on the same content,
+and the raw segmented gap is just the extra talk the long-form set omits.
+Only one model has been run here, so this is not yet a cross-model comparison.
 
 ## Training scale
 
