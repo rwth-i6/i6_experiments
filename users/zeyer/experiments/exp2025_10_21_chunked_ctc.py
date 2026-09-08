@@ -219,6 +219,8 @@ def py():
     # which beat base-rope (7.35).
     # (The default conformer conv, padding=same k=32, would leak ~900ms of future;
     #  causal conv removes that.)
+    # Result: 13.76 / 14.65 (CTC+LM 9.74 / 10.54), far worse than chunked C5-R4 (9.41 / 10.29),
+    # so the small lookahead does work that unlimited left context does not replace.
     train(
         "base-causal",
         {
@@ -1629,10 +1631,25 @@ def py():
     #   mamba2 best of the linear-attn set.
     #   mamba2-bidir-ssdchunk256 10.74 / 11.52 (291.5h): bidir HURTS mamba2 too (vs uni 10.47);
     #   plain mamba2-bidir (bs/4) was dropped, superseded by ssdchunk256.
-    # - 4xtrain (in progress, 2026-06): base-4xtrain + dyn-rope-ctembed-4xtrain running, offline recog wired.
-    #   base-rope (offline + rope, 1x) done: 7.35 / 8.21 (~= base 7.32 / 8.10 -> RoPE neutral offline).
-    #   TODO once 4x done: plot offline WER vs scale (1x/2x/4x), base vs dyn-rope-ctembed, extrapolate the gap.
-    #   base-rope at scale (4x) not run. maybe more train scale tuning?
+    # - Training-scale series, CTC-only dev / test, at 1x / 2x / 4x of the 100kh budget:
+    #   4xtrain: base-4xtrain + dyn-rope-ctembed-4xtrain running, offline recog wired.
+    #   base offline        7.32 / 8.10, 6.58 / 7.39, 6.10 / 6.70;
+    #   dyn offline         7.80 / 8.44, 6.96 / 7.53, 6.46 / 7.10 (same ckpt decoded at chunk_size=None);
+    #   dyn online (C5-R4)  9.41 / 10.29, 8.52 / 9.25, 7.82 / 8.59.
+    #   base-rope (offline + rope, 1x): 7.35 / 8.21 (~= base -> RoPE neutral offline); not run at scale.
+    #   Fit W(s) = E + b * s**-c. Per curve that is 3 params on 3 points, so E is unidentifiable
+    #   and the floors come out unordered (base 5.21, dyn offline 5.72, dyn online 5.24:
+    #   the streaming floor below its own offline floor, which inference cannot do).
+    #   Sharing one exponent c across the three curves (7 params on 9 points) resolves that:
+    #   dev c=0.54, floors 5.00 / 5.24 / 6.42; test c=0.58, floors 5.64 / 5.97 / 7.21.
+    #   Under 0.07 abs run noise the floors are barely determined (dev base 3.3 to 5.6 at 10-90%),
+    #   but the gaps are ~3x tighter, so quote the gaps:
+    #   chunked-training cost -0.13 to 0.50 dev, streaming cost 0.70 to 1.45 dev.
+    #   Measured, the streaming penalty is 1.61 / 1.56 / 1.36 across 1x / 2x / 4x (shrinking slowly),
+    #   the chunked-training gap 0.48 / 0.38 / 0.36 (roughly flat).
+    #   So training under a chunk pool costs little at scale, decoding in chunks costs ~1.2 and persists.
+    #   A 3x or 8x point would be needed to pin the asymptotes themselves.
+    #   TODO: plot offline WER vs scale (1x/2x/4x), base vs dyn-rope-ctembed, extrapolate the gap.
     # - TODO overlap on posteriors?
     # - TODO summarize findings for all these streaming/chunking experiments
     # - TODO framewise models (non-chunked), FastEmit or so?
