@@ -305,18 +305,20 @@ so at equal compute the streaming model is better trained from scratch.
 ### Encoder architecture: attention vs linear-attention recurrence
 
 Can a recurrent layer carry long context more cheaply than chunked attention?
-Eight standard chunked conformer layers interleaved with eight recurrent ones,
-outer chunk structure held fixed so the comparison is direct.
+The recurrent variants are hybrids, not replacements:
+the stack stays 16 layers, and every second conformer layer is swapped for a recurrent one,
+so half the attention layers remain.
+The outer chunk structure is held fixed, so the comparison is direct.
 
 Names: `chunked-L80-C5-R4-v2.3-<encoder>`.
 
-| encoder | dev / test | h | encoder name |
+| 16 encoder layers | dev / test | h | encoder name |
 | --- | --- | --- | --- |
-| conformer | 9.41 / 10.29 | 128.3 | `dyn-rope-ctembed` |
-| + Mamba-2 | 10.52 / 11.49 | 174.0 | `mamba2` |
-| + Mamba-2, bidirectional | 10.74 / 11.52 | 291.5 | `mamba2-bidir-ssdchunk256` |
-| + DeltaNet | 11.09 / 11.95 | 164.3 | `deltanet` |
-| + DeltaNet, bidirectional | 11.41 / 12.28 | 197.9 | `deltanet-bidir` |
+| 16 conformer | 9.41 / 10.29 | 128.3 | `dyn-rope-ctembed` |
+| 8 conformer + 8 Mamba-2 | 10.52 / 11.49 | 174.0 | `mamba2` |
+| 8 conformer + 8 Mamba-2, bidirectional | 10.74 / 11.52 | 291.5 | `mamba2-bidir-ssdchunk256` |
+| 8 conformer + 8 DeltaNet | 11.09 / 11.95 | 164.3 | `deltanet` |
+| 8 conformer + 8 DeltaNet, bidirectional | 11.41 / 12.28 | 197.9 | `deltanet-bidir` |
 
 All worse than the conformer, Mamba-2 the best of the set,
 and going bidirectional hurts both, which was the opposite of the expectation.

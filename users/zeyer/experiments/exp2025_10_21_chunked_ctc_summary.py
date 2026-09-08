@@ -635,22 +635,24 @@ so at equal compute the streaming model is better trained from scratch.
 ### Encoder architecture: attention vs linear-attention recurrence
 
 Can a recurrent layer carry long context more cheaply than chunked attention?
-Eight standard chunked conformer layers interleaved with eight recurrent ones,
-outer chunk structure held fixed so the comparison is direct.
+The recurrent variants are hybrids, not replacements:
+the stack stays 16 layers, and every second conformer layer is swapped for a recurrent one,
+so half the attention layers remain.
+The outer chunk structure is held fixed, so the comparison is direct.
 
 Names: `chunked-L80-C5-R4-v2.3-<encoder>`.
 
-| encoder | dev / test | h | encoder name |
+| 16 encoder layers | dev / test | h | encoder name |
 | --- | --- | --- | --- |
-| conformer | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
+| 16 conformer | {{ctc:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:dev_test}} \
 | {{hours:chunked-L80-C5-R4-v2.3-dyn-rope-ctembed:value|.1f}} | `dyn-rope-ctembed` |
-| + Mamba-2 | {{ctc:chunked-L80-C5-R4-v2.3-mamba2:dev_test}} \
+| 8 conformer + 8 Mamba-2 | {{ctc:chunked-L80-C5-R4-v2.3-mamba2:dev_test}} \
 | {{hours:chunked-L80-C5-R4-v2.3-mamba2:value|.1f}} | `mamba2` |
-| + Mamba-2, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-mamba2-bidir-ssdchunk256:dev_test}} \
+| 8 conformer + 8 Mamba-2, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-mamba2-bidir-ssdchunk256:dev_test}} \
 | {{hours:chunked-L80-C5-R4-v2.3-mamba2-bidir-ssdchunk256:value|.1f}} | `mamba2-bidir-ssdchunk256` |
-| + DeltaNet | {{ctc:chunked-L80-C5-R4-v2.3-deltanet:dev_test}} \
+| 8 conformer + 8 DeltaNet | {{ctc:chunked-L80-C5-R4-v2.3-deltanet:dev_test}} \
 | {{hours:chunked-L80-C5-R4-v2.3-deltanet:value|.1f}} | `deltanet` |
-| + DeltaNet, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-deltanet-bidir:dev_test}} \
+| 8 conformer + 8 DeltaNet, bidirectional | {{ctc:chunked-L80-C5-R4-v2.3-deltanet-bidir:dev_test}} \
 | {{hours:chunked-L80-C5-R4-v2.3-deltanet-bidir:value|.1f}} | `deltanet-bidir` |
 
 All worse than the conformer, Mamba-2 the best of the set,
