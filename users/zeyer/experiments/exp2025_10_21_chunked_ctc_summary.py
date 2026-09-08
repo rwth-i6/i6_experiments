@@ -299,6 +299,7 @@ def render(setup_dir: Optional[str] = None, plot_path: Optional[str] = None) -> 
     return _PLACEHOLDER.sub(lambda m: _resolve(out_dir, ctx, m.group(1).strip()), _TEMPLATE)
 
 
+# language=Markdown
 _TEMPLATE = (
     """\
 # Chunked CTC / Conformer streaming ASR: results
