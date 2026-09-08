@@ -33,11 +33,18 @@ Metric below: CTC-only WER [%], dev / test aggregate, last epoch.
 
 Offline (full-context) reference:
 
+Each table below is preceded by the recipe name pattern for its rows.
+Substituting the row label into the pattern gives the `train(name, ...)` alias,
+which is also the directory name under `output/exp2025_10_21_chunked_ctc/aed/`.
+
+Name: `base`.
+
 | model | dev | test |
 | --- | --- | --- |
 | base (offline conformer) | 7.32 | 8.10 |
 
-Vocab size (chunked L80-C5-R4, v1; CTC-only dev):
+Vocab size (chunked L80-C5-R4, v1 encoder).
+Names: `chunked-L80-C5-R4-<vocab>`.
 
 | vocab | dev |
 | --- | --- |
@@ -58,7 +65,8 @@ All numbers are CTC-only WER, dev / test, last epoch.
 How much left history, center chunk and right lookahead does a chunked model need?
 The early sweep used the v1 encoder; most of these runs are retired, the numbers stay here.
 
-History, at C20-R15:
+History, at C20-R15.
+Names: `chunked-<history>-C20-R15`.
 
 | history | dev / test |
 | --- | --- |
@@ -70,12 +78,17 @@ History, at C20-R15:
 | L160 | 7.91 / 8.49 |
 
 History matters most from 0 to 40 and then plateaus.
-Repeated at the tight C5-R4 geometry with the v2.3 encoder, where the L0 case is far more extreme:
-L0 24.12 / 25.00,
-L40 9.41 / 10.35,
-L80 9.46 / 10.29.
+Repeated at the tight C5-R4 geometry with the v2.3 encoder, where the L0 case is far more extreme.
+Names: `chunked-<history>-C5-R4-v2.3`.
 
-Center and lookahead, at L40:
+| history | dev / test |
+| --- | --- |
+| L0 | 24.12 / 25.00 |
+| L40 | 9.41 / 10.35 |
+| L80 | 9.46 / 10.29 |
+
+Center and lookahead, at L40.
+Names: `chunked-L40-<geometry>`.
 
 | geometry | dev / test |
 | --- | --- |
@@ -86,41 +99,59 @@ Center and lookahead, at L40:
 | C40-R15 | 7.77 / 8.40 |
 | C40-R0 | 8.64 / 9.27 |
 
-Dropping the lookahead (C40-R0) is the one clear loss, and history does not buy it back:
-at C40-R0, L40 8.64,
-L80 8.65,
-L120 8.62.
+Dropping the lookahead (C40-R0) is the one clear loss, and history does not buy it back.
+Names: `chunked-<history>-C40-R0`.
+
+| history | dev / test |
+| --- | --- |
+| L40 | 8.64 / 9.27 |
+| L80 | 8.65 / 9.22 |
+| L120 | 8.62 / 9.31 |
+
 That is the first sign that lookahead, not history, is what the model leans on.
 
-Extremes: a tiny chunk is bad (12.59 / 13.05 at C2-R3),
-and a very loose chunk approaches offline
-(7.36 / 8.08 at C100-R15) but at useless latency.
-Middle point for reference: C10-R8 8.68 / 9.28.
+Extremes, from a tiny chunk to a nearly-offline one.
+Names: `chunked-<geometry>`.
+
+| geometry | dev / test |
+| --- | --- |
+| L80-C2-R3 | 12.59 / 13.05 |
+| L80-C10-R8 | 8.68 / 9.28 |
+| L100-C100-R15 | 7.36 / 8.08 |
+
+A tiny chunk is bad, and a very loose chunk approaches offline but at useless latency.
 
 ### Implementation version and cost knobs
 
 Not a WER question but a correctness and throughput one:
-does the rewritten chunked encoder reproduce v1, and what do the options cost?
-v1 and v2.2 used a wrong chunking implementation, fixed from `version=3`.
+does the rewritten chunked encoder reproduce the original, and what do the options cost?
+The `-v2` and `-v2.2` runs use `ChunkedConformerEncoderV2` with `version=1` and `version=2`,
+which chunked wrongly; fixed from `version=3`, which every later run uses.
+Names: `chunked-L80-C5-R4<suffix>`.
 
-| variant | dev / test | h |
-| --- | --- | --- |
-| v1 | 9.56 / 10.30 | 215.6 |
-| v2.1 (bugged) | 11.74 / 12.49 | 104.5 |
-| v2.2 (bugged) | 11.67 / 12.37 | 104.1 |
-| v2.3 | 9.46 / 10.29 | 168.8 |
-| v2.3, no short-seq adapt | 9.45 / 10.27 | 168.9 |
-| v2.3 + grad checkpointing | 9.52 / 10.42 | 201.1 |
+| variant | dev / test | h | suffix |
+| --- | --- | --- | --- |
+| v1 encoder | 9.56 / 10.30 | 215.6 | |
+| v2.1 (bugged) | 11.74 / 12.49 | 104.5 | `-v2` |
+| v2.2 (bugged) | 11.67 / 12.37 | 104.1 | `-v2.2` |
+| v2.3 | 9.46 / 10.29 | 168.8 | `-v2.3` |
+| v2.3, no short-seq adapt | 9.45 / 10.27 | 168.9 | `-v2.3-compat` |
+| v2.3 + grad checkpointing | 9.52 / 10.42 | 201.1 | `-v2.3-gdckpt` |
 
-v2.3 matches v1 while training faster.
-The short-sequence adaptation is WER-neutral.
-Grad checkpointing is WER-neutral too and trades time for memory.
+v2.3 matches the v1 encoder while training faster.
+`-compat` turns off the short-sequence adaptation and `-gdckpt` turns on grad checkpointing;
+both are WER-neutral, and grad checkpointing trades time for memory.
 
 ### Positional encoding
 
 Relative position vs RoPE vs learnable relative position,
 run in both the fixed and the dynamic setting, with an offline control
 to separate "helps under chunking" from "helps in general".
+
+Offline names: `base`, `base-rope`.
+Chunked names: `chunked-L80-C5-R4-v2.3` and `-rope` for the fixed rows,
+`chunked-L80-C5-R4-v2.3-dyn-<posenc>-ctembed` for the dynamic ones
+(`dyn-ctembed` is the relpos case, with no posenc marker).
 
 | setting | relpos | rope | learnable relpos |
 | --- | --- | --- | --- |
@@ -137,6 +168,8 @@ Does tagging each frame as center or lookahead by its in-chunk position help?
 The comparison only makes sense against whether the geometry varies during training,
 so it is run in both settings with everything else held constant.
 
+Names: `chunked-L80-C5-R4-v2.3[-dyn]-rope[-ctembed]`.
+
 | setting | without ctembed | with ctembed |
 | --- | --- | --- |
 | fixed chunk, rope | 9.31 / 10.16 | 9.38 / 10.05 |
@@ -149,6 +182,8 @@ It pays off only when the chunk geometry varies during training, and slightly hu
 Sampling the chunk geometry per batch costs some WER but buys one model for all recog chunk sizes,
 and trains much faster, since a fixed small chunk means many chunks per sequence.
 
+Names: `chunked-L80-C5-R4-v2.3[-dyn][-rope]`.
+
 | features | fixed | h | dynamic | h |
 | --- | --- | --- | --- | --- |
 | plain | 9.46 / 10.29 | 168.8 | 9.66 / 10.39 | 103.9 |
@@ -159,7 +194,9 @@ and trains much faster, since a fixed small chunk means many chunks per sequence
 Given dynamic chunking, what should the pools contain?
 Pools are chunk_size / history / lookahead; rope and ctembed are held fixed.
 
-| pool variant | pools | dev / test |
+Names: `chunked-L80-C5-R4-v2.3-<pool>-rope-ctembed`.
+
+| pool | pools | dev / test |
 | --- | --- | --- |
 | dyn | [5,10,20,40,None] / [80,40] / [4,2] | 9.41 / 10.29 |
 | dynCx3 | oversample C=5 | 9.47 / 10.28 |
@@ -175,9 +212,10 @@ The plain pool is the best of the five.
 Sweeping the chunk size and lookahead of a trained checkpoint at recog time,
 with controls that never saw varying geometry during training.
 
-Dynamic model:
+Dynamic model `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed`,
+one training, swept at recog time (`ctc-recog-sweep/<tag>`):
 
-| recog geometry | dev / test |
+| recog tag | dev / test |
 | --- | --- |
 | C5-R2 | 10.14 / 11.04 |
 | C5-R4 (deployment) | 9.41 / 10.29 |
@@ -188,13 +226,14 @@ Dynamic model:
 
 A clean monotone curve, and the offline end is what the scaling section uses.
 The fixed-chunk controls degrade off-canonical and collapse at offline recog:
-rope 10.41 / 12.31,
-rope-ctembed 11.32 / 13.40.
+`chunked-L80-C5-R4-v2.3-rope` 10.41 / 12.31,
+`chunked-L80-C5-R4-v2.3-rope-ctembed` 11.32 / 13.40.
 
-The complementary control loads the offline-trained base into the chunked encoder,
-verified bit-exact at `chunk_size=None`, then chunks it at recog time only:
+The complementary control loads the offline-trained `base` into the chunked encoder,
+verified bit-exact at `chunk_size=None`, then chunks it at recog time only.
+It is registered under the name `base-via-v2.3`:
 
-| recog geometry | dev / test |
+| recog tag | dev / test |
 | --- | --- |
 | offline | 7.32 / 8.10 |
 | C20-R15 | 9.02 / 9.76 |
@@ -208,12 +247,14 @@ So chunk-aware training, not just chunk-aware inference, is what matters.
 Overlapping the chunks and averaging the views helps on its own,
 but it doubles the compute, so the control is a plain run at twice the budget.
 
-| variant | dev / test | h |
-| --- | --- | --- |
-| plain v2.3 | 9.46 / 10.29 | 168.8 |
-| + overlap | 9.26 / 10.05 | 391.4 |
-| + overlap + MSE | 9.27 / 10.08 | 391.8 |
-| 2x budget, no overlap | 12.19 / 12.72 | 339.1 |
+Names: `chunked-L80-C5-R4-v2.3<suffix>`.
+
+| variant | dev / test | h | suffix |
+| --- | --- | --- | --- |
+| plain v2.3 | 9.46 / 10.29 | 168.8 | |
+| + overlap | 9.26 / 10.05 | 391.4 | `-overlap` |
+| + overlap + MSE | 9.27 / 10.08 | 391.8 | `-overlap-mse` |
+| 2x budget, no overlap | 12.19 / 12.72 | 339.1 | `-2xtrain` |
 
 The 2x control is the one run in this doc whose last epoch must not be read:
 its top CTC head diverged at epoch 200, so the comparable value is its best epoch 190,
@@ -222,34 +263,41 @@ Read that way it matches overlap for the same compute, so overlap's gain is boug
 not by overlap.
 On top of the stronger dyn-rope-ctembed base it regresses outright:
 
-| variant | dev / test |
-| --- | --- |
-| no overlap | 9.41 / 10.29 |
-| overlap | 10.42 / 11.22 |
-| overlap + MSE | 10.10 / 10.92 |
-| overlap dynamic | 9.83 / 10.63 |
-| overlap dynamic + ctembedfix | 9.76 / 10.63 |
-| overlap dynamic, no ctembed | 10.55 / 11.47 |
+Names: `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed<suffix>`.
+
+| variant | dev / test | suffix |
+| --- | --- | --- |
+| no overlap | 9.41 / 10.29 | |
+| overlap | 10.42 / 11.22 | `-overlap` |
+| overlap + MSE | 10.10 / 10.92 | `-overlap-mse` |
+| overlap dynamic | 9.83 / 10.63 | `-overlapD` |
+| overlap dynamic + ctembedfix | 9.76 / 10.63 | `-overlapD-ctembedfix` |
+| overlap dynamic, no ctembed | 10.55 / 11.47 | `-overlapD`, without `-ctembed` |
 
 Two further questions closed this line.
-Turning overlap on at recog only, for a model never trained with it, hurts badly:
-C5-R4 10.65 / 11.50,
-C5-R2 18.10 / 19.25.
+Turning overlap on at recog only, for a model never trained with it, hurts badly
+(`-ov2` sweep tags on `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed`):
+C5-R4 10.65 / 11.50
+against 9.41 / 10.29 without,
+C5-R2 18.10 / 19.25
+against 10.14 / 11.04.
 And overlap does not remove the need for lookahead:
-overlap at R0 gives 12.82 / 13.38.
+`chunked-L80-C5-R0-v2.3-overlap` gives 12.82 / 13.38.
 
 ### Offline init vs from scratch, at matched budget
 
 Is it better to warm-start the streaming model from the offline one, or train it from scratch?
 `impBase` initializes from the 1x base and finetunes for 1x, so 100 + 100 matches the 2x controls.
 
-| variant | dev / test |
-| --- | --- |
-| from scratch, 1x | 9.41 / 10.29 |
-| impBase, finetune LR 0.1 | 9.03 / 9.90 |
-| impBase, finetune LR 0.25 | 8.83 / 9.69 |
-| impBase, finetune LR 0.5 | 8.84 / 9.71 |
-| from scratch, 2x | 8.52 / 9.25 |
+Names: `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed<suffix>`.
+
+| variant | dev / test | suffix |
+| --- | --- | --- |
+| from scratch, 1x | 9.41 / 10.29 | |
+| impBase, finetune LR 0.1 | 9.03 / 9.90 | `-impBase-baseLr0.1` |
+| impBase, finetune LR 0.25 | 8.83 / 9.69 | `-impBase-baseLr0.25` |
+| impBase, finetune LR 0.5 | 8.84 / 9.71 | `-impBase-baseLr0.5` |
+| from scratch, 2x | 8.52 / 9.25 | `-2xtrain` |
 
 Warm-starting beats 1x from scratch but loses to 2x from scratch,
 so at equal compute the streaming model is better trained from scratch.
@@ -260,13 +308,15 @@ Can a recurrent layer carry long context more cheaply than chunked attention?
 Eight standard chunked conformer layers interleaved with eight recurrent ones,
 outer chunk structure held fixed so the comparison is direct.
 
-| encoder | dev / test | h |
-| --- | --- | --- |
-| conformer (dyn-rope-ctembed) | 9.41 / 10.29 | 128.3 |
-| + Mamba-2 | 10.52 / 11.49 | 174.0 |
-| + Mamba-2, bidirectional | 10.74 / 11.52 | 291.5 |
-| + DeltaNet | 11.09 / 11.95 | 164.3 |
-| + DeltaNet, bidirectional | 11.41 / 12.28 | 197.9 |
+Names: `chunked-L80-C5-R4-v2.3-<encoder>`.
+
+| encoder | dev / test | h | encoder name |
+| --- | --- | --- | --- |
+| conformer | 9.41 / 10.29 | 128.3 | `dyn-rope-ctembed` |
+| + Mamba-2 | 10.52 / 11.49 | 174.0 | `mamba2` |
+| + Mamba-2, bidirectional | 10.74 / 11.52 | 291.5 | `mamba2-bidir-ssdchunk256` |
+| + DeltaNet | 11.09 / 11.95 | 164.3 | `deltanet` |
+| + DeltaNet, bidirectional | 11.41 / 12.28 | 197.9 | `deltanet-bidir` |
 
 All worse than the conformer, Mamba-2 the best of the set,
 and going bidirectional hurts both, which was the opposite of the expectation.
@@ -275,14 +325,14 @@ and going bidirectional hurts both, which was the opposite of the expectation.
 
 What the chunk is worth, bracketed from both sides.
 
-| model | dev / test |
-| --- | --- |
-| offline, full context | 7.32 / 8.10 |
-| chunked C5-R4 | 9.41 / 10.29 |
-| fully causal, unlimited history, no lookahead | 13.76 / 14.65 |
-| chunked C5-R4, no history | 24.12 / 25.00 |
-| feed-forward encoder, 12 layers | 62.35 / 63.62 |
-| feed-forward encoder, 6 layers | 63.88 / 65.26 |
+| context | dev / test | name |
+| --- | --- | --- |
+| full, offline | 7.32 / 8.10 | `base` |
+| 80 history, 5 center, 4 lookahead | 9.41 / 10.29 | `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed` |
+| unlimited history, no lookahead | 13.76 / 14.65 | `base-causal` |
+| no history, 4 lookahead | 24.12 / 25.00 | `chunked-L0-C5-R4-v2.3` |
+| none, 12 feed-forward layers | 62.35 / 63.62 | `ff12` |
+| none, 6 feed-forward layers | 63.88 / 65.26 | `ff6` |
 
 The fully-causal model has unlimited left context and still loses badly to the chunked one,
 so the small lookahead does work that history cannot replace.
@@ -292,6 +342,7 @@ The feed-forward rows are the zero-context floor, a sanity bound rather than a c
 
 An equivalence check, not a WER comparison: does the KV-cache streaming encoder,
 which carries state across 10 s segments, match batched chunked inference?
+Both run on `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed`.
 
 Encoder log-probs on 3 sequences:
 max abs diff 2.0e-04,
@@ -304,7 +355,7 @@ vs batched chunked 9.41 / 10.29.
 ### Long-form vs segmented
 
 Does a streaming model degrade on full-length recordings?
-TEDLium, streaming-KV recog, on the dyn-rope-ctembed model only.
+TEDLium, streaming-KV recog, on `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed` only.
 
 | eval set | WER |
 | --- | --- |
@@ -321,6 +372,8 @@ Only one model has been run here, so this is not yet a cross-model comparison.
 
 Does more training close the gap to the offline model?
 Three curves at 1x / 2x / 4x, CTC-only WER, dev / test, last epoch.
+The trainings are `base`, `base-2xtrain`, `base-4xtrain`
+and `chunked-L80-C5-R4-v2.3-dyn-rope-ctembed` with the same `-2xtrain` / `-4xtrain` suffixes.
 `dyn offline` is the same streaming checkpoint decoded at `chunk_size=None`,
 which its train pool includes;
 that splits the streaming cost into the price of training under a chunk pool
