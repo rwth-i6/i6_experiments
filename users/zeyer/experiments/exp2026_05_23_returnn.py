@@ -1186,6 +1186,9 @@ def py_aed_graphc_loquacious():
             "pt-packed-graphc": dict(
                 returnn_config=base_v2_exp.get_training_job().returnn_config,
                 mode="packed_graphc",
+                # the graphc trainings set this via _loq_v3_overrides; the padded base config
+                # lacks it, and capture of a non-capturable AdamW is a hard error
+                extra_config_code="optimizer = dict(optimizer, capturable=True)\n",
                 config_overrides={
                     "packed_tensors": {
                         "per_key": {
@@ -1805,9 +1808,11 @@ class BatchedTrainStepBenchmarkJob(Job):
     def run(self):
         """run the cells in order, each in its own subdir of the job work dir"""
         import os
+        import traceback
 
         cwd = os.getcwd()
         per_cell_time_h = self.rqmt["time"] / len(self.cells)
+        failed = {}
         for name, cell in self.cells.items():
             if os.path.exists(self.out_results[name].get_path()):
                 continue
@@ -1825,8 +1830,14 @@ class BatchedTrainStepBenchmarkJob(Job):
             os.chdir(item_dir)
             try:
                 TrainStepBenchmarkJob.run(spec)
+            except Exception as exc:
+                # run the remaining cells first: one broken arm must not cost the others
+                # their slot (a rerun after the fix skips the finished ones anyway)
+                traceback.print_exc()
+                failed[name] = exc
             finally:
                 os.chdir(cwd)
+        assert not failed, f"cells failed: {failed}"
 
 
 def _loq_cost_decomposition(cfg, classes_cap):
