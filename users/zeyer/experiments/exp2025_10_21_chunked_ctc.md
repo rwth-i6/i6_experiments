@@ -319,24 +319,14 @@ Only one model has been run here, so this is not yet a cross-model comparison.
 
 ## Training scale
 
-CTC-only WER, dev / test, last epoch.
-base: offline recog.
-dyn-rope-ctembed: streaming recog at the deployment chunk (C5, R4).
+Does more training close the gap to the offline model?
+Three curves at 1x / 2x / 4x, CTC-only WER, dev / test, last epoch.
+`dyn offline` is the same streaming checkpoint decoded at `chunk_size=None`,
+which its train pool includes;
+that splits the streaming cost into the price of training under a chunk pool
+and the price of decoding in chunks.
 The `inf` row is not measured: it is the extrapolated floor of the fit below,
 and is far less certain than the measured rows.
-
-| scale | base (offline) | dyn-rope-ctembed (streaming) |
-| --- | --- | --- |
-| 1x | 7.32 / 8.10 | 9.41 / 10.29 |
-| 2x | 6.58 / 7.39 | 8.52 / 9.25 |
-| 4x | 6.10 / 6.70 | 7.82 / 8.59 |
-| inf (fit) | 5.00 / 5.64 | 6.42 / 7.21 |
-
-## Extrapolation to infinite training scale
-
-Decoding the same streaming checkpoint at `chunk_size=None`, which its train pool includes,
-splits the streaming cost into two parts:
-the price of training under a chunk pool, and the price of decoding in chunks.
 
 | scale | base offline | dyn offline | dyn online |
 | --- | --- | --- | --- |
