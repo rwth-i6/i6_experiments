@@ -248,9 +248,19 @@ class ChatterboxSingleSpeakerInference(Job):
         # mem 48, not 16: under storage="hf" the worker holds every clip in memory and hands the
         # whole set to Dataset.from_dict, which copies it again into arrow -- so peak is ~2x the
         # corpus. 16 GB was sized for the n=1000 benchmark; the 12,000-prompt rehearsal corpus
-        # OOM-killed at 2 h 09 m with nothing written (2026-09-07). rqmt is not hashed, so this
-        # re-runs nothing. The other half of that fix is in the worker's write_clips, which was
-        # boxing every sample as a Python float.
+        # OOM-killed at 2 h 09 m with nothing written (2026-09-07). The other half of that fix is in
+        # the worker's write_clips, which was boxing every sample as a Python float.
+        #
+        # rqmt is not hashed, so raising this re-runs nothing -- but that ALSO means Sisyphus will not
+        # resubmit a job already sitting in the SLURM queue to apply it, and SLURM froze the old
+        # request at submit time. This exact job was queued at 09-07 14:03 with mem 16, the bump
+        # landed minutes later, and it started 18 h afterwards still holding ReqMem 16G and died at
+        # MaxRSS 16,765,708K -- a verbatim repeat of the OOM this line was written to prevent, with
+        # the fix in the file the whole time. After changing rqmt on a QUEUED job, hpc-rerun.py it.
+        #
+        # Still unbounded by design: the worker accumulates every clip and hands the set to
+        # Dataset.from_dict, so peak is ~2x the corpus and 48 scales only to ~12k short prompts.
+        # A larger corpus needs the write to flush shards (see backlog B6).
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 24, "requires": ["system_ffmpeg"]}
 
     def tasks(self):
