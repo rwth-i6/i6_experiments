@@ -393,20 +393,6 @@ which inference cannot do.
 Sharing one exponent c across all three curves keeps E and b per curve,
 giving 7 parameters on 9 points, and the ordering holds.
 Result: dev c={{fit:dev:c}} (rms {{fit:dev:rms}} abs), test c={{fit:test:c}} (rms {{fit:test:rms}} abs).
-
-Read the gaps, not the floors.
-The objective is nearly flat in c, and E slides along with c,
-so the floor values above are not meaningful to two decimals.
-Under {{fit:sigma:noise}} abs of run noise the differences are far better determined than the floors:
-
-| asymptotic cost | dev (10-90%) | test (10-90%) |
-| --- | --- | --- |
-| chunked training (dyn offline - base offline) | {{fit:dev:gap_train}} | {{fit:test:gap_train}} |
-| streaming inference (dyn online - dyn offline) | {{fit:dev:gap_stream}} | {{fit:test:gap_stream}} |
-
-So training under a chunk pool costs little or nothing at infinite scale,
-while decoding in chunks costs about 1.2 abs and scale does not remove it.
-Three points cannot pin an asymptote; one more scale point (3x or 8x) would constrain it properly.
 """
 )
 
