@@ -208,6 +208,32 @@ if bool((after[:onset_frame] != TEXT_PADDING_ID).any()):
     failures.append("text is STILL emitted before the assistant makes a sound after clamping")
 ok("non-vacuous    the unclamped row really does speak over silence; the clamped one does not", _n)
 
+# --- 6. alignment ORDER: the reference sorts by start before placing; we must too ------------------
+# With overwrite-on-overlap the LAST word placed wins a contested frame, so an unsorted list lets an
+# earlier word clobber a later one. normalize_alignments now sorts (stable). Fixture: two words whose
+# token runs overlap, given in reverse file order -- the stream must equal the sorted one, and the
+# unsorted placement must genuinely differ (else this proves nothing).
+from moshi_family.train_data_common import normalize_alignments  # noqa: E402
+
+_n = len(failures)
+_late = ("late", (1.20, 1.60), "assistant")
+_early = ("before", (1.12, 1.30), "assistant")  # even length -> 2 stub tokens: frames 14, 15; "late" starts at 15
+if len(TOK.text_tok.encode("before")) < 2:
+    failures.append("fixture needs a multi-token first word so the two runs overlap")
+sorted_row = TOK.interleave_text(normalize_alignments([_late, _early]), 32)[0]
+ref_row = TOK.interleave_text([_early, _late], 32)[0]
+raw_row = TOK.interleave_text([_late, _early], 32)[0]
+if not torch.equal(sorted_row, ref_row):
+    failures.append("normalize_alignments must put words in time order before placement")
+if torch.equal(raw_row, ref_row):
+    failures.append("fixture is vacuous: reverse order placed identically, so the sort is untested")
+if not all(
+    a[1][0] <= b[1][0]
+    for a, b in zip(normalize_alignments([_late, _early])[:-1], normalize_alignments([_late, _early])[1:])
+):
+    failures.append("normalize_alignments output is not sorted by start")
+ok("time order     unsorted alignments place like the reference (sorted); reverse order really differed", _n)
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S):")
