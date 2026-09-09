@@ -258,10 +258,22 @@ class ChatterboxSingleSpeakerInference(Job):
         # MaxRSS 16,765,708K -- a verbatim repeat of the OOM this line was written to prevent, with
         # the fix in the file the whole time. After changing rqmt on a QUEUED job, hpc-rerun.py it.
         #
-        # Still unbounded by design: the worker accumulates every clip and hands the set to
-        # Dataset.from_dict, so peak is ~2x the corpus and 48 scales only to ~12k short prompts.
-        # A larger corpus needs the write to flush shards (see backlog B6).
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 24, "requires": ["system_ffmpeg"]}
+        # 48 -> 128 (2026-09-09), and this number is MEASURED, not guessed. At 48 the third attempt
+        # generated all 12,000/12,000 clips -- 2 h 12 m of GPU work -- and was then OOM-killed in the
+        # final write with ReqMem 48G / MaxRSS 50,319,372K. The log's RSS trace shows why: 12.6 GB
+        # while accumulating, then 26.9 -> 41.8 GB in FIFTEEN SECONDS as Dataset.from_dict copies the
+        # accumulated clips into arrow, i.e. peak ~= 2x the corpus with both copies live. The old
+        # estimate that "48 scales to ~12k short prompts" was optimistic by exactly one doubling.
+        # ⚠ 120, not 128: c23g's submit filter caps memory at **122 GB per GPU** (488 GB per node),
+        # so 128 with gpu:1 is REJECTED at sbatch time -- "Can only request up to 122GB per GPU
+        # (488GB per node max)! Request more GPUs or less memory!". 120 still leaves ~2.4x headroom
+        # over the 50 GB actually reached. More than that means asking for more GPUs.
+        #
+        # Still unbounded BY DESIGN, and this only moves the ceiling: peak stays ~2x the corpus, so
+        # 128 buys roughly 30k short prompts and no more. A corpus past that needs the write to
+        # flush shards instead of holding everything (backlog B6) -- raising mem a fourth time is
+        # not the fix, it is the thing to stop doing.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 120, "time": 24, "requires": ["system_ffmpeg"]}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
