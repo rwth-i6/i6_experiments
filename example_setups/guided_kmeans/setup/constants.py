@@ -86,6 +86,20 @@ PHONEME_LM_ZIJIAN_3GRAM = tk.Path(
     "/3gram/phoneme_trigram_no_eow_epoch200.arpa"
 )
 
+#: Segment-level GMM phoneme labels for all of LibriSpeech-960, 20 RETURNN
+#: shards. Each shard contains one integer label per non-silence phoneme segment
+#: (silence_label=0 already removed). The integer-to-phoneme mapping matches this
+#: setup's lexicon order (1=AA, 2=AE, ..., 39=ZH), confirmed by comparison against
+#: ``GMM_ALIGNMENT_CV`` on overlapping sequences.
+GMM_SEGMENT_PHONEMES_LS960 = [
+    tk.Path(
+        "/work/asr4/zyang/mini/alias/example_setups/librispeech/phmm_standalone_2024"
+        f"/ls960_gmm_oracle_segment_clustering/segment_phonemes"
+        f"/shard_{i:03d}/output/gmm_segment_phonemes.{i:03d}.hdf"
+    )
+    for i in range(20)
+]
+
 #: Frame-level GMM phoneme alignments for all of LibriSpeech-960, 20 RETURNN
 #: shards. Silence is index 0 and the remaining indices are this setup's lexicon
 #: order - established by comparison rather than assumed: 144 sequences occur in

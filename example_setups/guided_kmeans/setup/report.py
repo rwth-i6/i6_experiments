@@ -17,6 +17,14 @@ def create_report(recog_results: List[DecodeRecogResult], title: str = "Experime
         report.add_entry(col="5 Sub", row=row, var=recog_result.substitution)
         if recog_result.fer is not None:
             report.add_entry(col="6 FER", row=row, var=recog_result.fer)
+        if recog_result.per_gmm is not None:
+            report.add_entry(col="7 PER(GMM-ali)", row=row, var=recog_result.per_gmm)
+        if recog_result.deletion_gmm is not None:
+            report.add_entry(col="8 Del(GMM-ali)", row=row, var=recog_result.deletion_gmm)
+        if recog_result.insertion_gmm is not None:
+            report.add_entry(col="9 Ins(GMM-ali)", row=row, var=recog_result.insertion_gmm)
+        if recog_result.substitution_gmm is not None:
+            report.add_entry(col="10 Sub(GMM-ali)", row=row, var=recog_result.substitution_gmm)
         if recog_result.mean_cos_sim is not None:
             report.add_entry(col="7 MeanCosSim", row=row, var=recog_result.mean_cos_sim)
         if recog_result.l1_dist is not None:

@@ -217,7 +217,7 @@ def get_cheating_lm_config() -> RasrConfig:
 
     return config
 
-def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75) -> RasrConfig:
+def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75, forbid_blank = False) -> RasrConfig:
     config = RasrConfig()
     config.type = "combine"
     config.num_scorers = 2
@@ -231,11 +231,21 @@ def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_p
     transition_config.scale = transition_scale
 
     transition_config.label_to_label_score = neg_log(1.0 - loop_probability)
-    transition_config.label_to_blank_score = neg_log(1.0 - loop_probability)
+    transition_config.label_to_blank_score = neg_log(0.0) if forbid_blank else neg_log(1.0 - loop_probability)
     transition_config.label_loop_score = neg_log(loop_probability)
 
     transition_config.blank_to_label_score = neg_log(1.0 - silence_loop_probability)
     transition_config.blank_loop_score = neg_log(silence_loop_probability)
+
+    if forbid_blank:
+        # Prevent the search from consuming the very first input frame as
+        # silence/blank.  Without this, the initial-blank and initial-silence
+        # transitions default to 0.0 (free), so the decoder occasionally opens
+        # with a [SILENCE] frame that is then silently filtered by
+        # exclude_lemmata — producing a hypothesis one token shorter than the
+        # reference for ~5% of utterances.
+        transition_config.initial_silence_score = float("inf")
+        transition_config.initial_blank_score = float("inf")
 
     config.scorer_2 = transition_config
 
@@ -275,6 +285,7 @@ def create_recog_rasr_config(
     cheating=False,
     loop_log_odds=None,
     lm_path=None,
+    forbid_blank=False,
 ):
     if loop_log_odds is not None:
         if transition_scale is not None:
@@ -321,7 +332,8 @@ def create_recog_rasr_config(
                 emission_scale=emission_scale,
                 transition_scale=transition_scale,
                 loop_probability=loop_probability,
-                silence_loop_probability=silence_loop_probability
+                silence_loop_probability=silence_loop_probability,
+                forbid_blank=forbid_blank,
             ),
             lm_config=lm_config,
             blank_index=0,
@@ -342,7 +354,8 @@ def create_recog_rasr_config(
                 emission_scale=emission_scale,
                 transition_scale=transition_scale,
                 loop_probability=loop_probability,
-                silence_loop_probability=silence_loop_probability
+                silence_loop_probability=silence_loop_probability,
+                forbid_blank=forbid_blank,
             ),
             # the cheating-segment LM is only wired up for the linear/tree
             # searches, so forward-backward always uses the n-gram LM
@@ -362,7 +375,8 @@ def create_recog_rasr_config(
                 emission_scale=emission_scale,
                 transition_scale=transition_scale,
                 loop_probability=loop_probability,
-                silence_loop_probability=silence_loop_probability
+                silence_loop_probability=silence_loop_probability,
+                forbid_blank=forbid_blank,
             ),
             lm_config=lm_config,
             blank_index=0,

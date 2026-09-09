@@ -30,6 +30,8 @@ composed into the graph: this is a diagnostic that wants changing often.
 from __future__ import annotations
 
 __all__ = [
+    "ExternalLogPtTableJob",
+    "FrameClusterAccuracyJob",
     "SegmentedFeaturesFromAlignmentJob",
     "SupervisedVQTableJob",
     "vq_table_diagnostics",
@@ -543,3 +545,194 @@ class SupervisedVQTableJob(Job):
             best["label_codeword_mi"],
             diagnostics["label_contrast_nats"]["median"],
         )
+
+
+class ExternalLogPtTableJob(Job):
+    """
+    Wrap a pre-computed log-probability table from an external ``.pt`` file into
+    a model directory usable by ``DecodeConfig(model_dir=...)``.
+
+    The input is expected to have shape ``[C, L]`` (codewords × labels) with
+    values ``log p(codeword | label)`` normalised per label column — the format
+    written by zyang's ``BuildAmInitFromCountsJob``.  The job transposes and
+    exponentiates it to produce the ``[L, C]`` linear-probability table that
+    ``VectorQuantizedModel`` requires, then saves a complete model directory so
+    the result can be used directly with ``DecodeConfig(model_dir=out_model)``.
+
+    :param pt_table: ``.pt`` file containing a ``torch.Tensor`` of shape
+        ``[num_codewords, num_labels]``, log p(codeword | label)
+    :param centroids: ``[C, D]`` codebook as a ``.npy`` file
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None}
+
+    def __init__(self, pt_table: tk.Path, centroids: tk.Path, rqmt=None):
+        self.pt_table = pt_table
+        self.centroids = centroids
+
+        self.out_model = self.output_path("model", directory=True)
+        # Separate table.npy for MixtureDiagnosticsJob
+        self.out_table = self.output_path("table.npy")
+
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
+        if rqmt:
+            self.rqmt.update(rqmt)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import torch
+
+        raw = torch.load(self.pt_table.get_path(), map_location="cpu")
+        log_table = raw.numpy() if hasattr(raw, "numpy") else np.asarray(raw)
+        # log_table: [C, L] = log p(codeword | label)
+        # VectorQuantizedModel wants [L, C] = p(codeword | label)
+        table = np.exp(log_table).T.astype(np.float64)
+        # Re-normalise each row to correct any floating-point drift.
+        table = table / table.sum(axis=1, keepdims=True)
+
+        centroids = np.load(self.centroids.get_path()).astype(np.float64)
+        model = VectorQuantizedModel(centroids, table)
+        model.save(self.out_model.get_path())
+        np.save(self.out_table.get_path(), table)
+
+
+class FrameClusterAccuracyJob(Job):
+    """
+    Frame-level cluster accuracy of a VQ model table — no language model.
+
+    For each frame feature x the best phoneme label under the model is
+        c*_x = argmax_c  p(c) * table[c, codeword(x)]
+    where codeword(x) = nearest centroid and p(c) is the phoneme unigram
+    counted empirically from the (non-silence) alignment frames.
+
+    Frame accuracy is then
+        acc = sum_x  pr(c*_x, x)
+    where pr(c, x) = N(c, x) / N is the empirical joint distribution.
+
+    The model is used only to determine c*_x; the accuracy itself comes
+    entirely from the empirical data (alignment + codeword assignments).
+    Silence frames are excluded from all counts.
+
+    :param features_hdf: frame-level feature HDF (RETURNN flat layout)
+    :param alignment: frame-level alignment, .pkl ``{tag: int[T]}`` or .hdf shard
+    :param centroids: ``[C, D]`` codebook as a ``.npy`` file
+    :param table: ``[L, C]`` model table p(codeword | label) as a ``.npy`` file
+    :param silence_label: label index for silence, excluded from all counts
+    :param batch_size: frames per cdist batch (trades memory for speed)
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None, "batch_size": None}
+
+    def __init__(
+        self,
+        features_hdf: tk.Path,
+        alignment: tk.Path,
+        centroids: tk.Path,
+        table: tk.Path,
+        silence_label: int = 0,
+        batch_size: int = 4096,
+        rqmt=None,
+    ):
+        self.features_hdf = features_hdf
+        self.alignment = alignment
+        self.centroids = centroids
+        self.table = table
+        self.silence_label = silence_label
+        self.batch_size = batch_size
+
+        self.out_accuracy = self.output_var("frame_accuracy")
+        self.out_error_rate = self.output_var("frame_error_rate")
+        self.out_diagnostics = self.output_path("diagnostics.json")
+
+        self.rqmt = {"cpu": 4, "mem": 16, "time": 2}
+        if rqmt:
+            self.rqmt.update(rqmt)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import h5py
+        from scipy.spatial.distance import cdist
+
+        centroids = np.load(self.centroids.get_path()).astype(np.float64)
+        table = np.load(self.table.get_path()).astype(np.float64)  # [L, C]
+        num_labels, num_codewords = table.shape
+
+        alignment = _load_alignment(self.alignment)
+        joint = np.zeros((num_labels, num_codewords), dtype=np.int64)
+
+        with h5py.File(self.features_hdf.get_path(), "r") as f:
+            tags = [
+                t.decode() if isinstance(t, bytes) else str(t)
+                for t in f["seqTags"][:]
+            ]
+            lengths = np.asarray(f["seqLengths"][:]).reshape(len(tags), -1)[:, 0].astype(np.int64)
+            offsets = np.concatenate([[0], np.cumsum(lengths)])
+
+            progress = ProgressLogger(max(len(tags), 1), bar_length=40, logging_step=256)
+            progress.start()
+            for i, tag in enumerate(tags):
+                bare = _strip_corpus_prefix(tag)
+                labels = alignment.get(bare)
+                if labels is None:
+                    progress.progress(i)
+                    continue
+                labels = np.asarray(labels, dtype=np.int64)
+                features = np.asarray(
+                    f["inputs"][offsets[i]:offsets[i + 1]], dtype=np.float64
+                )
+                if len(features) != len(labels):
+                    progress.progress(i)
+                    continue
+
+                mask = labels != self.silence_label
+                if not mask.any():
+                    progress.progress(i)
+                    continue
+                active_features = features[mask]
+                active_labels = labels[mask]
+
+                for start in range(0, len(active_features), self.batch_size):
+                    batch_f = active_features[start:start + self.batch_size]
+                    batch_l = active_labels[start:start + self.batch_size]
+                    codewords = cdist(batch_f, centroids, metric="sqeuclidean").argmin(axis=1)
+                    np.add.at(joint, (batch_l, codewords), 1)
+                progress.progress(i)
+
+        total = int(joint.sum())
+        if total == 0:
+            raise RuntimeError("no non-silence frames counted — check features/alignment match")
+
+        # Phoneme unigram p(c) from the empirical distribution
+        prior = joint.sum(axis=1).astype(np.float64) / total
+        prior[self.silence_label] = 0.0
+
+        # c*_x = argmax_c  p(c) * table[c, x]  over non-silence labels
+        score = prior[:, np.newaxis] * table  # [L, C]
+        score[self.silence_label, :] = -1.0   # ensure silence never wins
+        best_label = score.argmax(axis=0)      # [C]
+
+        # Frame accuracy = sum_x N(c*_x, x) / N
+        correct = int(joint[best_label, np.arange(num_codewords)].sum())
+        accuracy = correct / total
+
+        self.out_accuracy.set(float(accuracy))
+        self.out_error_rate.set(float(1.0 - accuracy))
+
+        import json as _json
+        with open(self.out_diagnostics.get_path(), "w") as fp:
+            _json.dump(
+                {
+                    "frame_accuracy": float(accuracy),
+                    "frame_error_rate": float(1.0 - accuracy),
+                    "correct_frames": correct,
+                    "total_frames": total,
+                    "num_labels": int(num_labels),
+                    "num_codewords": int(num_codewords),
+                },
+                fp,
+                indent=4,
+            )

@@ -44,12 +44,13 @@ disagreed, each item on its own was unambiguous.
 from sisyphus import tk
 
 from i6_experiments.example_setups.guided_kmeans.setup.constants import (
-    GMM_ALIGNMENT_CV,
     COLLEAGUE_CENTROIDS_K512,
     PHONEME_LM_ZIJIAN_3GRAM,
+    GMM_SEGMENT_PHONEMES_LS960,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import (
     create_lexicon,
+    phonetic_lm_dict,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.statistics_jobs import (
     MixtureDiagnosticsJob,
@@ -68,7 +69,13 @@ from i6_experiments.example_setups.guided_kmeans.setup.latex_report import (
     clustering_statistics_per_epoch,
 )
 from i6_experiments.example_setups.guided_kmeans import tools
-from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
+from i6_experiments.example_setups.guided_kmeans.setup.score import (
+    GmmSegmentPhonemesReferenceJob,
+)
+from i6_experiments.example_setups.guided_kmeans.setup.vq_baseline import (
+    ExternalLogPtTableJob,
+    FrameClusterAccuracyJob,
+)
 from i6_experiments.example_setups.guided_kmeans.config.vq_unsupervised import (
     build_decode_config,
     build_vq_training,
@@ -79,15 +86,31 @@ from i6_experiments.example_setups.guided_kmeans.config.vq_unsupervised import (
 exp_dir = "vq_unsupervised_long"
 version = 1
 
-#: (lm_name, lm_path, sigma, seed). Seed 42 for the sigma=0.1 Zijian arm because
-#: it was the better of the two at epoch 10 (82.16 against 82.77) - a thin
-#: margin, so treat it as a tie broken arbitrarily rather than as a result.
+#: (lm_name, lm_path, sigma, seed, epoch_rqmt). Seed 42 for the sigma=0.1
+#: Zijian arm because it was the better of the two at epoch 10 (82.16 against
+#: 82.77) - a thin margin, so treat it as a tie broken arbitrarily rather than
+#: as a result.
+#:
+#: epoch_rqmt["mem"] is estimated as: base ~5.6 GB + 9 workers * LM_size.
+#: LM sizes (uncompressed): 5gram=231MB, 6gram=1.5GB, 7gram=6.3GB.
+#: RASR loads each LM independently per worker (no mmap sharing observed).
+#: 8gram (~18GB uncompressed) and 9gram (~40GB) are omitted: ~170/366 GB needed.
 EXPERIMENTS = [
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 1.0, 42),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 1.0, 43),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42),
-    ("ours-3gram", None, 0.1, 42),
-    ("ours-3gram", None, 0.1, 43),
+    ("ours-5gram", phonetic_lm_dict[5], 0.1,  42, {"mem": 8}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.1,  43, {"mem": 8}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 42, {"mem": 8}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 43, {"mem": 8}),
+    ("ours-6gram", phonetic_lm_dict[6], 0.02, 42, {"mem": 30}),
+    ("ours-6gram", phonetic_lm_dict[6], 0.02, 43, {"mem": 30}),
+    # 7gram: base ~5.6 GB + 9 workers * 6.3 GB LM = ~62 GB; 80 GB gives ~30% headroom.
+    # Consider reducing NUM_WORKERS (e.g. to 4-5) to bring this down to ~32-37 GB.
+    # Uncomment once 6gram results are in and the approach is confirmed.
+    # ("ours-7gram", phonetic_lm_dict[7], 0.02, 42, {"mem": 80}),
+    # ("ours-7gram", phonetic_lm_dict[7], 0.02, 43, {"mem": 80}),
+    # ("ours-8gram", phonetic_lm_dict[8], 0.02, 42, {"mem": 192}),  # ~18GB LM
+    # ("ours-8gram", phonetic_lm_dict[8], 0.02, 43, {"mem": 192}),
+    # ("ours-9gram", phonetic_lm_dict[9], 0.02, 42, {"mem": 384}),  # ~40GB LM
+    # ("ours-9gram", phonetic_lm_dict[9], 0.02, 43, {"mem": 384}),
 ]
 
 NUM_EPOCHS = 100
@@ -96,16 +119,13 @@ NUM_EPOCHS = 100
 # None of these change a job hash (see build_vq_training), so the 10 epochs
 # already computed are reused whatever they are set to.
 #
-# The QOS caps this user at 1100 CPUs. An epoch job of 100 tasks x 10 CPU takes
-# ~1000 of them, so exactly one epoch job runs at a time and the other four runs
-# queue behind it - measured: consecutive arrays started 8 minutes apart, each
-# spending ~25 min queued against ~6 min computing. The chunks themselves are
-# fine (max/median 1.1x, 89-90% utilisation within an array); what idles the
-# quota is the gap between one array ending and the next being scheduled.
-#
-# So size an epoch job to a fifth of the quota and let all five runs overlap:
-# one run's scheduling gap becomes another run's compute.
-NUM_CHUNKS = 22          # 22 x 10 CPU = 220; x 5 runs = 1100, the whole quota
+# The QOS caps this user at 1100 CPUs. With 2 runs, the ceiling per run is
+# 1100 / 2 = 550 CPUs. At 10 CPUs per chunk that is 55 chunks; 50 stays just
+# under and matches the chunk count used in the 3-gram short runs.
+NUM_CHUNKS = 30
+# 5-gram LM: state space is 40^4 = 2.56M vs 40^2 = 1600 for 3-gram, so beam
+# pruning is needed. 1000 targets a ~30-min epoch, same order as the 3-gram run.
+BEAM_SIZE = 1000
 
 # 9, not 8. The task requests num_workers + 1 CPUs, and Slurm rounds an
 # allocation up to an even core count - cpu=9 was being given AllocCPUS=10, so
@@ -113,10 +133,8 @@ NUM_CHUNKS = 22          # 22 x 10 CPU = 220; x 5 runs = 1100, the whole quota
 # already being allocated and gets a ninth search process for free.
 NUM_WORKERS = 9
 
-# Measured peak RSS is 5 GB; the 16 GB default reserves three times that. Not
-# binding while CPU is, but at 110 concurrent tasks it would reserve 1.76 TB of
-# the 2.2 TB QOS memory cap, which is the next thing that would bind.
-EPOCH_RQMT = {"mem": 8}
+# Per-experiment epoch memory is set in EXPERIMENTS (see above). The CPU count
+# does not change: num_workers + 1 = 10 CPUs per chunk regardless of LM order.
 
 
 def run():
@@ -128,6 +146,12 @@ def run():
     ls100_features.add_alias(f"guided_kmeans/{exp_dir}/features_ls100_nosil")
     cv_features = silence_free_cv_features()
     cv_features.add_alias(f"guided_kmeans/{exp_dir}/features_cv_nosil")
+
+    gmm_ref_job = GmmSegmentPhonemesReferenceJob(
+        gmm_hdf_files=GMM_SEGMENT_PHONEMES_LS960,
+        features_hdf=cv_features.out_features,
+        lexicon=lexicon,
+    )
 
     decode_lm_scale = 1.0
     decode_loop_prob = 0.0
@@ -145,7 +169,8 @@ def run():
     latex_report = LatexTableReport(
         columns=[
             "lm", "sigma", "seed", "epoch",
-            "mi", "per", "del", "ins", "sub", "fer",
+            "mi", "frame_err", "per", "del", "ins", "sub",
+            "per_gmm", "del_gmm", "ins_gmm", "sub_gmm",
             "log_likelihood", "posterior_entropy", "dead_clusters",
         ],
         sort_by=["sigma", "lm", "seed"],
@@ -163,8 +188,9 @@ def run():
         ),
     )
     recog_results = []
+    frame_acc_vars = []  # parallel list; None entries for rows without frame_acc
 
-    for lm_name, lm_path, sigma, seed in EXPERIMENTS:
+    for lm_name, lm_path, sigma, seed, epoch_rqmt in EXPERIMENTS:
         exp_name = f"ls100-nosil_{lm_name}_sigma-{sigma}_seed-{seed}"
         _, exp_result = build_vq_training(
             features=ls100_features.out_features,
@@ -176,7 +202,8 @@ def run():
             lexicon=lexicon,
             alias_prefix=f"guided_kmeans/{exp_dir}/{exp_name}",
             num_workers=NUM_WORKERS,
-            rqmt=EPOCH_RQMT,
+            rqmt=epoch_rqmt,
+            max_beam_size=BEAM_SIZE,
         )
 
         tk.register_output(
@@ -203,9 +230,21 @@ def run():
             )
 
         recognition_config_decode = build_decode_config(
-            lm_path, decode_lm_scale, decode_loop_prob
+            lm_path, decode_lm_scale, decode_loop_prob, max_beam_size=BEAM_SIZE, forbid_blank=True
         )
         for recog_epoch in decode_epochs:
+            decode_name = f"{exp_name}_ep-{recog_epoch}"
+            frame_acc_job = FrameClusterAccuracyJob(
+                features_hdf=cv_features.out_features,
+                alignment=cv_features.out_labels,
+                centroids=COLLEAGUE_CENTROIDS_K512,
+                table=exp_result.out_artifacts["table"][recog_epoch],
+            )
+            tk.register_output(
+                f"guided_kmeans/{exp_dir}/frame_acc/{decode_name}.json",
+                frame_acc_job.out_diagnostics,
+            )
+
             decode_config = DecodeConfig(
                 centroids=COLLEAGUE_CENTROIDS_K512,
                 model_dir=exp_result.out_models[recog_epoch],
@@ -213,7 +252,6 @@ def run():
                 distance_scale=1.0,
                 write_frame_labels=True,
             )
-            decode_name = f"{exp_name}_ep-{recog_epoch}"
             res = decode_and_score(
                 decode_name,
                 "cv",
@@ -222,31 +260,111 @@ def run():
                 rasr_path=tools.RASR_PATH,
                 device="cpu",
                 corpus_key="train-other-960",
+                gmm_segment_ref=gmm_ref_job.out_ref,
             )
-            if res.frame_labels is not None:
-                res.fer = FrameErrorRateJob(
-                    res.frame_labels, GMM_ALIGNMENT_CV, lexicon
-                ).out_fer
-                tk.register_output(
-                    f"guided_kmeans/{exp_dir}/eval/{decode_name}_fer", res.fer
-                )
             tk.register_output(f"guided_kmeans/{exp_dir}/per/{decode_name}_per", res.per)
+            if res.per_gmm is not None:
+                tk.register_output(
+                    f"guided_kmeans/{exp_dir}/per_gmm/{decode_name}_per", res.per_gmm
+                )
             recog_results.append(res)
+            frame_acc_vars.append(frame_acc_job.out_error_rate)
             latex_report.add_row(
                 result=res,
                 params={"lm": lm_name, "sigma": sigma, "seed": seed},
                 epoch=recog_epoch,
                 statistics=statistics,
                 values={
-                    k: v
-                    for k, v in (("mi", diagnostics[recog_epoch].out_mi), ("fer", res.fer))
-                    if v is not None
+                    "mi": diagnostics[recog_epoch].out_mi,
+                    "frame_err": frame_acc_job.out_error_rate,
                 },
             )
 
+    # --- Supervised baseline: zyang's GMM-counted table for the k=512 codebook ---
+    # log p(cluster | phoneme), shape [512, 40]. Transposed + exponentiated by the
+    # job into [40, 512] p(codeword | label) for VectorQuantizedModel.
+    supervised_table_job = ExternalLogPtTableJob(
+        pt_table=tk.Path(
+            "/work/asr4/zyang/mini/work/i6_experiments/users/yang/experiments/"
+            "generative_ctc/example_setups/librispeech/phmm/"
+            "gmm_alignment_vad_filter_jobs/"
+            "BuildAmInitFromCountsJob.ctdAwDvFREto/output/"
+            "am_init_log_p_cluster_given_phoneme.pt"
+        ),
+        centroids=COLLEAGUE_CENTROIDS_K512,
+    )
+    supervised_table_job.add_alias(
+        f"guided_kmeans/{exp_dir}/supervised_table/zyang_k512"
+    )
+    supervised_mi = MixtureDiagnosticsJob(supervised_table_job.out_table)
+    tk.register_output(
+        f"guided_kmeans/{exp_dir}/table_diagnostics/supervised_zyang.json",
+        supervised_mi.out_diagnostics,
+    )
+    supervised_frame_acc = FrameClusterAccuracyJob(
+        features_hdf=cv_features.out_features,
+        alignment=cv_features.out_labels,
+        centroids=COLLEAGUE_CENTROIDS_K512,
+        table=supervised_table_job.out_table,
+    )
+    tk.register_output(
+        f"guided_kmeans/{exp_dir}/frame_acc/supervised_zyang.json",
+        supervised_frame_acc.out_diagnostics,
+    )
+
+    supervised_decode_config = DecodeConfig(
+        centroids=COLLEAGUE_CENTROIDS_K512,
+        model_dir=supervised_table_job.out_model,
+        recog_rasr_config=build_decode_config(
+            phonetic_lm_dict[5],
+            decode_lm_scale,
+            decode_loop_prob,
+            max_beam_size=BEAM_SIZE,
+            forbid_blank=True,
+        ),
+        distance_scale=1.0,
+        write_frame_labels=True,
+    )
+    supervised_decode_name = "supervised_zyang-5gram"
+    supervised_res = decode_and_score(
+        supervised_decode_name,
+        "cv",
+        supervised_decode_config,
+        cv_dataset,
+        rasr_path=tools.RASR_PATH,
+        device="cpu",
+        corpus_key="train-other-960",
+        gmm_segment_ref=gmm_ref_job.out_ref,
+    )
+    tk.register_output(
+        f"guided_kmeans/{exp_dir}/per/{supervised_decode_name}_per", supervised_res.per
+    )
+    if supervised_res.per_gmm is not None:
+        tk.register_output(
+            f"guided_kmeans/{exp_dir}/per_gmm/{supervised_decode_name}_per",
+            supervised_res.per_gmm,
+        )
+    recog_results.append(supervised_res)
+    frame_acc_vars.append(supervised_frame_acc.out_error_rate)
+    latex_report.add_row(
+        result=supervised_res,
+        params={"lm": "ours-5gram", "sigma": "supervised", "seed": "-"},
+        epoch=None,
+        values={
+            "mi": supervised_mi.out_mi,
+            "frame_err": supervised_frame_acc.out_error_rate,
+        },
+    )
+
+    plain_report = create_report(recog_results)
+    for idx, (res, acc_var) in enumerate(zip(recog_results, frame_acc_vars), start=1):
+        if acc_var is not None:
+            plain_report.add_entry(
+                col="6 Frame err.", row=f"{idx}_{res.descriptor}", var=acc_var
+            )
     tk.register_report(
         f"guided_kmeans/{exp_dir}/recognition/report_{version}.txt",
-        values=create_report(recog_results),
+        values=plain_report,
         required=True,
     )
     latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_{version}.tex")

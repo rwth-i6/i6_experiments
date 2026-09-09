@@ -70,6 +70,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.constants import (
     GMM_ALIGNMENT_LS960_FRAME,
     COLLEAGUE_SEGMENT_FEATURES_LS960,
     PHONEME_LM_ZIJIAN_3GRAM,
+    GMM_SEGMENT_PHONEMES_LS960,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
     NormalTableJob,
@@ -100,7 +101,9 @@ from i6_experiments.example_setups.guided_kmeans.setup.latex_report import (
     clustering_statistics_per_epoch,
 )
 from i6_experiments.example_setups.guided_kmeans import tools
-from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
+from i6_experiments.example_setups.guided_kmeans.setup.score import (
+    GmmSegmentPhonemesReferenceJob,
+)
 
 exp_dir = "vq_unsupervised"
 version = 1
@@ -141,6 +144,7 @@ def build_vq_training(
     alias_prefix,
     num_workers=NUM_WORKERS,
     rqmt=None,
+    max_beam_size: int = BEAM_SIZE,
 ):
     """One unsupervised VQ run, as (recognition_config, ChunkedClusteringExpResult).
 
@@ -191,7 +195,7 @@ def build_vq_training(
         use_forward_backward_search=USE_FORWARD_BACKWARD,
         lm_order=LM_ORDER,
         use_eow_phonemes=USE_EOW_PHONEMES,
-        max_beam_size=BEAM_SIZE,
+        max_beam_size=max_beam_size,
         lm_path=lm_path,
     )
     flavor = vq_flavor(
@@ -226,7 +230,7 @@ def build_vq_training(
     return recognition_config, exp_result
 
 
-def build_decode_config(lm_path, decode_lm_scale, decode_loop_prob):
+def build_decode_config(lm_path, decode_lm_scale, decode_loop_prob, max_beam_size=BEAM_SIZE, forbid_blank=False):
     """The decode-side RASR config, shared for the same reason."""
     return create_recog_rasr_config(
         lm_scale=decode_lm_scale,
@@ -236,8 +240,9 @@ def build_decode_config(lm_path, decode_lm_scale, decode_loop_prob):
         silence_loop_probability=decode_loop_prob,
         lm_order=LM_ORDER,
         use_eow_phonemes=USE_EOW_PHONEMES,
-        max_beam_size=BEAM_SIZE,
+        max_beam_size=max_beam_size,
         lm_path=lm_path,
+        forbid_blank=forbid_blank,
     )
 
 
@@ -296,6 +301,12 @@ def run():
     cv_features = silence_free_cv_features()
     cv_features.add_alias(f"guided_kmeans/{exp_dir}/features_cv_nosil")
 
+    gmm_ref_job = GmmSegmentPhonemesReferenceJob(
+        gmm_hdf_files=GMM_SEGMENT_PHONEMES_LS960,
+        features_hdf=cv_features.out_features,
+        lexicon=lexicon,
+    )
+
     # ls-100h, segmented on the 960h frame alignment with silence dropped. The
     # alignment covers all 28,234 sequences frame for frame; only the corpus
     # prefix differs (train-clean-100 against train-other-960) and the job
@@ -329,7 +340,8 @@ def run():
     latex_report = LatexTableReport(
         columns=[
             "corpus", "lm", "sigma", "seed", "epoch",
-            "mi", "per", "del", "ins", "sub", "fer",
+            "mi", "per", "del", "ins", "sub",
+            "per_gmm", "del_gmm", "ins_gmm", "sub_gmm",
             "log_likelihood", "posterior_entropy", "dead_clusters",
         ],
         sort_by=["corpus", "lm", "sigma", "seed"],
@@ -389,7 +401,7 @@ def run():
                 )
 
             recognition_config_decode = build_decode_config(
-                lm_path, decode_lm_scale, decode_loop_prob
+                lm_path, decode_lm_scale, decode_loop_prob, forbid_blank=True
             )
             for recog_epoch in (0, num_epochs // 2, num_epochs):
                 decode_config = DecodeConfig(
@@ -409,17 +421,15 @@ def run():
                     rasr_path=tools.RASR_PATH,
                     device="cpu",
                     corpus_key="train-other-960",
+                    gmm_segment_ref=gmm_ref_job.out_ref,
                 )
-                if res.frame_labels is not None:
-                    res.fer = FrameErrorRateJob(
-                        res.frame_labels, GMM_ALIGNMENT_CV, lexicon
-                    ).out_fer
-                    tk.register_output(
-                        f"guided_kmeans/{exp_dir}/eval/{decode_name}_fer", res.fer
-                    )
                 tk.register_output(
                     f"guided_kmeans/{exp_dir}/per/{decode_name}_per", res.per
                 )
+                if res.per_gmm is not None:
+                    tk.register_output(
+                        f"guided_kmeans/{exp_dir}/per_gmm/{decode_name}_per", res.per_gmm
+                    )
                 recog_results.append(res)
                 latex_report.add_row(
                     result=res,
@@ -430,12 +440,7 @@ def run():
                     epoch=recog_epoch,
                     statistics=statistics,
                     values={
-                        k: v
-                        for k, v in (
-                            ("mi", diagnostics[recog_epoch].out_mi),
-                            ("fer", res.fer),
-                        )
-                        if v is not None
+                        "mi": diagnostics[recog_epoch].out_mi,
                     },
                 )
 

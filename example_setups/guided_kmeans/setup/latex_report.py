@@ -570,6 +570,29 @@ COLUMN_LIBRARY: dict = {
     # nothing in the pipeline computes a frame error rate yet; pass one in per row via
     # add_row(values={"fer": ...}) and this column will pick it up
     "fer": lambda: Column("fer", _percent("FER"), _from_value("fer"), fmt="{:.1f}", block="score"),
+    # LM-free frame cluster error rate: fraction of non-silence frames where the
+    # model's MAP assignment c*_x = argmax_c p(c)*table[c,x] does NOT match the
+    # GMM label.  Pass via add_row(values={"frame_err": FrameClusterAccuracyJob(...).out_error_rate}).
+    "frame_err": lambda: Column(
+        "frame_err", _percent("Frame err."), _from_value("frame_err"),
+        fmt="{:.1f}", scale=100, block="score",
+    ),
+    # GMM-alignment reference: PER and edit rates measured against the forced-alignment
+    # phoneme sequence rather than the text+lexicon transcription. Set when
+    # decode_and_score receives gmm_segment_ref.
+    "per_gmm": lambda: score("per_gmm", _percent("PER (GMM-ali)"), fmt="{:.1f}"),
+    "del_gmm": lambda: Column(
+        "del_gmm", _percent("Del (GMM-ali)"), _from_result("deletion_gmm"),
+        fmt="{:.1f}", scale=100, block="score",
+    ),
+    "ins_gmm": lambda: Column(
+        "ins_gmm", _percent("Ins (GMM-ali)"), _from_result("insertion_gmm"),
+        fmt="{:.1f}", scale=100, block="score",
+    ),
+    "sub_gmm": lambda: Column(
+        "sub_gmm", _percent("Sub (GMM-ali)"), _from_result("substitution_gmm"),
+        fmt="{:.1f}", scale=100, block="score",
+    ),
     # scores of the guiding recognition itself, over the clustering corpus, as
     # produced by chunked_clustering(score_reference=...). Fill them in with
     # add_row(values=exp_result.guided_score_row(epoch)). Same units as the
