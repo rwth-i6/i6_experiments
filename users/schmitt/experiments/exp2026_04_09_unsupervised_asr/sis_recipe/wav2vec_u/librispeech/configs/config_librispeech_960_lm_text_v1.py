@@ -12,6 +12,7 @@ from i6_experiments.common.setups.serialization import Import, PartialImport
 
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.serialization import Collection
+from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
 from ....train_exp import run_experiment
 from ..data.common import build_training_datasets_w_lm_text, build_test_datasets
@@ -179,22 +180,25 @@ wav2vec_u_optimizer_class = Import(
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
-    run_experiment(
-        training_name=f"{prefix_name}/baseline",
-        config=copy.deepcopy(base_config),
-        train_data=train_data,
-        test_data_dict=test_data_dict,
-        keep_epochs=get_keep_epochs(base_num_epochs),
-        # wav2vec-U recognition options (no beam search; audio features -> phoneme argmax). Only used
-        # when recognition is enabled (skip_eval below).
-        decoder_config=DecoderConfig(),
-        # GAN stage only: no ASR recognition/scoring here (fairseq selects a checkpoint via an
-        # unsupervised metric, done separately).
-        # skip_eval=True,
-        additional_configs=[
-            ReturnnConfig(
-                config={},
-                python_prolog=[Collection([wav2vec_u_optimizer_class, wav2vec_u_param_groups])],
-            )
-        ],
-    )
+    for random_seed in (None, 1234, 2345, 3456, 4567):
+        run_experiment(
+            training_name=f"{prefix_name}/baseline{('_seed-' + str(random_seed)) if random_seed is not None else ''}",
+            config=dict_update_deep(
+                copy.deepcopy(base_config), {**({"training.random_seed": random_seed} if random_seed else {})}
+            ),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # wav2vec-U recognition options (no beam search; audio features -> phoneme argmax). Only used
+            # when recognition is enabled (skip_eval below).
+            decoder_config=DecoderConfig(),
+            # GAN stage only: no ASR recognition/scoring here (fairseq selects a checkpoint via an
+            # unsupervised metric, done separately).
+            # skip_eval=True,
+            additional_configs=[
+                ReturnnConfig(
+                    config={},
+                    python_prolog=[Collection([wav2vec_u_optimizer_class, wav2vec_u_param_groups])],
+                )
+            ],
+        )
