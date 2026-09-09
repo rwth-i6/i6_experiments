@@ -42,12 +42,14 @@ class JobFailureHandler:
         self.failed_hosts = {}  # hostname -> most recent failure time
 
     def __call__(self, job: Job):
-        # Filter out jobs. Currently only ReturnnTrainingJob on GPU with a specific GPU error.
-        if isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2)) and job.rqmt["gpu"] > 0:
-            if not _is_returnn_cuda_error(_get_returnn_log_filename(job)):
-                return  # do nothing
-        else:
+        # Filter out jobs. Only RETURNN jobs on GPU, and only known bad-host error patterns.
+        if not (isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2)) and job.rqmt["gpu"] > 0):
             return  # do nothing
+        spawn_failure_host = None
+        if not _is_returnn_cuda_error(_get_returnn_log_filename(job)):
+            spawn_failure_host = _get_psslurm_spawn_failure_host(job)
+            if not spawn_failure_host:
+                return  # do nothing
 
         # Register failure.
         try:
@@ -55,9 +57,13 @@ class JobFailureHandler:
         except _FailedTaskNotFoundError:
             print(f"{job} failed but no failed task found, maybe already cleaned, skipping...")
             return
-        usage_file = task.get_process_logging_path(task_id)
-        last_usage = literal_eval(open(usage_file).read())
-        failed_host = last_usage["host"]
+        if spawn_failure_host:
+            # The process never started on the node, so there is no usage file.
+            failed_host = spawn_failure_host
+        else:
+            usage_file = task.get_process_logging_path(task_id)
+            last_usage = literal_eval(open(usage_file).read())
+            failed_host = last_usage["host"]
         print(f"{job} failed on {failed_host}, excluding host, clearing error...")
         self._clean_failed_hosts()
         self.failed_hosts[failed_host] = time.time()
@@ -129,6 +135,40 @@ def _is_returnn_cuda_error(log_filename: str) -> bool:
         if line.startswith(b"ERROR: torch.cuda.is_available(): Timeout handler"):
             return True
     return False
+
+
+def _get_psslurm_spawn_failure_host(job: Job) -> Optional[str]:
+    """
+    Detect the psslurm/PSI "black-hole node" pattern (seen on JUPITER):
+    the job lands on a node where the PSI forwarder immediately fails to spawn the process
+    ("PSI: doSpawn: ... failed", "Could not spawn ... Invalid argument"),
+    so RETURNN never starts (no usage file, often not even a log.run.N),
+    and resubmits tend to land on the same node again, burning the whole retry budget.
+    The spawn error is only in the engine stderr log;
+    the failing hostname only in the corresponding .batch log ("srun: error: <host>: task ...").
+
+    :return: failing hostname, or None if this does not look like such a failure
+    """
+    import glob
+    import re
+
+    engine_dir = job._sis_path() + "/engine"
+    if not os.path.isdir(engine_dir):
+        return None
+    stderr_logs = [fn for fn in glob.glob(engine_dir + "/*") if not fn.endswith(".batch")]
+    if not stderr_logs:
+        return None
+    newest = max(stderr_logs, key=os.path.getmtime)
+    with open(newest, "rb") as f:
+        content = f.read(10_000)
+    if b"PSI: doSpawn:" not in content and b"Could not spawn" not in content:
+        return None
+    batch_log = newest + ".batch"
+    if not os.path.exists(batch_log):
+        return None
+    with open(batch_log, "rb") as f:
+        m = re.search(rb"srun: error: (\S+): task", f.read(10_000))
+    return m.group(1).decode("utf-8") if m else None
 
 
 class _FailedTaskNotFoundError(Exception):
