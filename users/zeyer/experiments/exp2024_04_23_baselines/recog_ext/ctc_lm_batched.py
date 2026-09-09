@@ -227,9 +227,12 @@ def ctc_recog_recomb_labelwise_prior_auto_scale_batched(
     recog_config = {
         **base_config,
         "beam_size": first_pass_recog_beam_size,
-        # Beam-scaled batch size, as in the non-batched pipeline.
+        # Beam-scaled batch size, as in the non-batched pipeline,
+        # but 4x its 20k base: that was fitted to 11 GB GPUs,
+        # and on the 96 GB GH200s the eager frame loop is launch-latency-bound,
+        # so a wider batch amortizes the per-frame kernel launches.
         "batch_size": int(
-            20_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+            80_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
         ),
     }
     score = _combined_recog_batched(
