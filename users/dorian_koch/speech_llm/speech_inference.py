@@ -36,6 +36,116 @@ from .inference_harness import (
 from .moshi_client import MoshiFileClient, _ws_url, moshi_server
 
 
+#: The trainer's default checkpoint cadence. ``finetune.py``'s config template renders 500 when a run
+#: does not override ``save_every``; this is the ONE copy the graph-build guard below and
+#: ``attach_knowledge_evals`` validate against (``quick_knowledge_eval`` re-exports it).
+SAVE_EVERY = 500
+
+#: Overlay kinds stored as ``run_dir/checkpoints/checkpoint_<step>/`` -- the layout ``run_training``
+#: writes at every ``save_every`` multiple and at ``max_steps``. PersonaPlex heads live elsewhere.
+CHECKPOINT_DIR_KINDS = ("lora", "full", "audex_stage0")
+
+
+def impossible_checkpoint_reason(step, *, max_steps, save_every: int = SAVE_EVERY):
+    """Why ``step`` can NEVER be a checkpoint of a run that stops at ``max_steps`` and saves every
+    ``save_every`` -- or ``None`` when it can.
+
+    The trainer writes ``checkpoint_<step>`` at every positive multiple of ``save_every`` and at
+    ``max_steps`` itself (the final save in ``run_training``), and nothing else. ``step=None`` names
+    the latest checkpoint and is always possible. ``max_steps=None`` is a run sized at RUN time
+    (``num_epochs``), so its end is unknowable here and only the cadence rule applies.
+
+    One rule, two callers: ``attach_knowledge_evals`` applies it to a whole track when the track is
+    declared, and ``assert_checkpoint_will_exist`` applies it to every single checkpoint reference
+    the graph mints, whichever path built it.
+    """
+    if step is None:
+        return None
+    if not (step > 0 and step % save_every == 0) and step != max_steps:
+        return (
+            f"is not a checkpoint -- must be a positive multiple of save_every={save_every}, "
+            f"or max_steps ({max_steps}) itself"
+        )
+    if max_steps is not None and step > max_steps:
+        return (
+            f"is past the end of the run (max_steps={max_steps}); that checkpoint will never exist "
+            f"and its eval job would fail"
+        )
+    return None
+
+
+def expected_checkpoint_glob(run_dir: str, overlay_kind: str, step) -> str:
+    """Where ``ResolveOverlayCheckpoint.run`` will look for ``step`` of ``overlay_kind`` -- as a glob,
+    so ``step=None`` (latest) matches any checkpoint. Kept next to the resolver so the two cannot
+    disagree about the layout."""
+    if overlay_kind in CHECKPOINT_DIR_KINDS:
+        name = "checkpoint_*" if step is None else f"checkpoint_{step:06d}"
+        return os.path.join(run_dir, "checkpoints", name)
+    name = "trained_heads.safetensors" if step is None else f"trained_heads.step{step}.safetensors"
+    return os.path.join(run_dir, "consolidated", name)
+
+
+def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> None:
+    """Graph-build guard (user request, 2026-09-09): an eval must never be wired to a checkpoint
+    that cannot arrive. Refuse it HERE, on the login node while the manager loads the config, not
+    hours later in a job that has already allocated a GPU -- or, worse, never at all.
+
+    Sisyphus waits on input *paths*, not input jobs: a job whose input lives under a run that has
+    already FINISHED without writing it is not an error to the manager, it is merely "waiting", and
+    it waits forever with the graph looking healthy. Two earlier incidents were the milder, visible
+    form of the same mistake (a8-4gpu's track named steps past the run's end, a11_full's named
+    steps its 1250 cadence never wrote; both failed in ``run()`` after the graph had accepted them).
+
+    Three sources of truth, strongest first:
+
+    1. **The disk.** If the checkpoint is already there, it exists -- whatever the rules below think.
+    2. **The run's state.** If the run has finished (its ``finished`` marker is written, or a
+       creator-less ``run_dir`` already exists on disk) and the checkpoint is not there, it never
+       will be. Fail, naming what the run *did* write.
+    3. **The run's declared shape.** For a run still to come, its ``hparams`` (``max_steps``,
+       ``save_every``) say which steps the trainer will save; ``impossible_checkpoint_reason`` is
+       the rule. Only for the ``checkpoints/checkpoint_<step>`` layouts -- the PersonaPlex heads
+       cadence is not declared this way, so it gets (1) and (2) only.
+
+    Reads the creator's finished marker directly (``sisyphus.job.job_finished``) rather than calling
+    ``Job._sis_finished()``, which is rate-limited and recurses into runnability checks.
+    """
+    import glob
+
+    from sisyphus.job import job_finished
+
+    run_path = run_dir.get_path()
+    pattern = expected_checkpoint_glob(run_path, overlay_kind, step)
+    if glob.glob(pattern):
+        return
+    creator = run_dir.creator
+    if creator is None:
+        finished = os.path.isdir(run_path)
+    else:
+        finished = job_finished(creator._sis_path())
+    if finished:
+        parent = os.path.dirname(pattern)
+        have = sorted(os.listdir(parent)) if os.path.isdir(parent) else f"no {os.path.basename(parent)}/ at all"
+        raise AssertionError(
+            f"{os.path.basename(pattern)} of {run_path} will never exist: the run has already "
+            f"finished and did not write it (it wrote {have}). An eval wired to it would wait "
+            f"forever without ever showing as an error. Fix the step list / save_every of the "
+            f"caller, or the run's overlay_kind ({overlay_kind!r}) if the layout is wrong."
+        )
+    hparams = getattr(creator, "hparams", None)
+    if step is not None and overlay_kind in CHECKPOINT_DIR_KINDS and isinstance(hparams, dict):
+        reason = impossible_checkpoint_reason(
+            step,
+            max_steps=hparams.get("max_steps"),
+            save_every=int(hparams.get("save_every", SAVE_EVERY)),
+        )
+        assert reason is None, (
+            f"checkpoint step {step} of {run_path} {reason}. The run has not finished yet, but its "
+            f"declared shape already rules this step out -- the eval would fail after the run, on a "
+            f"missing file, or wait forever."
+        )
+
+
 class ResolveOverlayCheckpoint(Job):
     """Resolve a finetune ``run_dir`` to the overlay file(s) the offline driver loads on top
     of the base model.
@@ -50,6 +160,9 @@ class ResolveOverlayCheckpoint(Job):
 
     def __init__(self, *, run_dir: tk.Path, overlay_kind: str = "lora", step: int | None = None):
         assert overlay_kind in ("lora", "personaplex_heads", "audex_stage0", "full"), overlay_kind
+        # Every checkpoint reference in the graph is minted here, so this is the one place a
+        # never-to-exist step can be refused at graph build. Not hashed (no new argument).
+        assert_checkpoint_will_exist(run_dir, overlay_kind, step)
         self.run_dir = run_dir
         self.overlay_kind = overlay_kind
         self.step = step  # None -> latest (lora) / final consolidated (personaplex)

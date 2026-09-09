@@ -55,6 +55,8 @@ from .knowledge_benchmark import (
     MOSHI_BACKEND,
 )
 from .result_notify import notify_result
+from .speech_inference import SAVE_EVERY as _SAVE_EVERY
+from .speech_inference import impossible_checkpoint_reason
 
 # Defaults chosen so a single eval is small enough to finish in a few minutes on one GPU but large
 # enough that a real collapse (base ~18% -> ~9%) clears the sampling noise of ~sqrt(p(1-p)/n).
@@ -310,9 +312,10 @@ def quick_knowledge_eval_py(
 #: How many checkpoints a derived track measures, final one included.
 DEFAULT_EVAL_POINTS = 4
 
-#: ``save_every`` as ``finetune.py`` renders it. Not per-run: all three adapter renderers emit the
-#: literal 500, so intermediate checkpoints only ever exist at multiples of this.
-SAVE_EVERY = 500
+#: ``save_every`` as ``finetune.py`` renders it when a run does not override it. Owned by
+#: ``speech_inference`` (next to the graph-build checkpoint guard) and re-exported here so the two
+#: validators cannot disagree about the cadence.
+SAVE_EVERY = _SAVE_EVERY
 
 #: A step of ``None`` means "whatever the latest checkpoint is when this job runs" --
 #: ``ResolveOverlayCheckpoint(step=None)`` resolves it. This is the ONLY way to name the final
@@ -405,16 +408,10 @@ def attach_knowledge_evals(
         )
     )
     for s in steps:
-        if s is LATEST:
-            continue
-        assert s > 0 and s % save_every == 0 or s == max_steps, (
-            f"{run_tag}: track step {s} is not a checkpoint -- must be a positive multiple of "
-            f"save_every={save_every}, or max_steps ({max_steps}) itself"
-        )
-        assert max_steps is None or s <= max_steps, (
-            f"{run_tag}: track step {s} is past the end of the run (max_steps={max_steps}); "
-            f"that checkpoint will never exist and its eval job would fail"
-        )
+        # The same rule ResolveOverlayCheckpoint applies to every checkpoint reference it mints;
+        # applying it here too names the TRACK in the message rather than one resolved path.
+        reason = impossible_checkpoint_reason(s, max_steps=max_steps, save_every=save_every)
+        assert reason is None, f"{run_tag}: track step {s} {reason}"
     handles = {}
     for step in steps:
         step_tag = f"{run_tag}_s{step}" if step is not None else f"{run_tag}_final"
