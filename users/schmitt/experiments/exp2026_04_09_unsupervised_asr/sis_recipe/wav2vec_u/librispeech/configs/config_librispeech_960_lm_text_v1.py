@@ -23,6 +23,8 @@ from .....models.recognition.wav2vec_u.decoder_config import DecoderConfig
 def get_keep_epochs(num_epochs: int) -> List[int]:
     if num_epochs == 15:
         return [5, 10, 15]
+    if num_epochs == 90:
+        return [10, 20, 30, 40, 50, 60, 70, 80, 90]
 
     raise ValueError(f"num_epochs: {num_epochs}")
 
@@ -40,9 +42,18 @@ test_data_dict = build_test_datasets()
 num_gpus = 1
 
 # fairseq wav2vec-U trains for max_update=150000 optimizer steps (config/gan/w2vu.yaml), not epochs.
-# 1 sub-epoch with partition_epoch 1 takes approximately 30 minutes and does 10k steps
-# -> we want to do 150k steps like the wav2vec-u paper -> 10k * 15 = 150k
-base_num_epochs = 15
+# A batch is `max_seqs=320` rows split ~half/half by the CombinedDataset's interleave (the text
+# sub-dataset's `partition_epoch` keeps the two branches the same size), so one pass over the 266_927
+# audio utts is ~1_669 optimizer steps and fairseq's 150k updates are ~90 of our sub-epochs.
+# (fairseq's own 150k x batch_size 160 / 281k utts is likewise ~85 passes, so the two agree.)
+#
+# This used to say "10k steps/epoch x 15 = 150k". Those 10k were an artifact of
+# `torch_dataloader_opts.num_workers = 6`: RETURNN's torch dataloader workers do not shard, so each
+# of the 6 replayed the whole sub-epoch and every batch drove 6 consecutive optimizer updates --
+# ~1_669 distinct batches, not 10k (see data/common.py and CLAUDE.md). With num_workers=1 the
+# logged steps are the real ones, so reaching 150k needs 90 epochs. Measured on the sibling baseline
+# (`ReturnnTrainingJob.JzhMacHWPZrj`, 90 ep): 1_669 steps/epoch, ~8 min/epoch, 12:12 h total.
+base_num_epochs = 90
 
 # fairseq w2vu.yaml GAN hyperparameters (model: wav2vec_u). Our phoneme vocab has no dedicated pad, so
 # we append one extra output class as the pad index (real phonemes 0..V-1 are never masked as pad).
@@ -63,7 +74,10 @@ base_config = {
         "time_rqmt": 24,
     },
     "general": {
-        "torch_dataloader_opts": {"num_workers": 6},  # fairseq dataset.num_workers: 6
+        "torch_dataloader_opts": {"num_workers": 1},  # MUST stay 1, see data/common.py
+        # (fairseq's dataset.num_workers: 6 is reproduced by the audio branch's MultiProcDataset,
+        #  whose loader shards; RETURNN's torch dataloader workers do not and would replay each
+        #  batch num_workers times)
         "behavior_version": 25,
         "default_data_key": "data",  # 512-dim speech features (fairseq task.data)
         "default_target_key": "phon_indices",  # unpaired phoneme text (fairseq task.text_data)
