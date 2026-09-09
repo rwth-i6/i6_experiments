@@ -64,7 +64,10 @@ def train_step(
 
     # --- the speech-feature rows and the text rows of this (mixed) batch ---
     features_: ReturnnTensor = extern_data[features_key]
-    features_all: torch.Tensor = features_.raw_tensor  # [B, T_d, F]
+    # .float(): RETURNN hands us whatever dtype the feature HDF holds (raw_dict_to_extern_data
+    # overwrites the extern_data template's dtype), and the encoder-feature dumps are float16 to
+    # halve their size. No-op for the float32 wav2vec features.
+    features_all: torch.Tensor = features_.raw_tensor.float()  # [B, T_d, F]
     features_lens_all: torch.Tensor = features_.dims[1].dyn_size_ext.raw_tensor  # [B]
     device = features_all.device
 

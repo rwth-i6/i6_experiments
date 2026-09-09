@@ -34,7 +34,9 @@ def forward_step(
 
     Extra ``forward_init_args`` from the shared eval pipeline (e.g. ``beam_size``) are ignored.
     """
-    features = extern_data[input_data_key].raw_tensor  # [B, T, F]
+    # .float(): the encoder-feature dumps are stored as float16 (see dump_features.py); RETURNN
+    # passes the stored dtype through. No-op for the float32 wav2vec features.
+    features = extern_data[input_data_key].raw_tensor.float()  # [B, T, F]
     seq_len = extern_data[input_data_key].dims[1].dyn_size_ext.raw_tensor.to(device=features.device)
     B, T = features.shape[0], features.shape[1]
     device = features.device
