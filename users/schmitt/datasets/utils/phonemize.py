@@ -360,7 +360,9 @@ class ExtendLexiconWithG2PJob(Job):
         self.out_num_new_words = self.output_var("num_new_words")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 1})
+        # g2p_en does ~1 ms/word (measured, 0.9 ms/word on 300 OOV words), so even the ~600k OOV types of the
+        # 33M-line LM corpus fit; the time mostly goes into reading/normalizing the text.
+        yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 4})
 
     def run(self):
         script = os.path.join(os.getcwd(), "g2p_oov_words.py")
@@ -442,7 +444,9 @@ def main():
     failed = []
     for word in oov_words:
         phonemes = [re.sub(r"\d", "", p) for p in g2p(word)]
-        phonemes = [p for p in phonemes if p.strip()]
+        # g2p_en emits a stray "'" token (plus a blank) for words with a trailing apostrophe ("says'" ->
+        # S EH1 Z ' ), which is no phoneme of any inventory; drop it together with the blanks.
+        phonemes = [p for p in phonemes if p.strip() and p != "'"]
         if not phonemes or any(p not in known_phonemes for p in phonemes):
             failed.append((word, phonemes))
             continue
