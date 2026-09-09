@@ -372,7 +372,12 @@ def py():
 
 
 def _loq_chunk_align_dataset(
-    base_model, *, base_aux_ctc_layer: int, target_mode: str, train_seq_ordering: str = "laplace:.1000"
+    base_model,
+    *,
+    base_aux_ctc_layer: int,
+    target_mode: str,
+    train_seq_ordering: str = "laplace:.1000",
+    devtrain_subset: Optional[int] = None,
 ):
     """The full ~25k h Loquacious ChunkAlignDataset, byte-identical to the FZJ full-train wiring.
 
@@ -390,7 +395,13 @@ def _loq_chunk_align_dataset(
     aug_vocab = {"class": "Vocabulary", "vocab_file": aug_vocab_file, "unknown_label": None}
 
     align_hdfs = _loq_align_hdfs(
-        base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=None, keys=("dev",)
+        base_model,
+        num_shards=8,
+        aux_ctc_layer=base_aux_ctc_layer,
+        # the devtrain eval needs a plain train-subset alignment (the full-train align is co-sharded);
+        # same subset mechanism as the audio side, so both cover the same seqs
+        subset_seqs=devtrain_subset,
+        keys=("dev", "train") if devtrain_subset else ("dev",),
     )
     chunk_data_kw: Dict[str, Any] = dict(
         train_main_key="train",
@@ -406,6 +417,7 @@ def _loq_chunk_align_dataset(
     dataset = ChunkAlignDataset(
         oggzip=_LoqAudioProvider(train_subset_seqs=None),
         alignment_hdfs=align_hdfs,
+        devtrain_subset=devtrain_subset,
         vocab_ext_dim_int=vocab_size + 1,
         blank_idx=vocab_size,
         chunk_size=_CHUNK_SIZE,

@@ -188,6 +188,7 @@ class ChunkAlignDataset(DatasetConfig):
         train_main_key: str = "train",
         dev_main_key: str = "dev-other",
         eval_subset: Optional[int] = None,
+        devtrain_subset: Optional[int] = None,
         aug_vocab: Optional[Dict[str, Any]] = None,
         train_mpd_num_workers: Optional[int] = None,
         mpd_buffer_size: int = 10,
@@ -198,6 +199,10 @@ class ChunkAlignDataset(DatasetConfig):
     ):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
+        :param devtrain_subset: if set, add a "devtrain" eval dataset:
+            this many train seqs under eval conditions;
+            the dev-vs-devtrain gap is the overfitting measure.
+            Needs ``alignment_hdfs["train"]`` covering the same seqs.
         :param alignment_hdfs: ``{main_key: forced-align out.hdf}`` (must cover train + dev keys);
             the value may be a single HDF path or a list of shard HDF paths (loaded as one HDFDataset).
         :param vocab_ext_dim_int: extended vocab size (spm vocab + 1).
@@ -222,6 +227,7 @@ class ChunkAlignDataset(DatasetConfig):
         self.target_mode = target_mode
         self.train_main_key = train_main_key
         self.dev_main_key = dev_main_key
+        self.devtrain_subset = devtrain_subset
         self.eval_subset = eval_subset
         self.aug_vocab = aug_vocab  # RETURNN vocab opts for the target; train_v4 requires a vocab
         # if set, wrap the train MetaDataset in MPD for parallel OggZip decode (the heavy data work):
@@ -365,7 +371,13 @@ class ChunkAlignDataset(DatasetConfig):
         return self._wrap(self.train_main_key, training=True)
 
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
-        return {"dev": self._wrap(self.dev_main_key, training=False, subset=self.eval_subset)}
+        d = {"dev": self._wrap(self.dev_main_key, training=False, subset=self.eval_subset)}
+        if self.devtrain_subset:
+            # held-in train subset under eval conditions:
+            # the dev-vs-devtrain gap is the overfitting measure
+            # (train_loss is under dropout/specaug, not comparable)
+            d["devtrain"] = self._wrap(self.train_main_key, training=False, subset=self.devtrain_subset)
+        return d
 
     def get_main_name(self) -> str:
         return self.train_main_key

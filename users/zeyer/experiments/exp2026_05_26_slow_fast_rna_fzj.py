@@ -217,6 +217,12 @@ class _LoqAudioProvider:
 
     def get_dataset(self, main_key: str, *, training: bool, subset: Optional[int] = None) -> Dict[str, Any]:
         subset_seqs = self._train_subset_seqs if main_key == "train" else None
+        if subset is not None and main_key == "train" and not training:
+            # devtrain eval: a fixed train subset,
+            # selected by the same _loq_dataset_config mechanism the forced-align jobs use,
+            # so audio and alignment cover the same seqs.
+            # Dev keys keep their full eval sets (comparability with earlier runs).
+            subset_seqs = subset
         return _loq_dataset_config(main_key, subset_seqs=subset_seqs).main_dataset
 
 
