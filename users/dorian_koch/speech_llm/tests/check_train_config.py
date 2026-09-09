@@ -33,6 +33,8 @@ from speech_llm.full_duplex.sis_recipe.doriank.train_config import (  # noqa: E4
     Loss,
     Optim,
     Probe,
+    TextStream,
+    _HParams,
     merge_hparams,
 )
 
@@ -124,6 +126,50 @@ def check_merge_order():
     print("PASS  later config objects override earlier ones")
 
 
+def check_every_declared_key_is_rendered():
+    """A knob a config object can emit must actually reach a rendered config template.
+
+    ``check_launcher_config_reads.py`` guards the second half of the chain -- every key a template
+    RENDERS is read by its launcher -- and nothing guarded the first half, so a knob could be
+    declared, hashed, set by a run, and then silently dropped on the floor.
+
+    That is not hypothetical. On 2026-09-09 ``TextStream(emit_epad=...)`` lowered correctly into
+    ``hparams`` and re-hashed three arms, but ``finetune.py``'s template renders a FIXED key list and
+    had no line for it. All three A21 arms were queued with a config identical to their control's:
+    they would have run for 9 GPU-h and produced a null result that meant nothing, and the null would
+    have looked like a real answer to "does EPAD matter?".
+    """
+    import re
+
+    src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
+    # Keys as they appear in a rendered YAML template: `<key>: {...}` at the start of a line.
+    rendered = set(re.findall(r"^([a-z_][a-z0-9_]*):", src, re.MULTILINE))
+
+    declared: dict[str, str] = {}
+    for cls in _HParams.__subclasses__():
+        for field_name, key in cls._KEYS.items():
+            declared[key] = f"{cls.__name__}.{field_name}"
+
+    # Two declared keys are deliberately NOT config-file keys: Compute lowers to the job's SLURM
+    # `rqmt`, which is read by the Sisyphus engine, never written into config.yaml. Exempted by name
+    # with the reason, and the exemption is itself checked below so it cannot quietly grow.
+    RQMT_KEYS = {"gpu", "rqmt_time_h"}
+    for key in RQMT_KEYS:
+        assert key in declared, f"{key!r} is exempted as an rqmt key but nothing declares it any more"
+    assert not (RQMT_KEYS & rendered), (
+        f"{RQMT_KEYS & rendered} is rendered into a config template after all -- drop the exemption "
+        f"rather than leaving a real key unchecked"
+    )
+
+    missing = {k: v for k, v in declared.items() if k not in rendered and k not in RQMT_KEYS}
+    assert not missing, (
+        f"declared but never rendered into a config: {missing}. A run can set these, they change "
+        f"the job's hash, and the launcher never sees them -- so the arm trains as a copy of its "
+        f"control while claiming to test something."
+    )
+    print(f"PASS  all {len(declared)} declared hparam keys reach a rendered config template")
+
+
 if __name__ == "__main__":
     check_unset_fields_are_absent()
     check_probe_data_is_not_an_hparam()
@@ -131,4 +177,5 @@ if __name__ == "__main__":
     check_presets_match_the_launcher_defaults_they_mirror()
     check_arch_default_does_not_leak_into_old_runs()
     check_merge_order()
+    check_every_declared_key_is_rendered()
     print("ALL PASS")
