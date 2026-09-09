@@ -1,4 +1,4 @@
-from .common import job_progress_fraction, run_worker_script
+from .common import job_progress_fraction, merge_hf_parts, run_worker_script, run_worker_script_per_gpu
 from .finetune import (
     MOSHI_ADAPTER,
     finetune_completed_fraction,
@@ -111,13 +111,27 @@ class MoshiAnnotate(Job):
         existing = os.environ.get("PYTHONPATH")
         pythonpath = f"{package_base_dir}{os.pathsep}{existing}" if existing else package_base_dir
 
-        run_worker_script(
+        # Per-GPU fan-out (backlog G1): contiguous sub-shards of this job's shard, one annotated
+        # part per worker, concatenated in order (row order identical to a single worker's) with
+        # the stats.json counters summed.
+        out_hf = self.out_hf.get()
+
+        def args_for(k, n):
+            a = list(args)
+            if n > 1:
+                a += ["--sub_shard", k, "--sub_num_shards", n]
+                a[a.index("--out_dir") + 1] = f"{out_hf}.part{k}"
+            return a
+
+        n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
             moshi_annotate_path,
-            args,
+            args_for,
             log_label="Moshi annotate",
             extra_env={"PYTHONPATH": pythonpath},
         )
+        if n > 1:
+            merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
 
 
 class SplitAnnotatedDataset(Job):

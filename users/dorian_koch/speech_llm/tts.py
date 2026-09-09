@@ -2,7 +2,13 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import subprocess
-from .common import add_cuda_npp_to_env, job_progress_fraction, run_worker_script
+from .common import (
+    merge_hf_parts,
+    run_worker_script_per_gpu,
+    add_cuda_npp_to_env,
+    job_progress_fraction,
+    run_worker_script,
+)
 import json
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 
@@ -266,13 +272,31 @@ class ChatterboxInference(Job):
                 InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
 
-        run_worker_script(
+        # Per-GPU fan-out (backlog G1): each worker takes a contiguous sub-shard of this job's
+        # shard and writes its own out_hf part; the parts are concatenated in order, so the merged
+        # dataset is row-for-row what one worker would have written. The legacy per-dialogue
+        # out_dir layout indexes dialogues by their number, which the sub-shards would collide
+        # on, so a job that registers out_dir stays single-worker.
+        out_hf = self.out_hf.get()
+
+        def args_for(k, n):
+            a = list(args)
+            if n > 1:
+                a += ["--sub_shard", k, "--sub_num_shards", n]
+                a[a.index("--out_hf") + 1] = f"{out_hf}.part{k}"
+                a[a.index("--out_dir") + 1] = os.path.join(work_dir, f"gpu{k}")
+            return a
+
+        n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
             tts_script_path,
-            args,
+            args_for,
             log_label="Chatterbox inference",
             env_hook=env_hook,
+            max_gpus=None if self.out_dir is None else 1,
         )
+        if n > 1:
+            merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
 
 
 class ParlerTTSInference(Job):

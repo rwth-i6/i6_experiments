@@ -319,6 +319,14 @@ def main():
         help="If --in_hf is provided and the dataset is sharded, provide the total number of shards. If not provided, will assume the dataset is not sharded",
     )
     parser.add_argument(
+        "--sub_shard",
+        type=int,
+        required=False,
+        help="Per-GPU fan-out INSIDE the --in_hf_shard (backlog G1): this worker's index among --sub_num_shards. "
+        "A contiguous slice, so dialogue ids, seeds and output row order are identical to a single worker's.",
+    )
+    parser.add_argument("--sub_num_shards", type=int, required=False)
+    parser.add_argument(
         "--out_dir",
         type=str,
         required=True,
@@ -382,9 +390,24 @@ def main():
         if args.in_hf_shard is not None and args.in_hf_num_shards is not None:
             dataset = dataset.shard(num_shards=args.in_hf_num_shards, index=args.in_hf_shard)
             print(f"Using shard {args.in_hf_shard} of {args.in_hf_num_shards}")
+        id_base = 0
+        if args.sub_shard is not None and args.sub_num_shards is not None:
+            # Per-GPU fan-out inside the Sisyphus shard: a CONTIGUOUS slice (the same cut as
+            # datasets' shard(contiguous=True)), so the global dialogue number -- which names the
+            # output dir, seeds the TTS and becomes the row id -- is what a single worker would
+            # have used, and the job's part-concatenation reproduces its row order exactly.
+            div, mod = divmod(len(dataset), args.sub_num_shards)
+            id_base = args.sub_shard * div + min(args.sub_shard, mod)
+            end = id_base + div + (1 if args.sub_shard < mod else 0)
+            dataset = dataset.select(range(id_base, end))
+            print(f"Using sub-shard {args.sub_shard} of {args.sub_num_shards}: rows [{id_base}, {end})")
+            assert len(dataset) > 0, (
+                f"sub-shard {args.sub_shard}/{args.sub_num_shards} is empty -- fewer dialogues than GPUs; "
+                f"the job must cap its fan-out at the row count"
+            )
         total_dialogues = len(dataset)
         _write_progress(0, total_dialogues)
-        for i, example in enumerate(dataset):
+        for i, example in enumerate(dataset, start=id_base):
             print(f"Processing dialogue {i}...")
             dialogue = json.loads(example["dialogue"])
             if isinstance(dialogue, dict):
@@ -404,7 +427,7 @@ def main():
                 passthrough=passthrough,
             )
             last_diag_id = i
-            _write_progress(i + 1, total_dialogues)
+            _write_progress(i + 1 - id_base, total_dialogues)
     else:
         with open(args.in_jsonl, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
@@ -431,7 +454,7 @@ def main():
         print(f"Saving output in Hugging Face dataset format to {args.out_hf}...")
 
         def gen():
-            for i in range(last_diag_id + 1):
+            for i in range(id_base, last_diag_id + 1):
                 dialogue_dir = os.path.join(args.out_dir, f"dialogue_{i}")
                 metadata_path = os.path.join(dialogue_dir, "metadata.json")
                 if not os.path.exists(metadata_path):

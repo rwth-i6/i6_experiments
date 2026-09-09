@@ -74,7 +74,12 @@ def main():
     parser.add_argument("--out_json", required=True, help="Output transcriptions jsonl path")
     parser.add_argument("--model_size", default="large-v3-turbo", help="Whisper model size")
     parser.add_argument("--batch_size", type=int, default=24, help="Batch size for faster-whisper internal chunking")
+    parser.add_argument(
+        "--shard", type=int, default=None, help="per-GPU fan-out (backlog G1): clips i with i %% num_shards == shard"
+    )
+    parser.add_argument("--num_shards", type=int, default=None)
     args = parser.parse_args()
+    mine = (lambda i: True) if args.num_shards is None else (lambda i: i % args.num_shards == args.shard)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
@@ -86,12 +91,15 @@ def main():
 
     # Examples that actually have a Moshi response wav, in dataset order.
     clips = open_clips(args.in_dir)
-    valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in clips]
+    valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in clips and mine(i)]
     print(f"Transcribing {len(valid)}/{len(ref_ds)} clips (batch_size={args.batch_size})", flush=True)
 
     n = 0
-    with open(args.out_json, "w") as f:
+    # The .idx sidecar carries each record's clip index in file order so the job can merge per-GPU
+    # parts back into clip order without touching the record schema.
+    with open(args.out_json, "w") as f, open(args.out_json + ".idx", "w") as idx:
         for i, example in valid:
+            idx.write(f"{i}\n")
             audio = load_audio(clips[i])
 
             # Sub-10ms / empty audio: a silent (empty) model reply. Score it as an empty

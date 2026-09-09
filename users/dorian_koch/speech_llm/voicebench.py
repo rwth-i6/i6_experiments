@@ -28,7 +28,7 @@ from pathlib import Path
 
 from sisyphus import Job, Task, tk
 
-from .common import run_worker_script
+from .common import merge_jsonl_parts, run_worker_script, run_worker_script_per_gpu
 from .knowledge_benchmark import (
     resolve_lora,
     resolve_personaplex_weights,
@@ -142,22 +142,36 @@ class VoiceBenchResponses(Job):
 
     def run(self):
         script_path = Path(__file__).resolve().parent / "voicebench_responses.py"
-        run_worker_script(
-            self.venv_python_path.get(),
-            script_path,
-            [
+        out_jsonl = self.out_jsonl.get()
+
+        # Per-GPU fan-out (backlog G1): replies strided by index across workers, each writing its
+        # own jsonl part + .idx sidecar; merged back into clip order below.
+        def args_for(k, n):
+            return [
                 "--in_dir",
                 self.in_dir.get(),
                 "--ref_ds",
                 self.ref_ds.get(),
                 "--out_jsonl",
-                self.out_jsonl.get(),
+                out_jsonl if n == 1 else f"{out_jsonl}.part{k}",
                 "--model_size",
                 self.whisper_model,
-            ],
+                *(["--shard", k, "--num_shards", n] if n > 1 else []),
+            ]
+
+        n = run_worker_script_per_gpu(
+            self.venv_python_path.get(),
+            script_path,
+            args_for,
             log_label=f"VoiceBench responses [{self.model_tag}/{self.subset}]",
             with_hf_home=False,
         )
+        if n > 1:
+            parts = [f"{out_jsonl}.part{k}" for k in range(n)]
+            merge_jsonl_parts(out_jsonl, parts)
+            for p in parts:
+                os.remove(p)
+                os.remove(p + ".idx")
 
 
 class VoiceBenchScore(Job):

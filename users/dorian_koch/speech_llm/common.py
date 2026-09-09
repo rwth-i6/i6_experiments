@@ -1,4 +1,5 @@
 from sisyphus import tk
+import json
 import os
 import signal
 import sys
@@ -166,6 +167,12 @@ def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_util
     # dirty card, and LLMPreprocess (12288) has none to give.
     port = pick_free_port(18998)
     print(f"Selected port {port} for vLLM server")
+    # Tensor-parallel over every GPU the job was handed (backlog G1). On a 1-GPU allocation this is
+    # exactly the old command; on a 4-GPU one the weights are split 4 ways, which is both faster
+    # and what makes the big judges fit a 80 GB card WITHOUT the max_model_len workaround (kept as
+    # a floor for the 1-GPU case). The RL judge/trainer split pins this process to one card via
+    # CUDA_VISIBLE_DEVICES, so it sees 1 and stays at TP=1.
+    n_gpus = max(1, len(visible_gpus()))
     cmd = [
         sys.executable,
         "-m",
@@ -181,6 +188,9 @@ def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_util
         "--enable-prefix-caching",
         "true",
     ]
+    if n_gpus > 1:
+        print(f"vLLM: tensor-parallel over {n_gpus} visible GPUs", flush=True)
+        cmd += ["--tensor-parallel-size", str(n_gpus)]
     model_args = list(_VLLM_MODEL_ARGS.get(hf_model, []))
     if max_model_len is not None:
         if "--max-model-len" in model_args:
@@ -264,6 +274,214 @@ def run_worker_script(
 
 
 # ---------------------------------------------------------------------------
+# Multi-GPU fan-out (backlog G1): a job scales to however many GPUs the cluster hands it.
+# ---------------------------------------------------------------------------
+#
+# A job declares the SMALLEST allocation it can use (usually ``gpu: 1``); ``settings.py`` may raise
+# that to the cluster's minimum (``MIN_GPUS_PER_JOB`` -- 1 here, 4 on a cluster whose smallest GPU
+# node is 4 cards). Nothing in the recipe hardcodes the count: at run time the job asks
+# ``visible_gpus()`` what it actually got and fans its embarrassingly-parallel worker out over them,
+# one subprocess per card. ``rqmt`` is not hashed, so none of this moves a job hash.
+#
+# Determinism contract: the fan-out must not change WHAT a job produces, only how fast. Every worker
+# that participates therefore (a) derives per-item randomness from the item INDEX (TTS seeds are
+# ``SEED + i``), (b) writes to index-disjoint locations or per-shard parts the job merges in index
+# order, and (c) never depends on the order in which shards finish.
+
+
+def visible_gpus() -> list[str]:
+    """The GPU ids this process may use, as CUDA sees them.
+
+    Reads ``CUDA_VISIBLE_DEVICES`` (SLURM sets it inside the job cgroup; the RL judge/trainer split
+    sets it by hand). An unset variable means "everything on the node" -- ask ``nvidia-smi`` -- and an
+    explicitly EMPTY one means no GPU. Never imports torch: the caller may be a login-node process
+    or a job venv without it.
+    """
+    env = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if env is not None:
+        return [x.strip() for x in env.split(",") if x.strip()]
+    try:
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [str(i) for i, line in enumerate(out.splitlines()) if line.startswith("GPU ")]
+
+
+def run_worker_script_per_gpu(
+    python_exe,
+    script_path,
+    args_for_shard,
+    *,
+    log_label: str,
+    max_gpus: int | None = None,
+    with_hf_home: bool = True,
+    extra_env: dict | None = None,
+    env_hook=None,
+) -> int:
+    """Run ``script_path`` once per visible GPU, each pinned to its card, and wait for all.
+
+    ``args_for_shard(k, n)`` returns the argv for worker ``k`` of ``n`` -- the worker's own in-job
+    shard flags plus any per-shard output path. With one visible GPU this is exactly
+    :func:`run_worker_script`, so the single-GPU path is unchanged byte for byte.
+
+    Each worker runs in its own subdirectory ``gpu<k>/`` of the job work dir, so a worker's
+    ``progress.json`` (and any other cwd-relative scratch) cannot collide; ``job_progress_fraction``
+    sums those. Worker stdout/stderr go to ``gpu<k>/worker.log`` AND are echoed, prefixed, to the
+    job log, so a failure still reads from ``log.run.1``. The first worker to fail kills the rest
+    and the job fails -- a partial output must never be merged.
+
+    Returns the number of workers that ran, so the caller knows how many parts to merge.
+    """
+    gpus = visible_gpus()
+    n = len(gpus)
+    if max_gpus is not None:
+        n = min(n, max_gpus)
+    if n <= 1:
+        run_worker_script(
+            python_exe,
+            script_path,
+            args_for_shard(0, 1),
+            log_label=log_label,
+            with_hf_home=with_hf_home,
+            extra_env=extra_env,
+            env_hook=env_hook,
+        )
+        return 1
+
+    base_env = os.environ.copy()
+    base_env["PYTHONUNBUFFERED"] = "1"
+    if with_hf_home:
+        base_env["HF_HOME"] = HF_CACHE_DIR.get()
+    if extra_env:
+        base_env.update({k: str(v) for k, v in extra_env.items()})
+    if env_hook is not None:
+        env_hook(base_env)
+
+    print(f"[fan-out] {log_label}: {n} workers over GPUs {gpus[:n]}", flush=True)
+    procs = []
+    for k in range(n):
+        env = dict(base_env)
+        env["CUDA_VISIBLE_DEVICES"] = gpus[k]
+        cwd = os.path.join(os.getcwd(), f"gpu{k}")
+        os.makedirs(cwd, exist_ok=True)
+        cmd = [str(python_exe), str(script_path), *[str(a) for a in args_for_shard(k, n)]]
+        print(f"[fan-out] worker {k}/{n} on GPU {gpus[k]}: {' '.join(cmd)}", flush=True)
+        log = open(os.path.join(cwd, "worker.log"), "w")
+        proc = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
+        procs.append((k, proc, log))
+
+    failed = None
+    try:
+        # Poll rather than wait() in order: a worker that dies early must stop the others.
+        pending = {k for k, _p, _l in procs}
+        while pending:
+            for k, proc, _log in procs:
+                if k not in pending:
+                    continue
+                rc = proc.poll()
+                if rc is None:
+                    continue
+                pending.discard(k)
+                if rc != 0 and failed is None:
+                    failed = (k, rc)
+                    for j, other, _l in procs:
+                        if j in pending and other.poll() is None:
+                            other.terminate()
+            if pending:
+                time.sleep(5)
+    finally:
+        for _k, _proc, log in procs:
+            log.close()
+    for k, _proc, _log in procs:
+        path = os.path.join(os.getcwd(), f"gpu{k}", "worker.log")
+        try:
+            with open(path) as f:
+                tail = f.readlines()[-40:]
+        except OSError:
+            tail = []
+        print(f"[fan-out] ---- worker {k} log tail ({path}) ----", flush=True)
+        for line in tail:
+            print(f"[gpu{k}] {line.rstrip()}", flush=True)
+    if failed is not None:
+        k, rc = failed
+        raise RuntimeError(
+            f"{log_label}: worker {k}/{n} exited with {rc}; the other workers were terminated and "
+            f"nothing was merged. Full log: {os.path.join(os.getcwd(), f'gpu{k}', 'worker.log')}"
+        )
+    return n
+
+
+def contiguous_slice(total: int, k: int, n: int) -> tuple[int, int]:
+    """``[start, end)`` of part ``k`` of ``n`` over ``total`` items, the way
+    ``datasets.Dataset.shard(num_shards=n, index=k, contiguous=True)`` cuts them: the first
+    ``total % n`` parts get one extra item. Used by workers that sub-shard a dataset per GPU and
+    must keep GLOBAL row numbering (ids, seeds) identical to the single-GPU run."""
+    assert 0 <= k < n, (k, n)
+    div, mod = divmod(int(total), n)
+    start = k * div + min(k, mod)
+    return start, start + div + (1 if k < mod else 0)
+
+
+def nested_shard(shard: int | None, num_shards: int | None, k: int, n: int) -> tuple[int, int]:
+    """Sub-shard ``k`` of ``n`` INSIDE Sisyphus-level shard ``shard`` of ``num_shards``, for a
+    worker whose sharding rule is strided (``items[shard::num_shards]``): ``(shard + k*num_shards,
+    num_shards*n)`` selects exactly the items ``i`` with ``i % num_shards == shard`` and
+    ``(i // num_shards) % n == k`` -- a partition of the outer shard over the ``n`` GPUs with no
+    change to the worker at all."""
+    s, S = (0, 1) if shard is None or num_shards is None else (int(shard), int(num_shards))
+    return s + k * S, S * n
+
+
+def merge_hf_parts(out_path, parts) -> int:
+    """Concatenate per-GPU HF dataset parts -- written from CONTIGUOUS sub-shards, in order -- into
+    ``out_path``, so the result has the row order a single worker would have produced. Rows keep
+    their ids untouched (unlike ``HfMergeShards``, which prefixes Sisyphus-shard ids). A
+    ``stats.json`` of integer counters, if the parts carry one, is summed. The parts are deleted
+    after a successful write. Returns the row count."""
+    import shutil
+
+    from datasets import concatenate_datasets, load_from_disk
+
+    parts = [str(p) for p in parts]
+    merged = concatenate_datasets([load_from_disk(p) for p in parts])
+    assert len(merged) > 0, f"per-GPU parts are all empty: {parts}"
+    merged.save_to_disk(str(out_path))
+    stats = None
+    for p in parts:
+        sp = os.path.join(p, "stats.json")
+        if os.path.isfile(sp):
+            with open(sp) as f:
+                d = json.load(f)
+            stats = d if stats is None else {k: stats.get(k, 0) + v for k, v in d.items()}
+    if stats is not None:
+        with open(os.path.join(str(out_path), "stats.json"), "w") as f:
+            json.dump(stats, f, indent=2)
+    for p in parts:
+        shutil.rmtree(p, ignore_errors=True)
+    print(f"[fan-out] merged {len(parts)} parts -> {out_path} ({len(merged)} rows)", flush=True)
+    return len(merged)
+
+
+def merge_jsonl_parts(out_path, parts) -> int:
+    """Merge per-GPU ``<part>`` jsonl files, each with a ``<part>.idx`` sidecar (one clip index per
+    line, same order), into ``out_path`` in ascending clip-index order -- the order a single worker
+    would have written. Returns the row count. The sidecar keeps the record schema untouched."""
+    rows = []
+    for part in parts:
+        with open(part) as f, open(str(part) + ".idx") as g:
+            recs, idx = f.read().splitlines(), g.read().splitlines()
+        assert len(recs) == len(idx), f"{part}: {len(recs)} records but {len(idx)} indices"
+        rows.extend((int(i), r) for i, r in zip(idx, recs))
+    rows.sort(key=lambda t: t[0])
+    seen = [i for i, _ in rows]
+    assert len(set(seen)) == len(seen), "per-GPU parts overlap: the same clip index appears twice"
+    with open(out_path, "w") as f:
+        for _i, r in rows:
+            f.write(r + "\n")
+    return len(rows)
+
+
+# ---------------------------------------------------------------------------
 # Progress reporting helpers (for Job.completed_fraction)
 # ---------------------------------------------------------------------------
 #
@@ -309,15 +527,24 @@ def job_progress_fraction(job) -> "float | None":
     import os
     from sisyphus import global_settings as gs
 
-    try:
-        with open(os.path.join(job._sis_path(gs.JOB_WORK_DIR), "progress.json")) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        return None
-    total = d.get("total") or 0
+    import glob
+
+    work = job._sis_path(gs.JOB_WORK_DIR)
+    # One progress.json for a single worker; under the per-GPU fan-out each worker writes its own
+    # in gpu<k>/, and the job's progress is their sum.
+    paths = [os.path.join(work, "progress.json")] + sorted(glob.glob(os.path.join(work, "gpu*", "progress.json")))
+    done = total = 0
+    for path in paths:
+        try:
+            with open(path) as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        done += int(d.get("done", 0) or 0)
+        total += int(d.get("total", 0) or 0)
     if total <= 0:
         return None
-    return max(0.0, min(1.0, d.get("done", 0) / total))
+    return max(0.0, min(1.0, done / total))
 
 
 def last_jsonl_value(path: str, field: str):

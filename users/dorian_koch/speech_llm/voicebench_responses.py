@@ -41,7 +41,12 @@ def main():
     p.add_argument("--out_jsonl", required=True)
     p.add_argument("--model_size", default="large-v3-turbo")
     p.add_argument("--batch_size", type=int, default=24)
+    p.add_argument(
+        "--shard", type=int, default=None, help="per-GPU fan-out (backlog G1): clips i with i %% num_shards == shard"
+    )
+    p.add_argument("--num_shards", type=int, default=None)
     args = p.parse_args()
+    mine = (lambda i: True) if args.num_shards is None else (lambda i: i % args.num_shards == args.shard)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
@@ -49,12 +54,17 @@ def main():
     batched = BatchedInferencePipeline(model)
 
     ref_ds = load_from_disk(args.ref_ds)
-    valid = [(i, ex) for i, ex in enumerate(ref_ds) if os.path.exists(os.path.join(args.in_dir, f"{i}.wav"))]
+    valid = [
+        (i, ex) for i, ex in enumerate(ref_ds) if os.path.exists(os.path.join(args.in_dir, f"{i}.wav")) and mine(i)
+    ]
     print(f"Transcribing {len(valid)}/{len(ref_ds)} replies", flush=True)
 
     n = 0
-    with open(args.out_jsonl, "w") as f:
+    # The .idx sidecar carries each record's clip index in file order so the job can merge per-GPU
+    # parts back into clip order without touching the record schema.
+    with open(args.out_jsonl, "w") as f, open(args.out_jsonl + ".idx", "w") as idx:
         for i, example in valid:
+            idx.write(f"{i}\n")
             audio = load_audio(os.path.join(args.in_dir, f"{i}.wav"))
             if audio.size < TARGET_SR // 100:
                 text = ""  # silent reply -> empty hypothesis (a benchmark miss), don't feed whisper garbage

@@ -240,6 +240,20 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # card). Count the visible devices; fall back to rqmt["gpu"] only when CUDA_VISIBLE_DEVICES is unset.
     _visible_gpus = [d for d in cuda_devices.split(",") if d.strip() not in ("", "-1")]
     n_train_gpus = len(_visible_gpus) if _visible_gpus else int(job.rqmt["gpu"])
+    # ...but never MORE ranks than the run declared. The cluster may hand a job more GPUs than it
+    # asked for (settings.MIN_GPUS_PER_JOB on a cluster whose smallest node is 4 cards); for an
+    # inference job that is free speed, for a training run it would quadruple the effective batch
+    # and silently make it a different experiment under the same hash. So the declared count wins
+    # and the surplus idles -- an arm that should use 4 GPUs says so (Compute(gpus=4), backlog G2).
+    declared = int(job.hparams.get("gpu", 1))
+    if n_train_gpus > declared:
+        print(
+            f"[launch_training] {n_train_gpus} GPUs visible but the run declares gpu={declared}; "
+            f"training on {declared} rank(s), {n_train_gpus - declared} idle (declare Compute(gpus=N) "
+            f"to use them -- it changes the effective batch).",
+            flush=True,
+        )
+        n_train_gpus = declared
 
     command = [
         job.venv_python_path.get(),

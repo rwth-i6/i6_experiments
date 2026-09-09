@@ -211,6 +211,8 @@ def annotate_hf_to_hf(
     shard_idx: int | None = None,
     num_shards: int | None = None,
     *,
+    sub_shard: int | None = None,
+    sub_num_shards: int | None = None,
     whisper_model: str = "medium",
     language: str = "en",
     keep_silence_in_segments: float = 1.0,
@@ -228,6 +230,16 @@ def annotate_hf_to_hf(
     dataset: Dataset = load_from_disk(in_hf_path)
     if shard_idx is not None and num_shards is not None:
         dataset = dataset.shard(num_shards=num_shards, index=shard_idx)
+    if sub_shard is not None and sub_num_shards is not None:
+        # Per-GPU fan-out inside the Sisyphus shard: a CONTIGUOUS slice, so concatenating the
+        # parts in order reproduces the single-worker row order (the same cut as
+        # datasets' shard(contiguous=True)).
+        div, mod = divmod(len(dataset), sub_num_shards)
+        start = sub_shard * div + min(sub_shard, mod)
+        end = start + div + (1 if sub_shard < mod else 0)
+        dataset = dataset.select(range(start, end))
+        _log.info("sub-shard %d/%d: rows [%d, %d)", sub_shard, sub_num_shards, start, end)
+        assert len(dataset) > 0, f"sub-shard {sub_shard}/{sub_num_shards} is empty -- fewer rows than GPUs"
 
     node = os.uname().nodename
     _log.info("Loading Whisper model %s on node %s …", whisper_model, node)
@@ -499,6 +511,8 @@ def main():
     parser.add_argument("--out_dir", type=str, required=True)
     parser.add_argument("--in_hf_shard", type=int, required=False)
     parser.add_argument("--in_hf_num_shards", type=int, required=False)
+    parser.add_argument("--sub_shard", type=int, required=False, help="per-GPU fan-out inside the shard (backlog G1)")
+    parser.add_argument("--sub_num_shards", type=int, required=False)
     parser.add_argument(
         "--mode",
         choices=["arrow", "legacy"],
@@ -522,6 +536,8 @@ def main():
             out_dir=args.out_dir,
             shard_idx=args.in_hf_shard,
             num_shards=args.in_hf_num_shards,
+            sub_shard=args.sub_shard,
+            sub_num_shards=args.sub_num_shards,
             whisper_model=args.whisper_model,
             keep_columns=args.keep_columns,
         )

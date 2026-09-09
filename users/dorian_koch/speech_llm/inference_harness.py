@@ -154,7 +154,9 @@ def _warn_if_truncated(inp: Path, out: Path) -> None:
         print(f"[WARN] could not length-check {out}: {e}", flush=True)
 
 
-def write_pair_manifest(items: Sequence[tuple[Path, Path]], *, copy_sidecars: bool = False) -> str:
+def write_pair_manifest(
+    items: Sequence[tuple[Path, Path]], *, copy_sidecars: bool = False, name: str = "offline_manifest.json"
+) -> str:
     """Write a JSON manifest of ``[[in_wav, out_wav], ...]`` for an offline driver and
     (optionally) copy each input's sidecar ``*.json`` next to its output. Returns the
     manifest path (in the job's cwd)."""
@@ -166,7 +168,7 @@ def write_pair_manifest(items: Sequence[tuple[Path, Path]], *, copy_sidecars: bo
         if copy_sidecars:
             for json_file in inp.parent.glob("*.json"):
                 shutil.copy(json_file, out.parent / json_file.name)
-    manifest = os.path.join(os.getcwd(), "offline_manifest.json")
+    manifest = os.path.join(os.getcwd(), name)
     with open(manifest, "w") as f:
         json.dump(pairs, f)
     return manifest
@@ -352,6 +354,9 @@ class BackendInferenceMixin:
         # already accept --seed. Only the lib (module) drivers take it; a fork driver would
         # argparse-exit, so None is forwarded for those and behaviour is unchanged.
         seed = getattr(self, "seed", None) if module is not None else None
+        # A caller may pin this driver to one card (the per-GPU fan-out in the knowledge/FDB jobs);
+        # the retrieval seam's own pin, if any, is layered on top.
+        pinned_env = driver_kwargs.pop("extra_env", None) or {}
 
         def _drive(extra_args, extra_env=None):
             run_offline_driver(
@@ -363,7 +368,7 @@ class BackendInferenceMixin:
                 lora_config=lora_config,
                 seed=seed,
                 extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
-                extra_env=extra_env,
+                extra_env={**pinned_env, **(extra_env or {})} or None,
                 **driver_kwargs,
             )
 

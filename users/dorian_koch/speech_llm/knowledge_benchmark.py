@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 
 from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
-from .common import add_cuda_npp_to_env, run_worker_script
+from .common import add_cuda_npp_to_env, merge_jsonl_parts, run_worker_script, run_worker_script_per_gpu
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND
@@ -294,14 +294,35 @@ class ChatterboxSingleSpeakerInference(Job):
                 InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
 
-        run_worker_script(
+        # Per-GPU fan-out (backlog G1): clips are strided by index across the workers (clip i's
+        # seed is SEED + i, so each clip is bit-identical to the single-worker run). Under
+        # storage="wav" the workers write disjoint <i>.wav into the same dir; under "hf" each
+        # writes its own arrow part and the parts are merged (indices asserted disjoint).
+        out_dir = self.out_dir.get()
+
+        def args_for(k, n):
+            a = list(args)
+            if n > 1:
+                a += ["--shard", k, "--num_shards", n]
+                if self.storage == "hf":
+                    a[a.index("--out_dir") + 1] = f"{out_dir}.gpu{k}"
+            return a
+
+        n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
             script_path,
-            args,
+            args_for,
             log_label="Chatterbox benchmark inference",
             with_hf_home=False,
             env_hook=env_hook,
         )
+        if n > 1 and self.storage == "hf":
+            import shutil
+
+            parts = [f"{out_dir}.gpu{k}" for k in range(n)]
+            merge_clip_datasets(out_dir, parts)
+            for p in parts:
+                shutil.rmtree(p, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -436,13 +457,30 @@ class WhisperTranscription(Job):
             "--model_size",
             self.model_size,
         ]
-        run_worker_script(
+        # Per-GPU fan-out (backlog G1): clips strided by index across workers, each writing its own
+        # jsonl part + .idx sidecar; merged back into clip order below.
+        out_json = self.out_json.get()
+
+        def args_for(k, n):
+            a = list(args)
+            if n > 1:
+                a += ["--shard", k, "--num_shards", n]
+                a[a.index("--out_json") + 1] = f"{out_json}.part{k}"
+            return a
+
+        n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
             script_path,
-            args,
+            args_for,
             log_label="Whisper benchmark transcription",
             with_hf_home=False,
         )
+        if n > 1:
+            parts = [f"{out_json}.part{k}" for k in range(n)]
+            merge_jsonl_parts(out_json, parts)
+            for p in parts:
+                os.remove(p)
+                os.remove(p + ".idx")
 
 
 class ReferenceStringTranscription(Job):

@@ -25,6 +25,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 
 from .clip_store import is_clip_dataset, materialise_clips, open_clips, write_clips
+from .common import nested_shard, visible_gpus
 
 from .inference_harness import (
     BackendInferenceMixin,
@@ -481,17 +482,33 @@ class SpeechInference(BackendInferenceMixin, Job):
             )
 
         if self.offline_script is not None or self.offline_module is not None:
-            self._offline(
+            common = dict(
                 python_exe=self._python_exe(),
                 in_dir=str(in_path),
                 out_dir=str(out_dir),
                 lead_in_s=self.lead_in_s,
                 capture_s=self.capture_s,
                 batch_size=self.batch_size,
-                shard=self.shard,
-                num_shards=self.num_shards,
                 oracle_dataset=(self.oracle_dataset.get() if self.oracle_dataset is not None else None),
             )
+            # Per-GPU fan-out (backlog G1): the driver's own sharding is strided by clip index
+            # (wavs[shard::num_shards]), so worker k of n inside this job's shard is the NESTED
+            # stride (shard + k*num_shards, num_shards*n) -- a partition of the job's clips with no
+            # driver change. Outputs are index-disjoint wavs in the same scratch dir, packed once.
+            # A retrieval-backed backend pins its driver to one card itself, so it stays single.
+            plan = self._driver_shards()
+            if len(plan) == 1:
+                shard, num_shards, _env = plan[0]
+                self._offline(shard=shard, num_shards=num_shards, **common)
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+
+                def one(spec):
+                    shard, num_shards, env = spec
+                    self._offline(shard=shard, num_shards=num_shards, extra_env=env, **common)
+
+                with ThreadPoolExecutor(max_workers=len(plan)) as ex:
+                    list(ex.map(one, plan))
             self._pack_clips(out_dir, final_dir)
             return
         wav_files = sorted(in_path.glob("*.wav"))
@@ -534,6 +551,18 @@ class SpeechInference(BackendInferenceMixin, Job):
         print(f"[clips] packed {len(clips)} clips into {final_dir}", flush=True)
         shutil.rmtree(scratch, ignore_errors=True)
 
+    def _driver_shards(self) -> list:
+        """The (shard, num_shards, extra_env) per offline-driver worker this allocation runs.
+
+        One entry -- this job's own Sisyphus shard, no pinning -- unless several GPUs are visible
+        and the backend does not need one of them for a retrieval LLM, in which case each visible
+        GPU gets a nested strided sub-shard and a CUDA_VISIBLE_DEVICES pin."""
+        gpus = visible_gpus()
+        if len(gpus) <= 1 or getattr(self, "retrieval_llm", None):
+            return [(self.shard, self.num_shards, None)]
+        n = len(gpus)
+        return [(*nested_shard(self.shard, self.num_shards, k, n), {"CUDA_VISIBLE_DEVICES": gpus[k]}) for k in range(n)]
+
     def _run_fdb(self):
         assert os.path.exists(os.path.join(self.fdb_data, "candor_pause_handling/1/pause.json")), (
             f"Dataset not found at {self.fdb_data}"
@@ -545,8 +574,31 @@ class SpeechInference(BackendInferenceMixin, Job):
         items = [(inp, out_root / str(inp.parent.name) / "output.wav") for _task, inp in files]
         if self.offline_script is not None or self.offline_module is not None:
             assert self.venv_python_path is not None, "offline FDB needs venv_python_path (the model venv)"
-            manifest = write_pair_manifest(items, copy_sidecars=True)
-            self._offline(python_exe=self._python_exe(), manifest=manifest)
+            gpus = visible_gpus()
+            if len(gpus) <= 1 or getattr(self, "retrieval_llm", None):
+                manifest = write_pair_manifest(items, copy_sidecars=True)
+                self._offline(python_exe=self._python_exe(), manifest=manifest)
+            else:
+                # Per-GPU fan-out (backlog G1): the clip pairs are strided over the visible GPUs,
+                # one manifest each, every driver pinned to its card. Output paths are per clip, so
+                # the workers never touch the same file; the ASR scoring below runs once over all.
+                from concurrent.futures import ThreadPoolExecutor
+
+                n = len(gpus)
+                manifests = [
+                    write_pair_manifest(items[k::n], copy_sidecars=True, name=f"offline_manifest.gpu{k}.json")
+                    for k in range(n)
+                ]
+
+                def one(k):
+                    self._offline(
+                        python_exe=self._python_exe(),
+                        manifest=manifests[k],
+                        extra_env={"CUDA_VISIBLE_DEVICES": gpus[k]},
+                    )
+
+                with ThreadPoolExecutor(max_workers=n) as ex:
+                    list(ex.map(one, range(n)))
         else:
             self._stream(
                 items,

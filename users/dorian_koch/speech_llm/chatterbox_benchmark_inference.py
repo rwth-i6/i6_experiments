@@ -171,10 +171,22 @@ def main():
         choices=("wav", "hf"),
         help="wav: one <i>.wav per question (original). hf: one arrow dataset (~3 inodes total).",
     )
+    parser.add_argument(
+        "--shard", type=int, default=None, help="per-GPU fan-out (backlog G1): clips i with i %% num_shards == shard"
+    )
+    parser.add_argument("--num_shards", type=int, default=None)
     args = parser.parse_args()
 
     random.seed(SEED)  # speaker choice
     ds = load_from_disk(args.in_hf)
+    # Strided by CLIP INDEX, never by position: clip i = row i is the benchmark's contract, and the
+    # per-clip seed is SEED + i, so a shard's clips are bit-identical to a single worker's.
+    mine = (lambda i: True) if args.num_shards is None else (lambda i: i % args.num_shards == args.shard)
+    n_mine = sum(1 for i in range(len(ds)) if mine(i))
+    print(
+        f"This worker: {n_mine}/{len(ds)} clips"
+        + (f" (shard {args.shard}/{args.num_shards})" if args.num_shards else "")
+    )
 
     speaker_path = resolve_speaker_path(args.speaker_dir, args.speaker_name)
     print(f"Using speaker: {speaker_path}")
@@ -195,6 +207,8 @@ def main():
     spool = ClipSpool(args.out_dir.rstrip("/") + ".spool") if args.storage == "hf" else None
     with torch.inference_mode():
         for i, example in enumerate(ds):
+            if not mine(i):
+                continue
             # Seed PER CLIP, from the clip's index -- not once per run. `model.generate` is a
             # SAMPLING TTS, so without a torch seed the benchmark's questions are different audio on
             # every regeneration: measured 2026-08-03, two runs of this job on the same subsample
@@ -219,12 +233,12 @@ def main():
 
     if args.storage == "hf":
         n_clips = len(spool.spans)
-        assert n_clips == len(ds), f"spooled {n_clips} clips but the input has {len(ds)} rows"
+        assert n_clips == n_mine, f"spooled {n_clips} clips but this worker's shard has {n_mine} rows"
         write_clips(args.out_dir, spool, model.sr)
         os.remove(spool.path)
         print(f"Done. Wrote {n_clips} clips as an arrow dataset in {args.out_dir}")
     else:
-        print(f"Done. Generated {len(ds)} audio files in {args.out_dir}")
+        print(f"Done. Generated {n_mine} audio files in {args.out_dir}")
 
 
 if __name__ == "__main__":
