@@ -1587,6 +1587,7 @@ def py():
         _train_tts_encoder(
             f"pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug{_sa}-stepcomp",
             prefix=prefix,
+            with_ctc_lm_recog=(_sa == 50),  # the winner gets the CTC+LM combination recog
             text_train_epoch_split=75,
             batch_size_audio_frames=70_000,
             batch_size_phon=6_000,
@@ -1706,6 +1707,21 @@ def py():
         (f"{_abl_prefix}-dursilonly", {"pseudo_enc_duration_sil_only": True}),
         (f"{_abl_prefix}-trainemb", {"pseudo_enc_frozen_table": None}),
         (f"{_abl_prefix}-sil0", {"glow_tts_add_silence_between_words": 0.0}),
+        # text-amount ladder around the winning P75: P37 = 2x text per epoch, P150 = half
+        (f"{_abl_prefix}-textP37", {"text_train_epoch_split": 37}),
+        (f"{_abl_prefix}-textP150", {"text_train_epoch_split": 150}),
+        # trained embedding x uniform durations = the textogram-style cell,
+        # completing the 2x2 with trainemb (acoustics only) and unidur (durations only)
+        (
+            f"{_abl_prefix}-trainemb-unidur",
+            {
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (5, 10),
+            },
+        ),
         (
             "pseudo-enc-logmel-mfatable-realdur2-lerp-dur05-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {"pseudo_enc_duration_scale": 0.5},
@@ -1933,6 +1949,7 @@ def py():
         _train_asr_base_multigpu(
             f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug{_sa_factor}-stepcomp",
             prefix=prefix,
+            with_ctc_lm_recog=(_sa_factor == 50),  # the reported baseline gets the CTC+LM recog
             feature_extraction=None,
             base_lr=1.0,
             peak_lr=5e-3,
@@ -2362,6 +2379,24 @@ def _ctc_subword_instances(*, total_gb: float = 3.0, floor_frames: int = 100):
     return job
 
 
+def _get_ls_transcription_labelwise_prior(vocab: str, task):
+    """
+    Labelwise prior from the train-960 transcription label counts (CPU-only forward),
+    for the CTC+LM recogs. About as good as the model softmax prior, and much cheaper
+    (no GPU stage, model-independent, so it is also shared across all models).
+    """
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
+    from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechLmDataset, get_vocab_by_str
+    from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+    log_prior = compute_label_prior_log_probs(
+        LibrispeechLmDataset(vocab=get_vocab_by_str(vocab), main_key="transcriptions-train"),
+        forward_rqmt={"mem": 12, "time": 24},
+    )
+    return Prior(file=log_prior, type="log_prob", vocab=get_vocab_file_from_task(task))
+
+
 def _train_asr_base_multigpu(
     name: str,
     *,
@@ -2377,6 +2412,7 @@ def _train_asr_base_multigpu(
     feature_norm: Optional[Dict[str, Any]] = None,
     extra_config_updates: Optional[Dict[str, Any]] = None,
     extra_config_deletes: Optional[Sequence[str]] = None,
+    with_ctc_lm_recog: bool = False,
 ):
     """
     No-TTS audio-only ASR baseline trained with the FZJ 4-GPU DDP recipe.
@@ -2522,6 +2558,22 @@ def _train_asr_base_multigpu(
         aux_ctc_layer=16,
         num_shards=8,
     )
+    # CTC(+labelwise prior)+LM with the LS trafo LM, sharded over the node (the LM baseline).
+    if with_ctc_lm_recog:
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+            ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+        )
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model, _lms
+
+        ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
+            task=task,
+            ctc_model=exp.get_last_fixed_epoch(),
+            lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+            labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+            aux_ctc_layer=16,
+            num_shards=8,
+        )
     return exp
 
 
@@ -2592,6 +2644,7 @@ def _train_tts_encoder(
     peak_lr: Optional[float] = None,
     extra_config_updates: Optional[Dict[str, Any]] = None,
     extra_config_deletes: Optional[Sequence[str]] = None,
+    with_ctc_lm_recog: bool = False,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -3108,6 +3161,26 @@ def _train_tts_encoder(
             num_shards=8,
             extra_config=recog_model_cfg,
         )
+        # CTC(+labelwise prior)+LM with the LS trafo LM (combination on top of the CTC part).
+        if with_ctc_lm_recog:
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+                ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+            )
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+                _get_lm_model,
+                _lms,
+            )
+
+            ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
+                task=task,
+                ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=16,
+                num_shards=8,
+                extra_config=recog_model_cfg,
+            )
     else:
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
             aed_ctc_timesync_recog_recomb_auto_scale,

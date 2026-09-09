@@ -342,7 +342,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale_batched(
     return score
 
 
-def _combined_recog_batched(*, prefix: str, task, model, config: Dict[str, Any], num_shards: int):
+def _combined_recog_batched(*, prefix: str, task, model, config: Dict[str, Any], num_shards: int, recog_def=None):
     """
     First-pass joint AED+CTC recog over all ``task.eval_datasets``, sharded across the node.
 
@@ -369,7 +369,8 @@ def _combined_recog_batched(*, prefix: str, task, model, config: Dict[str, Any],
         model_recog_with_recomb,
     )
 
-    recog_def = model_recog_with_recomb
+    if recog_def is None:
+        recog_def = model_recog_with_recomb
     out_files = [_v2_forward_out_filename]
     if get_from_config((config, model.definition), "__recog_def_ext", False):
         out_files.append(_v2_forward_ext_out_filename)

@@ -138,8 +138,14 @@ def py():
         # so the table can report seed averages for the standard-LM rows.
         # (The sct 0.9 recogs on the with-TTS ASR come via denoising_lm_2024 lm_scaling_laws.)
         from .ctc_claix2023 import recog_ext_with_lm
+        from .ctc import _train_experiments as _ctc_train_experiments
 
         for _ctc_model_name in ["L16-D1024-spm10k-auxAED-b100k-tts", "L16-D1024-spm10k-auxAED-b100k"]:
+            if _ctc_model_name not in _ctc_train_experiments:
+                # Not registered when this py() runs standalone, e.g. from another setup
+                # that only wants the LM itself (ctc_recog_ext._get_lm_model).
+                # These recogs belong to the setup where the CTC configs are loaded too.
+                continue
             recog_ext_with_lm(
                 ctc_model_name=_ctc_model_name,
                 lm_name=f"{name[len('lm/') :]}-seed{_seed}",
