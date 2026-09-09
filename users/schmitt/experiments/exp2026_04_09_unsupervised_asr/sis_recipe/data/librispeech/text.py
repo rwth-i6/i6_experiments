@@ -73,11 +73,15 @@ def get_phonemized_text(
     surround_w_sil: bool = True,
     apply_lid_filter: bool = True,
     extend_lexicon_w_g2p: bool = False,
+    collapse_repeats: bool = False,
+    output_subdir: Optional[str] = None,
 ):
     """
     :param apply_lid_filter: drop lines not confidently classified as English (see `get_phonemized_data`)
     :param extend_lexicon_w_g2p: keep lines with OOV words by G2P-extending the lexicon (see
         `get_phonemized_data`). Both default to the historical behavior; enable them for eval sets only.
+    :param collapse_repeats: merge adjacent identical phonemes (see `get_phonemized_data`)
+    :param output_subdir: extra output dir level for the registered text (see `get_phonemized_data`)
     """
     text_data, seq_tags = get_text(data_name)
 
@@ -93,4 +97,6 @@ def get_phonemized_text(
         surround_w_sil=surround_w_sil,
         apply_lid_filter=apply_lid_filter,
         extend_lexicon_w_g2p=extend_lexicon_w_g2p,
+        collapse_repeats=collapse_repeats,
+        output_subdir=output_subdir,
     )

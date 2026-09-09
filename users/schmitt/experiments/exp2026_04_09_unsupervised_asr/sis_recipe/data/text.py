@@ -31,6 +31,8 @@ def get_phonemized_data(
     surround_w_sil: bool = True,
     apply_lid_filter: bool = True,
     extend_lexicon_w_g2p: bool = False,
+    collapse_repeats: bool = False,
+    output_subdir: Optional[str] = None,
 ):
     """
     :param apply_lid_filter: see :class:`PhonemizeTextDataJob`. Drops lines that fasttext does not confidently
@@ -38,9 +40,12 @@ def get_phonemized_data(
     :param extend_lexicon_w_g2p: G2P the words of ``text_file`` that are missing from ``lexicon_file`` and
         phonemize against the extended lexicon, instead of dropping every line containing such a word
         (147 of 2864 on dev-other). See :class:`ExtendLexiconWithG2PJob`.
+    :param collapse_repeats: merge adjacent identical phonemes, see :class:`PhonemizeTextDataJob`.
+    :param output_subdir: extra directory level for the registered output text, to keep the outputs of
+        different lexica apart (``data/<corpus>/text/phonemized/<output_subdir>/<dataset>.txt``); unhashed.
 
-    Both default to the historical behavior. Set both for eval sets, where dropping sequences makes the
-    reported WER/PER incomparable; do NOT set them for training text, which would rehash every training.
+    All default to the historical behavior. Set the first two for eval sets, where dropping sequences makes
+    the reported WER/PER incomparable; do NOT set them for training text, which would rehash every training.
     """
     if extend_lexicon_w_g2p:
         assert lexicon_file is not None, (
@@ -66,12 +71,14 @@ def get_phonemized_data(
         min_phoneme_occurrence=1000,
         surround_w_sil=surround_w_sil,
         apply_lid_filter=apply_lid_filter,
+        collapse_repeats=collapse_repeats,
     )
     text_file = prepare_text_job_training.out_phoneme_text
     # distinct output name per variant, otherwise the filtered and the full-coverage version of the same
     # dataset would register the same output path (register_output is not hashed, so this is free)
     out_name_suffix = ("" if apply_lid_filter else ".no_lid") + (".g2p_ext" if extend_lexicon_w_g2p else "")
-    tk.register_output(f"data/{corpus_name}/text/phonemized/{dataset_name}{out_name_suffix}.txt", text_file)
+    out_dir = f"data/{corpus_name}/text/phonemized" + (f"/{output_subdir}" if output_subdir else "")
+    tk.register_output(f"{out_dir}/{dataset_name}{out_name_suffix}.txt", text_file)
     lexicon_file = prepare_text_job_training.out_lexicon_file
     vocab_file = prepare_text_job_training.out_phoneme_vocab if vocab_file is None else vocab_file
     seq_tags_after_phonemize = prepare_text_job_training.out_seq_tags
