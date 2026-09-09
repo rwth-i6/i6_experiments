@@ -1,3 +1,5 @@
+from typing import Optional
+
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 from i6_core.serialization import CallImport
 
@@ -13,6 +15,7 @@ from i6_experiments.users.schmitt.datasets.utils.hdf import DumpCorpusTextAsUtf8
 from i6_experiments.users.schmitt.datasets.utils.extract_seq_list import FilterSeqListByHdfSeqTagsJob
 
 from ....data.librispeech import audio, text
+from ....data.librispeech.text import PhonemeLexicon
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings, _wrap_in_post_proc
 
 from sisyphus import tk
@@ -58,6 +61,39 @@ def _get_cheating_train_clusters(num_clusters: int):
         )
         for idx in range(20)
     ]
+
+
+def _get_train_960_phonemes(sil_prob: float, surround_w_sil: bool, lexicon: Optional[PhonemeLexicon]):
+    """
+    Phonemized train-other-960 transcripts: ``(hdfs, vocab_file, vocab_size, seq_tags)``.
+
+    ``lexicon=None`` = the historical fairseq/g2p_en lexicon derived from the LM corpus (41-symbol vocab incl.
+    ``'`` and ``<SIL>``; LID-filtered + OOV-dropped -> 266,927 utts); otherwise the given
+    :class:`PhonemeLexicon` (e.g. ``text.get_lbs_lexicon()``: the 39-phoneme LibriSpeech GMM set, all 281,241
+    utts kept). Only the cheating-cluster builders take the lexicon so far.
+    """
+    if lexicon is None:
+        # we don't pass sil_prob here, because we just want to get the lexicon here
+        # we don't use the text-only data for training here
+        _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+        phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
+            "train-other-960",
+            lexicon_file=lexicon_file,
+            dump_hdf_concurrent=10,
+            vocab_file=phoneme_vocab,
+            sil_prob=sil_prob,
+            surround_w_sil=surround_w_sil,
+        )
+        return phoneme_960_hdfs, phoneme_vocab, 41, train_seq_tags
+
+    phoneme_960_hdfs, phoneme_vocab, _, train_seq_tags = text.get_phonemized_text_w_lexicon(
+        "train-other-960",
+        lexicon=lexicon,
+        dump_hdf_concurrent=10,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+    return phoneme_960_hdfs, phoneme_vocab, lexicon.vocab_size, train_seq_tags
 
 
 def build_training_datasets(
@@ -201,19 +237,18 @@ def build_training_datasets_w_cheating_clusters(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
     num_audio_clusters: int = 512,
+    lexicon: Optional[PhonemeLexicon] = None,
 ):
+    """
+    :param lexicon: phonemize the (unpaired) text with this lexicon / phoneme set instead of the historical
+        g2p_en one, see :func:`_get_train_960_phonemes`. ``text.get_lbs_lexicon()`` gives the 39-phoneme set of
+        the GMM alignment the cheating clusters come from (``[SILENCE]`` placeholder at index 0, vocab size 40).
+        None keeps the existing job hashes.
+    """
     clusters_960_hdfs = _get_cheating_train_clusters(num_audio_clusters)
 
-    # we don't pass sil_prob here, because we just want to get the lexicon here
-    # we don't use the text-only data for training here
-    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
-    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
-        "train-other-960",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=10,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
+    phoneme_960_hdfs, phoneme_vocab, phoneme_vocab_size, train_seq_tags = _get_train_960_phonemes(
+        sil_prob=sil_prob, surround_w_sil=surround_w_sil, lexicon=lexicon
     )
 
     devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
@@ -269,7 +304,7 @@ def build_training_datasets_w_cheating_clusters(
             "phon_indices": LabelDatastream(
                 available_for_inference=False,
                 vocab=phoneme_vocab,
-                vocab_size=41,
+                vocab_size=phoneme_vocab_size,
             ),
         },
     )
@@ -603,6 +638,7 @@ def build_test_datasets_w_cheating_clusters(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
     num_audio_clusters: int = 512,
+    lexicon: Optional[PhonemeLexicon] = None,
 ):
     """
     NB unlike `build_test_datasets`, this one deliberately keeps the sequence-dropping phonemization
@@ -611,17 +647,16 @@ def build_test_datasets_w_cheating_clusters(
     would enlarge the pool that `TakeNRandomLinesJob` samples from and thus silently re-draw the eval
     set, invalidating all cheat-seg numbers measured so far. It also shares the phonemization job with
     the training data, so the un-filtered variant would mean re-phonemizing all 281k train utterances.
+
+    :param lexicon: see :func:`build_training_datasets_w_cheating_clusters`. With a lexicon the text is
+        phonemized without dropping seqs, so the 3000-utt sample is drawn from a different pool -- the eval
+        set of a lexicon variant is NOT the same 3000 utterances as the historical one (nor is the phoneme set,
+        so the PERs are not comparable anyway).
     """
     clusters_960_hdfs = _get_cheating_train_clusters(num_audio_clusters)
 
-    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
-    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
-        "train-other-960",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=10,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
+    phoneme_960_hdfs, phoneme_vocab, _, train_seq_tags = _get_train_960_phonemes(
+        sil_prob=sil_prob, surround_w_sil=surround_w_sil, lexicon=lexicon
     )
     # the cheating clusters and the phoneme HDFs do not cover the exact same set of utterances
     # (the clusters are missing ~1% of the phonemized seqs). The MetaDataset below hands the seq list of its
