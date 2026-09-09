@@ -5,12 +5,40 @@ from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
+from i6_experiments.users.schmitt.datasets.multi_proc import MultiProcDataset
 from i6_experiments.users.schmitt.datasets.utils.extract_seq_list import FilterSeqListByHdfSeqTagsJob
 from i6_experiments.users.schmitt.datasets.combine import CombinedDataset
 from i6_experiments.common.setups.returnn.datastreams.base import FeatureDatastream
 
 from ....data.librispeech import audio, text
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
+
+
+# `torch_dataloader_opts.num_workers` must stay 1 for these setups: RETURNN's
+# `ReturnnDatasetIterDataPipe` iterates `seq_index = 0..num_seqs-1` with no worker sharding (there is
+# no `sharding_filter` in returnn/torch/data/pipeline.py, and torch's `apply_sharding` only touches
+# datapipes that implement it), so every torch dataloader worker yields the *whole* sub-epoch -- with
+# the same epoch and the same `random_seed_offset`, hence the same seq order. With num_workers=6 that
+# fed each batch 6 times in a row (measured: the run-length histogram of identical
+# `(num_seqs, data_T, phon_T)` over consecutive steps was exactly `{6: 1669}`), i.e. 6 consecutive
+# optimizer updates on identical data. Parallel loading has to come from RETURNN's own
+# `MultiProcDataset` instead, which shards properly ("one epoch (or subepoch) is exactly as in the
+# original dataset").
+#
+# Only the audio branch is wrapped: it is 85 GB of 512-dim float features, whereas the text branch is
+# either 108 MB (train-960 transcripts) or already read in a separate process by
+# `DistributeFilesDataset`'s per-sub-epoch worker.
+_AUDIO_LOADER_NUM_WORKERS = 6
+_AUDIO_LOADER_BUFFER_SIZE = 10
+
+
+def _parallel_audio_dataset(dataset: HdfDataset) -> MultiProcDataset:
+    """Wrap the (expensive) audio feature branch in a `MultiProcDataset` -- see the comment above."""
+    return MultiProcDataset(
+        dataset=dataset,
+        num_workers=_AUDIO_LOADER_NUM_WORKERS,
+        buffer_size=_AUDIO_LOADER_BUFFER_SIZE,
+    )
 
 
 def build_training_datasets(
@@ -81,11 +109,13 @@ def build_training_datasets(
     return TrainingDatasets(
         train=CombinedDataset(
             datasets={
-                "features": HdfDataset(
-                    files=features_960_hdfs,
-                    segment_file=train_seq_tags,
-                    partition_epoch=settings.train_partition_epoch,
-                    seq_ordering=settings.train_seq_ordering,
+                "features": _parallel_audio_dataset(
+                    HdfDataset(
+                        files=features_960_hdfs,
+                        segment_file=train_seq_tags,
+                        partition_epoch=settings.train_partition_epoch,
+                        seq_ordering=settings.train_seq_ordering,
+                    )
                 ),
                 "phon_indices": HdfDataset(
                     files=phoneme_960_hdfs,
@@ -176,8 +206,10 @@ def build_training_datasets_w_lm_text(
     the speech data.
 
     :param text_partition_epoch: `partition_epoch` of the LM-text sub-dataset. Defaults to the
-        LM-corpus / train-960 line ratio, so a sub-epoch sees about as much text as audio (same
-        audio:text ratio per batch as :func:`build_training_datasets`).
+        LM-corpus / train-960 line ratio (~124), so a sub-epoch draws about as much text as audio
+        (same audio:text ratio per batch as :func:`build_training_datasets`) -- without it
+        `CombinedDataset(seq_ordering="interleave")` mixes proportionally to the sub-dataset sizes and
+        a batch would be ~99% text rows, starving the GAN's speech side.
     """
     features_960_hdfs, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
@@ -250,17 +282,29 @@ def build_training_datasets_w_lm_text(
     devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
     dev_seq_tags = TakeNRandomLinesJob(text_file=dev_seq_tags, num_lines=3000).out
 
+    # NB the LM text is 8.5 GB over `len(lm_text_hdfs)` (=100) shards against 108 MB over 10 for the
+    # train-960 transcripts, so this branch has a real *startup* cost: the cache manager copies all of
+    # it to node-local /var/tmp and every process then `HDFDataset.add_file`-parses all 100 shards
+    # (~2.4 s each, measured). On a cold node that was ~20 min of main-process init plus a 16 min
+    # "time to get first batch data" -- but that was with `num_workers: 6`, i.e. 7 processes each
+    # parsing all 100 shards; with `num_workers=1` (now enforced, see `_parallel_audio_dataset`) it is
+    # 2. It is also one-time: the copy is per node and reused, and epoch 2's first batch took 43 s.
+    # A `DistributeFilesDataset` here was tried and reverted -- it works, but `partition_epoch` is then
+    # capped at the shard count (100 < the 124 the line ratio wants), which skews the audio:text ratio
+    # for no steady-state gain. Only revisit it if node-local disk becomes the binding constraint.
     if text_partition_epoch is None:
         text_partition_epoch = round(_NUM_LM_MINUS_LIBRIVOX_LINES / _NUM_TRAIN_960_LINES)
 
     return TrainingDatasets(
         train=CombinedDataset(
             datasets={
-                "features": HdfDataset(
-                    files=features_960_hdfs,
-                    segment_file=train_seq_tags,
-                    partition_epoch=settings.train_partition_epoch,
-                    seq_ordering=settings.train_seq_ordering,
+                "features": _parallel_audio_dataset(
+                    HdfDataset(
+                        files=features_960_hdfs,
+                        segment_file=train_seq_tags,
+                        partition_epoch=settings.train_partition_epoch,
+                        seq_ordering=settings.train_seq_ordering,
+                    )
                 ),
                 "phon_indices": HdfDataset(
                     files=lm_text_hdfs,
