@@ -1,3 +1,5 @@
+from typing import Optional
+
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
@@ -6,41 +8,64 @@ from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
 from i6_experiments.users.schmitt.datasets.combine import CombinedDataset
 
 from ....data.librispeech import audio, text
+from ....data.librispeech.text import PhonemeLexicon
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
+
+
+def _phonemized(
+    data_name: str,
+    dump_hdf_concurrent: int,
+    sil_prob: float,
+    surround_w_sil: bool,
+    lexicon: Optional[PhonemeLexicon],
+    keep_all_seqs: bool = False,
+):
+    """
+    Phonemized LibriSpeech text: ``(hdfs, vocab_file, vocab_size, seq_tags)``. ``lexicon=None`` = the
+    historical fairseq/g2p_en lexicon from the LM corpus (41-symbol vocab); otherwise the given
+    :class:`PhonemeLexicon` (every seq kept, OOVs G2P'd), e.g. ``text.get_lbs_lexicon()`` for the 39-phoneme
+    LibriSpeech GMM set (vocab size 40 with the ``[SILENCE]`` placeholder).
+    """
+    if lexicon is None:
+        # we don't pass sil_prob here, because we just want to get the lexicon here
+        # we don't use the text-only data for training here
+        _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+        hdfs, _, _, seq_tags = text.get_phonemized_text(
+            data_name,
+            lexicon_file=lexicon_file,
+            dump_hdf_concurrent=dump_hdf_concurrent,
+            vocab_file=phoneme_vocab,
+            sil_prob=sil_prob,
+            surround_w_sil=surround_w_sil,
+            apply_lid_filter=not keep_all_seqs,
+            extend_lexicon_w_g2p=keep_all_seqs,
+        )
+        return hdfs, phoneme_vocab, 41, seq_tags
+    hdfs, phoneme_vocab, _, seq_tags = text.get_phonemized_text_w_lexicon(
+        data_name,
+        lexicon=lexicon,
+        dump_hdf_concurrent=dump_hdf_concurrent,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+    return hdfs, phoneme_vocab, lexicon.vocab_size, seq_tags
 
 
 def build_training_datasets(
     settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    lexicon: Optional[PhonemeLexicon] = None,
 ):
-    # we don't pass sil_prob here, because we just want to get the lexicon here
-    # we don't use the text-only data for training here
-    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
-    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
-        "train-other-960",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=10,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
+    """
+    :param lexicon: phonemize with this lexicon / phoneme set instead of the historical g2p_en one, see
+        :func:`_phonemized`. None keeps the existing job hashes.
+    """
+    phoneme_960_hdfs, phoneme_vocab, phoneme_vocab_size, train_seq_tags = _phonemized(
+        "train-other-960", 10, sil_prob, surround_w_sil, lexicon
     )
-    phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = text.get_phonemized_text(
-        "dev-clean",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=1,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
-    )
-    phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = text.get_phonemized_text(
-        "dev-other",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=1,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
-    )
+    phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = _phonemized("dev-clean", 1, sil_prob, surround_w_sil, lexicon)
+    phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = _phonemized("dev-other", 1, sil_prob, surround_w_sil, lexicon)
 
     dev_seq_tags = ConcatenateJob([dev_clean_seq_tags, dev_other_seq_tags], zip_out=False).out
 
@@ -80,7 +105,7 @@ def build_training_datasets(
             "data": LabelDatastream(
                 available_for_inference=True,
                 vocab=phoneme_vocab,
-                vocab_size=41,
+                vocab_size=phoneme_vocab_size,
             ),
         },
     )
@@ -95,25 +120,19 @@ def build_test_datasets(
     #  setup and makes the new numbers incomparable to the old ones.
     #  See "Eval-set sequence coverage (dev-other = 2864 utts)" in CLAUDE.md.
     keep_all_seqs: bool = False,
+    lexicon: Optional[PhonemeLexicon] = None,
 ):
     """
     :param keep_all_seqs: phonemize the full corpus instead of dropping the sequences that the language-ID
         filter and the lexicon-OOV filter of ``PhonemizeTextDataJob`` remove. With the default False,
         dev-other is scored on 2712 of 2864 utterances only (see "Eval-set sequence coverage" in CLAUDE.md).
         Only affects forward/scoring jobs, never a training.
+    :param lexicon: see :func:`build_training_datasets`; a lexicon always keeps all seqs (2864 utts).
     """
-    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
-    phoneme_dev_hdfs, _, _, dev_seq_tags = text.get_phonemized_text(
-        "dev-other",
-        lexicon_file=lexicon_file,
-        dump_hdf_concurrent=1,
-        vocab_file=phoneme_vocab,
-        sil_prob=sil_prob,
-        surround_w_sil=surround_w_sil,
-        # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
-        # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
-        apply_lid_filter=not keep_all_seqs,
-        extend_lexicon_w_g2p=keep_all_seqs,
+    # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
+    # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
+    phoneme_dev_hdfs, _, _, dev_seq_tags = _phonemized(
+        "dev-other", 1, sil_prob, surround_w_sil, lexicon, keep_all_seqs=keep_all_seqs
     )
 
     return {
