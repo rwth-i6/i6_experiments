@@ -31,6 +31,7 @@ class PhonemizeTextDataJob(Job):
         seq_tag_file: Optional[tk.Path] = None,
         surround_w_sil: bool = True,
         apply_lid_filter: bool = True,
+        collapse_repeats: bool = False,
     ):
         """
         :param apply_lid_filter: run the fasttext language-ID filter over the input lines. This makes sense for
@@ -38,6 +39,11 @@ class PhonemizeTextDataJob(Job):
             transcriptions) it only drops lines: on dev-other it removes 5 of 2864 utterances. Set to False for
             eval sets, where losing sequences makes the scores incomparable. NB the text normalization itself
             (the character filter) is always applied.
+        :param collapse_repeats: merge adjacent identical phonemes of the final phoneme sequence into one
+            (``S AH M M IH S`` -> ``S AH M IH S``, mostly across word boundaries; 0.56% of the tokens on the
+            LibriSpeech transcripts). Mirrors what a segmentation derived from a frame alignment does: a run
+            of identical labels is one segment, so a phoneme repeated across a word boundary is a single
+            segment there. Applied after the silence insertion, so inserted ``<SIL>`` tokens are collapsed too.
         """
         self.text_file = text_file
         self.fairseq_root = fairseq_root
@@ -52,6 +58,7 @@ class PhonemizeTextDataJob(Job):
         self.phonemizer_engine = phonemizer_engine
         self.surround_w_sil = surround_w_sil
         self.apply_lid_filter = apply_lid_filter
+        self.collapse_repeats = collapse_repeats
 
         self.out_lexicon_file = self.output_path("lexicon_filtered.lst")
         self.out_phoneme_text = self.output_path("text.phonemes.txt")
@@ -147,6 +154,7 @@ class PhonemizeTextDataJob(Job):
         surround: bool,
         seq_tags_file: str,
         lexicon: str,
+        collapse_repeats: bool = False,
     ):
         import sys
         import numpy as np
@@ -197,6 +205,9 @@ class PhonemizeTextDataJob(Job):
 
             if surround:
                 phones.append(sil)
+
+            if collapse_repeats:
+                phones = [p for i, p in enumerate(phones) if i == 0 or p != phones[i - 1]]
 
             out_text_file.write(" ".join(phones) + "\n")
 
@@ -279,6 +290,7 @@ class PhonemizeTextDataJob(Job):
             surround=self.surround_w_sil,
             seq_tags_file=seq_tag_file,
             lexicon=self.out_lexicon_file.get_path(),
+            collapse_repeats=self.collapse_repeats,
         )
 
         shutil.move("lm.phones.filtered.txt", self.out_phoneme_text.get_path())
@@ -302,6 +314,8 @@ class PhonemizeTextDataJob(Job):
         # only hash the new option when it deviates from the old (only) behavior, to keep existing job hashes
         if parsed_args.get("apply_lid_filter", True):
             parsed_args.pop("apply_lid_filter", None)
+        if not parsed_args.get("collapse_repeats", False):
+            parsed_args.pop("collapse_repeats", None)
         return super().hash(parsed_args)
 
 
