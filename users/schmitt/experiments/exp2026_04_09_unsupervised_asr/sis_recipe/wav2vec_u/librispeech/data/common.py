@@ -1,4 +1,6 @@
-from typing import Optional
+from typing import Any, Dict, List, Optional
+
+from sisyphus import tk
 
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 
@@ -12,6 +14,7 @@ from i6_experiments.common.setups.returnn.datastreams.base import FeatureDatastr
 
 from ....data.librispeech import audio, text
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
+from ....dump_features import dump_encoder_features
 
 
 # `torch_dataloader_opts.num_workers` must stay 1 for these setups: RETURNN's
@@ -490,6 +493,324 @@ def build_test_datasets(max_abs_value: Optional[float] = None, keep_all_seqs: bo
         # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
         apply_lid_filter=not keep_all_seqs,
         extend_lexicon_w_g2p=keep_all_seqs,
+    )
+
+    return {
+        "dev-other": MetaDataset(
+            datasets={
+                "features": HdfDataset(
+                    files=features_dev_other_hdfs,
+                    segment_file=all_dev_other_seq_tags,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_dev_hdfs,
+                    segment_file=all_dev_other_seq_tags,
+                ),
+            },
+            data_map={
+                "data": ("features", "data"),
+                "phon_indices": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+    }
+
+
+# --------------------------------------------------------------------------------------------
+# Encoder features: instead of the wav2vec feature dump, use the *shared-encoder states* of a model
+# trained by one of the unsupervised setups (see sis_recipe/dump_features.py). The encoder has no
+# subsampling frontend, so its states are frame-synchronous with the collapsed cluster ids -- same
+# frame rate and (by default) same 512 dims as the wav2vec features, so the GAN side is unchanged.
+# --------------------------------------------------------------------------------------------
+
+
+def encoder_feature_size(model_spec: Dict[str, Any]) -> int:
+    """Feature dim of the dumped encoder states = the source model's encoder output dim."""
+    net_args = model_spec["net_args"]
+    return net_args.get("enc_bottleneck_dim") or net_args["model_dim"]
+
+
+def _dump_audio_encoder_features(
+    *,
+    alias_name: str,
+    model_spec: Dict[str, Any],
+    checkpoint,
+    cluster_hdfs: List[tk.Path],
+    segment_file: Optional[tk.Path],
+    concurrent: int,
+    layer: Optional[int],
+    dtype: str,
+    batch_size: Optional[int],
+) -> List[tk.Path]:
+    """Run the source model's encoder over the cluster-id HDFs and return the feature HDFs."""
+    return dump_encoder_features(
+        alias_name=alias_name,
+        model_spec=model_spec,
+        checkpoint=checkpoint,
+        # the source models take the collapsed cluster ids under "data" (their default_data_key)
+        dataset_builder=lambda seg: HdfDataset(files=cluster_hdfs, segment_file=seg),
+        segment_file=segment_file,
+        concurrent=concurrent,
+        data_key="data",
+        modality="audio",
+        layer=layer,
+        dtype=dtype,
+        batch_size=batch_size,
+    )
+
+
+def build_training_datasets_w_encoder_features(
+    *,
+    settings: DatasetSettings,
+    model_spec: Dict[str, Any],
+    checkpoint,
+    alias_name: str,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+    layer: Optional[int] = None,
+    dtype: str = "float16",
+    train_concurrent: int = 10,
+    dump_batch_size: Optional[int] = None,
+):
+    """
+    Like :func:`build_training_datasets`, but ``data`` holds the encoder states of ``model_spec`` /
+    ``checkpoint`` instead of the dumped wav2vec features. Text side and eval sets are unchanged.
+
+    :param model_spec: from ``dump_features.model_spec_from_config``, registered by the config that
+        trained the source model (e.g. ``unsup...config_librispeech_960_w_sil_in_input_v1.model_specs``).
+    :param checkpoint: that model's checkpoint, e.g. ``checkpoints[training_name][500]``.
+    :param alias_name: alias prefix for the dump jobs; must identify the source model + epoch +
+        layer, otherwise two sources would share an alias.
+    :param layer: 1-based encoder layer to read the states off; None = last (what recognition uses).
+    :param dtype: on-disk dtype of the dumped features. float16 halves the ~85 GB a train-960 dump
+        costs; the wav2vec-U train/forward step casts back to float32.
+    :param train_concurrent: shards (= forward jobs = output HDFs) for the train-960 dump.
+    """
+    _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
+        librispeech_key="train-other-960",
+        dump_hdf_concurrent=10,
+        featurize_concurrent=10,
+        remove_cluster_repetitions=True,
+    )
+    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
+        librispeech_key="dev-other",
+        existing_clusters=clusters_960,
+        existing_pca=pca_960,
+        dump_hdf_concurrent=1,
+        featurize_concurrent=1,
+        remove_cluster_repetitions=True,
+    )
+    _, _, _, clusters_dev_clean_hdfs = audio.get_featurized_audio(
+        librispeech_key="dev-clean",
+        existing_clusters=clusters_960,
+        existing_pca=pca_960,
+        dump_hdf_concurrent=1,
+        featurize_concurrent=1,
+        remove_cluster_repetitions=True,
+    )
+
+    # we don't pass sil_prob here, because we just want to get the lexicon here
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
+        "train-other-960",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=10,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+    phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = text.get_phonemized_text(
+        "dev-clean",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+    phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+
+    dev_seq_tags = ConcatenateJob([dev_clean_seq_tags, dev_other_seq_tags], zip_out=False).out
+
+    devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
+    dev_seq_tags = TakeNRandomLinesJob(text_file=dev_seq_tags, num_lines=3000).out
+
+    # dump only the seqs we actually train on (train_seq_tags); for the dev sets dump everything the
+    # cluster HDF holds (segment_file=None), so the same files also serve any eval subset.
+    features_960_hdfs = _dump_audio_encoder_features(
+        alias_name=f"{alias_name}/train-other-960",
+        model_spec=model_spec,
+        checkpoint=checkpoint,
+        cluster_hdfs=clusters_960_hdfs,
+        segment_file=train_seq_tags,
+        concurrent=train_concurrent,
+        layer=layer,
+        dtype=dtype,
+        batch_size=dump_batch_size,
+    )
+    features_dev_other_hdfs = _dump_audio_encoder_features(
+        alias_name=f"{alias_name}/dev-other",
+        model_spec=model_spec,
+        checkpoint=checkpoint,
+        cluster_hdfs=clusters_dev_other_hdfs,
+        segment_file=None,
+        concurrent=1,
+        layer=layer,
+        dtype=dtype,
+        batch_size=dump_batch_size,
+    )
+    features_dev_clean_hdfs = _dump_audio_encoder_features(
+        alias_name=f"{alias_name}/dev-clean",
+        model_spec=model_spec,
+        checkpoint=checkpoint,
+        cluster_hdfs=clusters_dev_clean_hdfs,
+        segment_file=None,
+        concurrent=1,
+        layer=layer,
+        dtype=dtype,
+        batch_size=dump_batch_size,
+    )
+
+    return TrainingDatasets(
+        train=CombinedDataset(
+            datasets={
+                "features": _parallel_audio_dataset(
+                    HdfDataset(
+                        files=features_960_hdfs,
+                        segment_file=train_seq_tags,
+                        partition_epoch=settings.train_partition_epoch,
+                        seq_ordering=settings.train_seq_ordering,
+                    )
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_960_hdfs,
+                    segment_file=train_seq_tags,
+                    partition_epoch=settings.train_partition_epoch,
+                    seq_ordering=settings.train_seq_ordering,
+                ),
+            },
+            data_map={
+                ("phon_indices", "data"): "phon_indices",
+                ("features", "data"): "data",
+            },
+            seq_ordering="interleave",
+            partition_epoch=1,
+        ),
+        eval_datasets={
+            "devtrain": CombinedDataset(
+                datasets={
+                    "features": HdfDataset(
+                        files=features_960_hdfs,
+                        segment_file=devtrain_seq_tags,
+                    ),
+                    "phon_indices": HdfDataset(
+                        files=phoneme_960_hdfs,
+                        segment_file=devtrain_seq_tags,
+                    ),
+                },
+                data_map={
+                    ("phon_indices", "data"): "phon_indices",
+                    ("features", "data"): "data",
+                },
+                seq_ordering="sorted",
+                partition_epoch=1,
+            ),
+            "dev": CombinedDataset(
+                datasets={
+                    "features": HdfDataset(
+                        files=features_dev_other_hdfs + features_dev_clean_hdfs,
+                        segment_file=dev_seq_tags,
+                    ),
+                    "phon_indices": HdfDataset(
+                        files=phoneme_dev_clean_hdfs + phoneme_dev_other_hdfs,
+                        segment_file=dev_seq_tags,
+                    ),
+                },
+                data_map={
+                    ("phon_indices", "data"): "phon_indices",
+                    ("features", "data"): "data",
+                },
+                seq_ordering="sorted",
+                partition_epoch=1,
+            ),
+        },
+        datastreams={
+            "data": FeatureDatastream(
+                available_for_inference=True,
+                feature_size=encoder_feature_size(model_spec),
+            ),
+            "phon_indices": LabelDatastream(
+                available_for_inference=False,
+                vocab=phoneme_vocab,
+                vocab_size=41,
+            ),
+        },
+    )
+
+
+def build_test_datasets_w_encoder_features(
+    *,
+    model_spec: Dict[str, Any],
+    checkpoint,
+    alias_name: str,
+    keep_all_seqs: bool = True,
+    layer: Optional[int] = None,
+    dtype: str = "float16",
+    dump_batch_size: Optional[int] = None,
+):
+    """
+    Like :func:`build_test_datasets`, but ``data`` holds the source model's encoder states.
+
+    The dev-other dump covers the full cluster HDF (2864 seqs), so it is a superset of the phoneme
+    reference regardless of ``keep_all_seqs`` -- no ``max_abs_value`` filtering happens here, unlike
+    with the wav2vec feature dump.
+    """
+    _, all_dev_other_seq_tags = text.get_text("dev-other")
+
+    _, clusters_960, pca_960, _ = audio.get_featurized_audio(
+        librispeech_key="train-other-960",
+        dump_hdf_concurrent=10,
+        featurize_concurrent=10,
+        remove_cluster_repetitions=True,
+    )
+    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
+        librispeech_key="dev-other",
+        existing_clusters=clusters_960,
+        existing_pca=pca_960,
+        dump_hdf_concurrent=1,
+        featurize_concurrent=1,
+        remove_cluster_repetitions=True,
+    )
+
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_dev_hdfs, _, _, _ = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+        # never drop eval seqs: the reference must cover the whole corpus, otherwise WER/PER is not
+        # comparable (LID filter: 5 seqs, lexicon OOV: 147 seqs on dev-other)
+        apply_lid_filter=not keep_all_seqs,
+        extend_lexicon_w_g2p=keep_all_seqs,
+    )
+
+    # same dump job as the training builder's dev-other dump (same args -> same hash, so it runs once)
+    features_dev_other_hdfs = _dump_audio_encoder_features(
+        alias_name=f"{alias_name}/dev-other",
+        model_spec=model_spec,
+        checkpoint=checkpoint,
+        cluster_hdfs=clusters_dev_other_hdfs,
+        segment_file=None,
+        concurrent=1,
+        layer=layer,
+        dtype=dtype,
+        batch_size=dump_batch_size,
     )
 
     return {
