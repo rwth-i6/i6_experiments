@@ -15,12 +15,17 @@ import os
 import time
 from ast import literal_eval
 
-from sisyphus import Job, Task, tk
+from sisyphus import Job, Task, tk, gs
 from sisyphus.engine import EngineBase, EngineSelector
 from sisyphus.simple_linux_utility_for_resource_management_engine import SimpleLinuxUtilityForResourceManagementEngine
 
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
+from i6_experiments.users.zeyer.forward_batched import BatchedReturnnForwardJob
+from .bad_gpu_nodes import report_bad_node
+
+
+_HandledJobTypes = (ReturnnTrainingJob, ReturnnForwardJobV2, BatchedReturnnForwardJob)
 
 
 def get_cached_job_failure_handler():
@@ -43,7 +48,7 @@ class JobFailureHandler:
 
     def __call__(self, job: Job):
         # Filter out jobs. Only RETURNN jobs on GPU, and only known bad-host error patterns.
-        if not (isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2)) and job.rqmt["gpu"] > 0):
+        if not (isinstance(job, _HandledJobTypes) and job.rqmt["gpu"] > 0):
             return  # do nothing
         spawn_failure_host = None
         if not _is_returnn_cuda_error(_get_returnn_log_filename(job)):
@@ -53,7 +58,7 @@ class JobFailureHandler:
 
         # Register failure.
         try:
-            task, task_id = _get_failed_task(job)
+            task, task_id = _get_failed_task(job, engine=self.cached_engine)
         except _FailedTaskNotFoundError:
             print(f"{job} failed but no failed task found, maybe already cleaned, skipping...")
             return
@@ -67,6 +72,8 @@ class JobFailureHandler:
         print(f"{job} failed on {failed_host}, excluding host, clearing error...")
         self._clean_failed_hosts()
         self.failed_hosts[failed_host] = time.time()
+        # Also persist to the self-expiring registry, read by settings.check_engine_limits on every submission.
+        report_bad_node(failed_host)
 
         # Update Slurm engine default rqmt with maybe added excluded hosts.
         engine = _get_slurm_engine(cached_engine=self.cached_engine, task=task)
@@ -102,10 +109,13 @@ class JobFailureHandler:
         engine.default_rqmt["sbatch_args"] = sbatch_args
 
     def _cleanup_job(self, job: Job):
-        assert isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2))  # only implemented for this case currently...
+        assert isinstance(job, _HandledJobTypes)  # only implemented for this case currently...
         base_path = job._sis_path()
+        # error.run.1 does not exist for spawn failures (retry_error), submit_log.run always does;
+        # removing submit_log.run resets the submit budget, which un-wedges retry_error.
         for fn in [base_path + "/error.run.1", base_path + "/submit_log.run"]:
-            os.remove(fn)
+            if os.path.exists(fn):
+                os.remove(fn)
 
 
 def _get_returnn_log_filename(job: Union[ReturnnTrainingJob, ReturnnForwardJobV2]) -> str:
@@ -175,12 +185,20 @@ class _FailedTaskNotFoundError(Exception):
     pass
 
 
-def _get_failed_task(job: Job) -> Tuple[Task, int]:
+def _get_failed_task(job: Job, *, engine: Optional[EngineBase] = None) -> Tuple[Task, int]:
     for task in job._sis_tasks():
         task: Task
         for task_id in task.task_ids():
             if task.error(task_id):
                 return task, task_id
+    if engine is not None:
+        # E.g. psslurm spawn failures: the process never starts, so no error file is ever written;
+        # the task just exhausts its submit budget and sits in retry_error.
+        for task in job._sis_tasks():
+            task: Task
+            for task_id in task.task_ids():
+                if task.state(engine, task_id) == gs.STATE_RETRY_ERROR:
+                    return task, task_id
     raise _FailedTaskNotFoundError(f"No failed task for job {job}?")
 
 
