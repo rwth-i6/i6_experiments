@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, Optional, Union
+from typing import Any, Dict, Iterator, Optional, Sequence, Union
 import copy
 import os
 import shutil
@@ -562,3 +562,282 @@ class DumpPhonemeIndicesToHdfJob(Job):
 
             hdf_writer.close()
             shutil.move(tmp_hdf, self.out_hdfs[task_id - 1].get_path())
+
+
+class LexiconTxtToLineBasedLexiconJob(Job):
+    """
+    Turn a CMUdict-style pronunciation lexicon (``WORD  PH1 PH2 ...`` per line, one line per pronunciation
+    variant; e.g. the official LibriSpeech lexicon, https://www.openslr.org/resources/11/librispeech-lexicon.txt)
+    into the one-pronunciation-per-word ``word<TAB>phonemes`` list that :class:`PhonemizeTextDataJob` consumes,
+    plus the phoneme vocab (RETURNN dict literal, same format as ``PhonemizeTextDataJob.out_phoneme_vocab``)
+    that lexicon induces.
+
+    The vocab lists ``special_symbols_first`` and then the phoneme inventory **sorted alphabetically**. With
+    the default ``("[SILENCE]",)`` and the stress-stripped LibriSpeech lexicon this is exactly the 40-symbol
+    inventory of the i6 LibriSpeech GMM setups (``[SILENCE]`` = 0, ``AA`` = 1, ..., ``ZH`` = 39), i.e. the
+    index space of zyang's GMM segment phoneme HDFs and lkleppel's ``phoneme.lex.xml.gz``, so phoneme HDFs
+    produced with this vocab are directly comparable/pairable with those. ``[SILENCE]`` never occurs in a
+    phonemized text (the lexicon has no such word); it is only a placeholder keeping the indices aligned.
+
+    Pronunciation variants: by default the first listed variant of a word is used. With ``variant_counts_file``
+    (from :class:`CountLexiconVariantsInSegmentPhonemesJob`) the variant most often realized by a reference
+    alignment is used instead (words absent from the counts fall back to the first variant). Measured against
+    zyang's LibriSpeech-960 GMM segment phonemes: first-variant text disagrees with the aligned phoneme
+    sequence on 6.0% of the tokens (22% of the utterances equal in length), the aligner-preferred variants
+    plus ``collapse_repeats`` on 3.8% (38% equal length); our fairseq/g2p_en lexicon: 6.6% (25%).
+    """
+
+    def __init__(
+        self,
+        lexicon_txt: tk.Path,
+        strip_stress: bool = True,
+        lowercase_words: bool = True,
+        variant_counts_file: Optional[tk.Path] = None,
+        special_symbols_first: Sequence[str] = ("[SILENCE]",),
+    ):
+        """
+        :param lexicon_txt: ``WORD  PH1 PH2 ...`` per line, one line per pronunciation variant
+        :param strip_stress: remove the CMUdict stress digits (``AH0`` -> ``AH``), 69 -> 39 phonemes for
+            LibriSpeech
+        :param lowercase_words: lowercase the words (the phonemized texts here are lowercased)
+        :param variant_counts_file: ``word<TAB>count<TAB>phonemes`` lines, see
+            :class:`CountLexiconVariantsInSegmentPhonemesJob`; picks the highest-count variant per word
+        :param special_symbols_first: symbols to put at the start of the vocab (placeholders)
+        """
+        self.lexicon_txt = lexicon_txt
+        self.strip_stress = strip_stress
+        self.lowercase_words = lowercase_words
+        self.variant_counts_file = variant_counts_file
+        self.special_symbols_first = tuple(special_symbols_first)
+
+        self.out_lexicon_file = self.output_path("lexicon.lst")
+        self.out_phoneme_vocab = self.output_path("phoneme_vocab.txt")
+        self.out_phoneme_inventory = self.output_path("phoneme_inventory.txt")
+        self.out_num_phonemes = self.output_var("num_phonemes")
+        self.out_stats = self.output_path("stats.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def read_lexicon_variants(lexicon_txt: str, strip_stress: bool, lowercase_words: bool):
+        """:return: word -> list of distinct pronunciation variants (tuples of phonemes), in file order"""
+        import re
+
+        variants = {}
+        with open(lexicon_txt, "r", encoding="utf-8") as f:
+            for line in f:
+                items = line.split()
+                if len(items) < 2:
+                    continue
+                word = items[0].lower() if lowercase_words else items[0]
+                phones = tuple(re.sub(r"\d", "", p) for p in items[1:]) if strip_stress else tuple(items[1:])
+                variants.setdefault(word, [])
+                if phones not in variants[word]:
+                    variants[word].append(phones)
+        return variants
+
+    def run(self):
+        variants = self.read_lexicon_variants(
+            self.lexicon_txt.get_path(), strip_stress=self.strip_stress, lowercase_words=self.lowercase_words
+        )
+
+        counts = {}
+        if self.variant_counts_file is not None:
+            with open(self.variant_counts_file.get_path(), "r", encoding="utf-8") as f:
+                for line in f:
+                    word, count, phones = line.rstrip("\n").split("\t")
+                    counts[(word, tuple(phones.split()))] = int(count)
+
+        num_multi = 0
+        num_changed = 0
+        num_from_counts = 0
+        inventory = set()
+        with open(self.out_lexicon_file.get_path(), "w", encoding="utf-8") as f:
+            for word, word_variants in variants.items():
+                for v in word_variants:
+                    inventory.update(v)
+                chosen = word_variants[0]
+                if len(word_variants) > 1:
+                    num_multi += 1
+                    if counts:
+                        scored = [(counts.get((word, v), 0), -i, v) for i, v in enumerate(word_variants)]
+                        best_count, _, best = max(scored)
+                        if best_count > 0:
+                            num_from_counts += 1
+                            if best != chosen:
+                                num_changed += 1
+                            chosen = best
+                f.write(f"{word}\t{' '.join(chosen)}\n")
+
+        for s in self.special_symbols_first:
+            assert s not in inventory, f"special symbol {s!r} clashes with a lexicon phoneme"
+        inventory = sorted(inventory)
+        vocab = list(self.special_symbols_first) + inventory
+        with open(self.out_phoneme_inventory.get_path(), "w", encoding="utf-8") as f:
+            for p in inventory:
+                f.write(f"{p}\n")
+        with open(self.out_phoneme_vocab.get_path(), "w", encoding="utf-8") as f:
+            f.write("{\n")
+            for i, p in enumerate(vocab):
+                f.write(f'"{p}": {i},\n')
+            f.write("}\n")
+        self.out_num_phonemes.set(len(vocab))
+        with open(self.out_stats.get_path(), "w", encoding="utf-8") as f:
+            f.write(f"words: {len(variants)}\n")
+            f.write(f"words with >1 pronunciation variant: {num_multi}\n")
+            f.write(f"words whose variant was chosen from the counts file: {num_from_counts}\n")
+            f.write(f"words where that choice differs from the first variant: {num_changed}\n")
+            f.write(f"phoneme inventory ({len(inventory)}): {' '.join(inventory)}\n")
+            f.write(f"vocab size incl. special symbols {list(self.special_symbols_first)}: {len(vocab)}\n")
+
+
+class CountLexiconVariantsInSegmentPhonemesJob(Job):
+    """
+    Count, per word, which pronunciation variant of ``lexicon_txt`` a phoneme-*segment* alignment realized.
+
+    For every utterance of ``text_file`` whose words are all in the lexicon and whose seq tag has a sequence in
+    ``segment_phoneme_hdfs``, the segment phoneme sequence is parsed exactly as a concatenation of one lexicon
+    variant per word (with ``collapse_repeats``, a phoneme repeated across a word boundary is allowed to be
+    one segment -- a segmentation derived from a frame alignment merges runs of identical labels). Utterances
+    that do not parse (aligner-specific realizations, lexicon version differences, transcript mismatches) are
+    skipped; on zyang's LibriSpeech-960 GMM segments 57% of the in-lexicon utterances parse, enough to
+    estimate the aligner's preferred variant for the frequent ambiguous words (``to``, ``the``, ``was``,
+    ``and``, ``with``, ``a``, ...; 32% of all word tokens have >1 realized variant).
+
+    The HDF labels are taken to be 1-based indices into the **alphabetically sorted** stress-stripped phoneme
+    inventory of the lexicon, with ``silence_index`` (dropped if present) -- the convention of zyang's
+    ``gmm_segment_phonemes.*.hdf`` (``1=AA, ..., 39=ZH``, silence removed), verified against lkleppel's
+    lexicon and the frame alignments.
+
+    Output ``out_variant_counts``: ``word<TAB>count<TAB>PH1 PH2 ...`` for every realized (word, variant), for
+    :class:`LexiconTxtToLineBasedLexiconJob`.
+    """
+
+    def __init__(
+        self,
+        lexicon_txt: tk.Path,
+        text_file: tk.Path,
+        seq_tag_file: tk.Path,
+        segment_phoneme_hdfs: Sequence[tk.Path],
+        strip_stress: bool = True,
+        collapse_repeats: bool = True,
+        silence_index: int = 0,
+    ):
+        """
+        :param lexicon_txt: as for :class:`LexiconTxtToLineBasedLexiconJob` (all variants)
+        :param text_file: one (lowercased) utterance per line, parallel to ``seq_tag_file``
+        :param seq_tag_file: one seq tag per line, matching the HDF seq tags
+        :param segment_phoneme_hdfs: RETURNN HDFs with one phoneme index per segment
+        """
+        self.lexicon_txt = lexicon_txt
+        self.text_file = text_file
+        self.seq_tag_file = seq_tag_file
+        self.segment_phoneme_hdfs = list(segment_phoneme_hdfs)
+        self.strip_stress = strip_stress
+        self.collapse_repeats = collapse_repeats
+        self.silence_index = silence_index
+
+        self.out_variant_counts = self.output_path("variant_counts.txt")
+        self.out_stats = self.output_path("stats.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 1, "mem": 16, "time": 4})
+
+    def run(self):
+        import functools
+        import itertools
+        import sys
+        from collections import Counter, defaultdict
+
+        import h5py
+
+        sys.setrecursionlimit(10_000)
+
+        variants = LexiconTxtToLineBasedLexiconJob.read_lexicon_variants(
+            self.lexicon_txt.get_path(), strip_stress=self.strip_stress, lowercase_words=True
+        )
+        inventory = sorted(set(p for vs in variants.values() for v in vs for p in v))
+        # index -> symbol; index 0 (silence) has no symbol and is dropped from the sequences below
+        idx_to_sym = {i + 1: p for i, p in enumerate(inventory)}
+        assert self.silence_index not in idx_to_sym
+
+        segments = {}
+        for hdf in self.segment_phoneme_hdfs:
+            with h5py.File(hdf.get_path(), "r") as f:
+                tags = [t.decode() if isinstance(t, bytes) else t for t in f["seqTags"][:]]
+                lens = f["seqLengths"][:, 0]
+                inputs = f["inputs"][:].reshape(-1)
+            offsets = np.concatenate([[0], np.cumsum(lens)])
+            for i, t in enumerate(tags):
+                segments[t] = inputs[offsets[i] : offsets[i + 1]]
+        print(f"{len(segments)} segment sequences from {len(self.segment_phoneme_hdfs)} HDFs", file=sys.stderr)
+
+        with open(self.text_file.get_path(), "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f]
+        with open(self.seq_tag_file.get_path(), "r", encoding="utf-8") as f:
+            seq_tags = [line.strip() for line in f]
+        assert len(lines) == len(seq_tags), (len(lines), len(seq_tags))
+
+        collapse_repeats = self.collapse_repeats
+
+        def collapse(seq):
+            return [x for x, _ in itertools.groupby(seq)] if collapse_repeats else list(seq)
+
+        def parse(words, seq):
+            """:return: list of chosen variants (one per word) reproducing ``seq`` exactly, or None"""
+            seq = tuple(seq)
+            n = len(words)
+
+            @functools.lru_cache(maxsize=None)
+            def rec(i, pos, prev):
+                if i == n:
+                    return [] if pos == len(seq) else None
+                for v in variants[words[i]]:
+                    vv = collapse(v)
+                    if collapse_repeats and vv and vv[0] == prev:
+                        vv = vv[1:]  # merged into the previous word's last phoneme
+                    L = len(vv)
+                    if seq[pos : pos + L] == tuple(vv):
+                        r = rec(i + 1, pos + L, seq[pos + L - 1] if L > 0 else prev)
+                        if r is not None:
+                            return [v] + r
+                return None
+
+            return rec(0, 0, None)
+
+        counts = defaultdict(Counter)
+        num_with_segments = num_in_lexicon = num_parsed = 0
+        for line, tag in zip(lines, seq_tags):
+            if tag not in segments:
+                continue
+            num_with_segments += 1
+            words = line.split()
+            if not words or not all(w in variants for w in words):
+                continue
+            num_in_lexicon += 1
+            seq = [idx_to_sym[int(i)] for i in segments[tag] if int(i) != self.silence_index]
+            chosen = parse(words, seq)
+            if chosen is None:
+                continue
+            num_parsed += 1
+            for w, v in zip(words, chosen):
+                counts[w][v] += 1
+
+        with open(self.out_variant_counts.get_path(), "w", encoding="utf-8") as f:
+            for word in sorted(counts):
+                for v, c in counts[word].most_common():
+                    f.write(f"{word}\t{c}\t{' '.join(v)}\n")
+        num_multi = sum(len(c) > 1 for c in counts.values())
+        tokens_multi = sum(sum(c.values()) for c in counts.values() if len(c) > 1)
+        tokens_all = sum(sum(c.values()) for c in counts.values())
+        with open(self.out_stats.get_path(), "w", encoding="utf-8") as f:
+            f.write(f"utterances in text: {len(lines)}\n")
+            f.write(f"utterances with a segment sequence: {num_with_segments}\n")
+            f.write(f"... with all words in the lexicon: {num_in_lexicon}\n")
+            f.write(
+                f"... exactly parseable as a variant concatenation: {num_parsed}"
+                f" ({100.0 * num_parsed / max(num_in_lexicon, 1):.1f}%)\n"
+            )
+            f.write(f"words with counts: {len(counts)}, with >1 realized variant: {num_multi}\n")
+            f.write(f"word tokens with >1 realized variant: {tokens_multi} / {tokens_all}\n")
