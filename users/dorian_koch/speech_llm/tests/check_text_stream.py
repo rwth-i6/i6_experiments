@@ -124,6 +124,43 @@ try:
 except ImportError as exc:
     failures.append(f"could not import the reference interleaver to compare against: {exc!r}")
 
+# --- 3b. with onset_floor, parity holds for ARBITRARY onsets, not just frame boundaries ---------
+# This is the stronger form of the test above: rounding vs flooring can only differ OFF the grid, so
+# off-grid fixtures are the only ones that can see it. Non-vacuity is asserted explicitly -- the
+# rounding mode must FAIL the same comparison, or this proves nothing.
+_n = len(failures)
+OFF_GRID = [
+    ("alpha", (4.37 / FRAME_RATE, 6.1 / FRAME_RATE), "SPEAKER_MAIN"),
+    ("be", (10.62 / FRAME_RATE, 11.4 / FRAME_RATE), "SPEAKER_MAIN"),
+    ("gamma", (17.51 / FRAME_RATE, 20.2 / FRAME_RATE), "SPEAKER_MAIN"),
+    ("d", (30.94 / FRAME_RATE, 31.7 / FRAME_RATE), "SPEAKER_MAIN"),
+]
+try:
+    ref_off = (
+        ref.build_token_stream([(TOK.text_tok.encode(w), ts, spk) for w, ts, spk in OFF_GRID], 64 / FRAME_RATE)
+        .view(-1)
+        .cpu()
+    )
+    floored = TOK.interleave_text(OFF_GRID, 64, emit_epad=True, onset_floor=True)[0].cpu()
+    rounded = TOK.interleave_text(OFF_GRID, 64, emit_epad=True, onset_floor=False)[0].cpu()
+    if not torch.equal(ref_off, floored):
+        diff = [(t, int(ref_off[t]), int(floored[t])) for t in range(64) if int(ref_off[t]) != int(floored[t])]
+        failures.append(f"onset_floor does not reproduce the reference off-grid; differs at {diff[:8]}")
+    if torch.equal(ref_off, rounded):
+        failures.append(
+            "the ROUNDING mode also matches the reference off-grid -- the fixture cannot see the "
+            "difference, so this check proves nothing"
+        )
+    # ...and the direction matters: flooring may only move a word EARLIER, never later.
+    for w, (s, _e), _sp in OFF_GRID:
+        fl = int(s * FRAME_RATE // 1)
+        rd = int(round(s * FRAME_RATE))
+        if fl > rd:
+            failures.append(f"floor put {w!r} at frame {fl}, later than round's {rd}")
+    ok("off-grid parity   onset_floor == reference for arbitrary onsets; rounding does not", _n)
+except NameError:
+    failures.append("reference interleaver unavailable, cannot check off-grid parity")
+
 # --- 4. the speech clamp ------------------------------------------------------------------------
 _n = len(failures)
 sr = 24000
@@ -134,8 +171,10 @@ measured = speech_onset_sec(sig, sr)
 if measured is None or abs(measured - onset_s) > 0.05:
     failures.append(f"speech_onset_sec found {measured} for a channel that starts at {onset_s}s")
 if speech_onset_sec(np.zeros(100, dtype=np.float32), sr) is not None:
-    failures.append("speech_onset_sec must return None for a silent channel, not 0.0 -- a caller "
-                    "that reads 0.0 as 'starts at the beginning' would clamp nothing")
+    failures.append(
+        "speech_onset_sec must return None for a silent channel, not 0.0 -- a caller "
+        "that reads 0.0 as 'starts at the beginning' would clamp nothing"
+    )
 
 # the real defect shape: word 0 anchored at 0.000 with a 4 s span, the rest correct
 bad = [
