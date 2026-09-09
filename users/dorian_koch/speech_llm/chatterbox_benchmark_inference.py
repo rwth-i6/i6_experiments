@@ -24,32 +24,94 @@ COL_INDEX, COL_AUDIO, COL_SR = "index", "audio", "sampling_rate"
 COL_MONOLOGUE, COL_TRACE = "monologue", "trace_json"
 
 
-def write_clips(out_path, items):
-    """Write (index, samples, sample_rate) triples as one arrow dataset. Mirrors clip_store.
+class ClipSpool:
+    """Append-only float32 spool: clips go to DISK as they are made, never accumulating in memory.
 
-    ``samples`` stays a float32 NUMPY array. It used to be ``[float(x) for x in samples]``, which
-    boxes every audio sample as a Python float -- ~8x the memory of the array, allocated for ALL
-    clips at once just before ``from_dict``. On the 12,000-prompt rehearsal corpus that is a few
-    billion boxed floats: the job ran 2 h 09 m, jumped 11.3 -> 16.1 GB in ten seconds and was
-    OOM-killed with zero output (2026-09-07). ``clip_store.write_clips`` -- which this file is a
-    deliberate copy of, because the worker runs in a venv with no i6_experiments -- always used
-    ``np.asarray``; the copy had silently diverged from the thing it says it mirrors.
+    The shape this replaces held every clip in a list and handed the whole set to
+    ``Dataset.from_dict``, which copies it again into arrow -- three live copies of the corpus. On
+    the 12,000-prompt rehearsal corpus that was 12.6 GB steady-state and 41.8 GB in the final
+    fifteen seconds, and it OOM-killed the job three times (2026-09-07/08/09) *after* generating all
+    12,000 clips. Each time the response was to raise ``rqmt["mem"]``, which moves the ceiling by one
+    doubling and never removes it, because peak scaled with the corpus. Peak is now ONE clip, so the
+    corpus size is bounded by disk rather than by a memory request.
+
+    Two details are load-bearing:
+
+    * **One file, not one per clip.** A file per clip would cost one transient inode per prompt on
+      ``/hpcwork/p0023999``, whose binding limit is inodes -- which is the entire reason
+      ``storage="hf"`` exists. Clips are appended to a single raw float32 file and addressed by
+      ``(offset, count)``, so the spool is 1 inode at any corpus size.
+    * **Raw float32, not wav.** No audio library and no 16-bit round trip, so what comes back out is
+      bit-identical to what the TTS produced and the rewrite cannot alter the corpus.
+
+    Node-local ``/tmp`` is deliberately NOT used: it is tmpfs on some nodes, which would put the
+    spool back into RAM and reintroduce this bug in a form that only appears on those nodes.
     """
-    rows = {COL_INDEX: [], COL_AUDIO: [], COL_SR: [], COL_MONOLOGUE: [], COL_TRACE: []}
-    seen = set()
-    for index, samples, sr in items:
+
+    def __init__(self, path):
+        self.path = path
+        self.spans = {}  # clip index -> (offset in samples, sample count)
+        self._n = 0
+        self._fh = open(path, "wb")
+
+    def append(self, index, samples):
+        """Spool one clip. Nothing is retained after this returns."""
         index = int(index)
-        if index in seen:
+        if index in self.spans:
             # Same rule as clip_store: downstream joins address clips BY INDEX, so a duplicate
-            # silently drops one clip and misaligns every row after it.
+            # silently drops one clip and misaligns every row after it. Enforced here at write
+            # time, which is stricter than the post-hoc `seen` set it replaces.
             raise ValueError(f"duplicate clip index {index} -- downstream joins address clips by index")
-        seen.add(index)
-        rows[COL_INDEX].append(index)
-        rows[COL_AUDIO].append(np.asarray(samples, dtype=np.float32).reshape(-1))
-        rows[COL_SR].append(int(sr))
-        rows[COL_MONOLOGUE].append(None)
-        rows[COL_TRACE].append(None)
-    Dataset.from_dict(rows).save_to_disk(out_path)
+        arr = np.asarray(samples, dtype=np.float32).reshape(-1)
+        self._fh.write(arr.tobytes())
+        self.spans[index] = (self._n, int(arr.size))
+        self._n += int(arr.size)
+
+    def close(self):
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+
+def clip_features():
+    """The arrow schema, DERIVED from the ``Dataset.from_dict`` call the streaming write replaces.
+
+    Inferred from one dummy row rather than written out by hand on purpose: a hand-written schema is
+    exactly how this rewrite would silently change the corpus dtype, and no reader would complain.
+    """
+    return Dataset.from_dict(
+        {
+            COL_INDEX: [0],
+            COL_AUDIO: [np.zeros(1, dtype=np.float32)],
+            COL_SR: [0],
+            COL_MONOLOGUE: [None],
+            COL_TRACE: [None],
+        }
+    ).features
+
+
+def write_clips(out_path, spool, sample_rate):
+    """Stream a :class:`ClipSpool` into one arrow dataset. Mirrors clip_store's columns.
+
+    The generator closes over plain data (a path, a span dict, an int) and nothing else: ``datasets``
+    hashes the callable with dill for its cache, so a closure over a live generator or an open file
+    handle dies here with ``TypeError: cannot pickle`` (measured, not hypothetical).
+    """
+    spool.close()
+    spans, path = spool.spans, spool.path
+
+    def gen():
+        for i in sorted(spans):
+            offset, count = spans[i]
+            yield {
+                COL_INDEX: i,
+                COL_AUDIO: np.fromfile(path, dtype=np.float32, count=count, offset=offset * 4),
+                COL_SR: int(sample_rate),
+                COL_MONOLOGUE: None,
+                COL_TRACE: None,
+            }
+
+    Dataset.from_generator(gen, features=clip_features()).save_to_disk(out_path)
 
 
 #: Base seed for both the speaker draw and the per-clip TTS sampling. Changing it regenerates every
@@ -126,11 +188,11 @@ def main():
     model.prepare_conditionals(speaker_path, exaggeration=0.5, norm_loudness=True)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    # storage="hf" accumulates clips in memory and writes ONE arrow dataset at the end instead of a
-    # wav per question. A 1000-question benchmark drops from ~1000 inodes to ~3, which is what the
-    # shared /hpcwork project volume actually runs out of. Questions are short (a few seconds), so
-    # the whole set is a few hundred MB -- fine to hold; a corpus-scale job would need batching.
-    rows = []
+    # storage="hf" writes ONE arrow dataset instead of a wav per question. A 1000-question benchmark
+    # drops from ~1000 inodes to ~3, which is what the shared /hpcwork project volume actually runs
+    # out of. Clips are spooled to disk as they are produced (see ClipSpool) rather than held, so
+    # this scales to a corpus without scaling rqmt["mem"].
+    spool = ClipSpool(args.out_dir.rstrip("/") + ".spool") if args.storage == "hf" else None
     with torch.inference_mode():
         for i, example in enumerate(ds):
             # Seed PER CLIP, from the clip's index -- not once per run. `model.generate` is a
@@ -146,7 +208,7 @@ def main():
             torch.manual_seed(SEED + i)
             wav = model.generate(text=example["question"], audio_prompt_path=None)
             if args.storage == "hf":
-                rows.append((i, wav.cpu().numpy().reshape(-1).astype("float32"), model.sr))
+                spool.append(i, wav.cpu().numpy().reshape(-1))
             else:
                 torchaudio.save(os.path.join(args.out_dir, f"{i}.wav"), wav.cpu(), model.sr)
             del wav
@@ -156,8 +218,11 @@ def main():
                 print(f"Processed {i + 1}/{len(ds)} examples", flush=True)
 
     if args.storage == "hf":
-        write_clips(args.out_dir, rows)
-        print(f"Done. Wrote {len(rows)} clips as an arrow dataset in {args.out_dir}")
+        n_clips = len(spool.spans)
+        assert n_clips == len(ds), f"spooled {n_clips} clips but the input has {len(ds)} rows"
+        write_clips(args.out_dir, spool, model.sr)
+        os.remove(spool.path)
+        print(f"Done. Wrote {n_clips} clips as an arrow dataset in {args.out_dir}")
     else:
         print(f"Done. Generated {len(ds)} audio files in {args.out_dir}")
 

@@ -245,35 +245,29 @@ class ChatterboxSingleSpeakerInference(Job):
         # object file" -- 9 minutes in, after the GPU is allocated. Declared as a CAPABILITY, not a
         # partition, so settings.py owns the mapping (same as ChatterboxInference). rqmt is not part
         # of the Sisyphus hash, so adding this re-runs nothing.
-        # mem 48, not 16: under storage="hf" the worker holds every clip in memory and hands the
-        # whole set to Dataset.from_dict, which copies it again into arrow -- so peak is ~2x the
-        # corpus. 16 GB was sized for the n=1000 benchmark; the 12,000-prompt rehearsal corpus
-        # OOM-killed at 2 h 09 m with nothing written (2026-09-07). The other half of that fix is in
-        # the worker's write_clips, which was boxing every sample as a Python float.
         #
-        # rqmt is not hashed, so raising this re-runs nothing -- but that ALSO means Sisyphus will not
-        # resubmit a job already sitting in the SLURM queue to apply it, and SLURM froze the old
-        # request at submit time. This exact job was queued at 09-07 14:03 with mem 16, the bump
-        # landed minutes later, and it started 18 h afterwards still holding ReqMem 16G and died at
-        # MaxRSS 16,765,708K -- a verbatim repeat of the OOM this line was written to prevent, with
-        # the fix in the file the whole time. After changing rqmt on a QUEUED job, hpc-rerun.py it.
+        # mem stays 16 -- and must not be raised again. Under storage="hf" this job OOM-died three
+        # times (2026-09-07/08/09), each time AFTER generating every clip, and each time the response
+        # was to double the request: 16 -> 48 -> 120. That was treating the symptom. Peak scaled with
+        # the CORPUS, because the worker accumulated every clip and handed the whole set to
+        # Dataset.from_dict, which copies it again into arrow -- so no value of this number was ever
+        # going to be enough. The escalation ended by hitting a wall rather than a fix: 128 was
+        # REJECTED outright by c23g's submit filter, which caps memory at 122 GB per GPU ("Can only
+        # request up to 122GB per GPU (488GB per node max)!"), and a rejected job is not resubmitted,
+        # it just silently never runs.
         #
-        # 48 -> 128 (2026-09-09), and this number is MEASURED, not guessed. At 48 the third attempt
-        # generated all 12,000/12,000 clips -- 2 h 12 m of GPU work -- and was then OOM-killed in the
-        # final write with ReqMem 48G / MaxRSS 50,319,372K. The log's RSS trace shows why: 12.6 GB
-        # while accumulating, then 26.9 -> 41.8 GB in FIFTEEN SECONDS as Dataset.from_dict copies the
-        # accumulated clips into arrow, i.e. peak ~= 2x the corpus with both copies live. The old
-        # estimate that "48 scales to ~12k short prompts" was optimistic by exactly one doubling.
-        # ⚠ 120, not 128: c23g's submit filter caps memory at **122 GB per GPU** (488 GB per node),
-        # so 128 with gpu:1 is REJECTED at sbatch time -- "Can only request up to 122GB per GPU
-        # (488GB per node max)! Request more GPUs or less memory!". 120 still leaves ~2.4x headroom
-        # over the 50 GB actually reached. More than that means asking for more GPUs.
+        # The worker now spools each clip to disk as it is produced and streams the spool into arrow
+        # one clip at a time (chatterbox_benchmark_inference.ClipSpool), so peak is ONE clip and the
+        # corpus is bounded by disk instead of by this line. If this job OOMs again, the memory
+        # profile regressed -- fix that, not this number.
         #
-        # Still unbounded BY DESIGN, and this only moves the ceiling: peak stays ~2x the corpus, so
-        # 128 buys roughly 30k short prompts and no more. A corpus past that needs the write to
-        # flush shards instead of holding everything (backlog B6) -- raising mem a fourth time is
-        # not the fix, it is the thing to stop doing.
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 120, "time": 24, "requires": ["system_ffmpeg"]}
+        # ⚠ rqmt is not hashed, so changing it re-runs nothing -- but that ALSO means Sisyphus will
+        # not resubmit a job already sitting in the SLURM queue to apply it, and SLURM froze the old
+        # request at submit time. On 09-07 the bump landed minutes after the job queued; 18 h later it
+        # started still holding ReqMem 16G and died exactly the way the bump was meant to prevent.
+        # After changing rqmt on a QUEUED job, hpc-rerun.py it (or scancel and let the manager
+        # resubmit) -- otherwise the change applies only to the NEXT submission.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24, "requires": ["system_ffmpeg"]}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

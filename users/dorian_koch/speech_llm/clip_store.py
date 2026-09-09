@@ -88,7 +88,11 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
         seen.add(index)
         arr = np.asarray(samples, dtype=np.float32).reshape(-1)
         rows[COL_INDEX].append(index)
-        rows[COL_AUDIO].append(arr.tolist())
+        # NOT arr.tolist(): that boxes every sample as a Python float, which costs ~8x the array
+        # in RAM while the whole corpus is live AND makes datasets infer float64, doubling the clips
+        # on disk. The worker copy in chatterbox_benchmark_inference.py has always written float32
+        # arrays, so the two writers of this "same" format disagreed on dtype until 2026-09-09.
+        rows[COL_AUDIO].append(arr)
         rows[COL_SR].append(int(sr))
         rows[COL_MONOLOGUE].append(monologues.get(index))
         rows[COL_TRACE].append(traces.get(index))

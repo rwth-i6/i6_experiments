@@ -22,6 +22,7 @@ import os
 import random
 import socket
 import sys
+import tempfile
 import types
 
 import numpy as np
@@ -143,83 +144,159 @@ if "seed_for_dialogue" not in conv or "sha1" not in conv:
 ok("TTS determinism     both workers seed torch per item, from a stable (non-salted) hash", _n)
 
 
-# --- chatterbox_benchmark_inference.write_clips: the deliberate copy must not drift ---------------
+# --- chatterbox_benchmark_inference: the corpus write must STREAM, not accumulate -----------------
 # This worker runs in the chatterbox venv, where i6_experiments is not importable, so it carries its
-# own write_clips and SAYS it "mirrors clip_store". On 2026-09-07 it did not: clip_store used
-# np.asarray, the copy used `[float(x) for x in samples]`, which boxes every audio sample as a Python
-# float -- ~8x the array's memory, allocated for ALL clips at once just before Dataset.from_dict. The
-# 12,000-prompt rehearsal corpus ran 2 h 09 m, jumped 11.3 -> 16.1 GB in ten seconds and was
-# OOM-killed with nothing written. A copy that claims to mirror something has to be checked against it.
+# own copy of clip_store's writer. Two bugs of the same shape have shipped in it. The copy boxed
+# every sample as a Python float (~8x the array, and it makes datasets infer float64); and the
+# writer held every clip in a list before handing the whole set to Dataset.from_dict, which copies
+# it again into arrow -- three live copies of the corpus. Together they OOM-killed the
+# 12,000-prompt rehearsal corpus three times (2026-09-07/08/09), each time AFTER ~2 h of GPU work
+# had already produced every clip, and each time the response was to double rqmt["mem"]: 16 -> 48
+# -> 120, ending only when c23g refused 128 outright. Doubling could never work, because peak
+# scaled with the corpus. The writer now spools each clip to disk and streams the spool into arrow.
+# This checks it still does -- a regression here reads as an ordinary refactor and costs a day.
 _n = len(failures)
 _bench_src = (
     SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_benchmark_inference.py"
 ).read_text()
 
-# Match the CODE line that appends audio, not the file text: the docstring legitimately quotes the
-# old buggy expression to explain why it is gone, and a loose substring search flags that as the bug.
-_audio_appends = [
-    ln.strip() for ln in _bench_src.splitlines() if "rows[COL_AUDIO].append(" in ln and not ln.strip().startswith("#")
-]
-if len(_audio_appends) != 1:
-    failures.append(f"expected exactly one rows[COL_AUDIO].append in the worker, found {_audio_appends}")
-elif "np.asarray" not in _audio_appends[0]:
+# Source half: the synthesis loop must SPOOL each clip. Match the CODE line, not the file text --
+# the docstrings legitimately quote the old shapes to explain why they are gone.
+_code = [ln.strip() for ln in _bench_src.splitlines() if not ln.strip().startswith("#")]
+if not any("spool.append(" in ln for ln in _code):
     failures.append(
-        f"chatterbox_benchmark_inference.write_clips appends audio as {_audio_appends[0]!r}. It must "
-        f"use np.asarray, as clip_store does: a Python-float comprehension there is ~8x the memory of "
-        f"the float32 array, for every clip at once, and OOM-killed the 12,000-prompt rehearsal corpus."
+        "the storage='hf' branch no longer spools clips to disk. Accumulating them in memory is "
+        "what made peak RAM scale with the corpus and OOM-killed the rehearsal job three times."
     )
-# Behavioural half: exec the real function (with `datasets` stubbed so from_dict/save_to_disk are
-# captured rather than run) and assert what it hands to arrow is a float32 ARRAY, not a list.
+if not any("Dataset.from_generator(" in ln for ln in _code):
+    failures.append(
+        "the corpus is no longer written with Dataset.from_generator -- from_dict materialises "
+        "every clip a second time, which is half of the OOM."
+    )
+
+# Behavioural half: exec the real ClipSpool / clip_features / write_clips with `datasets` stubbed,
+# so the generator handed to from_generator is CAPTURED and this check can drive it itself. That is
+# what makes the laziness assertion below possible at all.
 _captured = {}
 
 
 class _FakeDataset:
+    features = "derived-from-from_dict"
+
     @staticmethod
     def from_dict(rows):
-        _captured["rows"] = rows
+        _captured["from_dict_cols"] = sorted(rows)
+        return _FakeDataset()
+
+    @staticmethod
+    def from_generator(gen, features=None):
+        _captured["gen"] = gen
+        _captured["features"] = features
         return _FakeDataset()
 
     def save_to_disk(self, path):
         _captured["path"] = path
 
 
-_ns = {
-    "__name__": "bench_worker_under_test",
-    "np": np,
-    "Dataset": _FakeDataset,
-    "COL_INDEX": "index",
-    "COL_AUDIO": "audio",
-    "COL_SR": "sampling_rate",
-    "COL_MONOLOGUE": "monologue",
-    "COL_TRACE": "trace_json",
-}
-_src = _bench_src.split("def write_clips(")[1]
-_src = "def write_clips(" + _src.split("\n\n\n")[0]
-try:
-    exec(compile(_src, "write_clips", "exec"), _ns)
-    _ns["write_clips"](
-        "/tmp/unused", [(0, np.zeros(4, dtype=np.float32), 24000), (1, np.ones(4, dtype=np.float32), 24000)]
-    )
-    audio = _captured["rows"]["audio"]
-    if not all(isinstance(a, np.ndarray) and a.dtype == np.float32 for a in audio):
-        failures.append(
-            f"write_clips handed arrow {[type(a).__name__ for a in audio]} instead of float32 arrays "
-            f"-- a Python list here is the OOM"
-        )
-    # ...and a duplicate index must be refused, same rule as clip_store: downstream joins are BY index.
+_marker = "#: Base seed"
+if "class ClipSpool:" not in _bench_src or _marker not in _bench_src:
+    failures.append("could not locate ClipSpool/write_clips in the worker source")
+else:
+    _src = "class ClipSpool:" + _bench_src.split("class ClipSpool:")[1].split(_marker)[0]
+    _ns = {
+        "__name__": "bench_worker_under_test",
+        "np": np,
+        "os": os,
+        "Dataset": _FakeDataset,
+        "COL_INDEX": "index",
+        "COL_AUDIO": "audio",
+        "COL_SR": "sampling_rate",
+        "COL_MONOLOGUE": "monologue",
+        "COL_TRACE": "trace_json",
+    }
     try:
-        _ns["write_clips"](
-            "/tmp/unused", [(0, np.zeros(2, dtype=np.float32), 24000), (0, np.ones(2, dtype=np.float32), 24000)]
-        )
-        failures.append(
-            "write_clips accepted a duplicate clip index -- one clip is silently dropped "
-            "and every downstream join misaligns"
-        )
-    except ValueError:
-        pass
-    ok("write_clips  keeps float32 arrays (no Python-float boxing) and rejects duplicate indices", _n)
-except Exception as exc:
-    failures.append(f"could not exercise chatterbox_benchmark_inference.write_clips: {exc!r}")
+        exec(compile(_src, "clip_spool", "exec"), _ns)
+        with tempfile.TemporaryDirectory() as _td:
+            _path = os.path.join(_td, "clips.f32")
+            # deliberately RAGGED: the spool addresses clips by (offset, count), so equal-length
+            # fixtures would pass even if the offsets were wrong.
+            _clips = [np.random.default_rng(i).standard_normal(11 + 5 * i).astype(np.float32) for i in range(4)]
+            _spool = _ns["ClipSpool"](_path)
+            for _i, _c in enumerate(_clips):
+                _spool.append(_i, _c)
+
+            # A duplicate index must be refused: downstream joins address clips BY INDEX, so one
+            # clip is silently dropped and every row after it misaligns.
+            try:
+                _spool.append(0, _clips[0])
+                failures.append("ClipSpool accepted a duplicate clip index -- downstream joins misalign")
+            except ValueError:
+                pass
+
+            # The spool must be ONE file. A file per clip would spend one inode per prompt on the
+            # volume whose inode limit is the entire reason storage='hf' exists.
+            _ns["write_clips"](os.path.join(_td, "out"), _spool, 24000)
+            if len([f for f in os.listdir(_td) if f != "out"]) != 1:
+                failures.append(f"the spool is not a single file: {sorted(os.listdir(_td))}")
+
+            _rows = list(_captured["gen"]())
+            if len(_rows) != len(_clips):
+                failures.append(f"streamed {len(_rows)} rows for {len(_clips)} clips")
+            else:
+                for _i, (_row, _c) in enumerate(zip(_rows, _clips)):
+                    _a = _row["audio"]
+                    if not isinstance(_a, np.ndarray) or _a.dtype != np.float32:
+                        failures.append(f"clip {_i} reached arrow as {type(_a).__name__}/{getattr(_a, 'dtype', '?')}")
+                    elif not np.array_equal(_a, _c):
+                        failures.append(
+                            f"clip {_i} is not bit-exact through the spool ({_a.size} vs {_c.size} samples) "
+                            f"-- the corpus would silently change"
+                        )
+                    if _row["index"] != _i or _row["sampling_rate"] != 24000:
+                        failures.append(f"row {_i} carries index={_row['index']} sr={_row['sampling_rate']}")
+
+            # LAZINESS, the whole point. Rewrite the spool AFTER write_clips returned: a streaming
+            # generator reads per row and must see the new bytes, while any implementation that had
+            # slurped the file up front would still hand back the old ones.
+            _mutated = [c + 1.0 for c in _clips]
+            with open(_path, "wb") as _fh:
+                for _c in _mutated:
+                    _fh.write(_c.tobytes())
+            _after = [r["audio"] for r in _captured["gen"]()]
+            if not all(np.array_equal(a, m) for a, m in zip(_after, _mutated)):
+                failures.append(
+                    "write_clips read the spool eagerly -- it materialises the corpus before arrow "
+                    "sees it, which is the OOM this rewrite removed"
+                )
+
+            # The arrow schema must be DERIVED from the from_dict path it replaced, not hand-written
+            # (a hand-written float64 here would silently double every clip on disk).
+            if "from_dict_cols" not in _captured:
+                failures.append("clip_features() no longer derives the schema from Dataset.from_dict")
+        ok("clip write   streams through a 1-inode spool, bit-exact float32, lazily, dup-index refused", _n)
+    except Exception as exc:
+        failures.append(f"could not exercise chatterbox_benchmark_inference ClipSpool/write_clips: {exc!r}")
+
+# --- clip_store.write_clips: the two writers of this format must agree on dtype -------------------
+# clip_store is what the worker copy says it mirrors, but it appended `arr.tolist()`: Python floats,
+# so datasets inferred float64 and every clip took twice the disk it needed -- while the worker
+# wrote float32. A format with two writers that disagree on dtype is a format nobody can reason
+# about, and neither reader complains because open_clips casts on the way out.
+_n = len(failures)
+_cs_src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/clip_store.py").read_text()
+_cs_appends = [
+    ln.strip() for ln in _cs_src.splitlines() if "rows[COL_AUDIO].append(" in ln and not ln.strip().startswith("#")
+]
+if len(_cs_appends) != 1:
+    failures.append(f"expected exactly one rows[COL_AUDIO].append in clip_store, found {_cs_appends}")
+elif "tolist" in _cs_appends[0]:
+    failures.append(
+        f"clip_store.write_clips appends audio as {_cs_appends[0]!r}. .tolist() boxes every sample as "
+        f"a Python float (~8x the array in RAM) and makes datasets infer float64, disagreeing with "
+        f"the float32 the worker copy writes for the same format."
+    )
+else:
+    ok("clip_store   writes float32 arrays, agreeing with the worker copy it mirrors", _n)
 
 # --- chatterbox_inference: reproducibility-critical helpers -------------------------------------
 
