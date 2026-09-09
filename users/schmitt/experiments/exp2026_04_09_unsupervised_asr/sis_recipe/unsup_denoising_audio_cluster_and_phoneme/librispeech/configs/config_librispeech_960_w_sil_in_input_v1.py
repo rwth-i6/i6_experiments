@@ -8,6 +8,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.serialization import Collection
 
 from ....train_exp import run_experiment
+from ....dump_features import model_spec_from_config
 from ..data.common import (
     build_test_datasets,
     build_training_datasets_w_silence_in_input,
@@ -22,6 +23,13 @@ from ....sup_audio_cluster_to_phoneme.librispeech.configs.config_librispeech_960
     get_keep_epochs,
     base_num_epochs,
 )
+
+# training_name -> what a *forward* job needs to rebuild that model (network module, net_args,
+# general/recog config, datastreams). Populated by py() alongside `checkpoints[...]`; read by setups
+# that reuse a model trained here, e.g. the wav2vec-U encoder-feature dump
+# (sis_recipe/wav2vec_u/.../config_librispeech_960_enc_feats_v1.py). main() must call this config's
+# py() before any config that reads it.
+model_specs: Dict[str, Dict] = {}
 
 settings = DatasetSettings(
     train_partition_epoch=20,
@@ -259,6 +267,8 @@ def py(checkpoints: Dict):
             meta_dataset.data_map["phon_indices"] = ("phon_indices", "data")
 
         training_name = f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}"
+        # register before run_experiment: run_train pops __network_module & co. out of the config
+        model_specs[training_name] = model_spec_from_config(base_config, train_data_var_sil)
         train_job = run_experiment(
             training_name=training_name,
             config=copy.deepcopy(base_config),
@@ -337,27 +347,30 @@ def py(checkpoints: Dict):
         #   lstm                  -> LSTM over the whole encoder output sequence
         for discriminator_type in ("lstm",):
             training_name = f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}"
-            train_job = run_experiment(
-                training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
-                config=dict_update_deep(
-                    copy.deepcopy(base_config),
-                    {
-                        "model_args.discriminator_type": discriminator_type,
-                        "train_args": {
-                            "adv_loss_scale": 0.1,
-                            "text_masking_opts": {
-                                "mask_prob": 0.1,
-                                "min_span": 1,
-                                "max_span": 1,
-                            },
-                            "audio_masking_opts": {
-                                "mask_prob": 0.1,
-                                "min_span": 1,
-                                "max_span": 1,
-                            },
+            variant_config = dict_update_deep(
+                copy.deepcopy(base_config),
+                {
+                    "model_args.discriminator_type": discriminator_type,
+                    "train_args": {
+                        "adv_loss_scale": 0.1,
+                        "text_masking_opts": {
+                            "mask_prob": 0.1,
+                            "min_span": 1,
+                            "max_span": 1,
+                        },
+                        "audio_masking_opts": {
+                            "mask_prob": 0.1,
+                            "min_span": 1,
+                            "max_span": 1,
                         },
                     },
-                ),
+                },
+            )
+            # register before run_experiment: run_train pops __network_module & co. out of the config
+            model_specs[training_name] = model_spec_from_config(variant_config, train_data_var_sil)
+            train_job = run_experiment(
+                training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
+                config=variant_config,
                 train_data=train_data_var_sil,
                 test_data_dict=test_data_dict_w_sil,
                 keep_epochs=get_keep_epochs(base_num_epochs),
