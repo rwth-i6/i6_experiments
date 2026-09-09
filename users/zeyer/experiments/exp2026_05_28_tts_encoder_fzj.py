@@ -2386,7 +2386,7 @@ def _get_ls_transcription_labelwise_prior(vocab: str, task):
     (no GPU stage, model-independent, so it is also shared across all models).
     """
     from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
-    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
     from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechLmDataset, get_vocab_by_str
     from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
 
@@ -2394,6 +2394,13 @@ def _get_ls_transcription_labelwise_prior(vocab: str, task):
         LibrispeechLmDataset(vocab=get_vocab_by_str(vocab), main_key="transcriptions-train"),
         forward_rqmt={"mem": 12, "time": 24},
     )
+    # 5 spm10k labels never occur in the train-960 transcriptions -> log prob -inf.
+    # The first-pass search subtracts the prior,
+    # so -inf becomes +inf label scores and every beam empties.
+    # Same smoothing as the Loquacious CTC+LM setup (exp2025_11_11).
+    log_prior = PriorLabelSmoothingJob(
+        prior_file=log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
     return Prior(file=log_prior, type="log_prob", vocab=get_vocab_file_from_task(task))
 
 
