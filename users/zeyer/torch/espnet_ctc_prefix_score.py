@@ -1,7 +1,8 @@
 """
 CTC prefix score module.
 
-Vendored verbatim from ESPnet ``espnet/nets/ctc_prefix_score.py``
+Copied ESPnet ``espnet/nets/ctc_prefix_score.py``
+(from the ``espnet==202511`` PyPI release)
 (https://github.com/espnet/espnet, Apache 2.0),
 so that :class:`recog_ext.ctc_label_sync_espnet.CtcPrefixScorer` also runs
 in environments without an espnet installation (e.g. the FZJ py-envs).
