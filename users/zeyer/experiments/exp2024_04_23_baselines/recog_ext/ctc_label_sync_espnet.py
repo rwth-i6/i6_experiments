@@ -607,7 +607,9 @@ class CtcPrefixScorer:
         #                 )
         #             ]
         #         )
-        from espnet.nets.ctc_prefix_score import CTCPrefixScoreTH
+        # from espnet.nets.ctc_prefix_score import CTCPrefixScoreTH
+        # Copy of ESPnet code to not depend on ESPnet.
+        from i6_experiments.users.zeyer.torch.espnet_ctc_prefix_score import CTCPrefixScoreTH
 
         assert log_probs.dims_set == set(batch_dims) | {enc_spatial_dim, vocab_wb_dim}
         assert enc_spatial_dim.dyn_size_ext.dims_set == set(batch_dims)
