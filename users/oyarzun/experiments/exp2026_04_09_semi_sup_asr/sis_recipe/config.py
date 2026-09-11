@@ -145,6 +145,8 @@ def get_forward_config(
     }
     config = {**base_config, **config}
     post_config["backend"] = "torch"
+    if "batch_size" not in config and "batch_size_dev" not in config:
+        post_config.setdefault("batch_size", 7500)
 
     default_data_key = config.get("default_data_key", "audio")
     default_target_key = config.get("default_target_key", "text")

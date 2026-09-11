@@ -4,6 +4,7 @@ from typing import List
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
 from ....train_exp import run_experiment
+from ....analysis import PlotDiscLossSummaryJob
 from ..data.common import build_training_datasets, build_test_datasets
 from ....data.common import DatasetSettings
 from .... import optimizer_configs
@@ -249,7 +250,8 @@ def py():
         pretrain_jobs[(layers, pretrain_epochs)] = train_job
 
     # --- PHASE 2: ASR Finetuning Jobs ---
-
+    train_jobs = []
+    
     for ablation in ablations:
         train_name = ablation[0]
         model_args = ablation[1]
@@ -314,9 +316,9 @@ def py():
 
         keep_eps = get_keep_epochs(base_num_epochs)
         if keep_eps is None: keep_eps = []
-        vis_eps = [250, 500, 750, 1000]
+        vis_eps = [250, 500, 750, 1000] if "discriminator_type" in model_args else None
             
-        run_experiment(
+        train_job = run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
             train_data=current_train_data,
@@ -327,6 +329,8 @@ def py():
             vis_epochs=vis_eps,
             vis_kwargs={"cosine_similarity_summary": True},
         )
+        if "discriminator_type" in model_args:
+            train_jobs.append(train_job)
 
     # --- New Ablations with longer masking spans ---
     for ablation in ablations:
@@ -394,9 +398,9 @@ def py():
 
         keep_eps = get_keep_epochs(base_num_epochs)
         if keep_eps is None: keep_eps = []
-        vis_eps = [250, 500, 750, 1000]
+        vis_eps = [250, 500, 750, 1000] if "discriminator_type" in model_args else None
             
-        run_experiment(
+        train_job = run_experiment(
             training_name=f"{prefix_name}/{new_train_name}",
             config=config,
             train_data=current_train_data,
@@ -407,3 +411,11 @@ def py():
             vis_epochs=vis_eps,
             vis_kwargs={"cosine_similarity_summary": True},
         )
+        if "discriminator_type" in model_args:
+            train_jobs.append(train_job)
+
+    # Add the discriminator loss summary plots
+    if train_jobs:
+        for vis_epoch in [250, 500, 750, 1000]:
+            PlotDiscLossSummaryJob(train_jobs, max_epoch=vis_epoch, prefix_name=prefix_name)
+

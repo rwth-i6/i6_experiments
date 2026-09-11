@@ -90,7 +90,7 @@ def py():
     # Build ablations list
     ablations = []
     for tag, layers, cb_opts, div_scale, mask_opts in raw_configs:
-        name = f"v6_{tag}"
+        name = f"v6_codebook_opt_{tag}"
         model_args = {
             "num_enc_layers": layers,
             "num_text_dec_layers": layers,
@@ -276,5 +276,6 @@ def py():
         configs_meta=configs_meta,
         train_jobs=asr_jobs,
         eval_epochs=asr_keep_eps,
+        target_num_epochs=asr_num_epochs,
         prefix_name=prefix_name,
     )

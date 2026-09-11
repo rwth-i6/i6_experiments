@@ -11,7 +11,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from . import learning_rate_configs
 from .tune_eval import eval_model
 from .tune_eval import eval_model_rasr
-from .analysis import analyze_encoder_states
+from .analysis import analyze_encoder_states, analyze_cross_attention
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..models.recognition.discrete_audio_aed.beam_search import DecoderConfig
@@ -202,6 +202,59 @@ def run_encoder_embedding_visualization(
         cosine_similarity_summary=cosine_similarity_summary,
     )
 
+def run_variance_analysis(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    keep_epochs: Optional[List[int]] = None,
+    recog_name: str = "recog",
+    network_module: Optional[str] = None,
+    extra_forward_config: Optional[ReturnnConfig] = None,
+): 
+
+    analyze_encoder_states(
+        config={**config["general"], **config.get("recog", {})},
+        analysis_name="variance_metric",
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=keep_epochs,
+        extra_forward_config=extra_forward_config,
+        out_dir_name="variance",
+        callback_module="analysis.variance_metric.callback.VarianceCallback",
+        rqmt={"time": 1, "mem": 10, "cpu": 4, "device": "gpu", "gpu_mem": 11},
+    )
+
+def run_cross_attention_analysis(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    keep_epochs: Optional[List[int]] = None,
+    recog_name: str = "cross_att",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    **kwargs,
+):
+    analyze_cross_attention(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        config={**config["general"], **config.get("recog", {})},
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=keep_epochs,
+        analysis_name=recog_name,
+        extra_forward_config=extra_forward_config,
+        **kwargs,
+    )
+
 def run_rasr_eval(
     training_name: str,
     train_job,
@@ -350,6 +403,31 @@ def run_experiment(
             main_eval_measure_key=main_eval_measure_key,
             recog_post_proc_funcs=recog_post_proc_funcs,
             **kwargs,
+        )
+
+        run_cross_attention_analysis(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=vis_epochs,
+            recog_name="cross_att",
+            extra_forward_config=extra_forward_config,
+        )
+        
+        run_variance_analysis(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=vis_epochs,
+            recog_name="variance_metric",
+            network_module=network_module_recog,
+            extra_forward_config=extra_forward_config,
         )
 
     return train_job
