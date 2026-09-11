@@ -8,11 +8,32 @@ from i6_experiments.users.schmitt.datasets.utils.phonemize import (
 )
 
 class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
+    @classmethod
+    def hash(cls, parsed_args):
+        parsed_args["dummy_version"] = "v12"
+        return super().hash(parsed_args)
+
+
+    @staticmethod
+    def normalize_and_filter_text(text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file):
+        import sys
+        class DummyFastText:
+            @staticmethod
+            def load_model(*args, **kwargs):
+                return None
+        sys.modules["fasttext"] = DummyFastText()
+        
+        PhonemizeTextDataJob.normalize_and_filter_text(text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file)
+
     def run(self):
+        dummy_hash_updater = 1
         import os
         import subprocess as sp
         from unittest.mock import patch
         
+        os.environ["PYTHONPATH"] = "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs:" + os.environ.get("PYTHONPATH", "")
+        os.environ["NLTK_DATA"] = "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs/nltk_data"
+
         script_path = os.path.abspath(os.path.join(
             os.path.dirname(__file__),
             "../../phonemize_text.sh"

@@ -119,20 +119,21 @@ def analyze_encoder_states(
             forward_config.config["forward_data"] = dataset.as_returnn_opts()
 
             prefix_name = f"{training_name}/{analysis_name}/{checkpoint_name}/{key}"
+            device = rqmt.get("device", "cpu")
             forward_job = ReturnnForwardJobV2(
                 model_checkpoint=checkpoint,
                 returnn_config=forward_config,
                 log_verbosity=5,
                 mem_rqmt=rqmt.get("mem", 20),
                 time_rqmt=rqmt.get("time", 1),
-                device="gpu",
+                device=device,
                 cpu_rqmt=rqmt.get("cpu", 4),
                 returnn_python_exe=RETURNN_EXE,
                 returnn_root=RETURNN_ROOT,
                 output_files=[out_dir_name],
             )
             gpu_mem = rqmt.get("gpu_mem", None)
-            if gpu_mem is not None and gpu_mem != 11:
+            if device == "gpu" and gpu_mem is not None and gpu_mem != 11:
                 forward_job.rqmt["gpu_mem"] = gpu_mem
             forward_job.add_alias(prefix_name + "/forward")
             tk.register_output(prefix_name + f"/{out_dir_name}", forward_job.out_files[out_dir_name])

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 
-def get_random_mask(seq_lens: Tensor, mask_prob: float, min_span: int, max_span: int) -> Tensor:
+def get_random_mask(seq_lens: Tensor, mask_prob: float, min_span: int, max_span: int, **kwargs) -> Tensor:
     """
     Generate a random mask for sequences of given lengths.
 

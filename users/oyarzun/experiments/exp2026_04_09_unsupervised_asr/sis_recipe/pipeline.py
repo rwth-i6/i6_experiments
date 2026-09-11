@@ -129,6 +129,7 @@ def forward_single(
     """
     returnn_config = copy.deepcopy(returnn_config)
     returnn_config.config["forward_data"] = dataset_dict
+    device = rqmt.get("device", "cpu")
     gpu_mem = rqmt.get("gpu_mem", None)
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
@@ -136,13 +137,13 @@ def forward_single(
         log_verbosity=5,
         mem_rqmt=rqmt.get("mem", 20),
         time_rqmt=rqmt.get("time", 1),
-        device="gpu",
+        device=device,
         cpu_rqmt=rqmt.get("cpu", 8),
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["search_out.py.gz"],
     )
-    if gpu_mem is not None and gpu_mem != 11:
+    if device == "gpu" and gpu_mem is not None and gpu_mem != 11:
         search_job.rqmt["gpu_mem"] = gpu_mem
     search_job.add_alias(prefix_name + "/search_job")
     tk.register_output(prefix_name + "/search_out.py.gz", search_job.out_files["search_out.py.gz"])

@@ -122,13 +122,15 @@ def train_step(
     if adv_loss_scale > 0:
         if ctx.step % 4 in (0, 1):
             # train generator
-            model.discriminator.freeze()
+            if model.discriminator is not None:
+                model.discriminator.freeze()
             model.unfreeze_encoder()
             adv_target = 1 - true_adv_target
             adv_loss_name = "gen"
         else:
             # train discriminator
-            model.discriminator.unfreeze()
+            if model.discriminator is not None:
+                model.discriminator.unfreeze()
             model.freeze_encoder()
             adv_target = true_adv_target
             adv_loss_name = "disc"

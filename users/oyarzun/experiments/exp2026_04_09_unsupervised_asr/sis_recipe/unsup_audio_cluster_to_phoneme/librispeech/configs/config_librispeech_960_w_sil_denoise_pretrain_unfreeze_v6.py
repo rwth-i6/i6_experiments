@@ -28,6 +28,13 @@ train_data = build_training_datasets(sil_prob=0.25, surround_w_sil=True, setting
 base_config = copy.deepcopy(base_config)
 base_config["random_seed"] = 42
 base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_denoise_v6.train_step"
+base_config["save_interval"] = 50
+base_config["training"]["__num_gpus"] = 1
+base_config["training"]["batch_size"] = 25000
+base_config["training"]["max_seqs"] = 500
+base_config["train_rqmt"]["cpu_rqmt"] = 12
+base_config["train_rqmt"]["gpu_mem"] = 24
+base_config["train_rqmt"]["mem_rqmt"] = 64
 
 
 def py():
@@ -69,8 +76,8 @@ def py():
                         pretrain_codebook_prob = 0.5
                         codebook_div = 0.1
                         pretrain_codebook_div = 0.1
-                        adv_scale = 0.1  # Codebook uses adv scale in discrete train step
-                        pretrain_adv_scale = 0.1
+                        adv_scale = 0.0
+                        pretrain_adv_scale = 0.0
                         
                     train_name = f"disc-{disc_strat}_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_unfreeze-{unfreeze}_v6.1"
                     
@@ -124,7 +131,7 @@ def py():
         })
         
         # Deduce scales for pretraining from cb_prob and disc_type
-        pre_adv_scale = 0.1 if (disc_type == "lstm" or cb_prob > 0) else 0.0
+        pre_adv_scale = 0.1 if disc_type is not None else 0.0
         pre_cb_div = 0.1 if cb_prob > 0 else 0.0
         
         config["train_args"].update({
@@ -141,7 +148,7 @@ def py():
         })
         
         # Use batch_size 4000 to match v5 supervised
-        config["training"].update({"batch_size": 4000, "grad_scaler": None, "accum_grad_multiple_step": 1})
+        config["training"].update({"batch_size": 4000, "grad_scaler": None, "accum_grad_multiple_step": 2})
         
         piecewise_epochs = [
             0,
@@ -156,8 +163,8 @@ def py():
             "piecewise_values": piecewise_values,
         }
         config["training"]["__num_epochs"] = pretrain_epochs
-        config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8, "gpu_mem": 11, "gpu": 1}
-        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
+        config["recog_rqmt"] = {"time": 48, "mem": 64, "cpu": 12, "device": "cpu"}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 64
         
         strat_name = "neither"
         if disc_type == "lstm": strat_name = "lstm"
@@ -195,10 +202,10 @@ def py():
             "text_masking_opts": {"mask_prob": 0.3, "min_span": 2, "max_span": 10, "expand": True, "insert_prob": 0.1},
             "audio_masking_opts": {"mask_prob": 0.3, "min_span": 4, "max_span": 20, "expand": True, "insert_prob": 0.1},
         })
-        config["training"].update({"batch_size": 4000, "grad_scaler": None, "accum_grad_multiple_step": 1})
+        config["training"].update({"batch_size": 4000, "grad_scaler": None, "accum_grad_multiple_step": 2})
         
-        config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8, "gpu_mem": 11, "gpu": 1}
-        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
+        config["recog_rqmt"] = {"time": 48, "mem": 64, "cpu": 12, "device": "cpu"}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 64
         
         config["training"]["__num_epochs"] = base_num_epochs
         

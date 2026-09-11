@@ -25,7 +25,7 @@ def remove_silences_from_audio(
     audio_dir: tk.Path,
     concurrent: int,
 ):
-    environment = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3")
+    environment = None
     delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
         environment=environment,
         fairseq_root=SetupFairseqJob(

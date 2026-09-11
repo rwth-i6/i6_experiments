@@ -14,28 +14,16 @@ def build_training_datasets(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
 ):
-    _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
-        librispeech_key="train-other-960",
-        dump_hdf_concurrent=10,
-        featurize_concurrent=10,
-        remove_cluster_repetitions=True,
-    )
-    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
-        librispeech_key="dev-other",
-        existing_clusters=clusters_960,
-        existing_pca=pca_960,
-        dump_hdf_concurrent=1,
-        featurize_concurrent=1,
-        remove_cluster_repetitions=True,
-    )
-    _, _, _, clusters_dev_clean_hdfs = audio.get_featurized_audio(
-        librispeech_key="dev-clean",
-        existing_clusters=clusters_960,
-        existing_pca=pca_960,
-        dump_hdf_concurrent=1,
-        featurize_concurrent=1,
-        remove_cluster_repetitions=True,
-    )
+    clusters_960_hdfs = [
+        f"/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/train_other_960_data_{i}.hdf"
+        for i in range(10)
+    ]
+    clusters_dev_other_hdfs = [
+        "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/dev_other_data_0.hdf"
+    ]
+    clusters_dev_clean_hdfs = [
+        "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/dev_clean_data_0.hdf"
+    ]
 
     # we don't pass sil_prob here, because we just want to get the lexicon here
     # we don't use the text-only data for training here
@@ -147,20 +135,9 @@ def build_training_datasets(
 
 
 def build_test_datasets():
-    _, clusters_960, pca_960, _ = audio.get_featurized_audio(
-        librispeech_key="train-other-960",
-        dump_hdf_concurrent=10,
-        featurize_concurrent=10,
-        remove_cluster_repetitions=True,
-    )
-    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
-        librispeech_key="dev-other",
-        existing_clusters=clusters_960,
-        existing_pca=pca_960,
-        dump_hdf_concurrent=1,
-        featurize_concurrent=1,
-        remove_cluster_repetitions=True,
-    )
+    clusters_dev_other_hdfs = [
+        "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/dev_other_data_0.hdf"
+    ]
 
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
     phoneme_dev_hdfs, _, _, dev_seq_tags = text.get_phonemized_text(
