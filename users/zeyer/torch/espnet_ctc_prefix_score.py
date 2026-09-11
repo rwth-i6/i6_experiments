@@ -2,7 +2,7 @@
 CTC prefix score module.
 
 Copied ESPnet ``espnet/nets/ctc_prefix_score.py``
-(from the ``espnet==202511`` PyPI release)
+(upstream a3ddc4b1b19836ee9f823ad5e086cc4b9bb0657b (2026-09-02))
 (https://github.com/espnet/espnet, Apache 2.0),
 so that :class:`recog_ext.ctc_label_sync_espnet.CtcPrefixScorer` also runs
 in environments without an espnet installation (e.g. the FZJ py-envs).
@@ -33,7 +33,15 @@ class CTCPrefixScoreTH(object):
         :param torch.Tensor xlens: input lengths (B,)
         :param int blank: blank label id
         :param int eos: end-of-sequence id
-        :param int margin: margin parameter for windowing (0 means no windowing)
+        :param int margin: margin parameter for windowing (0 means no windowing).
+            NOTE: a positive margin now also windows the recursion when no
+            attention weights are given, centred on the frame where the
+            prefix's own forward probability peaks. Previously a positive
+            margin without `att_w` fell through to the exact full-utterance
+            recursion, so a caller that already sets one -- an espnet1-style
+            config with a decoder that supplies no attention weights, for
+            instance -- gets approximate scores where it used to get exact
+            ones. Set margin=0 to keep the exact behaviour.
         """
         # In the comment lines,
         # we assume T: input_length, B: batch size, W: beam width, O: output dim.
@@ -65,7 +73,7 @@ class CTCPrefixScoreTH(object):
 
         # Setup CTC windowing
         self.margin = margin
-        if margin > 0:
+        if margin > 0:  # only the attention-based window needs these
             self.frame_ids = torch.arange(self.input_length, dtype=self.dtype, device=self.device)
         # Base indices for index conversion
         self.idx_bh = None
@@ -78,11 +86,16 @@ class CTCPrefixScoreTH(object):
         :param list y: prefix label sequences
         :param tuple state: previous CTC state
         :param torch.Tensor pre_scores: scores for pre-selection of hypotheses (BW, O)
-        :param torch.Tensor att_w: attention weights to decide CTC window
+        :param torch.Tensor|None att_w: attention weights to decide CTC window
         :return new_state, ctc_local_scores (BW, O)
         """
         output_length = len(y[0]) - 1  # ignore sos
-        last_ids = [yi[-1] for yi in y]  # last output label ids
+        # NOTE: kept as one tensor rather than a list of scalars. Every
+        # element read out of it would be a device-to-host synchronisation,
+        # and there is one per hypothesis per decoding step.
+        last_ids = (
+            y[:, -1] if torch.is_tensor(y) else torch.as_tensor([yi[-1] for yi in y], device=self.device)
+        )  # (n_bh,), last output label ids
         n_bh = len(last_ids)  # batch * hyps
         n_hyps = n_bh // self.batch  # assuming each utterance has the same # of hyps
         self.scoring_num = scoring_ids.size(-1) if scoring_ids is not None else 0
@@ -130,26 +143,40 @@ class CTCPrefixScoreTH(object):
 
         r_sum = torch.logsumexp(r_prev, 1)
         log_phi = r_sum.unsqueeze(2).repeat(1, 1, snum)
+        if self.idx_bh is None or n_bh > len(self.idx_bh):
+            self.idx_bh = torch.arange(n_bh, device=self.device).view(-1, 1)
+        idx_n = self.idx_bh[:n_bh, 0]  # (n_bh,)
         if scoring_ids is not None:
-            for idx in range(n_bh):
-                pos = scoring_idmap[idx, last_ids[idx]]
-                if pos >= 0:
-                    log_phi[:, idx, pos] = r_prev[:, 1, idx]
+            # only the hypotheses whose last label survived the pre-beam
+            pos = scoring_idmap[idx_n, last_ids]  # (n_bh,)
+            keep = pos >= 0
+            log_phi[:, idx_n[keep], pos[keep]] = r_prev[:, 1, idx_n[keep]]
         else:
-            for idx in range(n_bh):
-                log_phi[:, idx, last_ids[idx]] = r_prev[:, 1, idx]
+            log_phi[:, idx_n, last_ids] = r_prev[:, 1, :]
 
-        # decide start and end frames based on attention weights
-        if att_w is not None and self.margin > 0:
+        # decide start and end frames, so that the recursion below only walks
+        # the part of the utterance the prefix can plausibly be in
+        if self.margin <= 0:
+            f_min = f_max = 0
+            start = max(output_length, 1)
+            end = self.input_length
+        elif att_w is not None:
+            # espnet1 behaviour: centre the window on the attention peak
             f_arg = torch.matmul(att_w, self.frame_ids)
             f_min = max(int(f_arg.min().cpu()), f_min_prev)
             f_max = max(int(f_arg.max().cpu()), f_max_prev)
             start = min(f_max_prev, max(f_min - self.margin, output_length, 1))
             end = min(f_max + self.margin, self.input_length)
         else:
-            f_min = f_max = 0
-            start = max(output_length, 1)
-            end = self.input_length
+            # centre it on the frame where the prefix's own forward
+            # probability peaks, i.e. where this hypothesis has got to. That
+            # needs no attention weights, so it works for any decoder, and
+            # `r_sum` is already computed above.
+            peak = r_sum.argmax(dim=0)  # (n_bh,)
+            f_min = max(int(peak.min()), f_min_prev)
+            f_max = max(int(peak.max()), f_max_prev)
+            start = min(f_max_prev, max(f_min - self.margin, output_length, 1))
+            end = min(f_max + self.margin + 1, self.input_length)
 
         # compute forward probabilities log(r_t^n(h)) and log(r_t^b(h))
         for t in range(start, end):
@@ -165,16 +192,15 @@ class CTCPrefixScoreTH(object):
                 torch.cat((log_phi_x[start:end], r[start - 1, 0].unsqueeze(0)), dim=0),
                 dim=0,
             )
-            for si in range(n_bh):
-                log_psi[si, scoring_ids[si]] = log_psi_[si]
+            log_psi.scatter_(1, scoring_ids, log_psi_)
         else:
             log_psi = torch.logsumexp(
                 torch.cat((log_phi_x[start:end], r[start - 1, 0].unsqueeze(0)), dim=0),
                 dim=0,
             )
 
-        for si in range(n_bh):
-            log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si]
+        # the end frame of the utterance each hypothesis belongs to
+        log_psi[:, self.eos] = r_sum[self.end_frames.repeat_interleave(n_hyps), idx_n]
 
         if self.eos != self.blank:
             # exclude blank probs
