@@ -31,6 +31,7 @@ from sisyphus import Job, Task, tk
 # Output filenames the fused forward callback writes into the work item's cwd.
 _AM_OUT_FILENAME = "am.py.gz"
 _LM_OUT_FILENAME = "lm.py.gz"
+_AED_OUT_FILENAME = "aed.py.gz"  # only with fused_aed_scores (CTC+AED+LM rescore pipeline)
 
 
 def ctc_recog_recomb_labelwise_prior_auto_scale_batched(
@@ -228,12 +229,14 @@ def ctc_recog_recomb_labelwise_prior_auto_scale_batched(
         **base_config,
         "beam_size": first_pass_recog_beam_size,
         # Beam-scaled batch size, as in the non-batched pipeline,
-        # but 4x its 20k base: that was fitted to 11 GB GPUs,
-        # and on the 96 GB GH200s the eager frame loop is launch-latency-bound,
-        # so a wider batch amortizes the per-frame kernel launches.
-        "batch_size": int(
-            80_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
-        ),
+        # but 2x its 20k base: that was fitted to 11 GB GPUs,
+        # and on the 96 GB GH200s a wider batch amortizes the per-frame launch cost
+        # of the eager frame loop.
+        # 4x OOMed at beam 64 (one item peaked 52.5 GB at step 0, another died at 95 GB).
+        "batch_size": int(40_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
+        # Batch-size independence verified 2026-09-09 (temporary __batch_size_dependent run):
+        # 20k-base vs 40k-base gave identical WERs on all eval sets for both models,
+        # at 1.6-1.9x speedup. So the batch size stays non-hashed, as everywhere else.
     }
     score = _combined_recog_batched(
         prefix=prefix,
@@ -337,6 +340,150 @@ class MergeShardedStatsMeanJob(Job):
         numpy.savetxt(self.out_mean.get_path(), weighted_sum / total_frames)
 
 
+def ctc_aed_lm_label_sync_recog_auto_scale_batched(
+    *,
+    prefix: str,
+    task,
+    aed_ctc_model,
+    lm,
+    aux_ctc_layer: Optional[int],
+    num_shards: int,
+    n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
+    recomb_type: str = "max",
+    ctc_soft_collapse_threshold: Optional[float] = 0.8,
+    extra_config: Optional[Dict[str, Any]] = None,
+):
+    """
+    CTC+AED+LM combination via label-synchronous first-pass search
+    (:func:`.ctc_label_sync_espnet.model_recog_aed_ctc_lm_label_sync`:
+    CTC prefix scores fixed at 1, AED decoder and external LM per step). No prior, as ESPnet.
+
+    The scales are tuned on ``task.dev_dataset`` from a fused N-best pass
+    (pure-CTC recomb search, then AED and LM scoring of that N-best in the same process),
+    then the label-sync search runs with them over all ``task.eval_datasets``,
+    sharded across a full node like the other batched recogs.
+
+    :return: first-pass :class:`ScoreResultCollection` (WERs on the eval sets)
+    """
+    from i6_core.returnn.forward import ReturnnForwardJobV2
+    from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zeyer.forward_batched import BatchedReturnnForwardJob, _ShardedDataset
+    from i6_experiments.users.zeyer.recog_batched import MergeSearchOutputShardsJob
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+        get_ctc_with_lm_and_labelwise_prior,
+    )
+    from .ctc_label_sync_espnet import model_recog_aed_ctc_lm_label_sync
+    from .aed_ctc_batched import _combined_recog_batched
+
+    base_config: Dict[str, Any] = {
+        "behavior_version": 24,
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        "aux_loss_layers": [aux_ctc_layer] if aux_ctc_layer is not None else [],
+    }
+    if extra_config:
+        base_config = dict_update_deep(base_config, extra_config)
+    if ctc_soft_collapse_threshold is not None:
+        base_config.update(
+            {
+                "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,
+                "ctc_soft_collapse_reduce_type": "max_renorm",
+            }
+        )
+
+    # Carries the AED decoder (from the orig model def) and the LM; lm_scale replaced below.
+    dev_model = get_ctc_with_lm_and_labelwise_prior(ctc_model=aed_ctc_model, language_model=lm, lm_scale=0.0)
+
+    # Scale tuning on the dev set, from a fused N-best pass (search itself is pure CTC).
+    dataset = task.dev_dataset
+    dev_config = {
+        **base_config,
+        "recog_recomb": recomb_type,
+        "recog_version": 10,
+        "beam_size": n_best_list_size,
+        "fused_aed_scores": True,
+    }
+    work_items: Dict[str, Dict[str, Any]] = {}
+    shard_keys: List[str] = []
+    for s in range(num_shards):
+        key = "shard_%03i" % s
+        ds = _ShardedDataset(dataset, num_shards=num_shards, shard_index=s, seq_ordering="random")
+        cfg = _fused_search_lm_score_config(dataset=ds, model_def=dev_model.definition, config=dev_config)
+        cfg = ReturnnForwardJobV2.create_returnn_config(
+            model_checkpoint=dev_model.checkpoint.path, returnn_config=cfg, log_verbosity=5, device="gpu"
+        )
+        work_items[key] = {
+            "returnn_config": cfg,
+            "model_checkpoint": dev_model.checkpoint,
+            "output_files": [_AM_OUT_FILENAME, _AED_OUT_FILENAME, _LM_OUT_FILENAME],
+        }
+        shard_keys.append(key)
+    job = BatchedReturnnForwardJob(
+        work_items,
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+    )
+    job.add_alias(f"{prefix}/dev-search-score-batched")
+
+    dev_scores: Dict[str, RecogOutput] = {}
+    for name, filename in [("am", _AM_OUT_FILENAME), ("aed", _AED_OUT_FILENAME), ("lm", _LM_OUT_FILENAME)]:
+        if num_shards == 1:
+            dev_scores[name] = RecogOutput(output=job.out_files[shard_keys[0]][filename])
+        else:
+            dev_scores[name] = RecogOutput(
+                output=MergeSearchOutputShardsJob(
+                    [job.out_files[k][filename] for k in shard_keys], output_gzip=True
+                ).out_search_results
+            )
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+    for f in task.recog_post_proc_funcs:  # BPE/SPM to words
+        dev_scores = {name: f(res) for name, res in dev_scores.items()}
+        ref = f(ref)
+    opt_scales_job = ScaleTuningJob(
+        scores={name: res.output for name, res in dev_scores.items()},
+        ref=ref.output,
+        fixed_scales={"am": 1.0},
+        evaluation="edit_distance",
+    )
+    opt_scales_job.rqmt["engine"] = "short"
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+
+    # Label-sync first pass with the tuned scales over all eval sets.
+    first_pass_model = get_ctc_with_lm_and_labelwise_prior(
+        ctc_model=aed_ctc_model, language_model=lm, lm_scale=opt_scales_job.out_real_scale_per_name["lm"]
+    )
+    recog_config = {
+        **base_config,
+        "recog_version": 1,
+        "beam_size": first_pass_recog_beam_size,
+        "aed_scale": opt_scales_job.out_real_scale_per_name["aed"],
+        # The 11GB-fitted formula, not widened: the CTC prefix scorer state is memory-heavy.
+        "batch_size": int(
+            20_000 * aed_ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+        ),
+    }
+    score = _combined_recog_batched(
+        prefix=prefix,
+        task=task,
+        model=first_pass_model,
+        config=recog_config,
+        num_shards=num_shards,
+        recog_def=model_recog_aed_ctc_lm_label_sync,
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", score.output)
+    return score
+
+
 def _fused_search_lm_score_config(*, dataset, model_def, config: Optional[Dict[str, Any]] = None):
     """
     Build the fused per-shard forward config: same as a v3 search config, but with our fused
@@ -433,7 +580,11 @@ def _fused_search_lm_score_forward_step(*, model, extern_data, **_kwargs_unused)
     )
     label_spatial_dim = Dim(label_lens_t, name="lm_label_spatial")
     label_hyps = rf.convert_to_tensor(
-        labels_arr, dims=[batch_dim, beam_dim, label_spatial_dim], dtype="int32", sparse_dim=model.target_dim, device=dev
+        labels_arr,
+        dims=[batch_dim, beam_dim, label_spatial_dim],
+        dtype="int32",
+        sparse_dim=model.target_dim,
+        device=dev,
     )
 
     # LM scores on the collapsed label hyps.
@@ -449,49 +600,68 @@ def _fused_search_lm_score_forward_step(*, model, extern_data, **_kwargs_unused)
     run_ctx.mark_as_output(am_scores, "am_scores", dims=[batch_dim, beam_dim])
     run_ctx.mark_as_output(lm_scores, "lm_scores", dims=[batch_dim, beam_dim])
 
+    if config.bool("fused_aed_scores", False):
+        # For the CTC+AED+LM rescore pipeline: the wrapped model still carries the AED decoder,
+        # so score the same N-best with it too (re-encodes data, like the aed_ctc fused job).
+        from .aed_ctc import aed_rescore_def
+
+        aed_scores = aed_rescore_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=label_hyps,
+            targets_beam_dim=beam_dim,
+            targets_spatial_dim=label_spatial_dim,
+        )
+        run_ctx.mark_as_output(aed_scores, "aed_scores", dims=[batch_dim, beam_dim])
+
 
 def _fused_get_forward_callback():
-    """Forward callback writing two N-best score files: am.py.gz and lm.py.gz (same hyps)."""
-    from typing import TextIO, Optional as _Optional
+    """
+    Forward callback writing one N-best score file per score kind (same hyps in each):
+    am.py.gz and lm.py.gz, plus aed.py.gz when ``fused_aed_scores`` is set.
+    """
+    from typing import Dict as _Dict, TextIO
+    from returnn.config import get_global_config
     from returnn.tensor import Tensor
     from returnn.forward_iface import ForwardCallbackIface
 
     class _FusedCallback(ForwardCallbackIface):
         def __init__(self):
-            self.am_file: _Optional[TextIO] = None
-            self.lm_file: _Optional[TextIO] = None
+            self.files: _Dict[str, TextIO] = {}  # output key -> file
 
         def init(self, *, model):
             import gzip
 
-            self.am_file = gzip.open(_AM_OUT_FILENAME, "wt", encoding="utf-8")
-            self.am_file.write("{\n")
-            self.lm_file = gzip.open(_LM_OUT_FILENAME, "wt", encoding="utf-8")
-            self.lm_file.write("{\n")
+            config = get_global_config()
+            filenames = {"am_scores": _AM_OUT_FILENAME, "lm_scores": _LM_OUT_FILENAME}
+            if config.bool("fused_aed_scores", False):
+                filenames["aed_scores"] = _AED_OUT_FILENAME
+            for key, filename in filenames.items():
+                self.files[key] = gzip.open(filename, "wt", encoding="utf-8")
+                self.files[key].write("{\n")
 
         def process_seq(self, *, seq_tag: str, outputs):
             hyps: Tensor = outputs["hyps"]  # [beam, label_spatial]
-            am_scores: Tensor = outputs["am_scores"]  # [beam]
-            lm_scores: Tensor = outputs["lm_scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # from the model target_dim
             hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
             num_beam = hyps.raw_tensor.shape[0]
 
-            self.am_file.write(f"{seq_tag!r}: [\n")
-            self.lm_file.write(f"{seq_tag!r}: [\n")
+            for f in self.files.values():
+                f.write(f"{seq_tag!r}: [\n")
             for i in range(num_beam):
                 n = hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
                 hyp_ids = hyps.raw_tensor[i, :n]
                 hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
-                self.am_file.write(f"  ({float(am_scores.raw_tensor[i])!r}, {hyp_serialized!r}),\n")
-                self.lm_file.write(f"  ({float(lm_scores.raw_tensor[i])!r}, {hyp_serialized!r}),\n")
-            self.am_file.write("],\n")
-            self.lm_file.write("],\n")
+                for key, f in self.files.items():
+                    scores: Tensor = outputs[key]  # [beam]
+                    f.write(f"  ({float(scores.raw_tensor[i])!r}, {hyp_serialized!r}),\n")
+            for f in self.files.values():
+                f.write("],\n")
 
         def finish(self):
-            self.am_file.write("}\n")
-            self.am_file.close()
-            self.lm_file.write("}\n")
-            self.lm_file.close()
+            for f in self.files.values():
+                f.write("}\n")
+                f.close()
 
     return _FusedCallback()

@@ -569,6 +569,163 @@ model_recog_label_sync_v2.output_blank_label = None  # label-sync, so no blank l
 model_recog_label_sync_v2.batch_size_dependent = True
 
 
+def model_recog_aed_ctc_lm_label_sync(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Label-synchronous beam search combining CTC prefix scores (scale fixed 1),
+    the model's own AED decoder (config ``aed_scale``)
+    and the external LM (``model.lm_scale``). No prior, as ESPnet.
+
+    Adapted from :func:`model_recog_label_sync_v2` (CTC+LM),
+    with the AED decoder stepping of :func:`..aed.model_recog` added.
+    The model is the :func:`..ctc_recog_ext.get_ctc_with_lm_and_labelwise_prior` wrapper
+    around an AED+CTC model, so it carries both the AED decoder and the LM.
+
+    Function is run within RETURNN.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from returnn.config import get_global_config
+    from ..aed import log_probs_with_eos_separated
+
+    config = get_global_config()
+    version = config.int("recog_version", 1)
+    assert version == 1, f"invalid recog_version {version}"
+    beam_size = config.int("beam_size", 12)
+    aed_scale = config.typed_value("aed_scale", None)
+    assert aed_scale is not None, "model_recog_aed_ctc_lm_label_sync: aed_scale must be set in the config"
+
+    neg_inf = float("-inf")
+
+    # The CTC log probs may already be soft-collapsed inside (config keys),
+    # then the returned spatial dim is the collapsed one; enc_out keeps the full encoder frames.
+    ctc_log_prob, enc_out, ctc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = ctc_log_prob.remaining_dims((ctc_spatial_dim, ctc_log_prob.feature_dim))
+    enc = model.decoder.transform_encoder(enc_out.enc_output, axis=enc_out.enc_spatial_dim)
+
+    ctc_log_prob = rf.where(
+        ctc_spatial_dim.get_mask(),
+        ctc_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=neg_inf),
+    )
+
+    beam_dim = Dim(1, name="initial_beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    ctc_prefix_scorer = CtcPrefixScorer(
+        log_probs=ctc_log_prob,
+        batch_dims=batch_dims,
+        enc_spatial_dim=ctc_spatial_dim,
+        vocab_wb_dim=model.wb_target_dim,
+        vocab_dim=model.target_dim,
+        blank_idx=model.blank_idx,
+        eos_idx=model.eos_idx,
+    )
+    ctc_prefix_scorer_state = None
+    decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+    # noinspection PyUnresolvedReferences
+    lm: TransformerDecoder = model.lm
+    assert lm is not None
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = model.lm_scale
+    lm_state = lm.default_initial_state(batch_dims=batch_dims_)
+
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+    ended = rf.constant(False, dims=batch_dims_)
+    out_seq_len = rf.constant(0, dims=batch_dims_)
+    max_seq_len = ctc_spatial_dim.get_size_tensor(device=data.device)
+
+    i = 0
+    seq_targets = []
+    seq_backrefs = []
+    while True:
+        label_log_prob, ctc_prefix_scorer_state = ctc_prefix_scorer.score_and_update_state(
+            prev_label=target, prev_state=ctc_prefix_scorer_state, beam_dim=beam_dim
+        )  # Batch, InBeam, Vocab
+
+        aed_logits, decoder_state = model.decoder(
+            target,
+            spatial_dim=single_step_dim,
+            encoder=enc,
+            state=decoder_state,
+        )  # Batch, InBeam, Vocab / ...
+        if not model.out_eos_separated:  # joint distrib, std case
+            aed_log_prob = rf.log_softmax(aed_logits, axis=model.target_dim)
+        else:  # eos separated
+            aed_log_prob = log_probs_with_eos_separated(aed_logits, target_dim=model.target_dim, eos_idx=model.eos_idx)
+        label_log_prob += aed_scale * aed_log_prob
+
+        lm_logits, lm_state = lm(
+            target,
+            spatial_dim=single_step_dim,
+            state=lm_state,
+        )  # Batch, InBeam, Vocab / ...
+        label_log_prob += lm_scale * rf.log_softmax(lm_logits, axis=model.target_dim)
+
+        # Filter out finished beams
+        label_log_prob = rf.where(
+            ended,
+            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=neg_inf),
+            label_log_prob,
+        )
+        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
+        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+            seq_log_prob,
+            k_dim=Dim(beam_size, name=f"dec_step{i}_beam"),
+            axis=[beam_dim, model.target_dim],
+        )  # seq_log_prob, backrefs, target: Batch, Beam. backrefs -> InBeam. target -> Vocab.
+
+        target = rf.cast(target, dtype=rf.get_default_int_dtype())
+        seq_targets.append(target)
+        seq_backrefs.append(backrefs)
+        ended = rf.gather(ended, indices=backrefs)
+        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+        ctc_prefix_scorer_state = rf.nested.gather_nested(ctc_prefix_scorer_state, indices=backrefs)
+        decoder_state = rf.nested.gather_nested(decoder_state, indices=backrefs)
+        lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+
+        i += 1
+        ended = rf.logical_or(ended, target == model.eos_idx)
+        ended = rf.logical_or(ended, i >= max_seq_len)
+        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+            break
+        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_.insert(0, rf.gather(target, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets__ = TensorArray(seq_targets_[0])
+    for target in seq_targets_:
+        seq_targets__ = seq_targets__.push_back(target)
+    labels_spatial_dim = Dim(out_seq_len, name="labels_spatial")
+    seq_targets = seq_targets__.stack(axis=labels_spatial_dim)
+    # Remove the remaining EOS labels.
+    seq_targets, _ = rf.slice(seq_targets, axis=labels_spatial_dim, size=labels_spatial_dim)
+
+    return seq_targets, seq_log_prob, labels_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_aed_ctc_lm_label_sync: RecogDef[Model]
+model_recog_aed_ctc_lm_label_sync.output_with_beam = True
+model_recog_aed_ctc_lm_label_sync.output_blank_label = None  # label-sync, so no blank label
+model_recog_aed_ctc_lm_label_sync.batch_size_dependent = True
+
+
 # Copied from denoising LM...
 # original derived from i6_experiments.users.zeyer.decoding.beam_search_torch.interface.LabelScorerIntf
 class CtcPrefixScorer:

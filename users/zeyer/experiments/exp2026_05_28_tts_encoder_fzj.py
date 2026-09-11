@@ -1694,7 +1694,7 @@ def py():
         (f"{_abl_prefix}-dursig0", {"pseudo_enc_duration_sigma": 0.0}),
         (f"{_abl_prefix}-dursig02", {"pseudo_enc_duration_sigma": 0.2}),
         (f"{_abl_prefix}-dursig07", {"pseudo_enc_duration_sigma": 0.7}),
-        (f"{_abl_prefix}-nolerp", {"pseudo_enc_lerp": False}),
+        (f"{_abl_prefix}-nolerp", {"pseudo_enc_lerp": False, "with_ctc_lm_recog": True}),
         (
             f"{_abl_prefix}-unidur",
             {
@@ -1776,6 +1776,75 @@ def py():
         )
         _abl_base.update(_abl_kwargs)
         _train_tts_encoder(_abl_name, prefix=prefix, **_abl_base)
+
+    # DLM-sum sanity reproduction (see projects/2026-05-28-tts-encoder.md):
+    # RZ DLM base-puttingItTogether(low)-nEp200 + CTC L16-D1024-spm10k-auxAED-b100k-tts,
+    # RZ-tuned scales copied fixed (opt-dlm-sum-real-scales: am 1, lm 3.23, prior -0.2584);
+    # expected 1.49/3.29/1.72/3.53. Checkpoints + prior relayed from RZ
+    # (import/dlm/ and work/.../ReturnnTrainingJob.phrWiFtUTwmK for the dep-boundary CTC).
+    from i6_core.returnn.training import PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces.model import ModelDefWithCfg
+    from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
+        ctc_dlm_sum_recog_fixed_scales_batched,
+    )
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
+        ctc_model_def as _sanity_ctc_model_def,
+    )
+    from i6_experiments.common.utils.fake_job import make_fake_job
+
+    _dlm_import_dir = "/e/project1/spell/zeyer1/setups/2026-05-28-tts-encoder/import/dlm"
+    # The CTC exactly as the DLM repo's sis_get_model dependency-boundary cache constructs it
+    # (same fake job -> same hashes), but without importing denoising_lm_2024.sis_recipe.ctc:
+    # that module import drags the repo's TTS-data graph in (750 input_missing lm_tts_2024 zips).
+    _sanity_ctc = ModelWithCheckpoint(
+        definition=ModelDefWithCfg(
+            _sanity_ctc_model_def,
+            {
+                "enc_build_dict": {
+                    "class": "returnn.frontend.encoder.conformer.ConformerEncoder",
+                    "input_layer": {
+                        "class": "returnn.frontend.encoder.conformer.ConformerConvSubsample",
+                        "out_dims": [32, 64, 64],
+                        "filter_sizes": [(3, 3), (3, 3), (3, 3)],
+                        "pool_sizes": [(1, 2)],
+                        "strides": [(1, 1), (3, 1), (2, 1)],
+                    },
+                    "num_layers": 16,
+                    "out_dim": 1024,
+                    "encoder_layer": {
+                        "class": "returnn.frontend.encoder.conformer.ConformerEncoderLayer",
+                        "ff": {
+                            "class": "returnn.frontend.encoder.conformer.ConformerPositionwiseFeedForward",
+                            "activation": {"class": "rf.relu_square"},
+                            "with_bias": False,
+                        },
+                        "num_heads": 8,
+                    },
+                },
+                "feature_batch_norm": True,
+            },
+        ),
+        checkpoint=PtCheckpoint(
+            tk.Path(
+                "models/epoch.100.pt",
+                creator=make_fake_job(
+                    module="i6_core.returnn.training", name="ReturnnTrainingJob", sis_hash="phrWiFtUTwmK"
+                ),
+            )
+        ),
+    )
+    ctc_dlm_sum_recog_fixed_scales_batched(
+        prefix=f"{prefix}/dlm-sum-sanity/pit-low-nEp200__ctc-b100k-tts",
+        task=get_librispeech_task_raw_v2(vocab="spm10k", train_epoch_split=1, train_epoch_wise_filter=None),
+        ctc_model=_sanity_ctc,
+        dlm=_get_imported_dlm(),
+        lm_scale=3.2299999999999995,
+        prior_file=tk.Path(f"{_dlm_import_dir}/ctc-wTaXTG3FKuzL-spm10k-log_prior_wo_blank.txt"),
+        prior_scale=0.2584,
+        num_shards=8,
+    )
 
     # dur07-packed reached 3.75 dev-other in 44 h, but on only 246k updates,
     # against 524k for pseudo-enc-layer4-noblank (3.70) and 805k for the TTS-enc arms (3.55).
@@ -2379,6 +2448,54 @@ def _ctc_subword_instances(*, total_gb: float = 3.0, floor_frames: int = 100):
     return job
 
 
+def _get_imported_dlm():
+    """
+    The RZ headline denoising LM base-puttingItTogether(low)-nEp200
+    (checkpoint relayed to import/dlm/, see projects/2026-05-28-tts-encoder.md),
+    as an explicit-checkpoint model for the DLM-sum recogs.
+    Model config extracted from the RZ train job's returnn.config.
+    """
+    from i6_core.returnn.training import PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces.model import ModelDefWithCfg
+    from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
+    from denoising_lm_2024.error_correction_model import aed_model_def
+
+    trafo_kwargs = {
+        "model_dim": 1024,
+        "pos_enc": None,
+        "norm": {"class": "rf.RMSNorm"},
+        "ff": {"class": "returnn.frontend.decoder.transformer.FeedForwardGated"},
+        "dropout": 0.0,
+        "att_dropout": 0.0,
+    }
+    return ModelWithCheckpoint(
+        definition=ModelDefWithCfg(
+            aed_model_def,
+            {
+                "_encoder_model_dict": {
+                    "class": "returnn.frontend.encoder.transformer.TransformerEncoder",
+                    "num_layers": 24,
+                    "layer_opts": {"self_att": {"class": "rf.RotaryPosSelfAttention", "with_bias": False}},
+                    **trafo_kwargs,
+                },
+                "_decoder_model_dict": {
+                    "class": "returnn.frontend.decoder.transformer.TransformerDecoder",
+                    "num_layers": 8,
+                    "layer_opts": {"self_att": {"class": "rf.RotaryPosCausalSelfAttention", "with_bias": False}},
+                    **trafo_kwargs,
+                },
+                "input_add_eos": True,
+            },
+        ),
+        checkpoint=PtCheckpoint(
+            tk.Path(
+                "/e/project1/spell/zeyer1/setups/2026-05-28-tts-encoder/import/dlm"
+                "/base-puttingItTogether-low-nEp200.ReturnnTrainingJob.evKXenj1Z2j3/output/models/epoch.200.pt"
+            )
+        ),
+    )
+
+
 def _get_ls_transcription_labelwise_prior(vocab: str, task):
     """
     Labelwise prior from the train-960 transcription label counts (CPU-only forward),
@@ -2569,6 +2686,7 @@ def _train_asr_base_multigpu(
     if with_ctc_lm_recog:
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
             ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+            ctc_aed_lm_label_sync_recog_auto_scale_batched,
         )
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model, _lms
 
@@ -2577,6 +2695,40 @@ def _train_asr_base_multigpu(
             task=task,
             ctc_model=exp.get_last_fixed_epoch(),
             lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+            labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+            aux_ctc_layer=16,
+            num_shards=8,
+        )
+        # CTC+AED+LM via label-sync first-pass search (no prior, as ESPnet).
+        ctc_aed_lm_label_sync_recog_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
+            task=task,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+            aux_ctc_layer=16,
+            num_shards=8,
+        )
+        # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model).
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
+            ctc_dlm_sum_recog_auto_scale_batched,
+            aed_ctc_dlm_sum_recog_auto_scale_batched,
+        )
+
+        ctc_dlm_sum_recog_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/ctc+dlm-sum-batched",
+            task=task,
+            asr_model=exp.get_last_fixed_epoch(),
+            dlm=_get_imported_dlm(),
+            labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+            aux_ctc_layer=16,
+            num_shards=8,
+        )
+        # CTC+AED+DLM: the DLM input hyps from label-sync CTC+AED (numHyps32LS settings).
+        aed_ctc_dlm_sum_recog_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/ctc+aed+dlm-sum-batched",
+            task=task,
+            asr_model=exp.get_last_fixed_epoch(),
+            dlm=_get_imported_dlm(),
             labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
             aux_ctc_layer=16,
             num_shards=8,
@@ -3172,6 +3324,7 @@ def _train_tts_encoder(
         if with_ctc_lm_recog:
             from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
                 ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+                ctc_aed_lm_label_sync_recog_auto_scale_batched,
             )
             from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
                 _get_lm_model,
@@ -3183,6 +3336,43 @@ def _train_tts_encoder(
                 task=task,
                 ctc_model=exp.get_last_fixed_epoch(),
                 lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=16,
+                num_shards=8,
+                extra_config=recog_model_cfg,
+            )
+            # CTC+AED+LM via label-sync first-pass search (no prior, as ESPnet).
+            ctc_aed_lm_label_sync_recog_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
+                task=task,
+                aed_ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                aux_ctc_layer=16,
+                num_shards=8,
+                extra_config=recog_model_cfg,
+            )
+            # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model).
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
+                ctc_dlm_sum_recog_auto_scale_batched,
+                aed_ctc_dlm_sum_recog_auto_scale_batched,
+            )
+
+            ctc_dlm_sum_recog_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+dlm-sum-batched",
+                task=task,
+                asr_model=exp.get_last_fixed_epoch(),
+                dlm=_get_imported_dlm(),
+                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=16,
+                num_shards=8,
+                extra_config=recog_model_cfg,
+            )
+            # CTC+AED+DLM: the DLM input hyps from label-sync CTC+AED (numHyps32LS settings).
+            aed_ctc_dlm_sum_recog_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+aed+dlm-sum-batched",
+                task=task,
+                asr_model=exp.get_last_fixed_epoch(),
+                dlm=_get_imported_dlm(),
                 labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
                 aux_ctc_layer=16,
                 num_shards=8,
