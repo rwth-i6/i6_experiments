@@ -41,6 +41,7 @@ import string
 
 from sisyphus import Job, Task, tk
 
+from .clip_store import is_clip_dataset, materialise_clips
 from .knowledge_benchmark import (
     LoadRawDataset,
     LLMPreprocess,
@@ -460,6 +461,16 @@ class BuildKnowledgeProbeSet(Job):
 
         ds = load_from_disk(str(self.dataset.get()))
         tts_dir = str(self.tts_dir.get())
+        # probe.jsonl records wav PATHS for a downstream worker, so an arrow clip store has to be
+        # unpacked rather than read in place -- the same bridge SpeechInference._run_knowledge uses,
+        # for the same reason. This matters because the shared benchmark TTS dir is a repack target
+        # (backlog E13a): without it a repacked input globs to zero wavs and writes an EMPTY
+        # probe.jsonl, which reads as "the model answered nothing" rather than as a broken read.
+        # Scratch lives in the job work dir, so those inodes are transient.
+        if is_clip_dataset(tts_dir):
+            scratch = os.path.abspath("clip_input")
+            materialise_clips(tts_dir, scratch)
+            tts_dir = scratch
         wavs = sorted(
             glob.glob(os.path.join(tts_dir, "*.wav")), key=lambda p: int(os.path.splitext(os.path.basename(p))[0])
         )

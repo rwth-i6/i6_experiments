@@ -237,6 +237,44 @@ class ResolveOverlayCheckpoint(Job):
             self._link(chosen, self.out_weights.get())
 
 
+#: A staging dir must be real disk with room. Both halves are load-bearing:
+#:
+#: * **tmpfs/ramfs pages count against the job's cgroup memory limit.** Staging B6's 12,000 clips
+#:   (~5.7 GB) on a RAM-backed $TMPDIR turns a disk problem into an OOM kill -- and a confusing one,
+#:   because psutil's RSS does NOT include those pages, so the log shows ~9.6 GB against a 16 G
+#:   limit right up to the moment the kernel kills the step. Suspected cause of the 46-minute OOM
+#:   of SpeechInference.uziPMiwrfY8G on c25g (2026-09-11); c23ms hands out a 1.5 TB NVMe instead, so
+#:   probing one partition says nothing about another.
+#: * **Free space**, because a node-local disk is shared with every other job on that node.
+_MIN_SCRATCH_BYTES = 20 * 1024**3
+
+
+def _usable_scratch(path: str) -> bool:
+    """True if ``path`` is disk-backed (not tmpfs/ramfs) and has room to stage a corpus."""
+    try:
+        best, fstype = "", ""
+        real = os.path.realpath(path)
+        with open("/proc/mounts") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mp = parts[1]
+                if (real == mp or real.startswith(mp.rstrip("/") + "/")) and len(mp) > len(best):
+                    best, fstype = mp, parts[2]
+        if fstype in ("tmpfs", "ramfs"):
+            print(f"[clips] {path} is {fstype} (RAM-backed) -- staging on the job dir instead", flush=True)
+            return False
+        st = os.statvfs(path)
+        free = st.f_bavail * st.f_frsize
+        if free < _MIN_SCRATCH_BYTES:
+            print(f"[clips] {path} has only {free / 1024**3:.1f} GB free -- staging on the job dir", flush=True)
+            return False
+        return True
+    except OSError:
+        return False
+
+
 class SpeechInference(BackendInferenceMixin, Job):
     """Unified speech-LLM inference for the knowledge benchmark and Full-Duplex-Bench.
 
@@ -455,6 +493,35 @@ class SpeechInference(BackendInferenceMixin, Job):
         else:
             self._run_fdb()
 
+    @staticmethod
+    def _scratch(name: str) -> Path:
+        """Per-job NODE-LOCAL scratch for loose wavs, falling back to the job work dir.
+
+        SLURM sets ``$TMPDIR`` to ``/w0/tmp/slurm_<user>.<jobid>`` -- a 1.5 TB node-local NVMe with
+        ~1.4 TB free, created and cleaned per job (measured 2026-09-11, probe job 3984135).
+
+        This exists because ``storage="hf"`` saved inodes at WRITE time and spent them straight back
+        at READ time. ``materialise_clips`` unpacks an arrow corpus to one wav per clip for the
+        offline drivers, and the same is true of the reply scratch before it is packed; on B6's
+        12,000-clip corpus that is ~24,000 project inodes per job. Four evals ran at once on
+        2026-09-11, exhausted ``/hpcwork/p0023999``'s inode quota, and stalled the whole graph with
+        ``[Errno 122]``. Node-local costs ZERO project inodes and is faster for many small files.
+
+        ⚠ Node-local only works because these jobs are single-node -- the per-GPU fan-out
+        (backlog G1) puts every worker on the same node. A multi-node job would need shared storage
+        and should not use this.
+
+        Falls back to the old job-dir path when ``$TMPDIR`` is unset (login node, mini_task), so
+        behaviour off the batch system is unchanged.
+        """
+        base = os.environ.get("TMPDIR")
+        if base and os.path.isdir(base) and _usable_scratch(base):
+            p = Path(base) / name
+        else:
+            p = Path(name).absolute()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     def _run_knowledge(self):
         # storage="hf": the driver / streaming path still writes loose wavs, but into a scratch dir
         # inside the job work dir; run() then packs them into ONE arrow dataset and drops the
@@ -475,7 +542,14 @@ class SpeechInference(BackendInferenceMixin, Job):
         # input contract driver-agnostic: every driver, fork or lib, always sees a dir of <i>.wav.
         in_path = Path(self.in_dir.get())
         if is_clip_dataset(in_path):
-            in_path = Path("clip_input").absolute()
+            # NODE-LOCAL (see _scratch): this unpacks one wav per clip, and on B6's 12,000-clip
+            # corpus that was ~12,000 PROJECT inodes per job. Four evals doing it at once exhausted
+            # /hpcwork/p0023999 on 2026-09-11 and stalled the graph. Nothing counts this dir -- it
+            # is pure input staging -- so moving it off Lustre costs no observability.
+            # ⚠ The *output* scratch (clip_scratch, below) deliberately stays on Lustre: the manager
+            # counts its wavs from the LOGIN node via _progress_dir, and a node-local dir would be
+            # invisible there, reporting 0% for the whole run.
+            in_path = self._scratch("clip_input")
             materialise_clips(self.in_dir.get(), in_path)
             print(
                 f"[clips] materialised arrow input -> {in_path} ({len(list(in_path.glob('*.wav')))} wavs)", flush=True
@@ -542,9 +616,12 @@ class SpeechInference(BackendInferenceMixin, Job):
             trace = clips.sidecar(i, "trace")
             if trace is not None:
                 traces[i] = trace
+        # A GENERATOR, not a list comprehension. Each clip is read off disk, handed to arrow and
+        # dropped; materialising the list first held the whole shard in RAM and OOM-killed all four
+        # B6 evals on 2026-09-11 at the very last step, with inference already finished and paid for.
         write_clips(
             final_dir,
-            [(i, *clips[i]) for i in clips],
+            ((i, *clips[i]) for i in clips),
             monologues=monologues,
             traces=traces,
         )

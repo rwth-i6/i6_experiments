@@ -751,7 +751,7 @@ def knowledge_benchmark_py(
     audex_base_speech: bool = False,
     audex_base_s2s: bool = False,
     monologue: bool = False,
-    storage: str = "wav",
+    storage: str = "hf",
     ffmpeg_path: tk.Path | None = None,
     inference_seed: int | None = None,
 ):
@@ -769,12 +769,19 @@ def knowledge_benchmark_py(
             ``None`` benchmarks the base ``kyutai/moshiko``.
         checkpoint_step: which fine-tune checkpoint step to use (``None`` = latest).
         tag: output namespace for the model-dependent stages (e.g. ``moshi_base`` / ``moshi_ft``).
-        storage: clip layout for the question TTS and the model replies. ``"wav"`` (default) writes
-            one file per example, as every existing benchmark did; ``"hf"`` writes one arrow
-            dataset per stage, cutting a 1000-example run from ~2000 inodes to ~3 on the shared
-            /hpcwork volume. Both read identically downstream (``clip_store.open_clips``), so a tag
-            can switch without changing its numbers -- but it DOES change the job hashes of that
-            tag's TTS/inference stages, so switching re-runs them. New tags should pass ``"hf"``.
+        storage: clip layout for the question TTS and the model replies. ``"hf"`` (**the default
+            since 2026-09-10**) writes one arrow dataset per stage, cutting a 1000-example run from
+            ~2000 inodes to ~3 on the shared /hpcwork volume; ``"wav"`` writes one file per example,
+            as every benchmark scored before that date did. Both read identically downstream
+            (``clip_store.open_clips``), so a tag can switch without changing its numbers -- but it
+            DOES change the job hashes of that tag's TTS/inference stages, so switching re-runs them.
+            ⚠ **That is why all 40 pre-existing call sites pass ``storage="wav"`` explicitly.** They
+            are pinned to the layout their numbers were measured in; the pin is what made flipping
+            this default hash-neutral (verified: 1,780 job ids byte-identical before and after).
+            Do not "tidy them up" -- deleting a pin re-runs that benchmark. New tags inherit ``"hf"``
+            and should simply not mention storage. Note the ``SpeechInference``/TTS **jobs** still
+            default to ``"wav"`` for the same reason: constructing one directly without the kwarg
+            must keep its hash.
         ffmpeg_path: our own ``InstallFFmpeg`` build, handed to the question-TTS job so torchcodec
             can load without the NODE providing FFmpeg. With this (plus nvidia-npp-cu12 in the
             venv) the job no longer needs ``requires: ["system_ffmpeg"]`` and stops being pinned to
