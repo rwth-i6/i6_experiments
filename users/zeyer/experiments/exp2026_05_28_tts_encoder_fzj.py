@@ -2439,6 +2439,8 @@ def py():
     _train_tts_encoder(
         "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep120-bs24m-specaug60-stepcomp",
         **loq_inj_kwargs,
+        # CTC+LM and AED+CTC+LM with the Loquacious trafo LM (the LM saw the same text as the injection).
+        with_ctc_lm_recog=True,
     )
     # The data fix of the len40s baselines (see _train_loquacious_baselines), same knobs otherwise.
     # The audio-paired transcript cap follows the audio cap (text 120 -> 250 labels, p99 was 79 at 19.5 s);
@@ -2464,6 +2466,15 @@ def py():
         "-len40s",
         **loq_inj_len40s_kwargs,
     )
+    # Text-to-audio ratio like the LS winner: LS P75 gives ~11.2k text words per audio hour per rank
+    # (539k lines of the LM corpus per subepoch vs 960 h unsharded audio); the loq audio stream is sharded
+    # (~312 h per rank per subepoch) and the corpus is 3.4x smaller, so P240 gives only ~3.2k words per hour.
+    # P68 restores the LS ratio (~7.7 total text passes instead of ~2.2).
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-txtP68",
+        **{**loq_inj_len40s_kwargs, "text_train_epoch_split": 68},
+    )
     # Injection text re-weighted by source like the srcExp audio baselines (share ~ hours^alpha);
     # the text partition scales with the corpus words (240 -> 265 / 516),
     # so the text words per subepoch, and thus the text-to-audio ratio, stay the same.
@@ -2477,9 +2488,19 @@ def py():
                 "text_train_epoch_split": round(240 * _loq_large_source_text_factor[text_mix]),
             },
         )
+    # Small subset (250 h): the low-resource point, paired with base-small-nFullEp200 (50 kh, n_ep 200).
+    # Text partition 340 keeps the LS text-to-audio ratio (~11.2k words per audio hour per rank,
+    # ~62 h audio per rank per subepoch); ~2.4 text passes over the 200 subepochs.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep200-bs24m-specaug60-stepcomp"
+        "-len40s-small-txtP340",
+        **{**loq_inj_len40s_kwargs, "loq_subset": "small", "nep": 200, "text_train_epoch_split": 340},
+    )
 
     # The in-graph G2P lexicon for future loq injection runs (the runs above use the imported one).
     tk.register_output("datasets/Loquacious/glowtts_lexicon_g2p.xml.gz", _get_loq_glowtts_lexicon())
+
+    _loq_mfa_probe(prefix=prefix + "/loq")
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -2626,6 +2647,45 @@ def _get_ls_transcription_labelwise_prior(vocab: str, task):
     # The first-pass search subtracts the prior,
     # so -inf becomes +inf label scores and every beam empties.
     # Same smoothing as the Loquacious CTC+LM setup (exp2025_11_11).
+    log_prior = PriorLabelSmoothingJob(
+        prior_file=log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
+    ).out_prior
+    return Prior(file=log_prior, type="log_prob", vocab=get_vocab_file_from_task(task))
+
+
+@functools.cache
+def _get_loq_lm():
+    """
+    The Loquacious trafo LM (32 layers, dim 1024, 5 full epochs on the train-large transcriptions,
+    the LM of the RZ CTC+LM and AED+CTC+LM experiments),
+    via the same Sisyphus chain as :func:`exp2025_10_04_loquacious.train_lms`,
+    so the training hash matches the finished RZ job (ReturnnTrainingJob.zufVMdDet96I),
+    which is copied here and never retrained.
+    Outputs are disabled, so the other LMs of that chain and its perplexity jobs never run here.
+    """
+    from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    from i6_experiments.users.zeyer.experiments.exp2025_10_04_loquacious import train_lms
+
+    with disable_register_output():
+        lms = train_lms()
+    return lms["trafo-n32-d1024-nFullEp5-nEp50-spm10k"]
+
+
+def _get_loq_transcription_labelwise_prior(vocab: str, task):
+    """
+    Labelwise prior from the Loquacious train-large transcription label counts,
+    the same chain (and smoothing) as the count_smooth prior of exp2025_11_11_ctc_lm_search,
+    so the finished RZ jobs match (ReturnnForwardJobV2.mWQZkWzWIPlE, PriorLabelSmoothingJob.siXaCm6Q4pKU).
+    See :func:`_get_ls_transcription_labelwise_prior`.
+    """
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import compute_label_prior_log_probs
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorLabelSmoothingJob
+    from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_text_only_dataset_for_forward
+    from i6_experiments.users.zeyer.datasets.utils.vocab import get_vocab_file_from_task
+
+    log_prior = compute_label_prior_log_probs(
+        get_loquacious_text_only_dataset_for_forward(vocab=vocab), forward_rqmt={"mem": 12, "time": 24}
+    )
     log_prior = PriorLabelSmoothingJob(
         prior_file=log_prior, prior_type="log_prob", uniform_weight=0.1, out_prior_type="log_prob"
     ).out_prior
@@ -3059,6 +3119,16 @@ def _train_loquacious_baselines(*, prefix: str):
             (650, 1950, 3250),
             162.5,
         ),
+        # Small subset (250 h, 50 h per source): the low-resource point of the injection comparison,
+        # where text should matter most. 50 kh = 200 full epochs (~22k updates at 24M, ~7 h),
+        # the medium regime (65 full epochs) would give only 7k updates.
+        (
+            "base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "small",
+            {**_bs24m_len40s, **_len40s},
+            (650, 1950, 3250),
+            50,
+        ),
     ]:
         # Config assembly replicated from the committed train() in Robin's loquacious_aed_packed
         # (spm10k path only),
@@ -3135,6 +3205,34 @@ def _train_loquacious_baselines(*, prefix: str):
             aux_ctc_layer=aux_ctc_layer,
             num_shards=8,
         )
+        # CTC+LM and AED+CTC+LM with the Loquacious trafo LM (trained on the same large transcriptions
+        # as the injection text), for the medium baselines of the injection comparison.
+        if name in (
+            "base-medium-nFullEp60-muon-lr2_5e3-bs24m-specaug60-stepcomp",
+            "base-medium-nFullEp60-muon-lr2_5e3-bs16m-specaug60-stepcomp",
+        ):
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+                ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+                ctc_aed_lm_label_sync_recog_auto_scale_batched,
+            )
+
+            ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+                prefix=f"{prefix}/loq/aed/{name}/ctc+lm-batched",
+                task=task,
+                ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_loq_lm(),
+                labelwise_prior=_get_loq_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=aux_ctc_layer,
+                num_shards=8,
+            )
+            ctc_aed_lm_label_sync_recog_auto_scale_batched(
+                prefix=f"{prefix}/loq/aed/{name}/ctc+aed+lm-labelsync-batched",
+                task=task,
+                aed_ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_loq_lm(),
+                aux_ctc_layer=aux_ctc_layer,
+                num_shards=8,
+            )
 
 
 def _train_tts_encoder(
@@ -3795,7 +3893,7 @@ def _train_tts_encoder(
             num_shards=8,
             extra_config=recog_model_cfg,
         )
-        # CTC(+labelwise prior)+LM with the LS trafo LM (combination on top of the CTC part).
+        # CTC(+labelwise prior)+LM with the trafo LM of the corpus (combination on top of the CTC part).
         if with_ctc_lm_recog:
             from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
                 ctc_recog_recomb_labelwise_prior_auto_scale_batched,
@@ -3806,12 +3904,18 @@ def _train_tts_encoder(
                 _lms,
             )
 
+            if loq_subset is not None:
+                lm = _get_loq_lm()
+                labelwise_prior = _get_loq_transcription_labelwise_prior(vocab, task)
+            else:
+                lm = _get_lm_model(_lms["n32-d1024-claix2023"])
+                labelwise_prior = _get_ls_transcription_labelwise_prior(vocab, task)
             ctc_recog_recomb_labelwise_prior_auto_scale_batched(
                 prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
                 task=task,
                 ctc_model=exp.get_last_fixed_epoch(),
-                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
-                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                lm=lm,
+                labelwise_prior=labelwise_prior,
                 aux_ctc_layer=16,
                 num_shards=8,
                 extra_config=recog_model_cfg,
@@ -3821,12 +3925,13 @@ def _train_tts_encoder(
                 prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
                 task=task,
                 aed_ctc_model=exp.get_last_fixed_epoch(),
-                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                lm=lm,
                 aux_ctc_layer=16,
                 num_shards=8,
                 extra_config=recog_model_cfg,
             )
-            # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model).
+        # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model), LS only.
+        if with_ctc_lm_recog and loq_subset is None:
             from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
                 ctc_dlm_sum_recog_auto_scale_batched,
                 aed_ctc_dlm_sum_recog_auto_scale_batched,
@@ -3997,6 +4102,79 @@ def _get_loq_glowtts_lexicon_imported() -> tk.Path:
     job = G2POutputToBlissLexiconJob(iv_bliss_lexicon=get_glow_tts_lexicon(), g2p_lexicon=g2p, merge=True)
     job.add_alias("datasets/Loquacious/glowtts_lexicon_g2p_merged")
     return job.out_oov_lexicon
+
+
+@functools.cache
+def _get_mfa_exe() -> tk.Path:
+    """
+    The MFA ``mfa`` executable on JUPITER (aarch64): the amd64 MFA Docker image under proot + qemu-x86_64,
+    fully in userspace (no apptainer group, no binfmt; see :mod:`...jobs.proot_qemu`).
+    Non-GPU jobs run on the login node here (LocalEngine), which has the internet access the downloads need.
+    Verified 2026-09-13: mfa version 3.4.3, model download, 4 medium utterances aligned.
+    """
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.proot_qemu import (
+        ExtractDebianPackageJob,
+        BuildProotJob,
+        PullOciImageRootfsJob,
+        ProotQemuExeWrapperJob,
+    )
+
+    debian = "https://deb.debian.org/debian/pool/main"
+    qemu = ExtractDebianPackageJob(
+        f"{debian}/q/qemu/qemu-user-static_7.2+dfsg-7+deb12u18+b3_arm64.deb", members=["usr/bin/qemu-x86_64-static"]
+    )
+    talloc = ExtractDebianPackageJob(f"{debian}/t/talloc/libtalloc2_2.3.1-2+b1_arm64.deb")
+    talloc_dev = ExtractDebianPackageJob(f"{debian}/t/talloc/libtalloc-dev_2.3.1-2+b1_arm64.deb")
+    proot = BuildProotJob(version="5.4.1", talloc_dev_dir=talloc_dev.out_dir, talloc_lib_dir=talloc.out_dir)
+    proot.add_alias("tools/proot")
+    # mmcauliffe/montreal-forced-aligner:latest as of 2026-08-20 (MFA 3.4.3), amd64
+    image = PullOciImageRootfsJob(
+        "mmcauliffe/montreal-forced-aligner",
+        digest="sha256:1986960fcb5169979630a7efb2576480c587500ab556c9daa66a930f471215b8",
+    )
+    image.add_alias("tools/mfa_image_rootfs")
+    wrapper = ProotQemuExeWrapperJob(
+        rootfs=image.out_rootfs,
+        image_config=image.out_config,
+        proot=proot.out_proot,
+        proot_lib_dir=proot.out_lib_dir,
+        qemu=qemu.out_dir.join_right("usr/bin/qemu-x86_64-static"),
+        command="/env/bin/mfa",
+        bind=["/e/home/jusers/zeyer1", "/e/project1/spell/zeyer1"],
+    )
+    wrapper.add_alias("tools/mfa")
+    return wrapper.out_exe
+
+
+def _loq_mfa_probe(*, prefix: str):
+    """
+    MFA on Loquacious medium: can MFA's per-utterance diagnostics detect bad transcripts or bad audio?
+    One ``mfa align`` per controlled corruption on the same 400 utterances per source
+    (see :data:`...loquacious_mfa.Corruptions`); the score distributions per corruption and source
+    decide the filter threshold for the full-split alignment (pseudo-speech phone tables from loq).
+    """
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_forced_align import MfaDownloadModelJob
+    from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_hf_ogg
+    from i6_experiments.users.zeyer.datasets.loquacious_mfa import MfaAlignLoquaciousSubsetJob, Corruptions
+
+    mfa_exe = _get_mfa_exe()
+    mfa_models = MfaDownloadModelJob(
+        mfa_exe=mfa_exe,
+        models=[("acoustic", "english_us_arpa"), ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")],
+    )
+    mfa_models.add_alias("tools/mfa_models_english_us_arpa")
+    medium_train = get_loquacious_hf_ogg("medium").join_right("train")
+    for corruption in Corruptions:
+        job = MfaAlignLoquaciousSubsetJob(
+            hf_data_dir=medium_train,
+            per_source=400,
+            corruption=corruption,
+            mfa_exe=mfa_exe,
+            model_root=mfa_models.out_model_root,
+        )
+        job.add_alias(f"{prefix}/mfa-probe/{corruption}")
+        tk.register_output(f"{prefix}/mfa-probe/{corruption}/summary.json", job.out_summary)
+        tk.register_output(f"{prefix}/mfa-probe/{corruption}/alignment_analysis.csv", job.out_analysis)
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
