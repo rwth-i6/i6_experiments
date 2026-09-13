@@ -4165,12 +4165,16 @@ def _loq_mfa_probe(*, prefix: str):
     mfa_models.add_alias("tools/mfa_models_english_us_arpa")
     medium_train = get_loquacious_hf_ogg("medium").join_right("train")
     for corruption in Corruptions:
+        # Emulated Kaldi is ~20x slower than native and the jobs run on the login node (LocalEngine,
+        # no GPU nodes for CPU work, AZ): 8 workers needed ~5 h per 2000 utterances, so 100 per source;
+        # 15 workers per job, three jobs on the 48-cpu LocalEngine cap.
         job = MfaAlignLoquaciousSubsetJob(
             hf_data_dir=medium_train,
-            per_source=400,
+            per_source=100,
             corruption=corruption,
             mfa_exe=mfa_exe,
             model_root=mfa_models.out_model_root,
+            num_jobs=15,
         )
         job.add_alias(f"{prefix}/mfa-probe/{corruption}")
         tk.register_output(f"{prefix}/mfa-probe/{corruption}/summary.json", job.out_summary)
