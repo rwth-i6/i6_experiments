@@ -6,11 +6,11 @@ proot virtualizes the root directory and, with ``-q``, runs every ``execve`` thr
 so a tool with a subprocess pipeline (Kaldi binaries, PostgreSQL) works unchanged.
 Pieces, each a tracked job:
 the static ``qemu-x86_64`` from a Debian arm64 package (:class:`ExtractDebianPackageJob`),
-proot built from source against Debian's talloc (:class:`BuildProotJob`,
+proot built from source against Debian's talloc (:class:`BuildProotJob`;
 the packaged proot 5.1 crashes on the 5.14 kernel with glibc 2.34),
 the image rootfs pulled as OCI layers from a registry (:class:`PullOciImageRootfsJob`),
-and the wrapper script (:class:`ProotQemuExeWrapperJob`), the same interface as
-:class:`...apptainer.ApptainerExeWrapperJob`.
+and the wrapper script (:class:`ProotQemuExeWrapperJob`),
+with the same interface as :class:`...apptainer.ApptainerExeWrapperJob`.
 Emulation costs roughly an order of magnitude in CPU time; Python start-up of the MFA image is ~45 s.
 """
 
@@ -81,8 +81,8 @@ class ExtractDebianPackageJob(Job):
 class BuildProotJob(Job):
     """Build proot from the release tarball on this host, linked against an unpacked Debian talloc."""
 
-    # v1: fresh source tree per run, feature-check assertion (a build without process_vm / seccomp_filter
-    # exited 182 on every exec)
+    # v1: fresh source tree per run and a feature-check assertion
+    # (a build without process_vm / seccomp_filter exited 182 on every exec)
     __sis_version__ = 1
 
     def __init__(self, *, version: str, talloc_dev_dir: tk.Path, talloc_lib_dir: tk.Path):
@@ -103,8 +103,9 @@ class BuildProotJob(Job):
         yield Task("run", rqmt=self.rqmt, mini_task=True)
 
     def run(self):
-        # a fresh tree: a rerun after a failed link would keep stale feature-check results
-        # (process_vm / seccomp_filter off), and such a proot exits 182 on the first exec
+        # a fresh tree:
+        # a rerun after a failed link keeps stale feature-check results (process_vm / seccomp_filter off),
+        # and such a proot exits 182 on the first exec
         src = os.path.join(os.getcwd(), "src")
         shutil.rmtree(src, ignore_errors=True)
         with tarfile.open(
@@ -199,7 +200,7 @@ class PullOciImageRootfsJob(Job):
 class ProotQemuExeWrapperJob(Job):
     """Executable wrapper: ``wrapper <args...>`` -> ``proot -q <qemu> -r <rootfs> [-b ...] [-w $PWD] <command> <args...>``.
 
-    The image's ``Env`` (PATH, LANG, ...) is applied, the caller's environment is passed through,
+    The image's ``Env`` gives the defaults (the caller's environment wins, the image PATH is prepended),
     ``KMP_AFFINITY=disabled`` is set (Intel OpenMP's affinity probe aborts under qemu).
     Host ``/dev``, ``/proc``, ``/sys``, ``/tmp`` and the resolver files are always bound;
     pass ``bind`` for the data and work dirs.
@@ -264,7 +265,8 @@ class ProotQemuExeWrapperJob(Job):
         cmd = [self.proot.get_path(), "-q", self.qemu.get_path(), "-r", self.rootfs.get_path()]
         for b in binds:
             cmd += ["-b", b]
-        cmd += ["-w", '"$PWD"', self.command]
+        # the real cwd, not the inherited $PWD variable (stale after a chdir, then getcwd fails in the guest)
+        cmd += ["-w", '"$(pwd -P)"', self.command]
         with open(self.out_exe.get_path(), "w") as f:
             f.write(
                 "#!/usr/bin/env bash\nset -euo pipefail\n"

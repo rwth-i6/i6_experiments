@@ -3205,8 +3205,8 @@ def _train_loquacious_baselines(*, prefix: str):
             aux_ctc_layer=aux_ctc_layer,
             num_shards=8,
         )
-        # CTC+LM and AED+CTC+LM with the Loquacious trafo LM (trained on the same large transcriptions
-        # as the injection text), for the medium baselines of the injection comparison.
+        # CTC+LM and AED+CTC+LM with the Loquacious trafo LM for the medium baselines of the injection comparison
+        # (the LM was trained on the same large transcriptions as the injection text).
         if name in (
             "base-medium-nFullEp60-muon-lr2_5e3-bs24m-specaug60-stepcomp",
             "base-medium-nFullEp60-muon-lr2_5e3-bs16m-specaug60-stepcomp",
@@ -4165,9 +4165,10 @@ def _loq_mfa_probe(*, prefix: str):
     mfa_models.add_alias("tools/mfa_models_english_us_arpa")
     medium_train = get_loquacious_hf_ogg("medium").join_right("train")
     for corruption in Corruptions:
-        # Emulated Kaldi is ~20x slower than native and the jobs run on the login node (LocalEngine,
-        # no GPU nodes for CPU work, AZ): 8 workers needed ~5 h per 2000 utterances, so 100 per source;
-        # 15 workers per job, three jobs on the 48-cpu LocalEngine cap.
+        # Emulated Kaldi is ~20x slower than native,
+        # and the jobs run on the login node (LocalEngine; no GPU nodes for CPU work, AZ):
+        # 8 workers needed ~5 h per 2000 utterances, so 100 per source,
+        # 15 workers per job, three jobs on the 48-cpu cap.
         job = MfaAlignLoquaciousSubsetJob(
             hf_data_dir=medium_train,
             per_source=100,
@@ -4179,6 +4180,77 @@ def _loq_mfa_probe(*, prefix: str):
         job.add_alias(f"{prefix}/mfa-probe/{corruption}")
         tk.register_output(f"{prefix}/mfa-probe/{corruption}/summary.json", job.out_summary)
         tk.register_output(f"{prefix}/mfa-probe/{corruption}/alignment_analysis.csv", job.out_analysis)
+
+    # Native aarch64 MFA (no emulation, ~20x faster; AZ: keep the emulated track as the fallback).
+    # Smoke test: the alignment job on 2 utterances per source.
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_native import (
+        BuildMfaNativeEnvJob,
+        MfaNativeExeWrapperJob,
+    )
+
+    native = BuildMfaNativeEnvJob()
+    native.add_alias("tools/mfa_native_env")
+    native_mfa = MfaNativeExeWrapperJob(env_dir=native.out_env).out_exe
+    native_models = MfaDownloadModelJob(
+        mfa_exe=native_mfa,
+        models=[("acoustic", "english_us_arpa"), ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")],
+    )
+    smoke = MfaAlignLoquaciousSubsetJob(
+        hf_data_dir=medium_train,
+        per_source=2,
+        corruption="none",
+        mfa_exe=native_mfa,
+        model_root=native_models.out_model_root,
+        num_jobs=2,
+    )
+    smoke.add_alias("tools/mfa_native_smoke_test")
+    tk.register_output("tools/mfa_native_smoke_test/summary.json", smoke.out_summary)
+
+    # The alignment pass for the loq phone tables
+    # (mean log-mel and durations, like the LS tables from the HF LS alignments):
+    # 2000 utterances per source (~28 h), native MFA,
+    # filtered by the probe's rule
+    # (no MFA scores, and the bottom 5% per source of phone_duration_deviation and of snr).
+    from i6_experiments.users.zeyer.datasets.loquacious_mfa import MfaAlignmentsToHfDatasetJob
+    from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import (
+        ComputeMfaPhoneMeanLogMelJob,
+        ComputeMfaPhoneDurationStatsJob,
+    )
+    from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_phoneme_vocab
+    from i6_experiments.users.zeyer import tools_paths
+
+    align = MfaAlignLoquaciousSubsetJob(
+        hf_data_dir=medium_train,
+        per_source=2000,
+        corruption="none",
+        mfa_exe=native_mfa,
+        model_root=native_models.out_model_root,
+        num_jobs=30,
+        keep_audio=True,
+    )
+    align.add_alias(f"{prefix}/mfa-align-medium-2k-per-source")
+    tk.register_output(f"{prefix}/mfa-align-medium-2k-per-source/summary.json", align.out_summary)
+    filtered = MfaAlignmentsToHfDatasetJob(align_job=align)
+    filtered.add_alias("datasets/Loquacious/mfa_alignments_medium_filtered")
+    tk.register_output("datasets/Loquacious/mfa_alignments_medium_filtered_stats.json", filtered.out_stats)
+    mean_table = ComputeMfaPhoneMeanLogMelJob(
+        dataset_dir=filtered.out_dataset,
+        returnn_root=tools_paths.get_returnn_root(),
+        phoneme_vocab=get_glow_tts_phoneme_vocab(),
+        splits=("train",),
+    )
+    mean_table.add_alias("datasets/Loquacious/mfa_phone_mean_logmel")
+    tk.register_output("datasets/Loquacious/mfa_phone_mean_logmel.npz", mean_table.out_mean_table)
+    tk.register_output("datasets/Loquacious/mfa_phone_mean_logmel_stats.json", mean_table.out_stats)
+    dur_table = ComputeMfaPhoneDurationStatsJob(
+        dataset_dir=filtered.out_dataset,
+        returnn_root=tools_paths.get_returnn_root(),
+        phoneme_vocab=get_glow_tts_phoneme_vocab(),
+        splits=("train",),
+    )
+    dur_table.add_alias("datasets/Loquacious/mfa_phone_durations")
+    tk.register_output("datasets/Loquacious/mfa_phone_durations.npz", dur_table.out_duration_table)
+    tk.register_output("datasets/Loquacious/mfa_phone_durations_stats.json", dur_table.out_stats)
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:

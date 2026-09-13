@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Union
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.datasets.loquacious import loquacious_source_from_id
 
-__all__ = ["MfaAlignLoquaciousSubsetJob", "Corruptions"]
+__all__ = ["MfaAlignLoquaciousSubsetJob", "MfaAlignmentsToHfDatasetJob", "Corruptions"]
 
 # Transcript / audio corruptions of the probe. "none" = the data as is.
 Corruptions = [
@@ -37,6 +37,8 @@ Corruptions = [
 
 class MfaAlignLoquaciousSubsetJob(Job):
     """``mfa align`` a per-source sample of a LoquaciousSet split, with MFA's per-utterance diagnostics."""
+
+    __sis_hash_exclude__ = {"keep_audio": False}
 
     def __init__(
         self,
@@ -53,6 +55,7 @@ class MfaAlignLoquaciousSubsetJob(Job):
         num_jobs: int = 8,
         beam: int = 10,
         retry_beam: int = 400,
+        keep_audio: bool = False,
     ):
         """
         :param hf_data_dir: the split dir, with data-*-of-*.arrow shards (audio column = ogg bytes)
@@ -67,6 +70,8 @@ class MfaAlignLoquaciousSubsetJob(Job):
         :param num_jobs: MFA worker processes
         :param beam: Kaldi beam of the first pass
         :param retry_beam: wider beam for the utterances that failed the first pass
+        :param keep_audio: also output the aligned wav files (as fed to MFA, i.e. after the corruption),
+            for :class:`MfaAlignmentsToHfDatasetJob`
         """
         super().__init__()
         assert corruption in Corruptions, corruption
@@ -82,12 +87,14 @@ class MfaAlignLoquaciousSubsetJob(Job):
         self.num_jobs = num_jobs
         self.beam = beam
         self.retry_beam = retry_beam
+        self.keep_audio = keep_audio
 
         self.out_analysis = self.output_path("alignment_analysis.csv")  # MFA's per-utterance diagnostics
         self.out_unaligned = self.output_path("unaligned.txt")  # utterances MFA gave up on
         self.out_utterances = self.output_path("utterances.json")  # uid -> id, source, transcript as aligned
         self.out_alignments = self.output_path("alignments.tar.gz")  # MFA JSON alignments
         self.out_summary = self.output_path("summary.json")  # per source: quantiles of the diagnostics
+        self.out_audio = self.output_path("audio.tar") if keep_audio else None  # uid.wav, 16 kHz
         self.rqmt = {"cpu": num_jobs + 1, "mem": 32, "time": 4}
 
     def tasks(self):
@@ -198,7 +205,8 @@ class MfaAlignLoquaciousSubsetJob(Job):
             cmd += ["--g2p_model_path", self.g2p_model]
         cmd += [corpus, self.dictionary, self.acoustic_model, out_dir]
         print("RUN:", " ".join(cmd), flush=True)
-        subprocess.check_call(cmd, env=env)
+        # cwd on local disk: the job dir is not always visible from a containerized mfa (proot getcwd)
+        subprocess.check_call(cmd, env=env, cwd=scratch)
 
         analysis = os.path.join(out_dir, "alignment_analysis.csv")
         assert os.path.exists(analysis), "MFA wrote no alignment_analysis.csv"
@@ -210,6 +218,11 @@ class MfaAlignLoquaciousSubsetJob(Job):
             for fn in sorted(os.listdir(out_dir)):
                 if fn.endswith(".json"):
                     tar.add(os.path.join(out_dir, fn), arcname=fn)
+        if self.keep_audio:
+            with tarfile.open(self.out_audio.get_path(), "w") as tar:
+                for fn in sorted(os.listdir(corpus)):
+                    if fn.endswith(".wav"):
+                        tar.add(os.path.join(corpus, fn), arcname=fn)
         self._write_summary(utterances)
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -244,3 +257,192 @@ class MfaAlignLoquaciousSubsetJob(Job):
             }
         with open(self.out_summary.get_path(), "w") as f:
             json.dump(summary, f, indent=1)
+
+
+class MfaAlignmentsToHfDatasetJob(Job):
+    """
+    Filter the MFA alignments of :class:`MfaAlignLoquaciousSubsetJob` by MFA's diagnostics
+    and write them as an HF dataset in the format of the LibriSpeech MFA alignments
+    (``gilkeyio/librispeech-alignments``, see :mod:`...datasets.hf_librispeech_mfa_alignments`),
+    so :class:`...ComputeMfaPhoneMeanLogMelJob` and :class:`...ComputeMfaPhoneDurationStatsJob`
+    read it unchanged (split ``train``; the audio as a plain float32 array, no decoding backend needed).
+
+    The filter, from the corruption probe on loq medium (see the project notes):
+    utterances without MFA scores (alignment failed) are dropped,
+    a low ``phone_duration_deviation`` marks transcript errors,
+    a low ``snr`` marks noisy audio and speech without transcript.
+    The log-likelihoods are not usable as global thresholds.
+    """
+
+    def __init__(
+        self,
+        *,
+        align_job: MfaAlignLoquaciousSubsetJob,
+        min_phone_duration_deviation: Union[None, float, str] = "q0.05",
+        min_snr: Union[None, float, str, Dict[str, Union[float, str]]] = "q0.05",
+        drop_unscored: bool = True,
+        sample_rate: int = 16_000,
+    ):
+        """
+        :param align_job: with ``keep_audio=True``
+        :param min_phone_duration_deviation: reject below.
+            A float, or ``"q<frac>"`` for that quantile of the aligned corpus per source
+            (MFA's statistic is relative to the corpus's own phone durations, so its scale is corpus dependent).
+        :param min_snr: reject below, global or per source, float or quantile as above.
+        :param drop_unscored: reject utterances without MFA diagnostics (alignment failed)
+        :param sample_rate: of the wav files
+        """
+        super().__init__()
+        assert align_job.keep_audio, "the audio is needed"
+        self.align_job = align_job
+        self.min_phone_duration_deviation = min_phone_duration_deviation
+        self.min_snr = min_snr
+        self.drop_unscored = drop_unscored
+        self.sample_rate = sample_rate
+        self.out_dataset = self.output_path("dataset", directory=True)
+        self.out_stats = self.output_path("stats.json")
+        self.rqmt = {"cpu": 2, "mem": 16, "time": 4}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import csv
+        import io
+        import json
+        import tarfile
+        import numpy as np
+        import soundfile as sf
+        from datasets import Dataset, DatasetDict, Features, Value, Sequence
+
+        utterances = json.load(open(self.align_job.out_utterances.get_path()))
+        scores = {}
+        with open(self.align_job.out_analysis.get_path()) as f:
+            for row in csv.DictReader(f):
+                try:
+                    scores[row["file"]] = {
+                        "phone_duration_deviation": float(row["phone_duration_deviation"]),
+                        "snr": float(row["snr"]),
+                    }
+                except (TypeError, ValueError):
+                    pass
+        rejected = {"unscored": 0, "phone_duration_deviation": 0, "snr": 0}
+        by_source = {}
+        for uid, u in utterances.items():
+            if uid in scores:
+                by_source.setdefault(u["source"], []).append(uid)
+
+        def _threshold(spec, metric, source):
+            if isinstance(spec, dict):
+                spec = spec.get(source)
+            if isinstance(spec, str):
+                assert spec.startswith("q"), spec
+                values = [scores[uid][metric] for uid in by_source.get(source, [])]
+                return float(np.quantile(values, float(spec[1:]))) if values else None
+            return spec
+
+        thresholds = {
+            src: {
+                "phone_duration_deviation": _threshold(
+                    self.min_phone_duration_deviation, "phone_duration_deviation", src
+                ),
+                "snr": _threshold(self.min_snr, "snr", src),
+            }
+            for src in by_source
+        }
+        kept = []
+        for uid, u in utterances.items():
+            s = scores.get(uid)
+            if s is None:
+                rejected["unscored"] += 1
+                if self.drop_unscored:
+                    continue
+            else:
+                thr = thresholds[u["source"]]
+                if (
+                    thr["phone_duration_deviation"] is not None
+                    and s["phone_duration_deviation"] < thr["phone_duration_deviation"]
+                ):
+                    rejected["phone_duration_deviation"] += 1
+                    continue
+                if thr["snr"] is not None and s["snr"] < thr["snr"]:
+                    rejected["snr"] += 1
+                    continue
+            kept.append(uid)
+        kept_set = set(kept)
+
+        alignments = {}
+        with tarfile.open(self.align_job.out_alignments.get_path(), "r:gz") as tar:
+            for m in tar.getmembers():
+                uid = m.name[: -len(".json")]
+                if uid in kept_set:
+                    alignments[uid] = json.load(tar.extractfile(m))
+        audio = {}
+        with tarfile.open(self.align_job.out_audio.get_path(), "r") as tar:
+            for m in tar.getmembers():
+                uid = m.name[: -len(".wav")]
+                if uid in kept_set:
+                    audio[uid] = tar.extractfile(m).read()
+
+        def _tier(ali, name):
+            # MFA json: tiers -> {name: {"type": "interval", "entries": [[start, end, label], ...]}};
+            # silence labels dropped as in the LS HF formatting (gaps = silence)
+            return [
+                {"phoneme" if name == "phones" else "word": lab, "start": float(s), "end": float(e)}
+                for s, e, lab in ali["tiers"][name]["entries"]
+                if lab not in ("", "sil", "sp", "<eps>")
+            ]
+
+        def _gen():
+            for uid in kept:
+                if uid not in alignments or uid not in audio:
+                    continue
+                wav, sr = sf.read(io.BytesIO(audio[uid]), dtype="float32")
+                assert sr == self.sample_rate, (uid, sr)
+                ali = alignments[uid]
+                yield {
+                    "id": utterances[uid]["id"],
+                    "source": utterances[uid]["source"],
+                    "text": utterances[uid]["text"],
+                    "audio": {"array": wav.tolist(), "sampling_rate": sr},
+                    "phonemes": _tier(ali, "phones"),
+                    "words": _tier(ali, "words"),
+                }
+
+        features = Features(
+            {
+                "id": Value("string"),
+                "source": Value("string"),
+                "text": Value("string"),
+                "audio": {"array": Sequence(Value("float32")), "sampling_rate": Value("int32")},
+                "phonemes": [{"phoneme": Value("string"), "start": Value("float64"), "end": Value("float64")}],
+                "words": [{"word": Value("string"), "start": Value("float64"), "end": Value("float64")}],
+            }
+        )
+        ds = Dataset.from_generator(_gen, features=features)
+        DatasetDict({"train": ds}).save_to_disk(self.out_dataset.get_path())
+        per_source = {}
+        for uid in kept:
+            src = utterances[uid]["source"]
+            per_source[src] = per_source.get(src, 0) + 1
+        hours = sum(utterances[uid]["duration"] for uid in kept) / 3600
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump(
+                {
+                    "num_input": len(utterances),
+                    "num_kept": len(kept),
+                    "num_written": len(ds),
+                    "hours_kept": round(hours, 2),
+                    "rejected": rejected,
+                    "kept_per_source": per_source,
+                    "filter": {
+                        "min_phone_duration_deviation": self.min_phone_duration_deviation,
+                        "min_snr": self.min_snr,
+                        "drop_unscored": self.drop_unscored,
+                        "thresholds": thresholds,
+                    },
+                },
+                f,
+                indent=1,
+            )
+        assert np.isfinite(hours)
