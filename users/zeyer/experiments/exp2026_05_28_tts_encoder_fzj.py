@@ -2370,6 +2370,117 @@ def py():
     # so blank only survives between words.
     _ctc_subword_tables(fill_within_words=True)
 
+    # Loquacious no-injection baselines (second corpus for the paper); see _train_loquacious_baselines.
+    _train_loquacious_baselines(prefix=prefix)
+
+    # Loquacious medium + text injection:
+    # the LS winner recipe on the loq task with the 24M bundle,
+    # train settings identical to the loq baselines (only dataset and n_ep differ).
+    # Text = loq large transcripts, long lines split at 40 words, so the LS caps carry over.
+    # Phonemes via the G2P-extended lexicon.
+    # Text partition 240 -> ~2.0 corpus passes (n_ep 120 x 4 ranks, text stream unsharded).
+    # Classes cap 120 / capacity 128 (audio p99 79, cap-120 drop 0.017%).
+    # specaugment_steps / weight_decay are provisional (measured ratio 0.240, see projects notes).
+    loq_inj_kwargs = dict(
+        prefix=prefix + "/loq",
+        loq_subset="medium",
+        text_train_epoch_split=240,
+        # Not the literal 24M audio budget:
+        # the injection step adds pseudo-enc frames from the text stream on top of the audio,
+        # at 24M audio the encoder load is ~2.2x the baseline's and graph capture OOMs.
+        # Same solution as the LS winner (0.70x its baseline's audio budget):
+        # audio 105k frames + ~40k pseudo frames ~= the baseline's 150k.
+        batch_size_audio_frames=105_000,
+        batch_size_phon=9_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_duration_scale=0.7,
+        pseudo_enc_max_len_factor=10,
+        train_seq_ordering="random",
+        pseudo_enc_lerp=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        glow_tts_add_silence_between_words=0.15,
+        base_lr=1.0,
+        peak_lr=2.5e-3,
+        nep=120,
+        behavior_version=29,
+        pseudo_enc_frontend_concat=True,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            # loq data keys are audio/text (not data/classes as in the LS task)
+            "packed_batch_size": {"audio": 16_800_000, "text": 7_500, "phonemes": 9_000},
+            "batching": "random",
+            "torch_cuda_graph": {
+                # Bound must stay under the CUDA 1024-threads-per-block limit
+                # (the packed CTC op launch hit "invalid argument" at 1070; LS used 500).
+                "batch_size_bound": 750,
+                "dim_capacity": {"audio": 312_000, "text": 128, "phonemes": 300},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+            "max_seq_length_default_target": 120,
+            "optimizer.weight_decay": 0.047,  # 0.01 / ~0.214, provisional (verify vs measured steps)
+            "specaugment_num_spatial_mask_factor": 60,
+            "specaugment_steps": (1100, 3200, 5300),  # (5000, 15000, 25000) * ~0.214, provisional
+            "__mem_rqmt": 200,
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep120-bs24m-specaug60-stepcomp",
+        **loq_inj_kwargs,
+    )
+    # The data fix of the len40s baselines (see _train_loquacious_baselines), same knobs otherwise.
+    # The audio-paired transcript cap follows the audio cap (text 120 -> 250 labels, p99 was 79 at 19.5 s);
+    # the phoneme cap is untouched, the text stream lines are the same.
+    # n_ep 130 = 120 / 0.923 (the audio stream loses 7.7% per subepoch to the rank sync);
+    # the text partition stays 240, so the text passes rise to ~2.2.
+    loq_inj_len40s_kwargs = {
+        **loq_inj_kwargs,
+        "nep": 130,
+        "extra_config_updates": {
+            **loq_inj_kwargs["extra_config_updates"],
+            "torch_cuda_graph": {
+                **loq_inj_kwargs["extra_config_updates"]["torch_cuda_graph"],
+                "dim_capacity": {"audio": 640_320, "text": 256, "phonemes": 300},
+            },
+            "max_seq_length": {"audio": 640_000, "text": 250, "phonemes": 300},
+            "max_seq_length_default_input": 640_000,
+            "max_seq_length_default_target": 250,
+        },
+    }
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s",
+        **loq_inj_len40s_kwargs,
+    )
+    # Injection text re-weighted by source like the srcExp audio baselines (share ~ hours^alpha);
+    # the text partition scales with the corpus words (240 -> 265 / 516),
+    # so the text words per subepoch, and thus the text-to-audio ratio, stay the same.
+    for text_mix in ["srcExp0_5", "srcExp0"]:
+        _train_tts_encoder(
+            "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+            f"-len40s-txt{text_mix[0].upper()}{text_mix[1:]}",
+            **{
+                **loq_inj_len40s_kwargs,
+                "loq_text_source_mix": text_mix,
+                "text_train_epoch_split": round(240 * _loq_large_source_text_factor[text_mix]),
+            },
+        )
+
+    # The in-graph G2P lexicon for future loq injection runs (the runs above use the imported one).
+    tk.register_output("datasets/Loquacious/glowtts_lexicon_g2p.xml.gz", _get_loq_glowtts_lexicon())
+
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
 
@@ -2736,12 +2847,317 @@ def _train_asr_base_multigpu(
     return exp
 
 
+def _train_loquacious_baselines(*, prefix: str):
+    """
+    Loquacious no-injection baselines (second corpus for the paper).
+
+    The bs16m large run is Robin's ``base-v2-packed-spm10k-mgpu4-muon-lr2_5e3-bs16m-nep150-specaug60-stepcomp``
+    (:mod:`...users.schmitt...sis_recipe.jupiter_loquacious_aed_packed`, his best loq 4-GPU rung, 7.19/7.95)
+    with the identical config,
+    so training and recog hashes match his finished jobs and are symlink-imported, never retrained.
+    The bundle:
+    packed + whole-step CUDA graphs on one GH200 node (4 GPUs, ``grad_explicit``),
+    file-sharded data (``distrib_shard_files`` + ``sharding_fix``, behavior_version 29),
+    Muon peak LR 2.5e-3 (the LS-tuned 5e-3 does not transfer to loq-large, see projects notes),
+    stepcomp (specaugment_steps and weight decay scaled by the step ratio), mask factor 60,
+    loq spm10k vocab, no speed perturbation, no target-length cap.
+    150kh total (the LS "+50%" rule): large 25kh x 6 full epochs (n_ep 150),
+    medium 2.5kh x 60 full epochs (n_ep 120), same compute, different repetition regime.
+    All dataset/vocab prep jobs are imported, never run here.
+    """
+    import functools
+
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
+        train_exp as aed_train_exp,
+        _raw_sample_rate,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+        aed_ctc_timesync_recog_recomb_auto_scale_batched,
+    )
+    from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
+
+    # Read-only imports from Robin's committed modules; users/schmitt is never modified here.
+    from i6_experiments.users.schmitt.experiments.exp2026_08_27_aed_llm_vocab.sis_recipe.loquacious_aed_packed import (
+        _base_config,
+        _get_task,
+        _with_train_dataset_opts,
+    )
+    from i6_experiments.users.schmitt.experiments.exp2026_08_27_aed_llm_vocab.sis_recipe.jupiter_loquacious_aed_packed import (
+        _muon_overrides,
+        _packed_mgpu_overrides,
+    )
+    from i6_experiments.users.schmitt.experiments.exp2026_08_27_aed_llm_vocab.model import model_def, train_def
+    from i6_experiments.users.schmitt.experiments.exp2026_08_27_aed_llm_vocab.model.recognition.aed_beam_search import (
+        recog_def as aed_recog_def,
+    )
+
+    # The pieces below only exist in Robin's setup-local (uncommitted) jupiter recipe,
+    # so they are copied here (values verified against his finished returnn.config).
+    # 16.19M per GPU = the padded reference's frame budget kept as the packed budget;
+    # 24M = the enlarged packed budget, viable since eval runs at its own smaller budget.
+    # Text budget and seq bound scale linearly with the audio budget (4_000 / 200 at 16_192_320).
+    def _packed_budget(
+        audio: int, text: int, seqs: int, *, dim_capacity: Optional[Dict[str, int]] = None
+    ) -> Dict[str, Any]:
+        # packed_total_bound sizes the CUDA-graph buffers, so it must track packed_batch_size,
+        # and batch_size_bound must track max_seqs.
+        # dim_capacity (per-seq hard caps) must cover max_seq_length_default_input;
+        # None keeps Robin's 19.5 s values.
+        return {
+            **_packed_mgpu_overrides,
+            "train.torch_cuda_graph": {
+                **_packed_mgpu_overrides["train.torch_cuda_graph"],
+                "batch_size_bound": seqs,
+                "packed_total_bound": {"audio": audio, "text": text},
+                **({"dim_capacity": dim_capacity} if dim_capacity else {}),
+            },
+            "train.packed_batch_size": {"audio": audio, "text": text},
+            "train.max_seqs": seqs,
+            # Node memory: 25 dataset workers per rank OOM-killed the node;
+            # 4 workers + 200GB per process (x4 = 800GB of 858GB) is Robin's fixed setting.
+            "train.__mem_rqmt": 200,
+            "multi_proc": 4,
+            # FZJ /var/tmp is a ~96GB RAM overlay;
+            # without this the FileCache never evicts released shards and fills it within a few subepochs.
+            # post_config, not hashed.
+            "train_post.file_cache_opts": {"cleanup_files_wanted_older_than_days": 1.0 / (24 * 60)},
+        }
+
+    _bs16m = _packed_budget(16_192_320, 4_000, 200)
+    _bs24m = _packed_budget(24_000_000, 5_929, 296)
+    # 40 s audio cap: Loquacious utterances go to 40 s,
+    # the 19.5 s cap drops 10.7% of the medium and 14.3% of the large audio.
+    # dim_capacity audio = next multiple of 960 above 640_000,
+    # text = 2x Robin's 384 (1.56x the max label count under the 19.5 s cap).
+    _len40s = {"train.max_seq_length_default_input": 40 * _raw_sample_rate}
+    _dim_cap_len40s = {"audio": 640_320, "text": 768}
+    _bs24m_len40s = _packed_budget(24_000_000, 5_929, 296, dim_capacity=_dim_cap_len40s)
+    # Batch-size ladder at a fixed wall-time budget (large only): text budget and seq bound scale
+    # with the audio budget as above; specaug steps scale with the steps per subepoch
+    # (0.130 x 24M / batch); the eval budget stays the 16m half.
+    _bs12m_len40s = _packed_budget(12_000_000, 2_965, 148, dim_capacity=_dim_cap_len40s)
+    _bs6m_len40s = _packed_budget(6_000_000, 1_482, 74, dim_capacity=_dim_cap_len40s)
+    # Update-count control for the injection runs: their audio budget (0.70 x 24M) and therefore
+    # their steps per subepoch (~1.45x the 24M baseline's), without the text stream.
+    _bs16_8m_len40s = _packed_budget(16_800_000, 4_151, 207, dim_capacity=_dim_cap_len40s)
+
+    train_epoch_split_per_subset = {"small": 1, "medium": 2, "large": 25}
+    hours_per_subset = {"small": 250, "medium": 2_500, "large": 25_000}
+
+    # Source re-weighting of large (Parcollet et al. 2025, Table 1: VoxPopuli 550 h, CommonVoice 1600,
+    # People's Speech 5900, YODAS 6100, LibriHeavy 11000; medium takes 500 h of each, dev/test are
+    # 1/3 VoxPopuli, 1/3 CommonVoice, 1/3 LibriSpeech). The sampling share of a source ~ hours^alpha,
+    # realized as integer shard multiplicities ~ hours^(alpha - 1) (LibriHeavy 1); the arrow shards
+    # are source-contiguous. A full epoch then has sum(multiplicity x hours) hours, see hours_per_run.
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        get_loquacious_hf_ogg,
+        LoquaciousShardSourcesJob,
+        _distribute_files_get_files_weighted,
+    )
+
+    _large_train_dir = get_loquacious_hf_ogg("large").join_right("train")
+    _large_shard_sources = LoquaciousShardSourcesJob(_large_train_dir)
+    _large_shard_sources.add_alias("datasets/Loquacious/large_shard_sources")
+    _large_source_hours = {
+        "voxpopuli": 550,
+        "commonvoice": 1_600,
+        "peoplesspeech": 5_900,
+        "yodas": 6_100,
+        "libriheavy": 11_000,
+    }
+    # alpha 0.5: exact shares 7.3 / 12.4 / 23.8 / 24.2 / 32.5%, integer 7.7 / 11.3 / 20.8 / 21.5 / 38.7%;
+    # alpha 0 (uniform): integer shares 19.2 / 19.6 / 20.6 / 21.3 / 19.2%.
+    _large_mix = _loq_large_source_multiplicities
+
+    def _large_mix_opts(name: str) -> Dict[str, Any]:
+        mult = _large_mix[name]
+        return {
+            "train_dataset_opts": {
+                "distrib_shard_files": True,
+                "sharding_fix": True,
+                "files": functools.partial(
+                    _distribute_files_get_files_weighted,
+                    hf_data_dir=_large_train_dir,
+                    shard_sources=_large_shard_sources.out_sources,
+                    multiplicities=mult,
+                ),
+            },
+            "epoch_hours": sum(mult[s] * h for s, h in _large_source_hours.items()),
+        }
+
+    # bs16m: Robin's finished config (large imported, medium kept as the batch-size comparison).
+    # bs24m: the paper-baseline pair, 24M budget for training, eval at the halved-16m budget.
+    # Stepcomp step ratios vs the padded single-GPU reference:
+    # 16m 0.1985 -> specaugment_steps (992, 2978, 4962); 24m 469 / 3608 = 0.130 -> (650, 1950, 3250).
+    # Weight decay 0.01 / 0.794 = 0.0126 (per-step decay, packing factor only) for all.
+    # len40s: the data fix, every train setting identical to the bs24m pair.
+    # Multi-GPU file sharding trains on ~92% of the nominal hours per subepoch
+    # (the engine ends a subepoch once the rank with the least data is exhausted, measured 7.7% lost),
+    # so the nominal 162.5 kh (n_ep 130 / 162) give the intended 150 kh.
+    # The ~19% more steps per subepoch move the specaug ramp end from 6.9 to 5.9 of 120 subepochs,
+    # kept so the data stays the single variable.
+    for name, subset, packed_budget_overrides, specaug_steps, total_k_hours in [
+        ("base-large-nFullEp6-muon-lr2_5e3-bs16m-specaug60-stepcomp", "large", _bs16m, (992, 2978, 4962), 150),
+        ("base-medium-nFullEp60-muon-lr2_5e3-bs16m-specaug60-stepcomp", "medium", _bs16m, (992, 2978, 4962), 150),
+        ("base-large-nFullEp6-muon-lr2_5e3-bs24m-specaug60-stepcomp", "large", _bs24m, (650, 1950, 3250), 150),
+        ("base-medium-nFullEp60-muon-lr2_5e3-bs24m-specaug60-stepcomp", "medium", _bs24m, (650, 1950, 3250), 150),
+        (
+            "base-large-nFullEp6_5-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs24m_len40s, **_len40s},
+            (650, 1950, 3250),
+            162.5,
+        ),
+        (
+            "base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs24m_len40s, **_len40s},
+            (650, 1950, 3250),
+            162.5,
+        ),
+        # Batch-size ladder at the wall-time budget of the len40s 24M large run (162 subepochs, 21.5 h):
+        # the 4-GPU large runs are update-starved (24M: 70k updates, 7.53 dev vs 6.13 single-GPU RZ),
+        # so smaller batches trade throughput for updates.
+        # n_ep from the measured steady pace (min per subepoch incl. eval): 24M 7.9, 12M 10.3, 6M 15.5.
+        (
+            "base-large-nFullEp5-muon-lr2_5e3-bs12m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs12m_len40s, **_len40s},
+            (1300, 3900, 6500),
+            125,
+        ),
+        (
+            "base-large-nFullEp3_3-muon-lr2_5e3-bs6m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs6m_len40s, **_len40s},
+            (2600, 7800, 13000),
+            83,
+        ),
+        # Injection control: same updates as the len40s injection run (see _bs16_8m_len40s);
+        # specaug steps at ratio 0.130 x 24 / 16.8 = 0.186.
+        (
+            "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs16_8m_len40s, **_len40s},
+            (929, 2786, 4643),
+            162.5,
+        ),
+        # Source mixture of large (see _large_mix): same 162.5 kh nominal, n_ep from the effective
+        # epoch hours (28.4 kh -> n_ep 143, 57.2 kh -> n_ep 71); alpha 1 = the bs24m len40s run.
+        (
+            "base-large-srcExp0_5-nFullEp5_7-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs24m_len40s, **_len40s, **_large_mix_opts("srcExp0_5")},
+            (650, 1950, 3250),
+            162.5,
+        ),
+        (
+            "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs24m_len40s, **_len40s, **_large_mix_opts("srcExp0")},
+            (650, 1950, 3250),
+            162.5,
+        ),
+    ]:
+        # Config assembly replicated from the committed train() in Robin's loquacious_aed_packed
+        # (spm10k path only),
+        # with batched per-epoch recogs and the batched final AED+CTC pipeline instead.
+        config = dict_update_deep(
+            _base_config.copy(),
+            {
+                **packed_budget_overrides,
+                **_muon_overrides(base_lr=1.0, peak_lr=2.5e-3),
+                "train.specaugment_steps": specaug_steps,
+                "train.specaugment_num_spatial_mask_factor": 60,
+                "train.optimizer.weight_decay": 0.0126,
+                # Eval allocates outside the retained CUDA-graph pool (the 24M run OOM'd there),
+                # so eval gets half the packed budget.
+                # post_config, hash-neutral.
+                "train_post.packed_batch_size_dev": {"audio": 8_096_160, "text": 4_000},
+                "subset": subset,
+                "total_k_hours": total_k_hours,
+                "train_seq_ordering": "random",
+            },
+            ["train.optimizer.epsilon"],
+            dict_value_merge=False,
+        )
+        subset_ = config.pop("subset")
+        total_k_hours = config.pop("total_k_hours")
+        epoch_hours = config.pop("epoch_hours", None) or hours_per_subset[subset_]
+        train_epoch_split = train_epoch_split_per_subset[subset_]
+        n_ep = round(total_k_hours * 1_000 / epoch_hours * train_epoch_split)
+        train_update_func_from_n_ep = config.pop("train_update_func_from_n_ep")
+        if train_update_func_from_n_ep:
+            config = dict_update_deep(config, train_update_func_from_n_ep(n_ep))
+        model_config = config.pop("model")
+        train_config = config.pop("train")
+        post_config = config.pop("train_post")
+        vocab = config.pop("vocab")
+        assert vocab == "spm10k"
+        train_vocab_opts = config.pop("train_vocab_opts")
+        multi_proc = config.pop("multi_proc")
+        env_updates = config.pop("env_updates")
+        train_seq_ordering = config.pop("train_seq_ordering")
+        train_dataset_opts = config.pop("train_dataset_opts")
+        assert not config, f"unhandled config keys: {sorted(config)}"
+
+        task = _get_task(
+            vocab=vocab,
+            subset_name=subset_,
+            train_epoch_split=train_epoch_split,
+            train_vocab_opts=train_vocab_opts,
+            multi_proc=multi_proc,
+            train_seq_ordering=train_seq_ordering,
+        )
+        task = _with_train_dataset_opts(task, train_dataset_opts)
+        aux_ctc_layer = max(
+            i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]
+        )
+        exp = aed_train_exp(
+            name,
+            train_config,
+            prefix=prefix + "/loq/aed/",
+            task=task,
+            model_def=model_def,
+            model_config=model_config,
+            train_def=train_def,
+            recog_def=aed_recog_def,
+            post_config_updates=post_config,
+            vocab=vocab,
+            env_updates=env_updates,
+            recog_training_func=functools.partial(recog_training_exp_batched, num_shards=1),
+        )
+        aed_ctc_timesync_recog_recomb_auto_scale_batched(
+            prefix=f"{prefix}/loq/aed/{name}/aed+ctc-batched",
+            task=task,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=aux_ctc_layer,
+            num_shards=8,
+        )
+
+
 def _train_tts_encoder(
     name: str,
     *,
     prefix: str,
     text_train_epoch_split: int = 20,
     ls_train_epoch_split: int = 1,
+    # Loquacious mode: train on the loq subset ("medium"/"large") instead of LS.
+    # Injection text = the loq large transcription corpus,
+    # long lines split at loq_text_split_words words so the LS-tuned caps carry over;
+    # phonemes via the G2P-extended glow-tts lexicon; audio sub-dataset file-sharded.
+    loq_subset: Optional[str] = None,
+    loq_text_split_words: int = 40,
+    # Source re-weighting of the injection text (key of _loq_large_source_multiplicities); None = as is.
+    loq_text_source_mix: Optional[str] = None,
+    # Extra DistributeFilesDataset options for the loq audio stream (e.g. file_distribution).
+    # None keeps the hashes.
+    loq_dfd_opts: Optional[Dict[str, Any]] = None,
+    # G2P-extended glow-tts lexicon for the loq injection text.
+    # None = the imported G2P output (_get_loq_glowtts_lexicon_imported, the runs up to 2026-09-12);
+    # new runs pass _get_loq_glowtts_lexicon() (G2P inside the graph).
+    loq_glowtts_lexicon: Optional[tk.Path] = None,
     # None = keep the dataset defaults (laplace), so other experiments keep their hashes.
     # "random" for packing: there is no padding to minimise, and length-sorted batches
     # make per-step CTC cost climb (O(frames x targets) at a constant frame budget).
@@ -2852,12 +3268,29 @@ def _train_tts_encoder(
     # direct-mel TTS and front-end pseudo-enc both merge with the featurized audio rows in model.in_dim.
 
     vocab = "spm10k"
-    task = get_librispeech_task_raw_v2(
-        vocab=vocab,
-        train_vocab_opts=train_vocab_opts,
-        train_epoch_split=ls_train_epoch_split,
-        train_epoch_wise_filter=None,
-    )
+    _vocab_by_str = get_vocab_by_str
+    if loq_subset is not None:
+        # Read-only imports from Robin's committed modules (users/schmitt is never modified).
+        from i6_experiments.users.schmitt.experiments.exp2026_08_27_aed_llm_vocab.sis_recipe.loquacious_aed_packed import (
+            _get_task as get_loquacious_task,
+        )
+        from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str as _vocab_by_str
+
+        task = get_loquacious_task(
+            vocab=vocab,
+            subset_name=loq_subset,
+            train_epoch_split={"small": 1, "medium": 2, "large": 25}[loq_subset],
+            train_vocab_opts=train_vocab_opts,
+            multi_proc=4,
+            train_seq_ordering=train_seq_ordering or "random",
+        )
+    else:
+        task = get_librispeech_task_raw_v2(
+            vocab=vocab,
+            train_vocab_opts=train_vocab_opts,
+            train_epoch_split=ls_train_epoch_split,
+            train_epoch_wise_filter=None,
+        )
     task = dataclasses.replace(task)
     base_train = task.train_dataset
     in_key = base_train.get_default_input()  # "data"
@@ -2868,21 +3301,42 @@ def _train_tts_encoder(
     # paired ASR audio sub-dataset, with speed perturbation (applied here -- do NOT pass __train_audio_preprocess,
     # else aed_train_exp would try to set it on the DatasetConfigStatic below).
     asr_ds = copy.deepcopy(base_train.get_train_dataset())
-    assert asr_ds["class"] == "OggZipDataset", asr_ds["class"]
-    if train_seq_ordering:
-        asr_ds["seq_ordering"] = train_seq_ordering
-    asr_ds["audio"] = dict(asr_ds["audio"])
-    asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
-    # OggZip decode + speed_pert is the heavy data-loading work; wrap *only* it in MPD.
-    # LmDataset is cheap and CombinedDataset does not support sharding, so we keep MPD off the outer levels.
-    asr_ds = multi_proc_dataset_opts(asr_ds, num_workers=4)
+    if loq_subset is not None:
+        # loq train = DistributeFilesDataset (dataset workers via its own multi_proc_dataset opt),
+        # no speed perturbation, matching the loq baselines.
+        # Sharding must live inside the audio sub-dataset: CombinedDataset cannot shard,
+        # so every rank reads the full text stream and only the audio is split
+        # (the text partition is chosen in per-rank terms, see the loq caller).
+        assert asr_ds["class"] == "DistributeFilesDataset", asr_ds["class"]
+        if train_seq_ordering:
+            asr_ds["seq_ordering"] = train_seq_ordering
+        asr_ds["distrib_shard_files"] = True
+        asr_ds["sharding_fix"] = True
+        if loq_dfd_opts:
+            asr_ds.update(loq_dfd_opts)
+    else:
+        assert asr_ds["class"] == "OggZipDataset", asr_ds["class"]
+        if train_seq_ordering:
+            asr_ds["seq_ordering"] = train_seq_ordering
+        asr_ds["audio"] = dict(asr_ds["audio"])
+        asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
+        # OggZip decode + speed_pert is the heavy data-loading work; wrap *only* it in MPD.
+        # LmDataset is cheap and CombinedDataset does not support sharding, so we keep MPD off the outer levels.
+        asr_ds = multi_proc_dataset_opts(asr_ds, num_workers=4)
 
     # text-only sub-dataset: one LmDataset emits the raw utf8 bytes of each LM line; a PostprocessingDataset
     # derives BOTH the spm target and the GlowTTS phonemes from that text in its map_seq (single corpus read,
     # no second tokenizing LmDataset). The spm + phone_info opts travel via the config (tk.Paths resolved there).
     phon_extern = get_glow_tts_phoneme_extern_data()
-    corpus_files = [get_librispeech_normalized_lm_data(), get_train_corpus_text()]
-    spm_dim = base_extern[tgt_key]["sparse_dim"]  # spm vocab dim (same object as the audio target)
+    if loq_subset is not None:
+        corpus_files = [_get_loq_injection_text(split_words=loq_text_split_words, source_mix=loq_text_source_mix)]
+    else:
+        corpus_files = [get_librispeech_normalized_lm_data(), get_train_corpus_text()]
+    if loq_subset is not None:
+        # The loq task's extern entries are plain dicts (no Dim objects); build the vocab Dim here.
+        spm_dim = Dim(_vocab_by_str(vocab).dim, name="spm_vocab")
+    else:
+        spm_dim = base_extern[tgt_key]["sparse_dim"]  # spm vocab dim (same object as the audio target)
     phon_dim = phon_extern["sparse_dim"]  # GlowTTS phoneme vocab dim
     # Subword path: the units are the ASR's own subwords plus a silence entry, which is exactly the
     # vocab the CTC alignment and its table are indexed by. It reuses the phoneme stream and all its
@@ -3271,15 +3725,24 @@ def _train_tts_encoder(
             # spm targets + GlowTTS phonemes (nested tk.Paths are resolved as config values).
             # train-targets vocab; with train_vocab_opts (e.g. SamplingBPE) the text stream samples too
             "glow_tts_text_spm_opts": (
-                get_vocab_by_str(vocab).copy(**train_vocab_opts) if train_vocab_opts else get_vocab_by_str(vocab)
+                _vocab_by_str(vocab).copy(**train_vocab_opts) if train_vocab_opts else _vocab_by_str(vocab)
             ).get_opts(),
-            "glow_tts_phone_info": get_glow_tts_phone_info(
-                train=True,
-                add_silence_between_words=glow_tts_add_silence_between_words,
-                add_silence_beginning=glow_tts_add_silence_beginning,
-                add_silence_end=glow_tts_add_silence_end,
-                with_start_end_lemmas=not glow_tts_no_start_end,
-            ),
+            "glow_tts_phone_info": {
+                **get_glow_tts_phone_info(
+                    train=True,
+                    add_silence_between_words=glow_tts_add_silence_between_words,
+                    add_silence_beginning=glow_tts_add_silence_beginning,
+                    add_silence_end=glow_tts_add_silence_end,
+                    with_start_end_lemmas=not glow_tts_no_start_end,
+                ),
+                # loq text has ~544k OOV words vs the glow-tts lexicon,
+                # and PhoneSeqGenerator raises on OOV, so use the G2P-extended lexicon (same phone set).
+                **(
+                    {"lexicon_file": loq_glowtts_lexicon or _get_loq_glowtts_lexicon_imported()}
+                    if loq_subset is not None
+                    else {}
+                ),
+            },
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
             # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily,
             # so DDP is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
@@ -3300,6 +3763,18 @@ def _train_tts_encoder(
             # opt out of train_v4's default outer-MPD; CombinedDataset can't shard. MPD is wrapped around OggZip above.
             "__multi_proc_dataset": False,
             "stop_for_resubmission_when_low_time_left": True,
+            # loq: DFD shards cache into the ~96GB /var/tmp RAM overlay (see the loq baselines),
+            # and eval must run at a smaller packed budget than the 24M train budget
+            # (eval allocates outside the retained CUDA-graph pool).
+            # post_config, not hashed.
+            **(
+                {
+                    "file_cache_opts": {"cleanup_files_wanted_older_than_days": 1.0 / (24 * 60)},
+                    "packed_batch_size_dev": {"audio": 8_096_160, "text": 4_000, "phonemes": 4_000},
+                }
+                if loq_subset is not None
+                else {}
+            ),
         },
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         # single-GPU must pass None, NOT 1:
@@ -3393,6 +3868,135 @@ def _train_tts_encoder(
             extra_config=recog_model_cfg,
         )
     return exp
+
+
+# Source multiplicities for the loq large text / audio, share ~ hours^alpha (see _train_loquacious_baselines).
+_loq_large_source_multiplicities = {
+    "srcExp0_5": {"voxpopuli": 4, "commonvoice": 2, "peoplesspeech": 1, "yodas": 1, "libriheavy": 1},
+    "srcExp0": {"voxpopuli": 20, "commonvoice": 7, "peoplesspeech": 2, "yodas": 2, "libriheavy": 1},
+}
+# Words of the split corpus relative to the unweighted one (235.9M words; measured 261.0M / 507.0M),
+# so text_train_epoch_split keeps the text words per subepoch constant
+# (lines would not: VoxPopuli and CommonVoice lines are shorter than the LibriHeavy pieces).
+_loq_large_source_text_factor = {"srcExp0_5": 260_983_692 / 235_894_139, "srcExp0": 506_963_817 / 235_894_139}
+
+
+@functools.cache
+def _get_loq_injection_text(*, split_words: int = 40, source_mix: Optional[str] = None) -> tk.Path:
+    """
+    Loquacious injection text: the large train transcription corpus,
+    long lines split into pieces of at most ``split_words`` words.
+    Loq lines are long paragraphs (mean ~38 words, spm p99 104, phonemes p99 411);
+    splitting keeps the LS-tuned per-seq caps with ~zero dropped text
+    (see projects/2026-05-28-tts-encoder.md, loq text stats).
+
+    :param split_words:
+    :param source_mix: key of _loq_large_source_multiplicities, lines repeated per source; None = as is
+    """
+    from i6_core.text.processing import PipelineJob
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        get_train_corpus_text as get_loq_train_corpus_text,
+        get_loquacious_hf_ogg,
+        LoquaciousShardSourcesJob,
+        LoquaciousWeightedCorpusTextJob,
+    )
+
+    text = get_loq_train_corpus_text("large")
+    alias = "datasets/Loquacious/train_large_corpus"
+    if source_mix is not None:
+        train_dir = get_loquacious_hf_ogg("large").join_right("train")
+        sources = LoquaciousShardSourcesJob(train_dir)
+        weighted = LoquaciousWeightedCorpusTextJob(
+            text_file=text,
+            hf_data_dir=train_dir,
+            shard_sources=sources.out_sources,
+            multiplicities=_loq_large_source_multiplicities[source_mix],
+        )
+        weighted.add_alias(f"{alias}_{source_mix}")
+        text = weighted.out_text
+        alias = f"{alias}_{source_mix}"
+    # NB: Job.sh() runs the command through str.format, so literal awk braces must be doubled.
+    split_awk = (
+        "awk '{{for(i=1;i<=NF;i+=" + str(split_words) + "){{s=$(i);"
+        "for(j=i+1;j<i+" + str(split_words) + '&&j<=NF;j++)s=s" "$(j);print s}}}}\''
+    )
+    job = PipelineJob([text], [split_awk], zip_output=True, mini_task=False)
+    job.add_alias(f"{alias}_split{split_words}")
+    return job.out
+
+
+@functools.cache
+def _get_glow_tts_g2p_model() -> tk.Path:
+    """
+    Nick's sequitur G2P model, the one behind the glow-tts lexicon's own G2P entries:
+    TrainG2PModelJob (default args) on his LS-960 TTS lexicon,
+    the chain of ``G2PBasedOovAugmenter`` in his ``ctc_rnnt_standalone_2024/data/tts/generation.py``.
+    Same hashes as his finished jobs (lexicon MergeLexiconJob.pDx7fHGevWbP,
+    BlissLexiconToG2PLexiconJob.RBFaxdcrRueZ, TrainG2PModelJob.IQEpHFqcPKee),
+    the model job is imported from the i6 cluster, so nothing is retrained here.
+    """
+    from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
+    from i6_core.g2p.train import TrainG2PModelJob
+
+    # Read-only import from Nick's committed module (users/rossenbach is never modified).
+    from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.tts_phon import (
+        get_lexicon as get_ls960_tts_lexicon,
+    )
+
+    lexicon = get_ls960_tts_lexicon(with_blank=False, corpus_key="train-other-960")
+    convert = BlissLexiconToG2PLexiconJob(bliss_lexicon=lexicon)
+    train = TrainG2PModelJob(g2p_lexicon=convert.out_g2p_lexicon)
+    train.add_alias("datasets/LibriSpeech/glowtts_lexicon_g2p_model")
+    return train.out_best_model
+
+
+@functools.cache
+def _get_loq_glowtts_lexicon() -> tk.Path:
+    """
+    The glow-tts lexicon extended with G2P entries for the loq large-transcript OOV words
+    (543,846 types, 0.65% of tokens),
+    so PhoneSeqGenerator covers the loq injection text.
+    OOV words vs the glow-tts lexicon, sequitur with :func:`_get_glow_tts_g2p_model`
+    (32 parts, ~13 ms per word, ~4 min each), merged into the lexicon.
+    Phone set identical to the lexicon's (39 ARPA phones).
+    Sequitur runs from the dedicated venv of settings.py G2P_PATH / G2P_PYTHON.
+    """
+    from i6_core.corpus.stats import ExtractOovWordsFromTextJob
+    from i6_core.g2p.apply import ApplyG2PModelJob
+    from i6_core.g2p.convert import G2POutputToBlissLexiconJob
+    from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_lexicon
+    from i6_experiments.users.zeyer.datasets.loquacious import get_train_corpus_text as get_loq_train_corpus_text
+
+    oov = ExtractOovWordsFromTextJob(
+        text_file=get_loq_train_corpus_text("large"), bliss_lexicon=get_glow_tts_lexicon(), casing="upper"
+    )
+    oov.add_alias("datasets/Loquacious/train_large_oov_words")
+    g2p = ApplyG2PModelJob(g2p_model=_get_glow_tts_g2p_model(), word_list_file=oov.out_oov_words, concurrent=32)
+    g2p.add_alias("datasets/Loquacious/train_large_oov_g2p")
+    job = G2POutputToBlissLexiconJob(
+        iv_bliss_lexicon=get_glow_tts_lexicon(), g2p_lexicon=g2p.out_g2p_lexicon, merge=True
+    )
+    job.add_alias("datasets/Loquacious/glowtts_lexicon_g2p")
+    return job.out_oov_lexicon
+
+
+@functools.cache
+def _get_loq_glowtts_lexicon_imported() -> tk.Path:
+    """
+    Like :func:`_get_loq_glowtts_lexicon`, but the G2P output is an import:
+    produced outside sisyphus on RZ (2026-09-11) with the same model on the same OOV list,
+    kept for the experiments started with it. Verified identical on the first 20k words.
+    """
+    from i6_core.g2p.convert import G2POutputToBlissLexiconJob
+    from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_lexicon
+
+    g2p = tk.Path(
+        "/e/project1/spell/zeyer1/setups/2026-05-28-tts-encoder/import/loq-g2p/g2p.lexicon",
+        hash_overwrite="loq-large-oov-g2p-nick-sequitur-2026-09-11",
+    )
+    job = G2POutputToBlissLexiconJob(iv_bliss_lexicon=get_glow_tts_lexicon(), g2p_lexicon=g2p, merge=True)
+    job.add_alias("datasets/Loquacious/glowtts_lexicon_g2p_merged")
+    return job.out_oov_lexicon
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
@@ -5045,7 +5649,10 @@ def _extern_template_to_map_output(tmpl: Dict[str, Any]) -> Dict[str, Any]:
     from returnn.tensor import batch_dim
 
     dims = [d for d in tmpl["dim_tags"] if d != batch_dim]
-    out: Dict[str, Any] = {"dims": dims, "dtype": "int32" if "sparse_dim" in tmpl else "float32"}
+    out: Dict[str, Any] = {
+        "dims": dims,
+        "dtype": tmpl.get("dtype", "int32" if "sparse_dim" in tmpl else "float32"),
+    }
     if "sparse_dim" in tmpl:
         out["sparse_dim"] = tmpl["sparse_dim"]
     return out

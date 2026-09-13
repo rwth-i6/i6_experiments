@@ -15,7 +15,7 @@ import numpy as np
 import logging
 from functools import partial, cache
 
-from sisyphus import tk, Path
+from sisyphus import tk, Path, Task as SisTask
 
 from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob, ExtractTextFromHuggingFaceDatasetJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
@@ -934,6 +934,124 @@ def _distribute_files_get_files(hf_data_dir: Union[Path, str, os.PathLike]) -> L
     from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
 
     return get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir)
+
+
+# The Loquacious source of an utterance, from its id (Parcollet et al. 2025, Table 1).
+_source_id_patterns = [
+    ("voxpopuli", re.compile(r"^\d{8}-\d{4}-")),
+    ("commonvoice", re.compile(r"^common_voice_")),
+    ("libriheavy", re.compile(r"_librivox_|_64kb_mp3_")),
+    ("yodas", re.compile(r"^[\w-]{11}-\d{5}-\d{8}-\d{8}\.wav$")),
+]
+
+
+def loquacious_source_from_id(seq_id: str) -> str:
+    """
+    :return: "voxpopuli", "commonvoice", "libriheavy", "yodas" or "peoplesspeech" (the rest)
+    """
+    for name, pat in _source_id_patterns:
+        if pat.search(seq_id):
+            return name
+    return "peoplesspeech"
+
+
+class LoquaciousShardSourcesJob(tk.Job):
+    """
+    The majority source of every Arrow shard of a LoquaciousSet HF dataset split.
+    The HF dataset concatenates the sources, so the shards are source-contiguous
+    except for the few shards at the source boundaries (large: 4 of 848).
+    """
+
+    def __init__(self, hf_data_dir: Path):
+        """
+        :param hf_data_dir: the split dir, with data-*-of-*.arrow shards
+        """
+        self.hf_data_dir = hf_data_dir
+        self.out_sources = self.output_path("shard_sources.json")  # shard basename -> majority source
+
+    def tasks(self):
+        yield SisTask("run", mini_task=True)
+
+    def run(self):
+        import json
+        from collections import Counter
+        import pyarrow as pa
+        from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+        sources = {}
+        for fn in get_arrow_shard_files_from_hf_dataset_dir(self.hf_data_dir.get_path()):
+            with pa.memory_map(fn) as src:
+                ids = pa.ipc.open_stream(src).read_all().column("id").to_pylist()
+            counts = Counter(loquacious_source_from_id(i) for i in ids)
+            sources[os.path.basename(fn)] = counts.most_common(1)[0][0]
+        with open(self.out_sources.get_path(), "w") as f:
+            json.dump(sources, f, indent=1)
+
+
+class LoquaciousWeightedCorpusTextJob(tk.Job):
+    """
+    The transcript corpus of a LoquaciousSet split (:func:`get_train_corpus_text`) with every line
+    repeated by the multiplicity of its source (see :class:`LoquaciousShardSourcesJob`).
+    The corpus lines are in HF dataset order, the same order as the Arrow shards of the split,
+    so the shard row counts give the line block of each shard.
+    """
+
+    def __init__(self, text_file: Path, hf_data_dir: Path, shard_sources: Path, multiplicities: Dict[str, int]):
+        """
+        :param text_file: gzipped text, one line per dataset row
+        :param hf_data_dir: the split dir, with data-*-of-*.arrow shards
+        :param shard_sources: shard basename -> source
+        :param multiplicities: source -> how often its lines are repeated
+        """
+        self.text_file = text_file
+        self.hf_data_dir = hf_data_dir
+        self.shard_sources = shard_sources
+        self.multiplicities = multiplicities
+        self.out_text = self.output_path("text.txt.gz")
+        self.rqmt = {"cpu": 1, "mem": 2, "time": 2}
+
+    def tasks(self):
+        yield SisTask("run", rqmt=self.rqmt)
+
+    def run(self):
+        import gzip
+        import json
+        import pyarrow as pa
+        from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+        with open(self.shard_sources.get_path()) as f:
+            sources = json.load(f)
+        blocks = []  # (num lines, multiplicity) per shard, in order
+        for fn in get_arrow_shard_files_from_hf_dataset_dir(self.hf_data_dir.get_path()):
+            with pa.memory_map(fn) as src:
+                num_rows = pa.ipc.open_stream(src).read_all().num_rows
+            blocks.append((num_rows, self.multiplicities[sources[os.path.basename(fn)]]))
+        with gzip.open(self.text_file.get_path(), "rt", encoding="utf-8") as f_in:
+            with gzip.open(self.out_text.get_path(), "wt", encoding="utf-8") as f_out:
+                for num_rows, mult in blocks:
+                    lines = [f_in.readline() for _ in range(num_rows)]
+                    assert all(lines), "corpus shorter than the shards"
+                    for _ in range(mult):
+                        f_out.writelines(lines)
+                assert not f_in.readline(), "corpus longer than the shards"
+
+
+def _distribute_files_get_files_weighted(
+    hf_data_dir: Union[Path, str, os.PathLike], *, shard_sources: Union[Path, str], multiplicities: Dict[str, int]
+) -> List[Union[Path, str]]:
+    """
+    Like :func:`_distribute_files_get_files`, every shard repeated by the multiplicity of its source,
+    so a full epoch of the DistributeFilesDataset samples source s with multiplicities[s] x its hours.
+    """
+    import json
+    from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+    with open(os.fspath(shard_sources)) as f:
+        sources = json.load(f)
+    files = []
+    for fn in get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir):
+        files += [fn] * multiplicities[sources[os.path.basename(fn)]]
+    return files
 
 
 def _distribute_files_get_sub_epoch_dataset(
