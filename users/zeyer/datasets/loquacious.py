@@ -990,8 +990,8 @@ class LoquaciousShardSourcesJob(tk.Job):
 
 class LoquaciousWeightedCorpusTextJob(tk.Job):
     """
-    The transcript corpus of a LoquaciousSet split (:func:`get_train_corpus_text`) with every line
-    repeated by the multiplicity of its source (see :class:`LoquaciousShardSourcesJob`).
+    The transcript corpus of a LoquaciousSet split (:func:`get_train_corpus_text`),
+    every line repeated by the multiplicity of its source (see :class:`LoquaciousShardSourcesJob`).
     The corpus lines are in HF dataset order, the same order as the Arrow shards of the split,
     so the shard row counts give the line block of each shard.
     """
@@ -1040,8 +1040,9 @@ def _distribute_files_get_files_weighted(
     hf_data_dir: Union[Path, str, os.PathLike], *, shard_sources: Union[Path, str], multiplicities: Dict[str, int]
 ) -> List[Union[Path, str]]:
     """
-    Like :func:`_distribute_files_get_files`, every shard repeated by the multiplicity of its source,
-    so a full epoch of the DistributeFilesDataset samples source s with multiplicities[s] x its hours.
+    Like :func:`_distribute_files_get_files`,
+    every shard repeated by the multiplicity of its source,
+    so a full epoch of the DistributeFilesDataset holds multiplicities[s] x the hours of source s.
     """
     import json
     from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
