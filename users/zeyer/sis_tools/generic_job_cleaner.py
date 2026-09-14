@@ -45,6 +45,11 @@ def clean(*, work_dir: str, dry_run: bool = False, stop_after_n_jobs: int = -1) 
         exclude_recurse_dirs = set()
         for dir_name in dirs:
             job_dir = root + "/" + dir_name
+            if os.path.islink(job_dir):
+                # Imported job: this job dir is a symlink into another setup's/user's work dir.
+                # Do not follow it -- cleaning it would modify the other setup's job. Skip.
+                exclude_recurse_dirs.add(dir_name)
+                continue
             if _is_job_dir(job_dir):
                 count_all_jobs += 1
                 exclude_recurse_dirs.add(dir_name)

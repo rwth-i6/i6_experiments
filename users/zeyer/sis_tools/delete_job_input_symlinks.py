@@ -57,6 +57,11 @@ def main():
         for dir_name in dirs:
             job_dir = root + "/" + dir_name
 
+            if os.path.islink(job_dir):
+                # Imported job: this job dir is a symlink into another setup's/user's work dir.
+                # Do not follow it -- rmtree'ing its input/ would delete the other setup's data.
+                exclude_recurse_dirs.add(dir_name)
+                continue
             if _is_job_dir(job_dir):
                 count_all_jobs += 1
                 exclude_recurse_dirs.add(dir_name)
