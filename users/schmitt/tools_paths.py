@@ -116,6 +116,24 @@ def get_returnn_root() -> tk.Path:
     return tk.Path(getattr(gs, "RETURNN_ROOT"), hash_overwrite="DEFAULT_RETURNN_ROOT")
 
 
+
+def get_mcif_python_exe() -> tk.Path:
+    """
+    Python executable of the venv with ``mcif-bench`` (the official MCIF scorer; it pins transformers 4.x / numpy 1.x,
+    so it cannot live in the main venv). ``mcif_eval`` is expected next to it in ``bin/``.
+    """
+    assert getattr(gs, "MCIF_PYTHON_EXE", None), "MCIF_PYTHON_EXE not set"
+    return tk.Path(getattr(gs, "MCIF_PYTHON_EXE"), hash_overwrite="MCIF_PYTHON")
+
+
+def get_mwer_segmenter_root() -> tk.Path:
+    """
+    Dir of the RWTH mwerSegmenter (https://www-i6.informatik.rwth-aachen.de/web/Software/mwerSegmenter.tar.gz),
+    holding the original 32-bit x86 binary ``mwerSegmenter.i686`` and/or a drop-in ``mwerSegmenter``.
+    """
+    assert getattr(gs, "MWERSEGMENTER_ROOT", None), "MWERSEGMENTER_ROOT not set"
+    return tk.Path(getattr(gs, "MWERSEGMENTER_ROOT"), hash_overwrite="MWERSEGMENTER_ROOT")
+
 _orig_i6_core_util_get_executable_path: Optional[Callable[..., tk.Path]] = None
 
 
