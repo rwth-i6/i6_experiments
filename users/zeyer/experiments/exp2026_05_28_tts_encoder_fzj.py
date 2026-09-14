@@ -4410,8 +4410,9 @@ class _ZeroChannelsFeatureExtraction(rf.Module):
 
 def _widen_model_input_with_zero_channels(model: Model, *, extra_dim: Dim):
     """Textogram-style channel concat (Thomas et al. 2022): the encoder input gets one channel per pseudo unit.
-    The front-end (conv subsampling) is rebuilt for the wider input;
-    the feature BN moves into the feature extraction (real audio only)."""
+    Only the conv front-end and its projection are rebuilt for the wider input;
+    the encoder out dim object must stay (the decoder cross-attention was built against it).
+    The feature BN moves into the feature extraction (real audio only)."""
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -4422,8 +4423,13 @@ def _widen_model_input_with_zero_channels(model: Model, *, extra_dim: Dim):
     model.feature_batch_norm = None
     model.in_dim = model.feature_extraction.out_dim
     enc_build_dict = config.typed_value("enc_build_dict", None)
-    assert enc_build_dict, "pseudo_enc_channel_concat: needs a model built via enc_build_dict"
-    model.encoder = rf.build_from_dict(enc_build_dict, model.in_dim)
+    assert enc_build_dict and isinstance(enc_build_dict.get("input_layer"), dict), (
+        "pseudo_enc_channel_concat: needs a model built via enc_build_dict with an input_layer dict"
+    )
+    enc = model.encoder
+    enc.in_dim = model.in_dim
+    enc.input_layer = rf.build_from_dict(enc_build_dict["input_layer"], model.in_dim)
+    enc.input_projection = rf.Linear(enc.input_layer.out_dim, enc.out_dim, with_bias=False)
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
