@@ -1722,6 +1722,20 @@ def py():
                 "pseudo_enc_duration_range": (5, 10),
             },
         ),
+        # Textogram (Thomas et al. 2022) cell: one-hot channels next to the log-mels (channel concat,
+        # zero-filled inactive modality), uniform durations, hard repeats; phonemes as in the other cells.
+        (
+            "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {
+                "pseudo_enc_channel_concat": True,
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (5, 10),
+                "pseudo_enc_lerp": False,
+            },
+        ),
         (
             "pseudo-enc-logmel-mfatable-realdur2-lerp-dur05-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {"pseudo_enc_duration_scale": 0.5},
@@ -2530,6 +2544,39 @@ def py():
         "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
         "-len40s-txtP68-txtSrcExp0",
         **{**loq_inj_len40s_kwargs, "loq_text_source_mix": "srcExp0", "text_train_epoch_split": round(68 * _txt0)},
+    )
+    # The Textogram channel-concat cell on loq (see the LS ablation), paired with the txtSrcExp0 injection.
+    _train_tts_encoder(
+        "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-txtSrcExp0",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": round(240 * _txt0),
+            "pseudo_enc_channel_concat": True,
+            "pseudo_enc_frozen_table": None,
+            "pseudo_enc_duration_table": None,
+            "pseudo_enc_duration_sigma": None,
+            "pseudo_enc_duration_scale": None,
+            "pseudo_enc_duration_range": (5, 10),
+            "pseudo_enc_lerp": False,
+        },
+    )
+    # The textogram-style cell on loq (trained embedding, uniform 5-10 frame durations),
+    # the loq counterpart of the LS trainemb-unidur ablation, paired with the txtSrcExp0 injection.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-txtSrcExp0",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": round(240 * _txt0),
+            "pseudo_enc_frozen_table": None,
+            "pseudo_enc_duration_table": None,
+            "pseudo_enc_duration_sigma": None,
+            "pseudo_enc_duration_scale": None,
+            "pseudo_enc_duration_range": (5, 10),
+        },
     )
     _train_tts_encoder(
         "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep200-bs24m-specaug60-stepcomp"
@@ -3351,6 +3398,7 @@ def _train_tts_encoder(
     pseudo_enc_max_len_factor: Optional[int] = None,
     behavior_version: int = 25,
     pseudo_enc_frontend_concat: bool = False,
+    pseudo_enc_channel_concat: bool = False,
     pseudo_enc_lerp: bool = False,
     glow_tts_add_silence_between_words: Optional[float] = None,
     glow_tts_add_silence_beginning: Optional[float] = None,
@@ -3635,6 +3683,7 @@ def _train_tts_encoder(
                     else {}
                 ),
                 "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
+                **({"pseudo_enc_channel_concat": True} if pseudo_enc_channel_concat else {}),
                 **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
                 **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
                 **(
@@ -3793,6 +3842,7 @@ def _train_tts_encoder(
                         else {}
                     ),
                     "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
+                    **({"pseudo_enc_channel_concat": True} if pseudo_enc_channel_concat else {}),
                 }
                 if pseudo_speech_enc
                 else {}
@@ -4334,6 +4384,48 @@ def _get_loq_mfa_phone_tables(*, per_source: int = 2000, shards_per_source: Opti
     return mean_table, dur_table
 
 
+class _ZeroChannelsFeatureExtraction(rf.Module):
+    """Log-mel plus zero-filled extra channels (textogram-style channel concat).
+    Real audio is zero in the extra channels; the pseudo features fill them and are zero in the log-mels.
+    The feature batch norm lives here, on real audio only:
+    on the merged batch the text rows' zero log-mels would enter the statistics."""
+
+    def __init__(self, base: rf.Module, *, extra_dim: Dim, batch_norm: Optional[rf.Module] = None):
+        super().__init__()
+        self.base = base
+        self.base_dim: Dim = base.out_dim
+        self.extra_dim = extra_dim
+        self.batch_norm = batch_norm
+        self.out_dim = self.base_dim + extra_dim
+
+    def __call__(self, source: Tensor, *, in_spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+        feats, spatial_dim = self.base(source, in_spatial_dim=in_spatial_dim)
+        if self.batch_norm is not None:
+            feats = self.batch_norm(feats)
+        zeros = rf.zeros([self.extra_dim], dtype=feats.dtype, device=feats.device)
+        out, _ = rf.concat((feats, self.base_dim), (zeros, self.extra_dim), allow_broadcast=True, out_dim=self.out_dim)
+        out.feature_dim = self.out_dim
+        return out, spatial_dim
+
+
+def _widen_model_input_with_zero_channels(model: Model, *, extra_dim: Dim):
+    """Textogram-style channel concat (Thomas et al. 2022): the encoder input gets one channel per pseudo unit.
+    The front-end (conv subsampling) is rebuilt for the wider input;
+    the feature BN moves into the feature extraction (real audio only)."""
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    base = model.feature_extraction
+    model.feature_extraction = _ZeroChannelsFeatureExtraction(
+        base, extra_dim=extra_dim, batch_norm=model.feature_batch_norm
+    )
+    model.feature_batch_norm = None
+    model.in_dim = model.feature_extraction.out_dim
+    enc_build_dict = config.typed_value("enc_build_dict", None)
+    assert enc_build_dict, "pseudo_enc_channel_concat: needs a model built via enc_build_dict"
+    model.encoder = rf.build_from_dict(enc_build_dict, model.in_dim)
+
+
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Standard aed.Model + frozen GlowTTS attached as model.tts (log-mel out_dim == encoder in_dim).
     With config pseudo_speech_enc, a trainable PseudoSpeechEncoder is attached as model.pseudo_enc
@@ -4354,6 +4446,11 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         else:
             assert units == "phonemes", f"unknown pseudo_enc_units {units!r}"
             vocab_dim = Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes")
+        # Textogram-style channel concat: one input channel per pseudo unit (with blank),
+        # one-hot there and zero in the log-mels for text, zero there for real audio.
+        channel_concat = config.bool("pseudo_enc_channel_concat", False)
+        if channel_concat:
+            _widen_model_input_with_zero_channels(model, extra_dim=Dim(vocab_dim.dimension + 1, name="textogram"))
         # Layer-split injection (pseudo_enc_start_layer >= 0): the pseudo features live in the encoder
         # model space at the subsampled encoder frame rate, entering the Conformer at that layer.
         start_layer = config.int("pseudo_enc_start_layer", -1)
@@ -4380,6 +4477,15 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             smooth_boundary_width=config.typed_value("pseudo_enc_smooth_boundary_width", None),
             gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
+        if channel_concat:
+            import numpy
+
+            assert start_layer < 0 and not config.typed_value("pseudo_enc_frozen_table", None)
+            n_wb = model.pseudo_enc.wb_vocab_dim.dimension
+            table = numpy.zeros((n_wb, model.in_dim.dimension), dtype="float32")
+            table[:, model.in_dim.dimension - n_wb :] = numpy.eye(n_wb, dtype="float32")
+            model.pseudo_enc.embedding.weight.initial = table
+            model.pseudo_enc.embedding.weight.trainable = False
         if config.typed_value("pseudo_enc_array_table", None) or config.typed_value("pseudo_enc_instance_table", None):
             # Both tables come from a CTC alignment over the ASR's own subwords,
             # so they are indexed by that vocab plus a silence row, and hold log-mel.
