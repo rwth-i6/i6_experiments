@@ -1137,11 +1137,9 @@ def py_aed_graphc_loquacious():
     )
 
     # Backend rows at the real model size.
-    # The measured tf / tf-jit as_is cells (2026-09-03) were wrong by construction:
-    # dynamic shapes make XLA recompile per shape signature
-    # (median 3.15 s/step against a 0.44 min = compile time, not compute),
-    # exactly the production caveat in the TF notes.
-    # The realistic TF arm is packed + tf_jit + tf_static_shapes,
+    # tf_jit without static shapes recompiles per shape signature
+    # (the 2026-09-03 cells measured compile time, not compute; see the paper notes),
+    # so the realistic TF arm is packed + tf_jit + tf_static_shapes,
     # the TF spelling of torch_cuda_graph, with the pbs budgets and bounds.
     with disable_register_output():
         _tf_exp, _, _ = loq_train(
@@ -1177,17 +1175,19 @@ def py_aed_graphc_loquacious():
         )
 
     # All backend rows in one slurm job, sequentially on one GPU:
-    # the two JAX samples differed 0.531 vs 0.369 s/step purely by node,
-    # so single-sample per-backend jobs on shared nodes cannot carry the table.
-    # (JAX stays outside: its cells need the torch-2.12 env of the JAX recipe's manager.)
+    # single-sample jobs on shared nodes vary too much by node to carry the table.
+    # JAX stays outside, its cells need the JAX recipe manager's torch-2.12 env.
+    # tf-packed-jit stays in and stays red until TF has the packed ops it needs
+    # (rel_pos_self_attention, ctc_loss, scaled_dot_product_attention).
     job = BatchedTrainStepBenchmarkJob(
         cells={
             "pt-padded-eager": dict(returnn_config=base_v2_exp.get_training_job().returnn_config, mode="padded_eager"),
             "pt-packed-graphc": dict(
                 returnn_config=base_v2_exp.get_training_job().returnn_config,
                 mode="packed_graphc",
-                # the graphc trainings set this via _loq_v3_overrides; the padded base config
-                # lacks it, and capture of a non-capturable AdamW is a hard error
+                # the graphc trainings set this via _loq_v3_overrides,
+                # the padded base config lacks it,
+                # and capture of a non-capturable AdamW is a hard error
                 extra_config_code="optimizer = dict(optimizer, capturable=True)\n",
                 config_overrides={
                     "packed_tensors": {
@@ -1212,6 +1212,34 @@ def py_aed_graphc_loquacious():
     )
     for _cell_name in ["pt-padded-eager", "pt-packed-graphc", "tf", "tf-packed-jit"]:
         tk.register_output(f"returnn/backend-bench-samenode-{_cell_name}.json", job.out_results[_cell_name])
+
+    # Where does the TF step time go?
+    # tf 3.023 s/step against pt-padded-eager 0.587,
+    # same node, same batches, same losses.
+    # sec/step is measured around session.run alone, so it is not the data loop.
+    # tf_profile_step traces a step and prints its per-op GPU time (engine_rf._print_profile).
+    # Step 0 builds and warms up, so the traced steps are later ones.
+    job = TrainStepBenchmarkJob(
+        returnn_config=_tf_exp.get_training_job().returnn_config,
+        mode="as_is",
+        num_steps=12,
+        config_overrides={"tf_profile_step": [5, 10]},
+    )
+    tk.register_output("returnn/backend-bench-tf-profile.json", job.out_results)
+
+    # The TF row again, after the two fixes the profile above led to:
+    # the depthwise op instead of tf.nn.convolution's grouped path,
+    # and cuDNN autotune off under dynamic shapes (it caches per exact shape, so every step missed).
+    # 3.02 -> 0.98 s/step on the GPU test node, against 0.755 for pt-padded-eager there,
+    # which is why the padded torch arm runs here again: the ratio needs one node.
+    job = BatchedTrainStepBenchmarkJob(
+        cells={
+            "tf": dict(returnn_config=_tf_exp.get_training_job().returnn_config, mode="as_is"),
+            "pt-padded-eager": dict(returnn_config=base_v2_exp.get_training_job().returnn_config, mode="padded_eager"),
+        },
+    )
+    for _cell_name in ["tf", "pt-padded-eager"]:
+        tk.register_output(f"returnn/backend-bench-samenode-fixed-{_cell_name}.json", job.out_results[_cell_name])
 
     # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
     # Every earlier number used the padded-derived batch size, so the memory packing frees
@@ -1762,12 +1790,10 @@ class _BenchCellSpec:
 class BatchedTrainStepBenchmarkJob(Job):
     """
     Several :class:`TrainStepBenchmarkJob` cells in one slurm job,
-    run sequentially on the same node and the same single GPU.
-    Motivation: on the shared c23g nodes, two runs of an identical config measured
-    0.531 vs 0.369 s/step purely by node placement,
+    run sequentially on the same node and the same single GPU:
+    on the shared GPU nodes, identical configs measure up to ~10% apart by node,
     so cross-cell comparisons need the cells co-located.
-    Modeled on :class:`i6_experiments.users.zeyer.forward_batched.BatchedReturnnForwardJob`,
-    which packs work items onto a node the same way (there per GPU, here per run slot).
+    Modeled on :class:`i6_experiments.users.zeyer.forward_batched.BatchedReturnnForwardJob`.
     """
 
     __sis_hash_exclude__ = {"version": 1}
@@ -1787,7 +1813,7 @@ class BatchedTrainStepBenchmarkJob(Job):
         self.cells = cells
         self.num_steps = num_steps
         self.version = version
-        # one GPU on purpose: co-location is the point; 4h covers compile-heavy cells
+        # one GPU on purpose: co-location is the point
         self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": min(2.0 * len(cells), 11.9)}
         self.out_results = {name: self.output_path(f"outputs/{name}/results.json") for name in cells}
         self.out_logs = {name: self.output_path(f"outputs/{name}/returnn.log") for name in cells}
@@ -1831,8 +1857,9 @@ class BatchedTrainStepBenchmarkJob(Job):
             try:
                 TrainStepBenchmarkJob.run(spec)
             except Exception as exc:
-                # run the remaining cells first: one broken arm must not cost the others
-                # their slot (a rerun after the fix skips the finished ones anyway)
+                # run the remaining cells first:
+                # one broken arm must not cost the others their slot
+                # (a rerun after the fix skips the finished cells)
                 traceback.print_exc()
                 failed[name] = exc
             finally:
@@ -2630,15 +2657,12 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # with only the MultiProcDataset worker count changed (production runs 25).
     # This sizes what the pipeline contributes,
     # which is also the confound behind the small and medium rows of the per-scale table.
-    # The first attempt set `__multi_proc_dataset_opts`, a recipe-time key that the config
-    # never reads: 2, 4 and 12 workers all measured 0.387 s/step, i.e. the production 25.
-    # Rewrite num_workers inside the train dataset dict instead,
-    # the same walk as the seq_ordering rewrite
-    # (the MultiProcDataset dict sits in a functools.partial keyword).
-    # The MultiProc wrapping of the train dataset is NOT a `"class": "MultiProcDataset"` dict:
-    # `_distribute_files_get_sub_epoch_dataset` gets `multi_proc_dataset={"num_workers": 2}`
-    # as a partial keyword (so production runs 2 workers, not the FZJ module's 25).
-    # Rewrite both shapes; the guard fires if neither is found.
+    # `__multi_proc_dataset_opts` is a recipe-time key the config never reads,
+    # so rewrite num_workers inside the train dataset dict,
+    # the same walk as the seq_ordering rewrite.
+    # The train wrapping is a `multi_proc_dataset={"num_workers": 2}` partial keyword
+    # (production runs 2 workers), not a `"class": "MultiProcDataset"` dict;
+    # rewrite both shapes, the guard fires if neither is found.
     _mpd_workers_code = (
         "import functools as _functools\n"
         "_mpd_hits = []\n"
@@ -2789,8 +2813,9 @@ class TrainStepBenchmarkJob(Job):
         "version": 1,
     }
 
-    # class-level default: job instances pickled before this attribute existed
-    # (job.save predates the code) unpickle without it and fall through to this
+    # class-level default:
+    # job instances pickled before this attribute existed (job.save predates the code)
+    # unpickle without it and fall through to this
     extra_config_code = None
 
     def __init__(
