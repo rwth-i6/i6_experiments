@@ -556,7 +556,7 @@ pack_gap_max_sec: {float(hp.get("pack_gap_max_sec", 3.0))}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
 full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
-per_gpu_batch: 1
+per_gpu_batch: {hp.get("per_gpu_batch", 1)}
 grad_accum: {hp.get("grad_accum", 16)}
 lr: {_yaml_float(_lr)}
 depth_lr: {_yaml_float(hp.get("depth_lr", _lr))}
