@@ -234,7 +234,9 @@ def add_cuda_npp_to_env(venv_python_path, env: dict) -> None:
     """
     import glob as _glob
 
-    base = os.path.dirname(os.path.dirname(str(venv_python_path)))  # <venv>/bin/python -> <venv>
+    from i6_experiments.users.dorian_koch.jobs.sqsh_venv import venv_prefix
+
+    base = venv_prefix(venv_python_path)  # a packed venv's bin/ is a launcher skeleton with no lib/
     hits = _glob.glob(os.path.join(base, "lib", "python*", "site-packages", "nvidia", "npp", "lib"))
     if not hits:
         print(f"[npp] WARNING: no nvidia/npp/lib under {base} -- is nvidia-npp-cu12 installed?", flush=True)
