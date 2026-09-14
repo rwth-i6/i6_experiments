@@ -1722,8 +1722,12 @@ def py():
                 "pseudo_enc_duration_range": (5, 10),
             },
         ),
-        # Textogram (Thomas et al. 2022) cell: one-hot channels next to the log-mels (channel concat,
-        # zero-filled inactive modality), uniform durations, hard repeats; phonemes as in the other cells.
+        # Textogram (Thomas et al. 2022) cell:
+        # one-hot channels next to the log-mels (channel concat, zero-filled inactive modality),
+        # uniform durations, hard repeats; phonemes as in the other cells.
+        # frozen_table None = no acoustic table;
+        # the channel-concat path sets the embedding to a fixed one-hot ([0 | eye]) and freezes it,
+        # so the text representation never changes.
         (
             "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {
@@ -4484,9 +4488,13 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             gap_frac=config.float("pseudo_enc_gap_frac", 0.0),
         )
         if channel_concat:
+            # The text side of the textogram:
+            # row k = [zeros over the log-mels | one-hot k over the unit channels],
+            # frozen (a plain one-hot as in the paper, no learned embedding).
             import numpy
 
-            assert start_layer < 0 and not config.typed_value("pseudo_enc_frozen_table", None)
+            assert start_layer < 0, "channel concat lives in the front-end feature space"
+            assert not config.typed_value("pseudo_enc_frozen_table", None), "no acoustic table with channel concat"
             n_wb = model.pseudo_enc.wb_vocab_dim.dimension
             table = numpy.zeros((n_wb, model.in_dim.dimension), dtype="float32")
             table[:, model.in_dim.dimension - n_wb :] = numpy.eye(n_wb, dtype="float32")
