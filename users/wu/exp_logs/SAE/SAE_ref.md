@@ -155,3 +155,17 @@ Preflight audit of the anchored checkpoint, each item verified against the real 
   ranks, so it is a no-op to <= 1 ulp.
 - `clear_autocast_cache()` still sits after *all* no-grad work including both new closures, so the
   RUN-1/2 zero-gradient bug cannot recur here.
+
+## Live reward: no G2P anywhere (source-verified correction, 2026-08-17)
+
+Moved here from the index 2026-09-14; the index keeps the reward formula, this is its source trace.
+The formula was corrected 2026-08-17 and replaces the G2P form, because the live reward contains NO G2P
+anywhere, verified at source: psi re-encodes the decoded string under its own graphemic BPE
+(`psi_scorer.py:141-146`, `psi_align_jobs.py:87-104`; the "phones" branch exists but no live arm sets
+it), the hinge is `len(decoded_string)` (`train_steps/sae_grpo.py:205-212`; `reward.py:14-15` documents
+the deviation), and the old lam_4 OOV term is unwired dead code that raises if enabled. The G2P map —
+first pronunciation, stress-free — survives in probes and analyses as phi = G2P(z), NOT in the reward.
+Consequence, load-bearing for §3e.1 D6-PERIODIC/GAN+HOM and index queue 7: the orthographic channel is
+LIVE — homophone spellings are NOT reward-invariant; the scorer carries a per-state price on
+orthographic length (the minimal-state exploit's substrate) plus any spelling-specific emissions it
+learned.

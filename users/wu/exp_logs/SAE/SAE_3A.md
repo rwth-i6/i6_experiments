@@ -1,5 +1,10 @@
 # SAE §3a — psi_align, the monotonic-alignment scorer, and the loops it rewards
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. P0 — feasibility of the text side before building anything.** `PhoneStatsJob` on two beds (the
@@ -453,3 +458,11 @@ standing shaped setting (lam_lm 1.0, per-unit) was derived analytically, never r
 this sweep. Standing trap: comparing a dump's lm_prior column to the live per-unit reward
 compares different units (measured -4.90 nats/token vs -0.34 per unit frame on the same
 utterances); compare numerators or renormalize.
+
+## Retraction: the 960 h stock-donor supervision-axis endpoint never existed
+
+Moved here from the index 2026-09-14. The 960 h stock-donor supervision-axis endpoint is ABSENT: the
+theta_0 + gold-scorer arm ran only through sub-epoch 4, was stopped and deleted 2026-08-08, and never
+produced the listed 3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed
+collapse is retained above ("stopped sub-ep4, checkpoints deleted"), but any restart is a new decision
+and is not the current critical path.

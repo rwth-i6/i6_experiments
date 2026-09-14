@@ -1,5 +1,10 @@
 # SAE — scaling the 2S GRPO loop from the 10 h seed to LibriSpeech 960 h
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. Scale the validated 10 h avunits loop to 960 h of unlabeled audio, assign-only.** Ground truth

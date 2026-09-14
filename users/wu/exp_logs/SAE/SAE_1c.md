@@ -1,5 +1,10 @@
 # SAE §1c — wav2vec-U 2.0 GAN, the distribution-matching bootstrap
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. CPU scaffold (retired as a training path).** A minimal w2v-U-2.0-style pipeline — frozen features

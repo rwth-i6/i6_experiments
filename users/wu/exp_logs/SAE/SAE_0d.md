@@ -1,5 +1,10 @@
 # SAE 0d — LM-prior domain adaptation to LibriSpeech text
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 1. **Where the prior actually lives.** `grpo/anchors.py` computes the `lam_lm` term with the AV's own

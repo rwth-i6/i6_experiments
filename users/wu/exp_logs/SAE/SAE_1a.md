@@ -1,5 +1,10 @@
 # SAE §1.0 + §1a — shared Phase-1 infrastructure and the decipherment track
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. §1.0 rVAD port + validation gate.** rVADfast ported and aggregated to the 25 Hz grid;
@@ -112,3 +117,14 @@ experiment.
   attractor for rare phones (ZH/OY) at this data scale.
 - Ruling: the fallback gate is legitimately fired; requirements carried into Phase 1 are the §1.0
   silence protocol, held-out numbers only, and committing scratch code before citing its numbers.
+
+## Scope amendment of the closure (2026-08-18)
+
+Moved here from the index 2026-09-14. AMENDED IN SCOPE 2026-08-18 (planner, `archive/SAE_1g_spec_legacy.md`;
+replaces the unqualified "do not revisit", because both legs were read back to this document and neither
+covers the discrete case): the closure stands as written for CONTINUOUS generative maximum likelihood over
+features — the configuration that produced the anti-alignment — while the DISCRETE channel decoded through
+a language model on the pooled stream is reopened as §1g, since the ceiling leg bounds memoryless lookup
+decodes only and approach 4 above measured the discrete objective WELL-aligned and init-limited. The only
+real-data discrete evidence is one row — Gromov-Wasserstein init collapsing on the RAW stream — and §1g
+re-runs 1a's own anti-alignment test on the pooled stream before funding any fit.

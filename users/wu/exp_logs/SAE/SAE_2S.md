@@ -1,5 +1,10 @@
 # SAE Phase 2S — the text-bottleneck autoencoder and its token-LM reconstruction reward
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. Build the autoencoder: audio -> AV -> text tokens -> AR -> discrete units, the AV trained by GRPO
