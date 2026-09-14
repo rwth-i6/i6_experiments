@@ -2505,7 +2505,24 @@ def py():
                 "loq_text_source_mix": text_mix,
                 "text_train_epoch_split": round(240 * _loq_large_source_text_factor[text_mix]),
             },
+            # LM combinations as for the old injection run (recog-only, hash-neutral for the training).
+            with_ctc_lm_recog=True,
         )
+    # Second seed of the txtSrcExp0 injection, paired with the seed-2 control (see _seed2 there).
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-txtSrcExp0-seed2",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": round(240 * _loq_large_source_text_factor["srcExp0"]),
+            "extra_config_updates": {
+                **loq_inj_len40s_kwargs["extra_config_updates"],
+                "random_seed": 2,
+                "dataset_random_seed_offset": 2_000_000,
+            },
+        },
+    )
     # Small subset (250 h): the low-resource point, paired with base-small-nFullEp200 (50 kh, n_ep 200).
     # Text partition 340 keeps the LS text-to-audio ratio (~11.2k words per audio hour per rank,
     # ~62 h audio per rank per subepoch); ~2.4 text passes over the 200 subepochs.
@@ -3094,6 +3111,9 @@ def _train_loquacious_baselines(*, prefix: str):
     # Update-count control for the injection runs: their audio budget (0.70 x 24M) and therefore
     # their steps per subepoch (~1.45x the 24M baseline's), without the text stream.
     _bs16_8m_len40s = _packed_budget(16_800_000, 4_151, 207, dim_capacity=_dim_cap_len40s)
+    # Seed-2 repeat: random_seed (init, dropout, specaug) + dataset_random_seed_offset (data order,
+    # added to the per-rank 16127 x rank offsets, so 2_000_000 stays clear of them).
+    _seed2 = {"train.random_seed": 2, "train.dataset_random_seed_offset": 2_000_000}
 
     train_epoch_split_per_subset = {"small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"small": 250, "medium": 2_500, "large": 25_000}
@@ -3202,6 +3222,15 @@ def _train_loquacious_baselines(*, prefix: str):
             "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
             "medium",
             {**_bs16_8m_len40s, **_len40s},
+            (929, 2786, 4643),
+            162.5,
+        ),
+        # Second seed of the control (init, dropout, specaug and, via dataset_random_seed_offset, the data order),
+        # paired with the seed-2 txtSrcExp0 injection: run-to-run spread of the loq injection gain.
+        (
+            "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s-seed2",
+            "medium",
+            {**_bs16_8m_len40s, **_len40s, **_seed2},
             (929, 2786, 4643),
             162.5,
         ),
@@ -3316,10 +3345,13 @@ def _train_loquacious_baselines(*, prefix: str):
             num_shards=8,
         )
         # CTC+LM and AED+CTC+LM with the Loquacious trafo LM for the medium baselines of the injection comparison
-        # (the LM was trained on the same large transcriptions as the injection text).
+        # (the LM was trained on the same large transcriptions as the injection text),
+        # the len40s injection control and the srcExp0.5 large reference.
         if name in (
             "base-medium-nFullEp60-muon-lr2_5e3-bs24m-specaug60-stepcomp",
             "base-medium-nFullEp60-muon-lr2_5e3-bs16m-specaug60-stepcomp",
+            "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+            "base-large-srcExp0_5-nFullEp5_7-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
         ):
             from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
                 ctc_recog_recomb_labelwise_prior_auto_scale_batched,
