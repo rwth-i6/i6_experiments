@@ -228,6 +228,11 @@ def _bench_graphc_framewise():
                     "warmup_steps": 0,
                     "capture_optimizer": True,
                     "compile": True,
+                    # The whole-step graph does not fit the 80 GB card
+                    # (Inductor estimates 85.7 GB peak at these capacities);
+                    # partitioned fw/bwd with a recompute budget fits, as on the loq benchmark.
+                    "partitioned": True,
+                    "activation_memory_budget": 0.8,
                 },
                 "optimizer.capturable": True,
             },
