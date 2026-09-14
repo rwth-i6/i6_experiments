@@ -549,6 +549,7 @@ emit_epad: {str(bool(hp.get("emit_epad", False))).lower()}
 clamp_text_to_speech: {str(bool(hp.get("clamp_text_to_speech", False))).lower()}
 onset_floor: {str(bool(hp.get("onset_floor", False))).lower()}
 text_lead_frames: {int(hp.get("text_lead_frames", 0))}
+text_pad_target_share: {hp.get("text_pad_target_share", "null")}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
 full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
