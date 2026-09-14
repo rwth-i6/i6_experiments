@@ -38,7 +38,7 @@ Corruptions = [
 class MfaAlignLoquaciousSubsetJob(Job):
     """``mfa align`` a per-source sample of a LoquaciousSet split, with MFA's per-utterance diagnostics."""
 
-    __sis_hash_exclude__ = {"keep_audio": False}
+    __sis_hash_exclude__ = {"keep_audio": False, "shards_per_source": 4}
 
     def __init__(
         self,
@@ -56,6 +56,7 @@ class MfaAlignLoquaciousSubsetJob(Job):
         beam: int = 10,
         retry_beam: int = 400,
         keep_audio: bool = False,
+        shards_per_source: Optional[int] = 4,
     ):
         """
         :param hf_data_dir: the split dir, with data-*-of-*.arrow shards (audio column = ogg bytes)
@@ -72,6 +73,8 @@ class MfaAlignLoquaciousSubsetJob(Job):
         :param retry_beam: wider beam for the utterances that failed the first pass
         :param keep_audio: also output the aligned wav files (as fed to MFA, i.e. after the corruption),
             for :class:`MfaAlignmentsToHfDatasetJob`
+        :param shards_per_source: random shards to sample from per source, None = all
+            (a shard is a contiguous block of the HF dataset, so few shards mean few speakers)
         """
         super().__init__()
         assert corruption in Corruptions, corruption
@@ -88,6 +91,7 @@ class MfaAlignLoquaciousSubsetJob(Job):
         self.beam = beam
         self.retry_beam = retry_beam
         self.keep_audio = keep_audio
+        self.shards_per_source = shards_per_source
 
         self.out_analysis = self.output_path("alignment_analysis.csv")  # MFA's per-utterance diagnostics
         self.out_unaligned = self.output_path("unaligned.txt")  # utterances MFA gave up on
@@ -113,8 +117,9 @@ class MfaAlignLoquaciousSubsetJob(Job):
             by_source.setdefault(loquacious_source_from_id(first_id), []).append(fn)
         samples = []
         for source, files in sorted(by_source.items()):
-            # a few random shards per source, the utterances random within them
-            shards = [files[i] for i in rnd.choice(len(files), size=min(4, len(files)), replace=False)]
+            # random shards per source, the utterances random within them
+            n_shards = len(files) if self.shards_per_source is None else min(self.shards_per_source, len(files))
+            shards = [files[i] for i in rnd.choice(len(files), size=n_shards, replace=False)]
             rows = []
             for fn in shards:
                 with pa.memory_map(fn) as src:
@@ -419,7 +424,8 @@ class MfaAlignmentsToHfDatasetJob(Job):
                 "words": [{"word": Value("string"), "start": Value("float64"), "end": Value("float64")}],
             }
         )
-        ds = Dataset.from_generator(_gen, features=features)
+        # the HF cache in $HOME is deliberately broken here (quota); keep it in the job dir
+        ds = Dataset.from_generator(_gen, features=features, cache_dir=os.path.join(os.getcwd(), "hf_cache"))
         DatasetDict({"train": ds}).save_to_disk(self.out_dataset.get_path())
         per_source = {}
         for uid in kept:

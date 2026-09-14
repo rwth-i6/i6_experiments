@@ -2501,6 +2501,47 @@ def py():
     tk.register_output("datasets/Loquacious/glowtts_lexicon_g2p.xml.gz", _get_loq_glowtts_lexicon())
 
     _loq_mfa_probe(prefix=prefix + "/loq")
+    loq_mean_table, loq_dur_table = _get_loq_mfa_phone_tables()
+    # 10x more audio (~260 h, all shards per source) as the check whether 26 h suffice for the tables
+    _get_loq_mfa_phone_tables(per_source=20_000, shards_per_source=None)
+    # The len40s injection run with the loq phone tables instead of the LS ones
+    # (LS tables: clean read speech; loq medium: the injection's own acoustic conditions).
+    loq_inj_loqtables_kwargs = {
+        **loq_inj_len40s_kwargs,
+        "pseudo_enc_frozen_table": loq_mean_table.out_mean_table,
+        "pseudo_enc_duration_table": loq_dur_table.out_duration_table,
+    }
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-loqtables",
+        **loq_inj_loqtables_kwargs,
+    )
+    # The uniform text mixture (txtSrcExp0) on the other injection arms (AZ, 2026-09-14):
+    # launched before the txtSrcExp results (deadline), to be cancelled if txtSrcExp0 turns out bad.
+    # The medium and small audio streams are balanced per source already, so only the text changes;
+    # the text partition scales with the corpus words as for the txtSrcExp runs.
+    _txt0 = _loq_large_source_text_factor["srcExp0"]
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-loqtables-txtSrcExp0",
+        **{**loq_inj_loqtables_kwargs, "loq_text_source_mix": "srcExp0", "text_train_epoch_split": round(240 * _txt0)},
+    )
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp"
+        "-len40s-txtP68-txtSrcExp0",
+        **{**loq_inj_len40s_kwargs, "loq_text_source_mix": "srcExp0", "text_train_epoch_split": round(68 * _txt0)},
+    )
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep200-bs24m-specaug60-stepcomp"
+        "-len40s-small-txtP340-txtSrcExp0",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_subset": "small",
+            "nep": 200,
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": round(340 * _txt0),
+        },
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -2996,6 +3037,7 @@ def _train_loquacious_baselines(*, prefix: str):
     # Batch-size ladder at a fixed wall-time budget (large only): text budget and seq bound scale
     # with the audio budget as above; specaug steps scale with the steps per subepoch
     # (0.130 x 24M / batch); the eval budget stays the 16m half.
+    _bs16m_len40s = _packed_budget(16_192_320, 4_000, 200, dim_capacity=_dim_cap_len40s)
     _bs12m_len40s = _packed_budget(12_000_000, 2_965, 148, dim_capacity=_dim_cap_len40s)
     _bs6m_len40s = _packed_budget(6_000_000, 1_482, 74, dim_capacity=_dim_cap_len40s)
     # Update-count control for the injection runs: their audio budget (0.70 x 24M) and therefore
@@ -3080,6 +3122,15 @@ def _train_loquacious_baselines(*, prefix: str):
         # the 4-GPU large runs are update-starved (24M: 70k updates, 7.53 dev vs 6.13 single-GPU RZ),
         # so smaller batches trade throughput for updates.
         # n_ep from the measured steady pace (min per subepoch incl. eval): 24M 7.9, 12M 10.3, 6M 15.5.
+        # 16M rung: the epoch-matched 16m-vs-24M pairs gave 16m 15-22% more wall time;
+        # at the 24M run's 19.3 h the measured 16m pace (8.7 min per subepoch) gives 133 subepochs.
+        (
+            "base-large-nFullEp5_3-muon-lr2_5e3-bs16m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs16m_len40s, **_len40s},
+            (992, 2978, 4962),
+            133,
+        ),
         (
             "base-large-nFullEp5-muon-lr2_5e3-bs12m-specaug60-stepcomp-len40s",
             "large",
@@ -3127,6 +3178,14 @@ def _train_loquacious_baselines(*, prefix: str):
             "small",
             {**_bs24m_len40s, **_len40s},
             (650, 1950, 3250),
+            50,
+        ),
+        # Update-count control for the small injection run (as bs16_8m for medium).
+        (
+            "base-small-nFullEp200-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+            "small",
+            {**_bs16_8m_len40s, **_len40s},
+            (929, 2786, 4643),
             50,
         ),
     ]:
@@ -4181,6 +4240,25 @@ def _loq_mfa_probe(*, prefix: str):
         tk.register_output(f"{prefix}/mfa-probe/{corruption}/summary.json", job.out_summary)
         tk.register_output(f"{prefix}/mfa-probe/{corruption}/alignment_analysis.csv", job.out_analysis)
 
+
+@functools.cache
+def _get_loq_mfa_phone_tables(*, per_source: int = 2000, shards_per_source: Optional[int] = 4):
+    """
+    Loquacious phone tables for the pseudo-speech encoder (mean log-mel and durations),
+    the loq counterpart of the LS tables from the HF LS MFA alignments:
+    MFA (native aarch64 build) on ``per_source`` medium utterances per source (2000 = ~26 h),
+    filtered by the probe's rule (see :func:`_loq_mfa_probe`).
+
+    :param per_source: utterances per source; the default names the outputs without a suffix
+    :param shards_per_source: see :class:`MfaAlignLoquaciousSubsetJob`
+    :return: (mean table job, duration table job)
+    """
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_forced_align import MfaDownloadModelJob
+    from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_hf_ogg
+    from i6_experiments.users.zeyer.datasets.loquacious_mfa import MfaAlignLoquaciousSubsetJob
+
+    medium_train = get_loquacious_hf_ogg("medium").join_right("train")
+    suffix = "" if per_source == 2000 else f"_{per_source}perSource"
     # Native aarch64 MFA (no emulation, ~20x faster; AZ: keep the emulated track as the fallback).
     # Smoke test: the alignment job on 2 utterances per source.
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_native import (
@@ -4203,8 +4281,9 @@ def _loq_mfa_probe(*, prefix: str):
         model_root=native_models.out_model_root,
         num_jobs=2,
     )
-    smoke.add_alias("tools/mfa_native_smoke_test")
-    tk.register_output("tools/mfa_native_smoke_test/summary.json", smoke.out_summary)
+    if per_source == 2000:
+        smoke.add_alias("tools/mfa_native_smoke_test")
+        tk.register_output("tools/mfa_native_smoke_test/summary.json", smoke.out_summary)
 
     # The alignment pass for the loq phone tables
     # (mean log-mel and durations, like the LS tables from the HF LS alignments):
@@ -4221,36 +4300,38 @@ def _loq_mfa_probe(*, prefix: str):
 
     align = MfaAlignLoquaciousSubsetJob(
         hf_data_dir=medium_train,
-        per_source=2000,
+        per_source=per_source,
         corruption="none",
         mfa_exe=native_mfa,
         model_root=native_models.out_model_root,
         num_jobs=30,
         keep_audio=True,
+        shards_per_source=shards_per_source,
     )
-    align.add_alias(f"{prefix}/mfa-align-medium-2k-per-source")
-    tk.register_output(f"{prefix}/mfa-align-medium-2k-per-source/summary.json", align.out_summary)
+    align.add_alias(f"datasets/Loquacious/mfa_align_medium{suffix}")
+    tk.register_output(f"datasets/Loquacious/mfa_align_medium{suffix}_summary.json", align.out_summary)
     filtered = MfaAlignmentsToHfDatasetJob(align_job=align)
-    filtered.add_alias("datasets/Loquacious/mfa_alignments_medium_filtered")
-    tk.register_output("datasets/Loquacious/mfa_alignments_medium_filtered_stats.json", filtered.out_stats)
+    filtered.add_alias(f"datasets/Loquacious/mfa_alignments_medium_filtered{suffix}")
+    tk.register_output(f"datasets/Loquacious/mfa_alignments_medium_filtered{suffix}_stats.json", filtered.out_stats)
     mean_table = ComputeMfaPhoneMeanLogMelJob(
         dataset_dir=filtered.out_dataset,
         returnn_root=tools_paths.get_returnn_root(),
         phoneme_vocab=get_glow_tts_phoneme_vocab(),
         splits=("train",),
     )
-    mean_table.add_alias("datasets/Loquacious/mfa_phone_mean_logmel")
-    tk.register_output("datasets/Loquacious/mfa_phone_mean_logmel.npz", mean_table.out_mean_table)
-    tk.register_output("datasets/Loquacious/mfa_phone_mean_logmel_stats.json", mean_table.out_stats)
+    mean_table.add_alias(f"datasets/Loquacious/mfa_phone_mean_logmel{suffix}")
+    tk.register_output(f"datasets/Loquacious/mfa_phone_mean_logmel{suffix}.npz", mean_table.out_mean_table)
+    tk.register_output(f"datasets/Loquacious/mfa_phone_mean_logmel{suffix}_stats.json", mean_table.out_stats)
     dur_table = ComputeMfaPhoneDurationStatsJob(
         dataset_dir=filtered.out_dataset,
         returnn_root=tools_paths.get_returnn_root(),
         phoneme_vocab=get_glow_tts_phoneme_vocab(),
         splits=("train",),
     )
-    dur_table.add_alias("datasets/Loquacious/mfa_phone_durations")
-    tk.register_output("datasets/Loquacious/mfa_phone_durations.npz", dur_table.out_duration_table)
-    tk.register_output("datasets/Loquacious/mfa_phone_durations_stats.json", dur_table.out_stats)
+    dur_table.add_alias(f"datasets/Loquacious/mfa_phone_durations{suffix}")
+    tk.register_output(f"datasets/Loquacious/mfa_phone_durations{suffix}.npz", dur_table.out_duration_table)
+    tk.register_output(f"datasets/Loquacious/mfa_phone_durations{suffix}_stats.json", dur_table.out_stats)
+    return mean_table, dur_table
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
