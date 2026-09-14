@@ -152,7 +152,12 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 
 
 @contextmanager
-def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_utilization: float = 0.9):
+def vllm_server(
+    hf_model: str,
+    max_model_len: int | None = None,
+    gpu_memory_utilization: float = 0.9,
+    enforce_eager: bool = False,
+):
     # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts measure ~2.5k
     # tokens worst case over the real data, median 249) can pass a small value so the judge's KV cache
     # fits c25g's 80 GB H100 at TP=1 -- otherwise the
@@ -188,6 +193,16 @@ def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_util
         "--enable-prefix-caching",
         "true",
     ]
+    # `enforce_eager` skips torch.compile + CUDA-graph capture. MEASURED on a real LLMGrading run
+    # (n=1000, gemma-4-31B): the server took 236 s to become ready and then graded the whole set in
+    # 100 s -- so **70% of that job was boot**, and of the boot, weights were 100 s, engine
+    # init/profile/warmup 69 s, torch.compile 33 s and graph capture 10 s. Eager trades ~43 s of
+    # fixed boot for slower decoding, which is the right trade only when the generation is short
+    # relative to the boot. It is opt-in per caller for exactly that reason -- a long-generation
+    # caller (dialogue-gen) would lose. Verify with the "[vllm-timing]" lines below before
+    # switching a new caller over; do not assume.
+    if enforce_eager:
+        cmd += ["--enforce-eager"]
     if n_gpus > 1:
         print(f"vLLM: tensor-parallel over {n_gpus} visible GPUs", flush=True)
         cmd += ["--tensor-parallel-size", str(n_gpus)]
@@ -199,6 +214,11 @@ def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_util
             model_args += ["--max-model-len", str(max_model_len)]
     cmd += model_args
 
+    # Boot cost is invisible unless it is recorded: this job's wall time reads as "grading was
+    # slow" when in fact the model spent most of it loading. One line, so any future caller can see
+    # its own split without re-deriving it from vLLM's own log.
+    _t0 = time.time()
+    print(f"[vllm-timing] starting server for {hf_model} (enforce_eager={enforce_eager})", flush=True)
     with managed_subprocess_server(
         cmd,
         port=port,
@@ -210,7 +230,19 @@ def vllm_server(hf_model: str, max_model_len: int | None = None, gpu_memory_util
         # a genuinely dead server is still caught immediately by the proc.poll() check.
         max_wait=30 * 60,
     ):
-        yield f"http://localhost:{port}/v1"
+        _boot = time.time() - _t0
+        print(f"[vllm-timing] server ready after {_boot:.1f}s", flush=True)
+        try:
+            yield f"http://localhost:{port}/v1"
+        finally:
+            _total = time.time() - _t0
+            _work = _total - _boot
+            _pct = 100.0 * _boot / _total if _total > 0 else 0.0
+            print(
+                f"[vllm-timing] boot {_boot:.1f}s + work {_work:.1f}s = {_total:.1f}s "
+                f"({_pct:.0f}% of this job was vLLM startup)",
+                flush=True,
+            )
 
 
 # ---------------------------------------------------------------------------
