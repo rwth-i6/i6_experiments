@@ -340,6 +340,21 @@ substitutions for deletions, but 40.5 % WER at greedy PER 0.166 is still far fro
 (`reports/extract_seed_init_sil_2026-09-15.md`), which a better recognizer cannot produce by pruning alone; a
 debugger is on it (`reports/debug_seed_init_wer_2026-09-15.md`). No §4a WER is quotable until it returns.
 
+DECODE CHAIN BUG FOUND (2026-09-15, `reports/debug_seed_init_wer_2026-09-15.md`; OVERTURNS the beam-pruning reading
+above): the 10 h seed init (greedy PER 0.058) decodes to in-job WER 0.985 under the same chain, and the debugger
+showed that `KenlmPosteriorDecodeJob`'s flashlight worker returns word labels inconsistent with the token path it
+scored: with lm_weight 0 / word_score 0 the 1-best score equals the free frame-argmax acoustic score of the token
+path L EH K CH ER Z (LECTURES) while the returned words are "LECTURER ZZZ", whose spellings score -39.4 on the same
+dump; the wrong words are neighbouring lexicon entries (LECTURES -> LECTURER, DEAR -> DEARIE). Ruled out: tag
+alignment, column order and frame rate (forward configs differ only in the checkpoint), beam pruning (bt 50 / 200 /
+1000 byte-identical; at 200 the 1-best score DROPS, impossible for a sound max-search), a -inf sentinel, and the
+temperature code (identity at T = 1). Sharpness only sets how far the LM repairs the mislabelling (seed median
+top1-top2 gap 46.9 nats -> 98.5 %; init (i) 7.6 nats -> 51.7 %). Fix layer: the worker's lexicon / word-dict /
+trie wiring (`eval_jobs.py:541-615`, `_scatter_map` :723). Consequences: EVERY §4a WER so far (init (i) 51.7 /
+58.3, the temperature sweep table, the S2 GAN-init decodes) is VOID; the decode jobs must re-hash after the fix and
+the temperature sweep is re-run under the pre-registered rule (the beam-pruning mechanism may vanish with the
+bug); PER reads are unaffected (GreedyPerJob does not use the worker).
+
 Q-target diagnostic (2026-09-15, `analysis/emc_target_diag.py`, result `analysis/out/emc_target_diag.txt`, report
 `reports/exec_target_diag_2026-09-15.md`; 300 dev-clean utts = first 300 of the HDF order, 109,284 frames, 5 speakers;
 units from the frozen enc50 store, L15 from the feature dump, gathered by tag; SLURM 1804704, 3 min on one GH200).
