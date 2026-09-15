@@ -22,8 +22,10 @@ Engine properties:
   ``_shard_index`` (partition_epoch=1 -> disjoint partitions whose union is all seqs exactly once;
   see :func:`Dataset._apply_partition_epoch_and_sharding`) -- see :class:`_ShardedDataset`,
 - runs ``num_gpus`` independent worker processes (no NCCL: forward is per-seq independent) that
-  round-robin over the work items (rank r handles items r, r+G, r+2G, ...), each writing its
-  item's declared output file(s),
+  pull from a shared work queue (each claims the next unclaimed item via an ``O_EXCL`` marker),
+  each writing its item's declared output file(s); items carrying a ``cost`` estimate are queued
+  longest-first, which together with the pull queue gives an LPT schedule -- items differ in cost
+  by >10x (an Arrow shard's audio hours), so a static round-robin left GPUs idle for hours,
 - is resumable: an item whose output file(s) already exist is skipped, so a walltime kill just
   continues where it left off (the os.replace of each final file is atomic, so existence == done),
 - proactively stops before the wall (mirrors :meth:`returnn...Engine._maybe_stop_for_resubmission`):
@@ -277,14 +279,18 @@ class BatchedReturnnForwardDynamicJob(Job):
 
     The cell enumeration separates cheap listing from expensive config building, so
     ``completed_fraction`` / resumability never build configs. ``enumerate_cells()`` returns an
-    ordered ``list[(key, make_config, outputs)]`` where
+    ordered ``list[(key, make_config, outputs)]`` -- optionally ``(key, make_config, outputs, cost)``
+    -- where
 
     - ``key`` is a path component (no ``/``) naming the cell,
     - ``make_config`` is a zero-arg callable returning the cell's forward-ready ``ReturnnConfig``
       (already through :meth:`ReturnnForwardJobV2.create_returnn_config`); invoked only for cells
       whose output(s) are not yet present,
     - ``outputs`` maps each cwd filename the config writes to its destination path *relative to* this
-      job's ``out/`` directory.
+      job's ``out/`` directory,
+    - ``cost`` (optional) estimates the cell's run time, bigger = longer, in any unit (e.g. its Arrow
+      shard's byte size); cells are queued longest-first by it, see :func:`_write_manifest`. Worth
+      supplying whenever cells differ a lot in size -- it is what keeps all GPUs busy to the end.
 
     ``enumerate_cells`` itself must be cheap + deterministic + picklable + hashable (e.g. a
     ``functools.partial`` of a module-level function); it is what the job hashes on (plus
@@ -356,15 +362,14 @@ class BatchedReturnnForwardDynamicJob(Job):
 
     def completed_count(self) -> int:
         """:return: number of cells whose output file(s) are all already written."""
-        return sum(1 for (_key, _make_config, outputs) in self.enumerate_cells() if self._cell_done(outputs))
+        return sum(1 for cell in self.enumerate_cells() if self._cell_done(cell[2]))
 
     def completed_fraction(self) -> float:
         """:return: fraction of cells done (for sis progress/ETA). Mirrors ReturnnTrainingJob."""
         cells = self.enumerate_cells()
         if not cells:
             return 0.0
-        done = sum(1 for (_key, _make_config, outputs) in cells if self._cell_done(outputs))
-        return done / len(cells)
+        return sum(1 for cell in cells if self._cell_done(cell[2])) / len(cells)
 
     def create_files(self):
         """Write just the worker driver; the per-cell configs + manifest are built in run() (dynamic)."""
@@ -383,7 +388,8 @@ class BatchedReturnnForwardDynamicJob(Job):
         assert cells, "enumerate_cells() returned no cells"
 
         items = []
-        for key, make_config, outputs in cells:
+        for cell in cells:
+            key, make_config, outputs = cell[0], cell[1], cell[2]
             dests = {fn: self._cell_dest(rel) for fn, rel in outputs.items()}
             if all(os.path.exists(dest) for dest in dests.values()):
                 continue  # resumable: this cell already done
@@ -394,7 +400,15 @@ class BatchedReturnnForwardDynamicJob(Job):
             os.makedirs(item_dir, exist_ok=True)
             cfg_path = os.path.join(item_dir, "returnn.config")
             cfg.write(cfg_path)
-            items.append({"key": key, "config": os.path.abspath(cfg_path), "outputs": dests})
+            # cost (optional 4th element) -> queue order, see _write_manifest
+            items.append(
+                {
+                    "key": key,
+                    "config": os.path.abspath(cfg_path),
+                    "outputs": dests,
+                    "cost": cell[3] if len(cell) > 3 else None,
+                }
+            )
 
         if items:
             _write_manifest(
@@ -501,8 +515,20 @@ def _enumerate_arrow_shard_cells(
             config=config,
             forward_post_config=forward_post_config,
         )
-        cells.append((key, make_config, {"out.hdf": key + ".hdf"}))
+        # cost = shard byte size: within one dataset the Arrow files differ by >10x (RETURNN sorts
+        # by seq length before sharding), and forward time is ~linear in a shard's audio bytes.
+        cells.append((key, make_config, {"out.hdf": key + ".hdf"}, _file_size_or_none(arrow_file)))
     return cells
+
+
+def _file_size_or_none(path) -> Optional[float]:
+    """:return: ``path``'s size in bytes as a queue cost, or None if it cannot be stat'ed"""
+    import os
+
+    try:
+        return float(os.path.getsize(os.fspath(path)))
+    except OSError:
+        return None
 
 
 def _make_shard_forward_config(
@@ -569,10 +595,14 @@ def _worker_main():
     """
     Entry point of the per-GPU worker (the generated ``worker.py`` imports and calls this).
 
-    One worker process per GPU: round-robin over the manifest's work items
-    (rank r handles items r, r+world, r+2*world, ...), run each item's config with rnn.py,
-    skip items whose output file(s) already exist (resumable), and barrier-stop together with the
-    other workers when low on walltime. Args ``--rank/--world/--manifest/--safety`` come from argv.
+    One worker process per GPU, all pulling from one shared work queue: walk the manifest's items in
+    order (longest-first, see :func:`_write_manifest`), skip the ones whose output file(s) already
+    exist (resumable) or that a peer has claimed, claim the next one atomically
+    (:func:`_worker_claim`), run its config with rnn.py, repeat until the queue is drained; and
+    barrier-stop together with the other workers when low on walltime. Pulling instead of striding
+    means a worker that draws a cheap item comes back for more, so no GPU idles while a peer still
+    has hours of work queued. Args ``--rank/--world/--manifest/--claims/--safety`` come from argv;
+    ``--claims`` is a per-run directory (stale claims of an earlier run would deadlock the queue).
     """
     import argparse
     import json
@@ -584,6 +614,7 @@ def _worker_main():
     ap.add_argument("--rank", type=int, required=True)
     ap.add_argument("--world", type=int, required=True)
     ap.add_argument("--manifest", required=True)
+    ap.add_argument("--claims", required=True)
     ap.add_argument("--safety", type=float, default=1.2)
     args = ap.parse_args()
 
@@ -601,14 +632,17 @@ def _worker_main():
     if args.rank == 0:
         _log_node_usage("worker start")
     ema = None
-    for si in range(args.rank, len(items), args.world):
-        item = items[si]
+    for si, item in enumerate(items):
         if _worker_item_done(item):  # atomic os.replace -> existence == complete
             continue
         if ema is not None:  # walltime-aware stop, mirrors returnn _maybe_stop_for_resubmission
             left = slurm_time_left_sec()
             if left is not None and left < ema * args.safety:
+                # before claiming: a claim held by a stopped worker would hide that item from the
+                # peers that do still have walltime left
                 _worker_barrier_and_exit(args.rank, args.world, job_dir, ema)
+        if not _worker_claim(args.claims, si):  # a peer got there first
+            continue
         if args.rank == 0:  # node-global /tmp+RAM snapshot, to diagnose the RAM-tmpfs ENOSPC
             _log_node_usage("before %s (item %i/%i)" % (item["key"], si, len(items)))
         t0 = time.time()
@@ -616,7 +650,7 @@ def _worker_main():
         dt = time.time() - t0
         ema = dt if ema is None else 0.5 * ema + 0.5 * dt
 
-    # Finished my stride: register so a stopping peer's barrier can complete, then exit clean.
+    # Queue drained: register so a stopping peer's barrier can complete, then exit clean.
     open(os.path.join(job_dir, "stopping.rank%i" % args.rank), "w").close()
     sys.exit(0)
 
@@ -626,6 +660,27 @@ def _worker_item_done(item):
     import os
 
     return all(os.path.exists(dest) for dest in item["outputs"].values())
+
+
+def _worker_claim(claims_dir, item_index):
+    """
+    Try to take item ``item_index`` out of the shared queue, exactly once across all workers.
+
+    ``O_CREAT|O_EXCL`` on a shared filesystem is the atomic test-and-set: the one worker whose create
+    succeeds owns the item, everyone else sees EEXIST and moves on. ``claims_dir`` is per run (see
+    :func:`_spawn_and_wait_workers`), so a resubmitted run starts from an empty queue state and
+    re-runs whatever the killed run had claimed but not finished.
+
+    :return: whether this worker now owns the item
+    """
+    import os
+
+    try:
+        fd = os.open(os.path.join(claims_dir, "%i" % item_index), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return False
+    os.close(fd)
+    return True
 
 
 def _worker_run_item(python_exe, rnn_py, item):
@@ -693,9 +748,19 @@ def _log_node_usage(tag):
 
 
 def _write_manifest(*, items: List[Dict[str, Any]], returnn_root_path: str, returnn_python_exe_path: str):
-    """Write the worker ``manifest.json`` (the work items + the returnn/python paths used to run them)."""
+    """
+    Write the worker ``manifest.json`` (the work items + the returnn/python paths used to run them).
+
+    The item order is the shared queue's order, so items carrying a ``"cost"`` estimate (bigger =
+    longer, arbitrary unit) are written longest-first: with the pull queue in :func:`_worker_main`
+    that is LPT scheduling, whose makespan is within 4/3 of optimal. Items without a ``"cost"`` keep
+    the caller's order (sorting is stable, and a cost-less item set is left alone entirely).
+    """
     import os
     import json
+
+    if any(item.get("cost") is not None for item in items):
+        items = sorted(items, key=lambda item: -(item.get("cost") or 0.0))
 
     manifest = {
         "rnn_py": os.path.join(returnn_root_path, "rnn.py"),
@@ -732,7 +797,7 @@ def _spawn_and_wait_workers(
     *, num_gpus: int, returnn_python_exe_path: str, stop_safety_factor: float, stop_exit_code: int
 ) -> List[int]:
     """
-    Clear stale barrier markers, spawn one worker per GPU (round-robin items), wait; return exit codes.
+    Clear stale barrier/claim state, spawn one worker per GPU (shared queue), wait; return exit codes.
 
     Fail-fast: if any worker exits with an unexpected code (not 0, not the clean low-walltime
     ``stop_exit_code``), terminate every still-running worker -- whole process group, so its in-flight
@@ -742,6 +807,7 @@ def _spawn_and_wait_workers(
     """
     import os
     import glob
+    import shutil
     import signal
     import subprocess
     import time
@@ -749,6 +815,12 @@ def _spawn_and_wait_workers(
     # Clear stale barrier markers from a previous (interrupted) run.
     for f in glob.glob("stopping.rank*"):
         os.remove(f)
+    # Fresh work-queue claims for this run: an earlier run's claims would hide its unfinished items
+    # from every worker and drain the queue instantly. No worker of an earlier run is alive here --
+    # _spawn_and_wait_workers only returns once all of them are reaped.
+    claims_dir = os.path.abspath("claims")
+    shutil.rmtree(claims_dir, ignore_errors=True)
+    os.makedirs(claims_dir)
 
     parent_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
     gpu_ids = parent_cvd.split(",") if parent_cvd else [str(i) for i in range(num_gpus)]
@@ -769,6 +841,8 @@ def _spawn_and_wait_workers(
             str(world),
             "--manifest",
             manifest,
+            "--claims",
+            claims_dir,
             "--safety",
             str(stop_safety_factor),
         ]
