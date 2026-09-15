@@ -329,6 +329,20 @@ Launch of S2b / S3 is held until (a) returns: if a bug, every
 run so far is void and reruns at the fixed hashes; if the target is genuinely anti-aligned, S2b would only
 repeat the S1b picture and S3's G4a.3 becomes the phase's only remaining question.
 
+Q-target diagnostic (2026-09-15, `analysis/emc_target_diag.py`, result `analysis/out/emc_target_diag.txt`, report
+`reports/exec_target_diag_2026-09-15.md`; 300 dev-clean utts = first 300 of the HDF order, 109,284 frames, 5 speakers;
+units from the frozen enc50 store, L15 from the feature dump, gathered by tag; SLURM 1804704, 3 min on one GH200).
+Layout check on the full 2703-utt split reproduces the banked greedy PERs exactly (oracle (iii) 0.058003, init (i)
+0.166223). Per combo, recognizer PER / q-target (post_q argmax) PER / frame agreement / top confusion
+recognizer -> target: oracle theta + S1b ep1 phi: 0.0553 / 0.0576 / 98.69 % / blank->SIL 0.42 %; oracle theta +
+S2 warm-up phi: 0.0553 / 0.0633 / 98.83 % / blank->T 0.19 %; init (i) theta + warm-up phi: 0.1667 / 0.1621 /
+96.93 % / AH->blank 0.35 %. Finite differences: moving theta toward the target lowers L_tau in 24/24 probes,
+measured/predicted 0.989-1.006. Reading: at the start of training the target is the recognizer (no symbol shift, no
+SIL/blank swap, no sign error); the exact target does not by itself point away from the truth. The degradation
+therefore comes from the trajectory (joint drift with phi at lr 3e-3, the aggregate term, or a train-time
+discrepancy the offline script does not exercise: data pairing, padding, train-mode forward). A code review of the
+training job's data pipeline against the offline path is pending (`reports/review_train_alignment_2026-09-15.md`).
+
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
