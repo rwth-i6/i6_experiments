@@ -929,10 +929,16 @@ gives 0.0 / 0.0 BLEU against 25.1 / 24.2 with it (Lample et al. EMNLP 2018, Tabl
 8.8 / 9.2 against 27.5 / 28.1 (Lample et al. ICLR 2018, Table 4). Artetxe 2018 states the mechanism: BT without
 denoising lets the model ignore its input and learn a target-side LM. ASR<->TTS dual transformation (Ren et al.
 ICML 2019) is a threshold: 100 paired utterances -> PER 64.2, 200 -> 11.7; zero paired was not tried. Liu 2020 and
-Chen 2019 are not cold-start back translation. Implication for S3b-BT: the full design carries a denoising
-autoencoder on the unit side (the ingredient worth 0 -> 25 BLEU) and the rate constraint; back translation alone
-from the flat init is predicted to stay at the all-blank null. The probe's cold arms test exactly that prediction;
-its warm-phi arms test the pipeline.
+Chen 2019 are not cold-start back translation. Implication for S3b-BT (amended after the user's objection: the
+ingredient does not port literally, our directions share no encoder, decoder or latent space): the MT denoising
+autoencoder works through SHARED parameters that place both sides in one latent space and stop the decoder ignoring
+its input; the full design must supply that FUNCTION in our architecture, the design review decides the form.
+Native analogs: (i) the shared unit codebook plus collage synthesis (their shared-BPE init alone: 0.0 -> 10.5 BLEU),
+already in the probe; (ii) a real-versus-synthetic consistency term on theta (theta on an utterance's real features
+against theta on the collage rebuilt from its own corrupted units), candidate only, closes the synthetic-to-real gap
+and forces theta to read its input but does not by itself break the private-code symmetry; (iii) the rate term.
+Back translation alone from the flat init is predicted to stay at the all-blank null; the probe's cold arms test
+that prediction, its warm-phi arms test the pipeline.
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
