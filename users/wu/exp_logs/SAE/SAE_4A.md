@@ -591,6 +591,19 @@ knob; bigram path bit-identical; running, `reports/impl_prior_history_axis_2026-
 by (1); the full trigram becomes a knob change once D3 + D4 land. The efficiency read (step time, peak memory at the
 run shape) is part of the implementation report and precedes any launch.
 
+Held-out perplexity read (2026-09-15, `analysis/prior_order_ppl.py`, `reports/impl_prior_order_ppl_2026-09-15.md` + .full.md;
+banked text and split of `config_sae_4a_s1a_v1.py:67-78`, 1 M counted / 10 k held lines, 912,142 held phones, Witten-Bell
+as in prior.py; bigram 14.2314 and trigram 9.4689 reproduce the banked values exactly, class C = 40 equals the trigram):
+order 2 14.23 (3.831 bits/phone), order 3 9.47 (3.243), order 4 7.03 (2.815); class trigram h = (class(p_-2), p_-1)
+with classes from the training text by exchange clustering: C = 4 11.58, C = 6 11.03, C = 8 10.67, C = 10 10.43,
+C = 12 10.23, C = 16 9.94; the hand manner/place partition with 8 classes 11.62 (worse than the text-derived C = 4).
+Share of the bigram-to-trigram gain kept: C = 8 70.7 %, C = 16 88 %; the trigram itself holds only 57.8 % of the
+bigram-to-4-gram headroom (1.017 bits/phone), not the ~80 % the estimate assumed from the legacy 4-gram figure.
+Top-1 prediction flips vs the bigram: trigram 49 %, C = 8 46 % of held phones. Reading: the class trigram at C = 8
+(|h| = 9 x 41 = 369 with the BOS class, step ~4x by the estimate's cost model) is the first affordable operating
+point on today's code path; the full trigram is worth the D3 + D4 work (1.5x) and is the intended steady state;
+a 4-gram cannot sit in the DP (|h| = 41^3) and stays in the decoder.
+
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
 - CORRECTION of a design citation: ESPUM (Yeh et al. ICLR 2019) trains against N = 5 (top-10k 5-grams, App. B),
