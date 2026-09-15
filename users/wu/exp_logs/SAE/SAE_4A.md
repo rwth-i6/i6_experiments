@@ -30,11 +30,11 @@ DecodeStats phone rate. (2) Bank S1b PER per sub-epoch (2 sub-epochs) against §
 (paired dev-other WER delta vs init (i), usability vs 17.96 / 21.87) on the unsupervised-selected checkpoint;
 audit before acting on it. (4) Efficiency: fuse the lattice frame body (torch.compile / Triton) before any run
 beyond tc100.
-Live pids / watcher: ONE manager pid 1724233 on config/sae_4a_phase.py (S1b + S2 graphs, 255 jobs;
+Live pids / watcher: ONE manager pid 2643163 on config/sae_4a_phase.py (S1b + S2 graphs, 259 jobs incl. the oracle-init PER evals GreedyPerJob.3TcOOObr1IrW / RMkjOs4czduh;
 log/sae_4a_phase.manager.log; log_level 30, judge from job dirs); watcher `bash ~/.claude/skills/sis/sis_watch.sh
-1724233 config/sae_4a_phase.py 300` from the setup dir. S2 job dirs at the current hashes: warm-up
+2643163 config/sae_4a_phase.py 300` from the setup dir. Arms A/B trainings FINISHED (SLURM 1802597/1802596); their evals, decodes and selections run. S2 job dirs at the current hashes: warm-up
 ReturnnTrainingJob.q6BUlBXVfA1t, arm A 3EVuGpAEAn8m, arm B HUSP5F9GBUVr, selections
-UnsupervisedCheckpointSelectionJob.B8xyZzBQnZvz / THl07BoM4t2Q. Earlier managers 1167500, 1453067, 1697904 stopped.
+UnsupervisedCheckpointSelectionJob.B8xyZzBQnZvz / THl07BoM4t2Q. Earlier managers 1167500, 1453067, 1697904, 1724233 stopped.
 
 ## Objective
 
