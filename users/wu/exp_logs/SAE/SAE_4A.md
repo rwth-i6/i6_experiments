@@ -565,6 +565,31 @@ in numbers, and it says the arms started from an essentially UNFITTED reverse mo
 categorical duration model; phi needs an expected-count (EM) fit or an initialisation from unit-run statistics
 before theta is unfrozen. Full run (`reports/exec_reverse_duration_check_2026-09-15.md`): the duration model DOES move during the arms, slowly and toward the gold — model E[d] 13.4 (warm-up) -> 12.5 (arm A ep1) -> 8.5 (arm A ep6); 11.1 (arm B ep3); 7.6 (arm D ep8, the held-anchor arm, closest to the gold 4.7), P(d <= 3) 0.10 -> 0.25 (A ep6) / 0.34 (D ep8); no explicit per-segment constant exists in the lattice, only log p(d | k) and beta log P_psi enter the emit weight. So phi learns in the right direction at lr 3e-3 but needs thousands of steps, and theta, unfrozen at step 0, drifts long before phi is fitted; arm D shows phi fitting while theta is held. The read of the drift is therefore
 from the full run.
+Emission tables (same script, item 6; `reports/impl_reverse_duration_check_2026-09-15.md`): unlike the durations, the
+emission rows p(z | k) ARE fitted after the warm-up — per-type entropy 3.25 nats vs log K 6.22, KL from uniform 2.96,
+p_max 0.156, 42 of 500 units above 1/K per row on average, pairwise symmetric KL between types mean 10.3 (min 0.69 CH-JH,
+max 22.2 AW-S); eta shifts the entropy by at most 0.09. phi did move in the warm-up (dur_logits max deviation from the
+zero init 0.24, arm A ep1 a further 0.22, all in dur_logits) but the only fitter is the Adam per-frame likelihood step
+(`reverse.py:519`); no count-based or EM fit exists in the code, so the categorical duration model stays near uniform
+for the ~60 warm-up steps while the 20k emission parameters, which see every frame, do fit. Consequence for the next
+stage: the duration model needs a count-based initialisation (hard-EM from the seed recognizer's argmax runs, label-
+free) rather than more warm-up steps.
+
+### Prior order: cost estimate (2026-09-15, `reports/estimate_prior_order_2026-09-15.md` + .full.md; profile at the run shape B 125 / T_pad 704)
+
+Measured base step 1.648 s, 6.43 GiB peak; the DP is 89 % of the step, 37 % of it history-dependent, ~15 % of HBM peak.
+Held-out perplexity of the banked prior text: bigram 14.23, trigram 9.47, 4-gram ~8.5 (legacy split), so a trigram
+buys ~0.59 of the ~0.74 bits/phone on offer. The band is orthogonal to the history axis and CTC already carries the
+last symbol, so order 2 is free and order 3 multiplies the history-dependent part by 41 with no reuse. Options costed:
+naive trigram (|h| 1681) 14x step, ~70 GiB, dead; trigram with matmul h-reduction plus forward-table checkpointing
+(D3 + D4) 1.5x, ~12 GiB, ~1000 lines; bigram DP plus 4-gram importance rescoring 1.3x but degenerate weights (~30
+nats/utt); argmax-context tilt 1.1x but a self-confirming prior; class trigram h = (class(p_-2), p_-1) with C = 8
+(|h| 328) 3.3x, ~30 GiB, ~500 lines on today's code path, table by marginalising the banked trigram counts. Decision:
+(1) free CPU read of the class-trigram held-out perplexity at C = 4..16 against the trigram and 4-gram on the same
+held lines (running, `analysis/prior_order_ppl.py`); (2) build the general history axis once (`h' = f(h, k)`, |h| a
+knob; bigram path bit-identical; running, `reports/impl_prior_history_axis_2026-09-15.md`), operating point chosen
+by (1); the full trigram becomes a knob change once D3 + D4 land. The efficiency read (step time, peak memory at the
+run shape) is part of the implementation report and precedes any launch.
 
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
