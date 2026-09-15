@@ -10512,6 +10512,27 @@ class table needs a small new count job over the same banked text (not a re-run 
 estimator and MAX_BATCH_FRAMES remain bigram fits.
 worded accordingly (PER(k = 10) <= PER(k = 0), a no-drift requirement).
 
+### Read (b2): the fixed point under each remedy (2026-09-15, SLURM 1811809, `reports/exec_fixed_point_ablations_2026-09-15.md`
++ .full.md; same subset, band and seed as read (b); lattice at commit 9edd836 for the trigram line)
+
+PER by k = 0, 1, 2, 5, 10 (un-ablated: 0.1100, 0.0962, 0.1048, 0.1400, 0.1898):
+uniform prior 0.1100, 0.1052, 0.1211, 0.1720, 0.2399 (drift faster: the prior is holding the target back, not driving it);
+uniform reverse model 0.1100, 0.1007, 0.1010, 0.1641, 0.5842 (diverges: the reverse model's acoustic evidence is what ties the
+target to the audio); duration table from the seed recognizer's argmax runs (label-free, E[d] 4.0 vs 12.7 uniform) 0.1100, 0.0961,
+0.1017, 0.1308, 0.1705; duration table from the gold histogram (diagnostic, E[d] 5.3) 0.1100, 0.0966, 0.1015, 0.1310, 0.1720 —
+the count-based init is as good as gold durations; argmax durations + uniform prior 0.2096 at k = 10; full trigram prior
+0.1100, 0.0936, 0.0992, 0.1251, 0.1641 (best one-step target and slowest drift, still monotone from k = 2).
+Reading against the pre-registered launch check (PER(k = 10) <= PER(k = 0) = 0.1100): NO single remedy passes, and the two useful
+ones (trigram, fitted durations) each remove only a quarter of the drift. The drift is not a defect of one component: under
+q_{k+1} ∝ sqrt(q_k R) the stationary point is R's own posterior, so the recognizer's information decays geometrically whatever R is,
+and the fixed point can only be as good as decoding with the prior and the 500-unit categorical reverse model alone. What the
+objective does offer is the ONE-STEP product of experts: seed 0.1100 -> 0.0936 with the trigram (-0.016 PER on this subset), which is
+the gain the anchored arms realise partially (B ep1 -0.010 PER / -1.0 WER at 10 h; D held at alpha 0.25 -0.012 PER / -2.0 WER at
+1 h). Queued (`reports/impl_fixed_point_anchor_2026-09-15.md`): the anchored fixed points at alpha = 1.0 / 0.5 / 0.25 under trigram +
+fitted durations, the combined un-anchored line to k = 30, and the current objective to k = 30 (where the drift ends). Decision
+pending on those: S2d as an anchored one-step refinement (bounded gain, ~1-2 WER absolute at these operating points) vs a
+redesign of the reverse model's acoustic side (the only lever that moves the fixed point itself) vs closing the mechanism.
+
 History axis landed (2026-09-15, speech-llm commit 9edd836, `reports/impl_prior_history_axis_2026-09-15.md` + .full.md): the lattice's
 LM history is a knob (`PriorHistory`: bigram |h| = 41, class_trigram (class(p_-2), p_-1) with the BOS class separate so C = 8 gives
 |h| = 369, trigram 41 x 41); only emit arcs advance the history, blank and repeat arcs do not, SIL is an ordinary symbol (the bigram
