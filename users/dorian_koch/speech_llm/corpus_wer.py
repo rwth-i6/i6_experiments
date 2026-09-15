@@ -109,6 +109,7 @@ class SyntheticSpeechWer(Job):
         sample: int = 0,
         seed: int = 1234,
         worst_n: int = 15,
+        worst_min_ref_words: int = 5,
     ):
         """``sample``: rows to score (0 = all). Sampling is seeded, so numbers are reproducible."""
         self.tts_hf = tts_hf
@@ -116,6 +117,12 @@ class SyntheticSpeechWer(Job):
         self.sample = sample
         self.seed = seed
         self.worst_n = worst_n
+        # Ranking the "worst" list by raw WER surfaces one-word references and nothing else: a
+        # single extra word against ref_words=1 is WER 2.0, so the top of the list filled up with
+        # rows like asked "jane" / heard "jain thanks for watching" -- where the real story is a
+        # Whisper hallucination on near-silence, not a TTS failure. The distribution below still
+        # counts every row; this bound only decides which rows are worth a human reading.
+        self.worst_min_ref_words = worst_min_ref_words
         self.out_json = self.output_path("wer.json")
         self.out_report = self.output_path("report.txt")
 
@@ -203,6 +210,14 @@ class SyntheticSpeechWer(Job):
 
         rows.sort(key=lambda r: r["wer"], reverse=True)
         wers = sorted(r["wer"] for r in rows)
+        actionable = [r for r in rows if r["ref_words"] >= self.worst_min_ref_words]
+
+        # Non-Latin text in a corpus fed to an ENGLISH TTS is a different and much more actionable
+        # defect than a high WER: the synthesiser cannot say it at all, so the audio is guaranteed
+        # garbage and the row is training noise. Found on first run -- audex_selfdistill contains
+        # Cyrillic ("советская союзная республика" -> "mmm so free he he he scot he he ..."). Cheap
+        # to count, and it points at the dialogue source rather than at the TTS.
+        non_latin = [r for r in rows if any(ord(ch) > 0x24F for ch in r["ref"]) and r["ref"].strip()]
 
         def pct(p: float) -> float:
             return round(wers[min(len(wers) - 1, int(p * len(wers)))], 4)
@@ -230,7 +245,11 @@ class SyntheticSpeechWer(Job):
             "p99_row_wer": pct(0.99),
             "rows_above_0p35": sum(1 for w in wers if w >= 0.35),
             "histogram": hist,
-            "worst": rows[: self.worst_n],
+            "non_latin_reference_rows": len(non_latin),
+            "non_latin_examples": [r["id"] for r in non_latin[:10]],
+            "worst_min_ref_words": self.worst_min_ref_words,
+            "worst": actionable[: self.worst_n],
+            "worst_any_length": rows[: self.worst_n],
         }
         with open(self.out_json.get_path(), "w") as f:
             json.dump(summary, f, indent=2)
@@ -244,6 +263,8 @@ class SyntheticSpeechWer(Job):
             f"  mean row WER               : {summary['mean_row_wer']}",
             f"  median / p90 / p99         : {summary['median_row_wer']} / {summary['p90_row_wer']} / {summary['p99_row_wer']}",
             f"  rows at WER >= 0.35        : {summary['rows_above_0p35']}",
+            f"  non-Latin reference rows   : {len(non_latin)}"
+            + ("   <-- an English TTS cannot say these; the audio is garbage" if non_latin else ""),
             "",
             "  distribution:",
         ]
@@ -255,9 +276,12 @@ class SyntheticSpeechWer(Job):
             "  NOTE: a floor of disagreement is Whisper's orthography (digits vs words, symbols,",
             "  hyphenation), not TTS error. Read the TAIL, not the median.",
             "",
-            f"  worst {min(self.worst_n, len(rows))} rows (verbatim, normalised for comparison):",
+            f"  worst {min(self.worst_n, len(actionable))} rows with >= {self.worst_min_ref_words} "
+            f"reference words (verbatim, normalised for comparison).",
+            "  Short references are excluded here because WER has a tiny denominator there --",
+            "  see `worst_any_length` in wer.json for the unfiltered list.",
         ]
-        for r in rows[: self.worst_n]:
+        for r in actionable[: self.worst_n]:
             lines += [
                 f"    [{r['id']}] wer={r['wer']:.3f}  ref_words={r['ref_words']} hyp_words={r['hyp_words']}",
                 f"        asked: {r['ref'][:300]}",

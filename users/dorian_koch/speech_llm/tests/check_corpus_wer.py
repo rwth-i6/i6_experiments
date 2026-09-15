@@ -188,6 +188,7 @@ with tempfile.TemporaryDirectory() as td:
         sample=0,
         seed=1234,
         worst_n=5,
+        worst_min_ref_words=5,
         out_json=_P(tmp / "wer.json"),
         out_report=_P(tmp / "report.txt"),
         _text_only=SyntheticSpeechWer._text_only,
