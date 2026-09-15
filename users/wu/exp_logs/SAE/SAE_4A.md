@@ -638,6 +638,26 @@ dispatched), and the full trigram is reachable only through it. Open items: the 
 class table needs a small new count job over the same banked text (not a re-run of the finished prior job); the peak-memory
 estimator and MAX_BATCH_FRAMES remain bigram fits.
 
+**Two-pass lattice (user proposal 2026-09-15; design review `reports/design_two_pass_lattice_2026-09-15.md`,
+PROCEED_WITH_CHANGES as a 4-gram vehicle only, STOP as "the S2d lattice").** Proposal: pass 1 a frame-synchronous
+exact DP with the n-gram prior and a single-clock acoustic term, pruned by arc posterior to ~100 states/frame; pass 2
+the banded semi-Markov DP exact within that lattice, its marginals the training target. Review findings: (1) pass 1
+differs from the full weight in four factors, not one — the duration table (per-segment log-ratios of order 10 nats
+over the segments inside the band, not absorbed by a beam of 5-10), d_min (superset, harmless), the band itself
+(`lattice.py:39-63`: W is the offset between the recognizer's frame clock t and the reverse model's segment clock s,
+so a single-clock pass scores z at the wrong frame), and the emission term (`reverse.py:255-266`: nu_phi is
+conditioned on duration bucket, position bucket and eta; no per-frame 40 x 500 table exists), so the capture condition
+does not hold as stated; (2) pruning is neutral on the drift (the neighbour merges of read (a) sit at high posterior
+and survive any beam) and adds a peakiness ratchet; (3) the acceptance checks are re-specified in the review
+(per-utterance median <= 0.05 nats, p99 <= 0.5; beam = inf must reproduce the exact log Z to 1e-4 at bigram and
+trigram; paired k = 1, 2, 10 with bootstrap CI); (4) a pruned backoff-FST history breaks the group property D3 relies
+on, so at trigram the exact D3 + D4 single pass dominates; at 4-gram both routes need a pruned LM, and the single pass
+is then exact for the pruned LM with no beam bias — first check the held-out ppl of the 4-gram pruned to 500-4000
+contexts (CPU); (5) the trigram's k = 1 value is 0.0026 PER without a CI, so fund neither lattice until read (b3)
+sizes the anchored one-step design. Decision: two-pass not funded now; trigram inside the objective goes through the
+exact D3 + D4 pass; two-pass revisited only for the 4-gram. Cheap next read: paired bootstrap of trigram-vs-bigram
+k = 1 PER on the banked 300 utterances.
+
 ### Read (b): frame-level target vs gold and the network-free fixed point (2026-09-15, `analysis/emc_target_vs_gold.py`,
 `reports/exec_target_vs_gold_2026-09-15.md` + .full.md; 14 GPU runs, dev-other 18,660 gold segments; audited CONFIRMED_WITH_CAVEATS, `reports/audit_fixed_point_2026-09-15.md`)
 
