@@ -354,6 +354,23 @@ trie wiring (`eval_jobs.py:541-615`, `_scatter_map` :723). Consequences: EVERY �
 58.3, the temperature sweep table, the S2 GAN-init decodes) is VOID; the decode jobs must re-hash after the fix and
 the temperature sweep is re-run under the pre-registered rule (the beam-pruning mechanism may vanish with the
 bug); PER reads are unaffected (GreedyPerJob does not use the worker).
+Root cause and fix (2026-09-15 evening, `reports/debug_decoder_wiring_2026-09-15.md`, `reports/impl_decoder_collapse_fix_2026-09-15.md`,
+review `reports/review_decoder_collapse_fix_2026-09-15.md` APPROVE_WITH_CONCERNS): the wiring reading above is
+OVERTURNED — lexicon, word dictionary and trie were verified correct (trie.search(L EH K CH ER Z) = LECTURES, both
+word maps identical). The flashlight-text 0.0.7 LexiconDecoder in the w2vu env does not merge CTC repeats: a run of
+identical non-blank argmax frames without a blank between them is walked as repeated tokens through the trie
+(minimal repro without LM: "- AAA BBB -" with lexicon {AB, ABB, AAB} decodes ABB). The recognizer emits 50 Hz runs
+of 3-7 frames (utt 251-136532-0022: L3 EH4 K5 CH5 ER7 blank1 Z7 -> LECTURER ZZZ); the reference w2vu2 decode is
+insulated by one-frame peaks. Fix (commit aab3ed2): `collapse_frame_runs` (eval_jobs.py:155-197) keeps, per
+utterance, one full log-probability row per maximal argmax run (the row with the highest argmax log-prob), applied
+after the temperature and before the decoder; `decoder_version = 2` (a real constructor argument) re-hashes every
+KenlmPosteriorDecodeJob and everything downstream (120 decodes, 120 CTM, 120 sclite, 96 PairedWerDelta, 10
+DecodeCounts moved; trainings, dumps, GreedyPerJob, PairedPerDeltaJob, DecodeStats, selection unchanged: 1010 ids).
+Evidence on the real utterance at the pinned point (lm_weight 2, word_score -1): "LECTURER ZZZ" -> "LECTURES".
+v1 and v2 WERs are different operating points; every v1 WER in this file is void and is not compared with v2. The
+temperature sweep is re-run under the pre-registered rule; the argmax runs also multiplied the top1-top2 gap past
+the beam threshold, so the mechanism that motivated the sweep may vanish with the collapse. The
+`config_sae_4a_decode_temp_v1.py` docstring still names the v1 T = 1.0 decode ids (stale text, the cell re-decodes).
 
 Q-target diagnostic (2026-09-15, `analysis/emc_target_diag.py`, result `analysis/out/emc_target_diag.txt`, report
 `reports/exec_target_diag_2026-09-15.md`; 300 dev-clean utts = first 300 of the HDF order, 109,284 frames, 5 speakers;
@@ -441,6 +458,44 @@ S3 audit (2026-09-15, `reports/audit_s3_g4a3_2026-09-15.md`): CONFIRMED FAIL on 
 PER 0.8955 with deletions 84 % of N (near-empty decodes), gap -0.3218 (macro -0.342) with the CI wholly below 0;
 checkpoint, split, gold and tau = 2 verified; the rate rule fired at sub-epochs 1-5 and 7, so the read point itself
 would have been reverted. S3 is not funded further at this schedule.
+## Degradation investigation (opened 2026-09-15 evening on the user's instruction; reads pre-registered here)
+
+Question: why does plain L_tau at tau = 2 triple the PER of the 10 h seed recognizer (arm A dev-other 0.1157 ->
+0.1740 after one sub-epoch -> 0.2248 after six; phone rate 9.85 -> 9.13/s; dev l_tau 2.15 with theta frozen at the
+end of the phi warm-up -> 1.88 -> 1.75 while PER rises; decode weighted_lm_ppl 22.6 -> 35.9; arm C without the
+aggregate term tracks arm A). Established before this section: the exact target at step 0 is the recognizer to
+within +0.002 PER (q-target diagnostic above), the pipeline reproduces the logged loss exactly, arm A starts from
+seed theta + warm-up phi (`reports/extract_armA_dynamics_2026-09-15.md`: theta lr 1e-4, phi lr 3e-3, Adam betas
+(0.5, 0.98), clip 5), and the train loss falls 2.20 -> 1.90 inside the first 30 steps, so the shift is fast and
+directional, not optimiser noise.
+
+Working hypothesis (to be tested, not assumed): at tau = 2 the target is q* ∝ (q_theta R)^(1/2); its fixed point
+under repeated fitting is R's own posterior (prior x reverse model), so the recognizer's information decays
+geometrically and the objective's optimum is wherever the generative model's preference lies — the Merialdo
+mechanism the design review named (item 2). The per-step target shift is small (+0.002 PER) but accumulates; the
+init tilt of arm B is what stops it, and drift resumes when alpha reaches 0. What R prefers (which phones and
+durations are deleted or merged; d_min = 2 frames vs one-frame gold segments; blank/SIL mass) is the pattern to read.
+
+Reads (scripts by the implementer, run by the executor; both report patterns, the reading is written here after):
+(a) `analysis/per_error_pattern.py` — sequence-level: S/D/I split and per-phone / per-class error growth vs init,
+top confusions, deletions by MFA gold-segment duration bin (1, 2, 3, 4-5, 6-8, 9+ frames at 50 Hz), gold repeat
+merges, per-utterance degradation distribution and worst utterances, hyp phones/s; checkpoints init, arm A ep1/3/6,
+arm B ep3/6, arm C ep1/6, both dev splits. (b) `analysis/emc_target_vs_gold.py` — frame-level against the MFA
+alignment: recognizer argmax vs target argmax vs gold; where following the target helps/hurts by phone and duration
+bin; mass movement (to blank / SIL / same-class / other); segment keep/delete/substitute by duration bin;
+component ablations (uniform prior, uniform reverse, arm-B tilt) where the lattice call allows; and the
+network-free fixed-point iteration q_{k+1} = target(q_k), k = 1..10, reporting PER and frame accuracy per k (if the
+PER rises monotonically with k toward a plateau, the objective's optimum is away from the truth independently of
+training dynamics; if it stays flat, the degradation is a training-dynamics effect). (c) S2c arm E (self-
+distillation toward the init, running) is the training-dynamics control: a recognizer trained with the same
+optimiser, data and dropout but a truth-preserving target.
+
+Decision rule written in advance: if (b) shows the fixed point drifts from the truth with a specific pattern (e.g.
+short-segment deletions from d_min = 2, or prior-driven substitutions), the remedy is on the model side (duration
+floor, prior, reverse-model class) and is a new stage, not a knob sweep; if (b) is flat and (c) shows E degrades
+too, the remedy is on the optimiser side (theta lr, phi/theta lr ratio, target smoothing); if (b) is flat and E
+holds, the remaining suspect is phi co-adaptation (phi lr 3e-3 chasing theta), tested by a phi-frozen arm.
+
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
