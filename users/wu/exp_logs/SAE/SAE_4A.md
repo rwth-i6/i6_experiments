@@ -176,7 +176,36 @@ unsupervised checkpoint selection by the pre-registered formula; token-rate reve
 
 ## Results
 
-(none yet)
+### S1a training-free alignment read (2026-09-15) — G4a.1 PASS (audited CONFIRMED_WITH_CAVEATS,
+`reports/audit_s1a_2026-09-15.md`: independent recompute matches to 5 decimals; fit/held disjoint; strings
+reconstructed from inputs with 0 mismatches. Caveats: the "length-matched" derangement is nearest-length
+within speaker, exact match on 14 % of pairs, mean |diff| 6.7 tokens; on the exactly matched subset the gap is
+still +1.42 and the exactly length-matched unigram null gives more; kappa 1.0 vs unigram = refit noise.)
+
+Run `work/speech_llm/sae/emc/s1a_job/S1aReverseLadderJob.TuHHK47CQwhl` (CPU, 998 paired utts = 799 fit / 199
+held-out, 67 speaker clusters, 3 dropped; reverse model 0.37 M params, 10 epochs, lr 3e-3, seed 0, refit from
+scratch per condition; eta from `SpeakerEtaJob.U4etvcSpsQi4` (PCA-16 fit on clean train-clean-100); prior
+`PhoneNgramPriorJob.TRPE0D5nF3bh`). Gated quantity: held-out log p_phi per frame, paired per utterance.
+
+| condition | log p_phi / frame (paired per-utt mean) | gold minus condition [95 % CI, speaker-clustered] |
+|---|---|---|
+| gold | -3.644 | — |
+| kappa 0.1 | -4.012 | +0.368 [+0.333, +0.404] |
+| kappa 0.25 | -4.439 | +0.796 [+0.751, +0.843] |
+| kappa 0.5 | -4.928 | +1.285 [+1.232, +1.340] |
+| kappa 1.0 | -5.218 | +1.575 [+1.504, +1.646] |
+| derangement (same speaker, length-matched) | -5.207 (pooled) | +1.588 [+1.525, +1.652] |
+| unigram draws (matched length) | -5.205 (pooled) | +1.602 [+1.538, +1.663] |
+| constant fluent string | -5.088 (pooled) | +1.450 [+1.376, +1.523] |
+
+Monotone non-increasing in kappa on the paired per-utterance means: yes. Gold ahead of every null: yes. The
+prior column (reported beside, never inside) degrades with kappa as expected and is flat for derangement and
+constant (real text). Consistency check kappa 1.0 vs unigram null: +0.028 [+0.0003, +0.055], CI marginally
+excludes 0; the two conditions coincide in distribution by construction, so this is read as the refit noise
+floor (~0.03 nats/frame), 50x below the gold-vs-null gaps. Reading: a real-but-wrong same-speaker transcript
+scores no better than random phones (derangement gap = unigram gap), so the refit reverse term is
+content-specific on this bed, the opposite of §1a's Gaussian HSMM. Consequence: S2 runs; S1b becomes a
+pipeline smoke and drift diagnostic only, no longer decision-relevant for S2.
 
 ## Artifacts
 
