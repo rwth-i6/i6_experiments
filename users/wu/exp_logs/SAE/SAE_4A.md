@@ -725,6 +725,33 @@ fitted durations, the combined un-anchored line to k = 30, and the current objec
 pending on those: S2d as an anchored one-step refinement (bounded gain, ~1-2 WER absolute at these operating points) vs a
 redesign of the reverse model's acoustic side (the only lever that moves the fixed point itself) vs closing the mechanism.
 
+### Read (b3): the anchored fixed point and the K = 30 limits (2026-09-15, SLURM 1813551 / 1813554, `reports/exec_fixed_point_anchor_2026-09-15.md`; audit pending)
+
+Same bed as (b)/(b2): arm A step 0 (seed theta + warm-up phi), dev-other 300-utt stride subset, W = 25, tau = 2, greedy
+PER vs gold, network removed. "TRI" = prior_trigram + dur_from_argmax_runs. Anchor alpha = the arm-B/D tilt exactly as
+the recipe applies it (log q_k + alpha log q_init into the same lattice call, q_init = this checkpoint's own recognizer).
+
+| line | k=0 | k=1 | k=2 | k=5 | k=10 | k=20 | k=30 |
+|---|---|---|---|---|---|---|---|
+| (e) un-ablated, no anchor | 0.1100 | 0.0962 | 0.1048 | 0.1400 | 0.1898 | 0.2421 | 0.2573 |
+| (a) TRI, no anchor | 0.1100 | 0.0939 | 0.0973 | 0.1197 | 0.1609 | 0.2194 | 0.2429 |
+| (b) TRI, alpha 1.0 | 0.1100 | 0.0981 | 0.0959 | 0.0949 | 0.0944 | | |
+| (c) TRI, alpha 0.5 | 0.1100 | 0.0961 | 0.0939 | 0.0949 | 0.0952 | | |
+| (d) TRI, alpha 0.25 | 0.1100 | 0.0947 | 0.0937 | 0.0991 | 0.1018 | | |
+
+Reading. (1) The un-anchored iteration does NOT plateau at the reverse model's posterior: both K = 30 lines rise
+monotonically past k = 1 and are still rising at k = 30 (0.257 un-ablated, 0.243 with trigram + durations). The
+"fixed point = R's posterior, ceiling ~0.16-0.19" reading given after (b2) was wrong: the iterate is the per-frame
+FACTORISED projection of the target's marginals, not the path distribution, so the limit is not R's posterior and no
+finite ceiling is visible within 30 iterations. The trigram + durations shift the curve by ~2 iterations, they do not
+change its shape. (2) The anchor tilt holds: alpha >= 0.5 keeps the iterate at 0.094-0.095 through k = 10 (a held
+-0.015 PER vs the seed), alpha 0.25 lets it drift (0.102 at k = 10). The held anchor is a product of experts with a
+fixed q_init, i.e. it requires a seed recognizer and is therefore NOT a cold-start mechanism. (3) For the user's
+cold-start direction this makes the drift the central defect of the objective as it stands, ahead of the take-off
+problem: from any start the recognizer's information decays and nothing in the current model (prior order, duration
+table) stops it. Consequential; auditor dispatched with the five jsons, the gold PER read and the criterion "does the
+un-anchored curve plateau by k = 30".
+
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
 - CORRECTION of a design citation: ESPUM (Yeh et al. ICLR 2019) trains against N = 5 (top-10k 5-grams, App. B),
