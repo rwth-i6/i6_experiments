@@ -16,7 +16,12 @@ constants below. S1b LAUNCHED 2026-09-15 under one manager on the superset graph
 adopted from disk, no resubmission; `reports/exec_s1b_manager_switch_2026-09-15.md`): S1b training
 `work/i6_core/returnn/training/ReturnnTrainingJob.c4WZmlzJzAbw` (SLURM 1800255). S1b is a pipeline/efficiency
 read and oracle-drift diagnostic only; it does not gate S2 (G4a.1 passed).
-NEXT: (1) read the S1b efficiency gate off log.run.1 via executor: median `emc_utts_per_sec` over steps 10..100
+Efficiency gate READ 2026-09-15 (`reports/exec_s1b_efficiency_2026-09-15.md`): median emc_utts_per_sec over steps
+10..100 = 37.1 (min 25.6, max 76.1; ~1.35-1.6 s/step of ~51-64 utts, padded T <= 855; l_tau 3.23 -> 1.95 finite, no Z=0)
+against the threshold 75 -> FAIL: S2 is NOT funded until the step is fixed (bench: lattice alone 98 utt/s). Diagnosis
+running (debugger on the live process + `analysis/profile_emc_step.py` component profiler); S1b itself continues
+as the pipeline/drift read.
+NEXT: (1) locate and fix the step-time overhead, re-read the gate on the fixed job: median `emc_utts_per_sec` over steps 10..100
 >= 75 and realized num_seqs (~64); below that, fix the loader/batching before S2 rather than funding it.
 (2) When (i) finishes, bank its greedy PER and dev-other WER as the S2 paired baseline in Results. (3) If the gate
 passes, executor launches config/sae_4a_s2.py (warm-up tkeoNaivmfZx -> arm A H1QVzBxqwTBN, arm B jxcYLlU5PAjG;
