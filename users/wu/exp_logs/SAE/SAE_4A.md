@@ -24,7 +24,7 @@ S2 is funded on the rule (the remaining cost is the DP kernel itself, ~1.6 min p
 before any scale-up); the miss on the absolute number is recorded, not amended away. S1b is a pipeline/drift read
 only (G4a.1 passed). S2 LAUNCH in progress under one combined manager (config/sae_4a_phase.py = S1b + S2 graphs;
 `reports/exec_s2_launch_2026-09-15.md`); its warm-up waits on ctc_init (i).
-NEXT (direction change 2026-09-15, see Stages amendment): (0) configs S2b (`config_sae_4a_s2b_v1.py`, 10 h + 1 h seed inits) and S3 (`config_sae_4a_s3_v1.py`, cold start) in implementation; review, then load them into the single phase manager and read their first-100-step efficiency. (1) when the init (i) WER decodes finish, bank them; check its
+NEXT (direction change 2026-09-15, see Stages amendment; LAUNCH HELD pending the q-target diagnostic and the decode-chain fix, see Results "S2 GAN-init arms"): (0) configs S2b (`config_sae_4a_s2b_v1.py`, 10 h + 1 h seed inits) and S3 (`config_sae_4a_s3_v1.py`, cold start) in implementation; review, then load them into the single phase manager and read their first-100-step efficiency. (1) when the init (i) WER decodes finish, bank them; check its
 DecodeStats phone rate. (2) Bank S1b PER per sub-epoch (2 sub-epochs) against §1a's oracle-EM drift row
 (0.275 -> 0.392). (3) S2: per-sub-epoch phone rate against [0.6, 1.5] x 9.8/s (revert rule); at the end read G4a.2
 (paired dev-other WER delta vs init (i), usability vs 17.96 / 21.87) on the unsupervised-selected checkpoint;
@@ -294,6 +294,32 @@ utterances; PER rises ~0.02 per sub-epoch on both sets while the objective falls
 oracle-EM drift (0.275 -> 0.392), smaller so far. The oracle init's own PER was not registered; its eval is being
 added (hash-neutral) so the drift has a starting point. S1b is diagnostic only (G4a.1 passed); the decision read is
 S2, where arm B carries the init anchor S1b lacks.
+
+### S2 GAN-init arms and the oracle start point (2026-09-15; `reports/extract_s2_gan_results_2026-09-15.md`,
+`reports/extract_s2_gan_per_2026-09-15.md`; diagnostic row per the Stages amendment, NOT audited yet)
+
+| checkpoint | dev-clean PER | dev-other PER |
+|---|---|---|
+| oracle init (iii), 10 h seed, epoch 24 (`65NNK8Bwxdtd`; GreedyPerJob.3TcOOObr1IrW / RMkjOs4czduh) | 0.058 | 0.116 |
+| S1b = (iii) + L_tau, sub-epoch 1 / 2 (from the table above) | 0.230 / 0.250 | 0.257 / 0.277 |
+| init (i), epoch 20 | 0.166 | 0.218 |
+| S2 arm A (unanchored), sub-epoch 6 (`3EVuGpAEAn8m`) | 0.353 | 0.384 |
+| S2 arm B (anchored, alpha 1 -> 0), sub-epoch 6 (`HUSP5F9GBUVr`) | 0.345 | 0.374 |
+
+Both arms' unsupervised selection (`B8xyZzBQnZvz` / `THl07BoM4t2Q`, Baevski weighted_lm_ppl) picks sub-epoch 1,
+the least-trained checkpoint. Held-out L_tau falls in every run (S2: 2.00 -> ~1.6; S1b: 2.00 -> 1.92); phone
+rates 8.1-8.4 / s, all 2703 decodes distinct (no collapse). Reading: at tau = 2, on this bed, L_tau training
+degrades every recognizer it is given, by 4x PER from the 10 h oracle within one sub-epoch and 2x from init (i)
+over six; the anchor (alpha annealed to 0) only delays it. Before this is read as "objective anti-aligned", two
+implementation checks are pending: (a) `analysis/emc_target_diag.py` — the per-frame q-target's own PER and its
+confusion against the recognizer (a symbol-id shift between the 41 recognizer outputs and the 40 prior/reverse
+symbols, or a surrogate-gradient sign error, would produce exactly this picture; a finite-difference check of the
+surrogate is included); (b) the init (i) decode chain: sclite WER 51.7 / 58.3 % (dev-clean / dev-other) from a
+recognizer with greedy PER 0.166 / 0.218 is not a plausible lexicon + 4-gram outcome (§1d: PER 0.138 -> WER 17.96),
+so the KenlmPosteriorDecodeJob mapping is under diagnosis (`reports/debug_init_wer_…`); no §4a WER is quotable until
+it is resolved. G4a.2 is therefore NOT read yet. Launch of S2b / S3 is held until (a) returns: if a bug, every
+run so far is void and reruns at the fixed hashes; if the target is genuinely anti-aligned, S2b would only
+repeat the S1b picture and S3's G4a.3 becomes the phase's only remaining question.
 
 ## Artifacts
 
