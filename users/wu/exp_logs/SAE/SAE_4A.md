@@ -459,7 +459,7 @@ PairedPerDeltaJob reads and an audit): both arms improve on their init; D sits 0
 vs 0.1253). The gain of E over init (about 0.005 / 0.003) is the self-training floor an anchored objective has to
 beat; the pre-registered read is the paired D - E delta.
 
-## G4a.2 read: fixed-decoder (v2) dev-other WER, paired against each arm's own init (2026-09-15, `reports/extract_v2_wer_2026-09-15.md` + .full.md; audit `reports/audit_g4a2_wer_2026-09-15.md` pending)
+## G4a.2 read: fixed-decoder (v2) dev-other WER, paired against each arm's own init (2026-09-15, `reports/extract_v2_wer_2026-09-15.md` + .full.md; audited CONFIRMED_WITH_CAVEATS, `reports/audit_g4a2_wer_2026-09-15.md`)
 
 Decoder: KenlmPosteriorDecodeJob `decoder_version = 2` (run-collapsed emissions), lexicon + official 4-gram, beam 500, lm_weight 2.0,
 word_score -1.0, acoustic temperature 1.0 for every chain row; 57 decodes, all verified v2; paired delta = clustered bootstrap
@@ -475,7 +475,7 @@ E ep8 = last 36.54 (-0.39 [-0.64, -0.14]), selected 35.91 (-1.03 [-1.40, -0.67])
 Temperature sweep on ctc_init (i), same decoder: T 1.0 36.47, 1.5 33.10, 2.0 32.30, 3.0 35.23, 4.0 41.74 — T = 2.0 is the argmin
 (-4.2 absolute vs T = 1.0); every chain row above is at T = 1.0, so absolute levels are not at the decoder's best operating point,
 paired deltas are read at a common T.
-Gate reading (provisional until the audit): "refines" (interval excludes 0 in the arm's favour, at the reported checkpoint) holds for
+Audit: six WERs re-derived from sclite.pra (2864 utts, 50,948 words; one 0.01 rounding difference where the table quoted the in-job number instead of the sclite one); the 1 h init is ScliteJob.XYeXkOKYd4VJ from the 1 h seed t4K6Z6gHK56e ep240 = 36.93 %, every delta is against the arm's own init; selection is label-free argmin weighted_lm_ppl and matches SelectPosteriorsJob for all 10 arms; the arm B ep1 delta and its interval reproduce from the per-utterance rows with a speaker-clustered bootstrap (33 speakers; clustered interval wider than unclustered, as it should be). Gate reading: "refines" (interval excludes 0 in the arm's favour, at the reported checkpoint) holds for
 arm B at both seed sizes while the init tilt is active (selected checkpoints: -0.63 at 10 h, -1.75 at 1 h) and for the held-anchor
 arm D at 1 h only (-2.03); the self-distillation control E, which never sees the objective, refines by -1.03 at 1 h (selected) and
 -0.60 at 10 h (last), so roughly half of D's 1 h gain and all of the 10 h effect is available without the EMC objective. Every plain-
