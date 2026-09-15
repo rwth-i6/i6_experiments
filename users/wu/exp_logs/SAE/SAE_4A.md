@@ -24,7 +24,7 @@ S2 is funded on the rule (the remaining cost is the DP kernel itself, ~1.6 min p
 before any scale-up); the miss on the absolute number is recorded, not amended away. S1b is a pipeline/drift read
 only (G4a.1 passed). S2 LAUNCH in progress under one combined manager (config/sae_4a_phase.py = S1b + S2 graphs;
 `reports/exec_s2_launch_2026-09-15.md`); its warm-up waits on ctc_init (i).
-NEXT: (1) when (i) finishes, bank its greedy PER and dev-other WER as the S2 paired baseline in Results; check its
+NEXT (direction change 2026-09-15, see Stages amendment): (0) configs S2b (`config_sae_4a_s2b_v1.py`, 10 h + 1 h seed inits) and S3 (`config_sae_4a_s3_v1.py`, cold start) in implementation; review, then load them into the single phase manager and read their first-100-step efficiency. (1) when the init (i) WER decodes finish, bank them; check its
 DecodeStats phone rate. (2) Bank S1b PER per sub-epoch (2 sub-epochs) against §1a's oracle-EM drift row
 (0.275 -> 0.392). (3) S2: per-sub-epoch phone rate against [0.6, 1.5] x 9.8/s (revert rule); at the end read G4a.2
 (paired dev-other WER delta vs init (i), usability vs 17.96 / 21.87) on the unsupervised-selected checkpoint;
@@ -215,6 +215,21 @@ trigram; tau = 1.5; single-clock; lambda_agg sweep; 25 Hz reverse clock; K = 400
 
 **S3 Flat start (one or two runs).** Random phi, zero logits, tau annealed 8 -> 2 over sub-epochs 1-4,
 lambda_agg from S2, same reads, gate read at sub-epoch 4.
+
+**Amendment 2026-09-15 (user direction, after the S1b read):** the GAN-distilled init (i) is retired as the main
+S2 start. Reason: the GAN init and L_tau learn from the same distribution-matching signal, so "L_tau does not
+refine (i)" cannot separate a bad objective from a shared blind spot. The finished S2 (GAN-init) arms are read
+and banked as a diagnostic row only; no further GAN-init work. **S2b (main refinement read)** = the S2 machinery
+(phi warm-up, arm A unanchored, arm B init-anchored, 6 sub-epochs, same constants and reads) started from small
+real-label inits: init (iii), the 10 h seed recognizer (`ReturnnTrainingJob.65NNK8Bwxdtd`), and a 1 h variant
+trained on a deterministic 1 h subset of the same seed. Supervision cost of the seed is disclosed on every claim
+from this track; the usability bar for S2b is a supervised fine-tune on the same seed and features (to be located
+in `SAE_ref.md` or registered before the read), not §1d. G4a.2's paired rule (WER delta vs the arm's own init,
+clustered-bootstrap CI, selected checkpoint) is unchanged. S1b is the unanchored, un-warmed precursor of S2b-10h
+and drifted (+0.02 PER per sub-epoch); the prior for S2b is therefore that arm A drifts and arm B is the question.
+**S3 starts now**, in parallel and no longer conditional on S2: the unsupervised case is the claim the campaign is
+after. S3 runs 8 sub-epochs (anneal over 1-4, tau = 2 for 5-8); G4a.3 is read at sub-epoch 4 as pre-registered
+and decides whether sub-epochs 5-8 are read at all.
 
 ## Standing constraints carried
 
