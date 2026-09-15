@@ -651,15 +651,14 @@ class LLMGrading(Job):
         # ⚠ The obvious-looking 8192 @ 0.85 does NOT work: 8192 needs 6.89 GiB against 4.25
         # available. That was tried and failed the same day; lowering util without re-checking
         # KV_needed is exactly the half-of-the-arithmetic mistake this comment exists to stop.
-        # enforce_eager: this judge writes a verdict per reply -- short generations, so the ~43 s of
-        # torch.compile + CUDA-graph capture buys back less than it costs. Measured on a real n=1000
-        # run: 236 s boot vs 100 s of grading. See vllm_server; the [vllm-timing] line reports the
-        # split, so a regression here is visible rather than inferred.
+        # enforce_eager is deliberately NOT set here -- see vllm_server's docstring for the
+        # measurement that withdrew it. On a WARM node compile is only ~11 s and capture ~8 s, so
+        # eager would buy ~19 s of boot and pay it back in slower decoding over ~1,000 requests,
+        # which is very likely a net loss. The [vllm-timing] line is what will settle it.
         with vllm_server(
             self.llm_name,
             max_model_len=4096,
             gpu_memory_utilization=0.85,
-            enforce_eager=True,
         ) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()  # block until the server is ready to serve

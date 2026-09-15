@@ -193,14 +193,25 @@ def vllm_server(
         "--enable-prefix-caching",
         "true",
     ]
-    # `enforce_eager` skips torch.compile + CUDA-graph capture. MEASURED on a real LLMGrading run
-    # (n=1000, gemma-4-31B): the server took 236 s to become ready and then graded the whole set in
-    # 100 s -- so **70% of that job was boot**, and of the boot, weights were 100 s, engine
-    # init/profile/warmup 69 s, torch.compile 33 s and graph capture 10 s. Eager trades ~43 s of
-    # fixed boot for slower decoding, which is the right trade only when the generation is short
-    # relative to the boot. It is opt-in per caller for exactly that reason -- a long-generation
-    # caller (dialogue-gen) would lose. Verify with the "[vllm-timing]" lines below before
-    # switching a new caller over; do not assume.
+    # `enforce_eager` skips torch.compile + CUDA-graph capture. Available, but OFF everywhere by
+    # default, and the measurement is why:
+    #
+    #   run              weights  compile  capture  engine-init
+    #   yuHZaBu9zg08      98.3 s   33.2 s    10 s      69.0 s     <- COLD node
+    #   jQxiG0smmHPT      41.4 s   12.2 s     7 s      40.9 s
+    #   oocY3FqKpufd      48.5 s   10.5 s     8 s      40.7 s
+    #
+    # A first reading of the cold run alone said "43 s of compile+capture, 70% of the job is boot"
+    # and enabled eager on the judge. Two warm runs withdrew that: compile is ~11 s and capture
+    # ~8 s once the torch.compile cache is warm, so eager buys ~19 s of boot and pays it back in
+    # slower decoding across every request. On ~1,000 gradings that is very likely a net loss.
+    #
+    # Two things that reading got right and are worth keeping: the compile cache ALREADY works here
+    # (33 s cold -> 10-12 s warm) because ~/.cache is symlinked to shared hpcwork, so every node
+    # reuses it; and weight loading is the dominant phase (41-98 s), which is what to attack.
+    #
+    # So: measure with the "[vllm-timing]" line below before enabling this for any caller. Do not
+    # infer it from one cold boot, which is exactly the mistake this comment records.
     if enforce_eager:
         cmd += ["--enforce-eager"]
     if n_gpus > 1:
