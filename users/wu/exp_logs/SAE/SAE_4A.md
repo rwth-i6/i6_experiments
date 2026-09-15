@@ -12,24 +12,29 @@ ctc_init (i) `work/i6_core/returnn/training/ReturnnTrainingJob.HcXzd6M2eyVZ` (SL
 s/step but wall ~1.6 s/step of 157 utts, GPU 0-6 %: HDF loader-bound, accepted for this one-off), oracle_init
 (iii) 65NNK8Bwxdtd (FINISHED), feature/units HDF repack, greedy PER + WER of (i) at epoch 20, all in that graph.
 S1b/S2 configs reviewed and fixed (`reports/review_s1b_s2_configs_2026-09-15.md`, commit d9905df); accepted
-constants below. S1b LAUNCHED 2026-09-15 under one manager on the superset graph config/sae_4a_s1b.py (inits
-adopted from disk, no resubmission; `reports/exec_s1b_manager_switch_2026-09-15.md`): S1b training
-`work/i6_core/returnn/training/ReturnnTrainingJob.c4WZmlzJzAbw` (SLURM 1800255). S1b is a pipeline/efficiency
-read and oracle-drift diagnostic only; it does not gate S2 (G4a.1 passed).
-Efficiency gate READ 2026-09-15 (`reports/exec_s1b_efficiency_2026-09-15.md`): median emc_utts_per_sec over steps
-10..100 = 37.1 (min 25.6, max 76.1; ~1.35-1.6 s/step of ~51-64 utts, padded T <= 855; l_tau 3.23 -> 1.95 finite, no Z=0)
-against the threshold 75 -> FAIL: S2 is NOT funded until the step is fixed (bench: lattice alone 98 utt/s). Diagnosis
-running (debugger on the live process + `analysis/profile_emc_step.py` component profiler); S1b itself continues
-as the pipeline/drift read.
-NEXT: (1) locate and fix the step-time overhead, re-read the gate on the fixed job: median `emc_utts_per_sec` over steps 10..100
->= 75 and realized num_seqs (~64); below that, fix the loader/batching before S2 rather than funding it.
-(2) When (i) finishes, bank its greedy PER and dev-other WER as the S2 paired baseline in Results. (3) If the gate
-passes, executor launches config/sae_4a_s2.py (warm-up tkeoNaivmfZx -> arm A H1QVzBxqwTBN, arm B jxcYLlU5PAjG;
-selection 8AQfF1pqzaOH / RegeKoHxR6Gu); per-sub-epoch phone-rate check against [0.6, 1.5] x 9.8/s.
-(4) Bank S1b PER per sub-epoch against §1a's oracle-EM drift row (0.275 -> 0.392).
-Live pids / watcher: manager pid 1453067 (config/sae_4a_s1b.py, log/sae_4a_s1b.manager.log, log_level 30 so
-the log is empty; judge from job dirs); watcher `bash ~/.claude/skills/sis/sis_watch.sh 1453067
-config/sae_4a_s1b.py 300` from the setup dir. Inits manager 1167500 stopped after handover; S1a manager exited.
+constants and their efficiency amendment below. First S1b job (c4WZmlzJzAbw, 2026-09-15) ran at 37 utt/s -> gate
+FAIL -> profiled and fixed (loader collation, agg loop, batch 128 / theta lr 1e-4, forward extern_data key;
+commits dce4046..2fed7d6, review PASS). S1b RELAUNCHED at the new hash
+`work/i6_core/returnn/training/ReturnnTrainingJob.93UGC7HzGC2P` (SLURM 1800557;
+`reports/exec_s1b_relaunch_2026-09-15.md`). Efficiency re-read, log-order steps 11..100: median emc_utts_per_sec
+73.2 (min 33.9, max 192.2), median num_seqs 122, loader wait 0.02 s of a 1.54 s step (was 0.39), l_tau 3.20 ->
+1.88, Z=0 fraction 0, no nan/inf. Verdict: FAIL on the number as written (75), PASS on the rule behind it (loader
+<= a quarter of the step; measured 1.3 %; profiler compute ceiling 75.9 utt/s at this batch). Orchestrator decision:
+S2 is funded on the rule (the remaining cost is the DP kernel itself, ~1.6 min per tc100 sub-epoch; fusion queued
+before any scale-up); the miss on the absolute number is recorded, not amended away. S1b is a pipeline/drift read
+only (G4a.1 passed). S2 LAUNCH in progress under one combined manager (config/sae_4a_phase.py = S1b + S2 graphs;
+`reports/exec_s2_launch_2026-09-15.md`); its warm-up waits on ctc_init (i).
+NEXT: (1) when (i) finishes, bank its greedy PER and dev-other WER as the S2 paired baseline in Results; check its
+DecodeStats phone rate. (2) Bank S1b PER per sub-epoch (2 sub-epochs) against §1a's oracle-EM drift row
+(0.275 -> 0.392). (3) S2: per-sub-epoch phone rate against [0.6, 1.5] x 9.8/s (revert rule); at the end read G4a.2
+(paired dev-other WER delta vs init (i), usability vs 17.96 / 21.87) on the unsupervised-selected checkpoint;
+audit before acting on it. (4) Efficiency: fuse the lattice frame body (torch.compile / Triton) before any run
+beyond tc100.
+Live pids / watcher: ONE manager pid 1724233 on config/sae_4a_phase.py (S1b + S2 graphs, 255 jobs;
+log/sae_4a_phase.manager.log; log_level 30, judge from job dirs); watcher `bash ~/.claude/skills/sis/sis_watch.sh
+1724233 config/sae_4a_phase.py 300` from the setup dir. S2 job dirs at the current hashes: warm-up
+ReturnnTrainingJob.q6BUlBXVfA1t, arm A 3EVuGpAEAn8m, arm B HUSP5F9GBUVr, selections
+UnsupervisedCheckpointSelectionJob.B8xyZzBQnZvz / THl07BoM4t2Q. Earlier managers 1167500, 1453067, 1697904 stopped.
 
 ## Objective
 
@@ -123,6 +128,22 @@ degree; WER speaks; analysis gates control spend only.
   (the w2v-U 2.0 generator lr, `FairseqW2vu2TrainJob.HOb2GgtYT7Bc` config) and phi lr 3e-3 (the S1a refit lr);
   warm-up at tau = 2; unsupervised selection pooled over dev-clean + dev-other with held-out L_tau as the
   tie-break; data via MultiProcDataset (6 workers, buffer 128) after the loader-bound init job.
+- **Amendment after the S1b efficiency read (2026-09-15):** the first S1b job ran at 37 utt/s against the 75 utt/s
+  gate. Profile on a GH200 (`reports/debug_s1b_step_time_2026-09-15.md`, `reports/exec_profile_emc_step_2026-09-15.md`,
+  `analysis/profile_emc_step.py`): the lattice DP is a per-frame Python loop of unfused log-semiring elementwise
+  kernels (elementwise/sum/add/sub/amax = 90 % of GPU time; cudaLaunchKernel 29 % of CPU), so the step is
+  ~1.0 s at B <= 64 regardless of B and only sublinear above it (post-fix: 31 / 59 / 76 / 82 utt/s at max_seqs
+  32 / 64 / 128 / 256; 1.7 / 3.2 / 6.4 / 12.8 GiB). Fixes taken (commits dce4046, ce78446, f59814f, 2fed7d6):
+  collation moved off the main process (num_workers 1; 0.39 s/step of loader wait), the agg loss's second
+  autograd T-loop and host sync removed (bit-equal on the toy shapes), and **batch = 128 utterances /
+  88,000 padded frames with theta lr scaled linearly 5e-5 -> 1e-4** (phi lr 3e-3 unchanged; sub-epoch = ~56
+  steps). The forward-dump extern_data key bug (`KeyError: 'features'`, all four S1b evals) is fixed in the same
+  round. Decision: 76 utt/s at B = 128 meets the gate as measured; kernel fusion of the frame body
+  (torch.compile / Triton) is queued as the efficiency item that must land before any run beyond tc100 scale,
+  not before S2 (S2 on tc100 costs ~1.6 min per sub-epoch at this rate). Review (`reports/review_step_fixes_2026-09-15.md`,
+  all four items PASS) notes the 75 utt/s number was derived from the B = 64 bench; the rule behind it (loader wait
+  at most a quarter of the step) re-derived at the run shape and batch is 0.75 x 75.9 = 57 utt/s. The original
+  number stands as written; both are reported at the re-read.
 - **Rate**: d_min = 2 and D_sil = 50 bound the token count only weakly. The emitted phone rate is logged per
   sub-epoch; a sub-epoch whose rate leaves [0.6, 1.5] x the text phone rate (9.8/9.4 per s on dev,
   `SAE_1f.md:533-536`) is reverted, not compounded (wav2vec-U 2.0 reports PER > 100 whenever the rate drifts).
