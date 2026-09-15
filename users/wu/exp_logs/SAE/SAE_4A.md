@@ -6,9 +6,15 @@ Active: nothing launched. Phase registered 2026-09-15 from the revised method no
 `reports/lit_method_v2_2026-09-15.md`, reusable artifacts in `reports/SAE_setup_report_2026-09-15.md`, project
 evidence in `reports/sae_failure_evidence_for_method_v2.md`, design review (DONE_WITH_CONCERNS, all five ranked
 changes folded in below) in `reports/design_review_4a_2026-09-15.md`.
-NEXT: implementer builds S0a (reverse model + prior + the S1a read job) to the spec in "Stages"; code-reviewer
-checks it; S1a runs on CPU before lattice code exists. S0b (lattice, recognizer, train step, eval path) follows.
-Live pids / watcher: none.
+S0a built and reviewed 2026-09-15 (`reports/impl_s0a_2026-09-15.md`, `reports/review_s0a_2026-09-15.md`;
+commits 5ac8ecc..4fa97f0 on haotian_modality_matching_jupiter). S1a LAUNCHED 2026-09-15:
+`work/speech_llm/sae/emc/S1aReverseLadderJob.TuHHK47CQwhl` (SLURM 1799601_1, CPU, ~1 h projected), upstream
+`PhoneNgramPriorJob.TRPE0D5nF3bh` and `SpeakerEtaJob.U4etvcSpsQi4` finished. S0b in implementation
+(lattice/train step; recognizer/inits/eval path), not yet reviewed.
+NEXT: read S1a `summary.json` / `s1a.txt` against G4a.1 (monotone in kappa on the paired per-utterance
+means; gold ahead of every null) and bank it in Results; code-review S0b; then init (i) + its PER, S1b.
+Live pids / watcher: manager pid 889296 (config/sae_4a_s1a.py, log/sae_4a_s1a.manager.log); watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 889296 config/sae_4a_s1a.py 120` from the setup dir.
 
 ## Objective
 
@@ -19,7 +25,11 @@ Decide, with plain PER and WER, whether the exact-marginal cycle objective
 (CTC recognizer q over 50 Hz wav2vec2-L15 frames; frozen phone m-gram P_psi over phonemized text; segmental
 reverse model p_phi predicting the 50 Hz K=500 unit stream z from the transcript with per-token duration and a
 frozen speaker embedding eta; everything marginalized exactly by DP) does three things this project's earlier
-objectives did not:
+objectives did not. **Implementation note (2026-09-15):** the code tempers the JOINT latent (CTC path pi,
+segmentation sigma), i.e. the sum runs over (pi, sigma) with p_phi(z, sigma | B(pi), eta) inside the bracket;
+this is what the (t, s, h, f) lattice computes exactly and what the tau = 2 fixed-point argument covers. It
+coincides with the formula above only at tau = 1. The recognizer has 41 outputs: blank + 39 ARPAbet + SIL.
+It should show, in order, that it:
 
 1. **Its reverse term aligns with phonetic truth on this bed.** §1a's Gaussian HSMM from an oracle init raised
    its likelihood while PER went 0.275 -> 0.392 (`SAE_1a.md:102-106`); §1f's statistics matcher preferred a
@@ -59,7 +69,13 @@ degree; WER speaks; analysis gates control spend only.
   §3g found duration, then speaker, were what its scorer learned instead of content (`SAE_3G.md:472-478`);
   giving the reverse model eta removes the incentive to encode speaker in the symbols.
 - **Recognizer** = frozen wav2vec2-lv60 L15 features (50 Hz, 1024-d) + a small trainable network (the w2v-U 2.0
-  generator shape: 1-2 conv layers over PCA-512 features, blank + 41 outputs), T = S = 50 Hz. The GAN-lineage
+  generator shape: 1-2 conv layers over the raw 1024-d features, blank + 41 outputs), T = S = 50 Hz.
+  **Amended 2026-09-15 (user question on stride):** the §1c w2v-U 2.0 run (`FairseqW2vu2TrainJob.HOb2GgtYT7Bc`
+  train.log resolved config) uses kernel 9, stride 3, input_dim 1024, no PCA, so its generator outputs at 16.7
+  Hz. §4a keeps kernel 9 (180 ms context) and the 1024-d input but stride 1: the recognizer is CTC with blank,
+  and at 16.7 Hz the ~10 phones/s dev rate leaves 1.7 frames per phone, so fast utterances with repeated
+  phones become CTC-infeasible. Stride 2 (25 Hz output, halves lattice T) is the registered cost ablation,
+  paired with the 25 Hz reverse-clock ablation. "PCA-512" was a w2v-U 1.0 detail and is dropped. The GAN-lineage
   init is built by CTC on the frozen §1d pseudo-labels (`GanPseudoLabelJob.xjn6QnNqwEEH`, 28,539 utts).
   **Registered decision (2026-09-15):** the "GAN/§1d output as initialization only" carve-out (`SAE.md:32-36`)
   is G-track-scoped (`config_sae_3d_gtrack_v1.py:17-20`); §4a extends it to this phase under the same
@@ -94,7 +110,12 @@ degree; WER speaks; analysis gates control spend only.
 - **G4a.1 S1a reverse-term alignment (analysis, spend control only).** Quantity: held-out log p_phi(z | y, eta)
   per frame, with phi REFIT on each condition's transcripts (the prior is reported beside it, never inside it,
   because permuting phone rows makes -log P_psi worse by construction). Conditions: gold; kappa-corrupted maps
-  for kappa in {0.1, 0.25, 0.5, 1.0}; speaker-and-length-matched derangement; text-unigram draws at matched
+  for kappa in {0.1, 0.25, 0.5, 1.0} [ORIGINAL; **amended 2026-09-15 before any gate read**: a bijective type
+  permutation is a relabeling, and phi refit from scratch is invariant to it (implementer smoke on 200 utts:
+  gold -4.786 vs kappa=1.0 -4.803 per frame, `reports/impl_s0a_2026-09-15.md`); kappa is now the per-token
+  substitution rate, each token independently replaced with probability kappa by a unigram draw, nested across
+  kappa, so kappa=1.0 coincides with the unigram null below and serves as a consistency check];
+  speaker-and-length-matched derangement; text-unigram draws at matched
   length; one constant fluent string. Pass = monotone in kappa and gold ahead of every null on the paired
   per-utterance read. If it fails AND S1b loses more than 0.05 absolute PER within two sub-epochs, S2 waits for a
   reverse-model redesign; otherwise S2 runs regardless and WER decides.
@@ -115,7 +136,10 @@ degree; WER speaks; analysis gates control spend only.
 **S0a Reverse side (implementer; code-reviewer before S1a).** `speech_llm/sae/emc/reverse.py` (psi_align-derived
 segmental model with duration and position-dependent emissions and eta; test: forward-sum equals brute-force
 enumeration on 8 small (S, U) shapes, d_min = 2 respected, likelihood finite on the sufficient statistics),
-`prior.py` (phone m-gram from T_phi with SIL insertion; bigram and trigram), `speaker.py` (PCA-16 of
+`prior.py` (phone m-gram from T_phi with SIL insertion; bigram and trigram; built 2026-09-15 on the §1c file
+that carries the boundary SIL, `PhonemizeWithSilJob.DbFgvZOGZQ8F`, since `THKMON3k9LJQ` has no word
+boundaries; interpolated Witten-Bell; S1a prior fit on a 1M-line budget, the S0b training prior must use the
+full corpus), `speaker.py` (PCA-16 of
 utterance-mean L15), and the S1a read job (`S1aReverseLadderJob`, CPU, 500 dev-clean + 500 dev-other MFA-gold
 utterances, refit per condition, paired output json, convention printed by the job).
 
