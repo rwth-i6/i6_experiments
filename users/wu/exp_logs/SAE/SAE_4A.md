@@ -400,6 +400,19 @@ checkpoint vs init, per utterance, speaker-clustered bootstrap, on both dev sets
 unsupervised selection rule acts as a guard: on the degrading arms it picks the least-trained checkpoint.
 S1b's confounded oracle row is superseded by arm A here.
 
+1 h seed track (2026-09-15; `reports/extract_s2b_1h_reads_2026-09-15.md`; init `ReturnnTrainingJob.t4K6Z6gHK56e` ep 240,
+287 train utts: greedy PER 0.068 / 0.130, phone rate 10.1 / 9.8 per s) replicates the 10 h picture. Greedy PER
+dev-clean / dev-other per sub-epoch: arm A 0.119/0.170, 0.143/0.190, 0.158/0.202, 0.169/0.212, 0.173/0.215,
+0.177/0.218 (dev L_tau 1.889 -> 1.766 -> 1.840); arm B 0.068/0.126, 0.070/0.128, 0.068/0.124, **0.067/0.121**,
+0.104/0.156, 0.124/0.173 (L_tau 2.103 -> 1.956 at sub-epoch 4, 1.813 at 5); arm C 0.126-0.175 dev-clean, like A.
+Phone rates 9.1-10.1 / s throughout; 2703 distinct decodes. Selection: A -> 1 (ppl 22.0), B -> 4 (15.6, the
+best-PER checkpoint), C -> 1 (24.1). Same three readings as the 10 h track; the anchored gain at alpha = 0.25 is
+0.0014 / 0.0090 absolute PER here (0.005 / 0.013 on 10 h) and is only a claim after the paired read. Follow-up
+funded (S2c, `config_sae_4a_s2c_v1.py`, both tracks, 8 sub-epochs): arm D = held anchor alpha 0.25 throughout; arm
+E = anchor only (L_tau removed from the optimised total), the control that separates the objective's contribution
+from the anchor's own regularisation; pre-registered read = paired D - E PER delta on dev-other, CI excluding 0 in
+D's favour.
+
 S3 audit (2026-09-15, `reports/audit_s3_g4a3_2026-09-15.md`): CONFIRMED FAIL on both clauses; sub-epoch 4 dev-other
 PER 0.8955 with deletions 84 % of N (near-empty decodes), gap -0.3218 (macro -0.342) with the CI wholly below 0;
 checkpoint, split, gold and tau = 2 verified; the rate rule fired at sub-epochs 1-5 and 7, so the read point itself
