@@ -369,7 +369,42 @@ are eval-mode. Queued cross-check (not launch-blocking): the diagnostic with the
 on the job's cv segments (285 utts) must reproduce the logged dev L_tau 2.00415. DONE (2026-09-15, `reports/exec_target_diag_replay_2026-09-15.md`): the offline path with theta AND phi from epoch.001.pt on the job's 285 cv utterances in the job's own batching reproduces dev_loss_l_tau 2.0041547616322837 and dev_loss_agg 0.7693092823 to zero difference; the offline diagnostic and the training job compute the same objective.
 
 
-## S3 cold start: G4a.3 read (2026-09-15, AUDIT PENDING `reports/audit_s3_g4a3_2026-09-15.md`)
+
+## S2b, 10 h seed track: per-sub-epoch reads (2026-09-15; `reports/extract_s2b_10h_reads_2026-09-15.md`)
+
+Seed init (iii) `ReturnnTrainingJob.65NNK8Bwxdtd` ep 24: greedy PER 0.058 / 0.116 (dev-clean / dev-other), phone rate
+10.1 / 9.9 per s. Warm-up phi `htxT2f9FHvWw` (1 sub-epoch, theta frozen). Arms (6 sub-epochs each, warm phi):
+A plain L_tau `4BRumKQFcXim`; B init anchor alpha 1.0/0.75/0.5/0.25/0/0 `k33xnlSDACIv`; C = A with lambda_agg 0
+`HNg9s1aBuD56`. Greedy PER dev-clean / dev-other per sub-epoch (dev L_tau in brackets):
+
+| sub-ep | A: PER (L_tau) | B: PER (L_tau) | C: PER (L_tau) |
+|---|---|---|---|
+| 1 | 0.129 / 0.174 (1.877) | 0.054 / 0.106 (2.077) | 0.147 / 0.192 (1.876) |
+| 2 | 0.151 / 0.192 (1.872) | 0.059 / 0.109 (2.079) | 0.167 / 0.213 (1.874) |
+| 3 | 0.177 / 0.218 (1.798) | **0.053 / 0.103** (1.984) | 0.177 / 0.219 (1.798) |
+| 4 | 0.183 / 0.223 (1.788) | 0.060 / 0.107 (1.938) | 0.180 / 0.222 (1.787) |
+| 5 | 0.184 / 0.225 (1.754) | 0.115 / 0.163 (1.793) | 0.185 / 0.225 (1.755) |
+| 6 | 0.184 / 0.225 (1.829) | 0.140 / 0.186 (1.860) | not read (1 row missing) |
+
+Phone rates 9.1-10.1 / s in every arm and sub-epoch (rate rule never fires); 2702-2703 distinct decodes.
+Unsupervised selection (argmin weighted_lm_ppl): A -> sub-epoch 1 (22.6; the ppl rises monotonically 22.6 -> 36),
+B -> sub-epoch 3 (14.2; 14.6/14.8/14.2/14.8/20.2/23.8), C -> sub-epoch 1. Readings: (1) with a warm phi and no
+aggregate term the plain objective still degrades the oracle recognizer 3x in PER while L_tau falls 1.88 -> 1.75;
+arm C tracks arm A within 0.02 PER at every sub-epoch, so the aggregate term is NOT the driver — L_tau at tau = 2
+is itself anti-aligned with PER on this bed beyond the first step (consistent with the offline target check: the
+target equals the recognizer at step 0, the trajectory moves away). (2) Arm B holds the oracle while the anchor is
+on and reads slightly BELOW the init at sub-epochs 1-4 (best 0.053 / 0.103 vs 0.058 / 0.116 at sub-epoch 3, which
+the unsupervised selection also picks); once alpha reaches 0 (sub-epochs 5-6) it degrades like A. Whether the
+anchored improvement is real is a PAIRED question (PairedPerDeltaJob in implementation: arm B ep3 and the selected
+checkpoint vs init, per utterance, speaker-clustered bootstrap, on both dev sets; audit before any claim). (3) The
+unsupervised selection rule acts as a guard: on the degrading arms it picks the least-trained checkpoint.
+S1b's confounded oracle row is superseded by arm A here.
+
+S3 audit (2026-09-15, `reports/audit_s3_g4a3_2026-09-15.md`): CONFIRMED FAIL on both clauses; sub-epoch 4 dev-other
+PER 0.8955 with deletions 84 % of N (near-empty decodes), gap -0.3218 (macro -0.342) with the CI wholly below 0;
+checkpoint, split, gold and tau = 2 verified; the rate rule fired at sub-epochs 1-5 and 7, so the read point itself
+would have been reverted. S3 is not funded further at this schedule.
+## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
 3.17 / 2 / 2 / 2 / 2 / 2, ~123 s per sub-epoch; extractor report `reports/extract_s3_reads_2026-09-15.md`). Dev L_tau
