@@ -604,6 +604,29 @@ Top-1 prediction flips vs the bigram: trigram 49 %, C = 8 46 % of held phones. R
 point on today's code path; the full trigram is worth the D3 + D4 work (1.5x) and is the intended steady state;
 a 4-gram cannot sit in the DP (|h| = 41^3) and stays in the decoder.
 
+### Read (b): frame-level target vs gold and the network-free fixed point (2026-09-15, `analysis/emc_target_vs_gold.py`,
+`reports/exec_target_vs_gold_2026-09-15.md` + .full.md; 14 GPU runs, dev-other 18,660 gold segments; audit pending)
+
+Fixed-point iteration q_{k+1} = target(q_k) with the network removed, starting from the seed recognizer's dev-other
+posteriors (arm A step 0, phi = warm-up), PER by k: 0 0.1100, 1 0.0962, 2 0.1048, 3 0.1179, 4 0.1290, 5 0.1400, 6 0.1489,
+7 0.1580, 8 0.1680, 9 0.1791, 10 0.1898; frame accuracy 0.645 -> 0.647 (k = 1) -> 0.600 (k = 10); total variation from
+q_0 grows monotonically to 0.30. From arm A ep6: PER 0.2226 -> 0.2178 (k = 1) -> 0.2439 (k = 10). ONE application of
+the target improves the recognizer (-0.014 PER at step 0); repeated application walks away from the truth monotonically
+with no plateau in 10 steps. This is the pre-registered signature of "the objective's optimum is away from the truth
+independently of training dynamics", and it matches the training curve (arm A ep1 0.174 sits between k = 6 and 7).
+Frame-level pattern at arm A ep6 (gold segments by length, share of frames kept / taken by another phone / blank):
+1 frame 0.49 / 0.46 / 0.05, 2 frames 0.66 / 0.31 / 0.03, 3 frames 0.80 / 0.19 / 0.01, 4-5 0.89 / 0.10 / 0.00, 6+ 0.92 /
+0.08 / 0.00 (step 0: all 0.91 / 0.08 / 0.01). Short gold segments are absorbed by a NEIGHBOURING phone, not turned into
+blank: the sequence-level deletions of read (a) are merges. Single-component ablations at step 0 (uniform prior,
+uniform reverse model, arm-B tilt) move the step-0 target by < 0.003 in every statistic — at tau = 2 the one-step target
+is dominated by q_theta, so which component of R drives the fixed point cannot be read from one step; the fixed-point
+iteration under each ablation (and under a count-fitted duration model) is the next read, queued below.
+Decision (rule above, branch 1): model-side remedy, new stage S2d, not a knob sweep. Pre-registered launch check for
+S2d, costing one analysis run and no training: under the S2d model (higher-order prior, count-initialised duration
+model, d_min = 2), the network-free fixed point from the seed recognizer must satisfy PER(k = 10) <= PER(k = 0) on
+dev-other; a model that fails this is not launched. Note the diagnostic uses gold for the READ only; no training or
+selection touches it.
+
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
 - CORRECTION of a design citation: ESPUM (Yeh et al. ICLR 2019) trains against N = 5 (top-10k 5-grams, App. B),
