@@ -10,13 +10,21 @@ S1a done and banked (Results; G4a.1 pass, audited). S0b built and reviewed (`rep
 lattice bench 98 utt/s at B = 64 on a GH200). S0b INITS LAUNCHED 2026-09-15 (config/sae_4a_s0b_inits.py):
 ctc_init (i) `work/i6_core/returnn/training/ReturnnTrainingJob.HcXzd6M2eyVZ` (SLURM 1799887; compute 0.063
 s/step but wall ~1.6 s/step of 157 utts, GPU 0-6 %: HDF loader-bound, accepted for this one-off), oracle_init
-(iii) 65NNK8Bwxdtd, feature/units HDF repack, greedy PER + WER of (i) at epoch 20, all in that graph. S1b/S2
-configs in implementation (implementer c) with the loader fix required.
-NEXT: when (i) finishes, bank its PER/WER as the S2 paired baseline; code-review the S1b/S2 configs; launch
-S1b first and read wall/step over its first 100 steps (must be lattice-bound, >= ~100 utt/s) before funding S2.
-Live pids / watcher: manager pid 1167500 (config/sae_4a_s0b_inits.py, log/sae_4a_s0b_inits.manager.log);
-watcher `bash ~/.claude/skills/sis/sis_watch.sh 1167500 config/sae_4a_s0b_inits.py 300` from the setup dir.
-S1a manager (pid 889296) exited after DONE.
+(iii) 65NNK8Bwxdtd (FINISHED), feature/units HDF repack, greedy PER + WER of (i) at epoch 20, all in that graph.
+S1b/S2 configs reviewed and fixed (`reports/review_s1b_s2_configs_2026-09-15.md`, commit d9905df); accepted
+constants below. S1b LAUNCHED 2026-09-15 under one manager on the superset graph config/sae_4a_s1b.py (inits
+adopted from disk, no resubmission; `reports/exec_s1b_manager_switch_2026-09-15.md`): S1b training
+`work/i6_core/returnn/training/ReturnnTrainingJob.c4WZmlzJzAbw` (SLURM 1800255). S1b is a pipeline/efficiency
+read and oracle-drift diagnostic only; it does not gate S2 (G4a.1 passed).
+NEXT: (1) read the S1b efficiency gate off log.run.1 via executor: median `emc_utts_per_sec` over steps 10..100
+>= 75 and realized num_seqs (~64); below that, fix the loader/batching before S2 rather than funding it.
+(2) When (i) finishes, bank its greedy PER and dev-other WER as the S2 paired baseline in Results. (3) If the gate
+passes, executor launches config/sae_4a_s2.py (warm-up tkeoNaivmfZx -> arm A H1QVzBxqwTBN, arm B jxcYLlU5PAjG;
+selection 8AQfF1pqzaOH / RegeKoHxR6Gu); per-sub-epoch phone-rate check against [0.6, 1.5] x 9.8/s.
+(4) Bank S1b PER per sub-epoch against §1a's oracle-EM drift row (0.275 -> 0.392).
+Live pids / watcher: manager pid 1453067 (config/sae_4a_s1b.py, log/sae_4a_s1b.manager.log, log_level 30 so
+the log is empty; judge from job dirs); watcher `bash ~/.claude/skills/sis/sis_watch.sh 1453067
+config/sae_4a_s1b.py 300` from the setup dir. Inits manager 1167500 stopped after handover; S1a manager exited.
 
 ## Objective
 
@@ -106,7 +114,10 @@ degree; WER speaks; analysis gates control spend only.
   B = 64 costs the same 0.9 s as B = 16); sub-epoch = train-clean-100 / 4 (~7.1k utts), checkpoints kept at
   every sub-epoch; S2 warm-up = 1 sub-epoch of phi only from init (i). S1b = init (iii) + L_tau for 2
   sub-epochs with greedy PER per sub-epoch; it doubles as the pipeline smoke and the first-100-steps
-  efficiency read.
+  efficiency read. Accepted from the config build (`reports/impl_s1b_s2_configs_2026-09-15.md`): theta lr 5e-5
+  (the w2v-U 2.0 generator lr, `FairseqW2vu2TrainJob.HOb2GgtYT7Bc` config) and phi lr 3e-3 (the S1a refit lr);
+  warm-up at tau = 2; unsupervised selection pooled over dev-clean + dev-other with held-out L_tau as the
+  tie-break; data via MultiProcDataset (6 workers, buffer 128) after the loader-bound init job.
 - **Rate**: d_min = 2 and D_sil = 50 bound the token count only weakly. The emitted phone rate is logged per
   sub-epoch; a sub-epoch whose rate leaves [0.6, 1.5] x the text phone rate (9.8/9.4 per s on dev,
   `SAE_1f.md:533-536`) is reverted, not compounded (wav2vec-U 2.0 reports PER > 100 whenever the rate drifts).
