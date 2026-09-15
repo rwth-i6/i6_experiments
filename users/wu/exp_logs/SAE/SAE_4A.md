@@ -761,6 +761,18 @@ cold-start direction this makes the drift the central defect of the objective as
 problem: from any start the recognizer's information decays and nothing in the current model (prior order, duration
 table) stops it. Consequential; auditor dispatched with the five jsons, the gold PER read and the criterion "does the
 un-anchored curve plateau by k = 30".
+Audit (`reports/audit_fixed_point_anchor_2026-09-15.md`, CONFIRMED_WITH_CAVEATS, re-derived from the jsons): no plateau
+or turn-down by k = 30 on either un-anchored line (strictly increasing at every k; decelerating, so a later plateau is
+not excluded — K ~ 60 would be needed to claim a limit); alpha 1.0 and 0.5 hold within 0.0015 of their k = 2 value
+through k = 10, alpha 0.25 breaches at k = 5; un-ablated K = 30 reproduces the earlier K = 10 run to 6 d.p.; iterate =
+`post_q` per-frame arc marginal renormalised (a mean-field loop), q_init = q_0 exactly, no gold in the loop. CAVEAT
+that suspends the anchor rows: in all four runs that combine prior_trigram with dur_from_argmax_runs (line (a) and
+the three anchored lines) the post_q row sums are in [3.3e-9, 3891.9] against the script's own rows-sum-to-1
+invariant (un-ablated and single-ablation runs: [0.995, 1.002]); argmax reads may survive a per-row scale but float32
+rows at 3e-9 risk underflow. Debugger dispatched on the combined-ablation path; the anchored lines are being rerun
+on the un-ablated (clean) model, which is the read that matters for the anchor claim. Also noted: alpha = 1 at
+tau = 2 pins the iterate to q_0 by construction (TV 0.015 vs 0.474 un-anchored), and the arm-B schedule has alpha = 0
+by this epoch, so the training arms never ran a held anchor at these values except arm D (0.25).
 
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
