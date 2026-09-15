@@ -197,6 +197,51 @@ def check_policy_gate():
     print("PASS  dated rules never reach backwards; POLICY_LATEST is the newest epoch")
 
 
+def check_probe_batch_rule_skips_probe_free_runs():
+    """RULE_PROBE_BATCH must fire on a probing arm and NOT on one with the probe switched off.
+
+    The S-series passes the probe SET but `every=0` to disable probing. A rule keyed only on
+    `probe.data is not None` therefore emits `knowledge_probe_batch_size` on runs that never probe,
+    re-hashing them to configure something they do not run -- which is exactly what happened on the
+    first cut of this rule and would have orphaned seven queued arms. Caught by hash_snapshot; this
+    keeps it caught.
+    """
+    from speech_llm.full_duplex.sis_recipe.doriank.runs import (
+        POLICY_2026_09_15,
+        POLICY_LATEST,
+        PROBE_BATCH_SIZE,
+        RULE_PROBE_BATCH,
+        _policy_applies,
+    )
+    from speech_llm.full_duplex.sis_recipe.doriank.train_config import Probe
+
+    def fires(policy, probe):
+        return bool(
+            _policy_applies(policy, RULE_PROBE_BATCH)
+            and probe is not None
+            and getattr(probe, "data", None) is not None
+            and (getattr(probe, "every", None) or 0) > 0
+            and getattr(probe, "batch_size", None) is None
+        )
+
+    sentinel = object()
+    assert fires(POLICY_LATEST, Probe(data=sentinel, every=50)), (
+        "a new probing arm must get the batched probe -- otherwise the rule is inert"
+    )
+    assert not fires(POLICY_LATEST, Probe(data=sentinel, every=0)), (
+        "probe-free arm (every=0) must NOT get knowledge_probe_batch_size -- it re-hashes a run "
+        "to configure something it never executes"
+    )
+    assert not fires(POLICY_2026_09_15, Probe(data=sentinel, every=50)), (
+        "the rule reached backwards into an older epoch"
+    )
+    assert not fires(POLICY_LATEST, Probe(data=sentinel, every=50, batch_size=4)), (
+        "an arm that states its own probe batch size must win over the default"
+    )
+    assert PROBE_BATCH_SIZE > 4, "the point of the rule is a LARGER batch than the old default of 4"
+    print("PASS  probe-batch rule fires on probing arms only, and never backwards")
+
+
 def check_unknown_policy_rejected():
     """An invented date would be older than every rule and silently opt the run out of all of them."""
     from speech_llm.full_duplex.sis_recipe.doriank.runs import make_finetune_run
@@ -219,5 +264,6 @@ if __name__ == "__main__":
     check_derivation_only_names_real_checkpoints()
     check_per_run_save_every_override()
     check_policy_gate()
+    check_probe_batch_rule_skips_probe_free_runs()
     check_unknown_policy_rejected()
     print("ALL PASS")
