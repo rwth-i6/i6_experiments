@@ -546,6 +546,26 @@ per-segment cost, and the CTC-side requirement of a blank between repeated phone
 being traded away). Next reads: p_phi(d | k) of the warm-up, arm A ep1/ep6 and arm B ep3 phi against the MFA gold
 duration histogram per phone; frame-level target vs gold and the network-free fixed-point iteration (read (b)).
 
+### Read (a2): the reverse model's duration distribution is still uniform at arm start (2026-09-15,
+`reports/impl_reverse_duration_check_2026-09-15.md`; full run `reports/exec_reverse_duration_check_2026-09-15.md` pending)
+
+p_phi(d | k) is one free categorical per type (dur_logits [40, 50], masked to [2, D_k], log-softmax; 945 free
+parameters; initialised at zero = uniform). After the phi warm-up (`htxT2f9FHvWw`: 1 sub-epoch = 56 Adam steps,
+phi lr 3e-3, theta frozen) on dev-other gold segments, gold-weighted totals: gold mean duration 4.68 frames,
+gold P(d <= 3) 0.471 | model E[d] 13.44 frames, P(d = 2) 0.051, P(d = 3) 0.052, P(d <= 3) 0.103 | log p(d = 2)
+-3.00, log p(d = 6) -3.02 | KL(gold || model) 1.03 nats. The uniform over 2..25 has mean 13.5 and log p = -3.18:
+the warm-up moved the duration model by a few hundredths of a nat. Arm E ep8 phi is bit-identical to the warm-up
+(lam_tau 0, no gradient), which confirms the E control. Gold mass at d < 2 (impossible under d_min = 2): 5.1 %.
+
+Reading: every segment pays a flat ~3 nat duration cost independent of its length, i.e. the duration model is a
+pure per-segment penalty; together with the bigram's ~2-3 nats per phone, a phone costs ~5-6 nats of per-segment
+constants against 2-3 frames of evidence when it is short. That is the short-segment deletion mechanism of read (a)
+in numbers, and it says the arms started from an essentially UNFITTED reverse model (the emission tables p(z | k),
+20k parameters after the same 56 steps, are checked next). Design defect, not a knob: 56 SGD steps cannot fit a
+categorical duration model; phi needs an expected-count (EM) fit or an initialisation from unit-run statistics
+before theta is unfrozen. Whether phi's duration model moves during the arms (drift toward long segments) is read
+from the full run.
+
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
