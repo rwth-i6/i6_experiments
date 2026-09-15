@@ -517,7 +517,7 @@ holds, the remaining suspect is phi co-adaptation (phi lr 3e-3 chasing theta), t
 
 ### Read (a): sequence-level error pattern (2026-09-15, `reports/exec_per_error_pattern_2026-09-15.md` + .full.md;
 `analysis/out/per_error_pattern.{txt,json}`; all 16 recomputed S/D/I/PER match the banked per.json exactly; MFA join
-2863/2864 dev-other utts). NOT yet audited.
+2863/2864 dev-other utts). AUDITED CONFIRMED_WITH_CAVEATS (`reports/audit_short_segment_deletion_2026-09-15.md`: independent DP and MFA rasterisation reproduce S/D/I exactly and every bin within 0.15 pp; deletions give +10,386 of the +10,322 error rise at ep1; uniform thinning rejected, ep6/init deletion ratio 4.8-6.2 in bins 1-3 vs 1.5-1.9 in 6+; caveat: bin membership is boundary-convention sensitive, ordering and the short/long gap survive, exact digits do not).
 
 The degradation is a deletion of SHORT segments. dev-other, 10 h track, deletion rate by MFA gold-segment length
 (50 Hz frames; gold_n = segments in the bin; half of all gold phones are <= 3 frames):
