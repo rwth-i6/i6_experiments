@@ -56,6 +56,7 @@ EXTRA_ARGS = {
     "kame": {"--hf_repo", "--inject_at_s"},
     "audex": set(),
     "personaplex": set(),
+    "flmaudio": {"--hf_repo"},
 }
 
 #: (module, the per-backend defaults that must stay distinct).
@@ -65,10 +66,60 @@ DRIVERS = {
     "personaplex": ("moshi_family.personaplex.offline_inference", {"capture_s": 60.0, "batch_size": 1}),
     "moshirag": ("moshi_family.moshirag.offline_inference", {"capture_s": 24.0, "batch_size": 1}),
     "kame": ("moshi_family.kame_offline_inference", {"capture_s": 24.0, "batch_size": 1}),
+    # flmaudio is the one LIB driver NOT built on offline_cli -- it is a foreign backbone vendored
+    # for inference only and carries its own argparse. That is exactly why it belongs here: the
+    # harness decides what to send from `module is not None`, not from which parser the driver uses,
+    # so a flag added to offline_cli's shared parser silently skips this one. It did: --seed was
+    # emitted for every `offline_module=` backend and this driver did not declare it, which is an
+    # argparse exit(2) after the GPU is allocated. Found 2026-09-15 by reading, before it fired.
+    "flmaudio": ("flmaudio.offline_inference", {"capture_s": 24.0, "batch_size": 1}),
 }
 
 #: KAME has no FDB mode (each clip needs an oracle row), so it alone must not take --manifest.
 NO_MANIFEST = {"kame"}
+
+#: Drivers that legitimately never receive --overlay, because no adapter is ever resolved for them.
+#: FLM-Audio is an external HF checkpoint we only run inference on (FDB_MODEL_ORIGIN: "hf"), so the
+#: harness never has lora_weights to pass -- and --overlay is emitted only `if lora_weights is not
+#: None`. Exempting it is safe ONLY while that stays true, so the exemption is checked below rather
+#: than trusted.
+NO_OVERLAY = {"flmaudio"}
+assert "lora" not in BACKENDS.read_text().split("def flm_audio_backend_spec")[1].split("def ")[0], (
+    "flm_audio_backend_spec now mentions lora -- it may receive --overlay, so drop it from NO_OVERLAY"
+)
+
+
+#: Drivers that run in an ISOLATED venv and therefore cannot be imported by this check.
+#: flmaudio pins its own `transformers` (the setup venv raises `cannot import name 'LossKwargs'`),
+#: so its parser is read from SOURCE instead. That is a weaker check than building the real parser
+#: -- it cannot see a flag added dynamically -- but it is far stronger than skipping the driver,
+#: which is what let the --seed gap exist in the first place. Keyed by module -> source path.
+SOURCE_ONLY = {"flmaudio.offline_inference": "flmaudio/offline_inference.py"}
+
+
+def _parser_from_source(rel_path: str):
+    """(accepted option strings, {dest: default}) read out of the driver's `add_argument` calls.
+
+    Used only for SOURCE_ONLY drivers. Returns the same two things the import path derives from a
+    real parser, so the assertions below are identical either way.
+    """
+    import ast
+
+    src = (SETUP / "recipe/speech_llm/full_duplex" / rel_path).read_text()
+    accepted, defaults = set(), {}
+    for node in ast.walk(ast.parse(src)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr != "add_argument":
+            continue
+        opts = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+        accepted.update(opts)
+        dest = next((o.lstrip("-").replace("-", "_") for o in opts if o.startswith("--")), None)
+        for kw in node.keywords:
+            if kw.arg == "default" and dest:
+                defaults[dest] = kw.value.value if isinstance(kw.value, ast.Constant) else None
+    assert accepted, f"no add_argument calls found in {rel_path} -- the AST reader has drifted"
+    return accepted, defaults
 
 
 def parser_for(module_name: str):
@@ -96,15 +147,22 @@ def parser_for(module_name: str):
 
 failures = []
 for tag, (module, expected_defaults) in sorted(DRIVERS.items()):
-    p = parser_for(module)
-    accepted = {opt for action in p._actions for opt in action.option_strings}
-    defaults = {a.dest: a.default for a in p._actions}
+    if module in SOURCE_ONLY:
+        accepted, defaults = _parser_from_source(SOURCE_ONLY[module])
+        how = "source"
+    else:
+        p = parser_for(module)
+        accepted = {opt for action in p._actions for opt in action.option_strings}
+        defaults = {a.dest: a.default for a in p._actions}
+        how = "parser"
 
     required = harness_flags | EXTRA_ARGS[tag]
     if tag in ORACLE_BACKENDS:
         required |= {"--oracle_dataset"}
     if tag in NO_MANIFEST:
         required -= {"--manifest"}
+    if tag in NO_OVERLAY:
+        required -= {"--overlay"}
     missing = sorted(required - accepted)
     if missing:
         failures.append(f"{tag}: harness can send {missing} but the parser rejects them (argparse exit 2 on the node)")
@@ -122,7 +180,8 @@ for tag, (module, expected_defaults) in sorted(DRIVERS.items()):
             )
 
     print(
-        f"[ok] {tag:<12} {len(accepted):>2} flags, capture_s={defaults['capture_s']}, batch_size={defaults['batch_size']}"
+        f"[ok] {tag:<12} {len(accepted):>2} flags, capture_s={defaults['capture_s']}, "
+        f"batch_size={defaults['batch_size']}  ({how})"
     )
 
 if failures:
