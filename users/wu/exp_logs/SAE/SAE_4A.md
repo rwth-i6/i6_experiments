@@ -646,6 +646,14 @@ with D3; full trigram |h| = 1681 with D3 + D4 (S = 32): 7.89 | 9.55. The trigram
 stall, so the next factor is kernel fusion, not algorithm. matmul vs elementwise agree to 1.3e-4 abs (rel 4.8e-6) on
 GPU; D4 bit-identical across S; 122 emc tests pass; census 1021 and the 34 decode-job ids unchanged. Open: the S to
 train with (only S = 32 benched at B = 125).
+Follow-up commit 9b59812 (`reports/impl_lattice_knobs_2026-09-15.md`, after the code review
+`reports/review_lattice_d3d4_2026-09-15.md` and the row-sum diagnosis below): `_logmm` accumulates in float64 (fp32
+interface kept; an fp32 production-width row-sum test at |h| = 369, log Z = -172, fails before and passes after);
+backward GEMMs and the D4 recompute run under the same fp32/no-autocast guard; `lattice_reduction` / `lattice_checkpoint`
+reach the DP from the model definition with a guard that refuses a non-bigram history without checkpointing; unknown
+config keys now raise. Suite 142 passed; census 1021 and the 34 decode-job ids unchanged. Cost after the fix at B = 125,
+T_pad = 704: class trigram 4.33 s/step, 16.84 GiB; full trigram (S = 32) 10.31 s/step, 9.90 GiB — 6.9x the bigram
+step. Not yet settable from a config (build_emc_train_config lacks the hash-neutral-by-omission lines); S unpinned.
 
 **Two-pass lattice (user proposal 2026-09-15; design review `reports/design_two_pass_lattice_2026-09-15.md`,
 PROCEED_WITH_CHANGES as a 4-gram vehicle only, STOP as "the S2d lattice").** Proposal: pass 1 a frame-synchronous
