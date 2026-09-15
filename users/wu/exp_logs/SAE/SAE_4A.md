@@ -224,7 +224,13 @@ and banked as a diagnostic row only; no further GAN-init work. **S2b (main refin
 real-label inits: init (iii), the 10 h seed recognizer (`ReturnnTrainingJob.65NNK8Bwxdtd`), and a 1 h variant
 trained on a deterministic 1 h subset of the same seed. Supervision cost of the seed is disclosed on every claim
 from this track; the usability bar for S2b is a supervised fine-tune on the same seed and features (to be located
-in `SAE_ref.md` or registered before the read), not §1d. G4a.2's paired rule (WER delta vs the arm's own init,
+in `SAE_ref.md` or registered before the read), not §1d. Checked 2026-09-15 (`reports/impl_s2b_configs_2026-09-15.md`):
+no supervised 10 h / 1 h WER row exists in the project logs, and the seed recognizer itself IS the supervised
+fine-tune of this model class on the seed, so the S2b bar is the paired delta against the arm.s own init;
+published 10 h wav2vec 2.0 fine-tunes are context, not a bar (different model class). Init (iii) thereby loses its
+quarantine wording: it is the disclosed 10 h seed init of S2b-10h. The 1 h seed is the banked
+`TransformAndMapHuggingFaceDatasetJob.TAZO5vh3T7X2` (seed 42); its init matches (iii).s update count, not its
+epoch count. G4a.2.s paired rule (WER delta vs the arm.s own init,
 clustered-bootstrap CI, selected checkpoint) is unchanged. S1b is the unanchored, un-warmed precursor of S2b-10h
 and drifted (+0.02 PER per sub-epoch); the prior for S2b is therefore that arm A drifts and arm B is the question.
 **S3 starts now**, in parallel and no longer conditional on S2: the unsupervised case is the claim the campaign is
