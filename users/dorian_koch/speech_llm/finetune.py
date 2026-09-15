@@ -559,6 +559,7 @@ full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
 per_gpu_batch: {hp.get("per_gpu_batch", 1)}
 grad_accum: {hp.get("grad_accum", 16)}
 gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
+prefetch_batches: {int(hp.get("prefetch_batches", 2))}
 lr: {_yaml_float(_lr)}
 depth_lr: {_yaml_float(hp.get("depth_lr", _lr))}
 temporal_lr: {_yaml_float(hp.get("temporal_lr", _lr))}

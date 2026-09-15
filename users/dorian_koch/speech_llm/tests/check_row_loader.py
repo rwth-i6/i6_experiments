@@ -24,7 +24,11 @@ sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duple
 
 import torch  # noqa: E402
 
-from moshi_family.train_data_common import batched_row_loader, shard_rng  # noqa: E402
+from moshi_family.train_data_common import (  # noqa: E402
+    batched_row_loader,
+    prefetch_batches,
+    shard_rng,
+)
 
 NUM_ROWS = 40
 table = SimpleNamespace(num_rows=NUM_ROWS)
@@ -67,6 +71,7 @@ assert rows_seen(rank=0, world=1) == single, "same seed gave a different epoch o
 assert rows_seen(rank=0, world=1, seed=7) != single, "different seeds gave the identical order"
 print("[ok] one seed reproduces one epoch order")
 
+
 # --- bad rows are skipped, not fatal, and do not eat the epoch ------------------------------------
 def flaky(row_index, rng):
     if row_index % 5 == 0:
@@ -91,4 +96,63 @@ _rng, rank, world = shard_rng(0)
 assert (rank, world) == (3, 8), (rank, world)
 print("[ok] shard_rng reads RANK/WORLD_SIZE")
 
+# --- prefetch is a no-op on WHAT is trained on ------------------------------------------------------
+# The whole claim for the prefetch is "wall clock only". If the batches or their order can differ,
+# an A/B on speed is comparing two different experiments and every finished run's meaning is in
+# doubt -- so this is asserted on the tensors themselves, not on the row indices.
+os.environ["RANK"], os.environ["WORLD_SIZE"] = "0", "1"
+
+
+def _batches(depth, n=17, seed=0, batch_size=3):
+    it = batched_row_loader(table, item_for, batch_size=batch_size, seed=seed)
+    it = prefetch_batches(it, depth=depth)
+    out = []
+    for _ in range(n):
+        codes, mask = next(it)
+        out.append((codes.clone(), mask.clone()))
+    return out
+
+
+serial = _batches(0)
+for _depth in (1, 2, 8):
+    pf = _batches(_depth)
+    assert len(pf) == len(serial)
+    for i, ((c0, m0), (c1, m1)) in enumerate(zip(serial, pf)):
+        assert torch.equal(c0, c1), f"depth={_depth}: batch {i} codes differ from the serial loader"
+        assert torch.equal(m0, m1), f"depth={_depth}: batch {i} mask differs from the serial loader"
+print("[ok] prefetch bit-identical      batches and order unchanged at depth 1, 2, 8")
+
+# Non-vacuous: the comparison above must be capable of failing. A different seed really does
+# produce different batches, so equality is a property of the prefetch, not of the fixture.
+_other = _batches(0, seed=1)
+assert not all(torch.equal(a[0], b[0]) for a, b in zip(serial, _other)), (
+    "the fixture yields the same batches for every seed -- the identity check above is vacuous"
+)
+print("[ok] identity check can fail     a different seed yields different batches")
+
+# depth=0 must be the untouched iterator, so an A/B is a config change and not a code path change.
+_raw = batched_row_loader(table, item_for, batch_size=3, seed=0)
+assert prefetch_batches(_raw, depth=0) is _raw, "depth=0 wrapped the iterator instead of returning it"
+print("[ok] depth=0 is the old path     the iterator is returned untouched")
+
+
+# A producer that dies must stop the run, not hang it or silently truncate the epoch. Without the
+# re-raise the consumer would block on an empty queue forever and the job would burn its walltime
+# looking like slow training.
+def _explodes():
+    yield ("first",)
+    raise RuntimeError("synthetic producer failure")
+
+
+_it = prefetch_batches(_explodes(), depth=2)
+assert next(_it) == ("first",)
+try:
+    next(_it)
+except RuntimeError as e:
+    assert "synthetic producer failure" in str(e), e
+    print("[ok] producer errors re-raised  a dead producer stops the consumer, not hangs it")
+else:
+    raise SystemExit("FAIL: the prefetch swallowed a producer exception")
+
 print("\nthe shared row loader shards disjointly, reproduces its order, and survives bad rows")
+print("prefetch overlaps batch building without changing a single batch")
