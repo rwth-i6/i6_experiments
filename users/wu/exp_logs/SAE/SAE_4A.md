@@ -657,6 +657,18 @@ contexts (CPU); (5) the trigram's k = 1 value is 0.0026 PER without a CI, so fun
 sizes the anchored one-step design. Decision: two-pass not funded now; trigram inside the objective goes through the
 exact D3 + D4 pass; two-pass revisited only for the 4-gram. Cheap next read: paired bootstrap of trigram-vs-bigram
 k = 1 PER on the banked 300 utterances.
+Literature on the pruning question (`reports/lit_lattice_pruning_2026-09-15.md`): lattice MMI generates denominator
+lattices once under a unigram LM at 10-25 arcs/frame and regenerates at most once (Vesely et al. 2013); frames whose
+truth falls outside the lattice get outsized gradients and cause the over-training that motivated frame rejection
+(same paper); a posterior TARGET has an interior beam optimum (Manohar et al. 2018: best-path 54 % -> beam 4 62-64 %
+-> worse at 8), so "~100 states/frame" is 4-10x the depth that worked, not a safe margin; seed-model bias in a
+generated target is fixed at the source (a deletion penalty applied only when generating supervision, -13 % rel WER,
+Fainberg et al. 2019) — relevant to the deletion pattern of read (a). LF-MMI keeps the sum exact with a 24k-state
+denominator (trigram + 2000 selected 4-gram histories, Povey et al. 2016) and forward-backward under 20 % of the
+step; with our 25-slot duration axis that state space is ~5.5 M arcs/frame, about 8x the graph that already took
+85 % of the step in Michel et al. 2019 (agent arithmetic, flagged). Net: the pruned-4-gram single pass is not
+affordable with the duration axis either; the 4-gram inside the objective has no funded route today, and the
+trigram single pass (D3 + D4) is the operating point.
 
 ### Read (b): frame-level target vs gold and the network-free fixed point (2026-09-15, `analysis/emc_target_vs_gold.py`,
 `reports/exec_target_vs_gold_2026-09-15.md` + .full.md; 14 GPU runs, dev-other 18,660 gold segments; audited CONFIRMED_WITH_CAVEATS, `reports/audit_fixed_point_2026-09-15.md`)
