@@ -136,7 +136,7 @@ degree; WER speaks; analysis gates control spend only.
   not before S2 (S2 on tc100 costs ~1.6 min per sub-epoch at this rate). Review (`reports/review_step_fixes_2026-09-15.md`,
   all four items PASS) notes the 75 utt/s number was derived from the B = 64 bench; the rule behind it (loader wait
   at most a quarter of the step) re-derived at the run shape and batch is 0.75 x 75.9 = 57 utt/s. The original
-  number stands as written; both are reported at the re-read.
+  number stands as written; both are reported at the re-read. Re-read on the S2b / S3 launch (2026-09-15, `reports/exec_s2b_s3_efficiency_2026-09-15.md`): S2b-10h warm-up phi (`ReturnnTrainingJob.htxT2f9FHvWw`, 58 steps) median 75.3 utt/s, loader wait 0.3 %; S3 cold start (`sBlPYBA1YcIQ`, steps 10-100) 73.8 utt/s, loader wait 0.4 %, ~123 s per sub-epoch (8 sub-epochs ~16 min). Same reading as S1b: number marginal (S3 1.6 % under 75), rule passed, compute-bound in the lattice kernel; kernel fusion remains queued before any run beyond tc100.
 - **Rate**: d_min = 2 and D_sil = 50 bound the token count only weakly. The emitted phone rate is logged per
   sub-epoch; a sub-epoch whose rate leaves [0.6, 1.5] x the text phone rate (9.8/9.4 per s on dev,
   `SAE_1f.md:533-536`) is reverted, not compounded (wav2vec-U 2.0 reports PER > 100 whenever the rate drifts).
