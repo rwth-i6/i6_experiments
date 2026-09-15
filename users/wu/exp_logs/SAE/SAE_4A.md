@@ -923,6 +923,16 @@ content-free, the synthesis pipeline (not the cold start) is the suspect and the
 (`reports/lit_backtranslation_cold_start_2026-09-15.md`), reviewed by the design-reviewer before its first job.
 Gate form fixed now: the G4a.3 clauses (dev-other PER < 0.50 AND positive gap) at a matched budget of 8 tc100
 sub-epoch equivalents; the operating point and any init are named in the design.
+Literature (2026-09-15, `reports/lit_backtranslation_cold_start_2026-09-15.md`): this IS tried-and-failed evidence,
+not absence. Unsupervised MT: back translation alone with a good cross-lingual init but no denoising autoencoder
+gives 0.0 / 0.0 BLEU against 25.1 / 24.2 with it (Lample et al. EMNLP 2018, Table 4); without the pretrained init
+8.8 / 9.2 against 27.5 / 28.1 (Lample et al. ICLR 2018, Table 4). Artetxe 2018 states the mechanism: BT without
+denoising lets the model ignore its input and learn a target-side LM. ASR<->TTS dual transformation (Ren et al.
+ICML 2019) is a threshold: 100 paired utterances -> PER 64.2, 200 -> 11.7; zero paired was not tried. Liu 2020 and
+Chen 2019 are not cold-start back translation. Implication for S3b-BT: the full design carries a denoising
+autoencoder on the unit side (the ingredient worth 0 -> 25 BLEU) and the rate constraint; back translation alone
+from the flat init is predicted to stay at the all-blank null. The probe's cold arms test exactly that prediction;
+its warm-phi arms test the pipeline.
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
