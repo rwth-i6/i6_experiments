@@ -669,6 +669,16 @@ step; with our 25-slot duration axis that state space is ~5.5 M arcs/frame, abou
 85 % of the step in Michel et al. 2019 (agent arithmetic, flagged). Net: the pruned-4-gram single pass is not
 affordable with the duration axis either; the 4-gram inside the objective has no funded route today, and the
 trigram single pass (D3 + D4) is the operating point.
+Pruned-LM state spaces (`reports/impl_prior_pruned_ppl_2026-09-15.md`, `analysis/out/prior_order_ppl.pruned.txt`; same
+text and held-out split as the banked ppl read, 912,142 held-out tokens; top-N histories kept as explicit states, the
+rest scored from the longest kept suffix; a kept row is a proper Witten-Bell distribution): trigram N = 1000 -> 1042
+states, ppl 9.49 (unpruned 1566 seen states, 9.47); 4-gram N = 1000 -> 2042 states, ppl 8.42; N = 2000 -> 3566
+states, 7.94; N = 4000 -> 5566 states, 7.50; unpruned 36,575 states, 7.03. So a 4-gram at ~2000 states already beats
+the full trigram by 1 ppl point at 1.3x its state count. Caveat (design review Q4): a pruned backoff state space has
+no group structure in its successor map (the next state depends on whether (h, k) is kept), so the D3 matmul
+reduction does not apply and the history axis costs linear in |h| again (7.9x bigram at 369 states); the pruned
+4-gram inside the exact single pass is therefore priced at ~40x the bigram step until a successor-structured kernel
+exists. Not funded; recorded as the cheapest 4-gram route if the objective is ever worth it.
 
 ### Read (b): frame-level target vs gold and the network-free fixed point (2026-09-15, `analysis/emc_target_vs_gold.py`,
 `reports/exec_target_vs_gold_2026-09-15.md` + .full.md; 14 GPU runs, dev-other 18,660 gold segments; audited CONFIRMED_WITH_CAVEATS, `reports/audit_fixed_point_2026-09-15.md`)
