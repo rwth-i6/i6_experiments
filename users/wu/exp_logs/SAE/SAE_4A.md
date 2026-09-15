@@ -458,6 +458,25 @@ S3 audit (2026-09-15, `reports/audit_s3_g4a3_2026-09-15.md`): CONFIRMED FAIL on 
 PER 0.8955 with deletions 84 % of N (near-empty decodes), gap -0.3218 (macro -0.342) with the CI wholly below 0;
 checkpoint, split, gold and tau = 2 verified; the rate rule fired at sub-epochs 1-5 and 7, so the read point itself
 would have been reverted. S3 is not funded further at this schedule.
+## S2c, held anchor (D) vs self-distillation control (E): per-sub-epoch reads (2026-09-15; `reports/extract_s2c_reads_2026-09-15.md` + .full.md)
+
+All four trainings finished 8 sub-epochs. Greedy dev-other PER (init -> ep1..ep8; selected = argmin weighted_lm_ppl):
+
+| track | arm | init | ep1 | ep2 | ep3 | ep4 | ep5 | ep6 | ep7 | ep8 | selected |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 10 h | D (alpha 0.25 held) | 0.1157 | 0.1075 | 0.1079 | 0.1076 | 0.1072 | 0.1087 | 0.1120 | 0.1068 | 0.1082 | 7 |
+| 10 h | E (self-distill) | 0.1157 | 0.1101 | 0.1112 | 0.1088 | 0.1098 | 0.1082 | 0.1104 | 0.1088 | 0.1105 | 4 |
+| 1 h | D | 0.1303 | 0.1235 | 0.1225 | 0.1229 | 0.1216 | 0.1227 | 0.1185 | 0.1202 | 0.1189 | 6 |
+| 1 h | E | 0.1303 | 0.1276 | 0.1279 | 0.1268 | 0.1275 | 0.1253 | 0.1269 | 0.1260 | 0.1275 | 5 |
+
+dev l_tau: D 2.004 -> 1.903 (10 h), 2.018 -> 1.922 (1 h) while PER stays flat, i.e. the tilt holds theta where the
+unanchored arm drifted; E's l_tau is flat (2.17 / 2.20, not optimised). Phone rates 9.67-10.08/s, distinct
+2702-2704 for every checkpoint (no rate drift in either arm). Provisional pooled reading (NO claim until the 96
+PairedPerDeltaJob reads and an audit): both arms improve on their init; D sits 0.002-0.003 (10 h) and 0.005-0.009
+(1 h) absolute PER below E at matched sub-epochs and at the selected checkpoints (10 h 0.1068 vs 0.1098; 1 h 0.1185
+vs 0.1253). The gain of E over init (about 0.005 / 0.003) is the self-training floor an anchored objective has to
+beat; the pre-registered read is the paired D - E delta.
+
 ## Degradation investigation (opened 2026-09-15 evening on the user's instruction; reads pre-registered here)
 
 Question: why does plain L_tau at tau = 2 triple the PER of the 10 h seed recognizer (arm A dev-other 0.1157 ->
