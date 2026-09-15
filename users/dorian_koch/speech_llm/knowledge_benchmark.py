@@ -122,6 +122,13 @@ def load_triviaqa(split: str = "validation"):
 # LLM preprocessing -- makes questions speech-digestible
 # ---------------------------------------------------------------------------
 
+#: The decoding seed NEW knowledge tags should pass as ``inference_seed`` (backlog E1). A single
+#: named constant rather than a literal per call site, so a seeded tag is visibly the same seed as
+#: every other seeded tag and a sweep is an explicit departure from it. Deliberately NOT a default
+#: on ``knowledge_benchmark_py``: defaulting it would silently re-hash and re-run all 41 existing
+#: call sites, which is the one thing the rule forbids. See the ``inference_seed`` docstring.
+KNOWLEDGE_INFERENCE_SEED = 1234
+
 LLM_PREPROCESS_INSTRUCTIONS = (
     "You are preparing questions for a speech-based AI assistant. "
     "Clean up the following question for spoken output: remove formatting artifacts, "
@@ -800,6 +807,18 @@ def knowledge_benchmark_py(
             have their own argparse and are deliberately not sent ``--seed`` (they would exit(2)
             after the GPU is allocated), so setting this on a fork-backend tag silently does
             nothing. Hash-excluded at ``None``, so it re-runs only the tag that opts in.
+
+            **The standing rule, so this is not re-litigated (user, 2026-09-15: "E1 is obvious"):
+            pass ``inference_seed=KNOWLEDGE_INFERENCE_SEED`` on NEW tags; never retro-seed an
+            existing one.** Retro-seeding re-runs ~30 already-scored numbers and not one of them
+            would reproduce, because they were produced unseeded -- so it buys nothing and costs
+            every historical comparison. The precedent is E8: apply a determinism fix where it
+            changes nothing, and gate the honest version on a new tag.
+            **Seeded and unseeded numbers must never appear in the same table.**
+
+            Note the seeding capability is not theoretical -- FDB has used it in production since
+            ``seed_variance_py`` (3 models x 3 seeds), one of them through the offline lib driver.
+            It is the knowledge line that has 43 unseeded call sites and zero seeded ones.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
