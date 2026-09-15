@@ -69,69 +69,98 @@ print("[ok] row_wer            empty reference is unmeasurable, not invented")
 
 # --- drive the real run() over a fixture where annotate dropped a row -----------------------------
 def _fixture(tmp: Path):
-    from datasets import Dataset
+    from datasets import Dataset, Features, List, Sequence, Value
+
+    # ⚠ The feature types are declared EXPLICITLY, matching production, and that is the whole point
+    # of this fixture. `chatterbox_inference.dialogue_features` stores turns as a `Sequence({...})`,
+    # which datasets returns COLUMNAR (a dict of lists); `moshi_annotate_inference.ALIGNMENT_FEATURE`
+    # stores alignments as a `List({...})`, which comes back as a list of dicts. An earlier version
+    # of this check built both with `Dataset.from_list` and no features, which infers List-of-struct
+    # for both -- so it passed while the job crashed on the first real corpus with
+    # "'str' object has no attribute 'get'". A fixture that does not carry the production schema is
+    # testing a program we do not run.
+    turns_features = Features(
+        {
+            "id": Value("string"),
+            "turns": Sequence(
+                {
+                    "speaker": Value("string"),
+                    "start_time": Value("float32"),
+                    "end_time": Value("float32"),
+                    "text": Value("string"),
+                }
+            ),
+        }
+    )
+    align_features = Features(
+        {
+            "id": Value("string"),
+            "alignments": List(
+                {
+                    "text": Value("string"),
+                    "start": Value("float32"),
+                    "end": Value("float32"),
+                    "speaker": Value("string"),
+                }
+            ),
+        }
+    )
 
     # Three dialogues. Row "b" is the one the annotate stage will "fail" on.
-    tts = Dataset.from_list(
-        [
-            {
-                "id": "a",
-                "turns": [
-                    {"speaker": "user", "text": "WRONG WRONG WRONG WRONG", "start_time": 0.0, "end_time": 1.0},
-                    {
-                        "speaker": ASSISTANT_SPEAKER,
-                        "text": "the capital of France is Paris",
-                        "start_time": 1.0,
-                        "end_time": 2.0,
-                    },
-                ],
-            },
-            {
-                "id": "b",
-                "turns": [
-                    {
-                        "speaker": ASSISTANT_SPEAKER,
-                        "text": "this row never got annotated",
-                        "start_time": 0.0,
-                        "end_time": 1.0,
-                    },
-                ],
-            },
-            {
-                "id": "c",
-                "turns": [
-                    {
-                        "speaker": ASSISTANT_SPEAKER,
-                        "text": "one two three four five six",
-                        "start_time": 0.0,
-                        "end_time": 1.0,
-                    },
-                ],
-            },
-        ]
+    def _turns(*entries):
+        """Columnar turns, as Sequence(struct) stores them."""
+        return {
+            "speaker": [e[0] for e in entries],
+            "start_time": [float(i) for i in range(len(entries))],
+            "end_time": [float(i + 1) for i in range(len(entries))],
+            "text": [e[1] for e in entries],
+        }
+
+    def _align(sentence):
+        return [{"text": w, "start": 0.0, "end": 0.1, "speaker": "SPEAKER_MAIN"} for w in sentence.split()]
+
+    # Three dialogues. Row "b" is the one the annotate stage will "fail" on.
+    tts = Dataset.from_dict(
+        {
+            "id": ["a", "b", "c"],
+            "turns": [
+                _turns(
+                    ("user", "WRONG WRONG WRONG WRONG"),
+                    (ASSISTANT_SPEAKER, "the capital of France is Paris"),
+                ),
+                _turns((ASSISTANT_SPEAKER, "this row never got annotated")),
+                _turns((ASSISTANT_SPEAKER, "one two three four five six")),
+            ],
+        },
+        features=turns_features,
     )
-    # Annotate output: "b" is MISSING, so row 1 of this dataset is "c". A positional join would
-    # score c's transcript against b's text.
-    ann = Dataset.from_list(
-        [
-            {
-                "id": "a",
-                "alignments": [
-                    {"text": w, "start": 0.0, "end": 0.1, "speaker": "SPEAKER_MAIN"}
-                    for w in "the capital of France is Paris".split()
-                ],
-            },
-            {
-                "id": "c",
-                "alignments": [
-                    {"text": w, "start": 0.0, "end": 0.1, "speaker": "SPEAKER_MAIN"}
-                    for w in "one two three four five six".split()
-                ],
-            },
-        ]
+    # Annotate output: "b" is MISSING, so row 1 here is "c". A positional join would score c's
+    # transcript against b's text.
+    ann = Dataset.from_dict(
+        {
+            "id": ["a", "c"],
+            "alignments": [
+                _align("the capital of France is Paris"),
+                _align("one two three four five six"),
+            ],
+        },
+        features=align_features,
     )
+    # Round-trip through disk so the declared features are what the job actually reads back.
     tts.save_to_disk(str(tmp / "tts"))
     ann.save_to_disk(str(tmp / "ann"))
+
+    from datasets import load_from_disk
+
+    _t = load_from_disk(str(tmp / "tts"))
+    assert isinstance(_t[0]["turns"], dict), (
+        "the fixture's turns column did not come back columnar -- it no longer reproduces the "
+        "production Sequence(struct) layout, so this check would pass on a schema we never see"
+    )
+    _a = load_from_disk(str(tmp / "ann"))
+    assert isinstance(_a[0]["alignments"], list), (
+        "the fixture's alignments column is not a list of dicts -- it no longer matches ALIGNMENT_FEATURE"
+    )
     return tmp / "tts", tmp / "ann"
 
 
@@ -188,18 +217,33 @@ with tempfile.TemporaryDirectory() as td:
     print("[ok] assistant only     user turns stay out of the reference")
 
     # Non-vacuous: the same fixture with a deliberately mismatched transcript must NOT score 0.
-    from datasets import Dataset
+    from datasets import Dataset, Features, List, Value
 
-    bad = Dataset.from_list(
-        [
-            {
-                "id": "a",
-                "alignments": [
+    align_features = Features(
+        {
+            "id": Value("string"),
+            "alignments": List(
+                {
+                    "text": Value("string"),
+                    "start": Value("float32"),
+                    "end": Value("float32"),
+                    "speaker": Value("string"),
+                }
+            ),
+        }
+    )
+
+    bad = Dataset.from_dict(
+        {
+            "id": ["a"],
+            "alignments": [
+                [
                     {"text": w, "start": 0.0, "end": 0.1, "speaker": "SPEAKER_MAIN"}
                     for w in "completely different words entirely".split()
-                ],
-            },
-        ]
+                ]
+            ],
+        },
+        features=align_features,
     )
     bad.save_to_disk(str(tmp / "bad"))
     job.annotated_hf = _P(tmp / "bad")

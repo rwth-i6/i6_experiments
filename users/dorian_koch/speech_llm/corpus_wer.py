@@ -60,6 +60,31 @@ def normalize_for_wer(text: str) -> list[str]:
     return _WS.sub(" ", _PUNCT.sub(" ", (text or "").lower())).strip().split()
 
 
+def iter_structs(value) -> list[dict]:
+    """Normalise an HF struct-sequence column to a list of dicts.
+
+    ⚠ The two columns this job joins are stored with DIFFERENT feature types, and `datasets`
+    returns them in different shapes:
+
+    * ``alignments`` is a ``List({...})`` -> a **list of dicts**, one per word.
+    * ``turns`` is a ``Sequence({...})`` (``chatterbox_inference.dialogue_features``) -> a
+      **dict of lists**, i.e. columnar: ``{"speaker": [...], "text": [...], ...}``.
+
+    Iterating the second one yields its KEYS, so `turn.get("speaker")` raises
+    ``'str' object has no attribute 'get'``. That is exactly how this job failed on first
+    contact with the real corpus, while a fixture built with `Dataset.from_list` passed --
+    from_list infers List-of-struct, not Sequence, so the fixture was a schema the production
+    data never had.
+    """
+    if isinstance(value, dict):
+        keys = list(value)
+        if not keys:
+            return []
+        n = len(value[keys[0]])
+        return [{k: value[k][i] for k in keys} for i in range(n)]
+    return list(value or [])
+
+
 def row_wer(ref_words: list[str], hyp_words: list[str]) -> float | None:
     """Word-level edit distance / reference length. ``None`` when the reference is empty.
 
@@ -126,7 +151,7 @@ class SyntheticSpeechWer(Job):
         # for.
         hyp_by_id: dict[str, str] = {}
         for i, rid in enumerate(ann["id"]):
-            words = [a["text"] for a in ann[i]["alignments"]]
+            words = [a["text"] for a in iter_structs(ann[i]["alignments"])]
             hyp_by_id[str(rid)] = " ".join(words)
 
         ids = [str(x) for x in tts["id"]]
@@ -145,7 +170,7 @@ class SyntheticSpeechWer(Job):
         for n, i in enumerate(idx):
             rid = ids[i]
             ref_words: list[str] = []
-            for turn in tts[i]["turns"]:
+            for turn in iter_structs(tts[i]["turns"]):
                 if turn.get("speaker") == ASSISTANT_SPEAKER:
                     ref_words += normalize_for_wer(turn.get("text", ""))
             if rid not in hyp_by_id:
