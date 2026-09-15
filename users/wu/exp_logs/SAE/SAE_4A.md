@@ -761,13 +761,13 @@ the recipe applies it (log q_k + alpha log q_init into the same lattice call, q_
 | line | k=0 | k=1 | k=2 | k=5 | k=10 | k=20 | k=30 |
 |---|---|---|---|---|---|---|---|
 | (e) un-ablated, no anchor | 0.1100 | 0.0962 | 0.1048 | 0.1400 | 0.1898 | 0.2421 | 0.2573 |
-| (a) TRI, no anchor | 0.1100 | 0.0939 | 0.0973 | 0.1197 | 0.1609 | 0.2194 | 0.2429 |
+| (a) TRI, no anchor (rerun on the fixed lattice, SLURM 1817267, rows [0.9968, 1.0014]) | 0.1100 | 0.0936 | 0.0964 | 0.1166 | 0.1491 | 0.1890 | 0.2015 |
 | (b) TRI, alpha 1.0 | 0.1100 | 0.0981 | 0.0959 | 0.0949 | 0.0944 | | |
 | (c) TRI, alpha 0.5 | 0.1100 | 0.0961 | 0.0939 | 0.0949 | 0.0952 | | |
 | (d) TRI, alpha 0.25 | 0.1100 | 0.0947 | 0.0937 | 0.0991 | 0.1018 | | |
 
 Reading. (1) The un-anchored iteration does NOT plateau at the reverse model's posterior: both K = 30 lines rise
-monotonically past k = 1 and are still rising at k = 30 (0.257 un-ablated, 0.243 with trigram + durations). The
+monotonically past k = 1 and are still rising at k = 30 (0.257 un-ablated, 0.201 with trigram + durations on the fixed lattice; the first run of that line, 0.243, was on the broken matmul path and is kept as *.broken_rowsum). The
 "fixed point = R's posterior, ceiling ~0.16-0.19" reading given after (b2) was wrong: the iterate is the per-frame
 FACTORISED projection of the target's marginals, not the path distribution, so the limit is not R's posterior and no
 finite ceiling is visible within 30 iterations. The trigram + durations shift the curve by ~2 iterations, they do not
