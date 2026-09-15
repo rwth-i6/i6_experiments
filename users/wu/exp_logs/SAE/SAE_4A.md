@@ -322,6 +322,24 @@ Launch of S2b / S3 is held until (a) returns: if a bug, every
 run so far is void and reruns at the fixed hashes; if the target is genuinely anti-aligned, S2b would only
 repeat the S1b picture and S3's G4a.3 becomes the phase's only remaining question.
 
+Decode temperature sweep on init (i) (2026-09-15, `config_sae_4a_decode_temp_v1.py`, pinned decoder otherwise; sclite
+plain WER %, S / D / I %, hyp/ref words; `alias/sae/4a/decode_temp/init_i/T*/…/counts/output/decode_counts.json`):
+
+| T | dev-clean WER (S/D/I) | hyp/ref | dev-other WER (S/D/I) | hyp/ref |
+|---|---|---|---|---|
+| 1.0 | 51.7 (40.7/6.8/4.2) | 53031/54402 | 58.3 (45.6/8.3/4.4) | 48966/50948 |
+| 1.5 | 46.0 (35.4/7.9/2.7) | 51534/54402 | 52.4 (40.1/9.6/2.7) | 47455/50948 |
+| 2.0 | 42.9 (32.1/8.8/1.9) | 50649/54402 | 49.7 (36.9/10.8/2.0) | 46468/50948 |
+| 3.0 | **40.5** (28.6/10.7/1.2) | 49214/54402 | 47.9 (33.3/13.3/1.3) | 44826/50948 |
+| 4.0 | 41.3 (27.2/13.3/0.9) | 47666/54402 | 48.6 (31.6/16.2/0.9) | 43179/50948 |
+
+Pre-registered pick: T = 3.0 (dev-clean argmin). Flattening the posteriors helps monotonically to T = 3 and trades
+substitutions for deletions, but 40.5 % WER at greedy PER 0.166 is still far from the §1d operating point (PER 0.138
+-> 17.96 %), so beam pruning is at most part of the cause. The T decision is HELD: the 10 h seed init (greedy PER
+0.058, 39 symbol types, never SIL) decodes to in-job WER 0.985 on dev-clean under the same chain
+(`reports/extract_seed_init_sil_2026-09-15.md`), which a better recognizer cannot produce by pruning alone; a
+debugger is on it (`reports/debug_seed_init_wer_2026-09-15.md`). No §4a WER is quotable until it returns.
+
 Q-target diagnostic (2026-09-15, `analysis/emc_target_diag.py`, result `analysis/out/emc_target_diag.txt`, report
 `reports/exec_target_diag_2026-09-15.md`; 300 dev-clean utts = first 300 of the HDF order, 109,284 frames, 5 speakers;
 units from the frozen enc50 store, L15 from the feature dump, gathered by tag; SLURM 1804704, 3 min on one GH200).
@@ -350,6 +368,22 @@ train-mode forward (dropout 0.1 x2, BN on batch statistics, `recognizer.py:180-1
 are eval-mode. Queued cross-check (not launch-blocking): the diagnostic with theta AND phi from S1b `epoch.001.pt`
 on the job's cv segments (285 utts) must reproduce the logged dev L_tau 2.00415. DONE (2026-09-15, `reports/exec_target_diag_replay_2026-09-15.md`): the offline path with theta AND phi from epoch.001.pt on the job's 285 cv utterances in the job's own batching reproduces dev_loss_l_tau 2.0041547616322837 and dev_loss_agg 0.7693092823 to zero difference; the offline diagnostic and the training job compute the same objective.
 
+
+## S3 cold start: G4a.3 read (2026-09-15, AUDIT PENDING `reports/audit_s3_g4a3_2026-09-15.md`)
+
+Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
+3.17 / 2 / 2 / 2 / 2 / 2, ~123 s per sub-epoch; extractor report `reports/extract_s3_reads_2026-09-15.md`). Dev L_tau
+1.74 (sub-ep 1) -> 1.21 (sub-ep 3) -> 1.21 (sub-ep 8); reverse term per frame -7.22 -> -3.32. Dev-other greedy PER:
+0.8955 at sub-epoch 4 (gate read), best 0.8387 at sub-epoch 5. Emitted phone rate per sub-epoch 3.71, 1.98, 0.97,
+1.58, 4.75, 6.87, 4.29, 7.73 per s: every sub-epoch is outside [0.6, 1.5] x 9.8/s = [5.9, 14.7] (the rate rule
+fires on all eight; nothing to revert to). Speaker-matched derangement gap at sub-epoch 4 on dev-other
+(`S3DerangementGapJob.Ez8bGMB7LnPX`): gap_per_frame -0.3218, ci95 [-0.6446, -0.0170], n_selected 314/500,
+identical_donor 12 — negative with the CI excluding 0: the held-out reverse model scores a deranged donor's decode
+ABOVE the utterance's own. G4a.3 as pre-registered (dev-other PER < 0.50 AND positive gap at sub-epoch 4): FAIL on
+both clauses. Reading (pending audit): from a flat start the objective is optimised (L_tau falls 1.74 -> 1.21) by a
+recognizer whose output carries no utterance-specific content (PER ~ 0.9, negative gap, phone rate collapsing to
+1-2 / s during the anneal); the cold-start bootstrap does not take off on this bed. Per the gate this licenses "not
+funding S3 further", not "it could not work" (a single schedule and seed were run).
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
