@@ -483,6 +483,19 @@ objective row (A, C, B after alpha reaches 0, D at 10 h) degrades, by up to +46 
 the investigation: the bigram-prior objective with an unfitted duration model has no refinement to offer beyond the anchor; S2d is
 funded on the model-side remedy, not on a repeat of this design.
 
+Paired greedy PER beside the WER (PairedPerDeltaJob, utterance-paired, speaker-clustered bootstrap, dev-other, 2864 utts; jobs under
+`alias/sae/4a/{s2b_10h,s2b_1h}/paired_per/{arm}/{ep,selected}/dev-other` and `alias/sae/4a/{s2c_10h,s2c_1h}/{armD,armE}/ep*/dev-other/
+paired_per_vs_{init,armE}`; `reports/extract_paired_per_inputs_2026-09-15.md`; read off the jsons by the orchestrator, one line each;
+negative = arm better). 10 h (init 0.1157): arm A +0.058 (ep1 = selected) .. +0.109 (ep6); arm C +0.076 .. +0.112; C vs A +0.018 (ep1),
+within 0.003 from ep3; arm B ep1 -0.010, ep2 -0.007, ep3 = selected -0.0131 [-0.0165, -0.0101] (20 % of utts worse), ep4 -0.008,
+ep5 +0.047, ep6 +0.070; D ep7 = selected -0.0090 [-0.0138, -0.0046], E ep4 = selected -0.0060 [-0.0075, -0.0045], D vs E at the
+selected epochs -0.0020 [-0.0054, +0.0013] (not separable). 1 h (init 0.1303): arm A +0.040 .. +0.087; arm C +0.044 ..; arm B ep4 =
+selected -0.0090 [-0.0119, -0.0064], ep5 +0.026, ep6 +0.043; D ep6 = selected -0.0117 [-0.0150, -0.0088], E ep5 = selected -0.0050
+[-0.0059, -0.0040], D vs E -0.0084 [-0.0110, -0.0060]. Reading: the PER picture is the WER picture — the anchor buys about 0.01 PER,
+the plain objective costs 0.04-0.11, and the objective's own contribution over the self-distillation control is 0.008 at 1 h and
+nothing separable at 10 h. (An earlier extractor table, `reports/extract_paired_per_2026-09-15.md`, labelled the C-vs-A contrast as
+"armC"; superseded by the rows above.)
+
 ## Degradation investigation (opened 2026-09-15 evening on the user's instruction; reads pre-registered here)
 
 Question: why does plain L_tau at tau = 2 triple the PER of the 10 h seed recognizer (arm A dev-other 0.1157 ->
