@@ -284,7 +284,7 @@ Greedy PER (argmax, collapse, drop blank and SIL, vs `GoldPhonesJob.ZGSp0hxyd2YP
 | checkpoint | dev-clean PER | dev-other PER | jobs |
 |---|---|---|---|
 | init (i): CTC distilled on §1d pseudo-labels, epoch 20 (`ReturnnTrainingJob.HcXzd6M2eyVZ`, dev CTC loss 0.109) | 0.166 | 0.218 | GreedyPerJob.iwsZ1KYIfMsS / M6WMMELxG5i7 |
-| S1b: oracle init (iii) + L_tau, sub-epoch 1 (`ReturnnTrainingJob.93UGC7HzGC2P`) | 0.230 | 0.257 | 2n7guvyHYuLk / x9GWHcVAN9jb |
+| S1b: oracle init (iii) + L_tau, sub-epoch 1 (`ReturnnTrainingJob.93UGC7HzGC2P`; CONFOUNDED: phi random at step 0, see train-time review) | 0.230 | 0.257 | 2n7guvyHYuLk / x9GWHcVAN9jb |
 | S1b: sub-epoch 2 | 0.250 | 0.277 | OetKCUla1mp4 / hF5YS6dUP65f |
 
 Init (i) sits above §1d's full fine-tune (0.138 / 0.172) as the design review predicted for a conv head on frozen
@@ -301,7 +301,7 @@ S2, where arm B carries the init anchor S1b lacks.
 | checkpoint | dev-clean PER | dev-other PER |
 |---|---|---|
 | oracle init (iii), 10 h seed, epoch 24 (`65NNK8Bwxdtd`; GreedyPerJob.3TcOOObr1IrW / RMkjOs4czduh) | 0.058 | 0.116 |
-| S1b = (iii) + L_tau, sub-epoch 1 / 2 (from the table above) | 0.230 / 0.250 | 0.257 / 0.277 |
+| S1b = (iii) + L_tau, sub-epoch 1 / 2 (from the table above; confounded by the random phi start) | 0.230 / 0.250 | 0.257 / 0.277 |
 | init (i), epoch 20 | 0.166 | 0.218 |
 | S2 arm A (unanchored), sub-epoch 6 (`3EVuGpAEAn8m`) | 0.353 | 0.384 |
 | S2 arm B (anchored, alpha 1 -> 0), sub-epoch 6 (`HUSP5F9GBUVr`) | 0.345 | 0.374 |
@@ -342,6 +342,20 @@ SIL/blank swap, no sign error); the exact target does not by itself point away f
 therefore comes from the trajectory (joint drift with phi at lr 3e-3, the aggregate term, or a train-time
 discrepancy the offline script does not exercise: data pairing, padding, train-mode forward). A code review of the
 training job's data pipeline against the offline path is pending (`reports/review_train_alignment_2026-09-15.md`).
+
+Train-time review (2026-09-15, `reports/review_train_alignment_2026-09-15.md`, read on `ReturnnTrainingJob.93UGC7HzGC2P`'s
+resolved returnn.config and learning_rates): no bug in data pairing, the T == S check, masking or the optimizer.
+Three by-design facts change the reading of the runs so far. (1) S1b started phi RANDOM with theta unfrozen
+(`config_sae_4a_s1b_v1.py:126`): all 59 theta updates of sub-epoch 1 were taken against an untrained reverse model
+(reverse term per frame -6.86 at step 0 -> -3.62 at the ep1 dev read), so the S1b "oracle drift" row (0.058 -> 0.230)
+is CONFOUNDED and is not a read of L_tau at a warm phi; it is superseded by the S2b 10 h arms, which start from a
+warm-up phi fitted at frozen theta. (2) The applied gradient is l_tau + 0.1 * agg; the aggregate term fell 0.56 ->
+0.11 while l_tau fell 3.38 -> 2.82, i.e. ~45 % of sub-epoch 1's loss drop, and the offline finite-difference check
+covered l_tau alone. lambda_agg = 0 (the pre-registered ablation) is therefore funded now as arm C of S2b for both
+inits, read as a paired delta vs arm A on the same checkpoints. (3) The training-time target is computed from the
+train-mode forward (dropout 0.1 x2, BN on batch statistics, `recognizer.py:180-189`); the offline agreement numbers
+are eval-mode. Queued cross-check (not launch-blocking): the diagnostic with theta AND phi from S1b `epoch.001.pt`
+on the job's cv segments (285 utts) must reproduce the logged dev L_tau 2.00415.
 
 ## Artifacts
 
