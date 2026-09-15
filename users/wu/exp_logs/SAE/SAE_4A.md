@@ -782,6 +782,14 @@ rows at 3e-9 risk underflow. Debugger dispatched on the combined-ablation path; 
 on the un-ablated (clean) model, which is the read that matters for the anchor claim. Also noted: alpha = 1 at
 tau = 2 pins the iterate to q_0 by construction (TV 0.015 vs 0.474 un-anchored), and the arm-B schedule has alpha = 0
 by this epoch, so the training arms never ran a held anchor at these values except arm D (0.25).
+Anchor rerun on the un-ablated (bigram, fitted-duration) model, SLURM 1816641
+(`reports/exec_fixed_point_anchor_unablated_2026-09-15.md`; row sums [0.9971, 1.0020], 0 NaN frames — the invariant
+holds here, so these rows replace (b)-(d) for the anchor claim): alpha 1.0: k = 1 0.1005, k = 2 0.0994, k = 5 0.0982,
+k = 10 0.0981 (held); alpha 0.5: 0.0994, 0.0980, 0.1000, 0.1015 (slow drift, still below k = 0); alpha 0.25: 0.0984,
+0.0992, 0.1081, 0.1116 (above the seed by k = 6). Un-anchored reference k = 10 0.1898. Reading: on the clean model
+only alpha = 1 holds through k = 10, and the held gain is -0.012 PER on this subset (vs -0.015 for the one-step
+target); alpha = 0.5 buys most of the hold at k <= 5. Whether the combined trigram + duration model holds better at
+alpha 0.5 (as lines (b)-(d) suggested) is unknown until the row-sum defect is fixed and those lines are rerun.
 
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
