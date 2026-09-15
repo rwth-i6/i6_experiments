@@ -330,6 +330,114 @@ for launcher in PAIRS:
 
 print(f"[ok] {'use-before-assignment':<42} {len(PAIRS)} launchers scanned")
 
+
+# --- the two defaults for one key must agree (backlog C6, 2026-09-15) ---------------------------
+#
+# Every knob is written TWICE: the renderer emits `hp.get("k", D1)` and the launcher reads
+# `cfg.get("k", D2)`. ~25 constants are duplicated this way. Today the launcher's default is dead
+# code -- the renderer always emits the key, and `report_unread_config` is fatal on an unread one --
+# which is exactly what makes a divergence silent and survivable until it is not.
+#
+# It had already happened: `sample_every` was 100 in the renderer and 0 in the launcher. Nothing
+# failed, because every rendered config carried the key. But a config written BEFORE a key exists
+# falls through to the launcher default on a resume, and then the two numbers are not academic --
+# 7 lib configs predating `sample_every` do exactly that.
+#
+# So: same key, same default, checked statically in both files.
+
+
+def _const(node):
+    """A literal default, or the sentinel `_NOT_LITERAL` for anything computed.
+
+    `"null"` from the renderer is normalised to `None`: the template emits the YAML *token*, which
+    the launcher's parser turns back into `None`, so the two agree even though the Python literals
+    differ. Normalising is right here and an exemption would not be -- the values really are equal
+    once the config round-trips.
+    """
+    if isinstance(node, ast.Constant):
+        return None if node.value == "null" else node.value
+    if isinstance(node, (ast.List, ast.Tuple)) and not node.elts:
+        return ()
+    return _NOT_LITERAL
+
+
+_NOT_LITERAL = object()
+
+
+def _get_defaults(tree, obj_name: str) -> dict:
+    """{key: default} for every `<obj_name>.get("key", <literal>)` in the tree.
+
+    A key read more than once with DIFFERENT literal defaults is itself a bug, so it is recorded
+    as a conflict rather than silently taking the last one.
+    """
+    out, conflict = {}, set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr != "get" or not isinstance(node.func.value, ast.Name):
+            continue
+        if node.func.value.id != obj_name or len(node.args) != 2:
+            continue
+        k = node.args[0]
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            continue
+        d = _const(node.args[1])
+        if d is _NOT_LITERAL:
+            continue
+        if k.value in out and out[k.value] != d:
+            conflict.add(k.value)
+        out[k.value] = d
+    for k in conflict:
+        out.pop(k, None)
+    return out
+
+
+#: Keys whose two defaults may legitimately differ, each with the reason. Deliberately empty --
+#: an entry here is a claim that a silent divergence is FINE for that key, which needs an argument.
+DEFAULT_MISMATCH_OK: dict = {}
+
+_render_tree = ast.parse((RECIPES / "finetune.py").read_text())
+mismatches = 0
+for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
+    render_fn = next(
+        (
+            n
+            for n in ast.walk(ast.parse((RECIPES / recipe_file).read_text()))
+            if isinstance(n, ast.FunctionDef) and n.name == fn_name
+        ),
+        None,
+    )
+    if render_fn is None:
+        continue
+    rendered = _get_defaults(render_fn, "hp")
+    read = _get_defaults(ast.parse(launcher.read_text()), "cfg")
+    shared = sorted(set(rendered) & set(read))
+    for k in shared:
+        if k in DEFAULT_MISMATCH_OK:
+            continue
+        if rendered[k] != read[k]:
+            mismatches += 1
+            failures.append(
+                f"{launcher.name}: default for '{k}' is {rendered[k]!r} in {fn_name} but "
+                f"{read[k]!r} in the launcher. Harmless only while every rendered config carries "
+                f"the key -- a config written before the key existed takes the launcher's value on "
+                f"a resume, and the two silently disagree."
+            )
+    print(f"[ok] {launcher.name:<42} {len(shared):>2} shared defaults compared")
+
+# Non-vacuous: the comparison must be capable of finding something.
+assert any(
+    _get_defaults(
+        next(
+            n
+            for n in ast.walk(ast.parse((RECIPES / rf).read_text()))
+            if isinstance(n, ast.FunctionDef) and n.name == fn
+        ),
+        "hp",
+    )
+    for rf, fn in PAIRS.values()
+), "no rendered defaults were extracted at all -- the AST reader has drifted"
+
 if failures:
     print("\nFAILED:", file=sys.stderr)
     for f in failures:
