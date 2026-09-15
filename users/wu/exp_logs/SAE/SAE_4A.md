@@ -885,7 +885,14 @@ funding S3 further", not "it could not work" (a single schedule and seed were ru
 fixed point is all blank at every k = 1..30 — blank share 0.994, emitted phones 0.000 / s, 0 distinct phones, no
 feasible item for any phi refit. Pinning the duration table (c3, gamma mean 5 frames) changes nothing. Reading: the
 collapse is a blank collapse, nothing in the objective prices an empty output (d_min / D_sil price segments that
-exist). Trigram chain running.
+exist). **c1 (flat theta, warm-up phi HELD, executor `reports/exec_cold_fixed_point_bigram_2026-09-15.full.md`,
+SLURM 1816775, banked check PASS 0.1100 / 0.0962):** PER 1.000 (k 0) -> 0.978 (k 5) -> 0.431 (k 10) -> 0.293
+(k 20) -> 0.279 (k 30), phones / s 0 -> 8.27. Reading (first read, audit with the full set): under a phi that
+carries content, the objective pulls a FLAT recognizer out of the blank solution network-free to 0.279, above
+the seed's own limit (0.190) but far from content-free — take-off from flat is possible once phi carries content,
+so the cold problem sits on phi's side (from cold, phi has no feasible item to fit and stays uninformative). This
+is what the P-BT warm-phi arms and the S3b-C consistency arms bear on. c4 (seed theta, phi refitted) still running
+over budget at k = 6 / 10 (3 h SLURM cap); trigram chain running.
 
 **S3b-R, rate term (user's form).** L = L_tau + lam_rate * ((E_q[N]/T - rho)/rho)^2 per utterance, mean over kept
 utterances; N = expected EMITTED non-SIL tokens under the tempered posterior (sum of seg_post over non-SIL types),
