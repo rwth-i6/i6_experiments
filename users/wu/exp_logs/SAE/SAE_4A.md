@@ -563,7 +563,7 @@ constants against 2-3 frames of evidence when it is short. That is the short-seg
 in numbers, and it says the arms started from an essentially UNFITTED reverse model (the emission tables p(z | k),
 20k parameters after the same 56 steps, are checked next). Design defect, not a knob: 56 SGD steps cannot fit a
 categorical duration model; phi needs an expected-count (EM) fit or an initialisation from unit-run statistics
-before theta is unfrozen. Whether phi's duration model moves during the arms (drift toward long segments) is read
+before theta is unfrozen. Full run (`reports/exec_reverse_duration_check_2026-09-15.md`): the duration model DOES move during the arms, slowly and toward the gold — model E[d] 13.4 (warm-up) -> 12.5 (arm A ep1) -> 8.5 (arm A ep6); 11.1 (arm B ep3); 7.6 (arm D ep8, the held-anchor arm, closest to the gold 4.7), P(d <= 3) 0.10 -> 0.25 (A ep6) / 0.34 (D ep8); no explicit per-segment constant exists in the lattice, only log p(d | k) and beta log P_psi enter the emit weight. So phi learns in the right direction at lr 3e-3 but needs thousands of steps, and theta, unfrozen at step 0, drifts long before phi is fitted; arm D shows phi fitting while theta is held. The read of the drift is therefore
 from the full run.
 
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
