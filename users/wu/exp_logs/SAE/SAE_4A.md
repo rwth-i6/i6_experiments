@@ -496,6 +496,37 @@ floor, prior, reverse-model class) and is a new stage, not a knob sweep; if (b) 
 too, the remedy is on the optimiser side (theta lr, phi/theta lr ratio, target smoothing); if (b) is flat and E
 holds, the remaining suspect is phi co-adaptation (phi lr 3e-3 chasing theta), tested by a phi-frozen arm.
 
+### Read (a): sequence-level error pattern (2026-09-15, `reports/exec_per_error_pattern_2026-09-15.md` + .full.md;
+`analysis/out/per_error_pattern.{txt,json}`; all 16 recomputed S/D/I/PER match the banked per.json exactly; MFA join
+2863/2864 dev-other utts). NOT yet audited.
+
+The degradation is a deletion of SHORT segments. dev-other, 10 h track, deletion rate by MFA gold-segment length
+(50 Hz frames; gold_n = segments in the bin; half of all gold phones are <= 3 frames):
+
+| gold length | gold_n | mean ms | init | arm A ep1 | arm A ep6 | arm B ep3 |
+|---|---|---|---|---|---|---|
+| 1 frame | 8,761 | 30 | 6.6 % | 25.0 % | 31.3 % | 7.9 % |
+| 2 frames (= d_min) | 37,581 | 40 | 4.2 % | 17.3 % | 23.7 % | 4.9 % |
+| 3 frames | 39,513 | 60 | 2.2 % | 9.0 % | 13.4 % | 2.3 % |
+| 4-5 frames | 53,327 | 87 | 1.4 % | 3.3 % | 5.5 % | 1.4 % |
+| 6-8 frames | 28,702 | 133 | 1.1 % | 1.4 % | 2.1 % | 1.1 % |
+| 9+ frames | 9,391 | 220 | 1.2 % | 1.5 % | 1.8 % | 1.2 % |
+
+S/D/I dev-other: init 8,171 / 4,192 / 8,155 -> arm A ep1 9,701 / 14,578 / 6,561 (N 177,275): +10.4k deletions,
++1.5k substitutions, -1.6k insertions. Phones most hit: AH, D, IH, T, CH, HH, R, N, DH (D deletion 2-4 % -> 30-36 %
+by ep6); vowels/diphthongs and stops carry most of the growth. Gold repeat pairs X X are merged 19.5 % -> 41.8 % ->
+57.0 % (dev-clean; 25.6 -> 45.9 -> 55.6 dev-other). Hyp phones/s: gold 9.63, init 9.85, ep1 9.20, ep6 8.89. The
+degradation is population-wide, not a tail: 81 % of utterances worse at ep1, 91 % at ep6. One artifact: CH
+insertions grow by 1.4-1.6k (an absorbing symbol). Arm B ep3 (alpha 0.5) is at the init pattern in every bin; arm C
+matches arm A (0.1916 / 0.2280).
+
+Reading (provisional until (b) and the audit): the objective's preference is against segments of 1-3 frames — the
+2- and 3-frame bins, which d_min = 2 allows, are hit almost as hard as the 1-frame bin, so this is not only the
+structural floor but the segmental model's pricing of short segments (duration distribution p_phi(d | k), the
+per-segment cost, and the CTC-side requirement of a blank between repeated phones, which the merge statistic shows
+being traded away). Next reads: p_phi(d | k) of the warm-up, arm A ep1/ep6 and arm B ep3 phi against the MFA gold
+duration histogram per phone; frame-level target vs gold and the network-free fixed-point iteration (read (b)).
+
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
