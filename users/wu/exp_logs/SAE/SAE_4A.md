@@ -904,6 +904,21 @@ term is a precondition, not the take-off mechanism; the forward per-frame conten
 and carries the rate term. Expected in advance: S3 sub-epochs 5-8 already emitted 4-8 phones / s at PER 0.84-0.90
 with a negative gap, so a non-zero rate alone may still be content-free.
 
+**S3b-C, consistency regularization (user 2026-09-15: speed perturbation and SpecAugment at least).** Term:
+L_cons = mean over frames of KL(p_clean(t) || p_aug(t)), p = the recognizer's untempered per-frame posterior,
+p_clean stop-gradient (teacher = clean view), two views: (a) SpecAugment on the L15 features (time masks and
+channel masks, no length change, frame-wise KL); (b) a speed-perturbed copy of the utterance (Kaldi convention
+speed0.9 / speed1.1, one kind per utterance by its tag, `sae/perturb.py`, features from a perturbed
+AvStatesJob -> L15FeatureHdfJob dump of tc100, a second extern_data key), the perturbed posterior linearly
+time-warped to the clean frame count before the KL. Why speed: the private code §3g measured was DURATION
+(corr 0.856 with the frame count, `SAE_3G.md:221-230`); a speed view moves the frame count 10 % and leaves the
+content, so a duration code cannot explain both views. Caveat pre-registered: a constant or all-blank output is
+perfectly consistent, so L_cons never runs alone — it runs WITH the rate term (forbids empty output) and L_agg
+(forbids a constant phone distribution). Arms (fixed in advance, not tuned on the rate arms' results): lam_rate = 3
+(the middle rung), lam_cons = 1, views {SpecAugment; SpecAugment + speed}; S3 schedule, seed and reads otherwise
+unchanged. Gate **G4a.3b-C** = the G4a.3b-R clauses. Prerequisite: the perturbed tc100 dump (label-free, units not
+needed for the perturbed view). Code after the rate-term implementer releases sae_emc.py.
+
 **P-BT, back-translation probe** (user 2026-09-15: full training funded regardless; a content-free probe does not
 reject the idea, it shapes the full design). Mechanism argument under test: phi is fit on the recognizer's decodes
 of real audio; from cold those are content-free, so phi ignores its text input and a recognizer trained on
