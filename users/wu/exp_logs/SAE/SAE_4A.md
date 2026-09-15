@@ -752,6 +752,31 @@ the second lever and the tilt stays; (c) a higher LM order is required by the us
 literature predicts a modest gain from order alone under a mode-seeking objective, so it is carried together with
 (a)/(b), and the coverage-seeking form of the text term is the literature's own fix for LM-mode collapse.
 
+### Literature on cold-start collapse (2026-09-15, `reports/lit_cold_start_collapse_2026-09-15.md`)
+
+Bearing on the user's direction (cold start is the target, S3 CLOSED FAIL is the problem). (1) wav2vec-U 2.0 names the
+S3 failure ("satisfy the criterion by producing the most common n-grams regardless of input") and fixes it with a
+FORWARD per-frame cross-entropy from an intermediate recognizer layer onto MFCC k-means codes with K = 64: dev-other
+greedy PER 15.9 -> 13.6 over 8 seeds; K = 128 and a 320 x 2 VQ target were worse than no term (Liu et al. 2022, SLT).
+Our K = 500 generative reverse model sits on the wrong side of all three axes Liu measured (direction, granularity,
+K). (2) The LM score anti-correlates with PER once the model can game it: REBORN's PPL-only reward gave the best PPL
+and the worst PER (10.0 / 14.7) vs 11.2 / 12.9 with edit-distance and length trust-region terms anchored to the
+previous transcript (Tseng et al. 2024, NeurIPS) — never gate on the objective or prior score alone; gate on phone
+rate, vocabulary usage and the derangement margin (the G4a.3 clauses were right). (3) Trainability is a phase
+transition in the 4-gram JSD between audio-side and text-side phone n-grams (threshold ~0.27; beyond it PER 70-95;
+Lin et al. 2022, ICASSP). (4) Rate/silence machinery is a convergence precondition: without clustering / PCA /
+mean-pooling 0 % of seeds converge vs 100 %; without a SIL symbol a phone is repurposed as silence (Baevski et al.
+2021, NeurIPS, Table 8). (5) The only executed exact-marginalisation unsupervised mapping (WFST Baum-Welch + n-gram)
+needed a supervised multilingual phone recognizer as the acoustic side, an LM-order curriculum bigram -> 5-gram ->
+word trigram, 50 restarts picked by train likelihood, and failed outright on 2 of 6 languages (Klejch et al. 2022,
+Interspeech). (6) Bayesian acoustic-unit discovery never learns durations from flat: presegmentation (Lee & Glass
+2012) or a 3-state minimum-duration topology plus a cross-lingual prior (Ondel et al. 2019, PER 65.4 -> 49.2). (7) No
+published non-GAN cold-start system reaches comparable PER (EURO, Gao et al. 2023, is a GAN re-implementation).
+Implication for S3b: flat-start exact marginalisation has never taken off without an informative acoustic side; the
+first remedy to test is a forward per-frame content term (low K, intermediate layer), with take-off read on phone
+rate, vocabulary usage and the derangement margin, never on L_tau. Reads (c1)-(c3) size the ceiling and the collapse
+network-free before any of this is built.
+
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
