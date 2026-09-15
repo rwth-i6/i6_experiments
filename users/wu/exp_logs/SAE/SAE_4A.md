@@ -891,8 +891,11 @@ SLURM 1816775, banked check PASS 0.1100 / 0.0962):** PER 1.000 (k 0) -> 0.978 (k
 carries content, the objective pulls a FLAT recognizer out of the blank solution network-free to 0.279, above
 the seed's own limit (0.190) but far from content-free — take-off from flat is possible once phi carries content,
 so the cold problem sits on phi's side (from cold, phi has no feasible item to fit and stays uninformative). This
-is what the P-BT warm-phi arms and the S3b-C consistency arms bear on. c4 (seed theta, phi refitted) still running
-over budget at k = 6 / 10 (3 h SLURM cap); trigram chain running.
+is what the P-BT warm-phi arms and the S3b-C consistency arms bear on. Trigram (SLURM 1817476, executor
+`reports/exec_cold_fixed_point_trigram_2026-09-15.md`): c1 PER 0.367 (k 10) -> 0.248 (k 20) -> 0.238 (k 30), 8.7
+phones / s, 39 distinct phones, E[d] 5.1; c2 stays blank through k 10 and reaches only 0.985 / 0.16 phones / s /
+1 distinct phone at k 20 (the trigram prior alone starts to price the empty output, but at a content-free
+solution); c3 pinned durations: same as bigram. c4 (seed theta, phi refitted) running in both chains.
 
 **S3b-R, rate term (user's form).** L = L_tau + lam_rate * ((E_q[N]/T - rho)/rho)^2 per utterance, mean over kept
 utterances; N = expected EMITTED non-SIL tokens under the tempered posterior (sum of seg_post over non-SIL types),
