@@ -637,6 +637,15 @@ forward-table checkpointing (D4) is now on the critical path before any S2d laun
 dispatched), and the full trigram is reachable only through it. Open items: the banked `prior.npz` carries no raw counts, so the
 class table needs a small new count job over the same banked text (not a re-run of the finished prior job); the peak-memory
 estimator and MAX_BATCH_FRAMES remain bigram fits.
+D3 + D4 landed (speech-llm commit bb2f1cb; `reports/impl_lattice_d3d4_2026-09-15.md`): log-matmul reduction over
+history, band and group (D3) plus forward-table checkpointing with stride S (D4). GH200, B = 125, T_pad = 704,
+s/step | peak GiB: bigram elementwise 1.50 | 5.87 (unchanged, `reduction="auto"` keeps the elementwise path at the
+bigram and all 20 banked bigram digests reproduce exactly); class trigram |h| = 369: 11.74 | 19.64 -> 3.40 | 16.84
+with D3; full trigram |h| = 1681 with D3 + D4 (S = 32): 7.89 | 9.55. The trigram is 5.3x the bigram step, not the
+~1.5x target, and memory no longer binds; the profile is 7 % GEMM, ~60 % shift/exp/log/cat glue, 19 % launch-queue
+stall, so the next factor is kernel fusion, not algorithm. matmul vs elementwise agree to 1.3e-4 abs (rel 4.8e-6) on
+GPU; D4 bit-identical across S; 122 emc tests pass; census 1021 and the 34 decode-job ids unchanged. Open: the S to
+train with (only S = 32 benched at B = 125).
 
 **Two-pass lattice (user proposal 2026-09-15; design review `reports/design_two_pass_lattice_2026-09-15.md`,
 PROCEED_WITH_CHANGES as a 4-gram vehicle only, STOP as "the S2d lattice").** Proposal: pass 1 a frame-synchronous
