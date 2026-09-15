@@ -790,6 +790,16 @@ k = 10 0.0981 (held); alpha 0.5: 0.0994, 0.0980, 0.1000, 0.1015 (slow drift, sti
 only alpha = 1 holds through k = 10, and the held gain is -0.012 PER on this subset (vs -0.015 for the one-step
 target); alpha = 0.5 buys most of the hold at k <= 5. Whether the combined trigram + duration model holds better at
 alpha 0.5 (as lines (b)-(d) suggested) is unknown until the row-sum defect is fixed and those lines are rerun.
+Row-sum defect resolved (`reports/debug_post_q_rowsum_2026-09-15.md`): the cause is not the ablations but the D3
+log-matmul path of commit bb2f1cb — `_logmm` (lattice.py:627-631) shifts per operand and floors fp32 underflow at
+a_max + b_max - 87.3, RAISING those entries; forward and backward inflate unequally, so rows come out as
+exp(flow_t - log Z). Every non-bigram history runs through that path since the commit; the single-ablation trigram run
+was clean only because it finished before the edit, on the elementwise path. CPU reproduction at |h| = 1681: fp32
+matmul row sums [0.836, 1.045], elementwise / fp64 / exact log-sum-exp all 1.000. Consequence: the PER of lines (a)-(d)
+of read (b3) must be RERUN after the fix (the defect is per entry, so the argmax changes; k = 0 and the un-ablated
+K = 30 curve survive); the D3 code review's fp64 agreement check (7e-15) could not see it. Fix (float64 accumulation
+inside `_logmm` + an fp32 non-bigram row-sum test) is with the implementer together with the review's two changes;
+blocks any order-3 line, including the trigram lines of reads (c1)-(c4).
 
 ### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
 
