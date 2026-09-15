@@ -572,6 +572,7 @@ l2sp_weight: {_yaml_float(hp.get("l2sp_weight", 0.0))}
 text_lr_mult: {_yaml_float(hp.get("text_lr_mult", 1.0))}
 gradient_checkpointing: true
 save_every: {hp.get("save_every", 500)}
+save_steps: {list(hp.get("save_steps", []))}
 log_every: 10
 seed: {getattr(job, "seed", 0)}
 sample_every: {hp.get("sample_every", 100)}

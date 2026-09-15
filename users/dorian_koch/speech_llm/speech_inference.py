@@ -47,7 +47,7 @@ SAVE_EVERY = 500
 CHECKPOINT_DIR_KINDS = ("lora", "full", "audex_stage0")
 
 
-def impossible_checkpoint_reason(step, *, max_steps, save_every: int = SAVE_EVERY):
+def impossible_checkpoint_reason(step, *, max_steps, save_every: int = SAVE_EVERY, save_steps=()):
     """Why ``step`` can NEVER be a checkpoint of a run that stops at ``max_steps`` and saves every
     ``save_every`` -- or ``None`` when it can.
 
@@ -62,10 +62,11 @@ def impossible_checkpoint_reason(step, *, max_steps, save_every: int = SAVE_EVER
     """
     if step is None:
         return None
-    if not (step > 0 and step % save_every == 0) and step != max_steps:
+    _cadence = step > 0 and save_every > 0 and step % save_every == 0
+    if not _cadence and step not in tuple(save_steps or ()) and step != max_steps:
         return (
             f"is not a checkpoint -- must be a positive multiple of save_every={save_every}, "
-            f"or max_steps ({max_steps}) itself"
+            f"one of save_steps={tuple(save_steps or ())}, or max_steps ({max_steps}) itself"
         )
     if max_steps is not None and step > max_steps:
         return (
@@ -139,6 +140,7 @@ def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> N
             step,
             max_steps=hparams.get("max_steps"),
             save_every=int(hparams.get("save_every", SAVE_EVERY)),
+            save_steps=tuple(hparams.get("save_steps", ()) or ()),
         )
         assert reason is None, (
             f"checkpoint step {step} of {run_path} {reason}. The run has not finished yet, but its "
