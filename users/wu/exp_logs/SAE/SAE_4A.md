@@ -2,19 +2,21 @@
 
 ## State
 
-Active: nothing launched. Phase registered 2026-09-15 from the revised method note; literature in
-`reports/lit_method_v2_2026-09-15.md`, reusable artifacts in `reports/SAE_setup_report_2026-09-15.md`, project
-evidence in `reports/sae_failure_evidence_for_method_v2.md`, design review (DONE_WITH_CONCERNS, all five ranked
-changes folded in below) in `reports/design_review_4a_2026-09-15.md`.
-S0a built and reviewed 2026-09-15 (`reports/impl_s0a_2026-09-15.md`, `reports/review_s0a_2026-09-15.md`;
-commits 5ac8ecc..4fa97f0 on haotian_modality_matching_jupiter). S1a LAUNCHED 2026-09-15:
-`work/speech_llm/sae/emc/S1aReverseLadderJob.TuHHK47CQwhl` (SLURM 1799601_1, CPU, ~1 h projected), upstream
-`PhoneNgramPriorJob.TRPE0D5nF3bh` and `SpeakerEtaJob.U4etvcSpsQi4` finished. S0b in implementation
-(lattice/train step; recognizer/inits/eval path), not yet reviewed.
-NEXT: read S1a `summary.json` / `s1a.txt` against G4a.1 (monotone in kappa on the paired per-utterance
-means; gold ahead of every null) and bank it in Results; code-review S0b; then init (i) + its PER, S1b.
-Live pids / watcher: manager pid 889296 (config/sae_4a_s1a.py, log/sae_4a_s1a.manager.log); watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 889296 config/sae_4a_s1a.py 120` from the setup dir.
+Phase registered 2026-09-15 from the revised method note; literature in `reports/lit_method_v2_2026-09-15.md`,
+reusable artifacts in `reports/SAE_setup_report_2026-09-15.md`, project evidence in
+`reports/sae_failure_evidence_for_method_v2.md`, design review in `reports/design_review_4a_2026-09-15.md`.
+S1a done and banked (Results; G4a.1 pass, audited). S0b built and reviewed (`reports/review_s0b_core_2026-09-15.md`,
+`reports/review_s0b_inits_2026-09-15.md`; commits up to bc73083 / 73b9f64 on haotian_modality_matching_jupiter;
+lattice bench 98 utt/s at B = 64 on a GH200). S0b INITS LAUNCHED 2026-09-15 (config/sae_4a_s0b_inits.py):
+ctc_init (i) `work/i6_core/returnn/training/ReturnnTrainingJob.HcXzd6M2eyVZ` (SLURM 1799887; compute 0.063
+s/step but wall ~1.6 s/step of 157 utts, GPU 0-6 %: HDF loader-bound, accepted for this one-off), oracle_init
+(iii) 65NNK8Bwxdtd, feature/units HDF repack, greedy PER + WER of (i) at epoch 20, all in that graph. S1b/S2
+configs in implementation (implementer c) with the loader fix required.
+NEXT: when (i) finishes, bank its PER/WER as the S2 paired baseline; code-review the S1b/S2 configs; launch
+S1b first and read wall/step over its first 100 steps (must be lattice-bound, >= ~100 utt/s) before funding S2.
+Live pids / watcher: manager pid 1167500 (config/sae_4a_s0b_inits.py, log/sae_4a_s0b_inits.manager.log);
+watcher `bash ~/.claude/skills/sis/sis_watch.sh 1167500 config/sae_4a_s0b_inits.py 300` from the setup dir.
+S1a manager (pid 889296) exited after DONE.
 
 ## Objective
 
@@ -96,6 +98,15 @@ degree; WER speaks; analysis gates control spend only.
   lambda_agg fixed for both S2 arms (swept only as an ablation, 100 h bed only, `SAE.md:47-50`). It is a
   collapse guard, not an anchor: §1f showed low-order matching cannot separate truth from a matched-length
   decoy (`SAE_1f.md:682-687`).
+- **Constants fixed before the first EMC training job (2026-09-15, orchestrator; no reference setup exists
+  for them, so they are pre-registered here and swept only as ablations):** lambda_agg = 0.1 on
+  KL(c_text || c_hat) summed over unigram and bigram terms (a KL of 0.1 nat then costs 0.01 nats/frame against a
+  ~3.6 nats/frame reverse term: a guard, not an anchor); expected-count EMA decay 0.99 (~100 steps of 64
+  utterances, about one sub-epoch window); batch = 64 utterances by frames (lattice bench: launch-bound,
+  B = 64 costs the same 0.9 s as B = 16); sub-epoch = train-clean-100 / 4 (~7.1k utts), checkpoints kept at
+  every sub-epoch; S2 warm-up = 1 sub-epoch of phi only from init (i). S1b = init (iii) + L_tau for 2
+  sub-epochs with greedy PER per sub-epoch; it doubles as the pipeline smoke and the first-100-steps
+  efficiency read.
 - **Rate**: d_min = 2 and D_sil = 50 bound the token count only weakly. The emitted phone rate is logged per
   sub-epoch; a sub-epoch whose rate leaves [0.6, 1.5] x the text phone rate (9.8/9.4 per s on dev,
   `SAE_1f.md:533-536`) is reverted, not compounded (wav2vec-U 2.0 reports PER > 100 whenever the rate drifts).
