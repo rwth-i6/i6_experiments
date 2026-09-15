@@ -910,10 +910,13 @@ of real audio; from cold those are content-free, so phi ignores its text input a
 (phi-synthesized units, real text) learns the text prior only. The probe: label-free 2000-utterance train subset of
 tc100 (features, units, eta), 2000 real sentences of T_phi; rounds r = 0..3 of (decode real audio with theta_r ->
 fit phi on (real units, pseudo-text) -> sample units from phi for the real sentences with a real speaker eta ->
-map units to L15 features -> train theta by CTC on (synthetic features, real text)). Four arms: phi start
+map units to L15 features -> train theta by CTC on (synthetic features, real text)). Eight arms: phi start
 {cold phi_0 (S3's constructed init), warm-up phi `htxT2f9FHvWw` (seed-track, diagnostic only: does the loop transfer
 content from a content-carrying generator at all)} x units-to-features {collage of real frames per unit, per-unit
-centroid}. Reads per round on the 300 dev-other bed: greedy PER, emitted phones / s, distinct phones, distinct
+centroid (the cluster mean), speaker-matched run-level collage, learned label-free unit-to-feature renderer (unit
+context + eta -> L15, L2 on real frames; a continuous decoder in Hori 2019's sense but fit on OBSERVED units, so
+immune to the cold problem; added on the user's question 2026-09-15 — a direct phone-to-feature regressor was not
+taken because from cold it is fit on pseudo-labels and regresses to the global mean)}. Reads per round on the 300 dev-other bed: greedy PER, emitted phones / s, distinct phones, distinct
 strings, speaker-matched derangement gap under the round's phi; train-side feasible fraction and pseudo-text
 distinct strings. Pre-registered reading: "takes off" = dev-other PER < 0.80 AND phone rate in [0.6, 1.5] x rho AND
 gap > 0 (CI excluding 0) in any round; otherwise content-free. Not a funding gate. If the warm-phi arms are also
