@@ -2,28 +2,12 @@
 
 ## State
 
-Phase registered 2026-09-15 from the revised method note; literature in `reports/lit_method_v2_2026-09-15.md`,
-reusable artifacts in `reports/SAE_setup_report_2026-09-15.md`, project evidence in
-`reports/sae_failure_evidence_for_method_v2.md`, design review in `reports/design_review_4a_2026-09-15.md`.
-S1a done and banked (Results; G4a.1 pass, audited). S0b built and reviewed (`reports/review_s0b_core_2026-09-15.md`,
-`reports/review_s0b_inits_2026-09-15.md`; commits up to bc73083 / 73b9f64 on haotian_modality_matching_jupiter;
-lattice bench 98 utt/s at B = 64 on a GH200). S0b INITS LAUNCHED 2026-09-15 (config/sae_4a_s0b_inits.py):
-ctc_init (i) `work/i6_core/returnn/training/ReturnnTrainingJob.HcXzd6M2eyVZ` (SLURM 1799887; compute 0.063
-s/step but wall ~1.6 s/step of 157 utts, GPU 0-6 %: HDF loader-bound, accepted for this one-off), oracle_init
-(iii) 65NNK8Bwxdtd (FINISHED), feature/units HDF repack, greedy PER + WER of (i) at epoch 20, all in that graph.
-S1b/S2 configs reviewed and fixed (`reports/review_s1b_s2_configs_2026-09-15.md`, commit d9905df); accepted
-constants and their efficiency amendment below. First S1b job (c4WZmlzJzAbw, 2026-09-15) ran at 37 utt/s -> gate
-FAIL -> profiled and fixed (loader collation, agg loop, batch 128 / theta lr 1e-4, forward extern_data key;
-commits dce4046..2fed7d6, review PASS). S1b RELAUNCHED at the new hash
-`work/i6_core/returnn/training/ReturnnTrainingJob.93UGC7HzGC2P` (SLURM 1800557;
-`reports/exec_s1b_relaunch_2026-09-15.md`). Efficiency re-read, log-order steps 11..100: median emc_utts_per_sec
-73.2 (min 33.9, max 192.2), median num_seqs 122, loader wait 0.02 s of a 1.54 s step (was 0.39), l_tau 3.20 ->
-1.88, Z=0 fraction 0, no nan/inf. Verdict: FAIL on the number as written (75), PASS on the rule behind it (loader
-<= a quarter of the step; measured 1.3 %; profiler compute ceiling 75.9 utt/s at this batch). Orchestrator decision:
-S2 is funded on the rule (the remaining cost is the DP kernel itself, ~1.6 min per tc100 sub-epoch; fusion queued
-before any scale-up); the miss on the absolute number is recorded, not amended away. S1b is a pipeline/drift read
-only (G4a.1 passed). S2 LAUNCH in progress under one combined manager (config/sae_4a_phase.py = S1b + S2 graphs;
-`reports/exec_s2_launch_2026-09-15.md`); its warm-up waits on ctc_init (i).
+History (details in the sections below and the named reports): phase registered 2026-09-15 (`reports/lit_method_v2_2026-09-15.md`,
+`reports/design_review_4a_2026-09-15.md`); S1a banked, G4a.1 PASS audited; S0b inits built (ctc_init (i) `ReturnnTrainingJob.HcXzd6M2eyVZ`,
+seed inits 10 h `65NNK8Bwxdtd` / 1 h `t4K6Z6gHK56e`); S1b/S2 (GAN-init track) retired by the user's direction change, their reads kept in
+Results; efficiency rule = loader wait at most a quarter of the step (measured 1.3 % at 1.54 s/step, B 128; the kernel is the cost);
+S2b (seed inits, arms A/B/C) and S2c (held anchor D vs self-distillation control E) trained and read; S3 cold start CLOSED FAIL (G4a.3);
+decoder fixed at `decoder_version = 2` (run-collapsed emissions; every v1 WER void).
 NEXT (2026-09-15 night; S3 CLOSED FAIL; S2b/S2c trainings finished; degradation investigation reads (a), (a2), (b) banked and audited, see "## Degradation investigation"; decision = new stage S2d, model-side remedy): (1) S2d design, launch-ready when all four land: (i) higher-order prior inside the objective (user mandate, no launch on `prior_order: 2`): general history axis in the lattice (`reports/impl_prior_history_axis_2026-09-15.md`, running), first operating point class trigram C = 8 from text-derived classes (held-out ppl 10.67 vs bigram 14.23 / trigram 9.47 / 4-gram 7.03), full trigram after the D3 matmul reduction + D4 checkpointing; (ii) count-based (hard-EM from the seed recognizer's argmax runs, label-free) initialisation of the reverse model's duration table before theta is unfrozen (read a2: uniform after the 56-step warm-up); (iii) d_min = 2 kept; (iv) pre-registered S2d launch check = network-free fixed-point PER(k = 10) <= PER(k = 0) on dev-other under the S2d model (read (b)); the fixed-point ablation runs (`reports/impl_fixed_point_ablations_2026-09-15.md`, running -> executor GPU run) pick which of (i)/(ii)/a length remedy is needed. Efficiency read at the run shape (step time, peak memory, loader share) is in the history-axis report and precedes any launch; design-reviewer before the first S2d job. (2) Graph running on the trimmed `config/sae_4a_phase.py` (1021 jobs): 34 v2 word decodes (dev-other, last + selected checkpoint per arm), 20 PairedWerDelta, 11 SelectPosteriors, 108 + 96 PairedPerDelta (S2b, S2c) — paired PER reads and G4a.2 WER reads when finished, audit before any "refines" claim; temperature sweep rerun with T = argmin dev-clean WER on init (i); stale docstring config_sae_4a_decode_temp_v1.py:16-23. (3) GAN-init cleanup: 228 dirs listed in `reports/exec_gan_cleanup_2026-09-15.list` (4.9 G, user-approved), rm blocked by the permission classifier for both executor and orchestrator — needs the user's one-line command. (4) Queued: D3 + D4 lattice work (full trigram at ~1.5x), kernel fusion, SAE.md index over 250 lines.
 Live pids / watcher: no manager needed — `config/sae_4a_phase.py` is COMPLETE (1021/1021 finished, 0 errors, sacct all COMPLETED; the manager exits of pids 139286 and 706393 were clean finished-graph exits under log level 30, `reports/debug_manager_exits_2026-09-15.md`). Next manager only for S2d; then re-arm `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 300` (run_in_background, this session). Reads in progress: `reports/extract_paired_per_2026-09-15.md`, `reports/extract_v2_wer_2026-09-15.md`.
 
@@ -474,6 +458,30 @@ PairedPerDeltaJob reads and an audit): both arms improve on their init; D sits 0
 (1 h) absolute PER below E at matched sub-epochs and at the selected checkpoints (10 h 0.1068 vs 0.1098; 1 h 0.1185
 vs 0.1253). The gain of E over init (about 0.005 / 0.003) is the self-training floor an anchored objective has to
 beat; the pre-registered read is the paired D - E delta.
+
+## G4a.2 read: fixed-decoder (v2) dev-other WER, paired against each arm's own init (2026-09-15, `reports/extract_v2_wer_2026-09-15.md` + .full.md; audit `reports/audit_g4a2_wer_2026-09-15.md` pending)
+
+Decoder: KenlmPosteriorDecodeJob `decoder_version = 2` (run-collapsed emissions), lexicon + official 4-gram, beam 500, lm_weight 2.0,
+word_score -1.0, acoustic temperature 1.0 for every chain row; 57 decodes, all verified v2; paired delta = clustered bootstrap
+(10k resamples, seed 42), negative = arm better. Plain sclite WER, 2864 utts.
+10 h seed init 26.50 %. S2b 10 h: arm B ep1 25.48 (-1.02 [-1.44, -0.61]), ep3 = selected 25.87 (-0.63 [-1.15, -0.15]), ep4 28.39
+(+1.89), ep5 51.37, ep6 = last 59.90 (+33.4); arm A ep1 = selected 56.01 (+29.5), ep6 72.75; arm C ep1 = selected 59.80 (+33.3),
+ep6 72.93. S2c 10 h: D ep8 = last 29.68 (+3.17 [2.18, 4.13]), selected 29.09 (+2.59 [1.70, 3.48]); E ep8 = last 25.90 (-0.60
+[-1.07, -0.16]), selected 26.65 (+0.14 [-0.27, 0.55]).
+1 h seed init 36.93 % (implied from the paired rows; its own alias row missing, audit traces the init decode). S2b 1 h: arm B ep4 =
+selected 35.18 (-1.75 [-2.40, -1.11]), ep1 35.46 (-1.47), ep5 47.44, ep6 = last 53.22 (+16.3); arm A ep1 = selected 53.76 (+16.8);
+arm C ep1 = selected 54.96 (+18.0). S2c 1 h: D ep8 = last 34.91 (-2.02 [-2.79, -1.23]), selected 34.90 (-2.03 [-2.76, -1.32]);
+E ep8 = last 36.54 (-0.39 [-0.64, -0.14]), selected 35.91 (-1.03 [-1.40, -0.67]).
+Temperature sweep on ctc_init (i), same decoder: T 1.0 36.47, 1.5 33.10, 2.0 32.30, 3.0 35.23, 4.0 41.74 — T = 2.0 is the argmin
+(-4.2 absolute vs T = 1.0); every chain row above is at T = 1.0, so absolute levels are not at the decoder's best operating point,
+paired deltas are read at a common T.
+Gate reading (provisional until the audit): "refines" (interval excludes 0 in the arm's favour, at the reported checkpoint) holds for
+arm B at both seed sizes while the init tilt is active (selected checkpoints: -0.63 at 10 h, -1.75 at 1 h) and for the held-anchor
+arm D at 1 h only (-2.03); the self-distillation control E, which never sees the objective, refines by -1.03 at 1 h (selected) and
+-0.60 at 10 h (last), so roughly half of D's 1 h gain and all of the 10 h effect is available without the EMC objective. Every plain-
+objective row (A, C, B after alpha reaches 0, D at 10 h) degrades, by up to +46 absolute. Nothing is "usable" (21.87 %). Read with
+the investigation: the bigram-prior objective with an unfitted duration model has no refinement to offer beyond the anchor; S2d is
+funded on the model-side remedy, not on a repeat of this design.
 
 ## Degradation investigation (opened 2026-09-15 evening on the user's instruction; reads pre-registered here)
 
