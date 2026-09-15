@@ -8,8 +8,9 @@ seed inits 10 h `65NNK8Bwxdtd` / 1 h `t4K6Z6gHK56e`); S1b/S2 (GAN-init track) re
 Results; efficiency rule = loader wait at most a quarter of the step (measured 1.3 % at 1.54 s/step, B 128; the kernel is the cost);
 S2b (seed inits, arms A/B/C) and S2c (held anchor D vs self-distillation control E) trained and read; S3 cold start CLOSED FAIL (G4a.3);
 decoder fixed at `decoder_version = 2` (run-collapsed emissions; every v1 WER void).
-NEXT (2026-09-15, late; USER DIRECTION: cold start is the target — no GAN init, no seed init as the deliverable; S2b/S2c seed tracks are diagnostic beds only; S3 CLOSED FAIL is the problem to solve): (1) Cold-start framing from reads (b)/(b2): from a flat start theta converges to the objective's fixed point = the reverse model's posterior, so the fixed-point PER is the cold-start CEILING (bigram 0.190, trigram 0.164, count durations 0.171, k = 30 limits pending in read (b3)); S3 failed to REACH it (content-free solution, phone rate 1-2/s, negative derangement gap) — take-off is a separate problem from the ceiling. (2) Reads (c1)-(c3), network-free on the banked 300 dev-other utts (`reports/impl_cold_fixed_point_2026-09-15.md`, implementer running -> executor GPU): (c1) fixed point from the FLAT recognizer with the warm-up phi held (does the flat start reach the seed's limit?); (c2) cold EM: flat theta, phi refitted every iteration from its S3 init (reproduces the collapse network-free, or not); (c3) (c2) with the duration table pinned to a label-free gamma prior (mean 5 frames) — does pinning durations stop the rate collapse? Report PER, phone rate, E[d], reverse LL per k. (3) Read (b3) running (anchored fixed points; K = 30 limits = ceiling under a good phi). (4) Literature: cold-start collapse and remedies (`reports/lit_cold_start_collapse_2026-09-15.md`, running); lattice pruning bias (`reports/lit_lattice_pruning_2026-09-15.md`, running). (5) Prior order: trigram inside the objective via the exact D3 + D4 single pass (bench running); two-pass lattice not funded (design review, see "Two-pass lattice" under the prior-order section); 4-gram needs a pruned-LM state space — first read the held-out ppl of the 4-gram pruned to 500-4000 contexts (CPU, queued). (6) Then: S3b design (cold start with the remedies the reads select) -> design-reviewer before the first job. (7) GAN-init cleanup: 228 dirs in `reports/exec_gan_cleanup_2026-09-15.list` (4.9 G), needs the user's one-line command. (8) Queued: temperature sweep rerun (T = 2.0), stale docstring config_sae_4a_decode_temp_v1.py:16-23, kernel fusion.
-Live pids / watcher: no manager needed — `config/sae_4a_phase.py` is COMPLETE (1021/1021 finished, 0 errors). Next manager only for S2d; then re-arm `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 300` (run_in_background, this session). Running analyses (SLURM, not sisyphus): read (b3) executor; D3+D4 implementer bench.
+USER DIRECTION (2026-09-15): cold start is the target; no GAN or seed init as the deliverable (seed tracks = diagnostic beds); S3 CLOSED FAIL is the problem. Cold-start framing: the fixed-point PER is the ceiling (bigram 0.190, trigram 0.164; K = 30 limits in read (b3), running); S3 failed to take off. Cold EM reads c2/c3 (first read, executor report pending, see "S3b"): the flat start's fixed point is ALL BLANK (0 phones/s), pinned durations do not change it.
+NEXT (2026-09-15, user decisions): (1) S3b-R rate term L_rate = ((E_q[N]/T - rho)/rho)^2 (user's form, rho label-free) — implementer running (`reports/impl_rate_term_2026-09-15.md`): network-free tilt read (c5) first, then the training term + config `config/sae_4a_s3b_rate.py`; gate G4a.3b-R pre-registered under "S3b". (2) Back translation: user FUNDS full training regardless of the probe; probe P-BT first (4 arms, `reports/impl_bt_probe_2026-09-15.md`, implementer running); a content-free probe informs the full design and does not reject it (user 2026-09-15). Literature on cold-start back translation: `reports/lit_backtranslation_cold_start_2026-09-15.md` (writing up). (3) Design review (S3b-R + S3b-BT full run) before the first S3b training job. (4) Still running: read (b3), c1 trigram, D3+D4 bench; queued: pruned 4-gram ppl read, GAN cleanup (228 dirs, `reports/exec_gan_cleanup_2026-09-15.list`, user command), temperature rerun, kernel fusion.
+Live pids / watcher: no manager running — `config/sae_4a_phase.py` COMPLETE (1021/1021). Next manager: S3b-R / P-BT after code review; re-arm `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 300` (run_in_background, this session). SLURM analyses (not sisyphus): emc_cold_bigram, emc_cold_trigram_chain, D3+D4 bench.
 
 ## Objective
 
@@ -876,6 +877,52 @@ both clauses. Reading (pending audit): from a flat start the objective is optimi
 recognizer whose output carries no utterance-specific content (PER ~ 0.9, negative gap, phone rate collapsing to
 1-2 / s during the anneal); the cold-start bootstrap does not take off on this bed. Per the gate this licenses "not
 funding S3 further", not "it could not work" (a single schedule and seed were run).
+
+## S3b: cold-start remedies (registered 2026-09-15, user decisions)
+
+**Cold EM reads c2/c3, first read** (bigram, 300 dev-other utts, `analysis/out/cold.c2_flat_fitphi.bigram.dev-other.txt`,
+`cold.c3_flat_fitphi_pindur.bigram.dev-other.txt`; executor report and audit pending): from the flat theta the
+fixed point is all blank at every k = 1..30 — blank share 0.994, emitted phones 0.000 / s, 0 distinct phones, no
+feasible item for any phi refit. Pinning the duration table (c3, gamma mean 5 frames) changes nothing. Reading: the
+collapse is a blank collapse, nothing in the objective prices an empty output (d_min / D_sil price segments that
+exist). Trigram chain running.
+
+**S3b-R, rate term (user's form).** L = L_tau + lam_rate * ((E_q[N]/T - rho)/rho)^2 per utterance, mean over kept
+utterances; N = expected EMITTED non-SIL tokens under the tempered posterior (sum of seg_post over non-SIL types),
+T = frames. rho is LABEL-FREE: phones per word of the phonemized text T_phi times a disclosed read-speech constant
+2.7 words / s, divided by 50 Hz; the dev-transcript rate 9.8 / 9.4 per s (SAE_1f.md:533-536, gold) never enters the
+loss and is reporting-only. Gradient to theta only (the user's E_{q_theta}), through a central finite difference in
+a per-token tilt b added to the non-SIL segment table (d post_q / d b), two extra DP passes per step; tiny-shape
+autograd oracle. Reads: (c5) network-free — the cold harness with b solved per iteration so E[N]/T = rho (the
+penalty's fixed point), durations free and pinned: does the rate-constrained fixed point carry content (PER, distinct
+phones, reverse LL; informative, not a gate — S3b-R is funded by the user)? Training arms lam_rate in {1, 3, 10}, S3
+schedule, seed and reads otherwise unchanged (`config/sae_4a_s3b_rate.py`), after the design review.
+Gate **G4a.3b-R** (pre-registered): in any arm at sub-epoch 4, dev-other greedy PER < 0.50 AND speaker-matched
+derangement gap > 0 with the CI excluding 0 AND emitted phone rate within [0.6, 1.5] x rho. PASS: the cold start
+takes off with the rate term; continue on the cold track (content term and trigram as ablations). FAIL: the rate
+term is a precondition, not the take-off mechanism; the forward per-frame content term (Liu 2022) is the next lever
+and carries the rate term. Expected in advance: S3 sub-epochs 5-8 already emitted 4-8 phones / s at PER 0.84-0.90
+with a negative gap, so a non-zero rate alone may still be content-free.
+
+**P-BT, back-translation probe** (user 2026-09-15: full training funded regardless; a content-free probe does not
+reject the idea, it shapes the full design). Mechanism argument under test: phi is fit on the recognizer's decodes
+of real audio; from cold those are content-free, so phi ignores its text input and a recognizer trained on
+(phi-synthesized units, real text) learns the text prior only. The probe: label-free 2000-utterance train subset of
+tc100 (features, units, eta), 2000 real sentences of T_phi; rounds r = 0..3 of (decode real audio with theta_r ->
+fit phi on (real units, pseudo-text) -> sample units from phi for the real sentences with a real speaker eta ->
+map units to L15 features -> train theta by CTC on (synthetic features, real text)). Four arms: phi start
+{cold phi_0 (S3's constructed init), warm-up phi `htxT2f9FHvWw` (seed-track, diagnostic only: does the loop transfer
+content from a content-carrying generator at all)} x units-to-features {collage of real frames per unit, per-unit
+centroid}. Reads per round on the 300 dev-other bed: greedy PER, emitted phones / s, distinct phones, distinct
+strings, speaker-matched derangement gap under the round's phi; train-side feasible fraction and pseudo-text
+distinct strings. Pre-registered reading: "takes off" = dev-other PER < 0.80 AND phone rate in [0.6, 1.5] x rho AND
+gap > 0 (CI excluding 0) in any round; otherwise content-free. Not a funding gate. If the warm-phi arms are also
+content-free, the synthesis pipeline (not the cold start) is the suspect and the full design must fix that first.
+
+**S3b-BT, full back-translation training**: funded by the user; designed after the probe and the literature read
+(`reports/lit_backtranslation_cold_start_2026-09-15.md`), reviewed by the design-reviewer before its first job.
+Gate form fixed now: the G4a.3 clauses (dev-other PER < 0.50 AND positive gap) at a matched budget of 8 tc100
+sub-epoch equivalents; the operating point and any init are named in the design.
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
