@@ -58,8 +58,25 @@ COL_TRACE = "trace_json"
 _WAV_RE = re.compile(r"^(\d+)\.wav$")
 
 #: Max float32 samples per arrow chunk. Arrow's list offsets are int32, so one chunk may not exceed
-#: 2 GiB of values; 400 M float32 = 1.6 GiB leaves room for the offset/validity buffers.
-_MAX_SAMPLES_PER_CHUNK = 400_000_000
+#: 2 GiB of values, which is a CORRECTNESS ceiling of 536 M float32. This cap is deliberately far
+#: below it, because it is also the job's peak-memory knob and those are not the same number.
+#: ``Dataset.from_dict`` converts a list of ndarrays through pyarrow's Python-object path, so the
+#: live chunk costs ~7.7x its own bytes -- and since the cap, not the corpus, sets that peak, every
+#: storage="hf" pack of more than one chunk paid the same worst case. Measured on the login node
+#: (432 clips of 925 k samples = 1,598 MB, identical 1,598 MB written every time):
+#:
+#:     cap    chunk    peak RSS   wall
+#:     400 M  1600 MB  12,338 MB   8.9 s   <- the old value: 12.3 GB against SpeechInference's 16 GB
+#:     200 M   800 MB   6,246 MB   9.4 s
+#:     100 M   400 MB   3,202 MB   9.2 s
+#:      50 M   200 MB   2,231 MB   9.6 s   <- here: 5.5x less memory for 8% more wall time
+#:      25 M   100 MB   2,144 MB  10.3 s   (flattening -- below this the fixed cost dominates)
+#:
+#: The 12.3 GB is what left the four B6 evals at 15.99 GB of a 16 GB limit on 2026-09-11 -- passing,
+#: but with the model still resident there is no headroom, and the margin does not grow with the
+#: node. Chunk boundaries do not affect the bytes written (the final shard layout comes from
+#: ``save_to_disk``'s own ``max_shard_size``), so this is free to tune.
+_MAX_SAMPLES_PER_CHUNK = 50_000_000
 
 
 def is_clip_dataset(path: str | os.PathLike) -> bool:
@@ -85,7 +102,8 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
 
     **Bounded memory: at most one chunk of audio is ever live.** ``items`` is consumed as a stream
     and each chunk is flushed to a staged dataset as soon as it fills, so peak RSS is set by
-    ``_MAX_SAMPLES_PER_CHUNK`` (~1.6 GB) rather than by the size of the corpus. The previous version
+    ``_MAX_SAMPLES_PER_CHUNK`` (200 MB of audio, ~2.2 GB resident) rather than by the size of the
+    corpus -- see the cap's own note for why that number is not the arrow limit. The previous version
     accumulated every clip in ``rows``, then built ``parts`` as a second copy and concatenated as a
     third -- ~3x the corpus. That is what OOM-killed the four 3,000-clip B6 evals on 2026-09-11 in
     ``SpeechInference._pack_clips``, *after* inference had already succeeded: a monotone ramp from
