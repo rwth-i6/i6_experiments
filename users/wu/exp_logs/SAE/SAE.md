@@ -72,8 +72,13 @@ exploit's substrate). `lm_prior_norm="units"` is the standing fix because the pe
 (NLA shape): sample G=8–12 at the bed's T; the scorer is frozen in-loop by construction and any update goes
 through §3e.1; AV by GRPO with group-normalized advantages.
 
-## Priority queue (revision 2026-08-21; status read through 2026-08-26)
+## Priority queue (revision 2026-09-15 adds item 0; other statuses read through 2026-08-26)
 
+0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
+   no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2 /
+   annealed). Order: S0a build -> S1a CPU alignment read -> S0b -> S2 GAN-lineage refinement (WER speaks) -> S3
+   flat start. Registered decision: the §1d-output-as-initialization-only carve-out is extended from the G-track
+   to §4a S2 (never in-loop teacher, reward or selection). `SAE_4A.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final
    refits and the 1,112-ID evaluation CLOSED, so no PER of that route can exist. 1g.9, the 1g.10/10a/10b/10c
@@ -156,6 +161,9 @@ against the 6,778/201 floor); no solver retry, support-floor relaxation or graph
 - **§3g Z-track (from-scratch, no GAN)** — all four arms closed; Z4 FAILED its gate with earnable variance
   remaining (not an exhausted loop); no Z5 funded, and the recommendation is a content-bearing §1g seed
   before any further no-pairs loop. `SAE_3G.md`.
+- **§4a exact-marginal cycle (EMC)** — OPEN, nothing launched; gates G4a.1 (S1a reverse-term alignment, spend
+  control only), G4a.2 (S2 dev-other WER, paired vs own init and vs §1d 17.96/21.87), G4a.3 (S3 flat start, read
+  at the end of the anneal). `SAE_4A.md`.
 - **Build/setup records** — 960 h loop build `sae_960h_loop_build.md`; reward side-inputs lam_1/lam_2 `SAE_ref.md`.
 
 ## Standing gates for phases with no separate document
