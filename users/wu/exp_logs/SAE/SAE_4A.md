@@ -423,10 +423,19 @@ dev-clean / dev-other per sub-epoch: arm A 0.119/0.170, 0.143/0.190, 0.158/0.202
 Phone rates 9.1-10.1 / s throughout; 2703 distinct decodes. Selection: A -> 1 (ppl 22.0), B -> 4 (15.6, the
 best-PER checkpoint), C -> 1 (24.1). Same three readings as the 10 h track; the anchored gain at alpha = 0.25 is
 0.0014 / 0.0090 absolute PER here (0.005 / 0.013 on 10 h) and is only a claim after the paired read. Follow-up
-funded (S2c, `config_sae_4a_s2c_v1.py`, both tracks, 8 sub-epochs): arm D = held anchor alpha 0.25 throughout; arm
-E = anchor only (L_tau removed from the optimised total), the control that separates the objective's contribution
-from the anchor's own regularisation; pre-registered read = paired D - E PER delta on dev-other, CI excluding 0 in
-D's favour.
+funded and LAUNCH-READY (S2c, `config_sae_4a_s2c_v1.py`, commits af0d7f2 + 0c547f5, both tracks, 8 sub-epochs,
+tau 2, same data/lr/dropout as S2b; `reports/impl_s2c_2026-09-15.md`): arm D = held anchor alpha 0.25 on every
+sub-epoch (10 h `ReturnnTrainingJob.zvXHrxR2Kwdj`, 1 h `fjwkj6kVXc8W`); arm E = self-distillation control, theta
+trained toward the frozen init recognizer's posteriors (per-frame KL(q_init || q_theta) on valid frames,
+`train_steps/sae_emc.py:149-166`, `lam_selfdistill` 1.0) with `lam_tau` 0 (L_tau reported, not optimised) and
+lam_agg 0.1 as in D; phi receives no gradient (10 h `DNWDPWsJODis`, 1 h `381lj8zEBm12`). Resolved configs differ
+only in `lam_tau` / `lam_selfdistill`. E is the standard semi-supervised bar an anchored objective must beat, so
+D - E reads "L_tau's tilted target vs plainly pulling toward the init"; an earlier E (lam_tau 0 with no
+distillation term) was replaced before launch because it trained theta on the aggregate term alone. Pre-registered
+read (docstring of the config) = paired D - E dev-other PER delta per sub-epoch and at the unsupervised-selected
+checkpoint (PairedPerDeltaJob, clustered bootstrap), CI excluding 0 in D's favour; PER of each arm vs its own init
+reported beside it. Caveat from the implementer: the unit test's stub recognizer is deterministic, so the
+dropout/BatchNorm teacher-student asymmetry of the real net is not exercised.
 
 S3 audit (2026-09-15, `reports/audit_s3_g4a3_2026-09-15.md`): CONFIRMED FAIL on both clauses; sub-epoch 4 dev-other
 PER 0.8955 with deletions 84 % of N (near-empty decodes), gap -0.3218 (macro -0.342) with the CI wholly below 0;
