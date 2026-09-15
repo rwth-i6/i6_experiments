@@ -566,6 +566,33 @@ categorical duration model; phi needs an expected-count (EM) fit or an initialis
 before theta is unfrozen. Full run (`reports/exec_reverse_duration_check_2026-09-15.md`): the duration model DOES move during the arms, slowly and toward the gold — model E[d] 13.4 (warm-up) -> 12.5 (arm A ep1) -> 8.5 (arm A ep6); 11.1 (arm B ep3); 7.6 (arm D ep8, the held-anchor arm, closest to the gold 4.7), P(d <= 3) 0.10 -> 0.25 (A ep6) / 0.34 (D ep8); no explicit per-segment constant exists in the lattice, only log p(d | k) and beta log P_psi enter the emit weight. So phi learns in the right direction at lr 3e-3 but needs thousands of steps, and theta, unfrozen at step 0, drifts long before phi is fitted; arm D shows phi fitting while theta is held. The read of the drift is therefore
 from the full run.
 
+### Literature on the deletion mechanism (2026-09-15, `reports/lit_length_bias_2026-09-15.md`; full texts read)
+
+- CORRECTION of a design citation: ESPUM (Yeh et al. ICLR 2019) trains against N = 5 (top-10k 5-grams, App. B),
+  not "unigram + bigram"; no LM-order ablation exists there, and its segment-level formulation (one output per
+  segment) cannot delete at all. The "bigram first, supported by ESPUM" line in Design decisions is void; the bigram
+  was a compute choice only.
+- Empirical-ODM (Liu et al. NeurIPS 2017): the mode-seeking cross-entropy form "easily converges to predicting the
+  output with largest p_LM"; the coverage-seeking (corpus-frequency) form fixes it; 1/2/3-gram error 71.8 / 10.9 /
+  10.2 %. Implication: the order gain from 2 to 3 was modest there; the form of the objective mattered more.
+- wav2vec-U (Baevski et al. 2021): no LM in the GAN loss, 4-gram only in decoding; label-free rate control via
+  silence insertion in text (0.25), a diversity entropy term, and a decode blank bonus tuned in [-3, 8].
+  wav2vec-U 2.0 (Liu et al. 2022): the UNIT RATE is the constant — 16 Hz segments (gold ~10 phones/s) PER 19.0;
+  25-28 Hz PER > 100 (Tab. 1, dev-other greedy). Our reverse clock is 50 Hz.
+- Merialdo 1994: EM from a good init 97.0 -> 96.8 (it. 1) -> 95.2 (it. 10); with > 5k sentences the first
+  iteration already hurts; an init anchor cut the added errors 818 -> 419, freezing marginals only 767 -> 712.
+  Johnson 2007: sparse Dirichlet priors help; transition priors and annealing are nulls.
+- Tang et al. 2017 (segmental): segment score = frame AVERAGE of log-posteriors + duration weight + bias (eqs. 6,
+  10, 11) — per-frame normalisation of the evidence is the standard segmental remedy (the weights there are
+  supervised). Kamper et al. 2017: a 250 ms minimum duration cut Xitsonga WER 116.2 -> 78.9.
+- Not read: Ondel, Glarner 2018, Ebbers 2017, Wang 2018.
+
+Implication for the next stage: (b) per-frame normalisation of the segment evidence is the cheapest label-free
+remedy for the per-segment-constant imbalance; (a) a label-free insertion bonus calibrated to the text phone rate is
+the second lever and the tilt stays; (c) a higher LM order is required by the user (standing constraint) — the
+literature predicts a modest gain from order alone under a mode-seeking objective, so it is carried together with
+(a)/(b), and the coverage-seeking form of the text term is the literature's own fix for LM-mode collapse.
+
 ## S3 cold start: G4a.3 read (2026-09-15; audited CONFIRMED FAIL, see the audit note above)
 
 Run `ReturnnTrainingJob.sBlPYBA1YcIQ` (flat init `FlatRecognizerInitJob.21Kxgr5JLR3k`, 8 sub-epochs, tau 8 / 5.04 /
