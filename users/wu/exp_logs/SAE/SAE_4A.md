@@ -234,7 +234,7 @@ and decides whether sub-epochs 5-8 are read at all.
 
 d_min >= 2 (`SAE_3E1.md:161`); labels never train or select in S2/S3, S1 is a quarantined diagnostic; paired
 reads and plain sclite WER (`SAE.md:40-45`); lambdas per bed, sweep at 100 h; no replay data in any phi refit;
-unsupervised checkpoint selection by the pre-registered formula; token-rate revert rule above.
+unsupervised checkpoint selection by the pre-registered formula; token-rate revert rule above. ADDED 2026-09-15 (user): the LM term inside the objective must carry a higher-order dependency than a bigram — no further EMC stage launches with `prior_order: 2`; the mechanism (trigram/class-trigram in the DP, or higher-order rescoring of the target) is chosen from `reports/estimate_prior_order_2026-09-15.md` with its measured step cost.
 
 ## Results
 
