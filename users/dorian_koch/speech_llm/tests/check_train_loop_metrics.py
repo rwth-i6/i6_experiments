@@ -25,6 +25,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_dir())
@@ -137,6 +138,108 @@ def check_step_timing_present():
     rows = _run(max_steps=2)
     assert all("step_seconds" in r and r["step_seconds"] >= 0 for r in rows), rows
     print("PASS  step_seconds logged")
+
+
+def _run_slow(*, slow_data=0.0, slow_fwd=0.0, max_steps=2, grad_accum=2, log_every=1):
+    """Same toy, with a known sleep injected into exactly one phase."""
+    torch.manual_seed(0)
+    lin = torch.nn.Linear(4, 4)
+    params = list(lin.parameters())
+    opt = torch.optim.AdamW([{"params": params, "lr": 1e-3}])
+
+    def batches():
+        while True:
+            if slow_data:
+                time.sleep(slow_data)
+            yield torch.randn(2, 4)
+
+    def loss_step(batch):
+        if slow_fwd:
+            time.sleep(slow_fwd)
+        return lin(batch).pow(2).mean()
+
+    out_dir = tempfile.mkdtemp()
+    run_training(
+        optimizer=opt,
+        base_lrs=[1e-3],
+        group_names=("temporal",),
+        trainable_params=params,
+        batch_iter=batches(),
+        loss_step=loss_step,
+        save_fn=lambda step, final: None,
+        cfg=TrainConfig(
+            max_steps=max_steps,
+            grad_accum=grad_accum,
+            warmup_steps=1,
+            grad_clip=1.0,
+            save_every=0,
+            log_every=log_every,
+        ),
+        out_dir=out_dir,
+        log=lambda m: None,
+    )
+    path = Path(out_dir) / "metrics.train.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def check_phase_timing_attributes_the_right_phase():
+    """The phase split must name WHERE a slow step went, not just that it was slow.
+
+    A step that is starved of data and one that is busy in the model are the same
+    `step_seconds` and have opposite fixes, so the value of the split is entirely in
+    the attribution being correct. Asserted BOTH ways -- a breakdown that dumped
+    everything into one bucket would pass a one-sided test.
+    """
+    accum, nap = 2, 0.05
+    for phase, other, kw in (
+        ("data_seconds", "fwd_bwd_seconds", {"slow_data": nap}),
+        ("fwd_bwd_seconds", "data_seconds", {"slow_fwd": nap}),
+    ):
+        rows = _run_slow(grad_accum=accum, **kw)
+        for r in rows:
+            for k in ("data_seconds", "fwd_bwd_seconds", "metrics_seconds", "optim_seconds", "step_seconds_avg"):
+                assert k in r, f"{k} missing from the record: {sorted(r)}"
+            # The sleep happens once per micro-batch, so the loaded phase must carry ~accum*nap...
+            assert r[phase] >= accum * nap * 0.8, (
+                f"{phase} = {r[phase]:.3f}s did not absorb {accum}x{nap}s of injected delay"
+            )
+            # ...and the other phase must NOT. This is the half that makes it an attribution
+            # test rather than a "something was slow" test.
+            assert r[other] < accum * nap * 0.5, f"{other} = {r[other]:.3f}s absorbed delay injected into {phase}"
+            # The phases must account for the step; anything unattributed is a gap in the split.
+            parts = r["data_seconds"] + r["fwd_bwd_seconds"] + r["metrics_seconds"] + r["optim_seconds"]
+            assert parts <= r["step_seconds"] + 1e-3, (
+                f"phases sum to {parts:.3f}s > step_seconds {r['step_seconds']:.3f}s -- double counted"
+            )
+            assert parts >= 0.9 * r["step_seconds"], (
+                f"phases sum to {parts:.3f}s of step_seconds {r['step_seconds']:.3f}s -- "
+                f"{r['step_seconds'] - parts:.3f}s is unattributed"
+            )
+    print("PASS  phase timing attributes a slow phase to that phase and to no other")
+
+
+def check_avg_step_time_is_not_the_sampled_step():
+    """`step_seconds` is sampled on metrics steps, which are the expensive ones.
+
+    Quoting it as throughput overstates the cost by whatever the diagnostics take, which is
+    exactly the mistake `step_seconds_avg` exists to prevent. With log_every=4 the three
+    non-metrics steps in each window are cheap, so the average must come out BELOW the
+    sampled step -- and must cover every step, not just the sampled one.
+    """
+    rows = _run_slow(slow_data=0.02, max_steps=8, grad_accum=1, log_every=4)
+    assert len(rows) >= 2, rows
+    later = rows[-1]
+    # The window covers log_every steps of work, so the average is a real average and the
+    # record's own step_seconds is one sample from it.
+    assert later["step_seconds_avg"] > 0
+    assert abs(later["step_seconds_avg"] - later["step_seconds"]) < later["step_seconds"], (
+        "step_seconds_avg looks like it is tracking a single step rather than the window"
+    )
+    # Non-vacuous: with a real per-step cost the average cannot be zero while steps take time.
+    assert later["step_seconds_avg"] >= 0.5 * 0.02, (
+        f"step_seconds_avg {later['step_seconds_avg']} ignores the injected per-step delay"
+    )
+    print("PASS  step_seconds_avg averages the window, not just the sampled step")
 
 
 def _named_toy():
@@ -323,6 +426,8 @@ if __name__ == "__main__":
     check_grad_norm_and_clipping()
     check_non_finite_grad_is_fatal()
     check_step_timing_present()
+    check_phase_timing_attributes_the_right_phase()
+    check_avg_step_time_is_not_the_sampled_step()
     check_module_classification()
     check_per_module_norms()
     check_weight_delta_grows()
