@@ -558,6 +558,7 @@ lora_scaling: 2.0
 full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
 per_gpu_batch: {hp.get("per_gpu_batch", 1)}
 grad_accum: {hp.get("grad_accum", 16)}
+gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
 lr: {_yaml_float(_lr)}
 depth_lr: {_yaml_float(hp.get("depth_lr", _lr))}
 temporal_lr: {_yaml_float(hp.get("temporal_lr", _lr))}
@@ -570,7 +571,6 @@ kl_weight: {_yaml_float(hp.get("kl_weight", 0.0))}
 kl_temperature: {_yaml_float(hp.get("kl_temperature", 1.0))}
 l2sp_weight: {_yaml_float(hp.get("l2sp_weight", 0.0))}
 text_lr_mult: {_yaml_float(hp.get("text_lr_mult", 1.0))}
-gradient_checkpointing: true
 save_every: {hp.get("save_every", 500)}
 save_steps: {list(hp.get("save_steps", []))}
 log_every: 10
