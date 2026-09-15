@@ -24,13 +24,13 @@ S2 is funded on the rule (the remaining cost is the DP kernel itself, ~1.6 min p
 before any scale-up); the miss on the absolute number is recorded, not amended away. S1b is a pipeline/drift read
 only (G4a.1 passed). S2 LAUNCH in progress under one combined manager (config/sae_4a_phase.py = S1b + S2 graphs;
 `reports/exec_s2_launch_2026-09-15.md`); its warm-up waits on ctc_init (i).
-NEXT (direction change 2026-09-15, see Stages amendment; LAUNCH HELD pending the q-target diagnostic and the decode-chain fix, see Results "S2 GAN-init arms"): (0) configs S2b (`config_sae_4a_s2b_v1.py`, 10 h + 1 h seed inits) and S3 (`config_sae_4a_s3_v1.py`, cold start) in implementation; review, then load them into the single phase manager and read their first-100-step efficiency. (1) when the init (i) WER decodes finish, bank them; check its
+NEXT (direction change 2026-09-15, see Stages amendment; LAUNCH HELD pending the q-target diagnostic and the decode-chain fix, see Results "S2 GAN-init arms"): (0) S2b (`config_sae_4a_s2b_v1.py`, 10 h + 1 h seed inits) and S3 (`config_sae_4a_s3_v1.py`, cold start) reviewed and launch-ready; S3 line still missing from `config/sae_4a_phase.py`. Two checks precede the launch: (a) the q-target diagnostic `analysis/emc_target_diag.py` (executor runs it on a GPU via srun); (b) the decode temperature sweep `config_sae_4a_decode_temp_v1.py` on init (i), T picked once on dev-clean and then wired into every §4a decode. Then start ONE manager on `config/sae_4a_phase.py` (with S3), read the first-100-step efficiency. (1) bank init (i) WER at the chosen T; check its
 DecodeStats phone rate. (2) Bank S1b PER per sub-epoch (2 sub-epochs) against §1a's oracle-EM drift row
 (0.275 -> 0.392). (3) S2: per-sub-epoch phone rate against [0.6, 1.5] x 9.8/s (revert rule); at the end read G4a.2
 (paired dev-other WER delta vs init (i), usability vs 17.96 / 21.87) on the unsupervised-selected checkpoint;
 audit before acting on it. (4) Efficiency: fuse the lattice frame body (torch.compile / Triton) before any run
 beyond tc100.
-Live pids / watcher: ONE manager pid 2643163 on config/sae_4a_phase.py (S1b + S2 graphs, 259 jobs incl. the oracle-init PER evals GreedyPerJob.3TcOOObr1IrW / RMkjOs4czduh;
+Live pids / watcher: NONE (manager 2643163 exited with the S1b + S2 graph complete; watcher stopped; re-arm at the next launch). Last manager: pid 2643163 on config/sae_4a_phase.py (S1b + S2 graphs, 259 jobs incl. the oracle-init PER evals GreedyPerJob.3TcOOObr1IrW / RMkjOs4czduh;
 log/sae_4a_phase.manager.log; log_level 30, judge from job dirs); watcher `bash ~/.claude/skills/sis/sis_watch.sh
 2643163 config/sae_4a_phase.py 300` from the setup dir. Arms A/B trainings FINISHED (SLURM 1802597/1802596); their evals, decodes and selections run. S2 job dirs at the current hashes: warm-up
 ReturnnTrainingJob.q6BUlBXVfA1t, arm A 3EVuGpAEAn8m, arm B HUSP5F9GBUVr, selections
@@ -316,8 +316,16 @@ confusion against the recognizer (a symbol-id shift between the 41 recognizer ou
 symbols, or a surrogate-gradient sign error, would produce exactly this picture; a finite-difference check of the
 surrogate is included); (b) the init (i) decode chain: sclite WER 51.7 / 58.3 % (dev-clean / dev-other) from a
 recognizer with greedy PER 0.166 / 0.218 is not a plausible lexicon + 4-gram outcome (§1d: PER 0.138 -> WER 17.96),
-so the KenlmPosteriorDecodeJob mapping is under diagnosis (`reports/debug_init_wer_…`); no §4a WER is quotable until
-it is resolved. G4a.2 is therefore NOT read yet. Launch of S2b / S3 is held until (a) returns: if a bug, every
+diagnosed (`reports/debug_init_wer_2026-09-15.md`): the chain is correct (symbol order == ARPABET_39, blank 0 / sil 2 /
+vocab 43 asserted, 0 OOV, in-job WER == sclite); the cause is the decode operating point. The distilled recognizer
+emits near-one-hot posteriors (mean entropy 0.13 nats, median top1-top2 log gap 7.6; SIL column dead), so with the
+pinned beamthreshold 50 the gold CTC path falls > 50 nats behind the argmax prefix and is pruned before the word-end
+LM reward (sclite S 40.7 / D 6.8 / I 4.2). Remedy (in implementation): an acoustic temperature T on the log-posteriors
+(log_softmax(log p / T)) in KenlmPosteriorDecodeJob, hash-neutral at T = 1, swept T in {1, 1.5, 2, 3, 4} on init (i);
+T is picked ONCE as the dev-clean argmin of init (i) and frozen for every §4a decode (inits, arms, S3), disclosed
+beside every WER as a dev-clean-tuned decoder constant like lm_weight; dev-other never picks T. No §4a WER is
+quotable until T is fixed; the 51.7 / 58.3 % numbers are the T = 1 row of that sweep. G4a.2 is therefore NOT read yet.
+Launch of S2b / S3 is held until (a) returns: if a bug, every
 run so far is void and reruns at the fixed hashes; if the target is genuinely anti-aligned, S2b would only
 repeat the S1b picture and S3's G4a.3 becomes the phase's only remaining question.
 
