@@ -177,12 +177,38 @@ class TrainMetricsPlot(Job):
         """
         if not rel_rows:
             return {}, "run predates the relative weight delta"
+
+        # Keep only the LAST origin present in the file. A run that resumed before the trainer began
+        # persisting theta_0 measured its tail from the checkpoint it resumed from, and those numbers
+        # are not on the same scale as the head -- drawing both as one line is what made a41 look
+        # like it snapped back toward pretrained. They cannot be converted into one another (norms do
+        # not compose), so the honest options are "drop" or "draw as separate series"; dropping the
+        # shorter, stale-origin part and saying so in the note is the one that cannot mislead.
+        origins = {o for _, _, o in rel_rows if o is not None}
+        note = None
+        if len(origins) > 1:
+            # Keep the segment measured from the EARLIEST origin -- origin 0 is the true pretrained
+            # theta_0, and "how far has this run moved from pretrained" is the only reading of this
+            # panel anyone wants. The post-resume tail is displacement from a mid-run checkpoint,
+            # which is nearly meaningless on its own and is also the SHORTER piece. (Keeping the
+            # later origin instead would have thrown away steps 1-5,000 of a41 and kept 2,300 points
+            # of a quantity nobody asked for -- which is what the first version of this did.)
+            keep = min(origins)
+            kept = sum(1 for _, _, o in rel_rows if o == keep)
+            note = (
+                f"weight delta re-based mid-run (origins {sorted(origins)}): showing the {kept} "
+                f"points measured from step {keep}; {len(rel_rows) - kept} later points are relative "
+                f"to a different theta_0 and cannot be converted onto this scale (norms do not "
+                f"compose), so they are dropped rather than drawn as one line"
+            )
+            rel_rows = [r for r in rel_rows if r[2] == keep]
+
         buckets = {}
         for b in MODULE_ORDER:
-            pts = [(s, d[b]) for s, d in rel_rows if d.get(b) is not None]
+            pts = [(s, d[b]) for s, d, _ in rel_rows if d.get(b) is not None]
             if pts:
                 buckets[b] = cls._canonical([s for s, _ in pts], [v for _, v in pts])
-        return buckets, None
+        return buckets, note
 
     @classmethod
     def _parse(cls, path: str, numel_override: dict | None = None) -> dict:
@@ -247,7 +273,20 @@ class TrainMetricsPlot(Job):
                     if row.get("grad_norm_by_module"):
                         raw_mod.append((step, row["grad_norm_by_module"]))
                     if row.get("weight_delta_rel_by_module"):
-                        rel_delta.append((step, row["weight_delta_rel_by_module"]))
+                        # Carry the ORIGIN the delta was measured from. A resumed run that predates
+                        # the persisted theta_0 re-based on the checkpoint it resumed from, so the
+                        # series changes meaning mid-file: a41 read 0.02605 at step 5,000 and
+                        # 0.00010 fifty steps later, which looks like the weights snapping back to
+                        # pretrained and is not that -- the ruler changed.
+                        #
+                        # ⚠ This CANNOT be repaired here. Converting ||theta - theta_5000|| into
+                        # ||theta - theta_0|| needs the VECTOR between the two origins, not its norm,
+                        # and norms do not compose. The fix is in the trainer (it now persists
+                        # theta_0); all a plot can honestly do is refuse to draw one line through two
+                        # origins. Runs recorded before that fix are split into segments below.
+                        rel_delta.append(
+                            (step, row["weight_delta_rel_by_module"], row.get("weight_delta_baseline_step"))
+                        )
 
         # A resume is visible in the loss series (logged every few steps) long before the probe
         # series (every ~100), so the loss stream is the one to detect it on.
@@ -486,6 +525,10 @@ class TrainMetricsPlot(Job):
                 ),
                 "module_numel": s["module_numel"],
                 "module_note": s["grad_modules_note"],
+                # Surfaced separately: a re-based weight-delta series is a different defect from a
+                # missing numel, and collapsing them into one field hid it (the note was computed
+                # and then dropped on the floor).
+                "weight_delta_note": s.get("delta_modules_note"),
                 "resumes": s["resumes"],
                 "probe_errors": s["probe_errors"],
                 "superseded_loss_points": s["superseded_loss_points"],

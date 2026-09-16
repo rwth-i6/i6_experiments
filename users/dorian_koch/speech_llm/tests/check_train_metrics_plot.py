@@ -275,6 +275,54 @@ def check_clipped_and_probe_seconds_reach_stats():
     print("PASS  clipping and probe_seconds are captured (the number D3 needs)")
 
 
+def check_rebased_weight_delta_is_not_drawn_as_one_line():
+    """A resume that re-based theta_0 must not be plotted as a continuous series.
+
+    The defect (a41, 2026-09-16): before the trainer persisted theta_0, a resumed run measured its
+    tail from the CHECKPOINT it resumed from. `temporal` read 0.02605 at step 5,000 and 0.00010
+    fifty steps later -- which renders as the weights snapping back toward pretrained, and is purely
+    a change of origin.
+
+    ⚠ It cannot be repaired here: ||theta - theta_5000|| does not convert into ||theta - theta_0||
+    without the VECTOR between the origins, and norms do not compose. So the only honest behaviours
+    are to drop one segment or draw two series; this asserts the drop, that it keeps the segment
+    measured from the EARLIEST origin (displacement from pretrained is the reading anyone wants, and
+    it is also the longer piece), and that the reason reaches the stats file instead of being
+    computed and discarded -- which is what the first version of this fix did.
+    """
+    rows = []
+    for st in range(10, 60, 10):  # origin 0
+        rows.append({"kind": "train", "step": st, "loss": 2.0, "weight_delta_baseline_step": 0,
+                     "weight_delta_rel_by_module": {"temporal": 0.02 + st / 10000}})
+    for st in range(60, 90, 10):  # origin 60 -- a resume, tiny numbers, different scale
+        rows.append({"kind": "train", "step": st, "loss": 2.0, "weight_delta_baseline_step": 60,
+                     "weight_delta_rel_by_module": {"temporal": 0.0001 + st / 1000000}})
+    path = _write(rows)
+    try:
+        s = TrainMetricsPlot._parse(path)
+    finally:
+        os.unlink(path)
+    note = s.get("delta_modules_note")
+    assert note and "re-based" in note, note
+    assert "[0, 60]" in note, note
+    steps = s["delta_modules"]["temporal"][0]
+    assert max(steps) <= 50, f"kept the post-resume segment instead of the pretrained one: {steps}"
+    assert len(steps) == 5, steps
+    print("PASS  a re-based weight delta keeps the pretrained-origin segment and says so")
+
+    # Non-vacuous: a run with ONE origin must not be filtered and must carry no note.
+    rows1 = [{"kind": "train", "step": st, "loss": 2.0, "weight_delta_baseline_step": 0,
+              "weight_delta_rel_by_module": {"temporal": 0.02 + st / 10000}} for st in range(10, 90, 10)]
+    path = _write(rows1)
+    try:
+        s1 = TrainMetricsPlot._parse(path)
+    finally:
+        os.unlink(path)
+    assert s1.get("delta_modules_note") is None, s1.get("delta_modules_note")
+    assert len(s1["delta_modules"]["temporal"][0]) == 8, s1["delta_modules"]["temporal"][0]
+    print("PASS  a single-origin run is untouched (the filter is not always-on)")
+
+
 if __name__ == "__main__":
     check_clean_run()
     check_resumed_run()
@@ -286,4 +334,5 @@ if __name__ == "__main__":
     check_relative_delta_drops_unmeasurable_buckets()
     check_new_series_survive_a_resume()
     check_clipped_and_probe_seconds_reach_stats()
+    check_rebased_weight_delta_is_not_drawn_as_one_line()
     print("ALL PASS")
