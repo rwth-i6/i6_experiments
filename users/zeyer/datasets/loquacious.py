@@ -996,17 +996,30 @@ class LoquaciousWeightedCorpusTextJob(tk.Job):
     so the shard row counts give the line block of each shard.
     """
 
-    def __init__(self, text_file: Path, hf_data_dir: Path, shard_sources: Path, multiplicities: Dict[str, int]):
+    __sis_hash_exclude__ = {"keep_shard_fraction": None}
+
+    def __init__(
+        self,
+        text_file: Path,
+        hf_data_dir: Path,
+        shard_sources: Path,
+        multiplicities: Dict[str, int],
+        *,
+        keep_shard_fraction: Optional[float] = None,
+    ):
         """
         :param text_file: gzipped text, one line per dataset row
         :param hf_data_dir: the split dir, with data-*-of-*.arrow shards
         :param shard_sources: shard basename -> source
         :param multiplicities: source -> how often its lines are repeated
+        :param keep_shard_fraction: keep only the lines of a per-source subset of the shards
+            (see :func:`_shard_keep_mask`), None = all
         """
         self.text_file = text_file
         self.hf_data_dir = hf_data_dir
         self.shard_sources = shard_sources
         self.multiplicities = multiplicities
+        self.keep_shard_fraction = keep_shard_fraction
         self.out_text = self.output_path("text.txt.gz")
         self.rqmt = {"cpu": 1, "mem": 2, "time": 2}
 
@@ -1021,11 +1034,14 @@ class LoquaciousWeightedCorpusTextJob(tk.Job):
 
         with open(self.shard_sources.get_path()) as f:
             sources = json.load(f)
-        blocks = []  # (num lines, multiplicity) per shard, in order
-        for fn in get_arrow_shard_files_from_hf_dataset_dir(self.hf_data_dir.get_path()):
+        fns = get_arrow_shard_files_from_hf_dataset_dir(self.hf_data_dir.get_path())
+        shard_srcs = [sources[os.path.basename(fn)] for fn in fns]
+        keep = _shard_keep_mask(shard_srcs, self.keep_shard_fraction) if self.keep_shard_fraction else [True] * len(fns)
+        blocks = []  # (num lines, multiplicity) per shard, in order; multiplicity 0 = dropped shard
+        for fn, src_name, keep_ in zip(fns, shard_srcs, keep):
             with pa.memory_map(fn) as src:
                 num_rows = pa.ipc.open_stream(src).read_all().num_rows
-            blocks.append((num_rows, self.multiplicities[sources[os.path.basename(fn)]]))
+            blocks.append((num_rows, self.multiplicities[src_name] if keep_ else 0))
         with gzip.open(self.text_file.get_path(), "rt", encoding="utf-8") as f_in:
             with gzip.open(self.out_text.get_path(), "wt", encoding="utf-8") as f_out:
                 for num_rows, mult in blocks:
@@ -1052,6 +1068,53 @@ def _distribute_files_get_files_weighted(
     files = []
     for fn in get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir):
         files += [fn] * multiplicities[sources[os.path.basename(fn)]]
+    return files
+
+
+def _shard_keep_mask(sources: List[str], fraction: float) -> List[bool]:
+    """
+    Per-source shard subset: the first ceil(fraction x n) shards of every source, in shard order
+    (the shards are source-contiguous). Shared by the audio files and the transcript text,
+    so a subset's text is exactly the transcripts of its audio.
+
+    :param sources: majority source per shard, in shard order
+    :param fraction: e.g. 0.4 of medium ~= 1000 h with ~200 h per source (shard granularity ~5%)
+    :return: keep flag per shard
+    """
+    import math
+    from collections import Counter
+
+    total = Counter(sources)
+    seen = Counter()
+    keep = []
+    for s in sources:
+        seen[s] += 1
+        keep.append(seen[s] <= math.ceil(fraction * total[s]))
+    return keep
+
+
+def _distribute_files_get_files_subset(
+    hf_data_dir: Union[Path, str, os.PathLike],
+    *,
+    shard_sources: Union[Path, str],
+    fraction: float,
+    multiplicities: Optional[Dict[str, int]] = None,
+) -> List[Union[Path, str]]:
+    """
+    Like :func:`_distribute_files_get_files_weighted`,
+    restricted to the per-source shard subset of :func:`_shard_keep_mask`.
+    """
+    import json
+    from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+    with open(os.fspath(shard_sources)) as f:
+        sources = json.load(f)
+    fns = get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir)
+    shard_srcs = [sources[os.path.basename(fn)] for fn in fns]
+    files = []
+    for fn, src, keep in zip(fns, shard_srcs, _shard_keep_mask(shard_srcs, fraction)):
+        if keep:
+            files += [fn] * (multiplicities[src] if multiplicities else 1)
     return files
 
 

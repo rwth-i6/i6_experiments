@@ -1689,6 +1689,20 @@ def py():
     # structure; dursilonly keeps only the sil-vs-speech duration distinction; trainemb = trained
     # embedding instead of the frozen MFA table (the acoustics half); sil0 = no [space] between
     # words; dur05/dur10 vary the duration scale around 0.7 (dur10 unscaled, wider bound like specaug70).
+    # Our own aligner (exp2026_05_28_tts_encoder_gauss_hmm): a single-Gaussian monophone HMM on the ASR's
+    # log-mels, trained on train-960 only; its emission means and Viterbi durations replace the MFA tables.
+    from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import gauss_hmm_ls960
+
+    _gauss_hmm_tables = gauss_hmm_ls960(prefix + "/gauss-hmm", lexicon=_get_ls_train_glowtts_lexicon())
+    # v2: leading/trailing silence mandatory in the chain, so the flat start pins the silence state to
+    # the edge frames (in v1 the first/last phones' sub-states absorbed them, silence collapsed)
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        mandatory_edge_silence=True,
+        name="gauss-hmm-mono1g-edgesil-ls960",
+    )
+
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     for _abl_name, _abl_kwargs in [
         (f"{_abl_prefix}-dursig0", {"pseudo_enc_duration_sigma": 0.0}),
@@ -1710,6 +1724,23 @@ def py():
         # text-amount ladder around the winning P75: P37 = 2x text per epoch, P150 = half
         (f"{_abl_prefix}-textP37", {"text_train_epoch_split": 37}),
         (f"{_abl_prefix}-textP150", {"text_train_epoch_split": 150}),
+        # Amount of distinct text at the fixed ~1:1 text-to-audio ratio of P75 (AZ, 2026-09-16):
+        # a random 50 / 25 / 10% of the 40.4M LM lines with the partition scaled alike (P38 / 19 / 8),
+        # so every subepoch sees the same amount of text and the subset is passed ~4 / 8 / 19 times
+        # over the training (P75 on the full corpus: ~2 passes).
+        (f"{_abl_prefix}-lmsub50-textP38", {"ls_lm_subset_lines": 20_209_130, "text_train_epoch_split": 38}),
+        (f"{_abl_prefix}-lmsub25-textP19", {"ls_lm_subset_lines": 10_104_565, "text_train_epoch_split": 19}),
+        (f"{_abl_prefix}-lmsub10-textP8", {"ls_lm_subset_lines": 4_041_826, "text_train_epoch_split": 8}),
+        # the winner with the Gaussian-HMM tables instead of the MFA ones (see _gauss_hmm_tables);
+        # held back until the first tables pass the sanity check (2026-09-16: half the phone means and
+        # the silence mean are off, sub-states drift, see projects notes)
+        # (
+        #     f"{_abl_prefix}-gausshmmtables",
+        #     {
+        #         "pseudo_enc_frozen_table": _gauss_hmm_tables.out_mean_table,
+        #         "pseudo_enc_duration_table": _gauss_hmm_tables.out_duration_table,
+        #     },
+        # ),
         # trained embedding x uniform durations = the textogram-style cell,
         # completing the 2x2 with trainemb (acoustics only) and unidur (durations only)
         (
@@ -2610,6 +2641,44 @@ def py():
             "text_train_epoch_split": round(340 * _txt0),
         },
     )
+    # Stronger SpecAugment (mask factor 30) on the small pair, see the small specaug30 control.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep200-bs24m-specaug30-stepcomp"
+        "-len40s-small-txtP340-txtSrcExp0",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_subset": "small",
+            "nep": 200,
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": round(340 * _txt0),
+            "extra_config_updates": {
+                **loq_inj_len40s_kwargs["extra_config_updates"],
+                "specaugment_num_spatial_mask_factor": 30,
+            },
+        },
+    )
+    # The 1000 h subset of medium (see the medium1k baselines): the text-to-audio ratio axis at the
+    # LS per-step ratio (~11.2k text words per audio hour per rank, as small P340 and medium txtP68:
+    # 250 h per rank per subepoch -> 2.8M words -> P181 of the 507M-word srcExp0 text).
+    # 25x text = the full large transcripts; 10x = the transcripts of the first 40% of the shards
+    # of every source (the audio subset rule), partition scaled alike (P72) so the per-step ratio stays.
+    _medium1k_inj_kwargs = {
+        **loq_inj_len40s_kwargs,
+        "nep": 162,
+        "loq_train_epoch_split": 1,
+        "loq_dfd_opts": {"files": _get_loq_medium1k_files()},
+        "loq_text_source_mix": "srcExp0",
+    }
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep162-bs24m-specaug60-stepcomp"
+        "-len40s-medium1k-txtP181-txtSrcExp0",
+        **{**_medium1k_inj_kwargs, "text_train_epoch_split": 181},
+    )
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep162-bs24m-specaug60-stepcomp"
+        "-len40s-medium1k-txtP72-txtSrcExp0-txtshards40",
+        **{**_medium1k_inj_kwargs, "text_train_epoch_split": 72, "loq_text_shard_fraction": 0.4},
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -3159,6 +3228,18 @@ def _train_loquacious_baselines(*, prefix: str):
             "epoch_hours": sum(mult[s] * h for s, h in _large_source_hours.items()),
         }
 
+    # The 1000 h subset of medium, see _get_loq_medium1k_files; partition 1 = one subepoch per full epoch.
+    _medium1k_opts = {
+        "train_dataset_opts": {
+            "distrib_shard_files": True,
+            "sharding_fix": True,
+            "files": _get_loq_medium1k_files(),
+            "partition_epoch": 1,
+        },
+        "epoch_hours": 1_000,
+        "train_epoch_split": 1,
+    }
+
     # bs16m: Robin's finished config (large imported, medium kept as the batch-size comparison).
     # bs24m: the paper-baseline pair, 24M budget for training, eval at the halved-16m budget.
     # Stepcomp step ratios vs the padded single-GPU reference:
@@ -3268,6 +3349,32 @@ def _train_loquacious_baselines(*, prefix: str):
             (929, 2786, 4643),
             50,
         ),
+        # Stronger SpecAugment (2x the time masks) for the 200-pass small regime,
+        # paired with the small txtSrcExp0 injection at the same setting (AZ, 2026-09-15).
+        (
+            "base-small-nFullEp200-muon-lr2_5e3-bs16_8m-specaug30-stepcomp-len40s",
+            "small",
+            {**_bs16_8m_len40s, **_len40s, "train.specaugment_num_spatial_mask_factor": 30},
+            (929, 2786, 4643),
+            50,
+        ),
+        # 1000 h subset of medium (the first 40% of the shards of every source, ~200 h each):
+        # the text-to-audio ratio axis, the full large transcripts are 25x its audio
+        # (small: 100x, medium: 10x). One subepoch = the full 1000 h, n_ep = 162.5 kh / 1 kh (AZ, 2026-09-16).
+        (
+            "base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs24m_len40s, **_len40s, **_medium1k_opts},
+            (650, 1950, 3250),
+            162.5,
+        ),
+        (
+            "base-medium1k-nFullEp162-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs16_8m_len40s, **_len40s, **_medium1k_opts},
+            (929, 2786, 4643),
+            162.5,
+        ),
     ]:
         # Config assembly replicated from the committed train() in Robin's loquacious_aed_packed
         # (spm10k path only),
@@ -3278,7 +3385,12 @@ def _train_loquacious_baselines(*, prefix: str):
                 **packed_budget_overrides,
                 **_muon_overrides(base_lr=1.0, peak_lr=2.5e-3),
                 "train.specaugment_steps": specaug_steps,
-                "train.specaugment_num_spatial_mask_factor": 60,
+                # mask factor 60 unless the entry overrides it (the small specaug30 pair)
+                **(
+                    {}
+                    if "train.specaugment_num_spatial_mask_factor" in packed_budget_overrides
+                    else {"train.specaugment_num_spatial_mask_factor": 60}
+                ),
                 "train.optimizer.weight_decay": 0.0126,
                 # Eval allocates outside the retained CUDA-graph pool (the 24M run OOM'd there),
                 # so eval gets half the packed budget.
@@ -3294,7 +3406,7 @@ def _train_loquacious_baselines(*, prefix: str):
         subset_ = config.pop("subset")
         total_k_hours = config.pop("total_k_hours")
         epoch_hours = config.pop("epoch_hours", None) or hours_per_subset[subset_]
-        train_epoch_split = train_epoch_split_per_subset[subset_]
+        train_epoch_split = config.pop("train_epoch_split", None) or train_epoch_split_per_subset[subset_]
         n_ep = round(total_k_hours * 1_000 / epoch_hours * train_epoch_split)
         train_update_func_from_n_ep = config.pop("train_update_func_from_n_ep")
         if train_update_func_from_n_ep:
@@ -3461,6 +3573,12 @@ def _train_tts_encoder(
     extra_config_updates: Optional[Dict[str, Any]] = None,
     extra_config_deletes: Optional[Sequence[str]] = None,
     with_ctc_lm_recog: bool = False,
+    # Loq: subepochs per full epoch of the audio stream; None = 1 (small) / 2 (medium) / 25 (large).
+    loq_train_epoch_split: Optional[int] = None,
+    # Loq: only the transcripts of a per-source subset of the large shards as injection text; None = all.
+    loq_text_shard_fraction: Optional[float] = None,
+    # LS: a random subset of the 40.4M LM corpus lines as injection text (transcripts stay); None = all.
+    ls_lm_subset_lines: Optional[int] = None,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -3520,7 +3638,7 @@ def _train_tts_encoder(
         task = get_loquacious_task(
             vocab=vocab,
             subset_name=loq_subset,
-            train_epoch_split={"small": 1, "medium": 2, "large": 25}[loq_subset],
+            train_epoch_split=loq_train_epoch_split or {"small": 1, "medium": 2, "large": 25}[loq_subset],
             train_vocab_opts=train_vocab_opts,
             multi_proc=4,
             train_seq_ordering=train_seq_ordering or "random",
@@ -3570,7 +3688,17 @@ def _train_tts_encoder(
     # no second tokenizing LmDataset). The spm + phone_info opts travel via the config (tk.Paths resolved there).
     phon_extern = get_glow_tts_phoneme_extern_data()
     if loq_subset is not None:
-        corpus_files = [_get_loq_injection_text(split_words=loq_text_split_words, source_mix=loq_text_source_mix)]
+        corpus_files = [
+            _get_loq_injection_text(
+                split_words=loq_text_split_words, source_mix=loq_text_source_mix, shard_fraction=loq_text_shard_fraction
+            )
+        ]
+    elif ls_lm_subset_lines is not None:
+        from i6_core.text.processing import TakeNRandomLinesJob
+
+        lm_subset = TakeNRandomLinesJob(get_librispeech_normalized_lm_data(), ls_lm_subset_lines)
+        lm_subset.add_alias(f"datasets/LibriSpeech/lm_norm_subset{ls_lm_subset_lines}")
+        corpus_files = [lm_subset.out, get_train_corpus_text()]
     else:
         corpus_files = [get_librispeech_normalized_lm_data(), get_train_corpus_text()]
     if loq_subset is not None:
@@ -4132,7 +4260,30 @@ _loq_large_source_text_factor = {"srcExp0_5": 260_983_692 / 235_894_139, "srcExp
 
 
 @functools.cache
-def _get_loq_injection_text(*, split_words: int = 40, source_mix: Optional[str] = None) -> tk.Path:
+@functools.cache
+def _get_loq_medium1k_files() -> functools.partial:
+    """
+    DistributeFilesDataset ``files`` of the 1000 h subset of medium:
+    the first 40% of the shards of every source (~200 h each; shard granularity ~5%),
+    see :func:`_distribute_files_get_files_subset`. Shared by the baselines and the injection runs.
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        get_loquacious_hf_ogg,
+        LoquaciousShardSourcesJob,
+        _distribute_files_get_files_subset,
+    )
+
+    train_dir = get_loquacious_hf_ogg("medium").join_right("train")
+    sources = LoquaciousShardSourcesJob(train_dir)
+    sources.add_alias("datasets/Loquacious/medium_shard_sources")
+    return functools.partial(
+        _distribute_files_get_files_subset, hf_data_dir=train_dir, shard_sources=sources.out_sources, fraction=0.4
+    )
+
+
+def _get_loq_injection_text(
+    *, split_words: int = 40, source_mix: Optional[str] = None, shard_fraction: Optional[float] = None
+) -> tk.Path:
     """
     Loquacious injection text: the large train transcription corpus,
     long lines split into pieces of at most ``split_words`` words.
@@ -4142,6 +4293,8 @@ def _get_loq_injection_text(*, split_words: int = 40, source_mix: Optional[str] 
 
     :param split_words:
     :param source_mix: key of _loq_large_source_multiplicities, lines repeated per source; None = as is
+    :param shard_fraction: only the transcripts of a per-source subset of the large shards
+        (the same rule as the audio subsets, see _shard_keep_mask); needs source_mix; None = all
     """
     from i6_core.text.processing import PipelineJob
     from i6_experiments.users.zeyer.datasets.loquacious import (
@@ -4153,6 +4306,7 @@ def _get_loq_injection_text(*, split_words: int = 40, source_mix: Optional[str] 
 
     text = get_loq_train_corpus_text("large")
     alias = "datasets/Loquacious/train_large_corpus"
+    assert shard_fraction is None or source_mix is not None, "the shard subset lives in the weighting job"
     if source_mix is not None:
         train_dir = get_loquacious_hf_ogg("large").join_right("train")
         sources = LoquaciousShardSourcesJob(train_dir)
@@ -4161,10 +4315,11 @@ def _get_loq_injection_text(*, split_words: int = 40, source_mix: Optional[str] 
             hf_data_dir=train_dir,
             shard_sources=sources.out_sources,
             multiplicities=_loq_large_source_multiplicities[source_mix],
+            keep_shard_fraction=shard_fraction,
         )
-        weighted.add_alias(f"{alias}_{source_mix}")
+        alias = f"{alias}_{source_mix}" + (f"_shards{round(shard_fraction * 100)}pct" if shard_fraction else "")
+        weighted.add_alias(alias)
         text = weighted.out_text
-        alias = f"{alias}_{source_mix}"
     # NB: Job.sh() runs the command through str.format, so literal awk braces must be doubled.
     split_awk = (
         "awk '{{for(i=1;i<=NF;i+=" + str(split_words) + "){{s=$(i);"
@@ -4227,6 +4382,33 @@ def _get_loq_glowtts_lexicon() -> tk.Path:
         iv_bliss_lexicon=get_glow_tts_lexicon(), g2p_lexicon=g2p.out_g2p_lexicon, merge=True
     )
     job.add_alias("datasets/Loquacious/glowtts_lexicon_g2p")
+    return job.out_oov_lexicon
+
+
+@functools.cache
+def _get_ls_train_glowtts_lexicon() -> tk.Path:
+    """
+    The glow-tts lexicon extended with G2P entries for the OOV words of LS dev-other, for the Gaussian-HMM
+    aligner: its dev loss runs over dev-other, and PhoneSeqGenerator raises on OOV words (e.g. AGUTO).
+    The train-960 transcripts are fully covered already (Nick's lexicon includes their G2P).
+    Same chain as :func:`_get_loq_glowtts_lexicon`.
+    """
+    from i6_core.corpus.stats import ExtractOovWordsFromCorpusJob
+    from i6_core.g2p.apply import ApplyG2PModelJob
+    from i6_core.g2p.convert import G2POutputToBlissLexiconJob
+    from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_lexicon
+    from i6_experiments.users.zeyer.datasets.librispeech import _get_bliss_corpus_dict
+
+    oov = ExtractOovWordsFromCorpusJob(
+        bliss_corpus=_get_bliss_corpus_dict()["dev-other"], bliss_lexicon=get_glow_tts_lexicon(), casing="upper"
+    )
+    oov.add_alias("datasets/LibriSpeech/dev_other_oov_words")
+    g2p = ApplyG2PModelJob(g2p_model=_get_glow_tts_g2p_model(), word_list_file=oov.out_oov_words, concurrent=4)
+    g2p.add_alias("datasets/LibriSpeech/dev_other_oov_g2p")
+    job = G2POutputToBlissLexiconJob(
+        iv_bliss_lexicon=get_glow_tts_lexicon(), g2p_lexicon=g2p.out_g2p_lexicon, merge=True
+    )
+    job.add_alias("datasets/LibriSpeech/glowtts_lexicon_g2p_dev_other")
     return job.out_oov_lexicon
 
 
