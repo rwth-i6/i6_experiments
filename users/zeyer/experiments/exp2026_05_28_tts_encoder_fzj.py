@@ -1693,15 +1693,30 @@ def py():
     # log-mels, trained on train-960 only; its emission means and Viterbi durations replace the MFA tables.
     from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import gauss_hmm_ls960
 
-    # v1 (unweighted transitions, AXNzotrK2q7U) and v2 (mandatory edge silence, ZMNOCpZHlqDh) are trained
-    # and diagnosed (projects notes 2026-09-16): pauses get absorbed by the next phone's first sub-state.
-    # v3: silence optional everywhere, RASR's 10 ms transition costs (speech loop 3 / forward 0,
-    # silence loop 0 / forward 3), as in Tina Raissi's alignment parameters.
+    # v1 (unweighted transitions, AXNzotrK2q7U), v2 (mandatory edge silence, ZMNOCpZHlqDh), v3 (RASR
+    # transition costs, h4JCmOf2aZFd) and v4 (v3 + mandatory edge silence for the first 3 subepochs,
+    # vgJ5BPipZS7g) are trained and diagnosed (projects notes 2026-09-16): pauses get absorbed by the
+    # plosive closures, and once silence is optional its single state (free loops, attractive for isolated
+    # low-energy frames) drifts into a broad garbage state. v5: silence gets 3 sub-states like the phones
+    # (Kaldi/RASR: 3-5), the 3-subepoch edge-silence start, silence optional, unweighted transitions:
+    # 68.9% frame agreement with MFA, silence 17.9% of the frames (MFA 17.7), 35/40 means nearest the MFA
+    # ones (mean L2 1.73). With the RASR 10 ms transition costs (speech loop 3 / forward 0, silence loop 0 /
+    # forward 3, Tina Raissi's alignment values) on top it is worse (61.9%, 13.5%, 30/40), and the same
+    # costs at alignment time only change nothing (69.0%), so the aligner stays unweighted.
     _gauss_hmm_tables = gauss_hmm_ls960(
         prefix + "/gauss-hmm",
         lexicon=_get_ls_train_glowtts_lexicon(),
+        edge_silence_init_epochs=3,
+        silence_num_sub_states=3,
+        name="gauss-hmm-mono1g-edgesilinit3-sil3-ls960",
+    )
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
         tdp={"speech_loop": 3.0, "speech_forward": 0.0, "silence_loop": 0.0, "silence_forward": 3.0},
-        name="gauss-hmm-mono1g-tdp-ls960",
+        edge_silence_init_epochs=3,
+        silence_num_sub_states=3,
+        name="gauss-hmm-mono1g-tdp-edgesilinit3-sil3-ls960",
     )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
@@ -1743,16 +1758,15 @@ def py():
         # diversity check for the 25% point: all 960 h but a quarter of the passes (audio partition 4,
         # 38 subepochs = 9.5 passes per rank); same per-step mixture and audio amount as audio25
         (f"{_abl_prefix}-audioP4-textP43", {"ls_train_epoch_split": 4, "text_train_epoch_split": 43}),
-        # the winner with the Gaussian-HMM tables instead of the MFA ones (see _gauss_hmm_tables);
-        # held back until the first tables pass the sanity check (2026-09-16: half the phone means and
-        # the silence mean are off, sub-states drift, see projects notes)
-        # (
-        #     f"{_abl_prefix}-gausshmmtables",
-        #     {
-        #         "pseudo_enc_frozen_table": _gauss_hmm_tables.out_mean_table,
-        #         "pseudo_enc_duration_table": _gauss_hmm_tables.out_duration_table,
-        #     },
-        # ),
+        # the winner with the tables of our own Gaussian-HMM aligner instead of the MFA ones (see
+        # _gauss_hmm_tables): the injection without any MFA dependence
+        (
+            f"{_abl_prefix}-gausshmmtables",
+            {
+                "pseudo_enc_frozen_table": _gauss_hmm_tables.out_mean_table,
+                "pseudo_enc_duration_table": _gauss_hmm_tables.out_duration_table,
+            },
+        ),
         # trained embedding x uniform durations = the textogram-style cell,
         # completing the 2x2 with trainemb (acoustics only) and unidur (durations only)
         (
