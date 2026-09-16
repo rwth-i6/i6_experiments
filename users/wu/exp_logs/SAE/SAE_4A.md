@@ -1261,6 +1261,30 @@ cold read (target copies the recognizer, gold-phone mass 5 %) this locates the d
 the search or the init: the pending S3b-OR (frozen oracle phi) and S3b-CT (content term) are the two funded probes of that.
 Consequence for the campaign: an EMC stage that starts from a supervised seed cannot be used as a "refinement" step under
 this objective; the seed itself remains the best recognizer we have (G4a.S2d FAIL, recorded; no rewrite of the gate).
+
+Alignment-mass profile of the S2d control (analysis/emc_mass_profile.py, same protocol as the cold read: dev-other, 300
+stride utterances, `analysis/out/emc_mass_profile.s2d.lam3_tri.ep1-4-8.dev-other.txt`, SLURM 1839487,
+`reports/exec_mass_profile_s2d_2026-09-16.md`; row-sum sanity 1.7e-4 .. 3.0e-3, under the 7e-3 tolerance):
+
+| statistic, post_q | S2d ep1 (tau 8) | S2d ep4 | S2d ep8 | cold lam3_tri ep8 | seeded bigram arm A ep6 |
+|---|---|---|---|---|---|
+| gold-phone mass in gold speech | 54.5 % | 61.9 % | 63.3 % | 5 % | 64 % |
+| other-phone mass | 27.8 % | 23.5 % | 23.8 % | | |
+| blank / SIL mass in gold speech | 14.8 / 2.9 % | 13.3 / 1.2 % | 11.7 / 1.3 % | | |
+| TV(target, recognizer) | 0.114 | 0.022 | 0.020 | 0.10 | 0.012 |
+| matched boundary F1 (tol 2) / R-value | 0.804 / 0.821 | 0.848 / 0.869 | 0.852 / 0.873 | 0.752 / 0.783 | 0.839 / 0.853 |
+| segment ratio excl SIL | 0.88 | 0.97 | 0.98 | 0.88 | 0.92 |
+| E[d] phones (gold 4.14) | 4.15 | 4.69 | 4.68 | 4.75 | |
+| subset PER argmax recognizer / target | 0.321 / 0.245 | 0.257 / 0.233 | 0.252 / 0.233 | 0.878 / 0.856 | |
+
+Reading: from the seed the objective settles within 4 sub-epochs into the SAME profile the seeded bigram arm A reached
+(gold-phone mass 63 % vs 64 %, boundary F1 0.85 vs 0.84, target a copy of the recognizer at TV 0.02), at PER 0.25 vs
+0.225, while the seed it started from is at 0.116. So the trigram did not move the objective's fixed point on this bed;
+the recognizer is pulled from the seed to that point in the first sub-epoch (at tau 8, TV 0.11, PER 0.32) and then
+converges to it. One new fact: on this bed the target's argmax is better than the recognizer's by 0.02-0.08 PER at
+every sub-epoch (0.245 vs 0.321 at ep1), unlike the cold bed where both are content-free, so the cycle target carries
+some identity here, but its own optimum is at 0.23, not at the seed. The 24 % of mass on wrong phones in gold speech is the
+substitution error the greedy read shows.
 ## Artifacts
 
 Path-prefix key: `T/ = work/i6_core/returnn/training/`, `S/ = work/speech_llm/sae/`,
