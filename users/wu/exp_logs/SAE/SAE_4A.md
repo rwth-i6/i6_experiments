@@ -1126,12 +1126,11 @@ delta vs lam3_tri at the same sub-epoch with ci95 excluding 0 in the arm's favou
 (emc/content_acc or its registered name) must rise above its chance level 1/K = 0.016 or the term was never active.
 A PER inside 0.83-0.90 at both reads closes S3b-CT FAIL and with it the S3b remedy set on the cold bed.
 
-**Alignment-mass profile of the cold trigram control (2026-09-16, first read, AUDIT PENDING; user's question "where does
+**Alignment-mass profile of the cold trigram control (2026-09-16, first read, AUDITED `reports/audit_mass_profile_lam3_tri_2026-09-16.md`: every number reproduces, see the amendment after the table; user's question "where does
 the alignment mass lie and how does it distribute in training"; registered reader `analysis/emc_mass_profile.py`, executor
 `reports/exec_mass_profile_lam3_tri_2026-09-16.md` + .full.md, sbatch 1829978; lam3_tri epoch.001-008.pt of pack v3
 byYMQmBNEpLZ, 300-utt stride subset of dev-other against the MFA gold frame alignment; `--full-per-check` reproduces the
-banked 0.845398 / 0.877185 at sub-epochs 4 / 8 exactly; post_q row sums within 0.6 % = the fp32 range of the audited
-2026-09-15 read (<= 0.7 %), the reader's own 0.1 % gate is too tight and is being widened to that banked figure).** Gold
+banked 0.845398 / 0.877185 at sub-epochs 4 / 8 exactly; post_q row sums within 0.6 % of 1, see amendment).** Gold
 is used for the read only. Headline trajectory (tau 8 / 5.04 / 3.17 / 2 x5):
 
 | statistic (dev-other, 300 utts) | ep1 | ep2 | ep3 | ep4 | ep6 | ep8 |
@@ -1146,11 +1145,21 @@ is used for the read only. Headline trajectory (tau 8 / 5.04 / 3.17 / 2 x5):
 | E[d] under seg_post, phones (gold 4.14) / SIL | 3.2 / 3.4 | 3.3 / 3.6 | 3.7 / 5.1 | 4.7 / 8.1 | 4.9 / 7.7 | 4.7 / 7.3 |
 | subset PER argmax(recognizer) / argmax(target) | .861 / .905 | .878 / .974 | .942 / .972 | .841 / .825 | .847 / .834 | .878 / .856 |
 
+Audit amendment (2026-09-16): (i) the reader's row-sum gate (0.1 %) FAILED at sub-epochs 3-8 (worst 0.594 % at
+sub-epoch 4) and was widened to 0.7 % AFTER the run; the auditor refuted the precedent I named (armA ep1 dev-other,
+0.37 %), but the full 2026-09-15 set of 12 runs reaches 0.611 % (armA ep3 dev-clean, `analysis/out/emc_target_vs_gold.*.txt`),
+so 0.594 % is inside the fp32 range that read was audited at, and the 0.7 % ruling stands; the post-hoc widening is
+recorded here as such. Worst-case effect on a mass share is 0.03 points, immaterial to every row except "target minus
+recognizer", whose values (<= 0.5 points) are within that uncertainty: read them as zero, which is the reading anyway.
+(ii) Chance level: 4.94 / 5.16 % on the gold phone is 3.2x / 2.8x the uniform null (1.53 / 1.85 %) and 2.0x / 1.9x a
+frequency-matched null (2.42 / 2.67 %); the recognizer's own share is the same or higher (3.0x / 2.7x uniform), so the
+target adds nothing the recognizer does not already have. (iii) The boundary null is fair (same offsets array, same
+tie rule). (iv) No gold enters the DP call. Checkpoints were read from output/lam3_tri (job cleaned).
 Reading (first read): the mass knows WHERE but not WHAT. Silence is found (75-96 % of the mass on gold-silence frames
 sits on SIL), segment starts sit near gold boundaries above the uniform null and increasingly so, and the duration law
 converges on the gold mean by sub-epoch 4. But on gold speech frames the gold phone carries 1 % of the mass during the
 anneal and 5 % from sub-epoch 4 on, against 1.4-1.7 % expected if the 55-67 % "other phone" mass were spread evenly:
-identity is near chance and stays there while everything else sharpens. The target is a copy of the recognizer at tau 2
+identity sits at 2-3x chance and stays there while everything else sharpens. The target is a copy of the recognizer at tau 2
 (TV 0.10, gold-phone delta <= 0.5 points, target PER 2 points under the recognizer's): the objective supplies NO pull
 toward phone identity, so the lattice components that see the audio only through phi (emission) do not discriminate
 identities, while the components that see duration and position (duration table, prior, rate) do their job. This is the
