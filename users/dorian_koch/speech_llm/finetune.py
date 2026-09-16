@@ -708,6 +708,14 @@ class SpeechFinetune(Job):
         # A single bag so new knobs never touch this signature; excluded at None -> existing runs
         # keep their hash, a caller that passes a dict gets a fresh hash from the dict contents.
         "hparams": None,
+        # What this run ASKS THE SCHEDULER FOR -- walltime hours and GPU count. A SEPARATE channel
+        # from `hparams` on purpose: `hparams` is a hashed constructor argument, so a scheduling key
+        # routed through it lowers into the Sisyphus hash. That is not hypothetical -- raising an
+        # arm's `hours` 24 -> 48 to reach a longer-walltime partition re-hashed it
+        # (ajEFO4gPOlEj -> 6IeG9qqj4s3S), which would have orphaned ~3,000 completed steps and
+        # restarted a 35 h run from zero. Excluded at None, so what a run asks for can be changed
+        # freely without moving its identity. Guarded by `check_rqmt_not_hashed.py`.
+        "compute": None,
     }
 
     def __init__(
@@ -725,6 +733,7 @@ class SpeechFinetune(Job):
         knowledge_probe_data=None,
         lora_rank: int = 128,
         hparams: dict | None = None,
+        compute: dict | None = None,
     ):
         self.adapter = adapter
         self.train_data = train_data
@@ -742,16 +751,25 @@ class SpeechFinetune(Job):
         self.hparams = hparams or {}
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
-        # time from hparams["rqmt_time_h"] (default 23h -> c23g). <=12 routes to the fast c25g queue;
-        # safe for owned-launcher runs because resume() continues across the 12h cap. rqmt isn't hashed.
-        # gpu>1 -> single-node DDP (torchrun --nproc-per-node = visible GPUs); scale cpu/mem per GPU so 4
-        # dataloaders + 4 ranks have headroom. rqmt is NOT hashed, so this never re-hashes existing runs.
-        _gpu = int(self.hparams.get("gpu", 1))
+        # Walltime (default 23h -> c23g); <=12 routes to the fast c25g queue, safe for owned-launcher
+        # runs because resume() continues across the cap. gpu>1 -> single-node DDP (torchrun
+        # --nproc-per-node = visible GPUs); scale cpu/mem per GPU so 4 dataloaders + 4 ranks have
+        # headroom.
+        #
+        # ⚠ READ ORDER IS THE WHOLE POINT. `self.compute` is hash-EXCLUDED, `self.hparams` is hashed.
+        # Runs from RULE_RQMT_NOT_HASHED onwards carry these two facts in `compute`, so editing them
+        # cannot move the run's hash. Runs older than that epoch carry them inside `hparams` and must
+        # keep being read from there -- dropping the fallback would re-hash every one of them, i.e.
+        # exactly the damage this split exists to prevent. Do not "tidy" the fallback away; it retires
+        # when the pre-2026-09-17 runs do.
+        self.compute = dict(compute or {})
+        _gpu = int(self.compute.get("gpu", self.hparams.get("gpu", 1)))
+        _time_h = int(self.compute.get("rqmt_time_h", self.hparams.get("rqmt_time_h", 23)))
         self.rqmt = {
             "gpu": _gpu,
             "cpu": 6 * _gpu,
             "mem": 24 * _gpu,
-            "time": int(self.hparams.get("rqmt_time_h", 23)),
+            "time": _time_h,
         }
 
     @classmethod
@@ -760,6 +778,17 @@ class SpeechFinetune(Job):
         # refactoring the adapter's functions never re-hashes existing runs.
         d = dict(parsed_args)
         d["adapter"] = d["adapter"].name
+        # Scheduling facts are NOT part of a run's identity -- dropped unconditionally so changing
+        # what a run asks the scheduler for cannot orphan it.
+        #
+        # ⚠ This pop is load-bearing and `__sis_hash_exclude__` cannot replace it: that mechanism
+        # excludes an argument only while it equals the listed value, which is why `hparams: None`
+        # works. A populated `compute={"rqmt_time_h": 48, ...}` is not the default, so it would be
+        # hashed like any other dict -- i.e. the split would move the leak from one hashed channel
+        # to another and look fixed. Asserted by `check_rqmt_not_hashed.py`, which failed on exactly
+        # that before this line existed. Popping a key the old runs never had is hash-neutral for
+        # them (verified: 2,100 hashes unchanged).
+        d.pop("compute", None)
         return super().hash(d)
 
     def tasks(self):
