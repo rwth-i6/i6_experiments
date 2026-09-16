@@ -9,16 +9,16 @@ and do its joint updates undermine the recognizer? The current diagnosis and aud
 S2d is complete: all four seeded trigram arms FAIL G4a.S2d; the cold trigram/BT/consistency arms also fail their
 registered take-off clauses. These are greedy PER results; no new WER result is claimed.
 
-S3b-CT is awaiting its final registered reads: `PackedEmcTrainJob.nineWO8G0tFD`,
-`config/sae_4a_s3b_pack5.py`. Training is complete; the full sub-epoch-8 paired/activation read remains pending.
+S3b-CT is CLOSED FAIL under its original gate; the audited endpoint and activation read is recorded below
+(`PackedEmcTrainJob.nineWO8G0tFD`, `reports/codex_pack5_endpoint_audit_2026-09-16.md`).
 S3b-OR is active: `PackedEmcTrainJob.go0lRvkvA6Kq`, `config/sae_4a_s3b_pack6.py`.
 Its sub-epoch-4 frozen-versus-joint contrast is banked below; sub-epoch 8 and durability remain pending.
 OR uses a reverse model derived from the supervised 10 h seed and is reporting-only.
 
-Next experimental action: verify the terminal graphs, read the registered sub-epoch-8 paired contrasts on both
+Next experimental action: verify OR's terminal graph, read its registered sub-epoch-8 paired contrasts on both
 dev sets, and apply the planned alignment-mass read to frozen/joint OR checkpoints. A persistent joint-training
 penalty supports harmful co-adaptation; loss of reverse-model phone discrimination remains a hypothesis requiring
-a direct diagnostic. Read CT against its original gate, including content-head activation. No gate, selection
+a direct diagnostic. CT's trained auxiliary head did not yield phone take-off. No gate, selection
 rule or phase budget changes. Evidence: `reports/codex_mechanism_audit_2026-09-16.md`,
 `reports/codex_current_evidence_2026-09-16.md`.
 
@@ -1333,13 +1333,32 @@ There is no matched frozen-phi experiment starting from S2d's seeded theta, so t
 attribute S2d's degradation to phi updates. S2d's high initial temperature remains a plausible contributor to
 the first-sub-epoch loss, while the older tau-2 drift rules it out as the whole explanation.
 
-S3b-CT partial read (`PackedEmcTrainJob.nineWO8G0tFD`, same registered cold bed): sub-epoch-4 dev-other PER
-is 0.852235 / 0.850864 / 0.827517 / 0.847519 for content / BT+content / entropy-a / entropy-b.
-The content arm is +0.006837 [+0.002961, +0.010418] worse than its same-epoch control; entropy-a gains
--0.017882 [-0.023465, -0.012811] but remains far above the 0.50 take-off clause and also changes the rate hinge.
-The content arm's available sub-epoch-8 PER is 0.887926. Its full paired/activation read and the remaining
-endpoint reads are pending; do not close the whole CT pack from this partial read. Artifacts are the corresponding
-`sae_4a_s3b_pack5/` registered outputs; the audit resolves the score files.
+**S3b-CT endpoint: CLOSED FAIL** (`PackedEmcTrainJob.nineWO8G0tFD`, same registered cold bed;
+fresh audit `reports/codex_pack5_endpoint_audit_2026-09-16.md`). Every arm fails the original dev-other
+PER < 0.50 clause at both sub-epochs 4 and 8. Final full-split greedy PER and paired arm-minus-control deltas:
+
+| arm | dev-other PER, sub-epoch 8 | paired delta vs lam3_tri [speaker ci95] |
+|---|---|---|
+| content | 0.887926 | +0.010740 [+0.006754, +0.015096] |
+| BT + content | 0.869733 | -0.007452 [-0.014924, -0.000033] |
+| entropy-a | 0.905441 | +0.028256 [+0.022435, +0.034685] |
+| entropy-b | 0.927249 | +0.050063 [+0.041965, +0.058618] |
+
+Baseline = banked lam3_tri at the same sub-epoch (0.877185); identical 2,864 dev-other items / 33 speakers,
+GoldPhonesJob.ZGSp0hxyd2YP, greedy SIL-drop, 177,275 reference phones and 2,000 speaker resamples.
+BT+content's dev-other gain has the opposite sign on dev-clean, so it also fails the paired cross-split clause.
+Entropy-a's paired gain on both splits at sub-epoch 4 reverses by 8; its rate hinge remains a confound for
+entropy-only attribution. All four label-free selectors choose sub-epoch 4, which also fails take-off.
+
+The auxiliary loss was active: content-arm dev code accuracy rises 0.345 -> 0.528 (chance 1/64), and CE
+falls 9.668 -> 1.730; BT+content reaches 0.527 accuracy / 1.738 CE. At the registered n_layers=1/tap1,
+the head reads the pre-convolution representation. Its gradient reaches the head and shared BatchNorm affine /
+residual input projection, but bypasses the final phone convolution (`recognizer.py:282-308`). Thus this is
+a trained acoustic auxiliary, not evidence that the phone output acquired the corresponding identity.
+The original CT gate and its cold-remedy closure stand; this result leaves the OR mechanism question open.
+Artifacts: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s3b_pack5/`, per-arm
+`ep{4,8}/<split>/per.json`, `paired_per/<arm>_vs_lam3_tri/ep{4,8}/<split>/paired_per.json`,
+and the pack's per-arm `learning_rates`; comparison provenance and constants are checked in the audit.
 
 **Interpretation amendment to S2d and the index:** the finite training and marginal-fitting trajectories do
 not establish an attained objective optimum or a fixed point equal to the reverse-model posterior.
@@ -1348,7 +1367,7 @@ the tested eight-sub-epoch run degrades its seed and only partly recovers. Facto
 does not preserve the full structured posterior. Existing gate failures and measured PER remain unchanged.
 
 Next decision stays inside the registered experiments: read OR's sub-epoch-8 paired frozen/joint/BT contrasts
-and the planned alignment-mass profiles, then CT's endpoint and activation checks. A persistent OR gap supports
+and the planned alignment-mass profiles. A persistent OR gap supports
 harmful co-adaptation; attribution to phi's phone discrimination needs a direct diagnostic, ideally comparing phi
 snapshots while holding the recognizer evidence fixed. The funded reads come first; no new training sweep is launched.
 Relevant literature qualifications, verified in `reports/codex_mechanism_literature_2026-09-16.md`:
