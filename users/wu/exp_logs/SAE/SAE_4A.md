@@ -1026,7 +1026,11 @@ gate. Reads: `output/.../sae_4a_s3b_bt/<arm>/ep<k>/<split>/` in the single-arm l
 
 **Trigram packed nodes, sub-epoch 4 read (2026-09-16; pack v3 PackedEmcTrainJob.byYMQmBNEpLZ SLURM 1821649 node jpbo-081-27,
 pack v4 PackedEmcTrainJob.cgeWUCSGt7xf SLURM 1821650 node jpbo-086-16; greedy PER from `alias/sae/4a/s3b_pack{3,4}_<arm>/ep4/<split>/per`
-(GreedyPerJob, decoder_version 2), rate from the sibling `decode_stats`; `reports/extract_ep4_reads_2026-09-16.md`).**
+(GreedyPerJob: per-frame argmax, repeats collapsed, blank and SIL dropped; `decoder_version` is a KenlmPosteriorDecodeJob
+knob and does not apply to a greedy number), rate from the sibling `decode_stats`; `reports/extract_ep4_reads_2026-09-16.md`;
+AUDITED CONFIRMED_WITH_CAVEATS `reports/audit_trigram_ep4_2026-09-16.md`: independent Levenshtein reproduces lam3_tri and
+bt_a_tri exactly, gold = GoldPhonesJob.ZGSp0hxyd2YP in all 16 reads, every checkpoint epoch.004.pt of the right pack job,
+trigram prior in every resolved returnn.config, no empty hypotheses).**
 Trigram cost confirmed in the run itself: 1734 s per sub-epoch vs 277 s for the bigram lam3 run DF6blPpto23t (6.3x); the
 learning_rates monitor is still named `emc_agg_kl_bigram`, a stale label, not the prior.
 
@@ -1043,9 +1047,15 @@ learning_rates monitor is still named `emc_agg_kl_bigram`, a stale label, not th
 
 Reading (gate G4a.3b-BT, sub-epoch 4 clause): PER clause FAIL in every arm (all 0.84-0.89 on dev-other against the
 < 0.50 threshold), i.e. the content-free band of the bigram packed read (0.83-0.91) again; the trigram prior did not move
-it at sub-epoch 4. The BT arms sit 0-0.04 PER ABOVE their lam3_tri control (bt_a_tri -0.005 is inside seed spread: the
-two lam3_tri seeds differ by 0.001 on dev-other), so the coupling has not accelerated leaving the band; the consistency
-arm is unchanged vs its control on dev-other. Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
+it at sub-epoch 4. BT vs control (audit correction): bt_a_tri is 0.0057 below lam3_tri on dev-other (paired
+speaker-clustered bootstrap ci95 [-0.0112, -0.0004]) but 0.0047 ABOVE it on dev-clean (ci95 [+0.0002, +0.0102]), and both
+are under the pre-registered 1-PER-point noise floor (line 1023), so no BT effect is claimed; bt_b / bt_c sit 0.01-0.04
+above the control. Caveat: bt_ramp_epochs = 4, so lam_bt reaches full weight only AT this read; sub-epoch 4 decides the
+PER clause but is a weak test of BT, sub-epoch 8 carries that question. The consistency arm is unchanged vs its control
+on dev-other. Error pattern (`reports/exec_per_error_pattern_trigram_2026-09-16.md`, all 9 arms reproduce banked S/D/I):
+NOT the short-segment-deletion signature of read (a); every arm is substitution-dominated (S 52-70 % of N = 177.3k)
+with a flat deletion rate across gold-length bins (lam3 bigram 32/32/31/30/27/21 %, lam3_tri 27/27/27/26/23/18 %,
+bt_b_tri_cr 13/12/12/12/10/8 % with S+I exploding). Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
 1.31 -> 1.27 in lam3_tri vs 1.23 -> 1.18 bigram), so the objective again is no content signal. The gap clause is not
 read here (gate is AND; sub-epoch 4 fails on PER alone). Sub-epoch 8 read pending (nodes running, 8 h rqmt); the
 paired clustered-bootstrap read is only worth running if any sub-epoch 8 PER leaves the band.
