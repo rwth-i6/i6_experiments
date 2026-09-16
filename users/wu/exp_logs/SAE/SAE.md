@@ -16,9 +16,9 @@ evaluation and probes.
 
 ## North star & hard constraints
 
-- **North star (user ruling 2026-08-01).** Real unsupervised ASR with the **autoencoder as the single main
-  mechanism**; an adversarial init as the load-bearing mechanism would demote it to a refiner. The mainline
-  initialization question is §1e (pairing-free); GAN/§1d is the working label-free fallback init (§3d hierarchy).
+- **North star (user priority 2026-09-16).** Pure unsupervised ASR **without GANs**, focused on improving
+  **cold start**. Supervised performance is not the objective; existing supervised controls are diagnostic
+  evidence only. This supersedes the earlier GAN fallback and seeded-refinement priorities; see `SAE_ref.md`.
 - **Label quarantine.** True transcripts appear in exactly three quarantined places: evaluation metrics (PER/WER,
   probes, gate measurements on dev), the §0c architecture toplines, and the §2S anchor arm (1 h/10 h paired seeds;
   its artifacts never feed the unsupervised ladder). In the unsupervised arm no training signal, checkpoint
@@ -27,10 +27,9 @@ evaluation and probes.
   (USER 2026-08-14, strengthened 2026-08-16 — replaces the trigger-gated form): speaker IDs, previously
   never-train (2026-07-16 ruling), MAY train and may be tried first-line, disclosed as supervision cost;
   transcripts and alignments stay absolute (tier menu `archive/SAE_3g_spec_legacy.md` Z3).
-- **Independence rule (GAN is not a teacher).** Admissible AR targets are *measurements of the audio*
+- **Independence rule.** Admissible AR targets are *measurements of the audio*
   (deterministic transforms of encoder states), never another model's hypotheses; passing the label rule does not
-  make a target admissible. One bounded carve-out (user 2026-08-03): GAN/§1d output as *initialization only* in
-  the G-track (§3d) — never as in-loop teacher, reward or selection signal.
+  make a target admissible. The former GAN-initialization carve-out is superseded by the current no-GAN priority.
 - **Framing: usability, not superiority.** Matching at lower supervision cost is the win; pre-register
   non-inferiority margins; count circularity as a cost. "Unpaired" = no paired audio–text; Qwen3's pretraining
   almost surely contains LibriSpeech's Gutenberg books — disclosed, controlled (§4), never hidden.
@@ -69,11 +68,13 @@ group-normalized advantages.
 
 ## Priority queue (revision 2026-09-15 adds item 0; other statuses read through 2026-08-26)
 
+Older entries retain historical state; the current no-GAN, cold-start priority governs new work.
+
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
-   its gold-derived checkpoint-swap diagnostic confirms lost reverse evidence at both fixed recognizers.
-   Next proposal: the matched seeded-S2d frozen-phi control under the existing HOLD gate; not launched. Standing from
+   its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
+   Next proposal: shared masked modeling of acoustic/text syllables, with label-free selection; see §4a. Standing from
    2026-09-15: the LM term inside the objective must be above bigram. See State of `SAE_4A.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and

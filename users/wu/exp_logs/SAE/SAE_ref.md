@@ -1,5 +1,29 @@
 # SAE — the reward's lam_1 (LM prior) and lam_2 (KL anchor)
 
+## Current research constraints (user priority 2026-09-16)
+
+The objective is pure unsupervised ASR without GANs, with cold-start improvement as the active research
+priority. Unpaired speech and text and the existing speech-only SSL features remain the mainline inputs.
+No GAN-derived or paired-transcript-derived recognizer, reverse model, pseudo-labels or teacher may supply
+the mainline initialization or training signal. Existing phonemized text is a text-side resource, not paired
+speech supervision. True transcripts and forced alignments remain quarantined to evaluation and disclosed
+diagnostics; they cannot select mainline checkpoints or tune the new initialization.
+
+Supervised controls, including S2d and the gold-derived S3b-OR checkpoint swaps, explain failure modes but
+do not count as unsupervised progress. Optimizing supervised-initialized performance is not the focus.
+The proposed additional seeded-S2d frozen-reverse run is withdrawn. Earlier GAN-fallback and GAN-init
+carve-outs are historical provenance, not authorization for new mainline work. The user explicitly invites
+methodological thinking and literature research on fully unpaired initialization. The current experimental
+bed, original gates and historical results remain in `SAE_4A.md`; this priority change does not rewrite them.
+
+For cold-start comparison, use the registered `lam3_tri` reference in
+`PackedEmcTrainJob.byYMQmBNEpLZ` (the tc100/trigram run), with its fixed endpoint and label-free-selected
+checkpoint reported separately. Its concrete inputs and the prior failed initializers are extracted in
+`reports/codex_cold_prior_inventory_2026-09-16.md`; full-split scoring uses the same `GoldPhonesJob.ZGSp0hxyd2YP`
+references, greedy SIL removal and speaker-clustered comparisons as the existing cold results. New tokenizations
+must identify their native metric and cannot equate CER with this PER. Gold speech/text pairs are opened only
+after the new model, checkpoint and decoding rule are fixed. Original cold take-off gates remain in `SAE_4A.md`.
+
 ## Approach
 
 **1. Wire the two side-inputs the live train step never passed.** `compose_reward` has implemented

@@ -2,7 +2,9 @@
 
 ## State
 
-Active experimental question: can freezing the warmed reverse model preserve the useful supervised recognizer?
+Active experimental question: how can unpaired speech and text provide a useful cold initialization without
+GANs or supervised-derived models? User priority 2026-09-16 makes cold-start improvement the objective;
+supervised performance is not the focus. See the current constraints in `SAE_ref.md`.
 The current diagnosis and audited results are under
 "Current mechanism assessment and partial follow-ups" below.
 
@@ -21,13 +23,18 @@ Results are in
 `work/analysis/or_mass_diagnostic/OrMassDiagnosticJob.SWqFadg0m8X3/output/`
 (`profiles/`, `paired_comparison.json`, `paired_comparison.txt`). Its audited sub-epoch-8 swaps show that
 updated whole phi loses useful reverse evidence under both fixed recognizers; see the paired contrasts below
-and `reports/codex_or_mass_endpoint_audit_2026-09-16.md`. Transfer to seeded S2d and an emission-only
-explanation remain untested.
-Next proposal: a matched S2d control changing only `freeze_reverse=True`, evaluated by the original HOLD
-rule. This additional training arm is not launched and no additional training budget is committed.
-CT's trained auxiliary head did not yield phone take-off. No gate or selection-rule changes.
+and `reports/codex_or_mass_endpoint_audit_2026-09-16.md`. These gold-derived results are diagnostic evidence.
+The additional seeded-S2d frozen-phi proposal is withdrawn; no such run was launched.
+Next research proposal: a shared masked-sequence model of acoustic and text syllables, tested as a standalone
+cold initializer before another cycle run. The literature review and proposed controls are below; acoustic
+front-end provenance and a label-free stopping rule must be resolved before a launch specification.
+Existing gates are preserved; no additional training is launched.
 
 ## Objective
+
+**Priority amendment (user 2026-09-16):** the active objective is pure unsupervised cold start without GANs.
+The original sequence below is retained as provenance; its GAN/seeded refinement stages are not the active
+research objective. Existing supervised results are diagnostic controls only.
 
 Decide, with plain PER and WER, whether the exact-marginal cycle objective
 
@@ -1430,6 +1437,76 @@ protects an already useful recognizer; the OR cold-start result alone cannot ans
 a stable reverse teacher; if it fails, isolate the high-temperature start next. This is a proposed additional
 training arm, with no launch or additional training budget committed. Obtaining an informative phi without
 paired labels remains the unresolved cold-start problem.
+
+**Superseded by the user's subsequent priority (2026-09-16):** the seeded-S2d proposal above is withdrawn
+from the active queue. Research now targets fully unpaired, non-GAN cold initialization; improving the
+supervised seed is not an experimental objective. Original results and gates above remain unchanged.
+
+### Cold-start research decision after the user priority (2026-09-16)
+
+The existing failure inventory rules out treating a new count fit as a new idea: §1f already tried K500
+positional unigrams, skip-1..6 bigrams and tri-skipgrams (best selected dev-other PER 0.8580). Its G9
+identifiability read favored an audio-free null on all five configurations, including after rate repair.
+§1g's selected ESPUM seed followed by matched-4gram Gaussian/table EM remained at 0.8271/0.8165 PER on
+that phase's 890-utterance selection role; those are not full-split cold-EMC results. No closed gate is reopened.
+Evidence and exact operating points: `reports/codex_cold_prior_inventory_2026-09-16.md`, `SAE_1f.md`, `SAE_1g.md`.
+
+The distinct literature lead is [Wang et al., SylCipher (2026)](https://arxiv.org/pdf/2608.22907): separate
+acoustic/text syllable embeddings and reconstruction heads share a Transformer and quantizer. Each modality
+reconstructs its own masked sequences; unpaired contexts couple the modalities through shared capacity.
+Reported unmatched-English CER moves from 48.6 after this initialization to 35.9 after later stages, on a
+different 460-hour speech bed. These are gold-selected CER results, not a pure label-free-selected SAE baseline:
+Appendix Table 8 uses paired-validation SER/WER. The advertised code was unavailable at review time.
+Full-text/provenance review: `reports/codex_cold_representation_literature_2026-09-16.md`.
+
+Other reviewed methods do not provide a ready initializer: the count-matching recipe overlaps our failed
+family; bare geometry transport lacks useful demonstrated cold ASR; the reviewed articulatory model uses
+supervised phone/feature targets. Sources and limitations: `reports/codex_cold_mapping_literature_2026-09-16.md`.
+This is a reason to test a different source of alignment information, not evidence that shared modeling will work.
+
+**Proposed next experiment, not launched or a new funded gate:** test the shared masked-model initialization
+alone, before boundary self-training, moment matching or joint cycle training. The hypothesis is that repeated
+syllable contexts across unpaired speech and text provide naming information that local phone counts miss.
+Preserve tc100 and the existing unpaired text scope for the local pilot; explicitly report this reduced speech
+scale relative to the paper. Use syllable-level observations and text tokens, with all model/segmentation
+choices fixed without paired labels. Replacing them with K500 frames and phone text would be a separate
+hypothesis; a negative result there would not test the syllable mechanism.
+
+The text head must use the upstream **orthographic** corpus, not invert `T_phi` phone strings. Syllabification
+must retain explicit word-boundary markers so its predicted pieces deterministically concatenate back to
+word text; no G2P inversion or gold-assisted word reconstruction is allowed. Unknown outputs remain scored
+errors rather than being dropped. Pin the corpus path, vocabulary/OOV rule and existing reference/hypothesis
+normalization together before interpreting CER/WER. Training discards utterance IDs and never joins text
+strings to the speech examples.
+The verified upstream source is `DownloadJob.g4jClO48cAvP`'s `librispeech-lm-norm.txt.gz`, shared by
+`TextToPhonemeJob.THKMON3k9LJQ` and `PhonemizeWithSilJob.DbFgvZOGZQ8F`; the latter uses all lines.
+Use this orthographic source directly. Held-out word references are
+`LibriSpeechWordRefsJob.1EsLvSbyl06D/output/word_refs.json`; the existing WER normalization uppercases and
+whitespace-splits both sides. Reuse the references and normalization for native rendered hypotheses;
+the historical recognizer and its beam/LM settings are not inputs to this pilot. No existing CER scorer was
+found, so its exact normalization and implementation remain a launch-specification item. Input provenance:
+`reports/codex_cold_prior_inventory_2026-09-16.md`.
+
+Before implementation, pin an admissible speech-only front end and its segmentation rule, account for any
+gold-calibrated shifts/thresholds or checkpoint selection in its upstream recipe, and specify the update
+budget and a fixed endpoint or held-out unimodal reconstruction selector. No public checkpoint is accepted
+merely because it is called self-supervised. The shared-model reference and all new constants must be traced
+to the paper or existing setup; this is an adaptation with new selection, not a reproduction of its reported score.
+
+Freeze the initializer and selector before paired evaluation. Read native speech-to-text CER/WER and
+utterance-specific correctness against an audio-free control and speaker/length-matched audio derangement,
+with the same output/decoding rules. Also compare to a control with the same acoustic/text tokenization but
+separate sequence-model parameters, isolating the proposed cross-modal sharing. Lower reconstruction loss,
+shared codebook use or improved boundaries alone do not establish recognition. Only an actual, content-sensitive
+cold recognition gain would motivate converting predictions into an EMC initialization and testing that against
+the existing cold baseline. This proposal does not use or seek to preserve the supervised seed.
+
+The shared/separate comparison uses the same hidden dimension and text head architecture; both inference
+paths apply the learned text head to acoustic hidden states, with no fitted cross-modal or gold permutation.
+Its update budget and native decoding rule must be identical. Fresh direction audit:
+`reports/codex_cold_direction_audit_2026-09-16.md`; the lead is distinct, but admissible front-end provenance,
+exact text rendering/scoring, stopping and budget remain launch-specification requirements. No cold improvement
+is claimed from this review and no new job is running.
 
 Relevant literature qualifications, verified in `reports/codex_mechanism_literature_2026-09-16.md`:
 [Liu et al., SLT 2022, section 3.3](https://arxiv.org/pdf/2204.02492) demonstrate that phone-distribution
