@@ -1126,6 +1126,37 @@ delta vs lam3_tri at the same sub-epoch with ci95 excluding 0 in the arm's favou
 (emc/content_acc or its registered name) must rise above its chance level 1/K = 0.016 or the term was never active.
 A PER inside 0.83-0.90 at both reads closes S3b-CT FAIL and with it the S3b remedy set on the cold bed.
 
+**Alignment-mass profile of the cold trigram control (2026-09-16, first read, AUDIT PENDING; user's question "where does
+the alignment mass lie and how does it distribute in training"; registered reader `analysis/emc_mass_profile.py`, executor
+`reports/exec_mass_profile_lam3_tri_2026-09-16.md` + .full.md, sbatch 1829978; lam3_tri epoch.001-008.pt of pack v3
+byYMQmBNEpLZ, 300-utt stride subset of dev-other against the MFA gold frame alignment; `--full-per-check` reproduces the
+banked 0.845398 / 0.877185 at sub-epochs 4 / 8 exactly; post_q row sums within 0.6 % = the fp32 range of the audited
+2026-09-15 read (<= 0.7 %), the reader's own 0.1 % gate is too tight and is being widened to that banked figure).** Gold
+is used for the read only. Headline trajectory (tau 8 / 5.04 / 3.17 / 2 x5):
+
+| statistic (dev-other, 300 utts) | ep1 | ep2 | ep3 | ep4 | ep6 | ep8 |
+|---|---|---|---|---|---|---|
+| target mass on the GOLD phone, gold speech frames | 1.0 % | 1.3 % | 1.5 % | 4.9 % | 4.5 % | 5.2 % |
+| target mass on another phone, gold speech frames | 28.9 | 30.2 | 30.2 | 54.8 | 57.3 | 67.1 |
+| target mass on blank / SIL, gold speech frames | 30.8 / 39.3 | 33.6 / 34.9 | 48.0 / 20.2 | 36.2 / 4.1 | 35.0 / 3.3 | 24.7 / 3.1 |
+| target mass on SIL, gold SIL frames | 96.2 | 93.1 | 89.0 | 84.3 | 79.1 | 74.5 |
+| target minus recognizer on the gold phone | +0.4 | +0.2 | +0.5 | +0.1 | +0.1 | -0.2 |
+| TV(target, recognizer) per frame | 0.19 | 0.22 | 0.17 | 0.11 | 0.11 | 0.10 |
+| segment start mass within +-2 frames of a gold boundary (uniform null 74.3) | 76.2 | 80.0 | 83.8 | 86.3 | 87.2 | 87.4 |
+| E[d] under seg_post, phones (gold 4.14) / SIL | 3.2 / 3.4 | 3.3 / 3.6 | 3.7 / 5.1 | 4.7 / 8.1 | 4.9 / 7.7 | 4.7 / 7.3 |
+| subset PER argmax(recognizer) / argmax(target) | .861 / .905 | .878 / .974 | .942 / .972 | .841 / .825 | .847 / .834 | .878 / .856 |
+
+Reading (first read): the mass knows WHERE but not WHAT. Silence is found (75-96 % of the mass on gold-silence frames
+sits on SIL), segment starts sit near gold boundaries above the uniform null and increasingly so, and the duration law
+converges on the gold mean by sub-epoch 4. But on gold speech frames the gold phone carries 1 % of the mass during the
+anneal and 5 % from sub-epoch 4 on, against 1.4-1.7 % expected if the 55-67 % "other phone" mass were spread evenly:
+identity is near chance and stays there while everything else sharpens. The target is a copy of the recognizer at tau 2
+(TV 0.10, gold-phone delta <= 0.5 points, target PER 2 points under the recognizer's): the objective supplies NO pull
+toward phone identity, so the lattice components that see the audio only through phi (emission) do not discriminate
+identities, while the components that see duration and position (duration table, prior, rate) do their job. This is the
+frame-level form of "content-free, LM-plausible filler" and points at phi's emission, which S3b-OR (frozen content phi)
+and S2d (content phi jointly trained) now test directly; the same reader on those arms is the planned read.
+
 **S3b-OR: frozen content-carrying reverse model, cold recognizer (registered 2026-09-16 on the user's question, before
 any result; REPORTING-ONLY ORACLE REFERENCE, never a funded or selected arm).** The EM fixed-point read c1 above (flat
 theta, warm phi HELD, network-free) reached dev-other PER 0.238 (trigram, k 30, 300 utts) against the seed's own 0.190,
