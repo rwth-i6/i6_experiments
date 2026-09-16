@@ -2,36 +2,28 @@
 
 ## State
 
-Active experimental question: how can the existing exact-marginal cycle learn useful phone content from
-cold start, without GANs or supervised-derived models? User clarification 2026-09-16 keeps research within
-§4a cycle consistency; supervised refinement and standalone SylCipher initialization are withdrawn.
-See the current constraints in `SAE_ref.md`.
-The current diagnosis and audited results are under
-"Current mechanism assessment and partial follow-ups" below.
+Active question: can the existing exact-marginal cycle learn useful phone content from cold start?
+User clarification keeps work within §4a, without GANs or supervised-derived models; seeded refinement
+and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
 
-S2d is complete: all four seeded trigram arms FAIL G4a.S2d; the cold trigram/BT/consistency arms also fail their
-registered take-off clauses. These are greedy PER results; no new WER result is claimed.
+Active experiment: user-approved S3c in-cycle denoising, against banked cold `lam3_tri`.
+Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`, submitted as SLURM 1843887
+on 2026-09-16; awaiting allocation at the launch read. Wrapper: `config/sae_4a_s3c_denoise.py`.
+Checkpoints and training scores will be under the run's `output/models/` and `output/learning_rates`;
+registered reads use `sae/4a/s3c_denoise/`. Launch evidence and exact completion outputs:
+`reports/codex_4a_s3c_denoise_launch_2026-09-16.md`.
+Training input is masked in sub-epochs 1-4 (individual time-mask width capped at 8 frames), then clean
+in 5-8; targets, CV and evaluation remain clean. Exact settings, the six-hour single-GPU training allocation and
+unchanged G4a.3 gate are preregistered in the final scope-corrected subsection. No new result exists.
+Next experimental action after completion: verify clean PER and own-phi speaker-matched derangement at ep4/8, paired
+against the completed control; only ep4 PER <0.50 plus a positive gap passes the original take-off gate.
 
-S3b-CT is CLOSED FAIL under its original gate; the audited endpoint and activation read is recorded below
-(`PackedEmcTrainJob.nineWO8G0tFD`, `reports/codex_pack5_endpoint_audit_2026-09-16.md`).
-S3b-OR is complete: `PackedEmcTrainJob.go0lRvkvA6Kq`; its audited endpoint is banked below
-(`reports/codex_pack6_endpoint_audit_2026-09-16.md`). Frozen phi meets the reporting-only take-off reading;
-joint updates worsen PER on both dev sets at both endpoints. OR uses a reverse model derived from the
-supervised 10 h seed; this is not a label-free result.
-
-Completed diagnostic: `OrMassDiagnosticJob.SWqFadg0m8X3`, `config/sae_4a_or_mass_diagnostic.py`.
-Results are in
-`work/analysis/or_mass_diagnostic/OrMassDiagnosticJob.SWqFadg0m8X3/output/`
-(`profiles/`, `paired_comparison.json`, `paired_comparison.txt`). Its audited sub-epoch-8 swaps show that
-updated whole phi loses useful reverse evidence under both fixed recognizers; see the paired contrasts below
-and `reports/codex_or_mass_endpoint_audit_2026-09-16.md`. These gold-derived results are diagnostic evidence.
-The additional seeded-S2d frozen-phi proposal is withdrawn; no such run was launched.
-Next proposal, to brief before execution: structured corruption of the recognizer's real-cycle input while
-the same exact cycle reconstructs clean units. This is an in-cycle augmentation test; baseline dropout already
-adds noise. Corruption is proposed for sub-epochs 1-4 only, followed by clean-input sub-epochs 5-8.
-Existing detached/interleaved BT is not a missing ingredient. Evidence and limits are in the final
-scope-corrected proposal below; no external initializer is planned.
-Existing gates are preserved; no additional training is launched.
+Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
+(`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
+are explanatory gold-derived evidence, not unsupervised progress. Their results and concrete run pointers
+remain under "Current mechanism assessment and partial follow-ups", with audits in
+`reports/codex_pack6_endpoint_audit_2026-09-16.md` and
+`reports/codex_or_mass_endpoint_audit_2026-09-16.md`.
 
 ## Objective
 
@@ -1537,7 +1529,7 @@ uses separate interleaved optimizer steps and a detached live reverse generator.
 dropout 0.1, so denoising is not entirely absent. Existing structured SpecAugment is confined to the auxiliary
 clean-teacher KL view comparison; the content auxiliary bypasses the final phone convolution.
 
-**Candidate experiment, not launched:** compare canonical cold `lam3_tri` with the same run using the existing
+**S3c experiment, approved by the user before execution (2026-09-16):** compare canonical cold `lam3_tri` with the same run using the existing
 SpecAugment corruption C on the recognizer input of real training batches in **sub-epochs 1-4 only**, the
 reference annealing window; sub-epochs 5-8 return to ordinary inputs with the baseline dropout retained.
 This fixes the schedule discrepancy found in `reports/codex_4a_incycle_proposal_audit_2026-09-16.md` before
@@ -1548,13 +1540,29 @@ ASR teacher, standalone initialization or direct supervision. This asks whether 
 reconstruction provides more useful pressure on phone content than the tested prediction-consistency term.
 It does not claim reconstruction was previously absent or that corruption resolves label identity.
 
-Use the existing corruption implementation/settings as the reference, rather than selecting masks on gold.
+Use the existing corruption implementation with `SpecAugmentOpts(time_max_width=8)`; all other settings
+retain the helper defaults. The width cap is the recognizer's 9-frame convolutional receptive field minus
+one, not a value selected on gold; overlapping masks can still erase a wider neighborhood. Time-mask count
+is uniform from 2 to min(max(T//100,2)*4,T), clipped for tiny inputs, and each width is uniform from 1 to 8.
+Channel count is uniform from 2 to 5, width from 1 to 204 for the 1024-dimensional L15 features; masks use
+zero fill and clip at the input boundary. The existing independently seeded `step_generator` preserves
+the global RNG stream used by baseline dropout. No mask-strength sweep is authorized.
 The intervention changes the real training input of the q-based objective, including its aggregate/rate
 terms; describing only the main L_tau as changed would be incorrect. Normal train-mode BN sees the masked
 input, an explicit consequence to report; do not borrow the auxiliary branch's BN-freeze guard without a
 clean pass. Apply masks only during training: validation/selection and greedy evaluation stay clean.
-The launch specification must check mask spans against the recognizer's receptive field, pin these semantics
-and the reference resource budget, and be reviewed before compute. No additional training spend is committed.
+The single-arm reference allocation is one GPU, 6 hours, 64 GB host RAM, 16 CPUs and `gpu_mem=96`;
+it comes from the existing rate-arm `emc_training` registration, not Pack3's four-GPU pack multiplication.
+One new arm is authorized, with eight sub-epochs and all checkpoints retained; reuse the completed control.
+Independent code review must verify the opt-in configuration/hash, training/epoch gating, clean targets,
+unchanged default path and exact registration before launch. Source/resource evidence:
+`reports/codex_4a_mask_launch_scope_2026-09-16.md`.
+
+Implemented in `2025-10-speech-llm` commits `656e5e4` and `3f4de8f`.
+The rendered training configuration matches the saved `lam3_tri` control apart from the two
+opt-in masking arguments and output path; the concrete run is linked in State.
+Implementation evidence: `reports/codex_4a_s3c_denoise_impl_2026-09-16.md`; independent pre-compute review:
+`reports/codex_4a_s3c_denoise_code_review_2026-09-16.md`. These checks establish wiring, not efficacy.
 
 The comparison retains the same tc100 data, seed, parameter initialization, trigram, tau/rate schedules,
 training length and label-free checkpoint selector. BT stays at the canonical control's setting; no old BT
