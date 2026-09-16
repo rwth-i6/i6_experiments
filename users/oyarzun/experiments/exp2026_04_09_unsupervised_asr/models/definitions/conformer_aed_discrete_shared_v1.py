@@ -337,6 +337,23 @@ class GumbelVectorQuantizer(nn.Module):
     def set_num_updates(self, num_updates: int):
         self.curr_temp = max(self.max_temp * self.temp_decay**num_updates, self.min_temp)
 
+    def compute_orthogonality_loss(self) -> Tensor:
+        vars = self.vars
+        if self.combine_groups:
+            vars = vars.repeat(1, self.groups, 1)
+        vars = vars.reshape(self.groups, self.num_vars, -1)  # [groups, num_vars, var_dim]
+        # L2-normalize code vectors along the var_dim axis
+        normed_vars = nn.functional.normalize(vars, p=2.0, dim=-1)  # [groups, num_vars, var_dim]
+        # Pairwise cosine similarities within each group: [groups, num_vars, num_vars]
+        sim_matrix = torch.bmm(normed_vars, normed_vars.transpose(1, 2))
+        eye = torch.eye(self.num_vars, device=vars.device, dtype=vars.dtype).unsqueeze(0)
+        diff = sim_matrix - eye
+        if self.num_vars > 1:
+            orth_loss = (diff ** 2).sum(dim=(-1, -2)) / (self.num_vars * (self.num_vars - 1))
+        else:
+            orth_loss = (diff ** 2).mean(dim=(-1, -2))
+        return orth_loss.mean()
+
     def forward(self, x: Tensor) -> Dict[str, Any]:
         result = {"num_vars": self.num_vars * self.groups}
 
@@ -357,6 +374,7 @@ class GumbelVectorQuantizer(nn.Module):
         result["prob_perplexity"] = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7), dim=-1)).sum()
 
         result["temp"] = self.curr_temp
+        result["code_orthogonality_loss"] = self.compute_orthogonality_loss()
 
         if self.training:
             x = nn.functional.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True).type_as(x)

@@ -57,6 +57,8 @@ def train_step(
     aux_loss_scales: Optional[Sequence[float]] = None,
     adv_loss_scale: float = 0.0,
     true_adv_target: Optional[int] = None,
+    codebook_diversity_loss_scale: float = 0.0,
+    codebook_orth_loss_scale: float = 0.0,
     **_kwargs,
 ):
     loss_suffix = "_" + loss_name if loss_name else ""
@@ -126,8 +128,29 @@ def train_step(
             model.freeze_encoder()
             adv_target = true_adv_target
             adv_loss_name = "disc"
+    if getattr(model, "quantizer", None) is not None and hasattr(model.quantizer, "set_num_updates"):
+        model.quantizer.set_num_updates(ctx.step)
 
     encoder_output, aux_logits, encoder_lens, _ = model.forward(label_indices_masked, label_indices_masked_lens)
+
+    if getattr(model, "quantizer_out", None) is not None:
+        q_out = model.quantizer_out
+        if codebook_diversity_loss_scale > 0.0 and "prob_perplexity" in q_out and "num_vars" in q_out:
+            num_vars = q_out["num_vars"]
+            diversity_loss = (num_vars - q_out["prob_perplexity"]) / num_vars
+            ctx.mark_as_loss(
+                diversity_loss, f"codebook_diversity{loss_suffix}", dims=[], scale=codebook_diversity_loss_scale
+            )
+        if ctx.stage == "train_step" and "prob_perplexity" in q_out:
+            ctx.mark_as_loss(q_out["prob_perplexity"], f"codebook_prob_ppl{loss_suffix}", dims=[], as_error=True)
+
+        if codebook_orth_loss_scale > 0.0 and "code_orthogonality_loss" in q_out:
+            ctx.mark_as_loss(
+                q_out["code_orthogonality_loss"],
+                f"codebook_orth{loss_suffix}",
+                dims=[],
+                scale=codebook_orth_loss_scale,
+            )
     if adv_loss_name != "disc":
         # only compute the reconstruction loss, if we are not training the discriminator
         # since the encoder is frozen in that case

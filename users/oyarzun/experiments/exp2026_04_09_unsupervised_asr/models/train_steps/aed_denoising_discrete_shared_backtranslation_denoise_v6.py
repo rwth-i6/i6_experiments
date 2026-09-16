@@ -209,6 +209,7 @@ def compute_bt_loss_for_batch(
     src_blank_idx: int,
     src_out_dim: int,
     loss_name: str,
+    codebook_orth_loss_scale: float = 0.0,
 ):
     if pseudo_target_indices_ is None:
         return
@@ -246,7 +247,8 @@ def compute_bt_loss_for_batch(
         label_smoothing_start_epoch=label_smoothing_start_epoch,
         masking_opts={"mask_prob": 0.0, "min_span": 0, "max_span": 0},
         aux_loss_scales=aux_loss_scales,
-        codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+        codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+        codebook_orth_loss_scale=codebook_orth_loss_scale,
         loss_name=loss_name,
     )
 
@@ -269,13 +271,16 @@ def train_step(
     pseudo_audio_text_ce_loss_scale: float = 1.0,
     pseudo_text_audio_ce_loss_scale: float = 0.0,
     adv_loss_scale: float = 0.0,
-    codebook_diversity_loss_scale: float = 0.0,  
+    codebook_diversity_loss_scale: float = 0.0,
+    codebook_orth_loss_scale: float = 0.0,
     denoise_pretrain_steps: int = 0,
     denoise_pretrain_epochs: int = 0,
     pretrain_codebook_prob: Optional[float] = None,
     pretrain_codebook_diversity_loss_scale: Optional[float] = None,
+    pretrain_codebook_orth_loss_scale: Optional[float] = None,
     pretrain_adv_loss_scale: Optional[float] = None,
     gradual_unfreeze: bool = False,
+    freeze_encoder: bool = False,
     gradual_unfreeze_proportion: float = 0.8,
     gradual_unfreeze_start_iter: int = 0,
     gradual_unfreeze_end_iter: int = 0,
@@ -308,6 +313,11 @@ def train_step(
         model._bt_phon_sparse_dim = phon_indices_.sparse_dim
     if not hasattr(model, "_bt_audio_sparse_dim") and audio_indices_ is not None:
         model._bt_audio_sparse_dim = audio_indices_.sparse_dim
+
+    if freeze_encoder and not is_pretraining:
+        encoder_obj = getattr(model.encoder, "encoder", model.encoder)
+        for param in encoder_obj.parameters():
+            param.requires_grad = False
 
     if gradual_unfreeze and not is_pretraining:
         bt_step = ctx.step - model._asr_start_step
@@ -344,6 +354,9 @@ def train_step(
     if is_pretraining and pretrain_codebook_diversity_loss_scale is not None:
         codebook_diversity_loss_scale = pretrain_codebook_diversity_loss_scale
 
+    if is_pretraining and pretrain_codebook_orth_loss_scale is not None:
+        codebook_orth_loss_scale = pretrain_codebook_orth_loss_scale
+
     if is_pretraining and pretrain_adv_loss_scale is not None:
         adv_loss_scale = pretrain_adv_loss_scale
 
@@ -363,7 +376,8 @@ def train_step(
             label_smoothing_start_epoch=label_smoothing_start_epoch,
             masking_opts=text_masking_opts,
             aux_loss_scales=None,
-            codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+            codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+            codebook_orth_loss_scale=codebook_orth_loss_scale,
             loss_name="text",
             adv_loss_scale=adv_loss_scale,
             true_adv_target=1,  # real text
@@ -385,7 +399,8 @@ def train_step(
             label_smoothing_start_epoch=label_smoothing_start_epoch,
             masking_opts=audio_masking_opts,
             aux_loss_scales=None,
-            codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+            codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+            codebook_orth_loss_scale=codebook_orth_loss_scale,
             loss_name="audio",
             adv_loss_scale=adv_loss_scale,
             true_adv_target=0,  # real audio
@@ -502,7 +517,8 @@ def train_step(
                     label_smoothing_start_epoch=label_smoothing_start_epoch,
                     masking_opts=text_masking_opts,
                     aux_loss_scales=None,
-                    codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+                    codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+                    codebook_orth_loss_scale=codebook_orth_loss_scale,
                     loss_name="text",
                     adv_loss_scale=adv_loss_scale,
                     true_adv_target=1,
@@ -524,7 +540,8 @@ def train_step(
                     label_smoothing_start_epoch=label_smoothing_start_epoch,
                     masking_opts=audio_masking_opts,
                     aux_loss_scales=None,
-                    codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+                    codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+                    codebook_orth_loss_scale=codebook_orth_loss_scale,
                     loss_name="audio",
                     adv_loss_scale=adv_loss_scale,
                     true_adv_target=0,
@@ -540,6 +557,7 @@ def train_step(
                     label_smoothing_start_epoch=label_smoothing_start_epoch,
                     aux_loss_scales=text_aux_loss_scales,
                     codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+                    codebook_orth_loss_scale=codebook_orth_loss_scale,
                     pseudo_target_indices_=b_pseudo_audio_from_phon_,
                     src_indices_=b_phon_indices_,
                     forward_target=model.forward_audio,
@@ -562,6 +580,7 @@ def train_step(
                     label_smoothing_start_epoch=label_smoothing_start_epoch,
                     aux_loss_scales=audio_aux_loss_scales,
                     codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+                    codebook_orth_loss_scale=codebook_orth_loss_scale,
                     pseudo_target_indices_=b_pseudo_text_from_audio_,
                     src_indices_=b_audio_indices_,
                     forward_target=model.forward_text,

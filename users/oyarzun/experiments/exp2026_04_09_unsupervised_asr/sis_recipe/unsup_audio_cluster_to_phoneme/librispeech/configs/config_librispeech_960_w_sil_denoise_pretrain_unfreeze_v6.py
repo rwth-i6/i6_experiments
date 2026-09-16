@@ -48,7 +48,7 @@ def py():
     
     ablations = []
     
-    # We want 3x2x2x2 = 24 ablations
+    # 1. Original 3x2x2x2 = 24 ablations (1000 epochs) - preserved exactly to protect hashes
     for disc_strat in ["neither", "lstm", "codebooks"]:
         for layers in [3, 6]:
             for pretrain_epochs in [100, 500]:
@@ -106,12 +106,101 @@ def py():
                         "bt_train_iterations": 50,
                     }
                     
-                    ablations.append((train_name, model_args, train_args))
+                    ablations.append((train_name, model_args, train_args, 1000))
 
+    # 2. Fully Frozen Encoder ablations (across all disc strategies, layers 3 & 6, 1000 epochs)
+    for disc_strat in ["neither", "lstm", "codebooks"]:
+        for layers in [3, 6]:
+            for pretrain_epochs in [100, 500]:
+                if disc_strat == "neither":
+                    disc_type = None
+                    codebook_prob = 0.0
+                    pretrain_codebook_prob = 0.0
+                    codebook_div = 0.0
+                    pretrain_codebook_div = 0.0
+                    adv_scale = 0.0
+                    pretrain_adv_scale = 0.0
+                elif disc_strat == "lstm":
+                    disc_type = "lstm"
+                    codebook_prob = 0.0
+                    pretrain_codebook_prob = 0.0
+                    codebook_div = 0.0
+                    pretrain_codebook_div = 0.0
+                    adv_scale = 0.1
+                    pretrain_adv_scale = 0.1
+                elif disc_strat == "codebooks":
+                    disc_type = None
+                    codebook_prob = 0.5
+                    pretrain_codebook_prob = 0.5
+                    codebook_div = 0.1
+                    pretrain_codebook_div = 0.1
+                    adv_scale = 0.0
+                    pretrain_adv_scale = 0.0
+
+                train_name = f"disc-{disc_strat}_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_frozen_enc-True_v6.1"
+
+                model_args = {
+                    "num_enc_layers": layers,
+                    "num_text_dec_layers": layers,
+                    "num_audio_dec_layers": layers,
+                    "discriminator_type": disc_type,
+                    "codebook_opts": {"codebook_prob": codebook_prob},
+                }
+
+                train_args = {
+                    "codebook_diversity_loss_scale": codebook_div,
+                    "denoise_pretrain_epochs": pretrain_epochs,
+                    "pretrain_codebook_prob": pretrain_codebook_prob,
+                    "pretrain_codebook_diversity_loss_scale": pretrain_codebook_div,
+                    "adv_loss_scale": adv_scale,
+                    "pretrain_adv_loss_scale": pretrain_adv_scale,
+
+                    "gradual_unfreeze": False,
+                    "freeze_encoder": True,
+
+                    "bt_buffer_size_steps": 10,
+                    "bt_train_iterations": 50,
+                }
+
+                ablations.append((train_name, model_args, train_args, 1000))
+
+    # 3. 500-epoch ablations with lower LSTM discriminator loss weights (0.01 and 0.02)
+    for layers in [3, 6]:
+        for pretrain_epochs in [100, 500]:
+            for adv_scale in [0.01, 0.02]:
+                for unfreeze in [True, False]:
+                    train_name = f"disc-lstm_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_adv-{adv_scale}_unfreeze-{unfreeze}_ft_ep-500_v6.1"
+
+                    model_args = {
+                        "num_enc_layers": layers,
+                        "num_text_dec_layers": layers,
+                        "num_audio_dec_layers": layers,
+                        "discriminator_type": "lstm",
+                        "codebook_opts": {"codebook_prob": 0.0},
+                    }
+
+                    train_args = {
+                        "codebook_diversity_loss_scale": 0.0,
+                        "denoise_pretrain_epochs": pretrain_epochs,
+                        "pretrain_codebook_prob": 0.0,
+                        "pretrain_codebook_diversity_loss_scale": 0.0,
+                        "adv_loss_scale": adv_scale,
+                        "pretrain_adv_loss_scale": adv_scale,
+
+                        "gradual_unfreeze": unfreeze,
+                        "gradual_unfreeze_proportion": 0.8,
+                        "gradual_unfreeze_start_iter": int(200_000 * 0.5),
+                        "gradual_unfreeze_end_iter": int(200_000 * 0.9),
+
+                        "bt_buffer_size_steps": 10,
+                        "bt_train_iterations": 50,
+                    }
+
+                    ablations.append((train_name, model_args, train_args, 500))
 
     # --- PHASE 1: Pretraining Jobs ---
     unique_pretrains = set()
-    for train_name, model_args, train_args in ablations:
+    for train_name, model_args, train_args, ft_epochs in ablations:
         layers = model_args["num_enc_layers"]
         ep = train_args["denoise_pretrain_epochs"]
         disc_type = model_args["discriminator_type"]
@@ -178,17 +267,19 @@ def py():
             train_data=train_data,
             test_data_dict=test_data_dict,
             keep_epochs=[pretrain_epochs],
-            skip_eval=True,
+            skip_eval=False,
             rasr_recog_opts=None,
-            vis_epochs=[],
+            vis_epochs=[pretrain_epochs],
+            vis_kwargs={"cosine_similarity_summary": True},
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         )
         pretrain_jobs[(layers, pretrain_epochs, disc_type, cb_prob)] = train_job
 
 
     # --- PHASE 2: Backtranslation Finetuning Jobs ---
-
-    for train_name, model_args, train_args in ablations:
+    finetune_jobs = {}
+    all_eval_epochs = set()
+    for train_name, model_args, train_args, ft_epochs in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
         
@@ -207,7 +298,7 @@ def py():
         config["recog_rqmt"] = {"time": 48, "mem": 64, "cpu": 12, "device": "cpu"}
         config.setdefault("train_rqmt", {})["mem_rqmt"] = 64
         
-        config["training"]["__num_epochs"] = base_num_epochs
+        config["training"]["__num_epochs"] = ft_epochs
         
         layers = model_args["num_enc_layers"]
         ep = train_args["denoise_pretrain_epochs"]
@@ -219,9 +310,9 @@ def py():
 
         piecewise_epochs = [
             0,
-            0.45 * base_num_epochs,
-            0.9 * base_num_epochs,
-            base_num_epochs
+            0.45 * ft_epochs,
+            0.9 * ft_epochs,
+            ft_epochs
         ]
         piecewise_values = [1e-5, 1e-3, 1e-5, 1e-6]
         config["training"]["__lr_opts"] = {
@@ -230,12 +321,20 @@ def py():
             "piecewise_values": piecewise_values,
         }
 
-        keep_eps = get_keep_epochs(base_num_epochs)
-        if keep_eps is None: keep_eps = []
-        
-        vis_eps = [250, 500, 750, 1000]
+        if ft_epochs == 1000:
+            keep_eps = [250, 500, 750, 1000]
+            vis_eps = [250, 500, 750, 1000]
+        elif ft_epochs == 500:
+            keep_eps = [125, 250, 375, 500]
+            vis_eps = [125, 250, 375, 500]
+        else:
+            keep_eps = [int(ft_epochs * p) for p in [0.25, 0.5, 0.75, 1.0]]
+            vis_eps = list(keep_eps)
+
+        for e in keep_eps:
+            all_eval_epochs.add(e)
             
-        run_experiment(
+        train_job = run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
             train_data=train_data,
@@ -247,3 +346,29 @@ def py():
             vis_kwargs={"cosine_similarity_summary": True},
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         )
+        finetune_jobs[train_name] = train_job
+
+    # --- PHASE 3: Joined Results Excel & CSV Aggregator Job ---
+    from ....hpo_summary import HpoResultsExcelJob
+
+    configs_meta = {}
+    for train_name, model_args, train_args, ft_epochs in ablations:
+        cb_opts = model_args.get("codebook_opts", {})
+        configs_meta[train_name] = {
+            "layers": model_args.get("num_enc_layers", ""),
+            "disc_type": str(model_args.get("discriminator_type", "None")),
+            "adv_scale": train_args.get("adv_loss_scale", 0.0),
+            "cb_prob": cb_opts.get("codebook_prob", 0.0),
+            "unfreeze": train_args.get("gradual_unfreeze", False),
+            "frozen_enc": train_args.get("freeze_encoder", False),
+            "pretrain_ep": train_args.get("denoise_pretrain_epochs", 0),
+            "num_epochs": ft_epochs,
+        }
+
+    HpoResultsExcelJob(
+        configs_meta=configs_meta,
+        train_jobs=finetune_jobs,
+        eval_epochs=sorted(list(all_eval_epochs)),
+        prefix_name=prefix_name,
+        report_name="unsup_v6_summary",
+    )
