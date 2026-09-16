@@ -1126,6 +1126,26 @@ delta vs lam3_tri at the same sub-epoch with ci95 excluding 0 in the arm's favou
 (emc/content_acc or its registered name) must rise above its chance level 1/K = 0.016 or the term was never active.
 A PER inside 0.83-0.90 at both reads closes S3b-CT FAIL and with it the S3b remedy set on the cold bed.
 
+**S3b-OR: frozen content-carrying reverse model, cold recognizer (registered 2026-09-16 on the user's question, before
+any result; REPORTING-ONLY ORACLE REFERENCE, never a funded or selected arm).** The EM fixed-point read c1 above (flat
+theta, warm phi HELD, network-free) reached dev-other PER 0.238 (trigram, k 30, 300 utts) against the seed's own 0.190,
+so a content-carrying phi lets a flat recognizer take off in EM; whether the TRAINED recognizer network does the same
+under the full EMC objective has not been run. phi = the S2d warm-up slice ExtractSubmoduleCheckpointJob.u3GoBYOWr741
+(one theta-frozen sub-epoch at tau 8 with the trigram prior on the supervised 10 h seed recognizer 65NNK8Bwxdtd ep024:
+GOLD-DERIVED, as c1's htxT2f9FHvWw). One packed node, four arms, every arm a pack v3 twin (flat recognizer init,
+trigram, lam_rate 3, S3_TAU_SCHEDULE, 8 sub-epochs) plus the phi checkpoint: or_frz_tri = phi loaded and FROZEN
+(requires_grad False, out of the optimizer, as freeze_recognizer does for theta); or_free_tri = phi loaded and trained
+jointly (the S2d analogue from a flat theta: does joint training erode phi's content); or_frz_bt_a_tri = or_frz_tri +
+bt_a (back translation against a frozen content side, the regime the literature measured); or_frz_tri_s2 = or_frz_tri
+at seed 43. Reads as pack v3; paired rows at sub-epochs 4 and 8 on both dev sets: or_free vs or_frz, or_frz_bt_a vs
+or_frz, or_frz_s2 vs or_frz, and every arm vs the banked lam3_tri. Pre-registered readings (no funding gate, the phi is
+gold-derived): (i) take-off = dev-other greedy PER < 0.50 at sub-epoch 4 or 8 in or_frz_tri; if it stays in the
+0.83-0.90 band the recognizer NETWORK cannot learn from the objective even with a content-carrying phi, contradicting
+c1 and pointing at the training loop rather than at phi; (ii) or_free below or_frz by a paired ci95 excluding 0 means
+joint training erodes phi's content, which bears directly on S2d; (iii) or_frz_bt_a vs or_frz reads whether BT helps
+once its reverse side carries content. Anchors: c1 0.238 / 0.279 (trigram / bigram EM, 300 utts), seed limit 0.190,
+cold band 0.836-0.89.
+
 **S2d: the main trigram arms from the supervised 10 h seed init (USER DECISION 2026-09-16, "for the main arms, still test
 supervised 10 h for init + unsupervised 100 h").** Bed = S2b's: theta init `ReturnnTrainingJob.65NNK8Bwxdtd` ep 24 (greedy
 PER 0.058 / 0.116 dev-clean / dev-other, the supervision cost disclosed: 10 h of transcripts), phi warm-up 1 sub-epoch with
