@@ -16,8 +16,8 @@ evaluation and probes.
 
 ## North star & hard constraints
 
-- **North star (user priority 2026-09-16).** Pure unsupervised ASR **without GANs**, focused on improving
-  **cold start**. Supervised performance is not the objective; existing supervised controls are diagnostic
+- **North star (user priority 2026-09-16).** Pure unsupervised ASR **without GANs**, improving **cold start
+  within §4a cycle consistency**. Supervised performance is not the objective; existing controls are diagnostic
   evidence only. This supersedes the earlier GAN fallback and seeded-refinement priorities; see `SAE_ref.md`.
 - **Label quarantine.** True transcripts appear in exactly three quarantined places: evaluation metrics (PER/WER,
   probes, gate measurements on dev), the §0c architecture toplines, and the §2S anchor arm (1 h/10 h paired seeds;
@@ -74,7 +74,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
-   Next proposal: shared masked modeling of acoustic/text syllables, with label-free selection; see §4a. Standing from
+   Next: an in-cycle cold-start change informed by unsupervised MT; standalone SylCipher proposal withdrawn. Standing from
    2026-09-15: the LM term inside the objective must be above bigram. See State of `SAE_4A.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and

@@ -2,9 +2,10 @@
 
 ## State
 
-Active experimental question: how can unpaired speech and text provide a useful cold initialization without
-GANs or supervised-derived models? User priority 2026-09-16 makes cold-start improvement the objective;
-supervised performance is not the focus. See the current constraints in `SAE_ref.md`.
+Active experimental question: how can the existing exact-marginal cycle learn useful phone content from
+cold start, without GANs or supervised-derived models? User clarification 2026-09-16 keeps research within
+§4a cycle consistency; supervised refinement and standalone SylCipher initialization are withdrawn.
+See the current constraints in `SAE_ref.md`.
 The current diagnosis and audited results are under
 "Current mechanism assessment and partial follow-ups" below.
 
@@ -25,14 +26,18 @@ Results are in
 updated whole phi loses useful reverse evidence under both fixed recognizers; see the paired contrasts below
 and `reports/codex_or_mass_endpoint_audit_2026-09-16.md`. These gold-derived results are diagnostic evidence.
 The additional seeded-S2d frozen-phi proposal is withdrawn; no such run was launched.
-Next research proposal: a shared masked-sequence model of acoustic and text syllables, tested as a standalone
-cold initializer before another cycle run. The literature review and proposed controls are below; acoustic
-front-end provenance and a label-free stopping rule must be resolved before a launch specification.
+Next proposal, to brief before execution: structured corruption of the recognizer's real-cycle input while
+the same exact cycle reconstructs clean units. This is an in-cycle augmentation test; baseline dropout already
+adds noise. Corruption is proposed for sub-epochs 1-4 only, followed by clean-input sub-epochs 5-8.
+Existing detached/interleaved BT is not a missing ingredient. Evidence and limits are in the final
+scope-corrected proposal below; no external initializer is planned.
 Existing gates are preserved; no additional training is launched.
 
 ## Objective
 
 **Priority amendment (user 2026-09-16):** the active objective is pure unsupervised cold start without GANs.
+**Scope clarification (same day):** work stays within this phase's cycle-consistency model. External
+initializer reproduction is not the next experiment; unsupervised MT may inform changes inside the cycle.
 The original sequence below is retained as provenance; its GAN/seeded refinement stages are not the active
 research objective. Existing supervised results are diagnostic controls only.
 
@@ -1442,7 +1447,10 @@ paired labels remains the unresolved cold-start problem.
 from the active queue. Research now targets fully unpaired, non-GAN cold initialization; improving the
 supervised seed is not an experimental objective. Original results and gates above remain unchanged.
 
-### Cold-start research decision after the user priority (2026-09-16)
+### Withdrawn standalone-initializer proposal (2026-09-16)
+
+**User scope correction:** the SylCipher-inspired experiment below is withdrawn before any implementation
+or launch. It is retained as proposal provenance only. The active direction stays within §4a cycle consistency.
 
 The existing failure inventory rules out treating a new count fit as a new idea: §1f already tried K500
 positional unigrams, skip-1..6 bigrams and tri-skipgrams (best selected dev-other PER 0.8580). Its G9
@@ -1507,6 +1515,54 @@ Its update budget and native decoding rule must be identical. Fresh direction au
 `reports/codex_cold_direction_audit_2026-09-16.md`; the lead is distinct, but admissible front-end provenance,
 exact text rendering/scoring, stopping and budget remain launch-specification requirements. No cold improvement
 is claimed from this review and no new job is running.
+
+### Scope-corrected cycle proposal (user clarification 2026-09-16)
+
+Keep the current phone-level exact-marginal cycle, speech-only features/K500 observations, trigram and flat
+initialization. The user requests inspiration from unsupervised MT for improving this cycle's cold start;
+the standalone syllable/shared-MLM proposal above is withdrawn, not a replacement for GAN initialization.
+
+Verified UMT evidence is conditional, not a recipe transfer. [Lample et al., EMNLP 2018](https://arxiv.org/pdf/1804.07755)
+report Transformer en-to-fr BLEU 25.1 with denoising versus 0.0 without it despite backtranslation; their shared
+BPE/pretrained embeddings supply alignment absent from the SAE cold bed. [Their ICLR 2018 study](https://arxiv.org/pdf/1711.00043)
+finds a smaller denoising ablation effect, while removing input noise changes Multi30k en-to-fr BLEU from
+27.48 to 16.76. [Kim et al., EAMT 2020](https://aclanthology.org/2020.eamt-1.5.pdf) find that more denoising/BT
+does not rescue weak crosslingual initialization. Thus denoising may help a cycle retain content but does not
+establish a way out of this project's flat-start basin. Full-text review:
+`reports/codex_4a_umt_cycle_literature_2026-09-16.md`.
+
+Code evidence (`reports/codex_4a_cycle_update_code_2026-09-16.md`): EMC already trains the final phone
+probabilities from clean-unit reconstruction via detached, freshly computed exact Gibbs posteriors. BT already
+uses separate interleaved optimizer steps and a detached live reverse generator. The real recognizer also uses
+dropout 0.1, so denoising is not entirely absent. Existing structured SpecAugment is confined to the auxiliary
+clean-teacher KL view comparison; the content auxiliary bypasses the final phone convolution.
+
+**Candidate experiment, not launched:** compare canonical cold `lam3_tri` with the same run using the existing
+SpecAugment corruption C on the recognizer input of real training batches in **sub-epochs 1-4 only**, the
+reference annealing window; sub-epochs 5-8 return to ordinary inputs with the baseline dropout retained.
+This fixes the schedule discrepancy found in `reports/codex_4a_incycle_proposal_audit_2026-09-16.md` before
+any implementation or result. The lattice uses q_theta(pi | C(x))
+and the same p_phi(z_clean | pi, eta) and phone trigram; the observed unit stream, frame count and eta stay
+from the original utterance. Both directions remain the existing models. There is no new tokenizer, pretrained
+ASR teacher, standalone initialization or direct supervision. This asks whether structured corruption inside
+reconstruction provides more useful pressure on phone content than the tested prediction-consistency term.
+It does not claim reconstruction was previously absent or that corruption resolves label identity.
+
+Use the existing corruption implementation/settings as the reference, rather than selecting masks on gold.
+The intervention changes the real training input of the q-based objective, including its aggregate/rate
+terms; describing only the main L_tau as changed would be incorrect. Normal train-mode BN sees the masked
+input, an explicit consequence to report; do not borrow the auxiliary branch's BN-freeze guard without a
+clean pass. Apply masks only during training: validation/selection and greedy evaluation stay clean.
+The launch specification must check mask spans against the recognizer's receptive field, pin these semantics
+and the reference resource budget, and be reviewed before compute. No additional training spend is committed.
+
+The comparison retains the same tc100 data, seed, parameter initialization, trigram, tau/rate schedules,
+training length and label-free checkpoint selector. BT stays at the canonical control's setting; no old BT
+or consistency gate is silently reopened. Read paired dev-other PER against the cold control at sub-epochs
+4 and 8, with dev-clean alongside. The original G4a.3 take-off criterion remains PER <0.50 plus positive
+speaker-matched derangement gap at anneal end. A lower reconstruction loss or larger reverse gap without
+phone-error improvement would not count as successful cold-start learning. This is a limited hypothesis
+test inside the cycle, not a claim that UMT has solved the speech/text grounding problem.
 
 Relevant literature qualifications, verified in `reports/codex_mechanism_literature_2026-09-16.md`:
 [Liu et al., SLT 2022, section 3.3](https://arxiv.org/pdf/2204.02492) demonstrate that phone-distribution
