@@ -1055,7 +1055,15 @@ PER clause but is a weak test of BT, sub-epoch 8 carries that question. The cons
 on dev-other. Error pattern (`reports/exec_per_error_pattern_trigram_2026-09-16.md`, all 9 arms reproduce banked S/D/I):
 NOT the short-segment-deletion signature of read (a); every arm is substitution-dominated (S 52-70 % of N = 177.3k)
 with a flat deletion rate across gold-length bins (lam3 bigram 32/32/31/30/27/21 %, lam3_tri 27/27/27/26/23/18 %,
-bt_b_tri_cr 13/12/12/12/10/8 % with S+I exploding). Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
+bt_b_tri_cr 13/12/12/12/10/8 % with S+I exploding). Qualitative read of the same 12 aligned utterances across bigram lam3,
+lam3_tri, bt_a_tri, bt_b_tri_cr (`reports/qual_errors_trigram_ep4_2026-09-16.md`, model judgement): correct phones are
+isolated in every arm (~75 % stand alone, longest correct run 5 in 2864 utts, no syllable recovered); each arm collapses
+onto its own favourite phones (top-10 share 63-74 % vs gold 55 %), neither a consistent relabelling nor random. Bigram:
+0.72x gold length, consonant strings, V/C alternation 57 % vs gold 73 %. Trigram: 0.77x, alternation 66 %, syllable-shaped
+templates (EH R IY, P R IY, K R IY) repeated thousands of times: phonotactics, not words. +BT: same structure, filler
+rebuilt from function words (AE N D 3208x, DH AH), fewer distinct trigram types. +consistency: 0.96x length, no dropouts,
+wall-to-wall substitution with open loops (DH AH x4; 10 gold phones -> 34). What improves across the arms is the shape
+of the output, never phone identity. Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
 1.31 -> 1.27 in lam3_tri vs 1.23 -> 1.18 bigram), so the objective again is no content signal. The gap clause is not
 read here (gate is AND; sub-epoch 4 fails on PER alone). Sub-epoch 8 read pending (nodes running, 8 h rqmt); the
 paired clustered-bootstrap read is only worth running if any sub-epoch 8 PER leaves the band.
