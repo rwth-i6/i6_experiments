@@ -71,10 +71,10 @@ group-normalized advantages.
 
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
-   GAN-lineage init retired; S2b/S2c run from the 10 h / 1 h seed inits (the §1d-output-as-initialization-only
-   carve-out extends to §4a S2; never in-loop teacher, reward or selection). S3 flat start CLOSED FAIL. Standing
-   from 2026-09-15: the LM term inside the objective must be above bigram. Decision fork with the user, see
-   State of `SAE_4A.md`.
+   GAN-lineage init retired; supervised-seed S2d FAIL and cold trigram remedies read. S3b-CT / S3b-OR remain
+   active through their endpoint reads; OR's frozen/joint reverse-model comparison is a gold-derived diagnostic.
+   Next: registered endpoint paired reads and mechanism diagnostics, with gates unchanged. Standing from
+   2026-09-15: the LM term inside the objective must be above bigram. See State of `SAE_4A.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and
    the 1,112-ID evaluation CLOSED, so no PER of that route exists. 1g.9, the 1g.10/10a/10b/10c family, 1g.11,
@@ -154,7 +154,8 @@ the 6,778/201 floor); no solver retry, support-floor relaxation or graph amendme
   further no-pairs loop. `SAE_3G.md`.
 - **§4a exact-marginal cycle (EMC)** — OPEN; G4a.1 read (S1a, spend control only); G4a.2 read and audited
   (S2b/S2c: refines vs own init at best -2.0 WER, none usable vs §1d 21.87); G4a.3 CLOSED FAIL (S3 flat start).
-  Degradation mechanism read (iterated target drifts to the reverse model's posterior). `SAE_4A.md`.
+  S2d FAIL; iterated factorized target fitting drifts, without an established limiting posterior. Frozen/joint
+  reverse-model diagnostics and CT endpoint reads remain active. `SAE_4A.md`.
 - **Build/setup** — 960 h loop build `sae_960h_loop_build.md`; reward side-inputs lam_1/lam_2 `SAE_ref.md`.
 
 ## Standing gates for phases with no separate document
