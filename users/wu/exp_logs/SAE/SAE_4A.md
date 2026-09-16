@@ -1087,8 +1087,44 @@ the consistency arms (-4.05 / -4.33, PER 0.845 / 0.887) and to spec (-3.78 with 
 buys prior-likeness of the output, which the trigram makes cheaper to buy, without phone identity; (4) variety does not
 rise with the trigram or BT (H_hyp 4.2-4.6 bits vs bigram lam3 4.33, gold 4.83). Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
 1.31 -> 1.27 in lam3_tri vs 1.23 -> 1.18 bigram), so the objective again is no content signal. The gap clause is not
-read here (gate is AND; sub-epoch 4 fails on PER alone). Sub-epoch 8 read pending (nodes running, 8 h rqmt); the
-paired clustered-bootstrap read is only worth running if any sub-epoch 8 PER leaves the band.
+read here (gate is AND; sub-epoch 4 fails on PER alone).
+
+**Sub-epoch 8 read (2026-09-16; both pack graphs COMPLETE, SLURM 1821649 / 1821650 COMPLETED, managers exited at end of
+graph; `reports/extract_pack3_ep8_2026-09-16.md`; AUDIT RUNNING `reports/audit_trigram_ep8_2026-09-16.md`).** Greedy PER
+dev-other at sub-epochs 1-8, then dev-clean at 8 and phones/s at 8:
+
+| arm | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | dev-clean 8 | phones/s 8 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| lam3_tri | 0.857 | 0.878 | 0.941 | 0.845 | 0.837 | 0.849 | 0.851 | 0.877 | 0.861 | 8.80 |
+| bt_a_tri | 0.859 | 0.888 | 0.920 | 0.840 | 0.839 | 0.889 | 0.865 | 0.868 | 0.854 | 7.81 |
+| bt_b_tri | 0.845 | 0.912 | 0.907 | 0.857 | 0.855 | 0.871 | 0.854 | 0.869 | 0.862 | 8.19 |
+| bt_c_tri | 0.877 | 0.910 | 0.899 | 0.874 | 0.863 | 0.885 | 0.889 | 0.892 | 0.871 | 8.83 |
+| lam3_tri_cr | 0.924 | 0.984 | 0.937 | 0.845 | 0.844 | 0.841 | 0.843 | 0.862 | 0.847 | 8.35 |
+| bt_b_tri_cr | 0.908 | 0.967 | 0.936 | 0.887 | 0.867 | 0.908 | 0.868 | 0.894 | 0.877 | 8.81 |
+| lam3_tri_s2 | 0.864 | 0.865 | 0.938 | 0.844 | 0.836 | 0.852 | 0.856 | 0.873 | 0.859 | 8.75 |
+| bt_b_tri_s2 | 0.861 | 0.927 | 0.920 | 0.866 | 0.856 | 0.891 | 0.868 | 0.881 | 0.875 | 8.28 |
+
+(dev-other rows at sub-epochs 1-3, 5-8 from the extract, sub-epoch 4 from the audited read above; no label-free selection
+job is registered in the pack3/pack4 graphs.) Dev agg loss of lam3_tri 1.31 / 1.27 / 1.13 / 0.76 / 0.73 / 0.80 at sub-epochs
+1-6: the same drop at sub-epoch 4 as the bigram lam3 run (0.71 / 0.65 / 0.72), rate 9.2-9.5 / s after sub-epoch 4.
+Reading: **G4a.3b-BT FAIL at sub-epoch 8 in every arm** (0.86-0.89 on dev-other, every arm WORSE than its own sub-epoch 4
+or 5); the minimum over all 64 arm x sub-epoch reads is 0.836. At full BT weight (sub-epoch 8) bt_a_tri / bt_b_tri sit
+0.009 / 0.008 below lam3_tri and 0.005 / 0.004 below lam3_tri_s2, inside the 1-point floor; bt_c_tri and both _cr arms are
+above their controls. **S3b-BT-aux CLOSED FAIL on the cold bed** (pending audit): back translation as an auxiliary does not
+move the cold start out of the content-free band with a trigram prior, and the consistency term does not either. What the
+trigram bought is recorded above: LM-plausible, syllable-shaped filler. Per the design review (F2, point 7: "BT full only
+with the content term") the one S3b remedy not yet run cold is the label-free forward content term, which the trigram
+launch deferred ("lam3_ct moves to a later node"); it goes on the next node (S3b-CT below) while S2d runs.
+
+**S3b-CT: content term on the trigram cold bed (registered 2026-09-16, before any result).** One packed node, four arms,
+control = the banked lam3_tri above (same node type, same schedule): lam3_ct_tri = lam3_tri + the forward content term
+(content_term.py, MFCC k-means K 64 codes, tap content_layer 1, lam_content 0.3, as the held bigram arm
+ReturnnTrainingJob.DhsiFoHwBP5l); bt_ct_tri = bt_a_tri + the same content term; lam3_ent_a_tri / lam3_ent_b_tri = the
+held entropy companions (`reports/impl_entropy_companion_2026-09-15.md`) on the trigram control. Reads as pack v3.
+Gate **G4a.3b-CT**: at sub-epochs 4 and 8 on dev-other, greedy PER < 0.50 (the standing clause) AND, secondary, a paired
+delta vs lam3_tri at the same sub-epoch with ci95 excluding 0 in the arm's favour on both dev sets; the content monitor
+(emc/content_acc or its registered name) must rise above its chance level 1/K = 0.016 or the term was never active.
+A PER inside 0.83-0.90 at both reads closes S3b-CT FAIL and with it the S3b remedy set on the cold bed.
 
 **S2d: the main trigram arms from the supervised 10 h seed init (USER DECISION 2026-09-16, "for the main arms, still test
 supervised 10 h for init + unsupervised 100 h").** Bed = S2b's: theta init `ReturnnTrainingJob.65NNK8Bwxdtd` ep 24 (greedy
