@@ -71,9 +71,9 @@ group-normalized advantages.
 
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
-   GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR remains active through
-   its endpoint reads; OR's frozen/joint reverse-model comparison is a gold-derived diagnostic.
-   Next: registered endpoint paired reads and mechanism diagnostics, with gates unchanged. Standing from
+   GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
+   its gold-derived checkpoint-swap diagnostic confirms lost reverse evidence at both fixed recognizers.
+   Next proposal: the matched seeded-S2d frozen-phi control under the existing HOLD gate; not launched. Standing from
    2026-09-15: the LM term inside the objective must be above bigram. See State of `SAE_4A.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and

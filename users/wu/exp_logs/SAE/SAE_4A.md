@@ -2,8 +2,8 @@
 
 ## State
 
-Active experimental question: does an informative reverse model retain useful phone identity when frozen,
-and do its joint updates undermine the recognizer? The current diagnosis and audited partial results are under
+Active experimental question: can freezing the warmed reverse model preserve the useful supervised recognizer?
+The current diagnosis and audited results are under
 "Current mechanism assessment and partial follow-ups" below.
 
 S2d is complete: all four seeded trigram arms FAIL G4a.S2d; the cold trigram/BT/consistency arms also fail their
@@ -11,16 +11,21 @@ registered take-off clauses. These are greedy PER results; no new WER result is 
 
 S3b-CT is CLOSED FAIL under its original gate; the audited endpoint and activation read is recorded below
 (`PackedEmcTrainJob.nineWO8G0tFD`, `reports/codex_pack5_endpoint_audit_2026-09-16.md`).
-S3b-OR is active: `PackedEmcTrainJob.go0lRvkvA6Kq`, `config/sae_4a_s3b_pack6.py`.
-Its sub-epoch-4 frozen-versus-joint contrast is banked below; sub-epoch 8 and durability remain pending.
-OR uses a reverse model derived from the supervised 10 h seed and is reporting-only.
+S3b-OR is complete: `PackedEmcTrainJob.go0lRvkvA6Kq`; its audited endpoint is banked below
+(`reports/codex_pack6_endpoint_audit_2026-09-16.md`). Frozen phi meets the reporting-only take-off reading;
+joint updates worsen PER on both dev sets at both endpoints. OR uses a reverse model derived from the
+supervised 10 h seed; this is not a label-free result.
 
-Next experimental action: verify OR's terminal graph, read its registered sub-epoch-8 paired contrasts on both
-dev sets, and apply the planned alignment-mass read to frozen/joint OR checkpoints. A persistent joint-training
-penalty supports harmful co-adaptation; loss of reverse-model phone discrimination remains a hypothesis requiring
-a direct diagnostic. CT's trained auxiliary head did not yield phone take-off. No gate, selection
-rule or phase budget changes. Evidence: `reports/codex_mechanism_audit_2026-09-16.md`,
-`reports/codex_current_evidence_2026-09-16.md`.
+Completed diagnostic: `OrMassDiagnosticJob.SWqFadg0m8X3`, `config/sae_4a_or_mass_diagnostic.py`.
+Results are in
+`work/analysis/or_mass_diagnostic/OrMassDiagnosticJob.SWqFadg0m8X3/output/`
+(`profiles/`, `paired_comparison.json`, `paired_comparison.txt`). Its audited sub-epoch-8 swaps show that
+updated whole phi loses useful reverse evidence under both fixed recognizers; see the paired contrasts below
+and `reports/codex_or_mass_endpoint_audit_2026-09-16.md`. Transfer to seeded S2d and an emission-only
+explanation remain untested.
+Next proposal: a matched S2d control changing only `freeze_reverse=True`, evaluated by the original HOLD
+rule. This additional training arm is not launched and no additional training budget is committed.
+CT's trained auxiliary head did not yield phone take-off. No gate or selection-rule changes.
 
 ## Objective
 
@@ -1305,25 +1310,33 @@ information and weak identity; it does not establish zero acoustic information o
 The seeded failures and repeated network-free marginal fitting show that a good initializer is not protected.
 The prior helps in the registered ablations; stronger prior order alone did not stop the drift.
 
-New evidence is the S3b-OR **sub-epoch-4** read, on the registered tc100/trigram/rate-3/tau-8-to-2 bed.
+The S3b-OR **sub-epoch-4 and -8** reads are complete, on the registered tc100/trigram/rate-3/tau-8-to-2 bed;
+endpoint audit: `reports/codex_pack6_endpoint_audit_2026-09-16.md`.
 Every OR arm starts with flat theta and the same S2d warm phi slice `u3GoBYOWr741` (one tau-8 warm-up sub-epoch
 from the supervised 10 h seed). These are GOLD-DERIVED, REPORTING-ONLY diagnostics. Full-split greedy PER:
 
-| OR arm | dev-clean | dev-other | paired dev-other delta vs frozen phi [speaker ci95] |
-|---|---|---|---|
-| frozen phi | 0.383141 | 0.453832 | reference |
-| jointly trained phi | 0.614282 | 0.642978 | +0.189147 [+0.167703, +0.211536] |
-| frozen phi + BT | 0.357940 | 0.423280 | -0.030551 [-0.045059, -0.013737] |
-| frozen phi, seed 43 | 0.364710 | 0.435617 | -0.018215 [-0.028536, -0.007747] |
+| OR arm | sub-epoch | dev-clean | dev-other | paired dev-other delta vs frozen phi [speaker ci95] |
+|---|---|---|---|---|
+| frozen phi | 4 | 0.383141 | 0.453832 | reference |
+| jointly trained phi | 4 | 0.614282 | 0.642978 | +0.189147 [+0.167703, +0.211536] |
+| frozen phi + BT | 4 | 0.357940 | 0.423280 | -0.030551 [-0.045059, -0.013737] |
+| frozen phi, seed 43 | 4 | 0.364710 | 0.435617 | -0.018215 [-0.028536, -0.007747] |
+| frozen phi | 8 | 0.321105 | 0.367813 | reference |
+| jointly trained phi | 8 | 0.593543 | 0.624076 | +0.256263 [+0.239735, +0.274029] |
+| frozen phi + BT | 8 | 0.280721 | 0.350416 | -0.017397 [-0.032549, -0.002260] |
+| frozen phi, seed 43 | 8 | 0.314691 | 0.383213 | +0.015400 [+0.006677, +0.024070] |
 
 Sources: `PackedEmcTrainJob.go0lRvkvA6Kq`; registered
-`output/exp2025_11_06_speech_llms/librispeech/sae_4a_s3b_pack6/` per-arm `ep4/<split>/per.json` and
-`paired_per/<arm>_vs_or_frz_tri/ep4/<split>/paired_per.json`. Frozen/joint dev-other PER resolves to
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_s3b_pack6/` per-arm `ep{4,8}/<split>/per.json` and
+`paired_per/<arm>_vs_or_frz_tri/ep{4,8}/<split>/paired_per.json`. Frozen/joint sub-epoch-4 dev-other PER resolves to
 `GreedyPerJob.toupXJO215uo` / `UGaAtpqf07ah`. Both sides use the same 2,864 dev-other items, 33 speakers,
 gold, greedy collapse and SIL removal; the checked config delta is `freeze_reverse=True` alone.
-The frozen arm meets the pre-registered reporting-only take-off threshold; durability awaits sub-epoch 8.
-BT has only just reached full weight at sub-epoch 4. Its improvement here contrasts with its seeded/cold
-failures elsewhere, supporting the need for an informative reverse side without establishing an unsupervised route.
+The frozen arm meets the pre-registered reporting-only take-off threshold at both reads; all four label-free
+selectors choose sub-epoch 8. The joint-training penalty persists on dev-clean too: at 8,
++0.272438 [+0.253559, +0.290691]; BT versus frozen is -0.040383 [-0.051789, -0.028165] there.
+BT's improvement survives the full-weight endpoint on both splits. This supports the value of an informative
+reverse side without establishing an unsupervised route. The seed-43 frozen arm also takes off, but its
+relative dev-other advantage at 4 reverses at 8; it is not a uniformly better seed.
 
 **Interpretation amendment:** S3b-OR reading (ii) above has its PER sign reversed. Joint **above** frozen,
 with positive free-minus-frozen paired CI, is the harmful direction. The original wording is retained as provenance;
@@ -1366,10 +1379,58 @@ The statements above that S2d "settles" at a measured optimum are superseded by 
 the tested eight-sub-epoch run degrades its seed and only partly recovers. Factorized frame-marginal projection
 does not preserve the full structured posterior. Existing gate failures and measured PER remain unchanged.
 
-Next decision stays inside the registered experiments: read OR's sub-epoch-8 paired frozen/joint/BT contrasts
-and the planned alignment-mass profiles. A persistent OR gap supports
-harmful co-adaptation; attribution to phi's phone discrimination needs a direct diagnostic, ideally comparing phi
-snapshots while holding the recognizer evidence fixed. The funded reads come first; no new training sweep is launched.
+The planned alignment-mass profiles and fixed-recognizer comparisons are complete and audited below.
+They directly test the reverse-evidence interpretation of the persistent OR gap. Its transfer to the
+seeded S2d failure remains the next experimental question; no new training sweep is launched.
+
+**OR diagnostic read, specified before execution (2026-09-16):** use the existing mass reader on the
+frozen/joint arms at sub-epochs 4 and 8, with the same 300 stride-selected dev-other utterances, frame gold,
+feature/unit inputs, tau=2 and row-sum tolerance as the registered S2d read. At sub-epoch 8 additionally
+cross the two reverse snapshots with the two recognizer snapshots; the native reads supply the diagonal,
+so only two extra checkpoint combinations are needed. No model is trained or selected by this read.
+Holding theta fixed makes its frame probabilities identical across the phi contrast. Read the paired change
+in target gold-phone mass on gold speech and target greedy PER; retain utterance identities and use the
+existing 2,000 speaker-resample convention for uncertainty. A consistent gold-mass loss under updated phi
+for both fixed recognizers supports loss of useful reverse-model evidence. A joint-training PER penalty
+without that loss leaves changes in the recognizer trajectory as an alternative. This compares the whole
+reverse model (including durations), not its emissions alone, and does not add or change a phase gate.
+The measured target is the untilted cycle posterior, as in the reference read; rate/aggregate gradients
+are outside this diagnostic's scope.
+Run: `OrMassDiagnosticJob.SWqFadg0m8X3`, launched 2026-09-16 via
+`config/sae_4a_or_mass_diagnostic.py`; six checkpoint evaluations, all native/cross epochs must pass
+the existing lattice sanity before the paired read is accepted. Both component checkpoint paths and
+the exact utterance-level counts are retained in its outputs.
+
+**OR diagnostic result (2026-09-16):** complete; fresh audit
+`reports/codex_or_mass_endpoint_audit_2026-09-16.md`. The same 300 distinct dev-other utterances cover
+33 speakers, 77,333 gold-speech frames and 18,743 reference phones. Gold, feature/unit paths, tags and
+reference counts match within both pairs and the registered S2d reader inputs. Strict component loading
+holds theta fixed; all six checkpoint reads pass the original lattice sanity (worst row-sum deviation
+0.006836, tolerance 0.007). Sub-epoch-8 updated-minus-frozen phi contrasts:
+
+| fixed recognizer | gold-phone mass delta [speaker ci95] | target greedy PER delta [speaker ci95] |
+|---|---|---|
+| frozen-arm theta | -0.092855 [-0.096375, -0.089227] | +0.173611 [+0.165066, +0.181720] |
+| joint-arm theta | -0.022239 [-0.024275, -0.020231] | +0.050472 [+0.043362, +0.058360] |
+
+Source: the run's `output/paired_comparison.json` and `output/profiles/*.json`; paired speaker bootstrap,
+2,000 resamples, seed 0. The pre-specified directional mass criterion is met: updated whole phi loses useful
+reverse evidence under both fixed recognizers, and target PER worsens too. Thus the OR penalty is not
+explained solely by comparing different recognizer trajectories. This concerns the untilted cycle target
+at tau=2 on the 300-utterance diagnostic, not full-split recognizer PER or the complete training gradient.
+It does not isolate emissions from durations, explain how the deterioration develops, or establish the
+same mechanism in seeded S2d. OR's supervised origin and reporting-only status remain unchanged.
+
+**Next training proposal (2026-09-16, in response to the user's next-step question):** repeat the S2d
+control from the same 10 h recognizer seed and its same warmed phi, changing only `freeze_reverse=True`.
+Keep the trigram, tc100 data, eight-sub-epoch schedule including tau 8 -> 2, rate term and selection rule
+identical. Read it against the original seed with G4a.S2d's existing HOLD rule (paired dev-other CI95 upper
+bound below +0.010 at sub-epoch 8), and against the banked joint S2d control. This tests whether freezing
+protects an already useful recognizer; the OR cold-start result alone cannot answer that. If it holds, pursue
+a stable reverse teacher; if it fails, isolate the high-temperature start next. This is a proposed additional
+training arm, with no launch or additional training budget committed. Obtaining an informative phi without
+paired labels remains the unresolved cold-start problem.
+
 Relevant literature qualifications, verified in `reports/codex_mechanism_literature_2026-09-16.md`:
 [Liu et al., SLT 2022, section 3.3](https://arxiv.org/pdf/2204.02492) demonstrate that phone-distribution
 plausibility need not preserve speech content; [Smith and Eisner, ACL 2004, sections 4.3–5](https://aclanthology.org/P04-1062.pdf)
