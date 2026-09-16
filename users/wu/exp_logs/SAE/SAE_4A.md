@@ -1141,7 +1141,9 @@ is used for the read only. Headline trajectory (tau 8 / 5.04 / 3.17 / 2 x5):
 | target mass on SIL, gold SIL frames | 96.2 | 93.1 | 89.0 | 84.3 | 79.1 | 74.5 |
 | target minus recognizer on the gold phone | +0.4 | +0.2 | +0.5 | +0.1 | +0.1 | -0.2 |
 | TV(target, recognizer) per frame | 0.19 | 0.22 | 0.17 | 0.11 | 0.11 | 0.10 |
-| segment start mass within +-2 frames of a gold boundary (uniform null 74.3) | 76.2 | 80.0 | 83.8 | 86.3 | 87.2 | 87.4 |
+| segment start mass within +-2 frames of a gold boundary (uniform null 74.3; SUPERSEDED by the matched row below, user objection 2026-09-16: precision-like, no one-to-one matching, no recall, null nearly saturated) | 76.2 | 80.0 | 83.8 | 86.3 | 87.2 | 87.4 |
+| boundary F1, one-to-one matched at +-2 frames, argmax(target) (random null with the same count 0.58, every-frame null 0.35) | 0.46 | 0.41 | 0.29 | 0.69 | 0.70 | 0.75 |
+| same, R-value / segment count ratio hyp:gold excl. SIL | .52 / 0.16 | .48 / 0.03 | .42 / 0.03 | .72 / 0.75 | .72 / 0.74 | .78 / 0.88 |
 | E[d] under seg_post, phones (gold 4.14) / SIL | 3.2 / 3.4 | 3.3 / 3.6 | 3.7 / 5.1 | 4.7 / 8.1 | 4.9 / 7.7 | 4.7 / 7.3 |
 | subset PER argmax(recognizer) / argmax(target) | .861 / .905 | .878 / .974 | .942 / .972 | .841 / .825 | .847 / .834 | .878 / .856 |
 
@@ -1155,8 +1157,9 @@ recognizer", whose values (<= 0.5 points) are within that uncertainty: read them
 frequency-matched null (2.42 / 2.67 %); the recognizer's own share is the same or higher (3.0x / 2.7x uniform), so the
 target adds nothing the recognizer does not already have. (iii) The boundary null is fair (same offsets array, same
 tie rule). (iv) No gold enters the DP call. Checkpoints were read from output/lam3_tri (job cleaned).
+Matched-boundary read (`reports/exec_mass_profile_v2_boundaries_2026-09-16.md`, reader section C(iv), pooled counts over the 300 utts, greedy one-to-one matching, R-value per Räsänen; A/B/D/F rows unchanged from the first run): at sub-epoch 8 the target's argmax segmentation scores P 0.80 / R 0.71 / F1 0.75 / R-value 0.78 at +-2 frames and F1 0.60 at +-1 frame, against 0.58 / 0.46 for a random segmentation with the same count and 0.35 for a boundary on every frame; OS -0.10 (under-segmentation, 0.88 segments per gold segment), so the number is not bought by over-segmentation. The seeded reference scores F1 0.85 / R-value 0.87 at +-2 frames (null 0.58), ratio 0.94. During the anneal (sub-epochs 1-3) the cold target emits almost no phone segments (ratio 0.03-0.16); boundaries appear when tau reaches 2.
 Reading (first read): the mass knows WHERE but not WHAT. Silence is found (75-96 % of the mass on gold-silence frames
-sits on SIL), segment starts sit near gold boundaries above the uniform null and increasingly so, and the duration law
+sits on SIL), phone boundaries are found at F1 0.75 against the seeded reference's 0.85 and a random 0.58, and the duration law
 converges on the gold mean by sub-epoch 4. But on gold speech frames the gold phone carries 1 % of the mass during the
 anneal and 5 % from sub-epoch 4 on, against 1.4-1.7 % expected if the 55-67 % "other phone" mass were spread evenly:
 identity sits at 2-3x chance and stays there while everything else sharpens. The target is a copy of the recognizer at tau 2
