@@ -1063,7 +1063,29 @@ onto its own favourite phones (top-10 share 63-74 % vs gold 55 %), neither a con
 templates (EH R IY, P R IY, K R IY) repeated thousands of times: phonotactics, not words. +BT: same structure, filler
 rebuilt from function words (AE N D 3208x, DH AH), fewer distinct trigram types. +consistency: 0.96x length, no dropouts,
 wall-to-wall substitution with open loops (DH AH x4; 10 gold phones -> 34). What improves across the arms is the shape
-of the output, never phone identity. Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
+of the output, never phone identity. Trigram-prior score of the hypotheses (`analysis/emc_hyp_inspect.py` block 8, the DP's
+own log_tri table via PhoneNgramPrior.per_token_log_probs, two BOS, no EOS, Witten-Bell so no floor; hyp / gold carry no
+SIL while the table was fit on SIL-inserted text, so 2.25 nats for real text is a scale reference only;
+`reports/exec_hyp_inspect_trigram_2026-09-16.md`, summary `analysis/out/emc_hyp_inspect.summary.ep4.dev-other.txt`),
+nats per phone on dev-other, gold -3.22 in every row:
+
+| arm | PER | chance-null PER | Hungarian PER | distinct | H_hyp bits (gold 4.83) | LM hyp | LM chance null | LM shuffled hyp |
+|---|---|---|---|---|---|---|---|---|
+| lam3 (bigram) | 0.847 | 0.850 | 0.846 | 37 | 4.33 | -5.05 | -6.77 | -6.73 |
+| lam1 / lam10 / spec / spec_speed (bigram) | 0.829 / 0.914 / 0.848 / 0.849 | 0.840 / 0.922 / 0.859 / 0.867 | 0.827 / 0.910 / 0.848 / 0.848 | 37 / 39 / 22 / 32 | 4.47 / 4.52 / 3.19 / 3.56 | -5.42 / -5.01 / -3.78 / -4.34 | -7.48 / -6.95 / -6.77 / -7.59 | |
+| lam3_tri | 0.845 | 0.863 | 0.845 | 38 | 4.51 | -4.79 | -6.95 | -6.91 |
+| lam3_tri_s2 | 0.844 | 0.859 | 0.840 | 36 | 4.23 | -4.42 | -6.74 | -6.67 |
+| bt_a_tri / bt_b_tri / bt_c_tri | 0.840 / 0.857 / 0.874 | 0.844 / 0.870 / 0.889 | 0.840 / 0.857 / 0.874 | 38 / 38 / 37 | 4.24 / 4.63 / 4.48 | -4.73 / -4.99 / -4.63 | -6.77 / -7.44 / -7.29 | |
+| lam3_tri_cr / bt_b_tri_cr | 0.845 / 0.887 | 0.863 / 0.894 | 0.823 / 0.882 | 34 / 37 | 4.05 / 4.27 | -4.05 / -4.33 | -6.61 / -6.67 | |
+| bt_b_tri_s2 | 0.866 | 0.869 | 0.866 | 38 | 4.62 | -5.12 | -7.83 | -7.80 |
+
+Reading: (1) every arm beats its chance null by 0.003-0.02 PER only and a Hungarian relabelling recovers nothing (no
+private code); (2) every arm's output is ~2 nats/phone more trigram-plausible than its nulls and ~1.5 nats less than
+gold, and the trigram arms score 0.3-0.6 nats better than the bigram lam3 (the "more English-like" of the qualitative
+read is real and measurable); (3) LM plausibility is anti-aligned with content across arms: the best LM scores belong to
+the consistency arms (-4.05 / -4.33, PER 0.845 / 0.887) and to spec (-3.78 with 22 distinct phones), i.e. the objective
+buys prior-likeness of the output, which the trigram makes cheaper to buy, without phone identity; (4) variety does not
+rise with the trigram or BT (H_hyp 4.2-4.6 bits vs bigram lam3 4.33, gold 4.83). Dev-loss trajectories to sub-epoch 2 track the bigram reference (dev agg
 1.31 -> 1.27 in lam3_tri vs 1.23 -> 1.18 bigram), so the objective again is no content signal. The gap clause is not
 read here (gate is AND; sub-epoch 4 fails on PER alone). Sub-epoch 8 read pending (nodes running, 8 h rqmt); the
 paired clustered-bootstrap read is only worth running if any sub-epoch 8 PER leaves the band.
