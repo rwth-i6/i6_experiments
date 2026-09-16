@@ -1165,6 +1165,15 @@ toward phone identity, so the lattice components that see the audio only through
 identities, while the components that see duration and position (duration table, prior, rate) do their job. This is the
 frame-level form of "content-free, LM-plausible filler" and points at phi's emission, which S3b-OR (frozen content phi)
 and S2d (content phi jointly trained) now test directly; the same reader on those arms is the planned read.
+Scale from the seeded reference (same reader, S2b arm A ReturnnTrainingJob.4BRumKQFcXim: 10 h seed recognizer, warm phi,
+bigram, tau 2; `reports/exec_mass_profile_armA_2026-09-16.md`, sbatch 1833219, full-split PER 0.173967 reproduced at
+sub-epoch 1, row sums within 0.37 %), sub-epochs 1 / 3 / 6: target mass on the gold phone on gold speech frames 63.8 /
+63.8 / 64.2 % (cold control 1-5 %), other phone 21.4 / 22.5 / 23.7 %, blank 14.6 / 13.4 / 11.7 %; entropy 0.035 nats,
+TV(target, recognizer) 0.012, gold-phone delta <= 0.05 points; start mass within +-2 frames 90 % (null 74 %); E[d] 5.0 /
+5.2 / 5.2 (gold 4.14); subset PER 0.168 / 0.215 / 0.223. So a content-carrying alignment puts two thirds of its mass on
+the right phone, and in BOTH regimes the target is a copy of the recognizer with no pull toward the gold identity: the
+objective neither creates identity from cold nor defends it when seeded (arm A's PER drift shows up as "other phone"
++2.3 points and over-long segments, not as a change in the target-recognizer relation).
 
 **S3b-OR: frozen content-carrying reverse model, cold recognizer (registered 2026-09-16 on the user's question, before
 any result; REPORTING-ONLY ORACLE REFERENCE, never a funded or selected arm).** The EM fixed-point read c1 above (flat
