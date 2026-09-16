@@ -1730,6 +1730,36 @@ def py():
             silence_num_sub_states=3,
             name=f"gauss-hmm-mono1g-tdpnorm-sp{round(_p_sp * 100)}-sil{round(_p_sil * 100)}-edgesilinit3-sil3-ls960",
         )
+    # Transition model estimated from the MFA alignment (train-clean-100, 3000 utts, 10 ms frames): phone mean
+    # 8.5 frames -> 3-state loop 0.65, silence mean 34 frames -> loop 0.91, a pause at 14% of the word
+    # boundaries and at 99% of the utterance edges (scratch fzj_mfa_tdp_stats.py, projects notes).
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        tdp={"speech_loop_prob": 0.65, "silence_loop_prob": 0.91, "silence_prob": 0.14, "silence_prob_edge": 0.99},
+        edge_silence_init_epochs=3,
+        silence_num_sub_states=3,
+        name="gauss-hmm-mono1g-tdpnorm-mfa-edgesilinit3-sil3-ls960",
+    )
+    # the same with a single silence state (AZ): its loop probability from the same silence mean,
+    # 1 - 1 / 34.3 = 0.97 (RASR's 0.97 / 0.03)
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        tdp={"speech_loop_prob": 0.65, "silence_loop_prob": 0.97, "silence_prob": 0.14, "silence_prob_edge": 0.99},
+        edge_silence_init_epochs=3,
+        name="gauss-hmm-mono1g-tdpnorm-mfa-edgesilinit3-sil1-ls960",
+    )
+    # one state per phoneme and for silence (AZ): loop probabilities from the same MFA means,
+    # phones 1 - 1 / 8.5 = 0.88, silence 0.97
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        tdp={"speech_loop_prob": 0.88, "silence_loop_prob": 0.97, "silence_prob": 0.14, "silence_prob_edge": 0.99},
+        edge_silence_init_epochs=3,
+        num_sub_states=1,
+        name="gauss-hmm-mono1g-tdpnorm-mfa-edgesilinit3-1state-ls960",
+    )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     for _abl_name, _abl_kwargs in [

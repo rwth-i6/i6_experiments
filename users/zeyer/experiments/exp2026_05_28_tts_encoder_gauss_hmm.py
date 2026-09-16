@@ -65,8 +65,9 @@ class GaussHmm(rf.Module):
             to the edge frames instead of letting the first/last phone's sub-states absorb them.
             Diagnosis tool only (AZ): silence stays optional in the aligner, use ``tdp`` instead.
         :param tdp: fixed transitions. Probability form (normalized, p(loop) + p(forward) = 1 per state):
-            ``speech_loop_prob``, ``silence_loop_prob``, ``silence_prob`` (entering an optional silence),
-            see :func:`_tdp_edge_costs`. Cost form (unnormalized RASR scores, -log): ``speech_loop``,
+            ``speech_loop_prob``, ``silence_loop_prob``, ``silence_prob`` (entering an optional silence between
+            words), ``silence_prob_edge`` (at the utterance start / end, default ``silence_prob``),
+            see :func:`_tdp_edge_costs`. MFA LibriSpeech estimates: 0.65 / 0.91 / 0.14 / 0.99. Cost form (unnormalized RASR scores, -log): ``speech_loop``,
             ``speech_forward``, ``silence_loop``, ``silence_forward``, e.g. RASR's 10 ms defaults
             3.0 / 0.0 / 0.0 / 3.0. None = all 0.
         :param edge_silence_init_epochs: flat-start initialisation: the edge silences are mandatory during
@@ -169,7 +170,7 @@ def build_chain_fsa(
     """
     import numpy as np
 
-    c = _tdp_edge_costs(tdp)
+    c = _tdp_edge_costs(tdp)  # ``silence_prob_edge`` applies to the leading / trailing optional silence
     edges: List[Tuple[int, int, int, int]] = []
     weights: List[float] = []
     starts = []
@@ -202,10 +203,11 @@ def build_chain_fsa(
                 # and past an optional next unit (the forward mass split between the two)
                 nxt = i + 1
                 if nxt < n and optional[nxt]:
+                    edge = "_edge" if nxt + 1 >= n else ""  # the trailing silence is an utterance edge
                     edges.append((s, int(first[nxt]), e, b))
-                    weights.append(c[f"{k}_fwd_to_sil"])
+                    weights.append(c[f"{k}_fwd_to_sil{edge}"])
                     edges.append((s, int(first[nxt + 1]) if nxt + 1 < n else final, e, b))
-                    weights.append(c[f"{k}_fwd_skip_sil"])
+                    weights.append(c[f"{k}_fwd_skip_sil{edge}"])
                 else:
                     edges.append((s, int(first[nxt]) if nxt < n else final, e, b))
                     weights.append(c[f"{k}_fwd"])
@@ -238,19 +240,24 @@ def _tdp_edge_costs(tdp: Optional[Dict[str, float]]) -> Dict[str, float]:
     tdp = tdp or {}
     if "speech_loop_prob" in tdp:
         p_sp, p_sil, q = tdp["speech_loop_prob"], tdp["silence_loop_prob"], tdp["silence_prob"]
-        assert 0 < p_sp < 1 and 0 < p_sil < 1 and 0 < q < 1, tdp
-        assert not (tdp.keys() - {"speech_loop_prob", "silence_loop_prob", "silence_prob"}), tdp
+        q_edge = tdp.get("silence_prob_edge", q)  # utterance start / end (MFA: ~0.99 vs 0.14 between words)
+        assert 0 < p_sp < 1 and 0 < p_sil < 1 and 0 < q < 1 and 0 < q_edge < 1, tdp
+        assert not (tdp.keys() - {"speech_loop_prob", "silence_loop_prob", "silence_prob", "silence_prob_edge"}), tdp
         return {
             "sp_loop": -math.log(p_sp),
             "sp_fwd": -math.log(1 - p_sp),
             "sp_fwd_to_sil": -math.log((1 - p_sp) * q),
             "sp_fwd_skip_sil": -math.log((1 - p_sp) * (1 - q)),
+            "sp_fwd_to_sil_edge": -math.log((1 - p_sp) * q_edge),
+            "sp_fwd_skip_sil_edge": -math.log((1 - p_sp) * (1 - q_edge)),
             "sil_loop": -math.log(p_sil),
             "sil_fwd": -math.log(1 - p_sil),
             "sil_fwd_to_sil": -math.log((1 - p_sil) * q),  # two adjacent silences, not in our chains
             "sil_fwd_skip_sil": -math.log((1 - p_sil) * (1 - q)),
-            "start_to_sil": -math.log(q),
-            "start_skip_sil": -math.log(1 - q),
+            "sil_fwd_to_sil_edge": -math.log((1 - p_sil) * q_edge),
+            "sil_fwd_skip_sil_edge": -math.log((1 - p_sil) * (1 - q_edge)),
+            "start_to_sil": -math.log(q_edge),
+            "start_skip_sil": -math.log(1 - q_edge),
         }
     assert not (tdp.keys() - {"speech_loop", "speech_forward", "silence_loop", "silence_forward"}), tdp
     sp_fwd, sil_fwd = tdp.get("speech_forward", 0.0), tdp.get("silence_forward", 0.0)
@@ -259,10 +266,14 @@ def _tdp_edge_costs(tdp: Optional[Dict[str, float]]) -> Dict[str, float]:
         "sp_fwd": sp_fwd,
         "sp_fwd_to_sil": sp_fwd,
         "sp_fwd_skip_sil": sp_fwd,
+        "sp_fwd_to_sil_edge": sp_fwd,
+        "sp_fwd_skip_sil_edge": sp_fwd,
         "sil_loop": tdp.get("silence_loop", 0.0),
         "sil_fwd": sil_fwd,
         "sil_fwd_to_sil": sil_fwd,
         "sil_fwd_skip_sil": sil_fwd,
+        "sil_fwd_to_sil_edge": sil_fwd,
+        "sil_fwd_skip_sil_edge": sil_fwd,
         "start_to_sil": 0.0,
         "start_skip_sil": 0.0,
     }
@@ -628,6 +639,7 @@ def gauss_hmm_ls960(
     tdp: Optional[Dict[str, float]] = None,
     edge_silence_init_epochs: int = 0,
     silence_num_sub_states: int = 1,
+    num_sub_states: int = 3,
     name: str = "gauss-hmm-mono1g-ls960",
 ) -> GaussHmmTablesJob:
     """
@@ -638,6 +650,7 @@ def gauss_hmm_ls960(
     :param tdp: see :class:`GaussHmm`; None keeps the hash of the first run
     :param edge_silence_init_epochs: see :class:`GaussHmm`; 0 keeps the hash of the first run
     :param silence_num_sub_states: see :class:`GaussHmm`; 1 keeps the hash of the first run
+    :param num_sub_states: see :class:`GaussHmm`; 3 keeps the hash of the first run
     """
     from i6_experiments.users.zeyer.train_v4 import train
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
@@ -653,6 +666,7 @@ def gauss_hmm_ls960(
         **({"gauss_hmm_tdp": tdp} if tdp else {}),
         **({"gauss_hmm_edge_silence_init_epochs": edge_silence_init_epochs} if edge_silence_init_epochs else {}),
         **({"gauss_hmm_silence_num_sub_states": silence_num_sub_states} if silence_num_sub_states != 1 else {}),
+        **({"gauss_hmm_num_sub_states": num_sub_states} if num_sub_states != 3 else {}),
     }
     exp = train(
         f"{prefix}/{name}",
@@ -678,7 +692,7 @@ def gauss_hmm_ls960(
         num_processes=4,
     )
     phon_dim = align_ds.get_extern_data()[PHONEMES_DATA_KEY]["sparse_dim"]
-    state_dim = Dim(phon_dim.dimension * 3, name="hmm_states")
+    state_dim = Dim(phon_dim.dimension * num_sub_states, name="hmm_states")
     align_hdf = forward_to_hdf(
         dataset=align_ds,
         model=exp.get_last_fixed_epoch(),
@@ -702,6 +716,7 @@ def gauss_hmm_ls960(
         alignment_hdf=align_hdf,
         phoneme_vocab=get_glow_tts_phoneme_vocab(),
         returnn_root=tools_paths.get_returnn_root(),
+        **({"num_sub_states": num_sub_states} if num_sub_states != 3 else {}),
     )
     tables.add_alias(f"{prefix}/{name}/tables")
     tk.register_output(f"{prefix}/{name}/mean_logmel.npz", tables.out_mean_table)

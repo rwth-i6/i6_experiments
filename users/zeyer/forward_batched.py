@@ -22,8 +22,9 @@ Engine properties:
   ``_shard_index`` (partition_epoch=1 -> disjoint partitions whose union is all seqs exactly once;
   see :func:`Dataset._apply_partition_epoch_and_sharding`) -- see :class:`_ShardedDataset`,
 - runs ``num_gpus`` independent worker processes (no NCCL: forward is per-seq independent) that
-  round-robin over the work items (rank r handles items r, r+G, r+2G, ...), each writing its
-  item's declared output file(s),
+  claim the work items dynamically (atomic per-item claim dir, per Slurm job), each writing its
+  item's declared output file(s); so on resumption the free GPUs share the remaining items
+  (a fixed per-rank stride left them all to one rank),
 - is resumable: an item whose output file(s) already exist is skipped, so a walltime kill just
   continues where it left off (the os.replace of each final file is atomic, so existence == done),
 - proactively stops before the wall (mirrors :meth:`returnn...Engine._maybe_stop_for_resubmission`):
@@ -569,10 +570,10 @@ def _worker_main():
     """
     Entry point of the per-GPU worker (the generated ``worker.py`` imports and calls this).
 
-    One worker process per GPU: round-robin over the manifest's work items
-    (rank r handles items r, r+world, r+2*world, ...), run each item's config with rnn.py,
-    skip items whose output file(s) already exist (resumable), and barrier-stop together with the
-    other workers when low on walltime. Args ``--rank/--world/--manifest/--safety`` come from argv.
+    One worker process per GPU: walk the manifest's work items, skip items whose output file(s)
+    already exist (resumable) or that another worker has claimed (atomic mkdir, see below), run
+    each claimed item's config with rnn.py, and barrier-stop together with the other workers when
+    low on walltime. Args ``--rank/--world/--manifest/--safety`` come from argv.
     """
     import argparse
     import json
@@ -600,11 +601,19 @@ def _worker_main():
 
     if args.rank == 0:
         _log_node_usage("worker start")
+    # Dynamic claiming: every worker walks all items and takes the next unclaimed one (atomic mkdir),
+    # so on resumption the free GPUs share the remaining items. The claim dir is per Slurm job
+    # (the launcher removes old ones), so the claims of a killed run do not block anything.
+    claims_dir = os.path.join(job_dir, "claims.%s" % os.environ.get("SLURM_JOB_ID", "local"))
+    os.makedirs(claims_dir, exist_ok=True)
     ema = None
-    for si in range(args.rank, len(items), args.world):
-        item = items[si]
+    for si, item in enumerate(items):
         if _worker_item_done(item):  # atomic os.replace -> existence == complete
             continue
+        try:
+            os.mkdir(os.path.join(claims_dir, item["key"]))
+        except FileExistsError:
+            continue  # another worker has it
         if ema is not None:  # walltime-aware stop, mirrors returnn _maybe_stop_for_resubmission
             left = slurm_time_left_sec()
             if left is not None and left < ema * args.safety:
@@ -742,13 +751,16 @@ def _spawn_and_wait_workers(
     """
     import os
     import glob
+    import shutil
     import signal
     import subprocess
     import time
 
-    # Clear stale barrier markers from a previous (interrupted) run.
+    # Clear stale barrier markers and item claims from a previous (interrupted) run.
     for f in glob.glob("stopping.rank*"):
         os.remove(f)
+    for d in glob.glob("claims.*"):
+        shutil.rmtree(d)
 
     parent_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
     gpu_ids = parent_cvd.split(",") if parent_cvd else [str(i) for i in range(num_gpus)]
@@ -817,4 +829,3 @@ def _finish_run(*, codes: List[int], n_done: int, n_total: int, stop_exit_code: 
     if all(c in (0, stop_exit_code) for c in codes):
         raise KeyboardInterrupt("%s: stop for resubmission (%i/%i done)" % (label, n_done, n_total))
     raise RuntimeError("%s: worker failure codes=%s (%i/%i done)" % (label, codes, n_done, n_total))
-
