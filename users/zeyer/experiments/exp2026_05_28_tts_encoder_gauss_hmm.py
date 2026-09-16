@@ -64,10 +64,11 @@ class GaussHmm(rf.Module):
             (utterances start and end with silence); with the flat start this pins the silence state
             to the edge frames instead of letting the first/last phone's sub-states absorb them.
             Diagnosis tool only (AZ): silence stays optional in the aligner, use ``tdp`` instead.
-        :param tdp: fixed transition costs (-log), keys ``speech_loop``, ``speech_forward``,
-            ``silence_loop``, ``silence_forward``, e.g. RASR's 10 ms defaults 3.0 / 0.0 / 0.0 / 3.0:
-            silence loops for free and speech is pushed forward, so pauses are not absorbed by the
-            first sub-state of the next phone. None = all 0.
+        :param tdp: fixed transitions. Probability form (normalized, p(loop) + p(forward) = 1 per state):
+            ``speech_loop_prob``, ``silence_loop_prob``, ``silence_prob`` (entering an optional silence),
+            see :func:`_tdp_edge_costs`. Cost form (unnormalized RASR scores, -log): ``speech_loop``,
+            ``speech_forward``, ``silence_loop``, ``silence_forward``, e.g. RASR's 10 ms defaults
+            3.0 / 0.0 / 0.0 / 3.0. None = all 0.
         :param edge_silence_init_epochs: flat-start initialisation: the edge silences are mandatory during
             the first N (sub)epochs only, so the silence Gaussian is fitted on the utterance edges before
             it competes freely (with free silence loops and identical initial Gaussians, the silence state
@@ -158,20 +159,17 @@ def build_chain_fsa(
     :param units: numpy [B, N] int, phoneme ids (silence = ``silence_idx``)
     :param lens: numpy [B] int
     :param mandatory_edge_silence: see :class:`GaussHmm`
-    :param tdp: see :class:`GaussHmm`; loop edges cost ``*_loop``, all edges leaving a state
-        (advance, next unit, skip, final) cost ``*_forward`` of the source unit, start edges 0
+    :param tdp: see :class:`GaussHmm`. Cost form (``speech_loop`` etc., unnormalized RASR scores): loop edges cost
+        ``*_loop``, all edges leaving a state (advance, next unit, skip, final) cost ``*_forward`` of the source unit,
+        start edges 0. Probability form (``speech_loop_prob``, ``silence_loop_prob``, ``silence_prob``): a proper
+        transition model, p(loop) + p(forward) = 1 per state, the forward mass split into ``silence_prob`` /
+        1 - ``silence_prob`` where an optional silence follows (same split for the start edges).
     :return: edges int32 [4, E] (from, to, emission_idx, seq_idx), weights float32 [E] (costs, -log),
         start_end_states int32 [2, B], num states
     """
     import numpy as np
 
-    tdp = tdp or {}
-    cost = {
-        (True, True): tdp.get("silence_loop", 0.0),
-        (True, False): tdp.get("silence_forward", 0.0),
-        (False, True): tdp.get("speech_loop", 0.0),
-        (False, False): tdp.get("speech_forward", 0.0),
-    }  # (is silence, is loop) -> cost
+    c = _tdp_edge_costs(tdp)
     edges: List[Tuple[int, int, int, int]] = []
     weights: List[float] = []
     starts = []
@@ -190,28 +188,34 @@ def build_chain_fsa(
         first = state_off + 1 + np.concatenate([[0], np.cumsum(n_sub)[:-1]])  # first chain state per unit
         final = int(state_off + 1 + n_sub.sum())
         for i in range(n):
-            is_sil = bool(u[i] == silence_idx)
+            k = "sil" if u[i] == silence_idx else "sp"
             for j in range(int(n_sub[i])):
                 s = int(first[i]) + j
                 e = int(u[i]) * num_sub_states + j
                 edges.append((s, s, e, b))  # loop
-                weights.append(cost[(is_sil, True)])
+                weights.append(c[f"{k}_loop"])
                 if j + 1 < n_sub[i]:
                     edges.append((s, s + 1, e, b))  # advance within the unit
-                    weights.append(cost[(is_sil, False)])
+                    weights.append(c[f"{k}_fwd"])
                     continue
                 # last sub-state of the unit: advance to the next unit / the final state,
-                # and past an optional next unit
+                # and past an optional next unit (the forward mass split between the two)
                 nxt = i + 1
-                edges.append((s, int(first[nxt]) if nxt < n else final, e, b))
-                weights.append(cost[(is_sil, False)])
                 if nxt < n and optional[nxt]:
+                    edges.append((s, int(first[nxt]), e, b))
+                    weights.append(c[f"{k}_fwd_to_sil"])
                     edges.append((s, int(first[nxt + 1]) if nxt + 1 < n else final, e, b))
-                    weights.append(cost[(is_sil, False)])
-        edges.append((s0, int(first[0]), int(u[0]) * num_sub_states, b))
-        weights.append(0.0)
+                    weights.append(c[f"{k}_fwd_skip_sil"])
+                else:
+                    edges.append((s, int(first[nxt]) if nxt < n else final, e, b))
+                    weights.append(c[f"{k}_fwd"])
         if optional[0] and n > 1:
+            edges.append((s0, int(first[0]), int(u[0]) * num_sub_states, b))
+            weights.append(c["start_to_sil"])
             edges.append((s0, int(first[1]), int(u[1]) * num_sub_states, b))
+            weights.append(c["start_skip_sil"])
+        else:
+            edges.append((s0, int(first[0]), int(u[0]) * num_sub_states, b))
             weights.append(0.0)
         starts.append(s0)
         ends.append(final)
@@ -220,6 +224,48 @@ def build_chain_fsa(
     weights_np = np.array(weights, dtype=np.float32)
     start_end = np.array([starts, ends], dtype=np.int32)
     return edges_np, weights_np, start_end, state_off
+
+
+def _tdp_edge_costs(tdp: Optional[Dict[str, float]]) -> Dict[str, float]:
+    """
+    The per-edge-type costs (-log) of a ``tdp`` spec, see :func:`build_chain_fsa`.
+
+    Probability form: speech states loop with ``speech_loop_prob``, silence states with ``silence_loop_prob``,
+    the forward mass 1 - p(loop) goes entirely to the next state, except before an optional silence, where
+    ``silence_prob`` of it enters the silence and the rest skips it (the same split for the start edges).
+    Cost form: the unnormalized RASR-style scores, silence entry / skip free (the hashes of the first runs).
+    """
+    tdp = tdp or {}
+    if "speech_loop_prob" in tdp:
+        p_sp, p_sil, q = tdp["speech_loop_prob"], tdp["silence_loop_prob"], tdp["silence_prob"]
+        assert 0 < p_sp < 1 and 0 < p_sil < 1 and 0 < q < 1, tdp
+        assert not (tdp.keys() - {"speech_loop_prob", "silence_loop_prob", "silence_prob"}), tdp
+        return {
+            "sp_loop": -math.log(p_sp),
+            "sp_fwd": -math.log(1 - p_sp),
+            "sp_fwd_to_sil": -math.log((1 - p_sp) * q),
+            "sp_fwd_skip_sil": -math.log((1 - p_sp) * (1 - q)),
+            "sil_loop": -math.log(p_sil),
+            "sil_fwd": -math.log(1 - p_sil),
+            "sil_fwd_to_sil": -math.log((1 - p_sil) * q),  # two adjacent silences, not in our chains
+            "sil_fwd_skip_sil": -math.log((1 - p_sil) * (1 - q)),
+            "start_to_sil": -math.log(q),
+            "start_skip_sil": -math.log(1 - q),
+        }
+    assert not (tdp.keys() - {"speech_loop", "speech_forward", "silence_loop", "silence_forward"}), tdp
+    sp_fwd, sil_fwd = tdp.get("speech_forward", 0.0), tdp.get("silence_forward", 0.0)
+    return {
+        "sp_loop": tdp.get("speech_loop", 0.0),
+        "sp_fwd": sp_fwd,
+        "sp_fwd_to_sil": sp_fwd,
+        "sp_fwd_skip_sil": sp_fwd,
+        "sil_loop": tdp.get("silence_loop", 0.0),
+        "sil_fwd": sil_fwd,
+        "sil_fwd_to_sil": sil_fwd,
+        "sil_fwd_skip_sil": sil_fwd,
+        "start_to_sil": 0.0,
+        "start_skip_sil": 0.0,
+    }
 
 
 def _fsa_for_batch(model: GaussHmm, phonemes: Tensor, phon_spatial_dim: Dim, batch_dim_: Dim, device):

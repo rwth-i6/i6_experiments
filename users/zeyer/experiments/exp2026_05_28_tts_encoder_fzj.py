@@ -1718,6 +1718,18 @@ def py():
         silence_num_sub_states=3,
         name="gauss-hmm-mono1g-tdp-edgesilinit3-sil3-ls960",
     )
+    # Properly normalized transition models (AZ: p(loop) + p(forward) = 1 per state matters for the full
+    # sum; the RASR values above are unnormalized scores): RASR-like loop probabilities (speech 0.05,
+    # silence 0.95) and a mild pair (0.5 / 0.9); optional silence entered with probability 0.5.
+    for _p_sp, _p_sil in [(0.05, 0.95), (0.5, 0.9)]:
+        gauss_hmm_ls960(
+            prefix + "/gauss-hmm",
+            lexicon=_get_ls_train_glowtts_lexicon(),
+            tdp={"speech_loop_prob": _p_sp, "silence_loop_prob": _p_sil, "silence_prob": 0.5},
+            edge_silence_init_epochs=3,
+            silence_num_sub_states=3,
+            name=f"gauss-hmm-mono1g-tdpnorm-sp{round(_p_sp * 100)}-sil{round(_p_sil * 100)}-edgesilinit3-sil3-ls960",
+        )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     for _abl_name, _abl_kwargs in [
