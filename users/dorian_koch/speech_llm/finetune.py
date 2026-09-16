@@ -26,7 +26,7 @@ from typing import Callable
 
 from sisyphus import Job, Task
 
-from .common import HF_CACHE_DIR, last_jsonl_value
+from .common import HF_CACHE_DIR, HF_HOME_DIR, last_jsonl_value
 from .moshi_arrow_config import ArrowDataConfig
 
 
@@ -216,7 +216,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     if getattr(job, "knowledge_probe_data", None) is not None:
         env["NO_TORCH_COMPILE"] = "1"
         env["NO_CUDA_GRAPH"] = "1"
-    env["HF_HOME"] = HF_CACHE_DIR.get()
+    env["HF_HOME"] = HF_HOME_DIR.get()
     # The base model + tokenizer are pre-staged into HF_HOME by the eval graph, so force offline
     # loading: this skips any HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB
     # checkpoint every run and (b) does not depend on writable HF cache space (the shared hpcwork

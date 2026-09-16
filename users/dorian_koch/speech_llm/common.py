@@ -10,7 +10,17 @@ import socket
 import random
 from contextlib import contextmanager
 
+#: The HF **hub** cache -- the directory that holds ``models--*`` / ``datasets--*``. This is the
+#: value for ``HF_HUB_CACHE``, NOT for ``HF_HOME``.
 HF_CACHE_DIR = tk.Path("/hpcwork/p0023999/common_hf_home/hub", hash_overwrite="HF_CACHE_DIR")
+
+#: The HF **home** root, one level up. ``huggingface_hub`` derives its hub cache as
+#: ``$HF_HOME/hub``, so assigning the *hub* path to ``HF_HOME`` makes it append ``/hub`` a second
+#: time and quietly opens a SECOND cache at ``common_hf_home/hub/hub`` -- which is exactly what
+#: happened: 14 repos / 50 GB were re-downloaded there because ``run_worker_script`` set only
+#: ``HF_HOME``. ``finetune.py`` escaped it by also setting ``HF_HUB_CACHE``, which wins. Both are set
+#: together everywhere now, so neither variable alone can move the cache. Run()-side, not hashed.
+HF_HOME_DIR = tk.Path("/hpcwork/p0023999/common_hf_home", hash_overwrite="HF_HOME_DIR")
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +297,49 @@ def add_cuda_npp_to_env(venv_python_path, env: dict) -> None:
     env["LD_LIBRARY_PATH"] = hits[0] + ":" + env.get("LD_LIBRARY_PATH", "")
 
 
+def add_venv_python_lib_to_env(venv_python_path, env: dict) -> None:
+    """Put the venv's BASE INTERPRETER ``lib/`` on ``LD_LIBRARY_PATH``.
+
+    ``libtorchcodec_core*.so`` resolves ``libpython3.12.so.1.0`` transitively, and our interpreter is
+    a uv-managed CPython under ``~/.local/share/uv/python/``, not a system one -- so nothing puts its
+    ``lib/`` on the loader path. c23g happens to provide a compatible libpython system-wide and
+    **c25g does not**, which is the same class of node-dependency as the missing NPP: measured
+    2026-09-16, a c25g job got past ``libnppicc`` and then died on ``libpython3.12.so.1.0``.
+
+    Pair with :func:`add_cuda_npp_to_env` and :meth:`InstallFFmpeg.add_to_env`. Those three together
+    are what let a job drop ``requires: ["system_ffmpeg"]`` -- verified on a real c25g node with no
+    system FFmpeg and no system NPP: torchcodec imports and a ``datasets`` ``Audio()`` column round
+    trips. Runtime only, nothing hashed.
+
+    The base interpreter is named by ``pyvenv.cfg``'s ``home`` (its ``bin/``), so its ``lib/`` is the
+    sibling. Read from the venv rather than from ``sys`` -- the caller is the MANAGER's interpreter,
+    which is a different Python from the job's.
+    """
+    import os as _os
+
+    from i6_experiments.users.dorian_koch.jobs.sqsh_venv import venv_prefix
+
+    base = venv_prefix(venv_python_path)
+    cfg = _os.path.join(base, "pyvenv.cfg")
+    home = None
+    try:
+        with open(cfg) as fh:
+            for line in fh:
+                if line.startswith("home"):
+                    home = line.split("=", 1)[1].strip()
+                    break
+    except OSError:
+        pass
+    if not home:
+        print(f"[pylib] WARNING: no `home` in {cfg} -- libpython may not resolve", flush=True)
+        return
+    lib = _os.path.join(_os.path.dirname(home), "lib")
+    if not _os.path.isdir(lib):
+        print(f"[pylib] WARNING: {lib} does not exist -- libpython may not resolve", flush=True)
+        return
+    env["LD_LIBRARY_PATH"] = lib + ":" + env.get("LD_LIBRARY_PATH", "")
+
+
 def run_worker_script(
     python_exe,
     script_path,
@@ -307,7 +360,8 @@ def run_worker_script(
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     if with_hf_home:
-        env["HF_HOME"] = HF_CACHE_DIR.get()
+        env["HF_HOME"] = HF_HOME_DIR.get()
+        env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items()})
     if env_hook is not None:
@@ -396,7 +450,8 @@ def run_worker_script_per_gpu(
     base_env = os.environ.copy()
     base_env["PYTHONUNBUFFERED"] = "1"
     if with_hf_home:
-        base_env["HF_HOME"] = HF_CACHE_DIR.get()
+        base_env["HF_HOME"] = HF_HOME_DIR.get()
+        base_env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
     if extra_env:
         base_env.update({k: str(v) for k, v in extra_env.items()})
     if env_hook is not None:

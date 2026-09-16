@@ -20,7 +20,13 @@ import os
 from pathlib import Path
 
 from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
-from .common import add_cuda_npp_to_env, merge_jsonl_parts, run_worker_script, run_worker_script_per_gpu
+from .common import (
+    add_cuda_npp_to_env,
+    add_venv_python_lib_to_env,
+    merge_jsonl_parts,
+    run_worker_script,
+    run_worker_script_per_gpu,
+)
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND
@@ -274,7 +280,9 @@ class ChatterboxSingleSpeakerInference(Job):
         # started still holding ReqMem 16G and died exactly the way the bump was meant to prevent.
         # After changing rqmt on a QUEUED job, hpc-rerun.py it (or scancel and let the manager
         # resubmit) -- otherwise the change applies only to the NEXT submission.
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24, "requires": ["system_ffmpeg"]}
+        # No `requires: ["system_ffmpeg"]` -- same reasoning as ChatterboxInference (2026-09-16):
+        # FFmpeg, CUDA NPP and libpython all travel with the job via env_hook, proven on c25g.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -300,6 +308,7 @@ class ChatterboxSingleSpeakerInference(Job):
             if self.ffmpeg_path is not None:
                 InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
+            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
         # Per-GPU fan-out (backlog G1): clips are strided by index across the workers (clip i's
         # seed is SEED + i, so each clip is bit-identical to the single-worker run). Under

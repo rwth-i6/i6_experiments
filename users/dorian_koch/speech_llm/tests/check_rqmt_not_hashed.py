@@ -198,6 +198,37 @@ def check_compute_beats_hparams():
     check(job.rqmt["time"] == 48 and job.rqmt["gpu"] == 4, f"compute wins over a stale hparams value (got {job.rqmt})")
 
 
+def check_source_pins_the_fix():
+    """Source half: the two lines the behavioural half depends on cannot be tidied away.
+
+    Both are the kind of edit that looks like cleanup and silently restores the bug -- the `pop`
+    reads as redundant next to `__sis_hash_exclude__` (it is not; see `hash()`), and the `hparams`
+    fallback reads as dead legacy code (it is not; removing it re-hashes every pre-epoch arm). The
+    behavioural half above cannot see either regression: drop the `pop` and only a POPULATED compute
+    re-hashes, which the singleton cache was hiding until this guard was fixed; drop the fallback and
+    only OLD runs move, which no fixture here constructs.
+    """
+    import inspect
+
+    src = inspect.getsource(SpeechFinetune)
+    check('d.pop("compute", None)' in src,
+          "SpeechFinetune.hash() still drops `compute` from the hashed args")
+
+    init = inspect.getsource(SpeechFinetune.__init__)
+    for key, legacy in (("gpu", "gpu"), ("rqmt_time_h", "rqmt_time_h")):
+        line = next((ln for ln in init.splitlines() if "self.compute.get(" in ln and key in ln), "")
+        check(f'self.compute.get("{key}"' in line,
+              f"rqmt reads {key} from the hash-excluded `compute` channel")
+        check(f'self.hparams.get("{legacy}"' in line,
+              f"...and still falls back to hparams[{legacy!r}] for pre-epoch runs")
+
+    # Non-vacuous: the assertions above must be capable of failing on a plausible regression.
+    tidied = init.replace('self.compute.get("gpu", self.hparams.get("gpu", 1))',
+                          'self.hparams.get("gpu", 1)')
+    check('self.compute.get("gpu"' not in tidied,
+          "the source check can fail (a tidied-away `compute` read is detectable)")
+
+
 def main():
     for fn in (
         check_hours_and_gpus_are_hash_free,
@@ -206,6 +237,7 @@ def main():
         check_extra_hparams_back_door_is_closed,
         check_legacy_epoch_is_pinned,
         check_compute_beats_hparams,
+        check_source_pins_the_fix,
     ):
         print(f"\n== {fn.__name__}")
         fn()

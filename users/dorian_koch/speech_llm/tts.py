@@ -6,6 +6,7 @@ from .common import (
     merge_hf_parts,
     run_worker_script_per_gpu,
     add_cuda_npp_to_env,
+    add_venv_python_lib_to_env,
     job_progress_fraction,
     run_worker_script,
 )
@@ -207,10 +208,13 @@ class ChatterboxInference(Job):
                 "cpu": 4,
                 "mem": 16,
                 "time": 4,
-                # Decodes audio through torchcodec, which needs system FFmpeg/VA libraries
-                # (libva-drm.so.2). Declared as a capability, not a partition name, so the recipe
-                # stays cluster-agnostic -- settings.py owns the mapping.
-                "requires": ["system_ffmpeg"],
+                # No `requires: ["system_ffmpeg"]` (dropped 2026-09-16). torchcodec needs three
+                # things this job now ships itself: our own FFmpeg build, CUDA NPP from the venv,
+                # and the base interpreter's libpython -- see the env_hook below. VERIFIED on a real
+                # c25g node with neither system FFmpeg nor system NPP: torchcodec imports and a
+                # `datasets` Audio() column round trips, while the same import WITHOUT those paths
+                # fails on the same node. Keeping the tag pinned this to c23g, where the queue ran
+                # ~1.5 days against c25g's ~2 h.
             }
         )
 
@@ -271,6 +275,7 @@ class ChatterboxInference(Job):
                 print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
                 InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
+            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
         # Per-GPU fan-out (backlog G1): each worker takes a contiguous sub-shard of this job's
         # shard and writes its own out_hf part; the parts are concatenated in order, so the merged
