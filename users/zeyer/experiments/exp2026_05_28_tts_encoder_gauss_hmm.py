@@ -51,11 +51,17 @@ class GaussHmm(rf.Module):
         silence_idx: int,
         num_sub_states: int = 3,
         mandatory_edge_silence: bool = False,
+        tdp: Optional[Dict[str, float]] = None,
     ):
         """
         :param mandatory_edge_silence: the leading and trailing silence units of the chain are not optional
             (utterances start and end with silence); with the flat start this pins the silence state
-            to the edge frames instead of letting the first/last phone's sub-states absorb them
+            to the edge frames instead of letting the first/last phone's sub-states absorb them.
+            Diagnosis tool only (AZ): silence stays optional in the aligner, use ``tdp`` instead.
+        :param tdp: fixed transition costs (-log), keys ``speech_loop``, ``speech_forward``,
+            ``silence_loop``, ``silence_forward``, e.g. RASR's 10 ms defaults 3.0 / 0.0 / 0.0 / 3.0:
+            silence loops for free and speech is pushed forward, so pauses are not absorbed by the
+            first sub-state of the next phone. None = all 0.
         """
         super().__init__()
         self.feat_dim = feat_dim
@@ -63,6 +69,7 @@ class GaussHmm(rf.Module):
         self.silence_idx = silence_idx
         self.num_sub_states = num_sub_states
         self.mandatory_edge_silence = mandatory_edge_silence
+        self.tdp = tdp
         self.state_dim = Dim(phone_dim.dimension * num_sub_states, name="hmm_states")
         self.mean = rf.Parameter([self.state_dim, feat_dim])
         self.mean.initial = 0.0
@@ -106,6 +113,7 @@ def gauss_hmm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> GaussHmm
         silence_idx=labels.index(SILENCE_LABEL),
         num_sub_states=config.int("gauss_hmm_num_sub_states", 3),
         mandatory_edge_silence=config.bool("gauss_hmm_mandatory_edge_silence", False),
+        tdp=config.typed_value("gauss_hmm_tdp", None),
     )
 
 
@@ -116,7 +124,13 @@ gauss_hmm_model_def.batch_size_factor = 160
 
 
 def build_chain_fsa(
-    units: Any, lens: Any, *, silence_idx: int, num_sub_states: int, mandatory_edge_silence: bool = False
+    units: Any,
+    lens: Any,
+    *,
+    silence_idx: int,
+    num_sub_states: int,
+    mandatory_edge_silence: bool = False,
+    tdp: Optional[Dict[str, float]] = None,
 ) -> Tuple[Any, Any, Any, int]:
     """
     The per-utterance chain automata of a batch, in the FastBaumWelch edge format.
@@ -128,12 +142,22 @@ def build_chain_fsa(
     :param units: numpy [B, N] int, phoneme ids (silence = ``silence_idx``)
     :param lens: numpy [B] int
     :param mandatory_edge_silence: see :class:`GaussHmm`
-    :return: edges int32 [4, E] (from, to, emission_idx, seq_idx), weights float32 [E] (all 0),
+    :param tdp: see :class:`GaussHmm`; loop edges cost ``*_loop``, all edges leaving a state
+        (advance, next unit, skip, final) cost ``*_forward`` of the source unit, start edges 0
+    :return: edges int32 [4, E] (from, to, emission_idx, seq_idx), weights float32 [E] (costs, -log),
         start_end_states int32 [2, B], num states
     """
     import numpy as np
 
+    tdp = tdp or {}
+    cost = {
+        (True, True): tdp.get("silence_loop", 0.0),
+        (True, False): tdp.get("silence_forward", 0.0),
+        (False, True): tdp.get("speech_loop", 0.0),
+        (False, False): tdp.get("speech_forward", 0.0),
+    }  # (is silence, is loop) -> cost
     edges: List[Tuple[int, int, int, int]] = []
+    weights: List[float] = []
     starts = []
     ends = []
     state_off = 0
@@ -150,29 +174,36 @@ def build_chain_fsa(
         first = state_off + 1 + np.concatenate([[0], np.cumsum(n_sub)[:-1]])  # first chain state per unit
         final = int(state_off + 1 + n_sub.sum())
         for i in range(n):
+            is_sil = bool(u[i] == silence_idx)
             for j in range(int(n_sub[i])):
                 s = int(first[i]) + j
                 e = int(u[i]) * num_sub_states + j
                 edges.append((s, s, e, b))  # loop
+                weights.append(cost[(is_sil, True)])
                 if j + 1 < n_sub[i]:
                     edges.append((s, s + 1, e, b))  # advance within the unit
+                    weights.append(cost[(is_sil, False)])
                     continue
                 # last sub-state of the unit: advance to the next unit / the final state,
                 # and past an optional next unit
                 nxt = i + 1
                 edges.append((s, int(first[nxt]) if nxt < n else final, e, b))
+                weights.append(cost[(is_sil, False)])
                 if nxt < n and optional[nxt]:
                     edges.append((s, int(first[nxt + 1]) if nxt + 1 < n else final, e, b))
+                    weights.append(cost[(is_sil, False)])
         edges.append((s0, int(first[0]), int(u[0]) * num_sub_states, b))
+        weights.append(0.0)
         if optional[0] and n > 1:
             edges.append((s0, int(first[1]), int(u[1]) * num_sub_states, b))
+            weights.append(0.0)
         starts.append(s0)
         ends.append(final)
         state_off = final + 1
     edges_np = np.array(edges, dtype=np.int32).T  # [4, E]
-    weights = np.zeros((edges_np.shape[1],), dtype=np.float32)
+    weights_np = np.array(weights, dtype=np.float32)
     start_end = np.array([starts, ends], dtype=np.int32)
-    return edges_np, weights, start_end, state_off
+    return edges_np, weights_np, start_end, state_off
 
 
 def _fsa_for_batch(model: GaussHmm, phonemes: Tensor, phon_spatial_dim: Dim, batch_dim_: Dim, device):
@@ -187,6 +218,7 @@ def _fsa_for_batch(model: GaussHmm, phonemes: Tensor, phon_spatial_dim: Dim, bat
         silence_idx=model.silence_idx,
         num_sub_states=model.num_sub_states,
         mandatory_edge_silence=model.mandatory_edge_silence,
+        tdp=model.tdp,
     )
     return (
         torch.from_numpy(edges).to(device),
@@ -522,6 +554,7 @@ def gauss_hmm_ls960(
     *,
     lexicon: Optional[tk.Path] = None,
     mandatory_edge_silence: bool = False,
+    tdp: Optional[Dict[str, float]] = None,
     name: str = "gauss-hmm-mono1g-ls960",
 ) -> GaussHmmTablesJob:
     """
@@ -529,6 +562,7 @@ def gauss_hmm_ls960(
 
     :param lexicon: must cover the train-960 transcripts (see :func:`get_gauss_hmm_phone_info`)
     :param mandatory_edge_silence: see :class:`GaussHmm`; False keeps the hash of the first run
+    :param tdp: see :class:`GaussHmm`; None keeps the hash of the first run
     """
     from i6_experiments.users.zeyer.train_v4 import train
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
@@ -541,6 +575,7 @@ def gauss_hmm_ls960(
         "gauss_hmm_phone_info": get_gauss_hmm_phone_info(lexicon),
         "gauss_hmm_feat_dim": 80,
         **({"gauss_hmm_mandatory_edge_silence": True} if mandatory_edge_silence else {}),
+        **({"gauss_hmm_tdp": tdp} if tdp else {}),
     }
     exp = train(
         f"{prefix}/{name}",

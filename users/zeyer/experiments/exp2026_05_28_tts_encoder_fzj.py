@@ -1693,14 +1693,15 @@ def py():
     # log-mels, trained on train-960 only; its emission means and Viterbi durations replace the MFA tables.
     from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import gauss_hmm_ls960
 
-    _gauss_hmm_tables = gauss_hmm_ls960(prefix + "/gauss-hmm", lexicon=_get_ls_train_glowtts_lexicon())
-    # v2: leading/trailing silence mandatory in the chain, so the flat start pins the silence state to
-    # the edge frames (in v1 the first/last phones' sub-states absorbed them, silence collapsed)
-    gauss_hmm_ls960(
+    # v1 (unweighted transitions, AXNzotrK2q7U) and v2 (mandatory edge silence, ZMNOCpZHlqDh) are trained
+    # and diagnosed (projects notes 2026-09-16): pauses get absorbed by the next phone's first sub-state.
+    # v3: silence optional everywhere, RASR's 10 ms transition costs (speech loop 3 / forward 0,
+    # silence loop 0 / forward 3), as in Tina Raissi's alignment parameters.
+    _gauss_hmm_tables = gauss_hmm_ls960(
         prefix + "/gauss-hmm",
         lexicon=_get_ls_train_glowtts_lexicon(),
-        mandatory_edge_silence=True,
-        name="gauss-hmm-mono1g-edgesil-ls960",
+        tdp={"speech_loop": 3.0, "speech_forward": 0.0, "silence_loop": 0.0, "silence_forward": 3.0},
+        name="gauss-hmm-mono1g-tdp-ls960",
     )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
@@ -1731,6 +1732,17 @@ def py():
         (f"{_abl_prefix}-lmsub50-textP38", {"ls_lm_subset_lines": 20_209_130, "text_train_epoch_split": 38}),
         (f"{_abl_prefix}-lmsub25-textP19", {"ls_lm_subset_lines": 10_104_565, "text_train_epoch_split": 19}),
         (f"{_abl_prefix}-lmsub10-textP8", {"ls_lm_subset_lines": 4_041_826, "text_train_epoch_split": 8}),
+        # Paired-data ladder at ~constant update steps (AZ, 2026-09-16): a random 50 / 25 / 10 / 0% of the
+        # train-960 utterances, the text partition scaled so the text fills the freed batch budget
+        # (P75 is ~1:1 audio:text hours, so P = 75 / (2 - audio fraction)); nep38 as the winner.
+        # No audio-only controls on the subsets (AZ): the axis is the injection alone.
+        (f"{_abl_prefix}-audio50-textP50", {"ls_audio_subset": 0.5, "text_train_epoch_split": 50}),
+        (f"{_abl_prefix}-audio25-textP43", {"ls_audio_subset": 0.25, "text_train_epoch_split": 43}),
+        (f"{_abl_prefix}-audio10-textP39", {"ls_audio_subset": 0.1, "text_train_epoch_split": 39}),
+        (f"{_abl_prefix}-audio0-textP38", {"ls_audio_subset": 0.0, "text_train_epoch_split": 38}),
+        # diversity check for the 25% point: all 960 h but a quarter of the passes (audio partition 4,
+        # 38 subepochs = 9.5 passes per rank); same per-step mixture and audio amount as audio25
+        (f"{_abl_prefix}-audioP4-textP43", {"ls_train_epoch_split": 4, "text_train_epoch_split": 43}),
         # the winner with the Gaussian-HMM tables instead of the MFA ones (see _gauss_hmm_tables);
         # held back until the first tables pass the sanity check (2026-09-16: half the phone means and
         # the silence mean are off, sub-states drift, see projects notes)
@@ -3579,6 +3591,9 @@ def _train_tts_encoder(
     loq_text_shard_fraction: Optional[float] = None,
     # LS: a random subset of the 40.4M LM corpus lines as injection text (transcripts stay); None = all.
     ls_lm_subset_lines: Optional[int] = None,
+    # LS: fraction of the train-960 utterances as paired audio (OggZip fixed_random_subset, seed 42,
+    # drawn over all three parts); 0 = no paired audio at all (text stream only). None keeps the hashes.
+    ls_audio_subset: Optional[float] = None,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -3679,6 +3694,8 @@ def _train_tts_encoder(
             asr_ds["seq_ordering"] = train_seq_ordering
         asr_ds["audio"] = dict(asr_ds["audio"])
         asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
+        if ls_audio_subset:
+            asr_ds["fixed_random_subset"] = ls_audio_subset
         # OggZip decode + speed_pert is the heavy data-loading work; wrap *only* it in MPD.
         # LmDataset is cheap and CombinedDataset does not support sharding, so we keep MPD off the outer levels.
         asr_ds = multi_proc_dataset_opts(asr_ds, num_workers=4)
@@ -3746,15 +3763,28 @@ def _train_tts_encoder(
     }
 
     # interleave audio + text-only; CombinedDataset zero-fills the missing stream per branch (empty length-0).
-    combined = {
-        "class": "CombinedDataset",
-        "datasets": {"asr": asr_ds, "text": text_ds},
-        "data_map": {
+    if ls_audio_subset == 0:
+        # no paired audio: the text stream alone, each seq with an empty audio stream
+        # (the single-stream train step then always takes its pure-text path)
+        text_ds = _text_ds_with_empty_audio(text_ds, in_key=in_key, audio_extern=base_extern[in_key])
+        sub_datasets = {"text": text_ds}
+        data_map = {
+            ("text", in_key): in_key,
+            ("text", tgt_key): tgt_key,
+            ("text", PHONEMES_DATA_KEY): PHONEMES_DATA_KEY,
+        }
+    else:
+        sub_datasets = {"asr": asr_ds, "text": text_ds}
+        data_map = {
             ("asr", in_key): in_key,
             ("asr", tgt_key): tgt_key,
             ("text", tgt_key): tgt_key,
             ("text", PHONEMES_DATA_KEY): PHONEMES_DATA_KEY,
-        },
+        }
+    combined = {
+        "class": "CombinedDataset",
+        "datasets": sub_datasets,
+        "data_map": data_map,
         "seq_ordering": "interleave",
         # Gumbel-max softened interleave (see RETURNN CombinedDataset); only emitted when set (hash-safe)
         **({"interleave_gumbel_scale": interleave_gumbel_scale} if interleave_gumbel_scale is not None else {}),
@@ -6324,6 +6354,36 @@ def _extern_template_to_map_output(tmpl: Dict[str, Any]) -> Dict[str, Any]:
     }
     if "sparse_dim" in tmpl:
         out["sparse_dim"] = tmpl["sparse_dim"]
+    return out
+
+
+def _text_ds_with_empty_audio(text_ds: Dict[str, Any], *, in_key: str, audio_extern: Dict[str, Any]) -> Dict[str, Any]:
+    """The text PostprocessingDataset also emitting an empty audio stream (extern_data contract, no paired audio)."""
+    audio_out = _extern_template_to_map_output(audio_extern)
+    ds = dict(text_ds)
+    ds["map_seq"] = functools.partial(
+        _add_empty_audio_map_seq,
+        inner=text_ds["map_seq"],
+        in_key=in_key,
+        feat_dims=[d for d in audio_out["dims"] if d.dimension is not None],
+        dtype=audio_out["dtype"],
+    )
+    ds["map_outputs"] = {**text_ds["map_outputs"], in_key: audio_out}
+    return ds
+
+
+def _add_empty_audio_map_seq(seq, *, inner, in_key, feat_dims, dtype, **kwargs):
+    """PostprocessingDataset map_seq: the inner text map_seq, plus an empty (length 0) audio stream."""
+    import numpy as np
+    from returnn.tensor import Tensor, Dim as _Dim
+
+    out = inner(seq, **kwargs)
+    out.data[in_key] = Tensor(
+        in_key,
+        dims=[_Dim(None, name="time"), *feat_dims],
+        dtype=dtype,
+        raw_tensor=np.zeros([0] + [d.dimension for d in feat_dims], dtype),
+    )
     return out
 
 
