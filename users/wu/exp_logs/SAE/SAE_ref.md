@@ -27,6 +27,13 @@ references, greedy SIL removal and speaker-clustered comparisons as the existing
 must identify their native metric and cannot equate CER with this PER. Gold speech/text pairs are opened only
 after the new model, checkpoint and decoding rule are fixed. Original cold take-off gates remain in `SAE_4A.md`.
 
+**Hypothesis-diagnostic qualification (2026-09-17):** `analysis/emc_hyp_inspect.py` fits a Hungarian
+phone map to the existing edit-alignment confusion matrix and evaluates it on the same gold. This is
+not a globally minimum-PER permutation after realignment; small gains cannot exclude other mappings
+or latent phonetic information. Its arm-specific length/unigram-matched nulls are descriptive, and
+five-draw SDs are not paired speaker confidence intervals. Audit and the narrowed earlier interpretation:
+`reports/codex_4a_s3c_hyp_inspect_audit_2026-09-17.md`, `SAE_4A.md` S3c result.
+
 ## Approach
 
 **1. Wire the two side-inputs the live train step never passed.** `compose_reward` has implemented

@@ -6,17 +6,22 @@ Active question: can the existing exact-marginal cycle learn useful phone conten
 User clarification keeps work within §4a, without GANs or supervised-derived models; seeded refinement
 and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
 
-Active experiment: user-approved S3c in-cycle denoising, against banked cold `lam3_tri`.
-Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`, submitted as SLURM 1843887
-on 2026-09-16; awaiting allocation at the launch read. Wrapper: `config/sae_4a_s3c_denoise.py`.
-Checkpoints and training scores will be under the run's `output/models/` and `output/learning_rates`;
-registered reads use `sae/4a/s3c_denoise/`. Launch evidence and exact completion outputs:
-`reports/codex_4a_s3c_denoise_launch_2026-09-16.md`.
-Training input is masked in sub-epochs 1-4 (individual time-mask width capped at 8 frames), then clean
-in 5-8; targets, CV and evaluation remain clean. Exact settings, the six-hour single-GPU training allocation and
-unchanged G4a.3 gate are preregistered in the final scope-corrected subsection. No new result exists.
-Next experimental action after completion: verify clean PER and own-phi speaker-matched derangement at ep4/8, paired
-against the completed control; only ep4 PER <0.50 plus a positive gap passes the original take-off gate.
+S3c in-cycle denoising is complete and CLOSED FAIL on its unchanged G4a.3 gate.
+Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`, SLURM 1843887;
+wrapper `config/sae_4a_s3c_denoise.py`. Eight checkpoints, all registered evaluation outputs and label-free
+selection are complete; both candidate and banked `lam3_tri` select epoch 4. Endpoint numbers and
+qualifications are under "S3c denoising result" below. Evidence:
+`reports/codex_4a_s3c_denoise_terminal_2026-09-17.md` and
+`reports/codex_4a_s3c_denoise_endpoint_audit_2026-09-17.md`.
+
+The fixed epoch-4/8 stored-hypothesis diagnostic is complete and independently audited below.
+Active: `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.LkSVqPhvffwL`, submitted as SLURM
+1847107 on 2026-09-17, pending at launch. Wrapper: `config/sae_4a_qneutral_diagnostic.py`.
+Compare the canonical cold control's epoch-4 reconstruction targets with the recognizer factor present
+versus neutralized, holding phi and LM fixed. Specification is below; launch/completion contract:
+`reports/codex_4a_qneutral_launch_2026-09-17.md`. Results will be in `output/profiles/` and
+`output/paired_comparison.{json,txt}` under that run. Next: audit paired phone-identity mass with rate,
+duration and boundary checks. This is a frozen-checkpoint target analysis; no new training is committed.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1577,6 +1582,109 @@ Relevant literature qualifications, verified in `reports/codex_mechanism_literat
 plausibility need not preserve speech content; [Smith and Eisner, ACL 2004, sections 4.3–5](https://aclanthology.org/P04-1062.pdf)
 show annealing can damage a labeled initializer in a different latent-language model. Neither establishes SAE's
 specific cause, and a fixed named-phone LM means an arbitrary symbol permutation is not an exact symmetry here.
+
+### S3c denoising result (2026-09-17)
+
+The run linked in State completed all eight sub-epochs and all registered reads. Independent endpoint
+audit: `reports/codex_4a_s3c_denoise_endpoint_audit_2026-09-17.md`; extraction:
+`reports/codex_4a_s3c_denoise_extract_2026-09-17.md`. Same tc100 cold flat-theta/random-phi bed, full
+trigram, seed, optimizer and fixed endpoints as the banked `lam3_tri` control; only the preregistered
+training-input corruption differs. These are full-split greedy SIL-drop PER fractions.
+
+| Epoch | Split | Control PER | S3c PER | Paired S3c minus control [speaker 95% CI] |
+|---|---|---:|---:|---|
+| 4 | dev-other | 0.845398 | 0.883881 | +0.038483 [+0.031037, +0.046189] |
+| 4 | dev-clean | 0.830090 | 0.863270 | +0.033179 [+0.029421, +0.037128] |
+| 8 | dev-other | 0.877185 | 0.879921 | +0.002736 [-0.001650, +0.007320] |
+| 8 | dev-clean | 0.860910 | 0.870412 | +0.009502 [+0.006063, +0.013491] |
+
+Pairing covers identical 2,864 dev-other utterances / 33 speakers / 177,275 reference phones and
+2,703 dev-clean utterances / 40 speakers / 193,644 reference phones; speaker bootstrap 2,000 draws,
+seed 0. At the gate, dev-other errors are 156,690 versus control 149,868. The candidate's own-phi
+speaker-matched derangement gap is +2.187896 log likelihood/frame at epoch 4 and +2.740964 at epoch 8
+(500/500 dev-other items). **G4a.3 FAIL:** the positive-gap clause passes, but epoch-4 PER is above 0.50.
+The two existing label-free selectors both choose epoch 4; this is also the selected-checkpoint comparison.
+Epoch 8 does not show a significant dev-other advantage or disadvantage; dev-clean remains worse.
+
+This scheduled corruption did not produce cold take-off. Its effect on primary-input masking and
+train-mode BatchNorm is joint; these data cannot attribute the degradation to either separately.
+The gap establishes a reverse-model preference for its own strings, not phone accuracy. The result
+does not establish that a different noise schedule would work; it does not justify a mask-strength sweep.
+Main mechanism hypothesis remains an ungrounded, self-reinforcing cycle target; this experiment alone
+does not identify its cause or establish absence of all phonetic information.
+
+Bounded follow-up, fixed before its diagnostic outputs: reuse `analysis/emc_hyp_inspect.py` for
+`lam3_tri`, `s3c_denoise`, `lam3_tri_ep8`, `s3c_denoise_ep8`, on the full dev-other set, with five matched
+null draws at seed 0 and the same trigram. Outputs go to `analysis/out/s3c_denoise_endpoint_2026-09-17/`.
+The gold-dependent relabeling is a diagnostic only; it never supplies a training map or selects a checkpoint.
+This read retains the existing statistic and does not replace the failed take-off gate.
+
+The read is complete; audit: `reports/codex_4a_s3c_hyp_inspect_audit_2026-09-17.md`, execution:
+`reports/codex_4a_s3c_hyp_inspect_exec_2026-09-17.md`. All four outputs reproduce their banked S/D/I/PER;
+the control's epoch-4 diagnostic also reproduces its earlier reference. Additional descriptive reads:
+
+| Checkpoint | Own length/unigram-matched null PER | Alignment-derived remapped PER | Hypothesis phones/s | Length correlation |
+|---|---:|---:|---:|---:|
+| Control ep4 | 0.862811 | 0.845393 | 7.4403 | 0.918565 |
+| S3c ep4 | 0.895228 | 0.880570 | 8.9183 | 0.953042 |
+| Control ep8 | 0.894780 | 0.875053 | 8.7987 | 0.955298 |
+| S3c ep8 | 0.886195 | 0.879763 | 8.4469 | 0.936982 |
+
+Each decode beats its own limited random-string construction, with a smaller descriptive margin for S3c
+at both endpoints. These arm-specific null margins are not paired treatment estimates; five-draw SDs are
+not speaker confidence intervals. At epoch 4, S3c reduces deletions (24,456 versus 45,528) but increases
+substitutions (120,960 versus 99,188) and insertions (11,274 versus 5,152). Better length tracking is
+therefore insufficient. Its raw trigram score is higher (-4.1866 versus -4.7923 nats/phone), but differing
+token counts and unigram compositions prevent interpreting this as an isolated sequence-quality gain.
+
+**Interpretation amendment:** the older S3b hypothesis-inspection claim that these outputs are "not a
+relabeled phone code" is not established by its mapping statistic. Hungarian matching optimizes one
+existing edit-alignment confusion matrix, then recomputes PER; it is fitted and evaluated on the same
+gold, not optimized globally over realigned sequences. Small gains establish only the performance of
+that fitted mapping, not absence of phonetic information or of another useful relabeling. The failed
+greedy-PER gates stand unchanged. This limitation is also recorded in `SAE_ref.md`.
+
+### Recognizer-factor diagnostic (preregistered 2026-09-17)
+
+Question: at the fixed canonical cold `lam3_tri` epoch-4 checkpoint, how does the recognizer's current
+relative path weighting affect the reconstruction term's phone targets? Read the same checkpoint twice:
+the original lattice input `log_q` and a same-shaped normalized constant `-log(41)` over all CTC classes.
+Keep original recognizer outputs for every recognizer metric. Freeze phi, the full trigram, eta, observations,
+lengths, blank/repeat support, duration model, tau=2, alpha=0, band=25, batching and all other inputs.
+The latter input adds the same `-T*log(41)/tau` to every valid fixed-length path, removing q preferences
+while retaining CTC path multiplicity. This is the **untilted main L_tau posterior**, not the aggregate/rate
+terms or the complete optimizer gradient. Neither checkpoint is retrained.
+
+Use the existing cold mass-profile protocol: 300 deterministically stride-selected dev-other utterances,
+Torch seed 0, MFA frame centers `(t+0.5)/50`, row-sum tolerance 0.007 without posterior renormalization,
+the existing boundary tolerances, and 20 boundary-null draws at seed 12345. The banked protocol measured
+96,676 frames and 33 speakers; verify the new read's actual
+counts rather than assume them. Source, sampling and resource references:
+`reports/codex_4a_qneutral_scope_2026-09-17.md`. This sampled diagnostic is separate from full-split PER.
+The two passes share one analysis job with the existing `OrMassDiagnosticJob` allocation: requested
+GPU=1, CPU=4, host memory=32 GB, time=1 hour. Unchanged booster exclusivity reserves one four-GPU node;
+only one GPU is used. The bounded diagnostic budget is therefore at most one exclusive node-hour,
+with no new training. Reference resource provenance: `analysis/or_mass_diagnostic.py`.
+
+Primary descriptive contrast: per-utterance correct-phone target mass divided by total target mass on
+the 39 real phones, summed over gold non-SIL speech frames before dividing. Exclude blank and SIL from
+the denominator. Compare neutral minus original using paired speaker bootstrap, 2,000 draws, seed 0;
+also report pooled raw gold/blank/SIL/other mass, scored-frame counts, target-mode PER/rate and the
+existing duration/boundary profiles. Original recognizer metrics must agree between passes. Gold remains
+quarantined to this diagnostic; it provides no initializer, training map or checkpoint selection.
+
+Interpretation is deliberately limited to this fixed checkpoint and combined phi/LM evidence. Higher raw
+gold mass alone can arise from changed emission/blank behavior; even an identity-mass increase does not
+separate acoustic evidence from phone-prior effects or prove that retraining would improve ASR. A null
+cannot exclude earlier q/phi coadaptation. This read has no new take-off gate and does not amend G4a.3.
+The literature distinguishes a recognition proposal from a separately defined generative posterior
+([Bornschein and Bengio, ICLR 2015](https://arxiv.org/pdf/1406.2751)); SAE's tempered cycle is not that model.
+Actually training from neutral-q targets would change the objective and require a separately reviewed
+student loss. Verified equations and limits: `reports/codex_4a_qfactor_literature_2026-09-17.md`.
+The reviewed implementation and source fingerprints are recorded in
+`reports/codex_4a_qneutral_impl_2026-09-17.md`; pre-compute review:
+`reports/codex_4a_qneutral_code_review_2026-09-17.md`. The concrete run is linked in State; no diagnostic
+posterior result is yet available.
 
 ## Artifacts
 
