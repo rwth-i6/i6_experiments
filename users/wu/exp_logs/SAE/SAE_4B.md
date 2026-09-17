@@ -2,16 +2,16 @@
 
 ## State
 
-RUNNING — first AudioSAE-style wav2vec2 adaptation submitted as Slurm `1860439_1`, training
-`BatchTopKTrainingJob.1Z8e0Io2tv5b`; dependent supervised readout
-`BatchTopKProbeJob.aghUh8TQoiem` waits for the fixed 200,000-update endpoint.
-Config: `config/sae_4b_audiosae_w2v2.py`; concrete artifacts are listed below. There are no
-reconstruction or phoneme results yet. Design corrections and pre-spend review are complete.
-Next action after completion: verify endpoint/input/denominator provenance, audit the held-out
-nonsilence comparisons against the predefined criteria, and report the supervised phonetic evidence.
-Do not select or tune the SAE using labels, launch another arm, or substitute a cycle target on the
-basis of permissive coverage alone. Future code quantization and cycle substitution remain later
-stages; shared constraints are in `SAE_ref.md`.
+FIRST RUN COMPLETE, AUDITED — `BatchTopKTrainingJob.1Z8e0Io2tv5b` reached the fixed 200,000-update
+endpoint; `BatchTopKProbeJob.aghUh8TQoiem` completed its supervised held-out readout. Config:
+`config/sae_4b_audiosae_w2v2.py`; concrete artifacts are below. The predefined phonetic-discrimination
+criterion is met; improvement over normalized dense L15 is not met. Exact results, operating points
+and audit qualification are in "First-run result" below.
+
+No jobs or additional arms are pending within this first-run budget. The next experimental decision
+is whether to define a later acoustic-code usefulness comparison; this result does not establish
+unsupervised phone naming or justify a cycle-target substitution. Gold-based SAE tuning remains
+prohibited. Phase closure remains with the user. Shared constraints are in `SAE_ref.md`.
 
 ## Objective and hypothesis
 
@@ -167,3 +167,53 @@ activity at most 50, guarding against the released model's dense-default `forwar
   Review: `reports/codex_4b_code_review_2026-09-17.md` (no findings). Source-cache checks establish
   sparse execution/finite gradients only, not model quality. Submission evidence:
   `reports/codex_4b_launch_2026-09-17.md`.
+
+## First-run result (2026-09-17)
+
+**Verified completion.** Both graph nodes finished and all six registered outputs opened successfully.
+The loaded checkpoint and training metrics agree on 200,000 updates / 500 million frame presentations
+from the registered 28,539 utterances / 18,088,388 frames. Training Slurm ID `1860439`, diagnostic
+`1860927`. Completion evidence: `reports/codex_4b_completion_2026-09-17.md`; verbatim result extraction:
+`reports/codex_4b_result_extraction_2026-09-17.md`.
+
+**Held-out phone readout.** Dev-clean fitting used 806,709 aligned frames from all 2,703 utterances.
+Dev-other scoring used all 2,864 utterances / 33 speakers: 741,817 aligned frames, including 733,242
+nonsilence frames. Of 919,980 raw dev-other frames, 178,163 (19.37%) were uncovered by usable alignment
+and excluded; no unknown-phone frames were recorded. The arms use identical retained frames. The
+excluded seed-cache payload was 2,849 utterances / 1,797,904 frames. Train, fit and test speakers
+are disjoint. All scores below are percentages at the fixed final SAE/probe endpoints.
+
+| Readout | Nonsilence frames | All aligned frames |
+| --- | ---: | ---: |
+| SAE linear probe | 73.64 | 72.88 |
+| Normalized dense L15 linear probe | 80.19 | 79.45 |
+| Fit-majority phone predictor (AH) | 7.41 | 7.32 |
+| Strongest named active feature, single phone | 67.72 | 66.94 |
+| Any named active feature matches gold, coverage | 79.79 | 78.87 |
+
+SAE minus fit-nonsilence-majority accuracy is **+66.24 percentage points**, paired speaker 95% CI
+**[+63.59, +68.75]**: the predefined phonetic-discrimination criterion is met. SAE minus normalized
+dense L15 is **−6.54 points**, CI **[−8.18, −5.05]**: the predefined improvement criterion is not met.
+Dense L15 yields 47,980 additional correct nonsilence frames (587,976 versus 539,996). Both contrasts
+have the same respective sign on every one of the 33 held-out speakers.
+
+**Sparse representation and naming.** Supervised fit-only naming assigned a phone to 2,730 of 8,192
+features under the strict majority rule. `features.npz` contains feature-to-phone indices, phone names,
+fit/held-out counts and held-out precision/recall; naming alone does not establish held-out feature
+purity. Full-train mean squared L2 reconstruction error per frame was 0.1042833 with mean positive
+L0 = 50 and two features inactive on that final pool read. Whole-utterance held-out inference also has mean L0 = 50;
+dev-clean/dev-other MSE **per dimension** is 0.0001183709 / 0.0001514811, with dead-feature fractions
+0.0203857 / 0.0144043. Training and held-out reconstruction use different reported reduction scales
+and BatchTopK grouping; do not directly compare their raw numbers.
+
+**Audited interpretation.** This single configuration retains substantial phonetic information accessible
+to supervised labeling and probes, while its fixed linear readout is worse than the normalized dense
+baseline. It provides neither improved phoneme recoverability at this operating point nor unsupervised
+named-phone/ASR evidence. The weaker fixed readout does not establish that every SAE configuration or
+later acoustic-code use must fail; no gold-informed retuning follows from this diagnostic.
+
+Fresh-context audit: `reports/codex_4b_result_audit_2026-09-17.md` (`DONE_WITH_CONCERNS`). It independently
+re-summed per-utterance scores, verified masks, speaker separation, checkpoint hash, label timing and
+the sign of every speaker's paired delta. Exact bootstrap percentile endpoints were read from the
+saved score file rather than independently regenerated; their side of zero follows independently
+from the per-speaker signs. CIs remain conditional on this one trained pair, as preregistered.
