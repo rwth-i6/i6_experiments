@@ -250,6 +250,8 @@ def aed_ctc_timesync_recog_recomb_auto_scale_batched(
 
     base_config: Dict[str, Any] = {
         "behavior_version": 24,
+        # WARNING: hashed here (not popped as in search_dataset), so changing it rehashes the job.
+        # Applied to rnn.py via forward_batched._env_updates_of_config.
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         "recog_recomb": recomb_type,
         "ctc_soft_collapse_threshold": ctc_soft_collapse_threshold,

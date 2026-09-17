@@ -38,6 +38,8 @@ Engine properties:
 Hashing: the job hashes on ``work_items`` (keys + each item's returnn_config + output filenames)
 plus ``returnn_python_exe`` / ``returnn_root``. The node shape + stop policy live in ``self.rqmt``
 and class attrs (not __init__ args -> not hashed).
+WARNING: a ``__env_updates`` entry of an item's config is hashed too (the callers do not pop it),
+see :func:`_env_updates_of_config`.
 """
 
 from __future__ import annotations
@@ -171,6 +173,7 @@ class BatchedReturnnForwardJob(Job):
                     "config": os.path.abspath(cfg_path),
                     # Where each file the config writes (relative to cwd) must end up.
                     "outputs": {fn: self.out_files[key][fn].get_path() for fn in item["output_files"]},
+                    "env": _env_updates_of_config(item["returnn_config"]),
                 }
             )
             ckpt = item.get("model_checkpoint")
@@ -395,7 +398,9 @@ class BatchedReturnnForwardDynamicJob(Job):
             os.makedirs(item_dir, exist_ok=True)
             cfg_path = os.path.join(item_dir, "returnn.config")
             cfg.write(cfg_path)
-            items.append({"key": key, "config": os.path.abspath(cfg_path), "outputs": dests})
+            items.append(
+                {"key": key, "config": os.path.abspath(cfg_path), "outputs": dests, "env": _env_updates_of_config(cfg)}
+            )
 
         if items:
             _write_manifest(
@@ -638,14 +643,16 @@ def _worker_item_done(item):
 
 
 def _worker_run_item(python_exe, rnn_py, item):
-    """Run one item's config with rnn.py in a fresh tmp cwd, then atomically move its outputs into place."""
+    """Run one item's config with rnn.py in a fresh tmp cwd, with the item's env updates
+    (see :func:`_env_updates_of_config`), then atomically move its outputs into place."""
     import os
     import shutil
     import subprocess
     import tempfile
 
+    env = {**os.environ, **item.get("env", {})}
     with tempfile.TemporaryDirectory() as tmp:
-        subprocess.check_call([python_exe, rnn_py, item["config"]], cwd=tmp)
+        subprocess.check_call([python_exe, rnn_py, item["config"]], cwd=tmp, env=env)
         for fn, dest in item["outputs"].items():
             src = os.path.join(tmp, fn)
             assert os.path.exists(src), "item produced no %s: %s" % (fn, item["config"])
@@ -699,6 +706,18 @@ def _log_node_usage(tag):
         except Exception as e:
             print("  %s failed: %r" % (" ".join(cmd), e))
     sys.stdout.flush()
+
+
+def _env_updates_of_config(cfg: ReturnnConfig) -> Dict[str, str]:
+    """
+    The ``__env_updates`` of a work item's config (config or post_config), for its rnn.py process.
+    ``search_dataset`` pops the key before hashing and applies it via ``Job.set_env``;
+    WARNING: the batched callers leave it in the hashed config, so it stays there (removing it would rehash).
+    Applied only since 2026-09-17, before it was ignored.
+    """
+    env = cfg.config.get("__env_updates") or cfg.post_config.get("__env_updates") or {}
+    assert all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()), env
+    return dict(env)
 
 
 def _write_manifest(*, items: List[Dict[str, Any]], returnn_root_path: str, returnn_python_exe_path: str):

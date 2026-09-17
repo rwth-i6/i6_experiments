@@ -90,6 +90,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale_batched(
 
     base_config: Dict[str, Any] = {
         "behavior_version": 24,
+        # WARNING: hashed here (not popped as in search_dataset), so changing it rehashes the job.
+        # Applied to rnn.py via forward_batched._env_updates_of_config.
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         "recog_recomb": recomb_type,
         "recog_version": 10,
@@ -382,6 +384,8 @@ def ctc_aed_lm_label_sync_recog_auto_scale_batched(
 
     base_config: Dict[str, Any] = {
         "behavior_version": 24,
+        # WARNING: hashed here (not popped as in search_dataset), so changing it rehashes the job.
+        # Applied to rnn.py via forward_batched._env_updates_of_config.
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         "aux_loss_layers": [aux_ctc_layer] if aux_ctc_layer is not None else [],
     }

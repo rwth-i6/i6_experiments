@@ -67,6 +67,8 @@ def ctc_dlm_sum_recog_fixed_scales_batched(
         "batch_size": int(10_000 * ctc_model.definition.batch_size_factor),
         "recog_version": 3 if prior_file is not None else 4,
         "behavior_version": 24,
+        # WARNING: hashed here (not popped as in search_dataset), so changing it rehashes the job.
+        # Applied to rnn.py via forward_batched._env_updates_of_config.
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     }
     if extra_config:
@@ -129,6 +131,8 @@ def ctc_dlm_sum_recog_auto_scale_batched(
 
     base_config: Dict[str, Any] = {
         "behavior_version": 24,
+        # WARNING: hashed here (not popped as in search_dataset), so changing it rehashes the job.
+        # Applied to rnn.py via forward_batched._env_updates_of_config.
         "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     }
     if aux_ctc_layer is not None:
