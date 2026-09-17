@@ -74,8 +74,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
-   S3c and DP64 cold control CLOSED FAIL; precision-matched S3d phone-content arm active. Standing from
-   2026-09-15: the LM term inside the objective must be above bigram. See State of `SAE_4A.md`.
+   S3c and DP64 cold control CLOSED FAIL; S3d active; higher-context pilot complete, coverage limits training.
+   LM objective remains above bigram. `SAE_4A.md`; sparse-code §4b is registered for planning only.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and
    the 1,112-ID evaluation CLOSED, so no PER of that route exists. 1g.9, the 1g.10/10a/10b/10c family, 1g.11,
@@ -158,6 +158,8 @@ the 6,778/201 floor); no solver retry, support-floor relaxation or graph amendme
   S2d FAIL; iterated factorized target fitting drifts, without an established limiting posterior. Frozen/joint
   reverse-model diagnostics remain active; CT CLOSED FAIL on its audited endpoint. `SAE_4A.md`.
 - **Build/setup** — 960 h loop build `sae_960h_loop_build.md`; reward side-inputs lam_1/lam_2 `SAE_ref.md`.
+- **§4b sparse acoustic codes from w2v2** — REGISTERED, NO EXECUTION; speech-only representation and
+  matched-code comparison for a possible cycle target, preliminary gate only. `SAE_4B.md`.
 
 ## Standing gates for phases with no separate document
 

@@ -6,15 +6,8 @@ Active question: can the existing exact-marginal cycle learn useful phone conten
 User clarification keeps work within §4a, without GANs or supervised-derived models; seeded refinement
 and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
 
-S3c in-cycle denoising is complete and CLOSED FAIL on its unchanged G4a.3 gate.
-Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`;
-wrapper `config/sae_4a_s3c_denoise.py`. Complete endpoint numbers, selection and audits are under
-"S3c denoising result" below.
-
-The stored-hypothesis and fixed-checkpoint recognizer-factor diagnostics are complete and independently
-audited below. The latter run is `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`;
-its initial invalid read is preserved. Results and limitations are under "Literal hypothesis inspection"
-and "Recognizer-factor result"; no take-off gate changes.
+S3c denoising is complete and CLOSED FAIL. Its endpoint and the independently audited stored-hypothesis
+and recognizer-factor diagnostics remain under their result sections below; no take-off gate changes.
 
 S3d categorical phone-output content is launched after user authorization and matched-config review:
 `work/i6_core/returnn/training/ReturnnTrainingJob.Pso7oeIpqYjY`, wrapper
@@ -25,15 +18,17 @@ The unlaunched float32 candidate is superseded. Review and launch evidence:
 
 Matched control is complete and G4a.3 FAIL: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
 wrapper `config/sae_4a_dp64_control.py`; results and audit are under "Precision-only control result".
-The numerical defect and validated repair are recorded under "Cold-initialization numerical result"
-and "DP-only training-step result". Next: verify S3d's eight checkpoints and registered reads, audit
-fixed epoch-4/8 and selected-checkpoint comparisons against DP64, then decide the next intervention.
-The G4a.3 gate and private-code qualification remain as specified in the S3d launch amendment.
-Long-context LM inference is a design question, not an enabled treatment; the scoped option and its
-coverage requirement are recorded under "Long-context prior option" below.
+Higher-context pilot complete and audited: `work/analysis/context_rescore_diagnostic/ContextRescoreDiagnosticJob.gIPIR0c49NfS`,
+wrapper `config/sae_4a_context_rescore.py`, SLURM `1855413_1`. It freezes the DP64 control at epoch4;
+eight gold-free utterances, nested64/128/256 path draws, and same-candidate P3/P4/P6 rescoring. Astra
+implementation/review, operating point and outputs are under "Long-context prior option"; the audited
+measurement and interpretation are under "Higher-context pilot result" below. The pilot completion
+gate passes; it does not establish training adequacy or ASR improvement.
 
-Banked cold-remedy failures and gold-derived explanatory controls remain under
-"Current mechanism assessment and partial follow-ups"; they do not establish unsupervised progress.
+Next: prepare LM-guided candidate generation to address the observed length-dependent coverage limit
+before a training proposal; verify S3d's eight checkpoints/reads and audit its comparisons against DP64.
+The G4a.3 gate and private-code qualification remain unchanged. Sparse acoustic-code work is registered
+separately in `SAE_4B.md`, with no execution authorized.
 
 ## Objective
 
@@ -1952,13 +1947,13 @@ precision a sufficient explanation of collapse or isolate LM weakness from acous
 S3d continues unchanged against this completed matched control; its previously pending epoch-8 control
 hypotheses now exist. No additional training arm is authorized by this endpoint alone.
 
-### Long-context prior option (design only, user question 2026-09-17)
+### Long-context prior option (frozen diagnostic authorized 2026-09-17)
 
 The user asks how to add linguistic context without the dense history-state growth of higher n-grams.
 The completed DP64 control and active S3d run remain the comparison. A candidate-based extension could use the current lattice
 to propose phone strings, score them with a longer-context text LM, and sum alignments/segmentations
-exactly within each retained string. The outer sum over strings would be approximate; this is a change
-to the exact-marginal protocol and is not an approved or implemented training arm.
+exactly within each retained string. The outer sum over strings would be approximate. The user has
+authorized implementing and executing the frozen diagnostic; no approximate training arm is launched.
 For a complete valid lattice path h, write y(h) for its emitted phone string, pi(h) for its frame
 labels, sigma(h) for its reverse segmentation, and
 `A_tau(y) = sum_{h:y(h)=y} exp((log q_theta(pi(h)|x) + log p_phi(z,sigma(h)|y,eta))/tau)`.
@@ -1969,8 +1964,8 @@ simply multiplying by the new LM is a different objective. Candidate enumeration
 estimation are distinct approximations. The existing SIL/band/temperature semantics must be preserved
 (see `SAE_ref.md`); ordinary CTC likelihood times a reverse-only likelihood is not this joint marginal.
 
-Feasibility read: `reports/codex_4a_context_rescoring_code_2026-09-17.md`. The required complete-path
-sampler or candidate generator plus constrained joint scorer does not currently exist. Before any such
+Initial feasibility read: `reports/codex_4a_context_rescoring_code_2026-09-17.md` identified the missing
+complete-path sampler and constrained joint scorer, now implemented for this frozen pilot. Before any
 training proposal, a frozen-checkpoint diagnostic must measure candidate coverage/diversity, weight
 concentration and cost. A stronger LM cannot restore sequences absent from its proposal, and any
 training comparison must control the inference approximation as well as LM choice. Full-text evidence
@@ -1989,8 +1984,8 @@ joint terms in the hotter proposal; retain the target tau for rescoring. Dedupli
 strings including SIL. This gives at most 256 unique strings, not a guarantee of that count. Use the
 same set for trigram, reconstructed 4-gram and proposed 6-gram scoring (five previous phones), preserving
 the frozen unpaired corpus, split, SIL convention, recursive Witten-Bell smoothing, BOS and no-EOS
-semantics. P4=7.03 was an on-the-fly analysis; no exported P4 or P6 scorer currently exists. P6 needs
-sparse count/scoring code, not a dense six-gram tensor. Provenance:
+semantics. P4=7.03 was an on-the-fly analysis; no fitted P4/P6 artifact existed at registration. The pilot
+implements sparse count/scoring code, not a dense six-gram tensor. Provenance:
 `reports/codex_4a_context_lm_assets_2026-09-17.md`.
 
 Enumerate the unique finite set with prior-free A_tau(y) and the replacement LM above; neither draw
@@ -2000,22 +1995,137 @@ runtime/memory, and exact retained trigram mass Z3(Y)/Z3(full). P4/P6 full denom
 ESS or stable doubling is not evidence of their coverage. Training would additionally require
 constrained conditional forward-backward/derivatives and candidate-weighted frame/segment marginals;
 sampled alignments alone do not implement the proposed exact inner sum. Astra review:
-`reports/codex_4a_candidate_sampling_spec_review_2026-09-17.md`. No acceptance gate, diagnostic compute
-allocation or training arm is established by these defaults; no sampler/scorer implementation exists.
+`reports/codex_4a_candidate_sampling_spec_review_2026-09-17.md`. Training adequacy is not established by
+these defaults. The user has now authorized their frozen diagnostic implementation and execution.
 
-### Sparse acoustic-code option (design question 2026-09-17)
+**Execution registration (before results).** Freeze the completed DP64 control's own epoch-4 theta,
+phi and inputs in `ReturnnTrainingJob.IoCQmrlJbCC0`; this is an explicit operating-point choice for the
+new diagnostic, rather than the earlier float32 checkpoint. Read no gold. Reuse the existing 300-tag
+dev-other strided diagnostic selection, derived solely from the 2,864 HDF sequence tags; process its
+first eight tags in fixed order. Eight is a new root-chosen cost-pilot cap, not a corpus-wide sample
+claim. Record IDs before scoring. Seed42 follows the reference convention; nested budgets and the
+3:1/hot1.5 choices above follow the proposal approved by the user. Use DP64, tau2, beta1, band25 and
+all remaining saved model/input constants. Keep the production prior table and exact casting order
+for P3/full-partition comparisons; quantify reconstructed-prior parity separately.
 
-An SAE of frozen w2v2 L15 features could supply a private acoustic code within the existing cycle.
-Checked speech-SAE papers recover phonetic associations but also nuisance information; multi-active
-features and gold-fitted phone mappings do not establish label-free phone-token recovery. Full-text
-sources and operating points: `reports/codex_4a_sparse_w2v_codes_literature_2026-09-17.md`.
-If pursued, first compare K64 clustering of fixed SAE activations with direct K64 clustering of the
-same L15 input and the existing MFCC K64 target. Matching the input isolates sparsity from the feature
-change. Fit/select acoustic representation settings without phone labels; inspect occupancy, temporal
-stability and speaker dependence, with any gold phone analysis confined to held-out diagnostics.
-A useful code would justify proposing a fixed-target substitution in the categorical content term;
-it would not by itself establish speech-to-text symbol identification. No SAE experiment or target
-replacement has been launched; S3d retains the registered MFCC target and gate.
+One pilot allocation is capped at the existing GPU1/CPU16/mem64/time6h/gpu_mem96 resource envelope
+(an exclusive four-GH200 node). The new job registers metadata, pinned sparse LM counts, per-item
+candidates/scores and summary/timing outputs. No optimizer, training update, gold-scored selection,
+full-300 expansion or sparse-autoencoder work is part of this pilot. Astra owns all complex code.
+
+Pilot completion gate: all eight items produce the registered finite scores, candidate records,
+trigram retained-mass and per-order weight/convergence diagnostics within that allocation, after
+small exhaustive topology/partition checks and frozen-P3 parity pass. Numerical tolerances are fixed
+in the implementation/review before the run and must reflect DP64 and the stored-prior precision.
+An incomplete, invalid or over-budget pilot cannot license a training comparison. A completed pilot
+is a feasibility measurement, not an ASR or coverage PASS: inspect actual coverage, concentration,
+hypotheses and cost, then preregister any further comparison. Neither this pilot nor small numerical
+tests close G4a.3. The same-candidate trigram is the approximation control for any future LM comparison.
+
+Implementation and preregistered checks: Astra's new `sae/emc/candidates.py` and exhaustive tests are
+committed as `a5fe6d5` in the speech checkout. The frozen driver/LM/job are
+`analysis/context_rescore.py`, `analysis/context_lm.py`, `analysis/context_rescore_diagnostic.py`, with
+wrapper `config/sae_4a_context_rescore.py`. Reports:
+`reports/codex_4a_context_lattice_impl_2026-09-17.md`,
+`reports/codex_4a_context_rescore_impl_2026-09-17.md` and its referenced source hashes. Tiny exhaustive
+joint/fixed-string partitions use tolerance 1e-11; full-corpus P3 parity requires maximum absolute
+float64 log error <=1e-12 and equality after the production float32 cast, before any candidate scoring.
+Retained P3 log mass must be <=1e-8, a numerical bound check rather than an adequacy threshold.
+Core support/partition and 24,000 sampled-path checks passed; they establish only the exercised small
+lattices. Corpus parity, coverage and cost remain unmeasured until execution. Fresh protocol audit:
+`reports/codex_4a_context_pilot_protocol_audit_2026-09-17.md`; final Astra code review:
+`reports/codex_4a_context_rescore_code_review_2026-09-17.md`, no unresolved findings.
+
+Pilot submitted as `analysis/context_rescore_diagnostic/ContextRescoreDiagnosticJob.gIPIR0c49NfS`,
+SLURM `1855413_1`. Registered job outputs under `output/pilot/` are `summary.json`, `per_item.jsonl`,
+`candidates.jsonl`, `metadata.json` and `lm_counts.npz`. Wrapper SHA256 is
+`448845acffd1913174d090081583ed1c00d941eb4a36c33e96a55f8f4043dd44`.
+Launch evidence: `reports/codex_4a_context_rescore_launch_2026-09-17.md`. The completed measurement is below.
+
+### Higher-context pilot result (audited 2026-09-17)
+
+The registered eight-item pilot is complete: `ContextRescoreDiagnosticJob.gIPIR0c49NfS`, SLURM
+`1855413_1` COMPLETED/0:0, with finished markers and all five registered outputs. Completion evidence:
+`reports/codex_4a_context_rescore_handoff_diagnosis_2026-09-17.md`; literal extraction:
+`reports/codex_4a_context_pilot_extract_2026-09-17.md`; fresh result audit:
+`reports/codex_4a_context_pilot_result_audit_2026-09-17.md`. The pilot completion gate passes unchanged.
+
+Measured operating point is the registered DP64 control epoch4/step238, beta1, target tau2, hot tau3,
+band25, seed42, fixed first eight HDF-stride tags. All eight belong to speaker116; this is a cost and
+coverage pilot, not a representative speaker or full-split evaluation. Sparse counts use exactly
+1,000,000 train lines/91,100,286 phones and 10,000 held lines/912,142 phones. Reconstructed P3 has
+zero maximum float64 log error; production cast bit equality passes. Corpus parity is therefore
+measured, rather than inferred from the small fixtures. The audit reconstructed all72 per-item,
+budget/order finite log partitions from the saved candidates to maximum error 6.83e-13.
+
+Equal-utterance means (ESS and maximum weight are normalized within each utterance's retained set):
+
+| Draws per item | Unique strings, summed over8 | Retained full-P3 mass | P3 ESS | P4 ESS | P6 ESS | P6 maximum weight |
+|---|---:|---:|---:|---:|---:|---:|
+|64|437|0.27903078|7.80479|3.58900|2.58345|0.67698036|
+|128|824|0.34203705|11.54036|3.89546|3.42870|0.60125984|
+|256|1525|0.39339895|17.28447|5.16134|3.87624|0.54186986|
+
+The mean masks a major coverage difference. At256 draws, `116-288045-0000` (532 frames) retains
+3.49797e-8 of known P3 mass; `116-288047-0012` (271 frames) retains0.000394086. The other six retain
+0.163976–0.821112. On the longest item, P6 assigns0.964417 of its retained-set weight to one string
+(ESS1.07421). These are exact finite-set/P3-denominator measurements, not P4/P6 coverage estimates.
+
+Actual strings were read for all eight items at256. Winners differ on6/8 for P4 versus P3, on8/8 for
+P6 versus P3 and on7/8 for P6 versus P4, through phone substitutions/insertions and SIL changes.
+For `116-288045-0009`, the P3 fragment
+`R AE N G EH` becomes `R AE N D G EH` under P6. Both P3 and P6 retain `K AE N D Z K AE N D Z` in
+`116-288045-0019`. No gold was opened: these changes show a material ranking effect, not correctness
+or escape from the cold-start failure. Full strings and per-item scores are in the extraction report.
+
+Worker runtime was about90 seconds, allocation2m31s. LM counting/parity/pinning took49.17s; peak
+process RSS was about2.0GB and GPU allocation0.83GB. This establishes feasibility at these eight
+observed lengths, not training throughput. Sampled latent paths were not saved individually; their
+legality is supported by the preregistered implementation tests, not replayable from result files.
+
+Decision: the higher-order prior affects ranking, but256 whole-string draws are not established as an
+adequate training approximation. Known baseline coverage is particularly poor on the two longer items,
+and stronger-prior coverage remains unknown. Preserve this finite-set diagnostic as the baseline;
+prepare an LM-guided candidate-generation comparison, using the new prior during proposal construction
+and retaining the exact final fixed-string scorer and same-candidate P3 control. Freeze its method,
+comparison and spend gate before execution; no training or further sampling job is launched by this
+result. Existing full-text search/LM evidence remains in
+`reports/codex_4a_lm_identification_literature_2026-09-17.md`. G4a.3 and S3d's matched comparison remain
+unchanged, and §4b stays registered without execution.
+
+Preparation for that follow-up: the minimal proposed direction is a pruned search over legal joint
+transitions with P6 used when extending phone prefixes, followed by the existing exact A2 scorer for
+completed distinct strings. A P3-guided search under the same pruning rule is the proposal control;
+score each candidate set and their union with the same P3/P4/P6 models. Report actual search cost as
+well as output count; equal beam width and equal path-draw count do not imply equal computation.
+The beam/state bookkeeping, budget and gate are still to be fixed before a new job.
+
+A union supplies a useful diagnostic despite the unavailable full P6 partition: the fraction of full
+P6 mass in the old set is at most `Z6(Y_old) / Z6(Y_old union Y_new)`. A small ratio can establish that
+the old set misses much P6 mass; a ratio near one cannot establish adequate coverage. New candidates
+must be generated without gold. Full-text follow-up:
+`reports/codex_4a_context_proposal_followup_literature_2026-09-17.md`. The verified Nuhn et al. beam
+result motivates using context during search while warning against tight pruning; the Kumar et al.
+lattice result supports broader candidate structures. [Lindsten et al., JMLR2014](https://jmlr.org/papers/volume15/lindsten14a/lindsten14a.pdf) adds particle-history
+degeneracy as a reason to defer particle/block machinery until its conditioning and weights are specified.
+These analogies do not establish efficacy for this cold-ASR cycle.
+
+The additional text-only read is complete and included in the result audit above. It uses frozen
+pilot counts on the same10,000 held lines/912,142 phones, raw float64 WB and the existing BOS/no-EOS
+convention, with no refit, tuning, audio or gold. P3/P4/P6 per-phone NLLs are2.248017/1.950871/1.666830;
+perplexities are9.468940/7.034812/5.295356. P3/P4 match the banked text analysis within1.1e-13.
+Thus P6 improves measured held-text prediction, separately from its candidate-ranking effect;
+this establishes neither acoustic recognition quality nor coverage of its posterior.
+Helper `analysis/context_lm_heldout.py` was reviewed in
+`reports/codex_4a_context_lm_heldout_review_2026-09-17.md`; outputs are
+`reports/codex_4a_context_lm_heldout_2026-09-17.json` and
+`reports/codex_4a_context_lm_heldout_run_2026-09-17.md`. CPU-only runtime19.46s, peak RSS544,128KiB;
+no additional scheduler or GPU allocation was used.
+
+### Sparse acoustic-code follow-up
+
+By explicit user request, the preliminary plan and literature are now owned by the separate phase
+`SAE_4B.md`. It is registered with no execution; S3d retains its MFCC target and registered gate.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 

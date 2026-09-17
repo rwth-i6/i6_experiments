@@ -18,6 +18,8 @@ The proposed additional seeded-S2d frozen-reverse run is withdrawn. Earlier GAN-
 carve-outs are historical provenance, not authorization for new mainline work. The user explicitly invites
 methodological thinking and literature research on making this cycle learn from cold start. The current experimental
 bed, original gates and historical results remain in `SAE_4A.md`; this priority change does not rewrite them.
+The user subsequently authorizes the frozen higher-context diagnostic in §4a and registration of a separate
+sparse-acoustic-code phase, `SAE_4B.md`, for preliminary planning only; no §4b execution is authorized.
 
 For cold-start comparison, use the registered `lam3_tri` reference in
 `PackedEmcTrainJob.byYMQmBNEpLZ` (the tc100/trigram run), with its fixed endpoint and label-free-selected
