@@ -1955,7 +1955,7 @@ hypotheses now exist. No additional training arm is authorized by this endpoint 
 ### Long-context prior option (design only, user question 2026-09-17)
 
 The user asks how to add linguistic context without the dense history-state growth of higher n-grams.
-The active DP64/S3d runs remain unchanged. A candidate-based extension could use the current lattice
+The completed DP64 control and active S3d run remain the comparison. A candidate-based extension could use the current lattice
 to propose phone strings, score them with a longer-context text LM, and sum alignments/segmentations
 exactly within each retained string. The outer sum over strings would be approximate; this is a change
 to the exact-marginal protocol and is not an approved or implemented training arm.
@@ -1971,9 +1971,8 @@ estimation are distinct approximations. The existing SIL/band/temperature semant
 
 Feasibility read: `reports/codex_4a_context_rescoring_code_2026-09-17.md`. The required complete-path
 sampler or candidate generator plus constrained joint scorer does not currently exist. Before any such
-training proposal, a frozen-checkpoint diagnostic must establish candidate coverage/diversity and avoid
-weight concentration; no sample count, acceptance threshold, gold-tuned setting or compute allocation
-has been specified here. A stronger LM cannot restore sequences absent from its proposal, and any
+training proposal, a frozen-checkpoint diagnostic must measure candidate coverage/diversity, weight
+concentration and cost. A stronger LM cannot restore sequences absent from its proposal, and any
 training comparison must control the inference approximation as well as LM choice. Full-text evidence
 in `reports/codex_4a_lm_identification_literature_2026-09-17.md` motivates this coverage-first question:
 [Nuhn et al., ACL 2013](https://aclanthology.org/P13-1154.pdf) show capacity and search interacting in
@@ -1981,6 +1980,42 @@ fixed-symbol decipherment; [Kumar et al., ASRU 2017](https://arxiv.org/pdf/1711.
 candidate-coverage limitation in supervised LM rescoring. Neither validates this cold-ASR training route.
 Existing BT is a complementary way to use full unpaired sentences while retaining the main exact DP;
 it is not insertion of a full-context prior into the real-speech posterior.
+
+Provisional response to the user's candidate-budget question: at the fixed epoch-4 diagnostic point
+(target tau=2), draw at most 256 complete legal joint paths, 192 from the current joint trigram posterior
+Q_tau and 64 from Q_(1.5*tau). The 256/3:1/1.5 choices are proposed engineering defaults, not measured
+optima or reference-setup constants. Sample via forward-filtering/backward-sampling, tempering all
+joint terms in the hotter proposal; retain the target tau for rescoring. Deduplicate exact emitted
+strings including SIL. This gives at most 256 unique strings, not a guarantee of that count. Use the
+same set for trigram, reconstructed 4-gram and proposed 6-gram scoring (five previous phones), preserving
+the frozen unpaired corpus, split, SIL convention, recursive Witten-Bell smoothing, BOS and no-EOS
+semantics. P4=7.03 was an on-the-fly analysis; no exported P4 or P6 scorer currently exists. P6 needs
+sparse count/scoring code, not a dense six-gram tensor. Provenance:
+`reports/codex_4a_context_lm_assets_2026-09-17.md`.
+
+Enumerate the unique finite set with prior-free A_tau(y) and the replacement LM above; neither draw
+multiplicity nor an importance correction belongs in this finite-set enumeration. Nested 64/128/256
+draw sets must each preserve the 3:1 mixture. Report unique count/diversity, target weight concentration,
+runtime/memory, and exact retained trigram mass Z3(Y)/Z3(full). P4/P6 full denominators are unavailable:
+ESS or stable doubling is not evidence of their coverage. Training would additionally require
+constrained conditional forward-backward/derivatives and candidate-weighted frame/segment marginals;
+sampled alignments alone do not implement the proposed exact inner sum. Astra review:
+`reports/codex_4a_candidate_sampling_spec_review_2026-09-17.md`. No acceptance gate, diagnostic compute
+allocation or training arm is established by these defaults; no sampler/scorer implementation exists.
+
+### Sparse acoustic-code option (design question 2026-09-17)
+
+An SAE of frozen w2v2 L15 features could supply a private acoustic code within the existing cycle.
+Checked speech-SAE papers recover phonetic associations but also nuisance information; multi-active
+features and gold-fitted phone mappings do not establish label-free phone-token recovery. Full-text
+sources and operating points: `reports/codex_4a_sparse_w2v_codes_literature_2026-09-17.md`.
+If pursued, first compare K64 clustering of fixed SAE activations with direct K64 clustering of the
+same L15 input and the existing MFCC K64 target. Matching the input isolates sparsity from the feature
+change. Fit/select acoustic representation settings without phone labels; inspect occupancy, temporal
+stability and speaker dependence, with any gold phone analysis confined to held-out diagnostics.
+A useful code would justify proposing a fixed-target substitution in the categorical content term;
+it would not by itself establish speech-to-text symbol identification. No SAE experiment or target
+replacement has been launched; S3d retains the registered MFCC target and gate.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 
