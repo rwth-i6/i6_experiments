@@ -7,6 +7,8 @@ endpoint; `BatchTopKProbeJob.aghUh8TQoiem` completed its supervised held-out rea
 `config/sae_4b_audiosae_w2v2.py`; concrete artifacts are below. The predefined phonetic-discrimination
 criterion is met; improvement over normalized dense L15 is not met. Exact results, operating points
 and audit qualification are in "First-run result" below.
+The user's subsequent sparsity and features-per-phone request is answered by the audited descriptive
+analysis in "Sparsity and phone multiplicity"; it uses the same frozen outputs and changes no gate.
 
 No jobs or additional arms are pending within this first-run budget. The next experimental decision
 is whether to define a later acoustic-code usefulness comparison; this result does not establish
@@ -217,3 +219,54 @@ re-summed per-utterance scores, verified masks, speaker separation, checkpoint h
 the sign of every speaker's paired delta. Exact bootstrap percentile endpoints were read from the
 saved score file rather than independently regenerated; their side of zero follows independently
 from the per-speaker signs. CIs remain conditional on this one trained pair, as preregistered.
+
+## Sparsity and phone multiplicity (user request, 2026-09-17)
+
+These are descriptive summaries of the same fixed SAE and supervised phone mapping, computed by
+`analysis/sae_4b_sparsity_stats.py` from the three existing result files. Source hashes, exact numbers,
+all 40 phone rows and all 8,192 feature rows are in `reports/sae_4b_sparsity_2026-09-17/`
+(`summary.json`, `phones.csv`, `features.csv`, `phoneme_features.png` / `.pdf`). Execution and
+fresh-context audit: `reports/codex_4b_statistics_execution_2026-09-17.md` and
+`reports/codex_4b_statistics_audit_2026-09-17.md` (DONE). No model, label map or gate was changed.
+
+**Activation sparsity versus inactive features.** The raw-frame mean L0 reported above corresponds to
+0.61035% nonzero activation entries and **99.38965% zeros**. BatchTopK fixes the mean budget per group;
+it does not require every frame to have the same activity. Dictionary usage is uneven: on the full
+train pool, the median feature fires on 0.03799% of frames, the 90th percentile on 1.34492%, and the
+most frequent feature on 54.88968%. These are quantiles across features, not across frames. Only
+0.02441% of dictionary features are inactive on that final full-train read; inactivity on raw
+dev-other is 1.44043%. Sparse activation therefore differs from an unused dictionary.
+
+**Distinct dictionary features assigned to a phone.** A label requires strictly more than half of
+the feature's activated **aligned dev-clean frames** to carry that phone. The fitted naming total
+above consists of 2,729 speech-phone features and one SIL feature. Across all 39 speech phones,
+including zero counts, the mean is **69.97 features per phone**, median **25**, range **0–264**.
+There are assignments for 38 phones; ZH has none under this rule. The mean restricted to those 38
+phones is 71.82. Across all 40 labels including SIL, it is 68.25. The 5,462 unassigned features
+(66.67% of the dictionary) did not pass this naming rule; this does not establish absence of
+phonetic information in them.
+
+| Phone | Fixed dev-clean labels | Same label remains >50% on dev-other |
+| --- | ---: | ---: |
+| EH | 264 | 205 |
+| AH | 259 | 177 |
+| AE | 236 | 177 |
+| S | 95 | 62 |
+| CH | 3 | 2 |
+| G | 2 | 1 |
+| JH | 1 | 1 |
+| ZH | 0 | 0 |
+
+The held-out strict-majority criterion, applied to the **same fixed labels** with positive held-out
+support, retains 1,967 speech features: **50.44 per speech phone**, median 16, range 0–205. The SIL
+feature does not retain its majority. These are descriptive validation counts, without relabeling
+or model selection. Forty-nine fit-named features have no aligned held-out activation support.
+
+**How many matching features fire together?** On the 733,242 aligned nonsilence dev-other frames,
+1,391,643 activations bear the current gold phone's fixed label: **1.898 matching active features
+per frame**, averaged with frame weights. All features together contribute **52.525 active features
+per frame on this subset**; the raw all-frame mean has a different denominator. For example, S
+has 95 assigned dictionary features but only 3.611 matching features active on an average S frame;
+EH has 264 assigned features and 1.349 matching features per EH frame. Distinct dictionary counts
+and simultaneous activity answer different questions. Framewise activity quantiles and the fraction
+of frames with no active features are unavailable from the stored aggregates.
