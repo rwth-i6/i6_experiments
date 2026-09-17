@@ -80,17 +80,55 @@ def tts_oggzips() -> List[tk.Path]:
     ]
 
 
+def sub_epoch_dataset_no_filecache(
+    files: List[Any], *, base_opts: Dict[str, Any], multi_proc_dataset: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
+    """
+    ``tts_data._get_distribute_files_dataset_for_epoch`` minus the ``CachedFile`` wrapping.
+
+    Why we cannot use the original here (measured 2026-09-17, first launch died on it):
+    **JUPITER compute nodes have no local disk.** ``df`` on a running job shows only
+    ``LiveOS_rootfs 96G`` for ``/`` and ``/var/tmp`` (RAM-backed) plus a 239 G ``/dev/shm`` tmpfs, and
+    ``$TMPDIR`` is unset -- so RETURNN's ``FileCache`` default ``$TMPDIR/$USER/returnn/file_cache``
+    lands in ``/var/tmp`` and every cached byte costs node memory. The run filled it to **85.5 GB** and
+    died with ``We cannot free enough space``, because with 4 DDP ranks and no file sharding each rank
+    randomly picks its *own* 10 zips per sub-epoch: 4 x 10 x 1.8 GB + 16.2 GB of LS-960 ~= 88 GB, which
+    is what the cache reported.
+
+    Caching buys nothing here anyway: the winner's own training reads these very ogg zips straight off
+    the project filesystem -- its ``use_cache_manager: True`` logs ``Cache manager: Error occurred,
+    using local file`` on every rank -- and it trained at 1.16 h/epoch that way. So we read directly too,
+    at zero node-RAM cost, and keep the per-rank file randomisation.
+
+    Kept byte-for-byte from the original otherwise: same path concatenation order (LS first), same
+    ``AbstractPath`` resolution, same ``MultiProcDataset`` wrapping.
+    """
+    from sisyphus.job_path import AbstractPath
+    from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
+
+    opts = base_opts.copy()
+    assert opts["class"] == "OggZipDataset"
+    files = opts["path"] + files
+    files = [fn.get_path() if isinstance(fn, AbstractPath) else fn for fn in files]
+    assert all(isinstance(fn, str) for fn in files)
+    opts["path"] = files  # no CachedFile: see docstring
+
+    if multi_proc_dataset is not None:
+        opts = mp_ds_utils.multi_proc_dataset_opts(opts, **multi_proc_dataset)
+
+    return opts
+
+
 def _add_tts_to_asr_branch(combined: Dict[str, Any]) -> Dict[str, Any]:
     """
     Rewrite a ``CombinedDataset``'s ``asr`` sub-dataset into ``DistributeFilesDataset`` over the TTS zips,
     each sub-epoch building one ``OggZipDataset`` over ``[3 LS-960 zips] + [TTS_FILES_PER_SUBEPOCH TTS zips]``.
 
-    This reuses ``tts_data._get_distribute_files_dataset_for_epoch`` **by reference**, i.e. the very function
-    that built the old CTC's training data, so the per-sub-epoch dataset is assembled by code that has
-    already trained a model rather than by a second implementation of the same idea.
+    The per-sub-epoch builder is :func:`sub_epoch_dataset_no_filecache`, which is
+    ``tts_data._get_distribute_files_dataset_for_epoch`` minus the ``CachedFile`` wrapping -- see its
+    docstring for why the original cannot be used on JUPITER (no local disk; the first launch died
+    filling a RAM-backed ``/var/tmp``).
     """
-    from denoising_lm_2024.sis_recipe.tts_data import _get_distribute_files_dataset_for_epoch
-
     datasets = dict(combined["datasets"])
     asr = dict(datasets["asr"])
 
@@ -105,7 +143,8 @@ def _add_tts_to_asr_branch(combined: Dict[str, Any]) -> Dict[str, Any]:
     assert base_opts["class"] == "OggZipDataset", f"unexpected asr sub-dataset {base_opts['class']!r}"
 
     # The TTS zips store their audio under out.ogg/; content_name makes one OggZipDataset read both
-    # layouts. use_cache_manager is dropped because the DFD caches via CachedFile itself.
+    # layouts. use_cache_manager is dropped as in tts_data: on FZJ it only logs
+    # "Cache manager: Error occurred, using local file" anyway (the winner's own run does exactly that).
     base_opts = dict(base_opts)
     base_opts.pop("use_cache_manager", None)
     base_opts["content_name"] = "out.ogg"
@@ -114,7 +153,7 @@ def _add_tts_to_asr_branch(combined: Dict[str, Any]) -> Dict[str, Any]:
         "class": "DistributeFilesDataset",
         "files": tts_oggzips(),
         "get_sub_epoch_dataset": partial(
-            _get_distribute_files_dataset_for_epoch, base_opts=base_opts, multi_proc_dataset=mp_opts
+            sub_epoch_dataset_no_filecache, base_opts=base_opts, multi_proc_dataset=mp_opts
         ),
         "partition_epoch": NEP,
         "seq_ordering": "random",
