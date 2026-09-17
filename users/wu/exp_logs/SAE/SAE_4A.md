@@ -15,13 +15,16 @@ qualifications are under "S3c denoising result" below. Evidence:
 `reports/codex_4a_s3c_denoise_endpoint_audit_2026-09-17.md`.
 
 The fixed epoch-4/8 stored-hypothesis diagnostic is complete and independently audited below.
-Active: `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.LkSVqPhvffwL`, submitted as SLURM
-1847107 on 2026-09-17, pending at launch. Wrapper: `config/sae_4a_qneutral_diagnostic.py`.
-Compare the canonical cold control's epoch-4 reconstruction targets with the recognizer factor present
-versus neutralized, holding phi and LM fixed. Specification is below; launch/completion contract:
-`reports/codex_4a_qneutral_launch_2026-09-17.md`. Results will be in `output/profiles/` and
-`output/paired_comparison.{json,txt}` under that run. Next: audit paired phone-identity mass with rate,
-duration and boundary checks. This is a frozen-checkpoint target analysis; no new training is committed.
+Active: numerical validation of the fixed-checkpoint recognizer-factor diagnostic. The submitted run is
+`work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`; wrapper
+`config/sae_4a_qneutral_diagnostic.py`, SLURM 1847503, pending at launch. Launch/completion contract:
+`reports/codex_4a_qneutral_fp64_launch_2026-09-17.md`. The initial read
+`QNeutralDiagnosticJob.LkSVqPhvffwL` produced no valid paired result; preserved profiles and validity
+details are below. The repaired read first tests numerical equivalence, then compares the canonical cold
+control's epoch-4 reconstruction targets with the recognizer factor present versus neutralized at matched
+float64 lattice precision, holding phi and LM fixed. Next: verify the numerical witness and completed
+profiles, then audit paired phone-identity mass with rate, duration and boundary checks. This is a frozen-checkpoint
+target analysis; no new training is committed.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1683,8 +1686,32 @@ Actually training from neutral-q targets would change the objective and require 
 student loss. Verified equations and limits: `reports/codex_4a_qfactor_literature_2026-09-17.md`.
 The reviewed implementation and source fingerprints are recorded in
 `reports/codex_4a_qneutral_impl_2026-09-17.md`; pre-compute review:
-`reports/codex_4a_qneutral_code_review_2026-09-17.md`. The concrete run is linked in State; no diagnostic
-posterior result is yet available.
+`reports/codex_4a_qneutral_code_review_2026-09-17.md`.
+
+The initial normalized-uniform read is numerically invalid: across the same 300 utterances and 96,676
+frames, its posterior row sums range from 0.932070 to 1.039491, outside the preregistered 1±0.007 tolerance.
+The original-q pass ranges from 0.994061 to 1.002298 and reproduces the banked profile. Neither pass has
+NaN frames or zero-partition utterances. The paired contrast is withheld; these numbers diagnose
+evaluation validity, not the effect of removing q. Evidence:
+`reports/codex_4a_qneutral_debug_2026-09-17.md` and preserved `output/profiles/` under
+`QNeutralDiagnosticJob.LkSVqPhvffwL`. Numerical validation must preserve the posterior mathematics and
+tolerance, without post-hoc renormalization. The original one-node-hour diagnostic budget still applies.
+
+The reviewed correction keeps neural evaluation unchanged and promotes all floating lattice inputs to
+float64 for both diagnostic arms; the neutral input remains normalized uniform. Before the full profiles,
+the first failing existing batch supplies a numerical witness, selected only by probability conservation.
+Compare normalized and zero acoustic constants in float32 and float64, with the known partition shift
+restored. Both float64 variants must conserve mass and agree on posteriors, expected tokens and restored
+log partition to 1e-8; failure stops the read. These are engineering equivalence checks, not a new scientific
+gate. The original control is recomputed at the same precision and any difference from its banked float32
+profile is disclosed. Exact test order, checks and mathematical derivation:
+`reports/codex_4a_qneutral_numerical_design_2026-09-17.md`. The witness and two profiles share the
+remaining allocation, capped at 56 minutes after the initial 190 seconds of node usage.
+Implementation and source fingerprints: `reports/codex_4a_qneutral_fp64_impl_2026-09-17.md`;
+independent pre-compute review: `reports/codex_4a_qneutral_fp64_code_review_2026-09-17.md`.
+The new run preserves the failed predecessor and places its numerical witness in
+`output/profiles/numerical_witness.json`; only an accepted witness permits the two full profiles and
+`output/paired_comparison.{json,txt}`. Production numerical validity remains unmeasured.
 
 ## Artifacts
 

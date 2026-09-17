@@ -34,6 +34,11 @@ or latent phonetic information. Its arm-specific length/unigram-matched nulls ar
 five-draw SDs are not paired speaker confidence intervals. Audit and the narrowed earlier interpretation:
 `reports/codex_4a_s3c_hyp_inspect_audit_2026-09-17.md`, `SAE_4A.md` S3c result.
 
+The frozen-checkpoint recognizer-factor diagnostic requires valid posteriors and matched DP precision
+in both arms. Its numerical validity defect, correction and engineering checks are specified in
+`SAE_4A.md`, "Recognizer-factor diagnostic"; the banked float32 profile is provenance, not a substitute
+for the recomputed control.
+
 ## Approach
 
 **1. Wire the two side-inputs the live train step never passed.** `compose_reward` has implemented
