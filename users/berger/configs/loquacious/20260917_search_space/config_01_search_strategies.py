@@ -1,5 +1,5 @@
 """
-Table 2: WER and search RTF on Loquacious for BPE CTC, BPE transducer and phoneme
+Table II: WER and search RTF on Loquacious for BPE CTC, BPE transducer and phoneme
 transducer under lexicon-free and lexicon-constrained search with the word-level 4-gram LM.
 """
 

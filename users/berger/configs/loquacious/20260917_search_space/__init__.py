@@ -1,6 +1,6 @@
 """
-Loquacious experiments for "A Comparison of Search Spaces and Search Strategies for
-Attention-free ASR" (SLT 2026).
+Loquacious experiments for "A Systematic Comparison of Search Space Complexity and
+Efficiency for Time-Synchronous End-to-End ASR Models" (IEEE SLT 2026).
 
 Each `config_*` module collects the recognition calls behind one artifact of the paper; the
 module docstrings name the table or figure.

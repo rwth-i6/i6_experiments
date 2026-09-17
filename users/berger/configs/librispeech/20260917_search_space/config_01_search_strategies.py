@@ -1,5 +1,5 @@
 """
-Table 1: WER and search RTF on LibriSpeech for BPE CTC, phoneme CTC and BPE transducer
+Table I: WER and search RTF on LibriSpeech for BPE CTC, phoneme CTC and BPE transducer
 under lexicon-free and lexicon-constrained search with the different LM integrations.
 """
 

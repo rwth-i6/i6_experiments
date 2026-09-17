@@ -1,5 +1,5 @@
 """
-Table 5: WER, search errors and within-word hypothesis-count percentiles over the pruning
+Table V: WER, search errors and within-word hypothesis-count percentiles over the pruning
 parameters, for BPE transducer lexicon-constrained search with the word-level 4-gram LM on
 dev.all.
 """

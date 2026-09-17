@@ -1,9 +1,9 @@
 """
-LibriSpeech experiments for "A Comparison of Search Spaces and Search Strategies for
-Attention-free ASR" (SLT 2026).
+LibriSpeech experiments for "A Systematic Comparison of Search Space Complexity and
+Efficiency for Time-Synchronous End-to-End ASR Models" (IEEE SLT 2026).
 
 Each `config_*` module collects the recognition calls behind one artifact of the paper; the
-module docstrings name the table or figure. Table 6 and Figure 4 are on the in-house Spanish
+module docstrings name the table or figure. Table VI and Figure 4 are on the in-house Spanish
 telephony corpus and are therefore not part of this repository.
 
 The prerequisites live in `i6_experiments.users.berger.seq2seq_rasr_2025`.

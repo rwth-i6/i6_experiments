@@ -1,7 +1,7 @@
 """
-Tables 7 and 8: fixed vs. dynamic pruning broken down over the max beam size B_ASR, for the
-BPE transducer with the subword-level LSTM LM (Table 7) and the word-level Transformer LM
-(Table 8) on dev-other.
+Tables VII and VIII: fixed vs. dynamic pruning broken down over the max beam size B_ASR, for the
+BPE transducer with the subword-level LSTM LM (Table VII) and the word-level Transformer LM
+(Table VIII) on dev-other.
 """
 
 __all__ = ["run"]

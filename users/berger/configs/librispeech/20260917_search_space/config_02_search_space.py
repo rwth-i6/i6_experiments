@@ -1,6 +1,6 @@
 """
-Tables 3 and 4: WER, search errors and within-word hypothesis-count percentiles over the
-pruning parameters, for BPE CTC (Table 3) and BPE transducer (Table 4) lexicon-constrained
+Tables III and IV: WER, search errors and within-word hypothesis-count percentiles over the
+pruning parameters, for BPE CTC (Table III) and BPE transducer (Table IV) lexicon-constrained
 search with the word-level Transformer LM on dev-other.
 """
 

@@ -1,5 +1,5 @@
 """
-Table 9 (Loquacious rows) and Table 10: hypothesis-count and search-RTF reduction from
+Table IX (Loquacious rows) and Table X: hypothesis-count and search-RTF reduction from
 dynamic pruning, plus the tuned dynamic-pruning parameters, for all three Loquacious models
 on dev.all.
 """
