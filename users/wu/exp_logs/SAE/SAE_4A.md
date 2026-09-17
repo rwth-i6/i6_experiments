@@ -7,22 +7,22 @@ User clarification keeps work within §4a, without GANs or supervised-derived mo
 and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
 
 S3c in-cycle denoising is complete and CLOSED FAIL on its unchanged G4a.3 gate.
-Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`, SLURM 1843887;
-wrapper `config/sae_4a_s3c_denoise.py`. Eight checkpoints, all registered evaluation outputs and label-free
-selection are complete; both candidate and banked `lam3_tri` select epoch 4. Endpoint numbers and
-qualifications are under "S3c denoising result" below. Evidence:
-`reports/codex_4a_s3c_denoise_terminal_2026-09-17.md` and
-`reports/codex_4a_s3c_denoise_endpoint_audit_2026-09-17.md`.
+Run: `work/i6_core/returnn/training/ReturnnTrainingJob.K9bb4EWzhKCv`;
+wrapper `config/sae_4a_s3c_denoise.py`. Complete endpoint numbers, selection and audits are under
+"S3c denoising result" below.
 
 The stored-hypothesis and fixed-checkpoint recognizer-factor diagnostics are complete and independently
-audited below. The latter run is `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`,
-wrapper `config/sae_4a_qneutral_diagnostic.py`, SLURM 1847503. Its numerical witness and both matched
-float64 profiles pass; all registered outputs are present, scheduler drained and manager exited. Evidence:
-`reports/codex_4a_qneutral_fp64_terminal_2026-09-17.md` and
-`reports/codex_4a_qneutral_fp64_endpoint_audit_2026-09-17.md`. The initial invalid read remains preserved.
-Results and the qualified mechanism assessment are below; this read changes no take-off gate.
-Next: formulate a matched control separating the reverse channel's acoustic evidence from duration/LM
-and CTC path effects before selecting another cycle-training change. No new training is committed.
+audited below. The latter run is `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`;
+its initial invalid read is preserved. Results and limitations are under "Literal hypothesis inspection"
+and "Recognizer-factor result"; no take-off gate changes.
+
+S3d categorical phone-output content is prepared, with direction and implementation reviews passed.
+Candidate: `ReturnnTrainingJob.fDLNbtpqVnbG`, wrapper `config/sae_4a_s3d_phone_content.py`; not launched.
+Active preflight: `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS`, wrapper
+`config/sae_4a_cold_init_numerics.py`, SLURM 1848113; launch evidence:
+`reports/codex_4a_cold_init_numerics_launch_2026-09-17.md`. It compares actual cold-initial float32/64
+posteriors under the unchanged numerical criterion. Next: independently audit the result, then decide
+training readiness. A failed preflight requires resolving precision separately from the content treatment.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1651,6 +1651,119 @@ existing edit-alignment confusion matrix, then recomputes PER; it is fitted and 
 gold, not optimized globally over realigned sequences. Small gains establish only the performance of
 that fitted mapping, not absence of phonetic information or of another useful relabeling. The failed
 greedy-PER gates stand unchanged. This limitation is also recorded in `SAE_ref.md`.
+
+### Literal hypothesis inspection (2026-09-17)
+
+Read the same eight utterances (four shortest and four median by gold phone count, selected by the existing
+reader) across control/S3c and epochs 4/8: 32 actual hypothesis/reference pairs. In S3c epoch 8, gold
+`N OW` for `1686-142278-0068` gives `DH AH T ER Z DH`; two `Y EH S` items,
+`1686-142278-0041` and `4515-11057-0053`, give `DH AH T ER G OW DH` and
+`DH AH T ER Z G OW DH`. S3c epoch 4 repeatedly emits fragments such as `AH L IY` and `AH L ER`
+in the medium-length examples; control outputs also reuse fragments such as `B AA N TH`.
+
+These strings support recurring multi-phone fragments with utterance-specific variation and poor named
+phone identity. They do not establish coherent language, audio irrelevance, or duration-only templates.
+The four medium examples share 50 gold phones, not necessarily the same audio duration; their differing
+outputs do not settle the duration-only explanation. The fitted 1:1 mapping's limitations remain as stated
+above. Examples: `analysis/out/s3c_denoise_endpoint_2026-09-17/emc_hyp_inspect.*.dev-other.txt`, section 1;
+fresh qualitative audit: `reports/codex_4a_hypothesis_read_audit_2026-09-17.md`.
+
+The subsequent saved-output read covers all 2,864 dev-other items with exact acoustic frame counts from
+the common 50-Hz L15 feature HDF. It finds 485 repeated-duration groups, covering 2,645 utterances and
+8,530 unordered pairs. Each of the four endpoints has zero identical complete hypotheses among these
+pairs. Thus the saved outputs are not a single deterministic string per acoustic frame count; this does
+not exclude several stereotyped variants or establish phone-content sensitivity.
+
+S3c epoch 4 emits `AH L IY` 8,350 times across 2,526 utterances: 5.2726% of its 158,365 available
+trigram positions, versus 140/171,549 = 0.0816% in gold. `AH L ER` appears 4,344 times across 2,049
+utterances, versus 44 gold occurrences. The control also repeats fragments: its epoch-4 `EH R IY`
+occurs 2,014 times across 1,274 utterances, versus 196 in gold. These are overlapping within-utterance
+trigram counts with each stream's own denominator; no inferential interval or causal LM attribution is
+claimed. The result supports widespread recurring fragments with variation, beyond the initial examples.
+Full strings, deterministic duration-group examples and counts:
+`analysis/out/cold_pattern_read_2026-09-17/{summary.json,summary.txt}`; execution:
+`reports/codex_4a_pattern_read_exec_2026-09-17.md`; independent result/direction audit:
+`reports/codex_4a_pattern_s3d_direction_audit_2026-09-17.md`.
+
+### S3d preparation: categorical phone-output content
+
+Question: does requiring acoustic information to pass through the final categorical phone output improve
+cold learning, compared with the failed hidden-layer content auxiliary? This is a hypothesis test within
+the existing cycle. Core reconstruction already traverses q; the proposed difference is a direct acoustic
+code objective that does not obtain its targets from the co-trained reverse model or read hidden features.
+The literal output motifs motivate the question but do not establish its cause.
+
+Use the existing, fixed 50-Hz K64 MFCC cluster targets from S3b-CT, with no refitting or paired labels.
+For final 41-class CTC probabilities q_t and observed code c_t, add
+`L_phone_content = mean_valid_t sum_p q_t(p) * [-log R(c_t | p)]`.
+R is a categorical phone-to-code table, parameterized with a standard linear decoder on one-hot phone
+categories and row-wise code softmax. It receives no continuous q vector, hidden features, speaker vector
+or audio side input. Compute the expectation exactly; no sampling, straight-through estimator or Gumbel
+temperature is introduced. All 41 categories, including blank and SIL, contribute on all valid frames.
+There is no blank-conditioned normalization, gold mask or new rate term. Blank absorption and a private
+acoustic code remain possible; the original phone-error gate, rather than auxiliary success, decides take-off.
+
+The weight is the existing CT value 0.3, constant with no ramp. Replace the hidden content route with this
+route, retaining canonical `lam3_tri` for all other losses, data, batching, optimizer, seed, eight-subepoch
+schedule, dropout and trigram. Primary S3c masking, BT and entropy remain at canonical baseline settings.
+Use the existing content target pipeline; its K64/seed42/fit-set constants are reference inputs, not new
+tuning choices. Preserve baseline theta/phi initialization and RNG state when creating the extra decoder;
+its initialization uses the existing linear-layer default. The new loss updates q and R, with no direct
+gradient into phi. Defaults and all previously registered arms must remain unchanged.
+
+Measure the same full dev-other/dev-clean greedy PER and paired speaker intervals at epochs 4 and 8,
+against the banked canonical control; the existing hidden-CT arm is a secondary diagnostic reference.
+Keep the label-free checkpoint selector and G4a.3 unchanged: epoch-4 dev-other PER <0.50 and a positive
+own-phi speaker-matched derangement gap. Log expected code CE and code accuracy using the argmax phone
+category, alongside existing blank/rate metrics. These establish only acoustic code information, never
+named-phone success, and must not select mainline hyperparameters or checkpoints using gold.
+
+Preparation requires an independent direction audit, review of the exact implementation/config delta,
+proof that the auxiliary gradient reaches the final phone convolution and R, common-parameter/RNG
+equality with baseline, and a full graph with only the intended new work. A numerical preflight must
+check the real cold-initialized lattice before training, given the earlier uniform-input float32 defect;
+it may not normalize posteriors or relax the existing 0.007 conservation tolerance. Any required change
+to core numerical computation must be separated from the content intervention before a result is read.
+The planned single-arm resource envelope is the existing one-GPU/16-CPU/64-GB/6-hour/96-GB-GPU-memory
+reference, with the same exclusive-node policy; no grid or new training allocation is committed yet.
+
+Code evidence: `reports/codex_4a_cycle_coverage_code_2026-09-17.md`. Verified literature and limitations:
+`reports/codex_4a_template_literature_2026-09-17.md`; [Chorowski et al., TASLP 2019](https://arxiv.org/pdf/1901.08810)
+supports discrete speech bottlenecks carrying phonetic information, but its phone accuracy used a gold-fitted
+mapping. [HuBERT](https://arxiv.org/pdf/2106.07447) and [BEST-RQ](https://proceedings.mlr.press/v162/chiu22a/chiu22a.pdf)
+support acoustic-code prediction as representation learning, with labeled ASR fine-tuning. None evaluates
+this expected categorical loss or establishes cold recovery of the intended phone names.
+Independent direction audit found the single-arm contrast coherent, with the above private-code, blank
+and numerical-validity limits: `reports/codex_4a_pattern_s3d_direction_audit_2026-09-17.md`.
+The prepared candidate is `work/i6_core/returnn/training/ReturnnTrainingJob.fDLNbtpqVnbG`, wrapper
+`config/sae_4a_s3d_phone_content.py`, with 134 intended output roots. Independent implementation review
+confirmed the stated delta and exact common-parameter/RNG equality under the actual canonical Engine
+initialization and flat checkpoint: `reports/codex_4a_s3d_phone_content_review_2026-09-17.md`.
+Implementation evidence: `reports/codex_4a_s3d_phone_content_impl_2026-09-17.md`; recipe commit
+`39675aa7fe09765361454f97fb212e1dec910bb6`. No training result exists.
+
+**Cold-initialization numerical preflight (specified before execution).** Initialize the canonical
+`PackedEmcTrainJob.byYMQmBNEpLZ/output/lam3_tri/returnn.config` through RETURNN's
+`Engine._create_model(epoch=1, step=0)`: its default seed is 42, and its saved flat-recognizer initialization
+is retained; no trained epoch checkpoint is loaded. Use clean/eval mode, epoch-1 tau=8 and alpha=0.
+Reuse the completed recognizer-factor diagnostic's deterministic 300-utterance dev-other selection,
+96,676 frames, three batches, max_seqs=128 and padded-frame limit 88,000. Gold/MFA only reproduce that
+reader's membership, with no phone scoring or training target derived from them. No MFCC labels are needed.
+Compute q and reverse segment scores once and compare native float32 DP with float64 promotion of those
+same DP inputs, including the prior. Preserve the complete trigram, eta, durations, band and implementation
+settings; do not neutralize q, change offsets or renormalize posteriors. Both precisions must have finite
+log partitions and finite valid posterior rows within the existing 0.007 conservation tolerance. Report
+all batch shapes, row errors, raw precision differences and actual initial q flatness; introduce no new
+cross-precision closeness threshold. This checks the initial clean forward only, not the full training
+trajectory or the auxiliary loss. A failure blocks the content-arm launch until numerical validity is
+resolved separately from the intervention. It uses the remaining original diagnostic envelope: 3,164
+exclusive-node seconds after the two completed attempts, with a 52-minute job limit. Source/seed trace:
+`reports/codex_4a_cold_numerical_preflight_scope_2026-09-17.md`.
+Submitted as `ColdInitNumericsJob.h6DXjOs9sKQS`, SLURM 1848113, with only two result roots:
+`output/cold_init_numerics.{json,txt}`. Code review and source fingerprints:
+`reports/codex_4a_cold_init_numerics_review_2026-09-17.md`; launch and resource verification:
+`reports/codex_4a_cold_init_numerics_launch_2026-09-17.md`. A complete diagnostic can report numerical
+FAIL; that is a result to audit, not a reason to discard outputs or retry unchanged.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 
