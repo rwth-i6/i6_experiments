@@ -1760,6 +1760,17 @@ def py():
         num_sub_states=1,
         name="gauss-hmm-mono1g-tdpnorm-mfa-edgesilinit3-1state-ls960",
     )
+    # v5 with all pronunciation variants of every word in the FSA (AZ, 2026-09-17: one random variant per
+    # word, as the PhoneSeqGenerator gives, is not proper; the lattice renormalizes the variants per word).
+    # 0.8% of the lexicon's lemmas have variants, so a small change is expected.
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        edge_silence_init_epochs=3,
+        silence_num_sub_states=3,
+        pron_variants=True,
+        name="gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960",
+    )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     for _abl_name, _abl_kwargs in [

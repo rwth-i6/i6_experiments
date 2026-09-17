@@ -55,8 +55,13 @@ class GaussHmm(rf.Module):
         tdp: Optional[Dict[str, float]] = None,
         edge_silence_init_epochs: int = 0,
         silence_num_sub_states: int = 1,
+        pron_variants: bool = False,
     ):
         """
+        :param pron_variants: the FSA holds all pronunciation variants of every word as parallel paths
+            (:func:`build_lattice_fsa`, variant probabilities renormalized per word), built from the
+            transcript (``classes``) via the lexicon. False (the first runs): one variant per word,
+            drawn at random by the dataset's PhoneSeqGenerator (``phonemes`` stream).
         :param silence_num_sub_states: sub-states (minimum duration in frames) of the silence unit, <= num_sub_states.
             With a single state, silence is attractive for isolated low-energy frames anywhere and drifts into a
             broad garbage state; Kaldi/RASR give silence 3-5 states.
@@ -85,6 +90,7 @@ class GaussHmm(rf.Module):
         self.edge_silence_init_epochs = edge_silence_init_epochs
         assert 1 <= silence_num_sub_states <= num_sub_states, (silence_num_sub_states, num_sub_states)
         self.silence_num_sub_states = silence_num_sub_states
+        self.pron_variants = pron_variants
         self.state_dim = Dim(phone_dim.dimension * num_sub_states, name="hmm_states")
         self.mean = rf.Parameter([self.state_dim, feat_dim])
         self.mean.initial = 0.0
@@ -131,6 +137,7 @@ def gauss_hmm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> GaussHmm
         tdp=config.typed_value("gauss_hmm_tdp", None),
         edge_silence_init_epochs=config.int("gauss_hmm_edge_silence_init_epochs", 0),
         silence_num_sub_states=config.int("gauss_hmm_silence_num_sub_states", 1),
+        pron_variants=config.bool("gauss_hmm_pron_variants", False),
     )
 
 
@@ -228,6 +235,149 @@ def build_chain_fsa(
     return edges_np, weights_np, start_end, state_off
 
 
+def build_lattice_fsa(
+    seq_words: List[List[List[Tuple[List[int], float]]]],
+    *,
+    silence_idx: int,
+    num_sub_states: int,
+    silence_num_sub_states: int = 1,
+    mandatory_edge_silence: bool = False,
+    tdp: Optional[Dict[str, float]] = None,
+) -> Tuple[Any, Any, Any, int]:
+    """
+    Like :func:`build_chain_fsa`, but every word is a set of parallel pronunciation variants
+    (a lattice), with an optional silence before every word and at the end.
+
+    Per state the outgoing mass stays 1: the forward mass splits into silence / no silence as in
+    :func:`_tdp_edge_costs`, and the no-silence part over the variants of the next word by their
+    (renormalized) probabilities, carried as the cost of the edges entering a variant.
+
+    :param seq_words: per seq, per word, the variants as (phone ids, cost = -log p(variant))
+    :return: as :func:`build_chain_fsa`
+    """
+    import numpy as np
+
+    c = _tdp_edge_costs(tdp)
+    edges: List[Tuple[int, int, int, int]] = []
+    weights: List[float] = []
+    starts = []
+    ends = []
+    state_off = 0
+    for b, words in enumerate(seq_words):
+        assert words, f"seq {b}: no words"
+        s0 = state_off
+        next_state = s0 + 1
+
+        def new_chain(unit: int, n_sub: int) -> Tuple[int, int, int]:
+            """states of one unit with loop / advance edges; returns (first state, last state, last emission)"""
+            nonlocal next_state
+            first = next_state
+            next_state += n_sub
+            k = "sil" if unit == silence_idx else "sp"
+            for j in range(n_sub):
+                s = first + j
+                e = unit * num_sub_states + j
+                edges.append((s, s, e, b))
+                weights.append(c[f"{k}_loop"])
+                if j + 1 < n_sub:
+                    edges.append((s, s + 1, e, b))
+                    weights.append(c[f"{k}_fwd"])
+            return first, first + n_sub - 1, unit * num_sub_states + n_sub - 1
+
+        # states that can lead into the next word: (state, emission of that state, kind); kind "start" = s0
+        exits: List[Tuple[int, int, str]] = [(s0, -1, "start")]
+        for wi, variants in enumerate(words):
+            edge = "_edge" if wi == 0 else ""  # a leading silence is an utterance edge
+            sil_first, sil_last, sil_emit = new_chain(silence_idx, silence_num_sub_states)
+            for s, e, kind in exits:
+                if kind == "start":
+                    edges.append((s, sil_first, silence_idx * num_sub_states, b))
+                    weights.append(c["start_to_sil"])
+                else:
+                    edges.append((s, sil_first, e, b))
+                    weights.append(c[f"{kind}_fwd_to_sil{edge}"])
+            new_exits = []
+            for phones, v_cost in variants:
+                assert phones, f"seq {b} word {wi}: empty pronunciation"
+                first = last = last_emit = None
+                for p in phones:
+                    p_first, p_last, p_emit = new_chain(int(p), num_sub_states)
+                    if first is None:
+                        first = p_first
+                    else:
+                        edges.append((last, p_first, last_emit, b))
+                        weights.append(c["sp_fwd"])
+                    last, last_emit = p_last, p_emit
+                first_emit = int(phones[0]) * num_sub_states
+                for s, e, kind in exits:
+                    if kind == "start":
+                        if mandatory_edge_silence:
+                            continue
+                        edges.append((s, first, first_emit, b))
+                        weights.append(c["start_skip_sil"] + v_cost)
+                    else:
+                        edges.append((s, first, e, b))
+                        weights.append(c[f"{kind}_fwd_skip_sil{edge}"] + v_cost)
+                edges.append((sil_last, first, sil_emit, b))
+                weights.append(c["sil_fwd"] + v_cost)
+                new_exits.append((last, last_emit, "sp"))
+            exits = new_exits
+        final = next_state
+        next_state += 1
+        sil_first, sil_last, sil_emit = new_chain(silence_idx, silence_num_sub_states)
+        for s, e, kind in exits:
+            edges.append((s, sil_first, e, b))
+            weights.append(c[f"{kind}_fwd_to_sil_edge"])
+            if not mandatory_edge_silence:
+                edges.append((s, final, e, b))
+                weights.append(c[f"{kind}_fwd_skip_sil_edge"])
+        edges.append((sil_last, final, sil_emit, b))
+        weights.append(c["sil_fwd"])
+        starts.append(s0)
+        ends.append(final)
+        state_off = next_state
+    edges_np = np.array(edges, dtype=np.int32).T  # [4, E]
+    weights_np = np.array(weights, dtype=np.float32)
+    start_end = np.array([starts, ends], dtype=np.int32)
+    return edges_np, weights_np, start_end, state_off
+
+
+def lexicon_word_variants(orth: str) -> List[List[Tuple[List[int], float]]]:
+    """
+    The pronunciation variants of every word of a transcript, for :func:`build_lattice_fsa`:
+    per word (tokenized as PhoneSeqGenerator does) the variants as (phone ids, cost = -log p),
+    p = the lexicon weights exp(-score) renormalized per word (uniform for the glow-tts lexicon).
+    """
+    seq_gen = _get_phone_seq_gen()
+    words: List[List[Tuple[List[int], float]]] = []
+    symbols = list(orth.split())
+    i = 0
+    while i < len(symbols):
+        symbol = symbols[i]
+        try:
+            lemma = seq_gen.lexicon.lemmas[symbol]
+        except KeyError:
+            if "/" in symbol:
+                symbols[i : i + 1] = symbol.split("/")
+                continue
+            if "-" in symbol:
+                symbols[i : i + 1] = symbol.split("-")
+                continue
+            raise
+        i += 1
+        weight_by_phon: Dict[str, float] = {}
+        for p in lemma["phons"]:
+            weight_by_phon[p["phon"]] = weight_by_phon.get(p["phon"], 0.0) + math.exp(-p["score"])
+        total = sum(weight_by_phon.values())
+        words.append(
+            [
+                ([seq_gen.phoneme_vocab.label_to_id(ph) for ph in phon.split()], -math.log(w / total))
+                for phon, w in weight_by_phon.items()
+            ]
+        )
+    return words
+
+
 def _tdp_edge_costs(tdp: Optional[Dict[str, float]]) -> Dict[str, float]:
     """
     The per-edge-type costs (-log) of a ``tdp`` spec, see :func:`build_chain_fsa`.
@@ -279,24 +429,42 @@ def _tdp_edge_costs(tdp: Optional[Dict[str, float]]) -> Dict[str, float]:
     }
 
 
-def _fsa_for_batch(model: GaussHmm, phonemes: Tensor, phon_spatial_dim: Dim, batch_dim_: Dim, device):
-    """FastBaumWelch inputs on ``device`` for the batch of phoneme sequences"""
+def _fsa_for_batch(
+    model: GaussHmm,
+    phonemes: Tensor,
+    phon_spatial_dim: Dim,
+    batch_dim_: Dim,
+    device,
+    orths: Optional[List[str]] = None,
+):
+    """FastBaumWelch inputs on ``device`` for the batch of phoneme sequences (or transcripts, ``pron_variants``)"""
     import torch
 
-    units = phonemes.copy_compatible_to_dims_raw([batch_dim_, phon_spatial_dim]).cpu().numpy()
-    lens = phon_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim_]).cpu().numpy()
     edge_silence = model.mandatory_edge_silence
     if model.edge_silence_init_epochs and rf.get_run_ctx().train_flag:
         edge_silence = edge_silence or int(rf.get_run_ctx().epoch) <= model.edge_silence_init_epochs
-    edges, weights, start_end, n_states = build_chain_fsa(
-        units,
-        lens,
-        silence_idx=model.silence_idx,
-        num_sub_states=model.num_sub_states,
-        mandatory_edge_silence=edge_silence,
-        tdp=model.tdp,
-        silence_num_sub_states=model.silence_num_sub_states,
-    )
+    if model.pron_variants:
+        assert orths is not None, "pron_variants needs the transcripts (classes)"
+        edges, weights, start_end, n_states = build_lattice_fsa(
+            [lexicon_word_variants(orth) for orth in orths],
+            silence_idx=model.silence_idx,
+            num_sub_states=model.num_sub_states,
+            silence_num_sub_states=model.silence_num_sub_states,
+            mandatory_edge_silence=edge_silence,
+            tdp=model.tdp,
+        )
+    else:
+        units = phonemes.copy_compatible_to_dims_raw([batch_dim_, phon_spatial_dim]).cpu().numpy()
+        lens = phon_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim_]).cpu().numpy()
+        edges, weights, start_end, n_states = build_chain_fsa(
+            units,
+            lens,
+            silence_idx=model.silence_idx,
+            num_sub_states=model.num_sub_states,
+            mandatory_edge_silence=edge_silence,
+            tdp=model.tdp,
+            silence_num_sub_states=model.silence_num_sub_states,
+        )
     return (
         torch.from_numpy(edges).to(device),
         torch.from_numpy(weights).to(device),
@@ -316,7 +484,12 @@ def _log_emission_time_major(model: GaussHmm, log_em: Tensor, time_dim: Dim, bat
 
 
 def gauss_hmm_full_sum_loss(
-    model: GaussHmm, log_em: Tensor, time_dim: Dim, phonemes: Tensor, phon_spatial_dim: Dim
+    model: GaussHmm,
+    log_em: Tensor,
+    time_dim: Dim,
+    phonemes: Tensor,
+    phon_spatial_dim: Dim,
+    orths: Optional[List[str]] = None,
 ) -> Tensor:
     """
     :return: -log p(x | phoneme chain) per seq, [B], differentiable w.r.t. the emissions
@@ -326,14 +499,21 @@ def gauss_hmm_full_sum_loss(
 
     (batch_dim_,) = log_em.remaining_dims((time_dim, model.state_dim))
     raw, seq_lens = _log_emission_time_major(model, log_em, time_dim, batch_dim_)
-    edges, weights, start_end, n_states = _fsa_for_batch(model, phonemes, phon_spatial_dim, batch_dim_, raw.device)
+    edges, weights, start_end, n_states = _fsa_for_batch(
+        model, phonemes, phon_spatial_dim, batch_dim_, raw.device, orths=orths
+    )
     seq_mask = sequence_mask_time_major(seq_lens)  # (T, B)
     loss = _FastBaumWelchScoresAutogradFunc.apply(raw, False, seq_mask, edges, weights, start_end, n_states)
     return rf.convert_to_tensor(loss, dims=[batch_dim_], name="fullsum")
 
 
 def gauss_hmm_viterbi(
-    model: GaussHmm, log_em: Tensor, time_dim: Dim, phonemes: Tensor, phon_spatial_dim: Dim
+    model: GaussHmm,
+    log_em: Tensor,
+    time_dim: Dim,
+    phonemes: Tensor,
+    phon_spatial_dim: Dim,
+    orths: Optional[List[str]] = None,
 ) -> Tuple[Tensor, Tensor]:
     """
     :return: best-path state per frame [B, T] (sparse state_dim; padding frames 0), path score [B] (+log)
@@ -342,7 +522,9 @@ def gauss_hmm_viterbi(
 
     (batch_dim_,) = log_em.remaining_dims((time_dim, model.state_dim))
     raw, seq_lens = _log_emission_time_major(model, log_em, time_dim, batch_dim_)
-    edges, weights, start_end, _ = _fsa_for_batch(model, phonemes, phon_spatial_dim, batch_dim_, raw.device)
+    edges, weights, start_end, _ = _fsa_for_batch(
+        model, phonemes, phon_spatial_dim, batch_dim_, raw.device, orths=orths
+    )
     alignment, scores = fast_viterbi(
         am_scores=raw, am_seq_len=seq_lens, edges=edges, weights=weights, start_end_states=start_end, mask_idx=0
     )
@@ -364,10 +546,21 @@ def _features_and_log_emission(model: GaussHmm, extern_data) -> Tuple[Tensor, Di
     return log_em, time_dim, phonemes, phonemes.get_time_dim_tag()
 
 
+def _orths_from_extern_data(extern_data) -> List[str]:
+    """the transcripts of the batch (``classes``, utf8 bytes)"""
+    t = extern_data["classes"]
+    time_dim = t.get_time_dim_tag()
+    (batch_dim_,) = t.remaining_dims(time_dim)
+    raw = t.copy_compatible_to_dims_raw([batch_dim_, time_dim]).cpu().numpy()
+    lens = time_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim_]).cpu().numpy()
+    return [bytes(raw[b, : int(lens[b])].astype("uint8").tolist()).decode("utf8") for b in range(raw.shape[0])]
+
+
 def gauss_hmm_train_step(*, model: GaussHmm, extern_data, **_kwargs_unused):
     """RETURNN train_step: full-sum loss, normalized per frame"""
     log_em, time_dim, phonemes, phon_spatial_dim = _features_and_log_emission(model, extern_data)
-    loss = gauss_hmm_full_sum_loss(model, log_em, time_dim, phonemes, phon_spatial_dim)
+    orths = _orths_from_extern_data(extern_data) if model.pron_variants else None
+    loss = gauss_hmm_full_sum_loss(model, log_em, time_dim, phonemes, phon_spatial_dim, orths=orths)
     rf.get_run_ctx().mark_as_loss(
         loss, "fullsum", custom_inv_norm_factor=time_dim.get_size_tensor(), use_normalized_loss=True
     )
@@ -379,7 +572,8 @@ def gauss_hmm_align_forward_step(*, model: GaussHmm, extern_data, **_kwargs_unus
     (Only that: forward_to_hdf's HDF writer cannot take a sparse extra output with a vocab.)
     """
     log_em, time_dim, phonemes, phon_spatial_dim = _features_and_log_emission(model, extern_data)
-    align, _ = gauss_hmm_viterbi(model, log_em, time_dim, phonemes, phon_spatial_dim)
+    orths = _orths_from_extern_data(extern_data) if model.pron_variants else None
+    align, _ = gauss_hmm_viterbi(model, log_em, time_dim, phonemes, phon_spatial_dim, orths=orths)
     (batch_dim_,) = align.remaining_dims(time_dim)
     # the config's model_outputs dims are templates; bind them to the actual feature time dim and
     # state dim (mark_as_output compares the dims by identity)
@@ -392,21 +586,31 @@ def gauss_hmm_align_forward_step(*, model: GaussHmm, extern_data, **_kwargs_unus
 _phone_seq_gen_cache = None
 
 
-def gauss_hmm_map_seq(seq, *, phon_dim: Dim, **_kwargs):
-    """
-    PostprocessingDataset map_seq: the raw utf8 transcript bytes (``classes``) -> phoneme chain,
-    deterministic (config ``gauss_hmm_phone_info``), audio passed through.
-    """
-    import numpy as np
-    from returnn.tensor import TensorDict
+def _get_phone_seq_gen():
+    """the process-wide PhoneSeqGenerator of config ``gauss_hmm_phone_info`` (lexicon + phoneme vocab)"""
     from returnn.config import get_global_config
     from returnn.datasets.lm import PhoneSeqGenerator
 
     global _phone_seq_gen_cache
     if _phone_seq_gen_cache is None:
         _phone_seq_gen_cache = PhoneSeqGenerator(**get_global_config().typed_value("gauss_hmm_phone_info"))
-    seq_gen = _phone_seq_gen_cache
-    orth = bytes(np.asarray(seq["classes"].raw_tensor).astype("uint8").tolist()).decode("utf8")
+    return _phone_seq_gen_cache
+
+
+def gauss_hmm_map_seq(seq, *, phon_dim: Dim, with_orth: bool = False, **_kwargs):
+    """
+    PostprocessingDataset map_seq: the raw utf8 transcript bytes (``classes``) -> phoneme chain,
+    silence at every word boundary, one pronunciation per word drawn at random
+    (config ``gauss_hmm_phone_info``), audio passed through.
+
+    :param with_orth: also pass the transcript bytes through (``classes``, int32), for ``pron_variants``
+    """
+    import numpy as np
+    from returnn.tensor import TensorDict
+
+    seq_gen = _get_phone_seq_gen()
+    orth_bytes = np.asarray(seq["classes"].raw_tensor).astype("uint8")
+    orth = bytes(orth_bytes.tolist()).decode("utf8")
     phon_ids = seq_gen.seq_to_class_idxs(seq_gen.generate_seq(orth), dtype="int32")
 
     out = TensorDict()
@@ -414,6 +618,14 @@ def gauss_hmm_map_seq(seq, *, phon_dim: Dim, **_kwargs):
     out.data[PHONEMES_DATA_KEY] = Tensor(
         PHONEMES_DATA_KEY, dims=[Dim(None, name="phon_seq")], dtype="int32", sparse_dim=phon_dim, raw_tensor=phon_ids
     )
+    if with_orth:
+        out.data["classes"] = Tensor(
+            "classes",
+            dims=[Dim(None, name="orth")],
+            dtype="int32",
+            sparse_dim=Dim(256, name="utf8"),
+            raw_tensor=orth_bytes.astype("int32"),
+        )
     return out
 
 
@@ -456,17 +668,24 @@ def _ls_ogg_zip(parts, *, training: bool, partition_epoch: Optional[int] = None,
     return d
 
 
-def _with_phonemes(ogg_zip: Dict[str, Any], phon_dim: Dim) -> Dict[str, Any]:
+def _with_phonemes(ogg_zip: Dict[str, Any], phon_dim: Dim, *, with_orth: bool = False) -> Dict[str, Any]:
     from returnn.tensor import Dim as _Dim
 
     return {
         "class": "PostprocessingDataset",
         "seq_ordering": "default",
         "dataset": ogg_zip,
-        "map_seq": functools.partial(gauss_hmm_map_seq, phon_dim=phon_dim),
+        "map_seq": functools.partial(
+            gauss_hmm_map_seq, phon_dim=phon_dim, **({"with_orth": True} if with_orth else {})
+        ),
         "map_outputs": {
             "data": {"dims": [_Dim(None, name="time"), _Dim(1, name="audio")], "dtype": "float32"},
             PHONEMES_DATA_KEY: {"dims": [_Dim(None, name="phon_seq")], "sparse_dim": phon_dim, "dtype": "int32"},
+            **(
+                {"classes": {"dims": [_Dim(None, name="orth")], "sparse_dim": _Dim(256, name="utf8"), "dtype": "int32"}}
+                if with_orth
+                else {}
+            ),
         },
     }
 
@@ -474,8 +693,9 @@ def _with_phonemes(ogg_zip: Dict[str, Any], phon_dim: Dim) -> Dict[str, Any]:
 _LS_TRAIN_PARTS = ("train-clean-100", "train-clean-360", "train-other-500")
 
 
-def get_gauss_hmm_ls_datasets(*, train_epoch_split: int = 10, eval_subset: int = 3000):
+def get_gauss_hmm_ls_datasets(*, train_epoch_split: int = 10, eval_subset: int = 3000, with_orth: bool = False):
     """
+    :param with_orth: also provide the transcripts (``classes``), for ``pron_variants``
     :return: (train dataset config with dev/devtrain, alignment dataset config = the full train set once)
     """
     from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
@@ -486,24 +706,34 @@ def get_gauss_hmm_ls_datasets(*, train_epoch_split: int = 10, eval_subset: int =
     extern_data = {
         "data": {"dim_tags": [batch_dim, Dim(None, name="time", kind=Dim.Types.Spatial), Dim(1, name="audio")]},
         PHONEMES_DATA_KEY: phon_extern,
+        **(
+            {
+                "classes": {
+                    "dim_tags": [batch_dim, Dim(None, name="orth", kind=Dim.Types.Spatial)],
+                    "sparse_dim": Dim(256, name="utf8"),
+                    "dtype": "int32",
+                }
+            }
+            if with_orth
+            else {}
+        ),
     }
+    wp = functools.partial(_with_phonemes, phon_dim=phon_dim, with_orth=with_orth)
     train = DatasetConfigStatic(
         main_name="LS train-960 + phoneme chains",
-        train_dataset=_with_phonemes(
-            _ls_ogg_zip(_LS_TRAIN_PARTS, training=True, partition_epoch=train_epoch_split), phon_dim
-        ),
+        train_dataset=wp(_ls_ogg_zip(_LS_TRAIN_PARTS, training=True, partition_epoch=train_epoch_split)),
         default_input="data",
         default_target=PHONEMES_DATA_KEY,
         extern_data=extern_data,
         eval_datasets={
-            "dev": _with_phonemes(_ls_ogg_zip(("dev-other",), training=False, subset=eval_subset), phon_dim),
-            "devtrain": _with_phonemes(_ls_ogg_zip(_LS_TRAIN_PARTS, training=False, subset=eval_subset), phon_dim),
+            "dev": wp(_ls_ogg_zip(("dev-other",), training=False, subset=eval_subset)),
+            "devtrain": wp(_ls_ogg_zip(_LS_TRAIN_PARTS, training=False, subset=eval_subset)),
         },
         use_deep_copy=True,
     )
     align = DatasetConfigStatic(
         main_name="train",
-        main_dataset=_with_phonemes(_ls_ogg_zip(_LS_TRAIN_PARTS, training=False), phon_dim),
+        main_dataset=wp(_ls_ogg_zip(_LS_TRAIN_PARTS, training=False)),
         default_input="data",
         default_target=PHONEMES_DATA_KEY,
         extern_data=extern_data,
@@ -640,6 +870,7 @@ def gauss_hmm_ls960(
     edge_silence_init_epochs: int = 0,
     silence_num_sub_states: int = 1,
     num_sub_states: int = 3,
+    pron_variants: bool = False,
     name: str = "gauss-hmm-mono1g-ls960",
 ) -> GaussHmmTablesJob:
     """
@@ -651,13 +882,15 @@ def gauss_hmm_ls960(
     :param edge_silence_init_epochs: see :class:`GaussHmm`; 0 keeps the hash of the first run
     :param silence_num_sub_states: see :class:`GaussHmm`; 1 keeps the hash of the first run
     :param num_sub_states: see :class:`GaussHmm`; 3 keeps the hash of the first run
+    :param pron_variants: see :class:`GaussHmm`; False keeps the hash of the first run
+        (True adds the transcripts to the datasets)
     """
     from i6_experiments.users.zeyer.train_v4 import train
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
     from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_phoneme_vocab
     from i6_experiments.users.zeyer import tools_paths
 
-    train_ds, align_ds = get_gauss_hmm_ls_datasets(train_epoch_split=10)
+    train_ds, align_ds = get_gauss_hmm_ls_datasets(train_epoch_split=10, with_orth=pron_variants)
     n_ep = 20  # two passes over train-960
     common = {
         "gauss_hmm_phone_info": get_gauss_hmm_phone_info(lexicon),
@@ -667,6 +900,7 @@ def gauss_hmm_ls960(
         **({"gauss_hmm_edge_silence_init_epochs": edge_silence_init_epochs} if edge_silence_init_epochs else {}),
         **({"gauss_hmm_silence_num_sub_states": silence_num_sub_states} if silence_num_sub_states != 1 else {}),
         **({"gauss_hmm_num_sub_states": num_sub_states} if num_sub_states != 3 else {}),
+        **({"gauss_hmm_pron_variants": True} if pron_variants else {}),
     }
     exp = train(
         f"{prefix}/{name}",
