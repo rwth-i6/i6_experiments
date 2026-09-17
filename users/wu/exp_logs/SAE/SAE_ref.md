@@ -39,6 +39,13 @@ in both arms. Its numerical validity defect, correction and engineering checks a
 `SAE_4A.md`, "Recognizer-factor diagnostic"; the banked float32 profile is provenance, not a substitute
 for the recomputed control.
 
+**Cold-initial numerical validity (2026-09-17):** the canonical float32 lattice also violates its existing
+posterior-conservation tolerance at the actual flat initialization, in the clean/eval epoch-1 read.
+Promoting identical DP inputs to float64 passes that read. The measured conditions, gate failure and audit
+are in `SAE_4A.md`, "Cold-initialization numerical result". This does not establish the cause of banked
+PER results or validate a training repair. Validate the complete loss/backward path before new training;
+any content-treatment comparison after repair must use a control with the same numerical computation.
+
 ## Approach
 
 **1. Wire the two side-inputs the live train step never passed.** `compose_reward` has implemented

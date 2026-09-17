@@ -18,11 +18,14 @@ and "Recognizer-factor result"; no take-off gate changes.
 
 S3d categorical phone-output content is prepared, with direction and implementation reviews passed.
 Candidate: `ReturnnTrainingJob.fDLNbtpqVnbG`, wrapper `config/sae_4a_s3d_phone_content.py`; not launched.
-Active preflight: `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS`, wrapper
-`config/sae_4a_cold_init_numerics.py`, SLURM 1848113; launch evidence:
-`reports/codex_4a_cold_init_numerics_launch_2026-09-17.md`. It compares actual cold-initial float32/64
-posteriors under the unchanged numerical criterion. Next: independently audit the result, then decide
-training readiness. A failed preflight requires resolving precision separately from the content treatment.
+The cold-initial preflight `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS`
+completed and FAILED its numerical criterion: float32 violates conservation; matched float64 passes.
+The independently audited operating point and limitations are under "Cold-initialization numerical result".
+S3d is held. The DP-only float64 repair is implemented and reviewed. Active validation:
+`work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f`, wrapper
+`config/sae_4a_dp64_train_step.py`, SLURM 1848370. It executes paired first-batch forward/backward
+without an optimizer update. Next: verify completion and independently audit the result before planning
+training with matched numerical computation. Scientific FAIL is retained evidence, not an automatic retry.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1764,6 +1767,67 @@ Submitted as `ColdInitNumericsJob.h6DXjOs9sKQS`, SLURM 1848113, with only two re
 `reports/codex_4a_cold_init_numerics_review_2026-09-17.md`; launch and resource verification:
 `reports/codex_4a_cold_init_numerics_launch_2026-09-17.md`. A complete diagnostic can report numerical
 FAIL; that is a result to audit, not a reason to discard outputs or retry unchanged.
+
+### Cold-initialization numerical result (audited 2026-09-17)
+
+`ColdInitNumericsJob.h6DXjOs9sKQS`, SLURM 1848113, completed both outputs and all registered work;
+the manager exited and scheduler drained. The preregistered numerical gate is **FAIL**. At canonical
+cold Engine epoch 1/step 0, seed 42, required flat checkpoint, clean/eval, tau=8 and alpha=0, all 300
+stride-selected dev-other utterances and 96,676 frames were retained. The batches are 128×233,
+128×497 and 44×1602 padded shapes; full trigram, eta, durations, band and other settings match the reference.
+
+Float32 passes the first two batches, but the last has 7,201/32,185 valid rows beyond the existing 0.007
+conservation tolerance. Its row sums span 0.987968–1.025847, maximum error 0.025847. Float64 passes
+all valid rows, maximum error 1.3878e-13. Both precisions have 300 finite partitions, no nonfinite rows
+and no zero-partition flags. The last batch's maximum raw posterior difference is 0.007411 and partition
+difference 0.014165 nats; neither had a new closeness cutoff. Initial q is uniform to the reported
+precision: entropy 3.713572 nats, maximum and blank probability both 0.024390245.
+
+Thus the conservation defect occurs at the actual cold initialization, not only under the earlier
+synthetic q replacement. Boundary promotion of the same neural inputs removes this observed forward
+defect. This is an initial clean-forward result, not evidence that precision caused historical PER failure
+or that backward, the rate finite differences, optimizer or training trajectory are valid. S3d stays held
+while a DP-only precision repair is checked through the complete training path. The old PER observations
+stand; a repaired content-arm comparison will require a control with matching numerical computation.
+
+Actual run use is 156 exclusive-node seconds; cumulative diagnostic use is 592/3,600, leaving 3,008
+seconds. Artifacts: `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS/output/cold_init_numerics.{json,txt}`.
+Terminal evidence: `reports/codex_4a_cold_init_numerics_terminal_2026-09-17.md`; independent audit:
+`reports/codex_4a_cold_init_numerics_endpoint_audit_2026-09-17.md`.
+
+**DP-only training repair and validation, specified before execution.** Add default-off
+`lattice_float64`, omitted from old generated configurations. Preserve neural float32 and all original
+non-DP loss inputs. Promote differentiable copies of q and segment scores, the existing represented prior,
+and any frozen anchor at the DP boundary; use these same aliases for the main loss and all rate
+finite-difference calls. Retain the existing posterior-weighted surrogates, gradient routing, normalization,
+epsilon=0.25, central-difference policy, schedules and topology. No recurrence, offset or posterior
+normalization change is proposed. Source trace: `reports/codex_4a_dp64_training_scope_2026-09-17.md`.
+
+The paired witness uses the first raw batch from the saved canonical tc100 training dataset and loader:
+epoch 1, partition_epoch=4, laplace:.1000 ordering, max_seqs=128 and 88,000 padded frames. It preserves
+the actual Engine cold constructor and training epoch RNG, caches the batch once, then executes the
+configured training step and backward once per precision from identical parameters, BN/aggregate buffers
+and pre-forward CPU/CUDA RNG states. Use train mode, epoch 1/step 0, clear gradients and a fresh run
+context for each cell. No optimizer, learned-parameter update, new data, gold, content head or checkpoint.
+
+Repair acceptance requires identical nonprecision inputs/state/RNG; float64 in the main and every rate
+DP call; finite partitions and valid posterior rows within the unchanged 0.007 tolerance in every float64
+call; finite total loss and all produced gradients, with nonzero theta/phi group gradient norms; and no
+learned-parameter change. Record all call shapes/settings, scalar losses, gradient norms and descriptive
+cross-precision differences, actual runtime and GPU peak memory. Introduce no gradient-closeness cutoff.
+Float32 need not fail on this first training batch. The original both-precision preflight remains FAIL;
+this new check validates the repair at one training step, not its accuracy or complete training trajectory.
+The witness uses the remaining 3,008 node-seconds of the original diagnostic budget, with a 50-minute
+request under the unchanged GPU1/CPU4/32-GB exclusive-node policy. Code review precedes execution.
+The opt-in production repair is committed as `ab94453fcf881d864ca0c1d3f7c5f9c8de7c0c18`;
+implementation and independent review: `reports/codex_4a_dp64_training_impl_2026-09-17.md` and
+`reports/codex_4a_dp64_training_review_2026-09-17.md`. Default configurations and banked job identities
+are unchanged. This source review does not certify the pending full-step numerical result.
+The reviewed witness is submitted as `Dp64TrainStepJob.TWT6VGrjjT2f`, SLURM 1848370, with two
+expected artifacts `output/dp64_train_step.{json,txt}`. Implementation and independent harness review:
+`reports/codex_4a_dp64_train_step_impl_2026-09-17.md` and
+`reports/codex_4a_dp64_train_step_review_2026-09-17.md`. Launch, source fingerprints and verified
+allocation: `reports/codex_4a_dp64_train_step_launch_2026-09-17.md`. No numerical result is claimed yet.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 
