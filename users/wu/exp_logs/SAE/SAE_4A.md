@@ -14,17 +14,15 @@ qualifications are under "S3c denoising result" below. Evidence:
 `reports/codex_4a_s3c_denoise_terminal_2026-09-17.md` and
 `reports/codex_4a_s3c_denoise_endpoint_audit_2026-09-17.md`.
 
-The fixed epoch-4/8 stored-hypothesis diagnostic is complete and independently audited below.
-Active: numerical validation of the fixed-checkpoint recognizer-factor diagnostic. The submitted run is
-`work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`; wrapper
-`config/sae_4a_qneutral_diagnostic.py`, SLURM 1847503, pending at launch. Launch/completion contract:
-`reports/codex_4a_qneutral_fp64_launch_2026-09-17.md`. The initial read
-`QNeutralDiagnosticJob.LkSVqPhvffwL` produced no valid paired result; preserved profiles and validity
-details are below. The repaired read first tests numerical equivalence, then compares the canonical cold
-control's epoch-4 reconstruction targets with the recognizer factor present versus neutralized at matched
-float64 lattice precision, holding phi and LM fixed. Next: verify the numerical witness and completed
-profiles, then audit paired phone-identity mass with rate, duration and boundary checks. This is a frozen-checkpoint
-target analysis; no new training is committed.
+The stored-hypothesis and fixed-checkpoint recognizer-factor diagnostics are complete and independently
+audited below. The latter run is `work/analysis/qneutral_diagnostic/QNeutralDiagnosticJob.P1EBNHvA8Rxi`,
+wrapper `config/sae_4a_qneutral_diagnostic.py`, SLURM 1847503. Its numerical witness and both matched
+float64 profiles pass; all registered outputs are present, scheduler drained and manager exited. Evidence:
+`reports/codex_4a_qneutral_fp64_terminal_2026-09-17.md` and
+`reports/codex_4a_qneutral_fp64_endpoint_audit_2026-09-17.md`. The initial invalid read remains preserved.
+Results and the qualified mechanism assessment are below; this read changes no take-off gate.
+Next: formulate a matched control separating the reverse channel's acoustic evidence from duration/LM
+and CTC path effects before selecting another cycle-training change. No new training is committed.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1322,6 +1320,13 @@ information and weak identity; it does not establish zero acoustic information o
 The seeded failures and repeated network-free marginal fitting show that a good initializer is not protected.
 The prior helps in the registered ablations; stronger prior order alone did not stop the drift.
 
+**2026-09-17 qualification:** the audited fixed-checkpoint recognizer-factor contrast below shows that
+the current recognizer adds conditional phone-identity mass to the epoch-4 reconstruction posterior.
+It therefore weakens the specific explanation that its current path preferences suppress a better target
+from the frozen reverse model and LM. Earlier q/phi coadaptation remains unresolved. The comparison
+does not isolate weak reverse emissions from duration, LM or CTC path effects; those remain the next
+mechanistic distinction, rather than an established attribution to phi alone.
+
 The S3b-OR **sub-epoch-4 and -8** reads are complete, on the registered tc100/trigram/rate-3/tau-8-to-2 bed;
 endpoint audit: `reports/codex_pack6_endpoint_audit_2026-09-16.md`.
 Every OR arm starts with flat theta and the same S2d warm phi slice `u3GoBYOWr741` (one tau-8 warm-up sub-epoch
@@ -1711,7 +1716,47 @@ Implementation and source fingerprints: `reports/codex_4a_qneutral_fp64_impl_202
 independent pre-compute review: `reports/codex_4a_qneutral_fp64_code_review_2026-09-17.md`.
 The new run preserves the failed predecessor and places its numerical witness in
 `output/profiles/numerical_witness.json`; only an accepted witness permits the two full profiles and
-`output/paired_comparison.{json,txt}`. Production numerical validity remains unmeasured.
+`output/paired_comparison.{json,txt}`. The completed read is reported below.
+
+### Recognizer-factor result (audited 2026-09-17)
+
+`QNeutralDiagnosticJob.P1EBNHvA8Rxi` completed with all three registered roots. Both arms use the same
+300 dev-other utterances, 33 speakers, 96,676 frames (77,333 gold non-SIL speech frames), frozen
+`lam3_tri` epoch 4, tau 2, alpha 0, phi, full trigram, eta, support, band 25 and float64 DP. Original
+recognizer reports are identical between arms. No model was updated.
+
+| Sampled posterior read | Original q | Neutral q |
+|---|---:|---:|
+| Mean per-utterance conditional phone-identity mass | 0.076275624 | 0.044485215 |
+| Gold-phone mass / all-real-phone mass on gold speech | 3823.109 / 46186.118 | 2080.066 / 45440.102 |
+| Target-marginal greedy PER, 18,743 reference phones | 0.824521 | 0.999627 |
+| Target-marginal greedy phones/second | 7.238611 | 0.003620 |
+
+The primary neutral-minus-original paired difference is **−0.031790408**, speaker-bootstrap CI95
+**[−0.036698462, −0.026740672]**, using the preregistered 2,000 seed-0 resamples. The audit re-summed
+the per-utterance masses and checked the CI's code and inputs; it did not independently regenerate
+bootstrap draws. Full class-mass, duration and boundary profiles are retained in
+`output/profiles/{original,uniform}.json`; paired results are in `output/paired_comparison.{json,txt}`.
+These sampled posterior-mode PERs are distinct from full-split recognizer PER and from a MAP path decode.
+
+Neutralizing q loses conditional phone identity and nearly empties the greedy read of the target
+marginals at this checkpoint. Thus the current q supplies useful information relative to this frozen
+combined phi/LM calculation. This result does not establish acoustic identifiability, identify which
+remaining factor causes the weak targets, exclude earlier coadaptation or predict a retraining result.
+It provides no evidence for a neutral-q training remedy. The original G4a.3 gate is unchanged.
+
+The numerical witness reproduced the first float32 failure in batch 2: maximum row error 0.067930
+with the normalized constant versus 0.000766 with zero acoustic weights. Both float64 representations
+conserve mass to 3.71e-12 or better and their required equivalence differences are at most 4.44e-10.
+This supports constant-offset-triggered float32 drift in this probe, without attributing historical
+training failure to it. Both final profiles pass the unchanged 0.007 tolerance with no NaN frames or
+zero partitions. The original arm's mean identity changes by only −4.83e-8 from the preserved float32
+read; its numerical differences are disclosed in the paired artifact. No posterior was renormalized.
+
+Terminal verification and budget: `reports/codex_4a_qneutral_fp64_terminal_2026-09-17.md`;
+independent scientific audit: `reports/codex_4a_qneutral_fp64_endpoint_audit_2026-09-17.md`.
+The two allocations used 436 exclusive-node seconds in total against the 3,600-second diagnostic cap;
+the scheduler is drained and the manager exited. No additional experiment is allocated by this result.
 
 ## Artifacts
 
