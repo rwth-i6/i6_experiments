@@ -18,17 +18,19 @@ and "Recognizer-factor result"; no take-off gate changes.
 
 S3d categorical phone-output content is launched after user authorization and matched-config review:
 `work/i6_core/returnn/training/ReturnnTrainingJob.Pso7oeIpqYjY`, wrapper
-`config/sae_4a_s3d_phone_content.py`, SLURM `1853056_1` (CONFIGURING at handoff).
+`config/sae_4a_s3d_phone_content.py`, SLURM `1853056_1` (RUNNING at the control endpoint handoff).
 It uses DP64 and the previously specified weight-0.3 categorical loss; no separate back-translation term.
 The unlaunched float32 candidate is superseded. Review and launch evidence:
 `reports/codex_4a_s3d_dp64_review_2026-09-17.md`, `reports/codex_4a_s3d_dp64_launch_2026-09-17.md`.
 
-Matched control: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`, wrapper
-`config/sae_4a_dp64_control.py`; epoch 7 running at the bounded prelaunch read.
+Matched control is complete and G4a.3 FAIL: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
+wrapper `config/sae_4a_dp64_control.py`; results and audit are under "Precision-only control result".
 The numerical defect and validated repair are recorded under "Cold-initialization numerical result"
-and "DP-only training-step result". Next: verify eight checkpoints and registered reads from both
-arms, audit fixed epoch-4/8 results and selected-checkpoint reporting, then decide the next intervention.
+and "DP-only training-step result". Next: verify S3d's eight checkpoints and registered reads, audit
+fixed epoch-4/8 and selected-checkpoint comparisons against DP64, then decide the next intervention.
 The G4a.3 gate and private-code qualification remain as specified in the S3d launch amendment.
+Long-context LM inference is a design question, not an enabled treatment; the scoped option and its
+coverage requirement are recorded under "Long-context prior option" below.
 
 Banked cold-remedy failures and gold-derived explanatory controls remain under
 "Current mechanism assessment and partial follow-ups"; they do not establish unsupervised progress.
@@ -1911,6 +1913,74 @@ paired interval to that selected checkpoint.
 Recipe commit: `6f16d2fa42dd2f163775f490b53338290c953c41`. The manager is launched for this exact
 126-root graph; initial handoff found local create_files, with scheduler submission not yet observed.
 Launch/source/resource evidence: `reports/codex_4a_dp64_control_launch_2026-09-17.md`.
+
+### Precision-only control result (audited 2026-09-17)
+
+`ReturnnTrainingJob.IoCQmrlJbCC0` completed all eight subepochs and all 126 registered outputs.
+The actual training allocation used 16,999 node-seconds (4 h 43 m 19 s) within its six-hour envelope.
+Terminal artifact verification: `reports/codex_4a_dp64_control_terminal_2026-09-17.md`; numerical
+extraction and full curves: `reports/codex_4a_dp64_control_extract_2026-09-17.md`; independent endpoint
+audit: `reports/codex_4a_dp64_control_endpoint_audit_2026-09-17.md`.
+The comparison preserves the specified tc100 inputs, flat/random initialization, reference seed,
+trigram and losses/schedule. The complete rendered-config delta is only `lattice_float64=True`
+and the model output path. Scores below are full-split greedy SIL-dropped PER fractions; paired
+intervals use the unchanged 2,000 seed-0 speaker resamples.
+
+| Subepoch | Split | Banked FP32 PER | DP64 PER | DP64 minus FP32 [95% speaker CI] |
+|---|---|---:|---:|---|
+| 4 | dev-other | 0.845398 | 0.828177 | -0.017222 [-0.021240, -0.013307] |
+| 4 | dev-clean | 0.830090 | 0.813689 | -0.016401 [-0.018782, -0.013999] |
+| 8 | dev-other | 0.877185 | 0.860640 | -0.016545 [-0.021145, -0.011431] |
+| 8 | dev-clean | 0.860910 | 0.835952 | -0.024958 [-0.027082, -0.022878] |
+
+Pairing covers 2,864 dev-other utterances/33 speakers/177,275 reference phones and 2,703 dev-clean
+utterances/40 speakers/193,644 phones. The unchanged label-free selector
+`UnsupervisedCheckpointSelectionJob.3N1a52Q3F9fX` selects subepoch 4; the selected result therefore
+has the same registered paired interval as that fixed endpoint. Subepochs 5–7 are descriptive reads,
+not gold-selected alternatives. Concrete evaluation-job paths are in the extraction report.
+
+**G4a.3 FAIL:** fixed subepoch-4 dev-other PER remains above 0.50. Its own-phi same-speaker gap is
+positive on 500 utterances/33 speakers: pooled frame-weighted +1.911260, and separate utterance-mean
++1.749149 with speaker-bootstrap CI [1.656558, 1.850135]. At subepoch 8 these are +3.227839 and
++3.095246 [2.990628, 3.208321]. These gap intervals use 10,000 seed-42 resamples and belong to the
+utterance-mean statistic, not the pooled frame-weighted point; do not interchange the estimands.
+
+The precision intervention improves PER at this one reference seed, but does not produce cold take-off.
+In the user's stated interpretation, small movements within this high-error regime are diagnostic rather
+than evidence of successful initialization. The defect warranted correction; this result does not make
+precision a sufficient explanation of collapse or isolate LM weakness from acoustic/reverse-model weakness.
+S3d continues unchanged against this completed matched control; its previously pending epoch-8 control
+hypotheses now exist. No additional training arm is authorized by this endpoint alone.
+
+### Long-context prior option (design only, user question 2026-09-17)
+
+The user asks how to add linguistic context without the dense history-state growth of higher n-grams.
+The active DP64/S3d runs remain unchanged. A candidate-based extension could use the current lattice
+to propose phone strings, score them with a longer-context text LM, and sum alignments/segmentations
+exactly within each retained string. The outer sum over strings would be approximate; this is a change
+to the exact-marginal protocol and is not an approved or implemented training arm.
+For a complete valid lattice path h, write y(h) for its emitted phone string, pi(h) for its frame
+labels, sigma(h) for its reverse segmentation, and
+`A_tau(y) = sum_{h:y(h)=y} exp((log q_theta(pi(h)|x) + log p_phi(z,sigma(h)|y,eta))/tau)`.
+A finite-candidate objective is `-log sum_{y in Y} A_tau(y) * P_context(y)^(beta/tau)`.
+If instead sampling from the original trigram posterior, replacement of the prior requires the ratio
+`exp((beta/tau) * (log P_context(y) - log P_trigram(y)))`, with the corresponding sampling estimator;
+simply multiplying by the new LM is a different objective. Candidate enumeration and Monte Carlo
+estimation are distinct approximations. The existing SIL/band/temperature semantics must be preserved
+(see `SAE_ref.md`); ordinary CTC likelihood times a reverse-only likelihood is not this joint marginal.
+
+Feasibility read: `reports/codex_4a_context_rescoring_code_2026-09-17.md`. The required complete-path
+sampler or candidate generator plus constrained joint scorer does not currently exist. Before any such
+training proposal, a frozen-checkpoint diagnostic must establish candidate coverage/diversity and avoid
+weight concentration; no sample count, acceptance threshold, gold-tuned setting or compute allocation
+has been specified here. A stronger LM cannot restore sequences absent from its proposal, and any
+training comparison must control the inference approximation as well as LM choice. Full-text evidence
+in `reports/codex_4a_lm_identification_literature_2026-09-17.md` motivates this coverage-first question:
+[Nuhn et al., ACL 2013](https://aclanthology.org/P13-1154.pdf) show capacity and search interacting in
+fixed-symbol decipherment; [Kumar et al., ASRU 2017](https://arxiv.org/pdf/1711.05448) demonstrate a
+candidate-coverage limitation in supervised LM rescoring. Neither validates this cold-ASR training route.
+Existing BT is a complementary way to use full unpaired sentences while retaining the main exact DP;
+it is not insertion of a full-context prior into the real-speech posterior.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 

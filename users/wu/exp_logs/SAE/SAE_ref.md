@@ -44,9 +44,17 @@ posterior-conservation tolerance at the actual flat initialization, in the clean
 Promoting identical DP inputs to float64 passes that read. The measured conditions, gate failure and audit
 are in `SAE_4A.md`, "Cold-initialization numerical result". This does not establish the cause of banked
 PER results. The subsequent canonical first-batch loss/backward check passes; see the audited
-"DP-only training-step result" in `SAE_4A.md` for its limited operating point. A full training trajectory
-remains unmeasured. Any content-treatment comparison after repair must use a control with the same
-numerical computation.
+"DP-only training-step result" in `SAE_4A.md` for its limited operating point. The matched full training
+control is now complete; its operating point, endpoint comparison and limitations are under "Precision-only
+control result". Any content-treatment comparison must use a control with the same numerical computation.
+
+**Lattice semantics for sequence-prior extensions:** a complete latent path includes frame labels,
+token-emission choices and reverse segmentation. Existing SIL transitions permit either a repeat or
+a new adjacent SIL token, so the shorthand `B(pi)` in earlier formulas is not strict standard CTC
+collapse for SIL. The timing band couples CTC and reverse states, and temperature applies to joint
+assignments before summation. A fixed-string marginal must preserve those rules; multiplying an
+ordinary CTC likelihood by the existing reverse-only marginal is not equivalent. Source trace and
+available/missing inference components: `reports/codex_4a_context_rescoring_code_2026-09-17.md`.
 
 ## Approach
 
