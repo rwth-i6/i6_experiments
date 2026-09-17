@@ -1691,14 +1691,17 @@ def py():
     # words; dur05/dur10 vary the duration scale around 0.7 (dur10 unscaled, wider bound like specaug70).
     # Our own aligner (exp2026_05_28_tts_encoder_gauss_hmm): a single-Gaussian monophone HMM on the ASR's
     # log-mels, trained on train-960 only; its emission means and Viterbi durations replace the MFA tables.
-    from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import gauss_hmm_ls960
+    from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import (
+        gauss_hmm_ls960,
+        gauss_hmm_state_tables,
+    )
 
     # v1 (unweighted transitions, AXNzotrK2q7U), v2 (mandatory edge silence, ZMNOCpZHlqDh), v3 (RASR
     # transition costs, h4JCmOf2aZFd) and v4 (v3 + mandatory edge silence for the first 3 subepochs,
     # vgJ5BPipZS7g) are trained and diagnosed (projects notes 2026-09-16): pauses get absorbed by the
     # plosive closures, and once silence is optional its single state (free loops, attractive for isolated
     # low-energy frames) drifts into a broad garbage state. v5: silence gets 3 sub-states like the phones
-    # (Kaldi/RASR: 3-5), the 3-subepoch edge-silence start, silence optional, unweighted transitions:
+    # (Kaldi: 5; RASR: 1), the 3-subepoch edge-silence start, silence optional, unweighted transitions:
     # 68.9% frame agreement with MFA, silence 17.9% of the frames (MFA 17.7), 35/40 means nearest the MFA
     # ones (mean L2 1.73). With the RASR 10 ms transition costs (speech loop 3 / forward 0, silence loop 0 /
     # forward 3, Tina Raissi's alignment values) on top it is worse (61.9%, 13.5%, 30/40), and the same
@@ -1772,6 +1775,9 @@ def py():
         pron_variants=True,
         name="gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960",
     )
+    _gauss_hmm_state_tables_pronvar = gauss_hmm_state_tables(
+        _gauss_hmm_tables_pronvar, prefix + "/gauss-hmm/gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960"
+    )
     # the same with the MFA-estimated normalized transition model: the cleanest setup to describe
     gauss_hmm_ls960(
         prefix + "/gauss-hmm",
@@ -1838,6 +1844,38 @@ def py():
             {
                 "pseudo_enc_frozen_table": _gauss_hmm_tables_pronvar.out_mean_table,
                 "pseudo_enc_duration_table": _gauss_hmm_tables_pronvar.out_duration_table,
+            },
+        ),
+        # the 3 HMM states of every phone as the units (AZ), each with its own Gaussian mean and
+        # duration: the text stream carries state ids, the pseudo encoder is unchanged. Three times
+        # the labels per sentence, so the label caps are tripled (the frames stay the same).
+        (
+            f"{_abl_prefix}-gausshmmstates-pronvar",
+            {
+                "pseudo_enc_frozen_table": _gauss_hmm_state_tables_pronvar.out_mean_table,
+                "pseudo_enc_duration_table": _gauss_hmm_state_tables_pronvar.out_duration_table,
+                "pseudo_enc_phone_states": 3,
+                # the upsampling buffer is max_len_factor * labels; a third of the phone-unit 10 keeps
+                # the frame capacity (10 * 6000 = 3 * 18000), else the text batches OOM at capture
+                "pseudo_enc_max_len_factor": 3,
+                "max_phon_len": 900,
+                "extra_config_updates": {
+                    "optimizer.class": rf.build_dict(Muon)["class"],
+                    "packed_tensors": True,
+                    "torch_distributed": {"reduce_type": "grad_explicit"},
+                    "batch_size": None,
+                    "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 18_000},
+                    "batching": "random",
+                    "torch_cuda_graph": {
+                        "batch_size_bound": 500,
+                        "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 900},
+                        "warmup_steps": 0,
+                        "compile": True,
+                    },
+                    "optimizer.weight_decay": 0.027,
+                    "specaugment_num_spatial_mask_factor": 50,
+                    "specaugment_steps": (1850, 5550, 9250),
+                },
             },
         ),
         # trained embedding x uniform durations = the textogram-style cell,
@@ -3689,6 +3727,9 @@ def _train_tts_encoder(
     pseudo_enc_frontend_concat: bool = False,
     pseudo_enc_channel_concat: bool = False,
     pseudo_enc_lerp: bool = False,
+    # HMM sub-states per phone as the units of the text stream (state id = phone id * K + k),
+    # with the frozen table and the duration table indexed by the state vocab; None = phones
+    pseudo_enc_phone_states: Optional[int] = None,
     glow_tts_add_silence_between_words: Optional[float] = None,
     glow_tts_add_silence_beginning: Optional[float] = None,
     glow_tts_add_silence_end: Optional[float] = None,
@@ -3867,6 +3908,19 @@ def _train_tts_encoder(
             spm_dim=spm_dim,
             units_dim=phon_dim,
             sil_between_words=glow_tts_add_silence_between_words,
+        )
+    elif pseudo_enc_phone_states:
+        # State path: the map_seq expands every phone to its sub-states, so the stream and both
+        # tables are indexed by the state vocab and the pseudo encoder is unchanged (AZ).
+        phon_dim = Dim(phon_dim.dimension * pseudo_enc_phone_states, name="phone_states")
+        phon_extern = {k: v for k, v in phon_extern.items() if k != "vocab"}
+        phon_extern["sparse_dim"] = phon_dim
+        text_map_seq = functools.partial(
+            _glowtts_text_map_seq,
+            target_key=tgt_key,
+            spm_dim=spm_dim,
+            phon_dim=phon_dim,
+            phone_states=pseudo_enc_phone_states,
         )
     else:
         text_map_seq = functools.partial(_glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim)
@@ -4068,6 +4122,7 @@ def _train_tts_encoder(
                     else {}
                 ),
                 **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
+                **({"pseudo_enc_phone_states": pseudo_enc_phone_states} if pseudo_enc_phone_states else {}),
             }
             if pseudo_speech_enc
             else {}
@@ -4232,6 +4287,7 @@ def _train_tts_encoder(
                 else {}
             ),
             **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
+            **({"pseudo_enc_phone_states": pseudo_enc_phone_states} if pseudo_enc_phone_states else {}),
             **(
                 {"pseudo_enc_specaug_max_width": pseudo_enc_specaug_max_width}
                 if pseudo_enc_specaug_max_width is not None
@@ -4828,7 +4884,9 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             vocab_dim = target_dim
         else:
             assert units == "phonemes", f"unknown pseudo_enc_units {units!r}"
-            vocab_dim = Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes")
+            # HMM sub-states as the units: the stream carries state ids, the tables have a row per state
+            n_states = config.int("pseudo_enc_phone_states", 1)
+            vocab_dim = Dim(get_glow_tts_phoneme_vocab_size() * n_states, name="glowtts_phonemes")
         # Textogram-style channel concat: one input channel per pseudo unit (with blank),
         # one-hot there and zero in the log-mels for text, zero there for real audio.
         channel_concat = config.bool("pseudo_enc_channel_concat", False)
@@ -4889,7 +4947,8 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             assert means.shape == (vocab_dim.dimension, model.in_dim.dimension)
             # Blank row := [space] (real silence acoustics; silence and blank share one row by design;
             # with blank duration 0 the blank row is never emitted anyway).
-            table = numpy.concatenate([means, means[table_labels.index("[space]")][None]], axis=0)
+            sil_row = next(i for i, lab in enumerate(table_labels) if lab.split(".")[0] == "[space]")
+            table = numpy.concatenate([means, means[sil_row][None]], axis=0)
             model.pseudo_enc.embedding.weight.initial = table
             model.pseudo_enc.embedding.weight.trainable = False
         return model
@@ -6357,8 +6416,12 @@ def _glowtts_text_tokenizers():
     return _glowtts_text_tok_cache
 
 
-def _glowtts_text_map_seq(seq, *, target_key, spm_dim, phon_dim, rng, **_kwargs):
-    """PostprocessingDataset map_seq: raw utf8 bytes -> (spm target, GlowTTS phonemes), both from the same text."""
+def _glowtts_text_map_seq(seq, *, target_key, spm_dim, phon_dim, rng, phone_states: Optional[int] = None, **_kwargs):
+    """
+    PostprocessingDataset map_seq: raw utf8 bytes -> (spm target, GlowTTS phonemes), both from the same text.
+
+    :param phone_states: expand every phone to its HMM sub-states, id * phone_states + k
+    """
     import numpy as np
     from returnn.tensor import Tensor, TensorDict, Dim as _Dim
 
@@ -6368,6 +6431,8 @@ def _glowtts_text_map_seq(seq, *, target_key, spm_dim, phon_dim, rng, **_kwargs)
     # per-seq silence/pronunciation-variant randomization, seeded from the epoch-seeded rng.
     seq_gen.random_seed(int(rng.randint(0, 2**31 - 1)))
     phon_ids = seq_gen.seq_to_class_idxs(seq_gen.generate_seq(orth), dtype="int32")
+    if phone_states:
+        phon_ids = (phon_ids[:, None] * phone_states + np.arange(phone_states, dtype="int32")[None, :]).reshape(-1)
 
     out = TensorDict()
     out.data[target_key] = Tensor(

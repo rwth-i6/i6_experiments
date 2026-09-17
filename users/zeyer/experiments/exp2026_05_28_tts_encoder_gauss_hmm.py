@@ -861,6 +861,145 @@ class GaussHmmTablesJob(Job):
             json.dump(stats, f, indent=2)
 
 
+class GaussHmmStateTablesJob(Job):
+    """
+    Like :class:`GaussHmmTablesJob`, but one row per HMM state instead of per phone (AZ, 2026-09-17: the
+    sub-states as the injection units, the pseudo encoder unchanged): ``out_mean_table`` npz ``means``
+    [vocab * K, F] (the raw emission means, row v * K + k; states never visited get the occupancy-weighted
+    global mean) and ``labels`` ("AH.0"); ``out_duration_table`` npz ``medians`` / ``means`` / ``counts``
+    [vocab * K], the frames spent in the state per visit (10 ms).
+
+    The Viterbi occupancy is skewed within a phone (most states have median 1 frame, the phone's frames sit
+    in one of them), so with ``split_phone_median`` ``medians`` is the phone's unit median split over its
+    states in proportion to their mean occupancy (sum = the phone median of :class:`GaussHmmTablesJob`,
+    so the sequence lengths stay as with phone units); the raw per-state medians are ``state_medians``.
+    """
+
+    def __init__(
+        self,
+        *,
+        checkpoint: tk.Path,
+        alignment_hdf: tk.Path,
+        phoneme_vocab: tk.Path,
+        returnn_root: tk.Path,
+        num_sub_states: int = 3,
+        split_phone_median: bool = True,
+    ):
+        super().__init__()
+        self.checkpoint = checkpoint
+        self.alignment_hdf = alignment_hdf
+        self.phoneme_vocab = phoneme_vocab
+        self.returnn_root = returnn_root
+        self.num_sub_states = num_sub_states
+        self.split_phone_median = split_phone_median
+        self.rqmt = {"cpu": 2, "mem": 8, "time": 4}
+        self.out_mean_table = self.output_path("mean_logmel.npz")
+        self.out_duration_table = self.output_path("phone_durations.npz")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import sys
+
+        sys.path.insert(0, self.returnn_root.get_path())
+
+        import numpy as np
+        import torch
+        from returnn.datasets.hdf import HDFDataset
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        vocab = Vocabulary(self.phoneme_vocab.get_path(), unknown_label="[UNKNOWN]")
+        labels = list(vocab.labels)
+        k = self.num_sub_states
+        num_states = len(labels) * k
+        unit_durs = [[] for _ in range(len(labels))]
+
+        ckpt = torch.load(self.checkpoint.get_path(), map_location="cpu")
+        params = ckpt["model"] if "model" in ckpt else ckpt
+        means = params["mean"].numpy().astype(np.float64)  # [S, F]
+        assert means.shape[0] == num_states, (means.shape, len(labels), k)
+
+        occupancy = np.zeros((num_states,), dtype=np.int64)
+        durs = [[] for _ in range(num_states)]
+        ds = HDFDataset([self.alignment_hdf.get_path()])
+        ds.init_seq_order(epoch=1)
+        seq_idx = 0
+        while ds.is_less_than_num_seqs(seq_idx):
+            ds.load_seqs(seq_idx, seq_idx + 1)
+            states = ds.get_data(seq_idx, "data").astype(np.int64)  # [T]
+            np.add.at(occupancy, states, 1)
+            # a visit ends where the state id changes (left-to-right, so the same state never
+            # follows itself across units unless k == 1)
+            new_visit = np.ones_like(states, dtype=bool)
+            new_visit[1:] = states[1:] != states[:-1]
+            starts = np.flatnonzero(new_visit)
+            ends = np.append(starts[1:], len(states))
+            for s, e in zip(starts, ends):
+                durs[int(states[s])].append(int(e - s))
+            # the unit (phone) durations as in GaussHmmTablesJob
+            label = states // k
+            sub = states % k
+            new_unit = np.ones_like(states, dtype=bool)
+            new_unit[1:] = (label[1:] != label[:-1]) | (sub[1:] < sub[:-1])
+            u_starts = np.flatnonzero(new_unit)
+            u_ends = np.append(u_starts[1:], len(states))
+            for s, e in zip(u_starts, u_ends):
+                unit_durs[int(label[s])].append(int(e - s))
+            seq_idx += 1
+
+        global_mean = (means * occupancy[:, None]).sum(axis=0) / max(float(occupancy.sum()), 1.0)
+        table = means.astype(np.float32)
+        table[occupancy == 0] = global_mean
+        state_labels = [f"{label}.{j}" for label in labels for j in range(k)]
+        np.savez(self.out_mean_table.get_path(), means=table, labels=np.array(state_labels, dtype=object))
+
+        medians = np.zeros((num_states,), dtype=np.float32)
+        dmeans = np.zeros((num_states,), dtype=np.float32)
+        counts = np.zeros((num_states,), dtype=np.int64)
+        for s in range(num_states):
+            if durs[s]:
+                medians[s] = float(np.median(durs[s]))
+                dmeans[s] = float(np.mean(durs[s]))
+                counts[s] = len(durs[s])
+        all_d = [x for s in range(num_states) for x in durs[s]]
+        fallback = float(np.median(all_d)) if all_d else 1.0
+        medians[counts == 0] = fallback
+        dmeans[counts == 0] = fallback
+        state_medians = medians
+        if self.split_phone_median:
+            unit_all = [x for v in range(len(labels)) for x in unit_durs[v]]
+            unit_fallback = float(np.median(unit_all)) if unit_all else 1.0
+            medians = np.zeros((num_states,), dtype=np.float32)
+            for v in range(len(labels)):
+                unit_median = float(np.median(unit_durs[v])) if unit_durs[v] else unit_fallback
+                share = dmeans[v * k : (v + 1) * k] / dmeans[v * k : (v + 1) * k].sum()
+                medians[v * k : (v + 1) * k] = unit_median * share
+        np.savez(
+            self.out_duration_table.get_path(),
+            medians=medians,
+            state_medians=state_medians,
+            means=dmeans,
+            counts=counts,
+            labels=np.array(state_labels, dtype=object),
+        )
+
+
+def gauss_hmm_state_tables(tables: GaussHmmTablesJob, alias_prefix: str) -> GaussHmmStateTablesJob:
+    """The per-state tables of the aligner behind ``tables`` (see :class:`GaussHmmStateTablesJob`)"""
+    job = GaussHmmStateTablesJob(
+        checkpoint=tables.checkpoint,
+        alignment_hdf=tables.alignment_hdf,
+        phoneme_vocab=tables.phoneme_vocab,
+        returnn_root=tables.returnn_root,
+        num_sub_states=tables.num_sub_states,
+    )
+    job.add_alias(f"{alias_prefix}/state-tables")
+    tk.register_output(f"{alias_prefix}/state_mean_logmel.npz", job.out_mean_table)
+    tk.register_output(f"{alias_prefix}/state_durations.npz", job.out_duration_table)
+    return job
+
+
 def gauss_hmm_ls960(
     prefix: str,
     *,
