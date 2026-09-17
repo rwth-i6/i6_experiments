@@ -1,4 +1,12 @@
-from .common import job_progress_fraction, merge_hf_parts, run_worker_script, run_worker_script_per_gpu
+from .common import (
+    add_cuda_npp_to_env,
+    add_venv_python_lib_to_env,
+    job_progress_fraction,
+    merge_hf_parts,
+    run_worker_script,
+    run_worker_script_per_gpu,
+)
+from .tts import InstallFFmpeg
 from .finetune import (
     MOSHI_ADAPTER,
     finetune_completed_fraction,
@@ -21,7 +29,17 @@ class MoshiAnnotate(Job):
         shard: int | None = None,
         num_shards: int | None = None,
         keep_columns: list[str] | None = None,
+        env_ffmpeg_path: tk.Path | None = None,
+        env_npp_venv_python: tk.AbstractPath | None = None,
     ):
+        # Our FFmpeg build and a venv carrying CUDA NPP, both reaching the job through a channel
+        # `hash()` drops. torchcodec needs three libraries and this venv supplies none of them:
+        # FFmpeg (ours), libnppicc.so.12 (NPP -- torch bundles cublas/cudnn/cufft and NOT npp), and
+        # the base interpreter's libpython. They are hash-excluded because they cannot change a
+        # single annotation -- they only decide whether the process can `import torchcodec` at all --
+        # and hashing them would re-run every annotate job and every corpus downstream of it.
+        self.env_ffmpeg_path = env_ffmpeg_path
+        self.env_npp_venv_python = env_npp_venv_python
         self.venv_python_path = venv_python_path
         self.in_hf = in_hf
         self.shard = shard
@@ -38,10 +56,13 @@ class MoshiAnnotate(Job):
             "cpu": 6,
             "mem": 16,
             "time": 4,
-            # Decodes audio through torchcodec, which needs system FFmpeg/VA libraries. Declared as
-            # a capability rather than a partition name so the recipe stays cluster-agnostic --
-            # settings.py maps the tag onto whatever partition provides it here.
-            "requires": ["system_ffmpeg"],
+            # No `requires: ["system_ffmpeg"]` (dropped 2026-09-17). The tag was never a guarantee:
+            # it routes to c23g, and c23g is HETEROGENEOUS -- five annotate jobs succeeded on
+            # n23g*/w23g* on 09-12 and two died on r23g0004 on 09-17 with "Could not load
+            # libtorchcodec", same input schema, same venv, same code path. sinfo reports identical
+            # feature strings for all three prefixes, so SLURM cannot express the difference and the
+            # tag cannot be made to respect it. The libraries travel with the job instead; see
+            # env_hook in run(). rqmt is not hashed, so this re-runs nothing.
         }
 
     def tasks(self):
@@ -57,6 +78,11 @@ class MoshiAnnotate(Job):
         d["__version"] = 2  # bumped: arrow-native output format
         if not d.get("keep_columns"):
             d.pop("keep_columns", None)  # exclude at default so pre-existing hashes are unchanged
+        # Popped unconditionally, not declared in __sis_hash_exclude__: that form excludes an
+        # argument ONLY while it equals the listed default, so a populated path would be hashed like
+        # any other and every annotate job -- plus every corpus built from one -- would re-run.
+        d.pop("env_ffmpeg_path", None)
+        d.pop("env_npp_venv_python", None)
         return super().hash(d)
 
     @staticmethod
@@ -123,12 +149,28 @@ class MoshiAnnotate(Job):
                 a[a.index("--out_dir") + 1] = f"{out_hf}.part{k}"
             return a
 
+        # torchcodec needs THREE libraries and moshi_venv supplies none of them. Reading a
+        # `datasets` Audio() column is enough to require it: in datasets >=4 `Audio.decode_example`
+        # is `if TORCHCODEC_AVAILABLE: ... else: raise ImportError` with no soundfile fallback, so
+        # the bare `row.get("speaker_audio", {})` in the worker is a decode, not a dict lookup.
+        def env_hook(env):
+            assert self.env_ffmpeg_path is not None and self.env_npp_venv_python is not None, (
+                "MoshiAnnotate needs an FFmpeg build and a venv carrying CUDA NPP: torchcodec "
+                "dlopens libavutil and libnppicc.so.12 at import, and no partition reliably "
+                "provides either. Pass env_ffmpeg_path=<InstallFFmpeg>.out_path and "
+                "env_npp_venv_python=npp_venv() (both hash-free) from the caller."
+            )
+            InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+            add_cuda_npp_to_env(self.env_npp_venv_python.get(), env)
+            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+
         n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
             moshi_annotate_path,
             args_for,
             log_label="Moshi annotate",
             extra_env={"PYTHONPATH": pythonpath},
+            env_hook=env_hook,
         )
         if n > 1:
             merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
