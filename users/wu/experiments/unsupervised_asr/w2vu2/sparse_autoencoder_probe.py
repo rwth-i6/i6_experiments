@@ -164,6 +164,17 @@ class BatchTopKProbeJob(Job):
         train_speakers = set(checkpoint["source_speaker_ids"])
         training_sources = {key: checkpoint[key] for key in
                             ("source_hdfs", "source_frames", "source_utterances", "source_speaker_ids")}
+        weighted_l1 = checkpoint.get("sae_type") == "weighted_l1"
+        if weighted_l1:
+            from .sparse_autoencoder_l1 import load_model, normalize_frames
+
+            sae_metadata = {key: checkpoint[key] for key in
+                            ("sae_type", "model_config", "objective", "lambda_target", "lambda_warmup_updates",
+                             "activation_normalization", "input_scale", "normalization_source",
+                             "decoder_initial_column_norm", "decoder_initial_direction_distribution",
+                             "encoder_initialization", "bias_initialization",
+                             "decoder_normalization", "optimizer_config", "gradient_clip_global_norm",
+                             "lr_decay_start_update", "max_updates", "lr_schedule", "batch_size", "sampling", "seed")}
         del checkpoint
         model = load_model(self.checkpoint.get_path(), device)
         model.eval().requires_grad_(False)
@@ -204,6 +215,17 @@ class BatchTopKProbeJob(Job):
                                   "source": "speech_llm/sae/emc/eval_jobs.py:1353-1355",
                                   "scope": "conditional on this fixed trained pair; no seed-robustness claim"},
                     "coverage": "descriptive supervised frame-hit; not PER"}}
+        if weighted_l1:
+            decoder_norms = model.decoder.weight.norm(dim=0)
+            metrics["sources"]["sae_metadata"] = sae_metadata
+            metrics["protocol"].update({
+                "sparse_rule": "ReLU; no TopK",
+                "codes": "g_i = f_i * ||W_dec[:,i]||_2; raw f_i = ReLU(W_enc x + b_enc)",
+                "normalization": "global SAE-train RMS scalar c*x; E_train ||c*x||^2 = 1024",
+                "input_scale": model.input_scale,
+                "raw_activity": "f_i > 0", "contribution_activity": "g_i > 0",
+                "zero_decoder_columns": int((decoder_norms == 0).sum().item())})
+            metrics["activity"] = {}
         with open(self.checkpoint.get_path(), "rb") as handle:
             metrics["sources"]["checkpoint_sha256"] = hashlib.file_digest(handle, "sha256").hexdigest()
         for u in excluded:
@@ -221,6 +243,11 @@ class BatchTopKProbeJob(Job):
                       "unknown_frames": 0, "uncovered_frames": 0, "utterances": {}}
             squared_error, active, frames = 0.0, 0, 0
             alive = np.zeros(n_features, dtype=bool)
+            if weighted_l1:
+                input_squared_norm = 0.0
+                raw_alive = np.zeros(n_features, dtype=bool)
+                histograms = {kind: np.zeros(n_features + 1, dtype=np.int64)
+                              for kind in ("raw_relu", "contribution")}
             for utt in ids[split]:
                 values = states.pop(utt)
                 y, excluded_frames = frame_labels(raw_gold[utt], len(values))
@@ -234,9 +261,19 @@ class BatchTopKProbeJob(Job):
                 report["utterances"][utt] = {"speaker": utt.split("-")[0], "raw_frames": len(values),
                                               "aligned_frames": int(valid.sum()), **excluded_frames}
                 with torch.no_grad():
-                    x = normalize_frames(torch.from_numpy(values.astype(np.float32)).to(device))
+                    x = torch.from_numpy(values.astype(np.float32)).to(device)
+                    x = normalize_frames(x, model.input_scale) if weighted_l1 else normalize_frames(x)
                     z = model.encode(x)
                     squared_error += float((model.decode(z) - x).square().sum().item())
+                    if weighted_l1:
+                        input_squared_norm += float(x.square().sum().item())
+                        raw_positive = z > 0
+                        raw_alive |= raw_positive.any(dim=0).cpu().numpy()
+                        histograms["raw_relu"] += np.bincount(
+                            raw_positive.sum(dim=1).cpu().numpy(), minlength=n_features + 1)
+                        z = z * decoder_norms
+                        histograms["contribution"] += np.bincount(
+                            (z > 0).sum(dim=1).cpu().numpy(), minlength=n_features + 1)
                     frames += len(x)
                     coo = z.to_sparse().coalesce()
                     ij = coo.indices().cpu().numpy()
@@ -260,6 +297,29 @@ class BatchTopKProbeJob(Job):
             reconstruction[split] = {"mse_per_dimension": squared_error / (frames * 1024),
                                       "mean_l0": active / frames, "dead_feature_rate": float((~alive).mean()),
                                       "frames": frames, "domain": "all raw unit-normalized frames"}
+            if weighted_l1:
+                activity = {}
+                for kind, histogram in histograms.items():
+                    cumulative = histogram.cumsum()
+                    quantile_positions = np.array([0.5, 0.9]) * (frames - 1)
+                    lower = np.searchsorted(cumulative, np.floor(quantile_positions), side="right")
+                    upper = np.searchsorted(cumulative, np.ceil(quantile_positions), side="right")
+                    quantiles = lower + (upper - lower) * (quantile_positions % 1)
+                    occupied = np.flatnonzero(histogram)
+                    activity[kind] = {"histogram": histogram.tolist(), "frames": frames,
+                                      "mean_l0": float(np.dot(np.arange(n_features + 1), histogram) / frames),
+                                      "min": int(occupied[0]), "median": float(quantiles[0]),
+                                      "p90": float(quantiles[1]), "max": int(occupied[-1]),
+                                      "zero_frame_fraction": float(histogram[0] / frames)}
+                metrics["activity"][split] = activity
+                reconstruction[split].update({
+                    "domain": "all raw globally rescaled frames",
+                    "normalized_mse": squared_error / input_squared_norm,
+                    "mean_l0": activity["raw_relu"]["mean_l0"],
+                    "dead_feature_rate": float((~raw_alive).mean()),
+                    "activity_definition": "raw ReLU f_i > 0",
+                    "contribution_mean_l0": activity["contribution"]["mean_l0"],
+                    "contribution_dead_feature_rate": float((~alive).mean())})
             return utterances, dense, codes, labels, feature_counts, phone_counts
 
         fit = encode_split("dev-clean", read_gold(files["dev-clean"], labels=True))
