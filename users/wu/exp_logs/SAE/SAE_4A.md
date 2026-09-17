@@ -12,20 +12,21 @@ checkpoints 1–6 remain. Do not restart it. Control `ReturnnTrainingJob.IoCQmrl
 higher-context pilot are complete and audited; see "Precision-only control result" and
 "Higher-context pilot result" for their operating points and evidence.
 
-Profiling is complete. Best measured 256-draw P6 batch: 143.954s; larger execution groups took
-161.935s and are not adopted. No optimizer step or ASR result came from these profiles. Do not retry
-the stopped serial profile. Results and audit are under "Candidate training cost read".
+Matched 256-draw P3/P6 training is RUNNING: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`,
+wrapper `config/sae_4a_context_train.py`. It retains execution caps 16/4, eight subepochs, fixed
+epoch-4/8 and label-free-selected evaluations, and G4a.3. The user accepted a 19.1h projection with
+the existing 1.1 margin (21.01h total allowance); the former 512-draw pack remains superseded.
 
-The user accepts the 19.1h projection and authorizes the experiment (2026-09-17), amending the former
-6.6h allocation. Matched 256-draw P3/P6 training is submitted with the measured 16/4 execution caps;
-retain the existing 1.1 scheduler margin, yielding 21.01h for one node with concurrent arms.
-Run: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`, wrapper `config/sae_4a_context_train.py`.
-Both arms draw 192 target-temperature plus 64 hot complete paths, deduplicate phone strings, then
-sum legal alignments/segmentations exactly within each retained string. Keep the original eight
-subepochs, fixed epoch-4/8 and label-free-selected evaluations, and G4a.3. The former 512-draw pack
-is superseded and unsubmitted. At wake-up verify both arms and registered evaluations, then compare
-paired PER/gaps and inspect hypotheses. Source/checks and the budget amendment are below.
-Sparse acoustic-code work is registered in `SAE_4B.md`, with no execution authorized.
+At the 2026-09-17 status read, about 4.5h into training, P3/P6 were only at subepoch 1 steps 21/20,
+with no checkpoint, dev-loss evaluation or recognition output. Recent steps took 975.9/996.9s,
+well above the 143.954s profiled first P6 batch. The old full-run projection is not a reliable ETA;
+see "Live training cost and recognition status" below. The current allocation continues; automatic
+continuation is held pending a runtime/budget decision. No additional budget is authorized.
+
+At the existing watcher wake-up, check both arms' actual checkpoints and terminal state before any
+resume. Do not automatically repeat a run that saved no checkpoint. If evaluations exist, retain
+the registered paired PER/gap and hypothesis checks. Profiling provenance and the unchanged
+scientific protocol are below. §4b is complete and left unchanged at the user's request.
 
 ## Objective
 
@@ -2293,6 +2294,23 @@ epoch-4/8 checkpoints and learning-rate histories, all 260 registered outputs/ev
 successful final graph state. Read fixed epoch-4/8 and label-free-selected results separately; preserve
 the matched finite-P3 comparison and the exact-P3 reference comparison. Inspect stored hypotheses
 before interpreting the collapse pattern or any improvement.
+
+**Live training cost and recognition status (2026-09-17).** After approximately 4h34m in the real
+allocation, the P3 arm had reached subepoch 1 step 21 (37.81%) and P6 step 20 (36.16%). Neither
+arm had saved an epoch checkpoint or completed dev evaluation; fixed epoch-4/8 PER, hypotheses
+and label-free selection results were therefore unavailable. Latest minibatch `(l_tau, agg, rate)`
+values were P3 `(0.517, 1.679, 0.760)` and P6 `(0.595, 1.680, 0.800)`. These are different minibatches,
+not a converged objective or a held-out recognition result. Literal extraction:
+`reports/codex_4a_sixgram_status_2026-09-17.md`.
+
+Startup consumed about 1.5 minutes. P3 steps 1/5/10/21 were logged after 0:09:07 / 0:57:23 /
+2:11:30 / 4:21:32; P6 steps 1/5/10/20 after 0:09:51 / 1:03:13 / 2:29:13 / 4:24:11. Latest step
+times were 975.9s and 996.9s. This operating point is substantially slower than the isolated first-batch
+profile used for the accepted projection. No full-run ETA or convergence claim is supported yet.
+The current allocation remains active, with any automatic continuation held pending a decision
+within the accepted total budget. Timing and execution evidence:
+`reports/codex_4a_context_time_limit_status_2026-09-17.md`. No training objective, checkpoint, gate
+or registered evaluation was changed by this status read.
 
 **Sampling clarification.** The 256 draws are complete joint paths. Their emitted phone strings are
 deduplicated, and the conditional DP subsequently sums every legal alignment/reverse segmentation

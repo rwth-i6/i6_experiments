@@ -72,7 +72,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
-   S3c/DP64 CLOSED FAIL; S3d stopped; user accepts 19.1h projection; matched 256-draw P3/P6 training submitted.
+   S3c/DP64 CLOSED FAIL; S3d stopped; P3/P6 training is slower than the accepted projection; no checkpoint yet.
    LM objective remains above bigram. `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
