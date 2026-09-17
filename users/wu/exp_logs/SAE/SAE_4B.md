@@ -2,16 +2,16 @@
 
 ## State
 
-WEIGHTED-L1 FOLLOW-UP SUBMITTED — the source-verified protocol below is implemented and reviewed.
-`config/sae_4b_weighted_l1_w2v2.py` runs `WeightedL1TrainingJob.1Z8e0Io2tv5b` (Slurm 1863139,
-pending at submission) and dependent `BatchTopKProbeJob.pyZdQ8mmOZgK`. The latter's legacy class
-name also serves weighted-L1 checkpoints. Manager PID 1076571 on `jpbl-s02-03`; concrete run and
-output pointers are below. No weighted-L1 training result is available yet.
+WEIGHTED-L1 FOLLOW-UP COMPLETE, AUDITED — `WeightedL1TrainingJob.1Z8e0Io2tv5b` reached the fixed
+200,000-update endpoint and dependent `BatchTopKProbeJob.pyZdQ8mmOZgK` completed. Config:
+`config/sae_4b_weighted_l1_w2v2.py`. The probe's legacy class name also serves weighted-L1 checkpoints.
+The supervised phonetic-information gate passes; improvement over matched dense features and over
+the earlier BatchTopK SAE fails. Measured sparsity, phoneme multiplicity, paired comparisons and
+audit qualifications are in "Weighted-L1 result and sparsity" below.
 
-Next action after completion: verify the fixed 200,000-update endpoint and saved normalization,
-extract measured activity and held-out phone diagnostics, run `analysis/sae_4b_compare_weighted_l1.py`,
-then audit against the registered gates before reporting the comparison. The user authorizes this
-one additional arm; no sweep or gold-selected SAE setting is queued.
+No jobs or further arms remain queued in this budget. A new sparsity operating point or a cycle
+comparison would require a separately registered protocol; labels cannot select the SAE setting.
+The next experimental decision and phase closure remain with the user.
 
 The completed BatchTopK run remains the comparison: `BatchTopKTrainingJob.1Z8e0Io2tv5b` and
 `BatchTopKProbeJob.aghUh8TQoiem`, under `config/sae_4b_audiosae_w2v2.py`. Its audited results and
@@ -328,7 +328,7 @@ optimization differ alongside the sparsity mechanism. It cannot identify the pen
 cause. No loss, sparsity count or probe result alone establishes unsupervised phone discovery or
 licenses cycle substitution. Audit results before drawing a consequential conclusion.
 
-**Submitted run and evidence.** The reviewed recipe is committed as `30afce9a5` (training) and
+**Run and evidence.** The reviewed recipe is committed as `30afce9a5` (training) and
 `91e165ad6` (shared diagnostic). Concrete jobs, relative to this setup:
 
 - `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/sparse_autoencoder_l1/WeightedL1TrainingJob.1Z8e0Io2tv5b`;
@@ -338,7 +338,69 @@ The six registered outputs are under `output/sae/4b/weighted_l1_w2v2/`: `checkpo
 `train_metrics.json`, `probe_metrics.json`, `per_utterance.json`, `features.npz`, and `probes.pt`;
 payloads persist under `artifacts/sae_4b/` by full job ID. Execution evidence:
 `reports/codex_4b_weighted_l1_launch_2026-09-17.md`. Method review:
-`reports/codex_4b_weighted_l1_code_review_2026-09-17.md`. The pending paired comparison helper is
+`reports/codex_4b_weighted_l1_code_review_2026-09-17.md`. The completed paired comparison helper is
 `analysis/sae_4b_compare_weighted_l1.py`; its output is
-`reports/sae_4b_weighted_l1_comparison_2026-09-17.json`. Engineering checks establish the exercised
-implementation behavior only; the full-run sparsity and phone results remain unmeasured.
+`reports/sae_4b_weighted_l1_comparison_2026-09-17.json`, including resolved inputs and SHA256 hashes.
+
+## Weighted-L1 result and sparsity (fixed endpoint, audited)
+
+**Completion and operating point.** Both jobs finished with exit 0 and all six registered outputs
+open successfully. Slurm training `1863139_1` took **23m06s** (recorded training compute 1202.727 s);
+diagnostic `1863364_1` took **5m16s**. The actual checkpoint and probe source agree on 200,000 updates,
+8192 features and train-only input scale **0.07542069287767447**, estimated from all 18,088,388 frames
+in 28,539 train-clean-100 utterances. Mean scaled squared input norm is 1023.99999058. Final full-pool
+mean reconstruction squared L2 is 182.80207906 and mean decoder-norm-weighted L1 before multiplying
+by lambda is 29.62830216; lambda is 5. Dimensionless reconstruction SSE/input energy is 0.17851766
+on train and 0.23163436 on raw dev-other. Raw reconstruction losses across recipes have different
+input scales. Completion evidence: `reports/codex_4b_weighted_l1_completion_2026-09-17.md`.
+
+**Held-out phone readout.** The paired comparison verifies identical 2,864 dev-other utterances,
+33 speakers, raw input and gold paths, masks, clock, phone inventory and final probe settings.
+The denominators remain 741,817 aligned frames including SIL and 733,242 nonsilence frames;
+178,163 of 919,980 raw frames are uncovered/unknown and excluded. Accuracies are percentages:
+
+| Representation/readout | Nonsilence | Including SIL |
+| --- | ---: | ---: |
+| Weighted-L1 SAE | 68.1164 | 67.4172 |
+| Matched globally scaled dense L15 | 80.3085 | 79.5700 |
+| Earlier BatchTopK SAE | 73.6450 | 72.8844 |
+| Fit-majority baseline | 7.4055 | 7.3199 |
+
+Nonsilence weighted-L1-minus-baseline differences, with the registered 2000-resample, seed-0,
+speaker-paired 95% intervals, are **+60.71 pp [57.20, 64.18]** versus fit majority,
+**−12.19 pp [−14.90, −9.67]** versus matched dense, and **−5.53 pp [−7.21, −4.03]** versus
+BatchTopK. Thus the phonetic-information criterion passes, while both improvement criteria fail.
+The old/new comparison changes the complete SAE recipe and cannot attribute this difference to
+the L1 penalty alone. The intervals are conditional on these fixed trained models, not training-seed
+variability. No result establishes unsupervised phone naming or authorizes cycle substitution.
+
+**Activation sparsity.** Positive raw ReLU activations are measured, not constrained to a fixed L0.
+All decoder columns have nonzero norm; raw and contribution activity histograms agree on dev.
+The full-train contribution histogram was not stored. Zero entries are the fraction of the
+frame-by-feature activation matrix that is zero, distinct from zero-active frames and unused features.
+
+| Domain | Frames | Mean active/frame | Min / median / p90 / max | Zero entries | Zero-active frames | Inactive features |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| Full train pool | 18,088,388 | 25.7610 | 1 / 26 / 37 / 266 | 99.6855% | 0% | 18 |
+| Raw dev-clean | 968,057 | 24.6357 | 0 / 24 / 35 / 688 | 99.6993% | 0.0001033% | 39 |
+| Raw dev-other | 919,980 | 25.0982 | 0 / 24 / 37 / 558 | 99.6936% | 0.0013044% | 27 |
+
+**Features per phoneme.** The same fixed dev-clean strict-majority naming rule assigns **2253**
+features to speech phones and **1** to SIL, leaving **5938** unnamed. Across all 39 speech phones,
+including zero-count ZH, the mean is **57.7692 features/phone**, median **43**, range **0–183**;
+38 phones have assignments. The most assigned are S 183, AH 180, IY 152, IH 125 and AE 119;
+the fewest are ZH 0, JH 5, OY 5, G 6 and CH 8. These labels describe supervised associations.
+
+The same fixed labels remain strict majorities with positive support on dev-other for **1804**
+speech features and zero SIL features: **46.2564 per speech phone**, median 37, range 0–165.
+This held-out retention read does not select a new map. Across the 733,242 aligned nonsilence
+frames, there are **2.632139 correctly named active features per frame**, against **26.920816 total
+active features per frame**. These simultaneous counts differ from distinct dictionary features
+assigned to a phone and use a different frame subset from raw-frame sparsity above.
+
+Exact statistics, all 40 phone rows, all 8192 feature rows and PNG/PDF plots are under
+`reports/sae_4b_weighted_l1_sparsity_2026-09-17/`; helper:
+`analysis/sae_4b_weighted_l1_sparsity_stats.py`. Execution and source/hash checks:
+`reports/codex_4b_weighted_l1_sparsity_execution_2026-09-17.md`. Fresh result/statistics audit:
+`reports/codex_4b_weighted_l1_result_audit_2026-09-17.md` (DONE_WITH_CONCERNS: both improvement
+intervals lie wholly below zero; supervised-label and complete-recipe limitations remain).
