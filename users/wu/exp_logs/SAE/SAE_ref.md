@@ -43,8 +43,10 @@ for the recomputed control.
 posterior-conservation tolerance at the actual flat initialization, in the clean/eval epoch-1 read.
 Promoting identical DP inputs to float64 passes that read. The measured conditions, gate failure and audit
 are in `SAE_4A.md`, "Cold-initialization numerical result". This does not establish the cause of banked
-PER results or validate a training repair. Validate the complete loss/backward path before new training;
-any content-treatment comparison after repair must use a control with the same numerical computation.
+PER results. The subsequent canonical first-batch loss/backward check passes; see the audited
+"DP-only training-step result" in `SAE_4A.md` for its limited operating point. A full training trajectory
+remains unmeasured. Any content-treatment comparison after repair must use a control with the same
+numerical computation.
 
 ## Approach
 

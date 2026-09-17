@@ -21,11 +21,14 @@ Candidate: `ReturnnTrainingJob.fDLNbtpqVnbG`, wrapper `config/sae_4a_s3d_phone_c
 The cold-initial preflight `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS`
 completed and FAILED its numerical criterion: float32 violates conservation; matched float64 passes.
 The independently audited operating point and limitations are under "Cold-initialization numerical result".
-S3d is held. The DP-only float64 repair is implemented and reviewed. Active validation:
-`work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f`, wrapper
-`config/sae_4a_dp64_train_step.py`, SLURM 1848370. It executes paired first-batch forward/backward
-without an optimizer update. Next: verify completion and independently audit the result before planning
-training with matched numerical computation. Scientific FAIL is retained evidence, not an automatic retry.
+S3d is held. The DP-only float64 repair passed its independently audited first-training-batch validation:
+`work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f`; see "DP-only training-step result".
+Active precision-only cold control: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
+wrapper `config/sae_4a_dp64_control.py`, within the reference single-arm six-hour training envelope.
+Manager 865322 is launched; the initial handoff observed local create_files before scheduler submission.
+Launch evidence: `reports/codex_4a_dp64_control_launch_2026-09-17.md`. Next: verify all eight checkpoints
+and registered reads, then audit fixed epoch-4/8 results against banked float32 before adding content.
+The unchanged G4a.3 gate and selected-checkpoint qualification are below; no training result exists yet.
 
 Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
 (`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
@@ -1827,7 +1830,66 @@ The reviewed witness is submitted as `Dp64TrainStepJob.TWT6VGrjjT2f`, SLURM 1848
 expected artifacts `output/dp64_train_step.{json,txt}`. Implementation and independent harness review:
 `reports/codex_4a_dp64_train_step_impl_2026-09-17.md` and
 `reports/codex_4a_dp64_train_step_review_2026-09-17.md`. Launch, source fingerprints and verified
-allocation: `reports/codex_4a_dp64_train_step_launch_2026-09-17.md`. No numerical result is claimed yet.
+allocation: `reports/codex_4a_dp64_train_step_launch_2026-09-17.md`. The completed result follows.
+
+### DP-only training-step result (audited 2026-09-17)
+
+`Dp64TrainStepJob.TWT6VGrjjT2f`, SLURM 1848370, completed with **PASS** on all preregistered
+repair checks. The actual first tc100 training batch has 128 utterances, 32,615 valid frames and padded
+feature shape 128×392×1024. Both cells share the saved partition/order, cold initialization, epoch-1/step-0
+training context, seed 42, epoch RNG seed 3671162496, state, random draws and represented neural inputs.
+There is no optimizer or learned-parameter update. Main and sequential ±0.25 rate calls each cover the
+same 32,615 valid frames; every float64 call conserves mass, worst error 5.1736e-14, with all partitions
+finite and no nonfinite rows or zero partitions. Float32 also passes on this batch, worst error 0.0009415;
+the earlier long-batch failure remains unchanged.
+
+The float64 total loss is 3.0786665023 versus float32 3.0838878155. All produced gradients are finite;
+float64 theta/phi group norms are 12.59786336/0.02787474, with live main-q and segment-score gradient
+paths. Paired theta/phi gradient cosines are 0.9999967795/0.9999999820, descriptive only. This validates
+the repair at one initial training step; it establishes neither full-trajectory stability, PER improvement
+nor the cause of historical collapse.
+
+Peak allocated GPU memory is 17.14 GiB for float64 versus 9.43 GiB for float32. The recorded forward
+times include diagnostic capture/hash/transfer overhead and are not a training-throughput benchmark.
+This run used 170 exclusive-node seconds; the completed numerical diagnostics total 762/3,600 seconds.
+Terminal evidence: `reports/codex_4a_dp64_train_step_terminal_2026-09-17.md`; independent audit:
+`reports/codex_4a_dp64_train_step_endpoint_audit_2026-09-17.md`; complete scalar, gradient and provenance
+data: `work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f/output/dp64_train_step.{json,txt}`.
+
+### Precision-only cold control (specified before training)
+
+Under the user's standing instruction to adapt and execute autonomously within cold-start §4a, the next
+single-arm slot is a precision-only canonical control. Its only change from banked `lam3_tri` is
+`lattice_float64=True`, plus the output path. Retain the exact tc100 data, splits/order, K500 observations,
+features, eta, full trigram, flat recognizer/random reverse initialization, seed, optimizer, all loss weights,
+rate finite differences, tau schedule, eight subepochs and checkpoints 1–8. No content auxiliary or
+S3c input masking is enabled. Use the same clean decoding/evaluation procedures as the banked control.
+
+Register full dev-other/dev-clean greedy PER and statistics, epoch-4/8 own-phi speaker derangement and
+paired PER against the banked float32 control (2,000 seed-0 speaker resamples). Keep the label-free
+selector unchanged and report fixed epoch 4, selected checkpoint and epoch 8 separately. G4a.3 remains
+epoch-4 dev-other PER <0.50 and positive own-phi speaker-matched derangement. No gradient agreement,
+auxiliary loss or numerical validity check substitutes for this ASR gate. The contrast measures the effect
+of the numerical repair through training at one reference seed. Its float64 endpoint can subsequently
+serve as S3d's matched control; no content-arm allocation is included in this run.
+
+Allocate one reference training arm: GPU1, CPU16, host memory 64 GB, gpu_mem 96 GB, six-hour limit,
+unchanged whole-node exclusivity, and the existing evaluation-job resources. This is separate from the
+closed one-node-hour numerical diagnostic budget, with no grid or additional training arms. Resource
+constants come from the existing S3c/rate helper; the phase documents contain no overall cumulative cap
+(`reports/codex_4a_budget_scope_2026-09-17.md`). Independent direction and exact-config reviews precede
+launch; old configurations/defaults must remain unchanged and the full graph must contain only this new
+training and intended reads.
+The prepared control is `ReturnnTrainingJob.IoCQmrlJbCC0`, wrapper
+`config/sae_4a_dp64_control.py`. Independent scientific and exact-config reviews passed:
+`reports/codex_4a_dp64_control_direction_audit_2026-09-17.md` and
+`reports/codex_4a_dp64_control_review_2026-09-17.md`; inputs, generated config and endpoint pointers:
+`reports/codex_4a_dp64_control_impl_2026-09-17.md`. Paired intervals are registered for epochs 4/8;
+if label-free selection picks epoch 5–7, report its PER separately without attributing an epoch-4/8
+paired interval to that selected checkpoint.
+Recipe commit: `6f16d2fa42dd2f163775f490b53338290c953c41`. The manager is launched for this exact
+126-root graph; initial handoff found local create_files, with scheduler submission not yet observed.
+Launch/source/resource evidence: `reports/codex_4a_dp64_control_launch_2026-09-17.md`.
 
 ### Recognizer-factor diagnostic (preregistered 2026-09-17)
 
