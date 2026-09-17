@@ -18,7 +18,18 @@ The proposed additional seeded-S2d frozen-reverse run is withdrawn. Earlier GAN-
 carve-outs are historical provenance, not authorization for new mainline work. The user explicitly invites
 methodological thinking and literature research on making this cycle learn from cold start. The current experimental
 bed, original gates and historical results remain in `SAE_4A.md`; this priority change does not rewrite them.
-The user subsequently authorizes the frozen higher-context diagnostic and then direct six-gram candidate
+
+**User amendment, 2026-09-17:** the user reopens supervised-initialized refinement as an important
+parallel analysis and authorizes autonomous error-pattern/mechanism analysis followed by a new bounded
+training round aimed at improving the 10 h supervised initializer on the 100 h adaptation bed. This
+supersedes the withdrawal above for this disclosed seeded track. The inherited setting is 10 h labeled
+initialization followed by 100 h speech-only cycle adaptation, not an additional 100 h of paired labels.
+Gold may explain errors and assess results; it cannot select checkpoints or enter adaptation targets.
+Register the exact follow-up, controls and resource limit before launch; retain G4a.2 and G4a.S2d.
+These results do not count as cold-start unsupervised progress. The six-gram cold run is separate;
+§4b is left unchanged at the user's request. Live protocol: `SAE_4A.md`, "Reopened seeded refinement".
+
+Separately, the user authorizes the frozen higher-context diagnostic and then direct six-gram candidate
 reweighting training in §4a, independently of S3d. On 2026-09-17 the user additionally authorizes starting
 `SAE_4B.md`: reproduce a sparse autoencoder on frozen w2v2 and extract phoneme information with supervised
 diagnostics following AudioSAE. This supersedes §4b's earlier planning-only restriction. The SAE itself

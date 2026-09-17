@@ -2,26 +2,28 @@
 
 ## State
 
-Active question: can the existing exact-marginal cycle learn useful phone content from cold start?
-User clarification keeps work within §4a, without GANs or supervised-derived models; seeded refinement
-and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
+Two active questions remain within §4a: cold-start cycle learning, and the user-reopened 10 h
+supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latter is a disclosed
+seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
+Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-S3c denoising, S3d categorical content and matched DP64 control are CLOSED FAIL; see their result
-sections below. S3d `ReturnnTrainingJob.Pso7oeIpqYjY` was stopped after its failed epoch-4 gate;
-checkpoints 1–6 remain. Do not restart it. Control `ReturnnTrainingJob.IoCQmrlJbCC0` and the frozen
-higher-context pilot are complete and audited; see "Precision-only control result" and
-"Higher-context pilot result" for their operating points and evidence.
+Seeded work: saved-output error analysis is audited; added deletions concentrate on short phones,
+but reverse-update causation remains untested. S2e is SUBMITTED / QUEUED at the launch check:
+`PackedEmcTrainJob.9NHxwYexks7U`, SLURM `1865746_1`, `config/sae_4a_seeded_refine.py`.
+The four-arm FP64 round has one 8-hour allocation. On its terminal event, verify all four arms and
+checkpoints before starting the registered PER/WER readouts. No automatic second training allocation.
+Protocol, gates, artifacts and pending decisions: "Reopened seeded refinement" below; launch handoff:
+`reports/codex_4a_seeded_round_launch_2026-09-18.md`. No new recognition result exists yet.
+Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
 Matched 256-draw P3/P6 training is RUNNING: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`,
 wrapper `config/sae_4a_context_train.py`. It retains execution caps 16/4, eight subepochs, fixed
 epoch-4/8 and label-free-selected evaluations, and G4a.3. The user accepted a 19.1h projection with
 the existing 1.1 margin (21.01h total allowance); the former 512-draw pack remains superseded.
 
-At the 2026-09-17 status read, about 4.5h into training, P3/P6 were only at subepoch 1 steps 21/20,
-with no checkpoint, dev-loss evaluation or recognition output. Recent steps took 975.9/996.9s,
-well above the 143.954s profiled first P6 batch. The old full-run projection is not a reliable ETA;
-see "Live training cost and recognition status" below. The current allocation continues; automatic
-continuation is held pending a runtime/budget decision. No additional budget is authorized.
+The last cold-run status read had no checkpoint or recognition output; the measured runtime makes
+the old full-run projection unreliable. See "Live training cost and recognition status" below.
+Automatic continuation is held pending a runtime/budget decision; no additional budget is authorized.
 
 At the existing watcher wake-up, check both arms' actual checkpoints and terminal state before any
 resume. Do not automatically repeat a run that saved no checkpoint. If evaluations exist, retain
@@ -1448,6 +1450,137 @@ paired labels remains the unresolved cold-start problem.
 **Superseded by the user's subsequent priority (2026-09-16):** the seeded-S2d proposal above is withdrawn
 from the active queue. Research now targets fully unpaired, non-GAN cold initialization; improving the
 supervised seed is not an experimental objective. Original results and gates above remain unchanged.
+
+### Reopened seeded refinement (user authorization, 2026-09-17)
+
+The user reopens error-pattern and degradation-mechanism analysis for the **10 h supervised seed →
+100 h speech-only adaptation** setting, then authorizes a new autonomous training round aimed at
+improving that initializer. This supersedes the preceding withdrawal only for the disclosed seeded
+track. It does not alter the cold six-gram run or reopen §4b. Reuse existing experiments and verified
+references before adding diagnostics; choose a bounded matched comparison after the evidence audit.
+
+**Live gates, restated before new work.** Retain G4a.S2d: dev-other speaker-paired arm-minus-own-init
+PER at subepoch 8 has HOLD if CI95 upper bound < +0.010; IMPROVE requires the upper bound < 0 both
+at the label-free-selected checkpoint and at subepoch 8. Retain G4a.2: fixed-decoder-v2 sclite WER
+versus the same initializer at the last and label-free-selected checkpoints; "refines" means its
+speaker-clustered interval excludes zero in the favorable direction. Report PER and WER separately;
+a PER improvement does not establish a WER improvement. Preserve the original usability reference
+and report matched-control deltas. Freeze decoder settings, selector, schedule, precision and compute
+allowance before launch. No gold-best checkpoint, unregistered hyperparameter sweep or extra paired
+100 h labels. Existing dev sets have already informed diagnosis; new intervals condition on the
+fixed trained models and do not represent an untouched final test or training-seed variability.
+
+**Audited starting evidence.** The same 10 h initializer has dev-other PER 0.115741 (8171/4192/8155
+substitutions/deletions/insertions; 177275 phones). S2d's joint trigram control ends at 0.254441:
+14229/16962/13915 errors. Its added errors comprise 12770 deletions, 6058 substitutions and 5760
+insertions, so the old bigram short-deletion account cannot simply be transferred to this run. The
+new duration/repeat/confusion analysis uses its fixed epochs 1/4/7/8 and the initializer; epoch 7
+was the existing label-free selection, not a new gold-based choice. Separately, the prior held-posterior
+anchor improved phone scores but worsened fixed-decoder WER; direct self-distillation achieved
+25.9029% endpoint WER versus seed 26.5035%. A matched self-distillation control is therefore required.
+The OR frozen/joint experiment supports a hypothesis about reverse-model drift, but does not identify
+its effect on seeded theta. Sources and fresh audit:
+`reports/codex_4a_seeded_inventory_2026-09-17.md`,
+`reports/codex_4a_seeded_evidence_audit_2026-09-17.md`.
+
+The distinction between likelihood and recognition quality, and between posterior tilting and a
+direct recognizer constraint, motivates the comparisons below. Literature support and transfer
+limits: `reports/codex_4a_seeded_refinement_literature_2026-09-17.md`, including
+[Merialdo 1994](https://aclanthology.org/J94-2001.pdf) and
+[Smith and Eisner 2004](https://aclanthology.org/P04-1062.pdf). Their tagging results do not prove
+the cause or a remedy for this speech model.
+
+**Saved-output error analysis (2026-09-18, independently audited).** All ten split/checkpoint rows
+reproduce the banked S/D/I/N/PER exactly, with identical gold and full membership. Dev-clean has
+2703 utterances / 193644 reference phones; dev-other has 2864 / 177275. Endpoint PER is
+20.713% versus 5.800% init on clean, and 25.444% versus 11.574% on other. Speaker-paired endpoint
+deltas are +14.913 percentage points [14.336,15.460] and +13.870 [12.936,14.775], respectively
+(2000 resamples, seed 0). On dev-other, 2720 utterances worsen; epoch 1 already has 32.882% PER.
+
+The dev-other endpoint adds 12770 deletions, of which 11393 occur on MFA segments of 1–3 frames
+(20–60 ms); 6+-frame segments have zero net deletion increase. One-/two-frame deletion rates rise
+from 6.59%/4.17% to 30.30%/20.39%, versus 1.11%→1.18% for 6–8 frames. Adjacent repeated-phone
+pairs with one correct and one deleted alignment rise from 253 to 506 of 989 pairs. This is a
+sequence-edit category, not proof of a timed merge. The leading added substitution is IH→AH
+(366→1756); D deletions rise 374→2769 and JH insertions 36→3513. Thus short-phone loss is a
+major pattern, accompanied by substantial substitution and insertion drift; the output analysis
+alone does not identify which training component causes it.
+
+The MFA join excludes only the empty-reference utterance from duration bins; all 177275 phones
+remain. Full PER retains that item's insertions. The artifact's ancillary `macro_per` floors the
+per-item denominator at one and is not a mean of defined utterance PERs; it is not used for gates.
+No new checkpoint selection or acoustic inference occurred. Artifacts:
+`reports/sae_4a_seeded_errors_2026-09-18/` (summary, phone/speaker/utterance/confusion/duration tables,
+PNG/PDF); audit `reports/codex_4a_seeded_error_audit_2026-09-18.md`. This read establishes the S2d
+error pattern, not a seeded reverse-update cause; the registered comparisons below address that gap.
+
+**S2e: one registered four-arm round (2026-09-18, before launch).** All arms start from the original
+seed `ReturnnTrainingJob.65NNK8Bwxdtd/epoch.024.pt` and its own trigram/tau-8 warm reverse slice
+`ExtractSubmoduleCheckpointJob.u3GoBYOWr741/output/model.pt`; both files exist. Retain S2d's exact
+100 h train/CV utterances, frozen L15 features and enc50 units, 50-Hz clock, network shape, model
+seed 42, eight-subepoch schedule, batching/order, Adam settings, theta lr 1e-4, phi lr 0.003 where
+trained, beta 1, full trigram, duration support, band 25 and aggregate weight 0.1. Enable existing
+whole-lattice FP64 in **all** arms because of the documented numerical defect; neural forwards
+remain FP32. This requires a fresh matched joint control rather than treating banked FP32 S2d as
+the sole causal baseline. No BT, new transcript targets, candidate approximation or additional warmup.
+
+| Arm | Reverse model | Tau | Cycle weight | Direct seed KL weight | Rate weight |
+| --- | --- | --- | ---: | ---: | ---: |
+| A: joint control | trained | inherited 8→2 schedule | 1 | 0 | 3 |
+| B: freeze-only | frozen | same as A | 1 | 0 | 3 |
+| C: stabilized cycle | frozen | fixed 2 | 1 | 1 | 0 |
+| D: self-distillation control | frozen | fixed 2 | 0 | 1 | 0 |
+
+Posterior init-tilt alpha is zero in all arms. Direct KL is the existing framewise
+`KL(q_init || q_theta)`, with q_init a frozen evaluation-mode copy of the loaded 10 h seed; its
+weight 1 and the rate-free KL+aggregate control come from S2c E. Tau 2 comes from the fixed-tau
+seeded reference. C adds the cycle term to D and keeps the reverse model fixed; it is a proposed
+remedy, not an established improvement. B minus A isolates allowing reverse updates on the same
+FP64 seeded bed. C minus D isolates the contribution of the cycle term with the same teacher,
+temperature, frozen reverse model and optimizer. C versus historical S2d changes a package of
+settings and cannot attribute improvement to any single change. A also indicates whether the old
+degradation persists under corrected precision; no cross-precision causal claim is pre-assumed.
+
+**Readouts and budget.** Retain greedy PER/stats for epochs 1–8 on both dev splits and the S2d
+label-free weighted-LM-perplexity selector over epochs 4–8. Register G4a.S2d comparisons to init,
+B versus A and C versus D at fixed epochs 4/8 and independently selected checkpoints. Add the
+unchanged decoder-v2 WER at epoch 8 and selected checkpoints, on both splits, with paired deltas
+against init and the same matched controls; beam 500, LM 2, word score −1, acoustic temperature 1,
+official 4-gram/lexicon. Keep G4a.2 and its usability reference unchanged. Decode the existing S2d
+control epoch-1/8 posteriors with this same decoder for the retrospective word-error read; no new
+acoustic forward is required for those artifacts. Gold diagnoses and scores but selects no checkpoint.
+
+One four-GPU/64-CPU/256-GiB packed allocation has an **8-hour training cap**, inherited from the
+historical S2d pack request. Its measured allocation was 4h05m28s; the separate single-arm FP64
+control took 4h43m19s. Neither number guarantees the new concurrent runtime. Use the established
+readout resource envelope; no training sweep, profiling campaign or automatic second training
+allocation is authorized. A timeout requires checkpoint and remaining-budget inspection before
+any resume. Keep `settings.py` and the live six-gram sources unchanged. Exact existing knobs and
+readout helpers: `reports/codex_4a_seeded_code_inventory_2026-09-17.md`.
+
+**Prelaunch protocol audit:** the fixed-epoch matched contrasts and own-init refinement gates are
+supported. Independently selected checkpoints compare selection policies, not equal training time.
+The original G4a.2 usability threshold remains recorded, but its §1d score used a different decoder
+and in-job scoring. A comparable "usable" verdict remains unresolved without a matched §1d v2
+sclite read; this does not block the paired own-init improvement test. Audit:
+`reports/codex_4a_seeded_round_protocol_audit_2026-09-18.md`.
+
+**Active S2e run and next decision (2026-09-18).** Submitted
+`PackedEmcTrainJob.9NHxwYexks7U` / SLURM `1865746_1`, QUEUED at the launch check with exactly
+GPU4 / CPU64 / 256 GiB / 8h. Wrapper `config/sae_4a_seeded_refine.py`; recipe commit
+`7a327bd8bebb1479d2ce9ba064b503524f8edb98`. All four production configs and inputs are present;
+no training score or checkpoint has been measured yet. The independent code review found no
+release blocker (`reports/codex_4a_seeded_round_code_review_2026-09-18.md`). Run outputs:
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2e_pack/`; launch handoff and environment:
+`reports/codex_4a_seeded_round_launch_2026-09-18.md`.
+
+The six registered init/historical word-decode jobs are also queued; the new-model readouts wait
+for training. Automatic training retries are held to enforce the single-allocation budget. On
+allocation termination, verify each arm's epoch-8 checkpoint and completion, then run the registered
+PER/WER/selector/paired chains. If incomplete, inspect saved progress and remaining budget before
+any continuation; no second training allocation is currently authorized. Read fixed-epoch A/B and
+C/D contrasts for mechanism and cycle contribution, then the own-init gates at last and selected
+checkpoints. Any improvement claim requires actual paired scores and a fresh audit.
 
 ### Withdrawn standalone-initializer proposal (2026-09-16)
 

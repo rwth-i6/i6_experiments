@@ -15,8 +15,8 @@ evaluation and probes.
 ## North star & hard constraints
 
 - **North star (user priority 2026-09-16).** Pure unsupervised ASR **without GANs**, improving **cold start
-  within §4a cycle consistency**. Supervised performance is not the objective; existing controls are diagnostic
-  evidence only. This supersedes the earlier GAN fallback and seeded-refinement priorities; see `SAE_ref.md`.
+  within §4a cycle consistency**. The user also reopens 10 h supervised-init refinement as a parallel analysis;
+  its results remain separate from cold-start progress. No GAN fallback; scope and amendment: `SAE_ref.md`.
 - **Label quarantine.** True transcripts appear in exactly three quarantined places: evaluation metrics (PER/WER,
   probes, gate measurements on dev), the §0c architecture toplines, and the §2S anchor arm (1 h/10 h paired seeds;
   its artifacts never feed the unsupervised ladder). In the unsupervised arm no training signal, checkpoint
@@ -71,7 +71,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
-   its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
+   its gold-derived checkpoint swaps remain diagnostic. Seeded error analysis audited; S2e four-arm round submitted.
    S3c/DP64 CLOSED FAIL; S3d stopped; P3/P6 training is slower than the accepted projection; no checkpoint yet.
    LM objective remains above bigram. `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
