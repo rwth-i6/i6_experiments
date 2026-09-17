@@ -9,10 +9,8 @@ noisy-channel decoding. In the adopted live `psi_align` system the channel condi
 orthographic BPE states, not G2P: z_hat = argmax_z p_LM(z) * p_psi(u | BPE_states(z)); G2P survives only in
 evaluation and probes.
 
-> Index scope: objective, hard constraints, live queue, phase pointers. Results, per-phase State, gate reads and
-> run catalogs live in the `SAE_<phase>.md` documents; pre-unification subplans are frozen under `archive/` with
-> their registered gates as provenance only, and reopened work restates its live gate in the phase document before
-> a new result.
+> Results and State live in `SAE_<phase>.md`; frozen `archive/` gates are provenance only.
+> Reopened work restates its live gate in the phase document before a new result.
 
 ## North star & hard constraints
 
@@ -75,7 +73,9 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
    S3c/DP64 CLOSED FAIL; S3d stopped; user accepts 19.1h projection; matched 256-draw P3/P6 training submitted.
-   LM objective remains above bigram. `SAE_4A.md`; sparse-code §4b is registered for planning only.
+   LM objective remains above bigram. `SAE_4A.md`.
+   **§4b also ACTIVE (user 2026-09-17):** w2v2 SAE reproduction and supervised phoneme diagnostics
+   following AudioSAE; later cycle integration remains separate. Design and runs: `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and
    the 1,112-ID evaluation CLOSED, so no PER of that route exists. 1g.9, the 1g.10/10a/10b/10c family, 1g.11,
@@ -158,8 +158,8 @@ the 6,778/201 floor); no solver retry, support-floor relaxation or graph amendme
   S2d FAIL; iterated factorized target fitting drifts, without an established limiting posterior. Frozen/joint
   reverse-model diagnostics remain active; CT CLOSED FAIL on its audited endpoint. `SAE_4A.md`.
 - **Build/setup** — 960 h loop build `sae_960h_loop_build.md`; reward side-inputs lam_1/lam_2 `SAE_ref.md`.
-- **§4b sparse acoustic codes from w2v2** — REGISTERED, NO EXECUTION; speech-only representation and
-  matched-code comparison for a possible cycle target, preliminary gate only. `SAE_4B.md`.
+- **§4b sparse acoustic codes from w2v2** — ACTIVE; w2v2 SAE reproduction and supervised phoneme
+  diagnostics authorized 2026-09-17. Future cycle-target comparison remains a separate stage. `SAE_4B.md`.
 
 ## Standing gates for phases with no separate document
 

@@ -19,8 +19,14 @@ carve-outs are historical provenance, not authorization for new mainline work. T
 methodological thinking and literature research on making this cycle learn from cold start. The current experimental
 bed, original gates and historical results remain in `SAE_4A.md`; this priority change does not rewrite them.
 The user subsequently authorizes the frozen higher-context diagnostic and then direct six-gram candidate
-reweighting training in §4a, independently of S3d. A separate sparse-acoustic-code phase, `SAE_4B.md`,
-is registered for preliminary planning only; no §4b execution is authorized.
+reweighting training in §4a, independently of S3d. On 2026-09-17 the user additionally authorizes starting
+`SAE_4B.md`: reproduce a sparse autoencoder on frozen w2v2 and extract phoneme information with supervised
+diagnostics following AudioSAE. This supersedes §4b's earlier planning-only restriction. The SAE itself
+uses speech alone; labeled diagnostic fitting and held-out evaluation are authorized, with their artifacts
+quarantined from unsupervised training and checkpoint/hyperparameter selection. A supervised phone probe
+does not establish unsupervised phone discovery. §4b does not yet authorize a cycle-target substitution.
+Its audit inputs, matched baselines, fixed operating point and evidence criteria are registered in
+`SAE_4B.md`, "First run: fixed operating point and readout".
 
 For cold-start comparison, use the registered `lam3_tri` reference in
 `PackedEmcTrainJob.byYMQmBNEpLZ` (the tc100/trigram run), with its fixed endpoint and label-free-selected
