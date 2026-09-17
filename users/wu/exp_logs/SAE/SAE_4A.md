@@ -16,26 +16,22 @@ audited below. The latter run is `work/analysis/qneutral_diagnostic/QNeutralDiag
 its initial invalid read is preserved. Results and limitations are under "Literal hypothesis inspection"
 and "Recognizer-factor result"; no take-off gate changes.
 
-S3d categorical phone-output content is prepared, with direction and implementation reviews passed.
-Candidate: `ReturnnTrainingJob.fDLNbtpqVnbG`, wrapper `config/sae_4a_s3d_phone_content.py`; not launched.
-The cold-initial preflight `work/analysis/cold_init_numerics/ColdInitNumericsJob.h6DXjOs9sKQS`
-completed and FAILED its numerical criterion: float32 violates conservation; matched float64 passes.
-The independently audited operating point and limitations are under "Cold-initialization numerical result".
-S3d is held. The DP-only float64 repair passed its independently audited first-training-batch validation:
-`work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f`; see "DP-only training-step result".
-Active precision-only cold control: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
-wrapper `config/sae_4a_dp64_control.py`, within the reference single-arm six-hour training envelope.
-Manager 865322 is launched; the initial handoff observed local create_files before scheduler submission.
-Launch evidence: `reports/codex_4a_dp64_control_launch_2026-09-17.md`. Next: verify all eight checkpoints
-and registered reads, then audit fixed epoch-4/8 results against banked float32 before adding content.
-The unchanged G4a.3 gate and selected-checkpoint qualification are below; no training result exists yet.
+S3d categorical phone-output content is launched after user authorization and matched-config review:
+`work/i6_core/returnn/training/ReturnnTrainingJob.Pso7oeIpqYjY`, wrapper
+`config/sae_4a_s3d_phone_content.py`, SLURM `1853056_1` (CONFIGURING at handoff).
+It uses DP64 and the previously specified weight-0.3 categorical loss; no separate back-translation term.
+The unlaunched float32 candidate is superseded. Review and launch evidence:
+`reports/codex_4a_s3d_dp64_review_2026-09-17.md`, `reports/codex_4a_s3d_dp64_launch_2026-09-17.md`.
 
-Banked evidence: S2d and the earlier cold remedies failed their gates; S3b-CT is CLOSED FAIL
-(`reports/codex_pack5_endpoint_audit_2026-09-16.md`). S3b-OR and its completed checkpoint-swap diagnostic
-are explanatory gold-derived evidence, not unsupervised progress. Their results and concrete run pointers
-remain under "Current mechanism assessment and partial follow-ups", with audits in
-`reports/codex_pack6_endpoint_audit_2026-09-16.md` and
-`reports/codex_or_mass_endpoint_audit_2026-09-16.md`.
+Matched control: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`, wrapper
+`config/sae_4a_dp64_control.py`; epoch 7 running at the bounded prelaunch read.
+The numerical defect and validated repair are recorded under "Cold-initialization numerical result"
+and "DP-only training-step result". Next: verify eight checkpoints and registered reads from both
+arms, audit fixed epoch-4/8 results and selected-checkpoint reporting, then decide the next intervention.
+The G4a.3 gate and private-code qualification remain as specified in the S3d launch amendment.
+
+Banked cold-remedy failures and gold-derived explanatory controls remain under
+"Current mechanism assessment and partial follow-ups"; they do not establish unsupervised progress.
 
 ## Objective
 
@@ -1747,6 +1743,31 @@ confirmed the stated delta and exact common-parameter/RNG equality under the act
 initialization and flat checkpoint: `reports/codex_4a_s3d_phone_content_review_2026-09-17.md`.
 Implementation evidence: `reports/codex_4a_s3d_phone_content_impl_2026-09-17.md`; recipe commit
 `39675aa7fe09765361454f97fb212e1dec910bb6`. No training result exists.
+
+**Launch amendment (user 2026-09-17, before S3d training).** The user explicitly authorizes starting
+this arm and regards an acoustically informative private code as useful intermediate progress. Code
+prediction alone does not establish phonetic content or the intended phone identities; report those
+distinctions while retaining the original G4a.3 ASR gate and label-free checkpoint selection. No new
+gold-fitted training target, initializer or selection criterion is introduced.
+
+Enable `lattice_float64=True`, matching `ReturnnTrainingJob.IoCQmrlJbCC0`; relative to that control,
+the only training change is the content stream/head and the specified weight-0.3 categorical loss.
+Primary epoch-4/8 paired PER comparisons now use this DP64 control. The old hidden-CT comparison
+remains a disclosed historical float32 diagnostic. Preserve the original control's independent graph;
+reference its evaluation outputs without registering its training under a second manager.
+The earlier requirement to finish the control before starting S3d is superseded by this explicit start
+instruction; both completed endpoints are required before interpreting the content effect. Allocate
+one eight-subepoch S3d arm in the already specified GPU1/CPU16/mem64/time6h/gpu_mem96 envelope,
+with unchanged whole-node exclusivity and existing evaluation resources. No grid is authorized here.
+The earlier float32 S3d candidate remains unlaunched; review the precise config delta before launch.
+
+The matched arm is now `ReturnnTrainingJob.Pso7oeIpqYjY`, with 134 output roots and one new training
+job; recipe commit `8d2280810464c34d64e4434aa0c19823c25e2585`. Source/config review passed:
+`reports/codex_4a_s3d_dp64_review_2026-09-17.md`; complete configuration, endpoint paths and input
+provenance: `reports/codex_4a_s3d_dp64_impl_2026-09-17.md`. All training inputs exist. The two
+precision-control epoch-8 comparison inputs are pending their separately managed producer and do not
+block treatment training. Launch: `reports/codex_4a_s3d_dp64_launch_2026-09-17.md`; SLURM `1853056_1`
+is CONFIGURING at handoff. No S3d training result is available yet.
 
 **Cold-initialization numerical preflight (specified before execution).** Initialize the canonical
 `PackedEmcTrainJob.byYMQmBNEpLZ/output/lam3_tri/returnn.config` through RETURNN's
