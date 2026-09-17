@@ -9,24 +9,23 @@ and standalone SylCipher initialization are withdrawn. Constraints and the canon
 S3c denoising is complete and CLOSED FAIL. Its endpoint and the independently audited stored-hypothesis
 and recognizer-factor diagnostics remain under their result sections below; no take-off gate changes.
 
-S3d categorical phone-output content is launched after user authorization and matched-config review:
-`work/i6_core/returnn/training/ReturnnTrainingJob.Pso7oeIpqYjY`, wrapper
-`config/sae_4a_s3d_phone_content.py`, SLURM `1853056_1` (RUNNING at the control endpoint handoff).
-It uses DP64 and the previously specified weight-0.3 categorical loss; no separate back-translation term.
-The unlaunched float32 candidate is superseded. Review and launch evidence:
-`reports/codex_4a_s3d_dp64_review_2026-09-17.md`, `reports/codex_4a_s3d_dp64_launch_2026-09-17.md`.
+S3d categorical content failed the fixed epoch-4 PER clause. On the user's new stop instruction,
+`ReturnnTrainingJob.Pso7oeIpqYjY` / SLURM `1853056_1` was cancelled during epoch 7 after 3h40m07s;
+checkpoints 1–6 and completed evaluations are preserved. Do not restart it. Results and the schedule
+amendment are under "S3d epoch-4 result and early stop" below; the independent audit confirms G4a.3 FAIL.
 
 Matched control is complete and G4a.3 FAIL: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
 wrapper `config/sae_4a_dp64_control.py`; results and audit are under "Precision-only control result".
-Higher-context pilot complete and audited: `work/analysis/context_rescore_diagnostic/ContextRescoreDiagnosticJob.gIPIR0c49NfS`,
-wrapper `config/sae_4a_context_rescore.py`, SLURM `1855413_1`. It freezes the DP64 control at epoch4;
-eight gold-free utterances, nested64/128/256 path draws, and same-candidate P3/P4/P6 rescoring. Astra
-implementation/review, operating point and outputs are under "Long-context prior option"; the audited
-measurement and interpretation are under "Higher-context pilot result" below. The pilot completion
-gate passes; it does not establish training adequacy or ASR improvement.
+The frozen higher-context pilot is complete and audited; see "Higher-context pilot result" for its
+epoch-4 operating point, length-dependent coverage limit and source artifacts.
 
-Next: prepare LM-guided candidate generation to address the observed length-dependent coverage limit
-before a training proposal; verify S3d's eight checkpoints/reads and audit its comparisons against DP64.
+User now authorizes direct six-gram reweighting training. Astra's backward pass and matched P3/P6
+cold-training implementation are reviewed. The actual-batch cost measurement is submitted:
+`work/analysis/context_train_profile/ContextTrainProfileJob.VglVxZtlgpI0`, wrapper
+`config/sae_4a_context_train_profile.py`, SLURM `1856748_1`; completion requires both profile outputs
+and a successful job. Full training is not yet submitted. At the watcher wake-up, verify gradients,
+actual batch/temperature and stage timings, then release the registered comparison if cost fits or
+optimize execution without changing its estimator/data/schedule. S3d is closed; do not restart it.
 The G4a.3 gate and private-code qualification remain unchanged. Sparse acoustic-code work is registered
 separately in `SAE_4B.md`, with no execution authorized.
 
@@ -1874,6 +1873,33 @@ Terminal evidence: `reports/codex_4a_dp64_train_step_terminal_2026-09-17.md`; in
 `reports/codex_4a_dp64_train_step_endpoint_audit_2026-09-17.md`; complete scalar, gradient and provenance
 data: `work/analysis/dp64_train_step/Dp64TrainStepJob.TWT6VGrjjT2f/output/dp64_train_step.{json,txt}`.
 
+### S3d epoch-4 result and early stop (audited 2026-09-17)
+
+New user instruction: stop S3d after subepoch 4 if it does not work. Its completed fixed-epoch read
+fails the unchanged G4a.3 PER clause. Training had already reached epoch 7 when this instruction
+arrived; the exact training allocation `1853056_1` was cancelled after 3h40m07s and its manager stopped.
+Checkpoints 1–6 and completed evaluations remain in `ReturnnTrainingJob.Pso7oeIpqYjY`. There is no
+epoch 8 or eight-epoch-selected result; this user-directed schedule amendment does not alter the gate.
+
+The stored full-split dev-other PER is 0.8301678184 (2864 utterances, S84713/D59509/I2946/N177275),
+versus DP64 control 0.8281765618. Paired pooled delta is +0.001991, with 95% speaker-clustered interval
+[-0.002240,+0.005766] across 33 speakers. Dev-clean PER is 0.816736 versus 0.813689;
+paired delta +0.003047, interval [-0.000053,+0.005964] across 2703 utterances/40 speakers.
+The own-phi dev-other gap is positive: pooled +1.544069/frame; utterance mean +1.342968 with 95%
+speaker-clustered interval [+1.235555,+1.456392], 500/500 items and 33 speakers. The gap clause passes,
+but neither it nor the small PER differences establish cold take-off.
+
+Concrete results: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s3d_phone_content/ep4/`
+contains both splits' `per.json`, `per.txt` and derangement reads; sibling
+`paired_per/ep4/{dev-other,dev-clean}/summary.txt` contains the matched DP64 contrasts.
+Independent audit `reports/codex_4a_s3d_epoch4_result_audit_2026-09-17.md` re-derives the counts,
+verifies identical cohorts/decoding and the matched config, and confirms G4a.3 FAIL. The opposite-sign
+utterance-macro delta is a separate estimand and does not change the predefined pooled-PER gate.
+The auxiliary is a
+frame-aligned reconstruction channel through the final categorical phone outputs. It can encourage
+acoustic information but supplies no phoneme identity; the failed result does not establish which
+degeneracy caused failure. No replacement auxiliary or §4b experiment is launched on this reading.
+
 ### Precision-only cold control (specified before training)
 
 Under the user's standing instruction to adapt and execute autonomously within cold-start §4a, the next
@@ -2041,6 +2067,71 @@ SLURM `1855413_1`. Registered job outputs under `output/pilot/` are `summary.jso
 `candidates.jsonl`, `metadata.json` and `lm_counts.npz`. Wrapper SHA256 is
 `448845acffd1913174d090081583ed1c00d941eb4a36c33e96a55f8f4043dd44`.
 Launch evidence: `reports/codex_4a_context_rescore_launch_2026-09-17.md`. The completed measurement is below.
+
+### Six-gram cold-training authorization (2026-09-17; implementation in progress)
+
+The user explicitly authorizes launching six-gram reweighting without waiting for S3d. This amends
+the post-pilot proposal to improve candidate generation before training; the measured coverage limits
+remain limitations of the new experiment. No claim that the pilot established training adequacy is made.
+Stay within the existing cycle, with a fresh cold initialization and no S3d content term, back-translation,
+denoising, supervised initializer or §4b execution.
+
+Compare a finite-candidate P6 arm with a finite-candidate P3 control and the completed exact-P3 DP64
+reference `ReturnnTrainingJob.IoCQmrlJbCC0`. Both new arms inherit its data, initialization, seed,
+optimizer, eight-subepoch schedule, temperature anneal, band, beta=1 and loss normalization. For each
+utterance at the current temperature tau, draw 192 complete paths from the current joint P3 posterior
+and 64 at 1.5*tau, then deduplicate exact emitted strings including SIL. These counts and temperatures
+extend the user-approved pilot settings to training; candidate generation is detached. Each arm uses
+its own evolving theta/phi; identical sampling rules do not imply identical candidate sets after updates.
+Reuse the pilot's frozen sparse counts, corpus/split and Witten-Bell/BOS/no-EOS convention, without refit.
+
+For the resulting set Y, replace the cycle partition with
+`Z_n(Y) = sum_{y in Y} A_tau(y) * P_n(y)^(beta/tau)`, n=3 or 6, and retain
+`L_cycle = mean_utt[-log Z_n(Y)/T]`. Exact conditional alignment/segmentation derivatives train both
+theta and phi; there is no outer tau multiplier, sampled-alignment surrogate, duplicate-frequency
+weight or importance-sampling correction. This is a truncated partition, not an unbiased estimate of
+the full P6 partition. The weight-0.1 aggregate penalty remains unchanged. The weight-3 rate term uses
+the same candidate posterior and non-SIL token count, preserving rho and the existing theta-only
+central finite-difference rule (step 0.25, phi detached); its precise implementation must be reviewed.
+
+Before a full launch, tiny exhaustive partition/gradient checks and an actual forward/backward timing
+read must establish executable cost and finite gradients. Use the existing resource envelope, with
+matched arms packed if supported; no parameter grid. The original G4a.3 gate is unchanged: fixed
+subepoch 4 dev-other PER<0.50 and positive own-phi speaker-matched gap. Report paired comparisons,
+fixed epoch 4, epoch 8 and the unchanged label-free checkpoint selector separately. Candidate coverage
+and weight concentration explain approximation behavior; they do not substitute for the ASR gate.
+Run pointers, measured cost and the final bounded allocation are recorded before submission below.
+
+Cost pre-registration: the completed DP64 control used 477 updates, 16,079s of training
+(33.71s/update), and 16,999s of exclusive-node allocation. First run one source-reviewed, real-batch
+forward/backward measurement, capped at one node-hour using GPU1/CPU16/mem64/gpu_mem96.
+The existing two-arm packed job requests GPU4/CPU64/mem256 and 6.6h (the reference 6h multiplied by
+its existing 1.1 packing allowance). Launch that comparison only if measured cost supports this bound;
+do not silently change batch size, candidate count, training data or schedule to fit it. The allocation
+policy reserves the full four-GH200 node even for the one-GPU measurement. Source of measured baseline
+and settings policy: `reports/codex_4a_context_train_preflight_2026-09-17.md`.
+
+The conditional backward implementation is speech-repo commit `ae2e965`; its exact objective,
+gradient normalization, finite-difference semantics and tiny exhaustive checks are documented in
+`reports/codex_4a_context_train_lattice_2026-09-17.md`. These checks establish their tested mathematical
+cases, not production speed or a cold-start result. Actual-batch cost remains the launch prerequisite.
+
+The integrated implementation is speech-repo commit `72d1ac50`; rendered-config comparisons are in
+`reports/codex_4a_context_train_integration_2026-09-17.md`. Astra source review
+`reports/codex_4a_context_training_review_2026-09-17.md` releases the bounded measurement only;
+fresh protocol audit `reports/codex_4a_context_training_protocol_audit_2026-09-17.md` limits any
+subsequent inference to the candidate-training method, not an exact P6 partition. The prepared
+two-arm pack is `PackedEmcTrainJob.l36lBHeAK40X`, wrapper `config/sae_4a_context_train.py`,
+with eight-subepoch P3/P6 arms and 260 registered roots; it has not been submitted.
+
+Actual-batch measurement submitted as `ContextTrainProfileJob.VglVxZtlgpI0` / SLURM `1856748_1`,
+wrapper `config/sae_4a_context_train_profile.py`. Each order uses the canonical first epoch-1 training
+batch and cold model/RNG at tau8 (hot proposal tau12), with full forward and neural backward,
+no optimizer update and no trained checkpoint. It checks finite gradients, the rate's phi stop-gradient,
+initialization/RNG identity, and records stage times and memory. Both `output/profile.json` and
+`output/profile.txt` plus successful Sisyphus completion are required. Its time projection excludes
+optimizer/CV overhead and does not certify all-epoch throughput. Launch evidence:
+`reports/codex_4a_context_train_profile_launch_2026-09-17.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
