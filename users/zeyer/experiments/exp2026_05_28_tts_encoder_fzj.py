@@ -1763,13 +1763,24 @@ def py():
     # v5 with all pronunciation variants of every word in the FSA (AZ, 2026-09-17: one random variant per
     # word, as the PhoneSeqGenerator gives, is not proper; the lattice renormalizes the variants per word).
     # 0.8% of the lexicon's lemmas have variants, so a small change is expected.
-    gauss_hmm_ls960(
+    # Result: 70.3% frame agreement (v5 68.9), boundary errors unchanged, tables indistinguishable.
+    _gauss_hmm_tables_pronvar = gauss_hmm_ls960(
         prefix + "/gauss-hmm",
         lexicon=_get_ls_train_glowtts_lexicon(),
         edge_silence_init_epochs=3,
         silence_num_sub_states=3,
         pron_variants=True,
         name="gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960",
+    )
+    # the same with the MFA-estimated normalized transition model: the cleanest setup to describe
+    gauss_hmm_ls960(
+        prefix + "/gauss-hmm",
+        lexicon=_get_ls_train_glowtts_lexicon(),
+        tdp={"speech_loop_prob": 0.65, "silence_loop_prob": 0.91, "silence_prob": 0.14, "silence_prob_edge": 0.99},
+        edge_silence_init_epochs=3,
+        silence_num_sub_states=3,
+        pron_variants=True,
+        name="gauss-hmm-mono1g-tdpnorm-mfa-edgesilinit3-sil3-pronvar-ls960",
     )
 
     _abl_prefix = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
@@ -1818,6 +1829,15 @@ def py():
             {
                 "pseudo_enc_frozen_table": _gauss_hmm_tables.out_mean_table,
                 "pseudo_enc_duration_table": _gauss_hmm_tables.out_duration_table,
+            },
+        ),
+        # the same with the tables of the pronunciation-variant aligner (AZ: the more reasonable GMM
+        # setup for the paper; no change expected, the tables are indistinguishable)
+        (
+            f"{_abl_prefix}-gausshmmtables-pronvar",
+            {
+                "pseudo_enc_frozen_table": _gauss_hmm_tables_pronvar.out_mean_table,
+                "pseudo_enc_duration_table": _gauss_hmm_tables_pronvar.out_duration_table,
             },
         ),
         # trained embedding x uniform durations = the textogram-style cell,
