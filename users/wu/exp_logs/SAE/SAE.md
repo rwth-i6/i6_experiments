@@ -74,8 +74,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
    S3c/DP64 CLOSED FAIL; S3d stopped; user accepts 19.1h projection; matched 256-draw P3/P6 training submitted.
    LM objective remains above bigram. `SAE_4A.md`.
-   **§4b first run COMPLETE, audited:** w2v2 SAE carries phonetic information but loses to dense
-   features at the fixed probe setting. No further arm queued; later cycle work is separate. `SAE_4B.md`.
+   **§4b weighted-L1 follow-up SUBMITTED (user 2026-09-17):** train the Scaling Monosemanticity
+   objective and compare with the completed BatchTopK arm. Protocol and runs: `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and
    the 1,112-ID evaluation CLOSED, so no PER of that route exists. 1g.9, the 1g.10/10a/10b/10c family, 1g.11,
@@ -158,8 +158,8 @@ the 6,778/201 floor); no solver retry, support-floor relaxation or graph amendme
   S2d FAIL; iterated factorized target fitting drifts, without an established limiting posterior. Frozen/joint
   reverse-model diagnostics remain active; CT CLOSED FAIL on its audited endpoint. `SAE_4A.md`.
 - **Build/setup** — 960 h loop build `sae_960h_loop_build.md`; reward side-inputs lam_1/lam_2 `SAE_ref.md`.
-- **§4b sparse acoustic codes from w2v2** — first reproduction/diagnostic COMPLETE and audited;
-  phonetic criterion met, improvement over dense not met. Phase remains open. `SAE_4B.md`.
+- **§4b sparse acoustic codes from w2v2** — BatchTopK reproduction/diagnostic audited; the user
+  now authorizes a Scaling Monosemanticity weighted-L1 arm. `SAE_4B.md`.
 
 ## Standing gates for phases with no separate document
 

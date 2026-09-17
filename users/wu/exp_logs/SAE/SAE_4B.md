@@ -2,18 +2,22 @@
 
 ## State
 
-FIRST RUN COMPLETE, AUDITED — `BatchTopKTrainingJob.1Z8e0Io2tv5b` reached the fixed 200,000-update
-endpoint; `BatchTopKProbeJob.aghUh8TQoiem` completed its supervised held-out readout. Config:
-`config/sae_4b_audiosae_w2v2.py`; concrete artifacts are below. The predefined phonetic-discrimination
-criterion is met; improvement over normalized dense L15 is not met. Exact results, operating points
-and audit qualification are in "First-run result" below.
-The user's subsequent sparsity and features-per-phone request is answered by the audited descriptive
-analysis in "Sparsity and phone multiplicity"; it uses the same frozen outputs and changes no gate.
+WEIGHTED-L1 FOLLOW-UP SUBMITTED — the source-verified protocol below is implemented and reviewed.
+`config/sae_4b_weighted_l1_w2v2.py` runs `WeightedL1TrainingJob.1Z8e0Io2tv5b` (Slurm 1863139,
+pending at submission) and dependent `BatchTopKProbeJob.pyZdQ8mmOZgK`. The latter's legacy class
+name also serves weighted-L1 checkpoints. Manager PID 1076571 on `jpbl-s02-03`; concrete run and
+output pointers are below. No weighted-L1 training result is available yet.
 
-No jobs or additional arms are pending within this first-run budget. The next experimental decision
-is whether to define a later acoustic-code usefulness comparison; this result does not establish
-unsupervised phone naming or justify a cycle-target substitution. Gold-based SAE tuning remains
-prohibited. Phase closure remains with the user. Shared constraints are in `SAE_ref.md`.
+Next action after completion: verify the fixed 200,000-update endpoint and saved normalization,
+extract measured activity and held-out phone diagnostics, run `analysis/sae_4b_compare_weighted_l1.py`,
+then audit against the registered gates before reporting the comparison. The user authorizes this
+one additional arm; no sweep or gold-selected SAE setting is queued.
+
+The completed BatchTopK run remains the comparison: `BatchTopKTrainingJob.1Z8e0Io2tv5b` and
+`BatchTopKProbeJob.aghUh8TQoiem`, under `config/sae_4b_audiosae_w2v2.py`. Its audited results and
+requested sparsity statistics are below. The follow-up's active-feature count must be measured,
+not forced to 50. Gold-based SAE selection/tuning remains prohibited. Cycle substitution remains
+outside this stage and phase closure remains with the user; shared constraints are in `SAE_ref.md`.
 
 ## Objective and hypothesis
 
@@ -270,3 +274,71 @@ has 95 assigned dictionary features but only 3.611 matching features active on a
 EH has 264 assigned features and 1.349 matching features per EH frame. Distinct dictionary counts
 and simultaneous activity answer different questions. Framewise activity quantiles and the fraction
 of frames with no active features are unavailable from the stored aggregates.
+
+## Weighted-L1 follow-up: preregistered protocol (user 2026-09-17)
+
+**Authorization and source.** The user now requests the regularization from
+[*Scaling Monosemanticity* (May 2024)](https://transformer-circuits.pub/2024/scaling-monosemanticity/).
+This funds one new fixed-endpoint SAE plus its supervised diagnostic, beyond the completed first
+run. Verified method and linked April training defaults:
+`reports/codex_4b_anthropic_protocol_2026-09-17.md`. This is an adaptation of that recipe to speech,
+not a reproduction of Claude's proprietary corpus, million-feature widths or undisclosed selected
+learning rate. The original BatchTopK results and gates above are preserved.
+
+**Data, scale and model.** Reuse exactly the same raw frozen L15 train/dev caches, 1024 input
+dimensions, 8192 dictionary features, 50-Hz clock and split membership. Replace individual frame
+unit normalization with a single training-only scalar
+`c = sqrt(1024 / mean_train(sum(raw_x ** 2)))`, estimated over all 18,088,388 train frames and saved
+in the checkpoint. Apply `x = c * raw_x` unchanged on dev. This follows May's mean **squared** norm
+rule, not April's different mean norm rule. No dev or gold contributes to `c`.
+
+Encode `f = ReLU(W_enc x + b_enc)` directly, without subtracting the decoder bias and without
+TopK or activation thresholding. Reconstruct `x_hat = W_dec f + b_dec`. Decoder columns start
+with random directions and norm 0.1, encoder weights copy their transpose, and both biases start
+at zero. Decoder norms remain unconstrained. The exact loss is
+`mean_frames(sum_dimensions((x_hat-x)^2) + lambda * sum_features(f * decoder_column_norm))`.
+The norm factor participates in backpropagation. Its target coefficient is **lambda = 5**, with
+a linear warmup over the first 10,000 updates; an activity target of 50 is not imposed.
+
+**Training budget and selection.** One seed-0 model, uniform frame sampling with replacement,
+2500 frames/update, 200,000 updates, final checkpoint only. This retains the earlier 500-million
+frame-presentation budget and differs from the source's batch defaults and single-pass data regime.
+Use the linked April defaults: Adam lr 0.00005, betas (0.9, 0.999), weight decay zero, global gradient
+norm clip 1, constant lr through update 160,000 followed by linear decay to zero. Epsilon 1e-8 and
+float32 arithmetic are inherited local settings. No dead-feature resampling, auxiliary losses,
+post-training adjustment or label-selected settings. Retain resumable checkpoints and the existing
+one-GPU task / exclusive four-GH200 node allocation with 11.5-hour task limit; no sweep is funded.
+
+**Diagnostic and comparisons.** Reuse the same dev-clean fit / dev-other held-out protocol, masks,
+linear-probe settings, frame naming threshold and speaker-paired bootstrap as the first run. The
+new dense baseline receives the same globally rescaled inputs as the new SAE. For interpretation
+and the SAE probe, use the paper's contribution magnitudes `g_i = f_i * ||W_dec[:,i]||`; reconstruct
+using raw `f`. Record raw ReLU and contribution activity separately if zero decoder columns make
+them differ. Phone naming still uses positive activations and the same strict fit-majority rule.
+Report reconstruction with its scale and the dimensionless `SSE / sum(||x||²)`, loss components,
+decoder norms, mean L0, per-frame activity histograms/quantiles and inactive-feature counts. The
+earlier aggregate-only limitation on framewise activity applies to the old run, not this new readout.
+
+The existing phonetic criterion is reused: held-out nonsilence SAE-minus-fit-majority accuracy
+must have paired speaker 95% CI strictly above zero. Improvement over the new matched dense
+baseline uses the same criterion. Also compare the new SAE with the completed BatchTopK SAE
+on identical per-utterance frames, using paired speaker intervals and the same positivity criterion.
+That contrast is between complete recipes: normalization, initialization, encoder centering and
+optimization differ alongside the sparsity mechanism. It cannot identify the penalty alone as a
+cause. No loss, sparsity count or probe result alone establishes unsupervised phone discovery or
+licenses cycle substitution. Audit results before drawing a consequential conclusion.
+
+**Submitted run and evidence.** The reviewed recipe is committed as `30afce9a5` (training) and
+`91e165ad6` (shared diagnostic). Concrete jobs, relative to this setup:
+
+- `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/sparse_autoencoder_l1/WeightedL1TrainingJob.1Z8e0Io2tv5b`;
+- `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/sparse_autoencoder_probe/BatchTopKProbeJob.pyZdQ8mmOZgK`.
+
+The six registered outputs are under `output/sae/4b/weighted_l1_w2v2/`: `checkpoint.pt`,
+`train_metrics.json`, `probe_metrics.json`, `per_utterance.json`, `features.npz`, and `probes.pt`;
+payloads persist under `artifacts/sae_4b/` by full job ID. Execution evidence:
+`reports/codex_4b_weighted_l1_launch_2026-09-17.md`. Method review:
+`reports/codex_4b_weighted_l1_code_review_2026-09-17.md`. The pending paired comparison helper is
+`analysis/sae_4b_compare_weighted_l1.py`; its output is
+`reports/sae_4b_weighted_l1_comparison_2026-09-17.json`. Engineering checks establish the exercised
+implementation behavior only; the full-run sparsity and phone results remain unmeasured.

@@ -27,6 +27,10 @@ quarantined from unsupervised training and checkpoint/hyperparameter selection. 
 does not establish unsupervised phone discovery. §4b does not yet authorize a cycle-target substitution.
 Its audit inputs, matched baselines, fixed operating point and evidence criteria are registered in
 `SAE_4B.md`, "First run: fixed operating point and readout".
+The user subsequently requests the regularization from *Scaling Monosemanticity* (2024), authorizing
+a separate decoder-norm-weighted L1 SAE arm. Its normalization and objective must follow the cited
+method, with wav2vec2/data/budget adaptations disclosed. Labels remain diagnostic only; the completed
+BatchTopK arm is retained. The follow-up protocol and comparison scope are registered in `SAE_4B.md`.
 
 For cold-start comparison, use the registered `lam3_tri` reference in
 `PackedEmcTrainJob.byYMQmBNEpLZ` (the tc100/trigram run), with its fixed endpoint and label-free-selected
