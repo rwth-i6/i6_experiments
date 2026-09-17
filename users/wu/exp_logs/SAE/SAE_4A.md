@@ -6,28 +6,27 @@ Active question: can the existing exact-marginal cycle learn useful phone conten
 User clarification keeps work within §4a, without GANs or supervised-derived models; seeded refinement
 and standalone SylCipher initialization are withdrawn. Constraints and the canonical control are in `SAE_ref.md`.
 
-S3c denoising is complete and CLOSED FAIL. Its endpoint and the independently audited stored-hypothesis
-and recognizer-factor diagnostics remain under their result sections below; no take-off gate changes.
+S3c denoising, S3d categorical content and matched DP64 control are CLOSED FAIL; see their result
+sections below. S3d `ReturnnTrainingJob.Pso7oeIpqYjY` was stopped after its failed epoch-4 gate;
+checkpoints 1–6 remain. Do not restart it. Control `ReturnnTrainingJob.IoCQmrlJbCC0` and the frozen
+higher-context pilot are complete and audited; see "Precision-only control result" and
+"Higher-context pilot result" for their operating points and evidence.
 
-S3d categorical content failed the fixed epoch-4 PER clause. On the user's new stop instruction,
-`ReturnnTrainingJob.Pso7oeIpqYjY` / SLURM `1853056_1` was cancelled during epoch 7 after 3h40m07s;
-checkpoints 1–6 and completed evaluations are preserved. Do not restart it. Results and the schedule
-amendment are under "S3d epoch-4 result and early stop" below; the independent audit confirms G4a.3 FAIL.
+The actual-batch candidate profile failed the training-cost screen: one completed P3 batch took
+1,703.30s. `ContextTrainProfileJob.VglVxZtlgpI0` / SLURM `1856748_1` was intentionally stopped after
+39m40s, with no optimizer update; P6 is incomplete. Frozen evidence and the exact operating point are
+under "Candidate training cost read" below. Do not retry that unoptimized profile.
 
-Matched control is complete and G4a.3 FAIL: `work/i6_core/returnn/training/ReturnnTrainingJob.IoCQmrlJbCC0`,
-wrapper `config/sae_4a_dp64_control.py`; results and audit are under "Precision-only control result".
-The frozen higher-context pilot is complete and audited; see "Higher-context pilot result" for its
-epoch-4 operating point, length-dependent coverage limit and source artifacts.
-
-User now authorizes direct six-gram reweighting training. Astra's backward pass and matched P3/P6
-cold-training implementation are reviewed. The actual-batch cost measurement is submitted:
-`work/analysis/context_train_profile/ContextTrainProfileJob.VglVxZtlgpI0`, wrapper
-`config/sae_4a_context_train_profile.py`, SLURM `1856748_1`; completion requires both profile outputs
-and a successful job. Full training is not yet submitted. At the watcher wake-up, verify gradients,
-actual batch/temperature and stage timings, then release the registered comparison if cost fits or
-optimize execution without changing its estimator/data/schedule. S3d is closed; do not restart it.
-The G4a.3 gate and private-code qualification remain unchanged. Sparse acoustic-code work is registered
-separately in `SAE_4B.md`, with no execution authorized.
+The rewritten 512-draw P6 profile completed before the user's stop/check-256-first steering:
+`ContextTrainProfileJob.yjsJGPFL3M1M` / SLURM `1857340_1`, one batch, 260.005s forward/backward,
+finite nonzero theta/phi gradients, 22.954 GiB peak allocation. This is still over the cost screen;
+it does not establish rewritten 256-draw viability. Submitted: the same ONE P6 batch at 256 draws,
+192 target plus 64 hot: `ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`, wrapper
+`config/sae_4a_context_train_profile.py`, within the remaining budget (14-minute allocation cap).
+At the watcher wake-up verify both profile outputs, finished state, measured cost, gradients and memory.
+The prepared 512-draw pack `PackedEmcTrainJob.CNcm2jEmCouC` remains unsubmitted, with its 6.6h
+bound and G4a.3 unchanged. Details and artifacts are under "Candidate training cost read".
+Sparse acoustic-code work is registered in `SAE_4B.md`, with no execution authorized.
 
 ## Objective
 
@@ -2132,6 +2131,93 @@ initialization/RNG identity, and records stage times and memory. Both `output/pr
 `output/profile.txt` plus successful Sisyphus completion are required. Its time projection excludes
 optimizer/CV overhead and does not certify all-epoch throughput. Launch evidence:
 `reports/codex_4a_context_train_profile_launch_2026-09-17.md`.
+
+### Candidate training cost read and 512-draw amendment (2026-09-17)
+
+The 256-draw profile was stopped deliberately after its first completed batch established that the
+implementation cannot support the registered training allocation. Its overall completion gate did
+not pass: P3 completed, P6 remained partial, and no final `profile.txt` exists. The exact job
+`ContextTrainProfileJob.VglVxZtlgpI0` / SLURM `1856748_1` was cancelled after 39m40s. Evidence was
+preserved before cancellation in `reports/codex_4a_context_train_profile_partial_2026-09-17.json`;
+terminal state and literal extraction: `reports/codex_4a_context_train_profile_early_stop_2026-09-17.md`.
+
+Measured operating point: canonical cold epoch 1/step 0, tau 8/hot 12, 128 utterances, 32,615 real frames,
+50,176 padded frames and max T=392. All 128 P3 utterances retained 256 unique strings. Full forward plus
+neural backward took 1,703.300s: proposal FFBS 272.930s, LM scoring 1.040s, conditional lattice forward/
+backward 1,421.618s; the final neural backward took 0.837s. Stage sums exclude other forward overhead.
+Both theta and phi had finite nonzero gradients; the rate term had no phi gradient; peak allocated
+GPU memory was 5.187 GiB. These are one-batch implementation results, not ASR or optimization progress.
+The preserved P6 snapshot covers 71/128 utterances and has no completed step time or gradient verdict.
+
+The exact-P3 control's 33.71s/update is its eight-epoch average, not a paired measurement of this same
+batch. Multiplying the measured candidate first-batch time by 477 gives 812,474s; this is a screening
+projection, not measured training duration, and greatly exceeds the 23,760s packed-node cap.
+The old conditional recurrence processes utterances serially, replays checkpoints, and rebuilds
+per-frame autograd for three terminal adjoints. Its extra exact per-string marginalization also does
+real additional work. LM lookup accounts for little of the measured cost. No claim that batching alone
+will recover the required speed is made.
+
+The user's subsequent "start 512 directly" changes the intended candidate budget to 512 per utterance:
+384 target-temperature plus 128 hot 1.5*tau draws, with exact string deduplication and no cross-string
+recombination. Apply this to both matched training arms. Keep all other data, initialization, schedule,
+finite-set objective and ASR gates unchanged; there is no new candidate-count grid.
+
+The per-frame autograd construction is replaced by explicit log-domain conditional forward–backward,
+and both sampling and conditional inference now batch utterances. The full neural batch and loss
+normalization remain unchanged. FFBS execution batches start at most 16 and conditional batches at
+most 4, shrinking before allocation from actual tensor shapes. Each uses 48 GiB (half the 96 GiB reference
+GPU envelope) for its main forward or checkpoint/replay buffers and reserves the other half for
+transients and current resident tensors. No OOM retry, filtering or candidate reduction is introduced.
+This conservative bound is not measured all-length memory certification; skewed single items may be
+rejected before allocation. A metadata-only read finds 28,254 canonical
+training tags spanning 70–1,226 frames, with no max-sequence-length filter in the saved config;
+`reports/codex_4a_context_batch_input_lengths_2026-09-17.txt`. Execution sizing must account for
+that range without filtering data. Batched inverse-CDF sampling must preserve the
+proposal distribution and private per-tag RNG; same-seed paths may differ from the old multinomial
+implementation, and this change must be disclosed and tested. Astra owns implementation and review.
+After parity checks, one actual P6 batch is sufficient for the next cost/gradient screen; do not repeat
+P3. The original one-node-hour diagnostic envelope has 20m20s left, so cap that job at 20 minutes.
+The full 6.6h training allocation remains conditional on executable cost; no optimizer run is launched.
+
+Implementation: speech-repo commits `c209489` (analytic/batched kernels) and `9a408de3` (512-draw
+integration). Reports `reports/codex_4a_context_kernel_cost_2026-09-17.md` and
+`reports/codex_4a_context_batch_integration_2026-09-17.md` specify the exact memory formulas and
+test scope. CPU comparison against the old kernel reaches max absolute difference 1.776e-15 on the
+tested cases. Execution chunk changes preserve sampled Y, losses, gradients and private RNG in the
+new sampler's tests. Astra review `reports/codex_4a_context_batched_review_2026-09-17.md` releases
+only the bounded profile; no throughput or ASR result follows from these checks.
+
+Submitted corrected profile: `ContextTrainProfileJob.yjsJGPFL3M1M` / SLURM `1857340_1`, one actual
+cold P6 batch with 512 draws and the same canonical epoch 1 input, tau 8/hot 12. It requests GPU1,
+CPU16, mem64, gpu_mem96 and 20 minutes. Expected outputs are its `output/profile.json` and
+`output/profile.txt`; inspect status and gradient/cost fields as well as successful job completion.
+Launch evidence: `reports/codex_4a_context_512_profile_launch_2026-09-17.md`. The prepared
+matched 512-draw P3/P6 training pack is now `PackedEmcTrainJob.CNcm2jEmCouC` (260 roots), superseding
+the unsubmitted 256-draw pack. It remains unsubmitted pending the actual cost/memory read.
+
+The corrected 512-draw profile subsequently completed successfully, with both registered outputs and
+SLURM COMPLETED/0:0, before the requested stop could act. Its allocation lasted 6m18s. Actual P6
+forward plus neural backward was 260.004830s (259.116458s forward, 0.888372s backward), with finite
+nonzero theta/phi gradients and peak allocated memory 22.9543 GiB. Batch, temperature and data match
+the operating point above; the old measured arm was P3 with 256 draws, so the two timings do not isolate
+a single implementation delta. The new stage timers are 14.613s for proposal FFBS, 28.427s for P6 LM
+scoring and 208.713s for conditional inference; the conditional stage still dominates.
+Multiplying the new first-batch time by 477 gives 124,022s, still over
+the 23,760s packed-node cap; this is a cost screen, not a measured training runtime. Result evidence:
+`reports/codex_4a_context_512_profile_result_2026-09-17.md` and the job's `output/profile.json`.
+
+The user now requires checking 256-draw viability first; this supersedes the earlier direct-512 launch
+order. No rewritten 256 timing has been measured. Next is one otherwise identical actual P6 batch at
+256 draws (192 target, 64 hot), without an optimizer update. Only the profile's proposal budget and
+allocation cap change; the prepared training default remains 512 and unsubmitted. The two completed
+profiles consumed 45m58s of the original one-node-hour diagnostic allocation, leaving 14m02s; cap
+this measurement at 14 minutes. No full training is released by correctness checks or finite gradients.
+Submitted job: `ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`, same profile wrapper, two registered outputs
+`output/profile.json` and `output/profile.txt`. The isolated profile override and proposal-count check
+are documented in `reports/codex_4a_context_256_profile_amendment_2026-09-17.md`; actual timing is
+pending completion. No model, data, optimizer, temperature, kernel or execution-chunk setting changes.
+Independent release: `reports/codex_4a_context_256_profile_review_2026-09-17.md`; launch evidence:
+`reports/codex_4a_context_256_profile_launch_2026-09-17.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
