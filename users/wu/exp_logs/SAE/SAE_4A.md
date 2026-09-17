@@ -12,18 +12,17 @@ checkpoints 1–6 remain. Do not restart it. Control `ReturnnTrainingJob.IoCQmrl
 higher-context pilot are complete and audited; see "Precision-only control result" and
 "Higher-context pilot result" for their operating points and evidence.
 
-The actual-batch candidate profile failed the training-cost screen: one completed P3 batch took
-1,703.30s. `ContextTrainProfileJob.VglVxZtlgpI0` / SLURM `1856748_1` was intentionally stopped after
-39m40s, with no optimizer update; P6 is incomplete. Frozen evidence and the exact operating point are
-under "Candidate training cost read" below. Do not retry that unoptimized profile.
-
-The rewritten 512-draw P6 profile completed before the user's stop/check-256-first steering:
-`ContextTrainProfileJob.yjsJGPFL3M1M` / SLURM `1857340_1`, one batch, 260.005s forward/backward,
-finite nonzero theta/phi gradients, 22.954 GiB peak allocation. This is still over the cost screen;
-it does not establish rewritten 256-draw viability. Submitted: the same ONE P6 batch at 256 draws,
-192 target plus 64 hot: `ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`, wrapper
-`config/sae_4a_context_train_profile.py`, within the remaining budget (14-minute allocation cap).
-At the watcher wake-up verify both profile outputs, finished state, measured cost, gradients and memory.
+The old serial profile `ContextTrainProfileJob.VglVxZtlgpI0` was intentionally stopped; do not retry it.
+Rewritten P6 profiles completed successfully but failed the cost screen: 512 draws took 260.005s/batch;
+256 draws took 143.954s/batch (`ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`). Both had
+finite gradients. Details, operating points and artifacts are under "Candidate training cost read".
+Active: one otherwise identical 256-draw profile allowing the existing memory bounds to choose execution
+batch sizes, replacing the profile's hard upper limits of 16 sampling/four conditional utterances.
+Use the actual neural batch size as the upper bound. The remaining diagnostic budget is 9m38s;
+cap this measurement at nine minutes. No optimizer or statistical-objective change is authorized.
+Submitted profile: `ContextTrainProfileJob.2ZXMPEhUGLz8` / SLURM `1857703_1`, wrapper
+`config/sae_4a_context_train_profile.py`. At the watcher wake-up verify finished state, both outputs,
+measured cost, actual execution sizes, gradients and peak memory before any training decision.
 The prepared 512-draw pack `PackedEmcTrainJob.CNcm2jEmCouC` remains unsubmitted, with its 6.6h
 bound and G4a.3 unchanged. Details and artifacts are under "Candidate training cost read".
 Sparse acoustic-code work is registered in `SAE_4B.md`, with no execution authorized.
@@ -2206,8 +2205,8 @@ Multiplying the new first-batch time by 477 gives 124,022s, still over
 the 23,760s packed-node cap; this is a cost screen, not a measured training runtime. Result evidence:
 `reports/codex_4a_context_512_profile_result_2026-09-17.md` and the job's `output/profile.json`.
 
-The user now requires checking 256-draw viability first; this supersedes the earlier direct-512 launch
-order. No rewritten 256 timing has been measured. Next is one otherwise identical actual P6 batch at
+The user required checking 256-draw viability first; this superseded the earlier direct-512 launch
+order. At that decision no rewritten 256 timing had been measured. The next profile was one actual P6 batch at
 256 draws (192 target, 64 hot), without an optimizer update. Only the profile's proposal budget and
 allocation cap change; the prepared training default remains 512 and unsubmitted. The two completed
 profiles consumed 45m58s of the original one-node-hour diagnostic allocation, leaving 14m02s; cap
@@ -2215,9 +2214,41 @@ this measurement at 14 minutes. No full training is released by correctness chec
 Submitted job: `ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`, same profile wrapper, two registered outputs
 `output/profile.json` and `output/profile.txt`. The isolated profile override and proposal-count check
 are documented in `reports/codex_4a_context_256_profile_amendment_2026-09-17.md`; actual timing is
-pending completion. No model, data, optimizer, temperature, kernel or execution-chunk setting changes.
+reported below. No model, data, optimizer, temperature, kernel or execution-chunk setting changed.
 Independent release: `reports/codex_4a_context_256_profile_review_2026-09-17.md`; launch evidence:
 `reports/codex_4a_context_256_profile_launch_2026-09-17.md`.
+
+The rewritten 256-draw profile completed with SLURM COMPLETED/0:0, Sisyphus finished markers and both
+registered outputs. The same cold P6 batch (B128, max T392, 32,615 real/50,176 padded frames, tau 8/hot 12)
+retained 256 unique strings for every utterance. Measured forward/backward was 143.953577s (142.969254s
+forward, 0.984323s neural backward), peak allocation 12.754991 GiB. Stage timers: sampling 14.601397s,
+P6 LM scoring 14.104947s, conditional inference 108.114553s. Theta/phi gradients were finite and
+nonzero, rate phi gradient absent, and parameters unchanged; no optimizer step ran. Result and exact
+artifacts: `reports/codex_4a_context_256_profile_result_2026-09-17.md`.
+
+Multiplying this first-batch time by 477 gives 68,665.856s (19.074h), above the unchanged 6.6h allocation.
+This is a cost-screen failure, not a measured whole-training duration or an ASR result. Its 4m24s
+allocation brings diagnostic use to 50m22s, leaving 9m38s of the original node-hour.
+
+The next bounded implementation check keeps the same 256-draw P6 objective and data. Current execution
+caps are 16 utterances for sampling and four for conditional inference. In the profile only, set both
+upper bounds to the actual loaded neural batch size; the existing shape/resident-memory checks still
+shrink each execution group before allocation, within the same 48+48 GiB reference envelope. This tests
+execution fragmentation without reducing candidates or changing the learner batch. It does not assume
+speedup or all-length memory safety. Require sampled-Y/loss/gradient parity and independent code review
+before one actual batch, capped at nine minutes. Tracked training defaults remain unchanged and full
+training stays unsubmitted.
+
+Submitted job `ContextTrainProfileJob.2ZXMPEhUGLz8` / SLURM `1857703_1` retains the same two profile output names and
+GPU1/CPU16/mem64/gpu_mem96 request, with a nine-minute cap. A 17-tag synthetic fixture crossed both
+previous execution limits and matched sampled Y exactly and losses/gradients within 1e-11, including
+forced preallocation splitting and restoration of RNG/module defaults. This verifies the tested wiring,
+not GPU performance. The source delta, frozen prechange script, hashes and graph are in
+`reports/codex_4a_context_memory_batched_profile_2026-09-17.md`.
+Independent code review released this profile only:
+`reports/codex_4a_context_memory_batched_review_2026-09-17.md`. Larger CUDA execution groups still
+require the measured cost/memory read; this release does not approve full training.
+Launch evidence: `reports/codex_4a_context_memory_batched_launch_2026-09-17.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
