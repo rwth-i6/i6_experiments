@@ -56,6 +56,7 @@ from .knowledge_benchmark import (
     MOSHI_BACKEND,
 )
 from .result_notify import notify_result
+from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
 from .speech_inference import impossible_checkpoint_reason
 
@@ -252,6 +253,10 @@ def quick_knowledge_eval_py(
         venv_python_path=chatterbox_venv(),
         in_hf=data,
         speaker_dir=speakers.out_dir,
+        # torchcodec dlopens libavutil at import and neither partition guarantees one; supplied
+        # unconditionally because a per-call-site opt-in is exactly what failed on 2026-09-17.
+        # Dropped in hash(), so this moves no settled hash. See check_torchcodec_libs.py.
+        env_ffmpeg_path=InstallFFmpeg().out_path,
     )
     tk.register_output(f"benchmark/quick/{tag}/tts_output", tts.out_dir)
 
@@ -529,6 +534,10 @@ def knowledge_probe_set_py(
         venv_python_path=chatterbox_venv(),
         in_hf=data,
         speaker_dir=speakers.out_dir,
+        # torchcodec dlopens libavutil at import and neither partition guarantees one; supplied
+        # unconditionally because a per-call-site opt-in is exactly what failed on 2026-09-17.
+        # Dropped in hash(), so this moves no settled hash. See check_torchcodec_libs.py.
+        env_ffmpeg_path=InstallFFmpeg().out_path,
     )
     probe = BuildKnowledgeProbeSet(tts_dir=tts.out_dir, dataset=data)
     tk.register_output(f"benchmark/probe_set/{tag}/probe_jsonl", probe.out_jsonl)

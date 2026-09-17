@@ -244,8 +244,19 @@ class ChatterboxSingleSpeakerInference(Job):
         speaker_name: str = "user_voices/rng_a",
         storage: str = "wav",
         ffmpeg_path: tk.Path | None = None,
+        env_ffmpeg_path: tk.Path | None = None,
     ):
         self.ffmpeg_path = ffmpeg_path
+        # Same FFmpeg build as ``ffmpeg_path``, reaching the job through a channel that ``hash()``
+        # drops. Two channels exist for one thing because they are not interchangeable:
+        # ``ffmpeg_path`` is already IN the settled hash of the corpus-pipeline user_audio job
+        # (pipelines.py), so it cannot be un-hashed without re-running that job and every corpus
+        # downstream of it; and it is None on all ~40 benchmark call sites, so it cannot be
+        # populated there without re-hashing every benchmark TTS and cascading through
+        # transcription -> grading -> the whole judged ledger. The hash-excluded channel is the
+        # only way to give the benchmark jobs the library without moving either set of hashes --
+        # the same split, and for the same reason, as SpeechFinetune's ``compute``.
+        self.env_ffmpeg_path = env_ffmpeg_path
         self.venv_python_path = venv_python_path
         self.in_hf = in_hf
         self.speaker_dir = speaker_dir
@@ -284,6 +295,17 @@ class ChatterboxSingleSpeakerInference(Job):
         # FFmpeg, CUDA NPP and libpython all travel with the job via env_hook, proven on c25g.
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24}
 
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        # ``env_ffmpeg_path`` only puts a shared library on LD_LIBRARY_PATH; it cannot change a
+        # single synthesised sample. Popped unconditionally rather than declared in
+        # __sis_hash_exclude__, because that form excludes an argument ONLY while it equals the
+        # listed default -- so a populated path would be hashed like any other and the leak would
+        # move rather than close (exactly the guard bit that caught SpeechFinetune.compute).
+        d.pop("env_ffmpeg_path", None)
+        return super().hash(d)
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
@@ -305,8 +327,20 @@ class ChatterboxSingleSpeakerInference(Job):
         # torchcodec needs our FFmpeg libs AND CUDA NPP on LD_LIBRARY_PATH; supplying both is what
         # makes this job node-independent instead of relying on c23g providing them system-wide.
         def env_hook(env):
-            if self.ffmpeg_path is not None:
-                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
+            ffmpeg_path = self.ffmpeg_path or self.env_ffmpeg_path
+            # Not optional in practice. Dropping `requires: ["system_ffmpeg"]` (2026-09-16) let this
+            # job route to c25g, which has no system FFmpeg -- and with BOTH channels None the line
+            # below is skipped, so it arrived there carrying nothing and died on
+            # "libavutil.so.60: cannot open shared object file", our OWN build's libavutil, i.e. it
+            # was never on the loader path at all. The c25g proof that justified dropping the tag
+            # passed ffmpeg_path explicitly; no benchmark caller did. Assert rather than warn: a
+            # missing library here costs a GPU allocation and ~4 min before it fails.
+            assert ffmpeg_path is not None, (
+                "ChatterboxSingleSpeakerInference needs an FFmpeg build: torchcodec dlopens "
+                "libavutil at import and no partition is guaranteed to provide one. Pass "
+                "env_ffmpeg_path=<InstallFFmpeg>.out_path (hash-free) from the caller."
+            )
+            InstallFFmpeg.add_to_env(ffmpeg_path, env)
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
             add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
@@ -855,12 +889,20 @@ def knowledge_benchmark_py(
     speakers = make_speakers()
 
     # 4. TTS synthesis
+    # ``env_ffmpeg_path`` is supplied unconditionally, not left to the ~40 call sites. torchcodec
+    # dlopens libavutil at import, so this job cannot run anywhere without an FFmpeg build, and a
+    # per-call-site opt-in is precisely what failed on 2026-09-17: every benchmark passed
+    # ffmpeg_path=None, the env_hook's `if` skipped, and the job died on c25g after taking a GPU.
+    # InstallFFmpeg() is argument-free, so JobSingleton returns the SAME job the corpus pipeline
+    # already builds -- no extra work in the graph -- and hash() drops this channel, so supplying
+    # it here moves none of the settled benchmark hashes.
     tts = ChatterboxSingleSpeakerInference(
         venv_python_path=chatterbox_venv(),
         in_hf=data,
         speaker_dir=speakers.out_dir,
         storage=storage,
         ffmpeg_path=ffmpeg_path,
+        env_ffmpeg_path=InstallFFmpeg().out_path,
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 
