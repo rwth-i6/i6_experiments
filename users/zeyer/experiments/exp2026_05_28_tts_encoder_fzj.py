@@ -2748,6 +2748,38 @@ def py():
         **{**_medium1k_inj_kwargs, "text_train_epoch_split": 72, "loq_text_shard_fraction": 0.4},
     )
 
+    # Large, source-uniform (srcExp0) audio + the same corpus' transcripts as injection text (txtSrcExp0):
+    # no new data, only the pseudo-mel inputs, at the large srcExp0 baseline's budget (162.5 kh nominal,
+    # 57.2 kh weighted epoch, partition 25 -> n_ep 71). Its controls: base-large-srcExp0-nFullEp2_8 (same
+    # audio passes) and -nFullEp5_6 (twice the passes, the 'is it just more updates' check). Text at the LS
+    # per-step ratio: 2.3 kh per subepoch / 4 ranks = 572 h -> 6.4M words -> P79 of the 507M-word srcExp0 text.
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        LoquaciousShardSourcesJob,
+        _distribute_files_get_files_weighted,
+        get_loquacious_hf_ogg,
+    )
+
+    _large_train_dir = get_loquacious_hf_ogg("large").join_right("train")
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep71-bs24m-specaug60-stepcomp"
+        "-len40s-large-srcExp0-txtP79-txtSrcExp0",
+        **{
+            **loq_inj_len40s_kwargs,
+            "loq_subset": "large",
+            "nep": 71,
+            "loq_dfd_opts": {
+                "files": functools.partial(
+                    _distribute_files_get_files_weighted,
+                    hf_data_dir=_large_train_dir,
+                    shard_sources=LoquaciousShardSourcesJob(_large_train_dir).out_sources,
+                    multiplicities=_loq_large_source_multiplicities["srcExp0"],
+                )
+            },
+            "loq_text_source_mix": "srcExp0",
+            "text_train_epoch_split": 79,
+        },
+    )
+
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
 
@@ -3398,6 +3430,16 @@ def _train_loquacious_baselines(*, prefix: str):
             {**_bs24m_len40s, **_len40s, **_large_mix_opts("srcExp0")},
             (650, 1950, 3250),
             162.5,
+        ),
+        # 2x budget control of the large srcExp0 injection comparison (AZ, 2026-09-17): twice the passes
+        # over the same audio, vs the same passes plus the corpus' own transcripts as pseudo-mel
+        # (see the large injection in py(); no new data in either).
+        (
+            "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "large",
+            {**_bs24m_len40s, **_len40s, **_large_mix_opts("srcExp0")},
+            (650, 1950, 3250),
+            325,
         ),
         # Small subset (250 h, 50 h per source): the low-resource point of the injection comparison,
         # where text should matter most. 50 kh = 200 full epochs (~22k updates at 24M, ~7 h),
