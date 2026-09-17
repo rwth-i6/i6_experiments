@@ -12,19 +12,19 @@ checkpoints 1–6 remain. Do not restart it. Control `ReturnnTrainingJob.IoCQmrl
 higher-context pilot are complete and audited; see "Precision-only control result" and
 "Higher-context pilot result" for their operating points and evidence.
 
-The old serial profile `ContextTrainProfileJob.VglVxZtlgpI0` was intentionally stopped; do not retry it.
-Rewritten P6 profiles completed successfully but failed the cost screen: 512 draws took 260.005s/batch;
-256 draws took 143.954s/batch (`ContextTrainProfileJob.1y34VroYbhyf` / SLURM `1857433_1`). Both had
-finite gradients. Details, operating points and artifacts are under "Candidate training cost read".
-Active: one otherwise identical 256-draw profile allowing the existing memory bounds to choose execution
-batch sizes, replacing the profile's hard upper limits of 16 sampling/four conditional utterances.
-Use the actual neural batch size as the upper bound. The remaining diagnostic budget is 9m38s;
-cap this measurement at nine minutes. No optimizer or statistical-objective change is authorized.
-Submitted profile: `ContextTrainProfileJob.2ZXMPEhUGLz8` / SLURM `1857703_1`, wrapper
-`config/sae_4a_context_train_profile.py`. At the watcher wake-up verify finished state, both outputs,
-measured cost, actual execution sizes, gradients and peak memory before any training decision.
-The prepared 512-draw pack `PackedEmcTrainJob.CNcm2jEmCouC` remains unsubmitted, with its 6.6h
-bound and G4a.3 unchanged. Details and artifacts are under "Candidate training cost read".
+Profiling is complete. Best measured 256-draw P6 batch: 143.954s; larger execution groups took
+161.935s and are not adopted. No optimizer step or ASR result came from these profiles. Do not retry
+the stopped serial profile. Results and audit are under "Candidate training cost read".
+
+The user accepts the 19.1h projection and authorizes the experiment (2026-09-17), amending the former
+6.6h allocation. Matched 256-draw P3/P6 training is submitted with the measured 16/4 execution caps;
+retain the existing 1.1 scheduler margin, yielding 21.01h for one node with concurrent arms.
+Run: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`, wrapper `config/sae_4a_context_train.py`.
+Both arms draw 192 target-temperature plus 64 hot complete paths, deduplicate phone strings, then
+sum legal alignments/segmentations exactly within each retained string. Keep the original eight
+subepochs, fixed epoch-4/8 and label-free-selected evaluations, and G4a.3. The former 512-draw pack
+is superseded and unsubmitted. At wake-up verify both arms and registered evaluations, then compare
+paired PER/gaps and inspect hypotheses. Source/checks and the budget amendment are below.
 Sparse acoustic-code work is registered in `SAE_4B.md`, with no execution authorized.
 
 ## Objective
@@ -2176,7 +2176,7 @@ proposal distribution and private per-tag RNG; same-seed paths may differ from t
 implementation, and this change must be disclosed and tested. Astra owns implementation and review.
 After parity checks, one actual P6 batch is sufficient for the next cost/gradient screen; do not repeat
 P3. The original one-node-hour diagnostic envelope has 20m20s left, so cap that job at 20 minutes.
-The full 6.6h training allocation remains conditional on executable cost; no optimizer run is launched.
+At that stage the 6.6h training allocation remained conditional on executable cost; no optimizer run was launched.
 
 Implementation: speech-repo commits `c209489` (analytic/batched kernels) and `9a408de3` (512-draw
 integration). Reports `reports/codex_4a_context_kernel_cost_2026-09-17.md` and
@@ -2249,6 +2249,64 @@ Independent code review released this profile only:
 `reports/codex_4a_context_memory_batched_review_2026-09-17.md`. Larger CUDA execution groups still
 require the measured cost/memory read; this release does not approve full training.
 Launch evidence: `reports/codex_4a_context_memory_batched_launch_2026-09-17.md`.
+
+The larger-execution profile completed successfully: `ContextTrainProfileJob.2ZXMPEhUGLz8`, SLURM
+`1857703_1` COMPLETED/0:0, both registered outputs present. It used the same raw first batch and
+256-draw recipe as the preceding profile. Actual sampling groups were 104/24 utterances per
+temperature; conditional groups were 54/39/11/24. Full forward/backward took 161.934754s, 12.49%
+slower than 143.953577s. Sampling fell to 8.478892s, LM scoring was 13.999245s, and conditional
+inference rose to 126.659622s; peak allocated memory rose to 79.870245 GiB. Finite gradients and
+unchanged parameters were verified, with no optimizer step. Total/component losses matched the
+earlier profile and per-item losses agreed within 5.7e-14; exact sampled strings were not stored.
+Result: `reports/codex_4a_context_memory_batched_result_2026-09-17.md`; independent audit:
+`reports/codex_4a_context_execution_cost_audit_2026-09-17.md`. This does not support adopting the
+larger groups. Its 4m41s allocation brings diagnostic use to 55m03s of the original node-hour.
+
+**Runtime amendment and training decision (user 2026-09-17).** The original 6.6h cost screen failed;
+that result is preserved. The user subsequently said "19.1 h is acceptable" and authorized the
+experiment if no further substantial optimization is identified. Proceed with the best measured
+256-draw implementation, retaining sampling/conditional caps 16/4. The 19.074h figure is the measured
+143.953577s first batch multiplied by the reference 477 updates; it excludes optimizer/CV and is not
+a full-run timing guarantee. A four-subepoch read projects to about 9.5h under that same assumption.
+The existing scheduler factor 1.1 applied to the accepted 19.1h base requests 21.01h (21h00m36s).
+The P3/P6 arms run concurrently on distinct GPUs in one GPU4/CPU64/mem256/gpu_mem96 reserved node,
+so the request is one 21.01h allocation. No further profiling is planned; 4m57s of the diagnostic
+hour remains unused. This changes the runtime allowance and candidate count, not the ASR gate.
+
+Preparation: speech-repo commit `3976bbf1744e95095d645cf9124049f71b6b1c15` changes only the training
+draw default from 512 to 256 and the recipe base time from 6h to 19.1h. New pack
+`PackedEmcTrainJob.ikngRyQaeQTl` under `config/sae_4a_context_train.py` has 260 intended roots and
+one runnable packed training job. Both arms retain cold initialization, original data/order/batching,
+eight subepochs/checkpoints 1–8, DP64/band/SIL, frozen priors, schedule, losses and all registered
+evaluations. The actual 192/64 calls, gradients, RNG behavior and rendered configs were checked;
+these checks do not establish learning. Source hashes, diffs and graph:
+`reports/codex_4a_context_256_training_ready_2026-09-17.md`. Full-run time and unusually long/skewed
+single-item memory behavior remain unmeasured; existing guards remain in place without filtering.
+Independent Astra review releases the matched 256-draw training pack under the amended allowance:
+`reports/codex_4a_context_256_training_review_2026-09-17.md`. It verifies the two-line delta, source
+pins, concurrent scheduling and unchanged scientific protocol; it does not certify full-run duration
+or every input length.
+Submitted as SLURM `1859550_1` (initially PENDING); work directory
+`work/speech_llm/sae/emc/pack_jobs/PackedEmcTrainJob.ikngRyQaeQTl`. Launch evidence and exact graph:
+`reports/codex_4a_context_256_training_launch_2026-09-17.md`. Completion requires both arms'
+epoch-4/8 checkpoints and learning-rate histories, all 260 registered outputs/evaluations and a
+successful final graph state. Read fixed epoch-4/8 and label-free-selected results separately; preserve
+the matched finite-P3 comparison and the exact-P3 reference comparison. Inspect stored hypotheses
+before interpreting the collapse pattern or any improvement.
+
+**Sampling clarification.** The 256 draws are complete joint paths. Their emitted phone strings are
+deduplicated, and the conditional DP subsequently sums every legal alignment/reverse segmentation
+for each retained string, including paths not sampled. States are combined within those constrained
+DPs; candidate phone strings are not spliced to create additional strings.
+
+A cheaper complete-path importance estimator was examined but is deferred. It would target the full
+P6 partition through finite-sample weighted gradients rather than the current exact sum over retained
+strings, and is not an equivalent implementation substitution. The literature does not establish its
+cold-ASR variance or effectiveness; a separate mathematical/numerical gate would be needed. Verified
+sources and qualifications are in `reports/codex_4a_context_importance_literature_2026-09-17.md`
+([Veach and Guibas, 1995](https://www.cs.jhu.edu/~misha/ReadingSeminar/Papers/Veach95.pdf),
+[Mnih and Rezende, 2016](https://proceedings.mlr.press/v48/mnihb16.pdf)). Keep the current finite-string
+objective for the authorized learning run.
 
 ### Higher-context pilot result (audited 2026-09-17)
 

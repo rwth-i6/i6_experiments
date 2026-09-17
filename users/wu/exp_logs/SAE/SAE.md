@@ -74,7 +74,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    its gold-derived checkpoint-swap diagnostic is explanatory evidence only. The seeded-S2d rerun is withdrawn.
-   S3c/DP64 CLOSED FAIL; S3d stopped after epoch 4 failure; 256/512 profiles too costly; memory-bounded batching check submitted.
+   S3c/DP64 CLOSED FAIL; S3d stopped; user accepts 19.1h projection; matched 256-draw P3/P6 training submitted.
    LM objective remains above bigram. `SAE_4A.md`; sparse-code §4b is registered for planning only.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
    (reference loses to the strongest content-free control by 5.02): H4 unresolved, maxima frozen, final refits and
