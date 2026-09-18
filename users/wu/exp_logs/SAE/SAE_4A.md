@@ -7,24 +7,23 @@ supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latt
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Seeded work: S2e training and all registered readouts COMPLETE, independently audited.
-`PackedEmcTrainJob.9NHxwYexks7U`, `config/sae_4a_seeded_refine.py`: C passes dev-other PER IMPROVE
-and WER REFINE at final epoch 8 and LM-selected epoch 4. WER is 25.23% / 25.91% versus init 26.50%.
-Matched C−D supports a cycle benefit; freeze-only B still degrades severely. Selected dev-clean WER
-does not clearly improve. These are single-seed, reused-dev results for supervised initialization.
-The round is complete; no further seeded training or readout is queued. Protocol, results and limits:
-"Reopened seeded refinement"; audit: `reports/codex_4a_s2e_results_audit_2026-09-18.md`.
-Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
+Priority 1 (user 2026-09-18): reduce six-gram execution cost/search space. The old 256-draw
+P3/P6 pack `PackedEmcTrainJob.ikngRyQaeQTl` timed out without checkpoints; do not restart it.
+G4a.3 is unread. The 16/4-draw cost screen is SUBMITTED, Slurm `1871464_1`,
+`ContextBudgetProfileJob.bg8ErQSa8scY`, `config/sae_4a_context_budget_profile.py` (30m cap).
+On completion, check all six cases for each K against the registered cost/numerical rule; only
+a passing budget may proceed to matched P3/P6 training. Deduct actual screen use from the
+9h29m47s cold allowance. Protocol and next decision: "Reduced-candidate cost screen" below;
+handoff: `reports/codex_4a_candidate_budget_profile_launch_2026-09-18.md`.
 
-Matched 256-draw P3/P6 training TIMED OUT without a checkpoint:
-`PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`, `config/sae_4a_context_train.py`.
-It is PAUSED for execution cost; G4a.3 and all recognition readouts remain unread. An automatic
-retry would repeat unsaved work. The remaining accepted allowance is 9h29m47s; no additional
-budget or protocol change is authorized. Before any restart, establish a viable execution plan
-within that allowance or obtain a user-approved budget/protocol amendment. Keep the registered
-candidate objective, data and gates unchanged. See "First allocation timeout" below and
-`reports/codex_4a_context_timeout_2026-09-18.md`; the cold allocation watcher has terminated.
-No computation or watcher remains active for either branch. §4b remains complete and unchanged.
+Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
+`config/sae_4a_trainable_reverse.py` (8h cap). Three arms unfreeze phi and ablate the sequence LM
+or both training text-prior terms. Monitor training and registered recognition chains; audit actual
+fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
+`reports/codex_4a_s2f_launch_2026-09-18.md`.
+S2e is complete/audited; its gains are recorded under "Reopened seeded refinement" and do not
+prove freezing necessary. §4b remains complete and unchanged.
+Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
 ## Objective
 
@@ -1630,6 +1629,50 @@ the run output base above: `{A_joint,B_freeze,C_stabilized,D_selfdistill}/{ep8,s
 20518 phone errors and 12856 / 13199 / 13503 word errors (final / selected / init).
 The registered round is complete; no second training allocation or further readout is queued.
 
+**S2f trainable reverse and LM ablation (user 2026-09-18; registered before results).**
+The user requests refinement with phi trainable and an LM ablation. Start each new arm from the
+same original 10 h theta and own warm phi as S2e C, not from its adapted checkpoint. Retain C's
+100 h speech-only data, seed 42, eight-subepoch schedule, theta lr 1e-4, fixed tau 2, cycle weight 1,
+direct seed-KL weight 1, rate weight 0, alpha 0, FP64 and all other optimizer/batching settings.
+All new arms train phi at the inherited lr 0.003; there is no new learning-rate search.
+
+| Arm | Phi | Sequence LM beta | Aggregate weight |
+| --- | --- | ---: | ---: |
+| U_joint | trained | 1 | 0.1 |
+| U_no_lattice_lm | trained | 0 | 0.1 |
+| U_no_text_prior | trained | 0 | 0 |
+
+U_joint versus banked C isolates enabling phi updates under C's stabilization. The second arm
+removes the sequence-LM score from the cycle partition and its posterior normalization; the third
+also removes the optimized aggregate penalty toward text-derived unigram/bigram targets. The third
+is a joint removal of two loss terms versus U_joint; its comparison with the second isolates the
+aggregate term. Do not alter the token inventory, prior support, shared warm initialization or
+decoder. Shared initialization was previously exposed to the LM; the ablation concerns adaptation
+losses, not an entirely text-free model history. Check beta-zero gradient invariance to distinct
+finite LM tables and actual nonzero phi gradients before launching.
+
+Keep G4a.S2d and G4a.2 unchanged. Report actual epoch-1–8 PER on both dev splits, fixed epoch 4/8
+paired PER and final/selected fixed-v2 sclite WER against own init and banked S2e C/D, plus the two
+adjacent ablation contrasts. Keep the same weighted-LM-perplexity selector over epochs 4–8, and
+explicitly disclose that it still uses the LM: fixed epoch 8 is the direct endpoint for the training
+ablation, and the selected result evaluates the shared selection policy. Greedy PER uses no decoding
+LM; identical official-four-gram WER decoding isolates changes to the acoustic recognizer.
+Reuse existing score artifacts; do not retrain banked controls. New single three-arm pack has the
+inherited GPU4/CPU64/256 GiB envelope and 8h cap. This user-authorized new round is separate from
+the remaining cold allocation allowance. No automatic extra training sweep is registered.
+Prelaunch protocol audit: `reports/codex_4a_efficiency_s2f_protocol_audit_2026-09-18.md`.
+The audit confirms comparison/label/spend boundaries, not future code behavior or results.
+
+**S2f submission (2026-09-18).** `PackedEmcTrainJob.bd0W5Il9CtyN`, Slurm `1871484_1`,
+submitted and scheduler-confirmed pending. Wrapper `config/sae_4a_trainable_reverse.py`; recipe
+commit `a59511b7219ea8fc236ceb070305a27d5b3a0605`. Run output base:
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2f_pack/`. Generated configs differ from C
+only by the registered changes and output paths. CPU checks exercise trainable phi, the frozen
+seed teacher, beta-zero LM invariance and aggregate-loss removal; they establish wiring, not gains.
+Independent review: `reports/codex_4a_s2f_final_code_review_2026-09-18.md`; implementation:
+`reports/codex_4a_s2f_implementation_2026-09-18.md`; launch/monitor handoff:
+`reports/codex_4a_s2f_launch_2026-09-18.md`. Recognition and runtime outcomes remain pending.
+
 ### Withdrawn standalone-initializer proposal (2026-09-16)
 
 **User scope correction:** the SylCipher-inspired experiment below is withdrawn before any implementation
@@ -2534,6 +2577,57 @@ sources and qualifications are in `reports/codex_4a_context_importance_literatur
 ([Veach and Guibas, 1995](https://www.cs.jhu.edu/~misha/ReadingSeminar/Papers/Veach95.pdf),
 [Mnih and Rezende, 2016](https://proceedings.mlr.press/v48/mnihb16.pdf)). Keep the current finite-string
 objective for the authorized learning run.
+
+**Reduced-candidate cost screen (user 2026-09-18; registered before measurement).** The user
+rejects the observed runtime and authorizes smaller phoneme/alignment search spaces as priority 1.
+First reduce proposal draws to 16 (12 target + 4 hot) or 4 (3 + 1), preserving the existing 3:1
+mixture and 1.5-times hot temperature. Deduplicate SIL-sensitive strings and retain exact conditional
+alignment/segmentation sums and existing rate finite differences. This changes the truncated support;
+it is not an equivalent implementation of the 256-draw objective or an unbiased full-six-gram sum.
+No gold chooses the candidate budget. Sampling/conditional execution caps remain the accepted 16/4,
+not the slower larger-group experiment. No training data, batch size or schedule is reduced.
+
+One new Sisyphus measurement, `config/sae_4a_context_budget_profile.py`, uses the exact first-subepoch
+train=True loader/order from the interrupted run. Inventory all batch shapes; select the original
+first batch, the lower-median batch sorted by maximum valid audio-frame length, and the maximum-length
+batch (ties: earliest index). Replay those actual batches at the cold initial state/tau 8 and at the
+banked DP64 epoch-8 state/tau 2 (`ReturnnTrainingJob.IoCQmrlJbCC0/output/models/epoch.008.pt`).
+The latter is a learned-state cost stress, not the future candidate learner's trajectory. K=16 and K=4
+give 12 measurements. Preserve original batch indices for the epoch-1/tag/step sampling convention;
+record checkpoint identity, tags, lengths, actual retained counts, synchronized stage/total forward
+and neural-backward times, peak memory, finite theta/phi gradients and unchanged model parameters.
+Use no optimizer update, no labels and no artificial cropping. Save each completed case before the next.
+
+The screen is capped at 30 minutes in the inherited GPU1/CPU16/mem64/gpu_mem96 envelope. Release
+only the **largest** tested K for which all six full-step measurements are <=48s and numerical/wiring
+checks pass. This conservative engineering screen derives from 477 reference updates and a newly
+predeclared 25% allowance for unmeasured optimizer/CV/execution overhead: 477×48×1.25 = 7.95h,
+within an 8h training cap. This is a cost proxy, not a promised whole-run duration; representative
+shape/state measurements do not bound every future batch or learned state. A passing candidate count
+would be shared by both P3/P6 arms under the existing initialization, data, optimizer, schedule,
+G4a.3 and paired readouts. At most one 8h pack follows; profile plus pack stays within the remaining
+9h29m47s. Do not repeat a failed count or launch if neither passes. If both fail, next decision is a
+separately derived sampled-alignment/path scorer with its own mathematical and numerical check.
+
+Coverage remains a substantive risk: the existing 256-string frozen pilot already omitted most known
+P3 mass on some long items; a low retained-set ESS does not establish full-space coverage. Literature
+supports exact within-string path sums but provides no cold-ASR adequacy guarantee for K=16 or 4.
+Relevant verified findings and nontransferable operating points:
+`reports/codex_4a_candidate_efficiency_literature_2026-09-18.md` (Graves et al., ICML 2006;
+Kumar et al., ASRU 2017; Nuhn et al., ACL 2013). Accuracy must still pass the unchanged recognition
+gate; a faster step alone is not scientific progress.
+Prelaunch protocol audit is shared with S2f above; implementation/source review and the actual
+cost measurements remain required before a reduced-candidate training launch.
+
+**Cost-screen submission (2026-09-18).** `ContextBudgetProfileJob.bg8ErQSa8scY`, Slurm
+`1871464_1`, submitted and scheduler-confirmed pending. Outputs:
+`output/sae/4a/context_budget_profile/profile.json` and `profile.txt`. Source review released
+the bounded measurement with no blocker; CPU checks establish count/temperature wiring and
+strict checkpoint loading only. Implementation and review:
+`reports/codex_4a_candidate_budget_profile_impl_2026-09-18.md`,
+`reports/codex_4a_candidate_budget_profile_review_2026-09-18.md`; handoff:
+`reports/codex_4a_candidate_budget_profile_launch_2026-09-18.md`. No smaller-K training has
+been released: actual timings, gradients, memory and retained counts are still pending.
 
 ### Higher-context pilot result (audited 2026-09-17)
 

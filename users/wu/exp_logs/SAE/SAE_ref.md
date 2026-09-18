@@ -29,6 +29,16 @@ Register the exact follow-up, controls and resource limit before launch; retain 
 These results do not count as cold-start unsupervised progress. The six-gram cold run is separate;
 §4b is left unchanged at the user's request. Live protocol: `SAE_4A.md`, "Reopened seeded refinement".
 
+**User amendment, 2026-09-18:** priority 1 is making six-gram cycle training affordable; the user
+explicitly permits reducing the phoneme-string or alignment search space. This supersedes the
+previous prohibition on reducing the 256-draw space, without changing the cold-start ASR gate or
+label quarantine. First screen a smaller candidate budget on representative actual batches and
+both initial/trained model states; do not repeat the first-batch whole-run extrapolation. Priority 2
+is improving the 10 h initializer with a trainable reverse model and an LM ablation. The registered
+follow-up separates removing the sequence-LM factor from removing both it and the text-derived
+aggregate regularizer. Shared warm initialization and the evaluation decoder retain their disclosed
+LM history/use; this is not an LM-never-used claim. Live cost and seeded protocols are in `SAE_4A.md`.
+
 Separately, the user authorizes the frozen higher-context diagnostic and then direct six-gram candidate
 reweighting training in §4a, independently of S3d. On 2026-09-17 the user additionally authorizes starting
 `SAE_4B.md`: reproduce a sparse autoencoder on frozen w2v2 and extract phoneme information with supervised
