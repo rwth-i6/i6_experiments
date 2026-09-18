@@ -56,6 +56,11 @@ training cap supersedes the old 8 h release cap; earlier costs/gate failures rem
 Register the path estimator, numerical checks, cost-selection rule and bounded profiling allocation
 before launch. Preserve random real batches, the cold ASR gate, and the separate S2f/§4b scopes.
 
+**User selection, later 2026-09-18:** start the matched complete-path experiment at **512 paths**
+per utterance. Leave the adaptive benchmark running unchanged; its search for larger counts no
+longer determines this run's draw count or launch time. The numerical/timing release gate and
+24 h complete-training ceiling still apply. A passing cost screen is not evidence of ASR benefit.
+
 **Testing clarification, 2026-09-18:** the user requires randomly sampled training batches because
 `laplace:1000` sequence sorting makes early-batch timing optimistic. Future cost screens sample real
 batches across the registered training schedule with a fixed recorded seed; retain a long-batch stress

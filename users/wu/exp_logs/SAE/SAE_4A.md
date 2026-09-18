@@ -7,27 +7,27 @@ supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latt
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Priority 1: K4 is VETOED; its proposal-group screen was canceled without a result. Do not restart
-it or the timed-out 256-draw pack. Earlier cost screens remain failed; G4a.3 is unread.
-Direct complete-path rescoring/loss is implemented and reviewed. The 2h adaptive cost screen is
-SUBMITTED: `PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`,
-`config/sae_4a_path_budget_profile.py`; initial state PENDING. Audit its completed random/stress
-batch evidence, then choose the largest tested M>=512 passing all sixteen P3/P6 full-update cases
-at <=144s. Release matched training only after that gate, with the user's **24 h complete-training
-cap**; no qualifying count means no release. Preserve the ASR gate and finite-M caveats.
-Live protocol: "Complete-path user supersession" below. Prior ledger: 8h40m36s before this 2h screen.
-Handoff: `reports/codex_4a_path_budget_profile_launch_2026-09-18.md`; stop evidence:
-`reports/codex_4a_vetoed_k4_stop_2026-09-18.md`.
+Priority 1: the user selects **512 complete paths** for matched P3/P6 training. All sixteen
+random/stress full-update cases pass the numerical/timing release gate (audited); ASR remains
+unmeasured. The larger-count benchmark continues independently: `PathBudgetProfileJob.lEqez28WWd2q`,
+Slurm `1873152_1`, `config/sae_4a_path_budget_profile.py`, with its existing watcher and 2h cap.
+M512 training is SUBMITTED: `BoundedPathEmcTrainJob.mkNtyN6U5pvr`, Slurm `1873833_1` (PENDING),
+`config/sae_4a_path512_train.py`. Monitor training and all registered ASR reads. Its initial 11.5h allocation
+cannot automatically resume. Any explicit continuation must fit the verified remainder of the
+**24h cumulative training cap**. Keep G4a.3 and fixed/selected paired ASR reads unchanged;
+check finite-sample concentration alongside recognition. Live protocol and evidence: "Later user
+selection: M512 training" below. K4 remains vetoed; never restart it or the timed-out 256-draw pack.
 
 Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
-`config/sae_4a_trainable_reverse.py` (8h cap). Three arms unfreeze phi and ablate the sequence LM
+`config/sae_4a_trainable_reverse.py` (8h requested). Three arms unfreeze phi and ablate the sequence LM
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
 `reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
-S2g phi fit is RUNNING: `SupervisedReverseInitJob.4GzzIJEpK5vp`, Slurm `1873518_1`; matched
+S2g phi fit: `SupervisedReverseInitJob.4GzzIJEpK5vp`, Slurm `1873518_1`; matched
 joint adaptation `BoundedAdaptationJob.tQrU8qMosRg9` waits for phi (4h+8h caps). Protocol: "S2g
 independent supervised reverse initialization" below. Monitor training, own reads and pending S2f
-comparisons; handoff: `reports/codex_4a_supervised_reverse_launch_2026-09-18.md`.
+comparisons; verify its pending terminal event before claiming completion. Handoff:
+`reports/codex_4a_supervised_reverse_launch_2026-09-18.md`.
 S2e is complete/audited; its gains do not prove freezing necessary. Other joint-training ideas remain queued.
 §4b remains complete and unchanged.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
@@ -3027,6 +3027,52 @@ job's finished state plus these matching provenance/case outputs; submission is 
 Manager PID `466543`, start token `190323219`, owner `wu24`, native tmux
 `sae4a_path_budget_profile_manager`; command/environment and submission evidence:
 `reports/codex_4a_path_budget_profile_launch_2026-09-18.md`. No matched training has been released.
+
+**Later user selection: M512 training, benchmark continues (2026-09-18).** The user now chooses
+512 complete paths per utterance for the first matched P3/P6 training experiment. Keep the adaptive
+benchmark and its registered search unchanged; larger-count results do not change this run's M.
+This supersedes waiting for the largest passing count before training, while preserving the
+sixteen-case numerical/timing release gate, original G4a.3 and the 24 h complete-training ceiling.
+The immutable M512 evidence for release is
+`reports/codex_4a_path512_release_2026-09-18/profile_m512_evidence.json`.
+
+Use the original matched cold-start recipe with `candidate_path_draws=512`, its unchanged eight
+subepochs/477 updates and evaluation chain. Bound the initial allocation to 11.5 h, with a
+nonresumable run task and one try: no automatic timeout resubmission. If incomplete, preserve
+checkpoints and optimizer state; any explicit continuation requires verified elapsed allocation
+time and may consume only the remainder of the cumulative 24 h allowance. Never change settings
+or restart the old 256-draw pack. The user-selected M is fixed even if the benchmark qualifies more.
+
+**M512 measured release evidence.** Independent audit clears all sixteen full-update numerical
+and timing cases: 22.232–74.310 s per update, versus the registered 144 s limit; peak GPU allocation
+45.787 GiB. Matched random/stress batches, cold/trained states, restored optimizer/RNG and 384+128
+draws are verified. Both parameter families update with finite nonzero gradients; rate-to-phi is
+absent and the maximum frame-normalization error is 4.89e-15. The conservative timing proxy is
+477×74.309572×1.25 = **12.308 h**, not a measured full-run duration.
+Audit: `reports/codex_4a_path512_release_audit_2026-09-18.md`.
+
+Finite-sample adequacy remains open: in `P6_M512_dp64_epoch8_random_1`, utterance 54 of 103 has
+path ESS 1.0000016/512 and maximum weight 0.9999992. These are single-utterance extrema, not
+case means. Passing this release gate establishes executable cost and numerical behavior at the
+measured operating points; no M512 ASR result exists yet.
+
+The matched training recipe is committed as `ee8fbcffcf76b3339c07c377625dfacf6cf59b85` plus
+`64e91f3f8467d978747be87a482b444f70c6c57d`. `BoundedPathEmcTrainJob.mkNtyN6U5pvr` runs both arms
+concurrently on GPU0/1, with GPU2/CPU32/mem128/gpu_mem96 and an 11.5h nonresumable run task.
+Historical/generated config comparison preserves the cold initializer, data/order/batching,
+optimizer groups, anneal, rate/aggregate settings and registered evaluation chain. The estimator
+changes to M512; aliases are isolated under `path512_train`. Implementation/provenance:
+`reports/codex_4a_path512_training_impl_2026-09-18.md`; final independent source review clears
+launch with no open findings: `reports/codex_4a_path512_training_review_2026-09-18.md`.
+
+Submitted both arms in Slurm `1873833_1`, initially PENDING for resources, via
+`config/sae_4a_path512_train.py`. Manager `900083` (start token `190832099`, owner `wu24`) runs
+in `sae4a_path512_train_manager`; provenance and exact launch environment:
+`reports/codex_4a_path512_training_launch_2026-09-18.md`. Expected training outputs are
+`output/p3_finite/models/epoch.008.pt` and `output/p6_finite/models/epoch.008.pt` under the new
+job directory, with histories and all registered fixed/selected ASR comparisons. A submitted job
+is not a completion or learning result. Preserve checkpoints on interruption and account for
+elapsed allocation before any explicitly bounded continuation. The adaptive benchmark is untouched.
 Root-pane `%0` watcher is armed at 60s intervals: event `sis-466543-2020136003-ZrkyAMG9`,
 monitor `/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.466543.ZrkyAMG9`.
 
