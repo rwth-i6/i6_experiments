@@ -7,14 +7,16 @@ reproduction, adjacent repeat collapse, no CTC blank, and exact-trigram cycle ma
 Implementation/source review and joint VAD preparation `BlankfreeVadHdfJob.SAjz8y1cT06g` are
 complete. No new-model training result exists.
 
-First profile `BlankfreeCostProfileJob.3Nmqmdz20Wyi` passes cost/gradient checks, but its audit
-cannot verify finite loss and post-update parameters. Reviewed completion of these checks is
-`BlankfreeCostProfileJob.kh2oJqt9Jb6a`, capped at 21 minutes within the original profiling budget.
-It is QUEUED as Slurm 1885014 under manager 393793/start 195281585, selector
-`config/sae_4a_blankfree_profile.run`. Root watcher is armed at
-`/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.393793.6CEewmKG`.
-See "Actual-data cost profile" below. Next: verify its terminal result against the original gate,
-then launch the registered cold four-subepoch experiment and inspect outputs.
+Corrected profile `BlankfreeCostProfileJob.kh2oJqt9Jb6a` is complete and independently audited:
+the original finite-update and cost gate passes. See "Actual-data cost profile" below.
+Root released `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL` through `config/sae_4a_blankfree.run`
+for the registered first four subepochs, one eight-hour allocation without automatic resume.
+Manager 475675/start 195377114 is launched; Slurm 1885150 is PENDING. Generated config confirms
+`num_epochs=4`. Root watcher is armed at
+`/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.475675.aibHKPru`. Launch/artifacts:
+`reports/sae_blankfree_training_launch_2026-09-19.md`.
+Next: inspect epoch-1/4 outputs and the epoch-4 own-phi derangement result.
+Extension to eight remains conditional on the unchanged G4a.3 gate.
 
 The separate supervised 10 h branch ends after independent theta/phi initialization and evaluation;
 the user explicitly excludes 100 h adaptation. Audited support job
@@ -24,7 +26,7 @@ filtering or protocol amendment is applied. See "Actual-data support result" bel
 
 M512 sampled-group diagnostic is complete/audited; see "Sampled-group result" below. Historical
 M512/supervised results remain in `SAE_4A.md`. Old monitors `monitor.4111620.Eq25JHJT`,
-`monitor.4144463.6MdufYoD`, and `monitor.4154180.4DfP5FYL` are terminal DONE.
+`monitor.4144463.6MdufYoD`, `monitor.4154180.4DfP5FYL`, and `monitor.393793.6CEewmKG` are terminal DONE.
 
 ## Objective and authority
 
@@ -173,18 +175,28 @@ over eight subepochs (57 each), maximum measured complete-update time 18.5895833
 the eight-hour ceiling. All ten prescribed batch/temperature updates have finite, nonzero gradients
 in both parameter families. Independent audit `reports/sae_blankfree_profile_audit_2026-09-19.md`
 is CANNOT_TELL for full release: total-loss and post-optimizer parameter finiteness were not saved
-or checked. The original complete-update finiteness gate remains binding; training is unreleased
-until the missing evidence is measured. Preserve this first profile as the cost/gradient result.
+or checked. That original profile did not release training; it remains preserved as the partial
+cost/gradient result. The corrected profile below supplies the missing evidence.
 Its Slurm allocation used 8m47s; the completion of the missing checks is capped at 21 minutes,
 keeping cumulative profile allocation at most 29m47s within the original 30-minute budget.
-The same ten cases will be measured by `BlankfreeCostProfileJob.kh2oJqt9Jb6a`, with both missing
+The same ten cases were measured by `BlankfreeCostProfileJob.kh2oJqt9Jb6a`, with both missing
 finiteness predicates saved and enforced. Its source review is complete
 (`reports/sae_blankfree_profile_finiteness_review_2026-09-19.md`, implementation `49e9658`).
-The objective, timing stages and scientific gate are unchanged; no measured pass is assumed.
+The objective, timing stages and scientific gate are unchanged.
 Completion provenance: `reports/sae_blankfree_profile_completion_2026-09-19.md`;
 current launch: `reports/sae_blankfree_profile_finiteness_launch_2026-09-19.md`.
 This measures cold update cost and numerical behavior, not recognition or trained-state runtime.
 The first training release remains four subepochs; extension to eight still requires G4a.3.
+
+The corrected profile is FINISHED, Slurm 1885014_1 COMPLETED exit 0:0 in 8m42s. It records
+456 updates, maximum complete-update time 18.2443010 s and 10399.2516 s = 2.889 h including
+the 1.25 allowance. All ten prescribed measurements have finite total loss, finite nonzero
+gradients in both families, finite post-optimizer model parameters and no nonfinite parameter
+names. `passes_cost_gate=true`. Independent audit confirms the original release criterion;
+root releases the registered first four subepochs, not the conditional eight-subepoch extension.
+Actual profiling allocations total 8m47s + 8m42s = 17m29s, within the original 30-minute budget.
+Evidence: `reports/sae_blankfree_profile_finiteness_completion_2026-09-19.md` and
+`reports/sae_blankfree_profile_finiteness_audit_2026-09-19.md`.
 
 ## Supervised 10 h separate initialization only
 
