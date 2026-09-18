@@ -55,7 +55,7 @@ from .knowledge_benchmark import (
     resolve_audex_weights,
     MOSHI_BACKEND,
 )
-from .knowledge_benchmark import _grader_block
+from .knowledge_benchmark import _grader_block, bench_out_prefix
 from .result_notify import notify_result
 from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
@@ -250,7 +250,7 @@ def quick_knowledge_eval_py(
 
     # 2b. Small reproducible subsample (own seed -> its own tiny cached artifact).
     data = SubsampleDataset(in_hf=preprocess.out_hf, n=n, seed=seed).out_hf
-    tk.register_output(f"benchmark/quick/{tag}/sampled", data)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/sampled", data)
 
     # 3-4. Speaker voice + TTS (cached; shared across quick evals with the same n/seed).
     speakers = make_speakers()
@@ -263,7 +263,7 @@ def quick_knowledge_eval_py(
         # Dropped in hash(), so this moves no settled hash. See check_torchcodec_libs.py.
         env_ffmpeg_path=InstallFFmpeg().out_path,
     )
-    tk.register_output(f"benchmark/quick/{tag}/tts_output", tts.out_dir)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/tts_output", tts.out_dir)
 
     # 5. Model answers the questions (single shard -- small N; the model loads once).
     if audex_checkpoint is not None:
@@ -295,7 +295,7 @@ def quick_knowledge_eval_py(
         rqmt_override=speech_backend.rqmt_override,
         code_version=code_version,
     )
-    tk.register_output(f"benchmark/quick/{tag}/moshi_output", moshi_out)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/moshi_output", moshi_out)
 
     # 6. Read out the answer text -- inner monologue (free) or Whisper the reply audio.
     if use_monologue:
@@ -307,12 +307,12 @@ def quick_knowledge_eval_py(
             reference_data=data,
             model_size="large-v3-turbo",
         )
-    tk.register_output(f"benchmark/quick/{tag}/transcription", transcription.out_json)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/transcription", transcription.out_json)
 
     # 7. Judge-free grading (login-node, instant).
     grading = AliasMatchGrading(in_json=transcription.out_json)
-    tk.register_output(f"benchmark/quick/{tag}/eval_results", grading.out_eval)
-    tk.register_output(f"benchmark/quick/{tag}/summary", grading.out_summary)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/eval_results", grading.out_eval)
+    tk.register_output(f"{bench_out_prefix('alias_match', n)}/{tag}/summary", grading.out_summary)
 
     if notify:
         notify_result(f"quick_{tag}", {"summary": grading.out_summary})

@@ -682,6 +682,25 @@ def _grader_block(name: str, *, model: str | None = None) -> dict:
     return block
 
 
+def bench_out_prefix(grader: str, n: int | None) -> str:
+    """Where a benchmark tag's outputs are registered: ``benchmark/<grader>/n<N>/<tag>/...``.
+
+    The grader and the sample size are the two axes that have actually been confused when reading
+    these numbers, so they are in the PATH rather than implied by which directory a tool happened to
+    glob. The old layout put the judged results at ``benchmark/<tag>`` and the alias ones at
+    ``benchmark/quick/<tag>`` -- a split that carried no meaning at a glance, and that
+    ``read_benchmarks.py`` half-globbed for its whole life, so one grader was invisible to the
+    ledger tool. With this layout a listing of ``output/benchmark/`` states the partition itself.
+
+    ``n`` is the REQUESTED sample size, which is known at graph build. It is safe to put in the path:
+    measured across all 78 tags on 2026-09-18, transcription == eval_results == summary.overall.n
+    everywhere, i.e. rows never drop between sampling and scoring. ``check_grader_provenance.py``
+    asserts that equality so a future divergence fails a check instead of mislabelling a directory.
+    """
+    assert grader in ("llm_judge", "alias_match"), f"unknown grader {grader!r}"
+    return f"benchmark/{grader}/n{n if n is not None else 'full'}"
+
+
 class LLMGrading(Job):
     """Grade ASR transcriptions using an LLM judge."""
 
@@ -808,6 +827,15 @@ class LLMGrading(Job):
         # recoverable only from the `quick_` tag prefix, and that has now caused the same misreading
         # twice. `_grader_block` is shared with AliasMatchGrading so the two can never drift.
         summary["grader"] = _grader_block("llm_judge", model=self.llm_name)
+        # How often the JUDGE failed, kept rather than hidden. A request/parse error is caught above
+        # and written as {"binary": 0, ...}, i.e. "the judge broke" is recorded as "the model got it
+        # wrong" -- a strictly downward bias that nothing surfaced. Measured 2026-09-18: 18 of 78
+        # tags carry 1-2 such rows per 1000 (<=0.2 pt, so no published number moves), but the count
+        # belongs in the summary so a future run that errors on 30% of rows is visible instead of
+        # looking like a collapse.
+        summary["judge_errors"] = sum(
+            1 for er in eval_results if "LLM request/parse error" in str(er.get("reasoning", ""))
+        )
         with open(str(self.out_summary.get()), "w") as f:
             json.dump(summary, f, indent=2)
 
@@ -917,6 +945,9 @@ def knowledge_benchmark_py(
         data = SubsampleDataset(in_hf=preprocess.out_hf, n=max_examples).out_hf
         tk.register_output("benchmark/sampled", data)
 
+    # Registered under the grader and sample size, so `ls output/benchmark` shows the partition.
+    _bench = bench_out_prefix("llm_judge", max_examples)
+
     # 3. Speaker voice (reuse existing speaker pool)
     speakers = make_speakers()
 
@@ -946,10 +977,10 @@ def knowledge_benchmark_py(
         from .audex_speech_qa import AudexSpeechQA
 
         qa = AudexSpeechQA(in_dir=tts.out_dir, reference_data=data)
-        tk.register_output(f"benchmark/{tag}/transcription", qa.out_json)
+        tk.register_output(f"{_bench}/{tag}/transcription", qa.out_json)
         grading = LLMGrading(in_json=qa.out_json, llm_name=llm_name)
-        tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
-        tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+        tk.register_output(f"{_bench}/{tag}/eval_results", grading.out_eval)
+        tk.register_output(f"{_bench}/{tag}/summary", grading.out_summary)
         return
 
     # --- base Audex-2B native SPEECH-to-SPEECH cascade (true apples-to-apples: pays the speech round-trip
@@ -959,17 +990,17 @@ def knowledge_benchmark_py(
         from .audex_speech_s2s import AudexSpeechS2S
 
         s2s = AudexSpeechS2S(in_dir=tts.out_dir)
-        tk.register_output(f"benchmark/{tag}/s2s_wavs", s2s.out_dir)
+        tk.register_output(f"{_bench}/{tag}/s2s_wavs", s2s.out_dir)
         transcription = WhisperTranscription(
             venv_python_path=whisper_venv(),
             in_dir=s2s.out_dir,
             reference_data=data,
             model_size=whisper_model,
         )
-        tk.register_output(f"benchmark/{tag}/transcription", transcription.out_json)
+        tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
         grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
-        tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
-        tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+        tk.register_output(f"{_bench}/{tag}/eval_results", grading.out_eval)
+        tk.register_output(f"{_bench}/{tag}/summary", grading.out_summary)
         return
 
     # --- model-dependent stages (namespaced by tag) -------------------------
@@ -1024,7 +1055,7 @@ def knowledge_benchmark_py(
         rqmt_override=speech_backend.rqmt_override,
         code_version=code_version,
     )
-    tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
+    tk.register_output(f"{_bench}/{tag}/moshi_output", moshi_out)
 
     # 6. Whisper transcription
     transcription = WhisperTranscription(
@@ -1033,28 +1064,28 @@ def knowledge_benchmark_py(
         reference_data=data,
         model_size=whisper_model,
     )
-    tk.register_output(f"benchmark/{tag}/transcription", transcription.out_json)
+    tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
 
     # 7. LLM grading
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
-    tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
-    tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+    tk.register_output(f"{_bench}/{tag}/eval_results", grading.out_eval)
+    tk.register_output(f"{_bench}/{tag}/summary", grading.out_summary)
 
     # Optional: ALSO score the INNER-MONOLOGUE TEXT (VoiceBench-paper protocol) alongside ASR-of-reply,
     # under a *_monologue tag, so both are reported (moshi-family only -- needs the run_pairs text dump).
     if monologue:
         mono_t = MonologueTranscription(in_dir=moshi_out, reference_data=data)
-        tk.register_output(f"benchmark/{tag}_monologue/transcription", mono_t.out_json)
+        tk.register_output(f"{_bench}/{tag}_monologue/transcription", mono_t.out_json)
         mono_g = LLMGrading(in_json=mono_t.out_json, llm_name=llm_name)
-        tk.register_output(f"benchmark/{tag}_monologue/eval_results", mono_g.out_eval)
-        tk.register_output(f"benchmark/{tag}_monologue/summary", mono_g.out_summary)
+        tk.register_output(f"{_bench}/{tag}_monologue/eval_results", mono_g.out_eval)
+        tk.register_output(f"{_bench}/{tag}_monologue/summary", mono_g.out_summary)
 
     # Optional: also score the RETRIEVED REFERENCE strings directly (the oracle ceiling of retrieval
     # vs. how well the model verbalizes them). Only meaningful for a RAG backend -- its engine writes a
     # per-clip `<i>.json` trace carrying `reference_text`; other backends have no such trace.
     if grade_references:
         ref_transcription = ReferenceStringTranscription(in_dir=moshi_out, reference_data=data)
-        tk.register_output(f"benchmark/{tag}_references/transcription", ref_transcription.out_json)
+        tk.register_output(f"{_bench}/{tag}_references/transcription", ref_transcription.out_json)
         ref_grading = LLMGrading(in_json=ref_transcription.out_json, llm_name=llm_name)
-        tk.register_output(f"benchmark/{tag}_references/eval_results", ref_grading.out_eval)
-        tk.register_output(f"benchmark/{tag}_references/summary", ref_grading.out_summary)
+        tk.register_output(f"{_bench}/{tag}_references/eval_results", ref_grading.out_eval)
+        tk.register_output(f"{_bench}/{tag}_references/summary", ref_grading.out_summary)
