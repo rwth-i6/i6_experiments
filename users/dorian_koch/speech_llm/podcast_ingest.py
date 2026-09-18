@@ -36,11 +36,17 @@ SHARDING, and why it is not a stride. Two properties are load-bearing:
 recipe helpers derive it from an estimated total and a target hours-per-shard instead of discovering
 it at run time.
 
-COST MODEL, measured, for sizing a shard. Mimi encode is ~2,119x realtime (28.32 ms per 60 s stereo
-window, ``MimiAugmentationProbe`` code_version 3) => ~588 audio-h per GPU-h. Diarization is RTF
-~0.007-0.010, i.e. ~100x realtime => ~100 audio-h per GPU-h. **So for an unlabelled podcast the
-diarizer dominates the GPU cost by ~6x, not the codec.** At the default 60 audio-h per shard that is
-~0.6 GPU-h of diarization plus ~0.1 of Mimi, and a few GB of download -- around an hour per job.
+COST MODEL, measured, for sizing a shard -- see the constants near the bottom of this file. Per
+audio-hour of main-thread work: Mimi **1.70 s** (28.32 ms per 60 s stereo window, batch 2, from
+``MimiAugmentationProbe`` code_version 3), diarization **36 s** (pyannote RTF 0.007-0.010), ffmpeg
+decode **14.4 s**. **So the diarizer dominates Mimi by ~21x** and it, not the codec, sets the shard
+size for unlabelled audio. Targeting 4 h per job gives ~**277 audio-h per shard** with
+``diarize_mask`` and ~**900** with ``stereo_passthrough``; ``shards_for_hours()`` does this
+arithmetic and refuses to silently exceed a cap.
+
+⚠ Network is deliberately excluded from that model (as instructed), so it is an upper bound on
+throughput: if downloads are slower than compute, a shard overruns and the resumable job continues
+after a walltime reschedule rather than losing work.
 """
 
 from __future__ import annotations
@@ -57,6 +63,16 @@ from i6_experiments.users.dorian_koch.speech_llm.common import (
 from i6_experiments.users.dorian_koch.speech_llm.tts import InstallFFmpeg
 
 CHANNEL_MODES = ("diarize_mask", "stereo_passthrough", "mono_both", "dialogue_sidon")
+
+#: Episodes burned on smoke tests. `podcast_codes()` excludes these from every real corpus by
+#: default, so test audio can never end up inside training data -- a guarantee in code rather than a
+#: note somebody has to remember. Add to this list whenever an episode is used for a test.
+SMOKE_AUDIO_URLS = [
+    # 74.5 s episode, pinecast/colour-out-the-box; chosen as the shortest DuplexChat episode that
+    # still carries a 20-90 s dialogue span, so the download is ~1 MB.
+    "https://pinecast.com/listen/70469672-3d59-42c0-a2ba-121d97b1a1dc:"
+    "92ff53eb-8adc-47ee-8dbd-04fb480995f8.mp3?source=rss&ext=asset.mp3",
+]
 
 
 def _moshi_family_lib_parent() -> str:
@@ -91,6 +107,8 @@ class PodcastWorkIndex(Job):
         min_span_sec: float = 10.0,
         max_span_sec: float = 600.0,
         feed_allowlist: list[str] | None = None,
+        exclude_audio_urls: list[str] | None = None,
+        overlapping_spans: str = "keep",
         default_episode_sec: float = 3600.0,
         rqmt: dict | None = None,
         user_agent: str | None = None,
@@ -108,6 +126,9 @@ class PodcastWorkIndex(Job):
         self.min_span_sec = float(min_span_sec)
         self.max_span_sec = float(max_span_sec)
         self.feed_allowlist = list(feed_allowlist or [])
+        assert overlapping_spans in ("keep", "merge", "raise"), overlapping_spans
+        self.exclude_audio_urls = list(exclude_audio_urls or [])
+        self.overlapping_spans = overlapping_spans
         self.default_episode_sec = float(default_episode_sec)
         self.user_agent = user_agent
         self.out_dir = self.output_path("index", directory=True)
@@ -231,11 +252,55 @@ class PodcastWorkIndex(Job):
                 if self.max_episodes and len(by_ep) > self.max_episodes:
                     by_ep.pop(url, None)
                     break
-        print(f"[index] duplexchat: {n_rows} rows -> {n_kept} spans in {len(by_ep)} episodes", flush=True)
+        # 🔴 DuplexChat spans OVERLAP, measured: the smoke episode has 35.79->50.15 and
+        # 45.53->63.06, sharing 4.6 s. Ingesting every span therefore encodes some seconds TWICE
+        # and the corpus silently contains duplicated audio -- the twin of silently losing it, and
+        # just as invisible downstream. So it is measured here and acted on by an explicit policy,
+        # never ignored. (Their pipeline treats each span as an independent dialogue clip, so the
+        # overlap is by design on their side, not corruption.)
+        dup_sec = 0.0
+        n_overlapping = 0
+        for ep in by_ep.values():
+            sp = sorted(ep["spans"])
+            merged: list[list[float]] = []
+            had = False
+            for b, e in sp:
+                if merged and b < merged[-1][1]:
+                    had = True
+                    dup_sec += min(e, merged[-1][1]) - b
+                    merged[-1][1] = max(merged[-1][1], e)
+                else:
+                    merged.append([b, e])
+            n_overlapping += int(had)
+            if self.overlapping_spans == "merge":
+                ep["spans"] = merged
+                ep["est_seconds"] = sum(e - b for b, e in merged)
+        msg = (
+            f"[index] duplexchat: {n_rows} rows -> {n_kept} spans in {len(by_ep)} episodes; "
+            f"{n_overlapping} episodes have overlapping spans, {dup_sec / 3600:.2f} h duplicated"
+        )
+        print(msg, flush=True)
+        if self.overlapping_spans == "raise" and n_overlapping:
+            raise SystemExit(msg + " -- overlapping_spans='raise'")
+        if self.overlapping_spans == "merge":
+            print("[index] overlapping spans MERGED (a merged span may hold >2 speakers)", flush=True)
         return list(by_ep.values())
 
     def run(self):
         items = self._from_rss() if self.source == "rss" else self._from_duplexchat()
+
+        # Drop anything burned on a smoke test. Enforced HERE, at the one place every source passes
+        # through, so no corpus can pick up test audio by omission -- and reported, so the exclusion
+        # is visible in the log rather than being an invisible subtraction.
+        if self.exclude_audio_urls:
+            drop = set(self.exclude_audio_urls)
+            before = len(items)
+            items = [it for it in items if it["audio_url"] not in drop]
+            print(
+                f"[index] excluded {before - len(items)} item(s) via exclude_audio_urls ({len(drop)} url(s) listed)",
+                flush=True,
+            )
+
         if self.max_episodes:
             items = items[: self.max_episodes]
         if not items:
@@ -400,75 +465,191 @@ class PodcastMimiIngest(Job):
         )
 
 
-class MergePodcastCodes(Job):
-    """Shard parts (jsonl + npz) -> ONE arrow dataset of Mimi codes."""
+class PodcastCodesIndex(Job):
+    """Index the shard parts in place -- metadata only, **no copy of the codes**.
 
-    def __init__(self, *, in_dirs: list[tk.Path], rqmt: dict | None = None):
+    This replaced a merge job that read every part and rewrote the codes into one arrow dataset.
+    That was a second full copy of the corpus: ~407 GB for DuplexChat English, on the volume whose
+    shortage is the entire reason the pipeline stores codes at all. The codes are already in their
+    final form and location after ingest, so the only thing actually missing is a single place that
+    says what exists and where -- which is small (a few hundred bytes per row) and cheap to rebuild.
+
+    ``.npz`` is a zip of ``.npy``, and ``np.load`` reads a member on demand, so a loader can open
+    the part and pull one item's array without touching the rest. Random access is what makes
+    indexing-in-place viable rather than a merge.
+
+    It is also where the **completeness** checks live, because this is the first point that sees
+    every shard at once. All three failures it catches are silent:
+      * a metadata row whose codes are missing from the npz (the resume would skip it forever),
+      * the same ``item_id`` in two shards (one would overwrite the other at load time),
+      * a shard that produced no parts at all.
+    """
+
+    def __init__(self, *, in_dirs: list[tk.Path], require_all_shards: bool = True, rqmt: dict | None = None):
         self.in_dirs = list(in_dirs)
-        self.out_dir = self.output_path("codes_dataset", directory=True)
-        self.rqmt = rqmt or {"cpu": 4, "mem": 32, "time": 4}
+        self.require_all_shards = bool(require_all_shards)
+        self.out_dir = self.output_path("codes_index", directory=True)
+        self.rqmt = rqmt or {"cpu": 2, "mem": 8, "time": 2}
 
     def tasks(self):
-        yield Task("merge", rqmt=self.rqmt)
+        yield Task("run", rqmt=self.rqmt)
 
-    def merge(self):
+    def run(self):
         import numpy as np
-        from datasets import Dataset
 
         rows: list[dict] = []
+        seen: dict[str, str] = {}
+        empty_shards: list[str] = []
         n_shards_ok = 0
+        total_sec = 0.0
+
         for d in self.in_dirs:
-            parts = os.path.join(d.get(), "parts")
-            if not os.path.isdir(parts):
-                print(f"[merge] SKIP {d.get()}: no parts/", flush=True)
+            base = d.get()
+            parts = os.path.join(base, "parts")
+            names = sorted(n for n in os.listdir(parts)) if os.path.isdir(parts) else []
+            jsonls = [n for n in names if n.endswith(".jsonl")]
+            if not jsonls:
+                empty_shards.append(base)
                 continue
             n_shards_ok += 1
-            for name in sorted(os.listdir(parts)):
-                if not name.endswith(".jsonl"):
-                    continue
+            for name in jsonls:
                 meta_path = os.path.join(parts, name)
                 npz_path = meta_path[: -len(".jsonl")] + ".npz"
                 if not os.path.exists(npz_path):
-                    print(f"[merge] SKIP {name}: no matching npz", flush=True)
-                    continue
-                with np.load(npz_path) as z, open(meta_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        r = json.loads(line)
-                        c = z[r["item_id"]]  # [2, K, F] int16
-                        # Flattened per channel, with n_codebooks/n_frames alongside, because a
-                        # 3-D nested arrow list is awkward to read back and easy to get subtly
-                        # wrong. A consumer reshapes to (n_codebooks, n_frames).
-                        r["codes_a"] = c[0].reshape(-1).astype("int16").tolist()
-                        r["codes_b"] = c[1].reshape(-1).astype("int16").tolist()
-                        rows.append(r)
+                    # The writer renames the npz into place BEFORE writing the jsonl, so this
+                    # ordering cannot happen from a kill -- if it does, something else is wrong.
+                    raise SystemExit(
+                        f"{meta_path} exists with no {os.path.basename(npz_path)}. The writer "
+                        "creates the npz first, so this is not a torn write -- investigate before "
+                        "indexing, the codes for those rows are unaccounted for."
+                    )
+                with np.load(npz_path) as z:
+                    keys = set(z.files)
+                    with open(meta_path) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            r = json.loads(line)
+                            iid = r["item_id"]
+                            if iid not in keys:
+                                raise SystemExit(
+                                    f"{iid} is listed in {name} but absent from the npz. Its codes "
+                                    "are lost; the resume would skip it forever. Refusing to index."
+                                )
+                            if iid in seen:
+                                raise SystemExit(
+                                    f"duplicate item_id {iid} in {base} and {seen[iid]}. One would "
+                                    "silently shadow the other at load time."
+                                )
+                            seen[iid] = base
+                            shp = z[iid].shape
+                            if list(shp) != [2, r["n_codebooks"], r["n_frames"]]:
+                                raise SystemExit(
+                                    f"{iid}: npz array {tuple(shp)} disagrees with its metadata "
+                                    f"(2, {r['n_codebooks']}, {r['n_frames']})."
+                                )
+                            r["codes_npz"] = npz_path
+                            r["codes_key"] = iid
+                            total_sec += float(r.get("duration_sec") or 0.0)
+                            rows.append(r)
+
+        if empty_shards:
+            msg = f"{len(empty_shards)} of {len(self.in_dirs)} shards produced no parts"
+            if self.require_all_shards:
+                raise SystemExit(
+                    msg + ". Read their summary.json / failures.jsonl. Indexing anyway would "
+                    "produce a corpus that is quietly missing whole shards -- pass "
+                    "require_all_shards=False only once you know why."
+                )
+            print(f"[index] WARNING: {msg}", flush=True)
 
         if not rows:
-            raise SystemExit(
-                "merged ZERO rows. Every shard either failed or wrote no parts -- read each "
-                "shard's summary.json / failures.jsonl rather than treating this as an empty corpus."
-            )
-        total_h = sum(r.get("duration_sec", 0.0) for r in rows) / 3600.0
-        print(f"[merge] {len(rows)} rows from {n_shards_ok} shards, {total_h:.1f} audio-hours", flush=True)
-        Dataset.from_list(rows).save_to_disk(self.out_dir.get())
-        with open(os.path.join(self.out_dir.get(), "merge_summary.json"), "w") as f:
-            json.dump({"n_rows": len(rows), "n_shards": n_shards_ok, "audio_hours": round(total_h, 2)}, f, indent=1)
+            raise SystemExit("indexed ZERO rows -- refusing to present this as a corpus.")
+
+        out = os.path.join(self.out_dir.get(), "index.jsonl")
+        with open(out, "w") as f:
+            for r in sorted(rows, key=lambda x: x["item_id"]):
+                f.write(json.dumps(r) + "\n")
+        summary = {
+            "n_rows": len(rows),
+            "n_shards_indexed": n_shards_ok,
+            "n_shards_empty": len(empty_shards),
+            "audio_hours": round(total_sec / 3600.0, 3),
+            "bytes_of_codes": sum(r["n_codebooks"] * r["n_frames"] * 2 * 2 for r in rows),
+        }
+        with open(os.path.join(self.out_dir.get(), "summary.json"), "w") as f:
+            json.dump(summary, f, indent=1)
+        print("[index] " + json.dumps(summary), flush=True)
 
 
 # -------------------------------------------------------------------------------------------
 # recipe helpers
 # -------------------------------------------------------------------------------------------
-def shards_for_hours(est_total_hours: float, target_hours_per_shard: float = 60.0, *, cap: int = 256) -> int:
-    """num_shards from an estimated total, so a shard lands near ``target_hours_per_shard``.
+# ---- measured per-audio-hour cost of the main thread, in SECONDS ---------------------------
+# Deliberately a table of measured numbers rather than one fudge factor, because which term
+# dominates changes the answer by 3x and depends on channel_mode.
+#
+# MIMI_SEC_PER_AUDIO_HOUR: 28.32 ms per 60 s stereo window (MimiAugmentationProbe, code_version 3,
+#   batch 2 = the two channels, which is what training calls) => 60 windows per audio-hour
+#   => 1.70 s. That is 2,119x realtime, i.e. **2,119 audio-hours per GPU-hour**.
+#   ⚠ An earlier note of mine said "588 audio-h per GPU-h" and derived 481 GPU-h for DuplexChat.
+#   That was a unit slip: a realtime factor and audio-hours-per-GPU-hour are the same dimensionless
+#   ratio, so both are 2,119 and the DuplexChat encode is ~133 GPU-h, not 481.
+# DIARIZE_SEC_PER_AUDIO_HOUR: pyannote RTF 0.007-0.010 (measured on the JRE episodes) => 36 s at the
+#   pessimistic end. This DOMINATES Mimi by ~21x, so for unlabelled podcasts the diarizer sets the
+#   shard size and the codec is a rounding error.
+# DECODE_SEC_PER_AUDIO_HOUR: our ffmpeg, mp3 -> 24 kHz f32. Audio-only decode runs a few hundred x
+#   realtime; 250x => 14.4 s. It is on the MAIN thread (the pool hands over file paths, not arrays,
+#   to keep memory at one episode), so it counts.
+MIMI_SEC_PER_AUDIO_HOUR = 1.70
+DIARIZE_SEC_PER_AUDIO_HOUR = 36.0
+DECODE_SEC_PER_AUDIO_HOUR = 14.4
 
-    Must be decided at graph-build time -- it is the number of downstream jobs. 60 h/shard is
-    ~0.6 GPU-h of diarization + ~0.1 of Mimi + a few GB of download, i.e. about an hour.
+
+def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) -> float:
+    """How many audio-hours one shard can do in ``target_runtime_hours``, GPU/CPU bound.
+
+    Network is deliberately EXCLUDED from this model, per the user's instruction to size as if we
+    are not network bound. That makes the number an upper bound on throughput: if the download is
+    slower than the compute, shards take longer than the target and the (resumable) job simply
+    continues after a walltime reschedule.
+    """
+    per_hour = MIMI_SEC_PER_AUDIO_HOUR + DECODE_SEC_PER_AUDIO_HOUR
+    if channel_mode == "diarize_mask":
+        per_hour += DIARIZE_SEC_PER_AUDIO_HOUR
+    return (float(target_runtime_hours) * 3600.0) / per_hour
+
+
+def shards_for_hours(
+    est_total_hours: float,
+    *,
+    channel_mode: str = "diarize_mask",
+    target_runtime_hours: float = 4.0,
+    max_shards: int = 0,
+) -> int:
+    """num_shards such that each shard runs ~``target_runtime_hours``.
+
+    Must be decided at graph-build time -- it is the number of downstream jobs.
+
+    ⚠ There is NO silent cap. An earlier version capped at 256, which is actively harmful: past the
+    cap it does not reduce the number of shards, it silently makes each one bigger than the target,
+    so "every job finishes in about 4 h" quietly becomes "some job runs for two days and gets
+    killed". If a cap is wanted it must be passed explicitly, and exceeding it RAISES with the
+    arithmetic rather than rounding the problem away.
     """
     import math
 
-    return max(1, min(cap, int(math.ceil(float(est_total_hours) / max(1e-9, target_hours_per_shard)))))
+    per_shard = audio_hours_per_shard(channel_mode, target_runtime_hours)
+    n = max(1, int(math.ceil(float(est_total_hours) / per_shard)))
+    if max_shards and n > max_shards:
+        raise ValueError(
+            f"{est_total_hours:.0f} audio-hours at channel_mode={channel_mode!r} needs {n} shards "
+            f"to hold each job near {target_runtime_hours} h ({per_shard:.0f} audio-h per shard), "
+            f"but max_shards={max_shards}. Raise max_shards, raise target_runtime_hours, or ingest "
+            "a subset -- silently using fewer, longer shards would blow the walltime."
+        )
+    return n
 
 
 def podcast_codes(
@@ -482,15 +663,24 @@ def podcast_codes(
     channel_mode: str = "diarize_mask",
     max_episodes: int = 0,
     register: bool = True,
+    require_all_shards: bool = True,
+    exclude_audio_urls: list[str] | None = None,
     **ingest_kwargs,
 ):
-    """Wire index -> N sharded ingests -> merge. Returns ``(merged_dir, index_dir, shard_dirs)``."""
+    """Wire work-index -> N sharded ingests -> codes index.
+
+    Returns ``(codes_index_dir, work_index_dir, shard_dirs)``.
+
+    ``exclude_audio_urls`` defaults to :data:`SMOKE_AUDIO_URLS` so that anything used for a smoke
+    test can never reappear inside a real corpus. Pass ``[]`` to disable deliberately.
+    """
     index = PodcastWorkIndex(
         source=source,
         num_shards=num_shards,
         rss_urls=rss_urls,
         manifest=manifest,
         max_episodes=max_episodes,
+        exclude_audio_urls=(SMOKE_AUDIO_URLS if exclude_audio_urls is None else exclude_audio_urls),
     )
     shard_dirs = []
     for k in range(num_shards):
@@ -503,8 +693,8 @@ def podcast_codes(
             **ingest_kwargs,
         )
         shard_dirs.append(job.out_dir)
-    merged = MergePodcastCodes(in_dirs=shard_dirs)
+    codes_index = PodcastCodesIndex(in_dirs=shard_dirs, require_all_shards=require_all_shards)
     if register:
-        tk.register_output(f"podcast_codes/{tag}/index", index.out_dir)
-        tk.register_output(f"podcast_codes/{tag}/dataset", merged.out_dir)
-    return merged.out_dir, index.out_dir, shard_dirs
+        tk.register_output(f"podcast_codes/{tag}/work_index", index.out_dir)
+        tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
+    return codes_index.out_dir, index.out_dir, shard_dirs
