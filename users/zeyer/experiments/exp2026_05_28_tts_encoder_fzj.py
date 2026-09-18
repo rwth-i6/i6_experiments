@@ -1817,6 +1817,10 @@ def py():
         (f"{_abl_prefix}-lmsub50-textP38", {"ls_lm_subset_lines": 20_209_130, "text_train_epoch_split": 38}),
         (f"{_abl_prefix}-lmsub25-textP19", {"ls_lm_subset_lines": 10_104_565, "text_train_epoch_split": 19}),
         (f"{_abl_prefix}-lmsub10-textP8", {"ls_lm_subset_lines": 4_041_826, "text_train_epoch_split": 8}),
+        # the floor of that design (AZ, 2026-09-19): P1, so the text corpus is exactly one subepoch of P75
+        # (542,660 lines = (40,418,261 + 281,241) / 75), passed 152x; the 281,241 train transcripts are
+        # part of it as in every lmsub run, so the LM subset is 261,419 lines (0.65%)
+        (f"{_abl_prefix}-lmsub0_65-textP1", {"ls_lm_subset_lines": 261_419, "text_train_epoch_split": 1}),
         # Paired-data ladder at ~constant update steps (AZ, 2026-09-16): a random 50 / 25 / 10 / 0% of the
         # train-960 utterances, the text partition scaled so the text fills the freed batch budget
         # (P75 is ~1:1 audio:text hours, so P = 75 / (2 - audio fraction)); nep38 as the winner.
@@ -2200,15 +2204,17 @@ def py():
     # until a factor degrades.
     # specaugment_steps is a step schedule, so its ramp finished at ep 7.9 instead of ep 6.3.
     # Decoupled weight decay shrinks by lr*wd per step, so its total is 0.794x as well.
-    for _sa_factor in (82, 70, 60, 50, 40, 30):
+    # nep76 (AZ, 2026-09-19): the matched-steps control for the injection runs, which take about twice
+    # the steps of the nep38 baseline (44 h vs 20 h); same step-keyed settings, twice the audio passes.
+    for _sa_factor, _nep in ((82, 38), (70, 38), (60, 38), (50, 38), (40, 38), (30, 38), (50, 76)):
         _train_asr_base_multigpu(
-            f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug{_sa_factor}-stepcomp",
+            f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep{_nep}-packed-graphc-specaug{_sa_factor}-stepcomp",
             prefix=prefix,
             with_ctc_lm_recog=(_sa_factor == 50),  # the reported baseline gets the CTC+LM recog
             feature_extraction=None,
             base_lr=1.0,
             peak_lr=5e-3,
-            nep=38,
+            nep=_nep,
             behavior_version=29,  # packed tensors need >= 29
             extra_config_updates={
                 "optimizer.class": rf.build_dict(Muon)["class"],
