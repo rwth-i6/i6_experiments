@@ -657,6 +657,31 @@ Grade the response:
 Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explanation"}}"""
 
 
+#: Bumped when a grader's scoring RULE changes in a way that makes new numbers incomparable with
+#: old ones. It is recorded per summary, so an old number keeps the version it was scored under
+#: rather than silently inheriting the new meaning.
+GRADER_SCHEMA_VERSION = 1
+
+
+def _grader_block(name: str, *, model: str | None = None) -> dict:
+    """Identity of the grader that produced a summary, written INTO the summary.
+
+    ``name`` is "llm_judge" or "alias_match". These are not interchangeable and must never share a
+    ranking: the judge reads for meaning, the alias scorer asks only whether a gold string appears
+    anywhere in the reply, and the measured gap is ~6 pts on base (0 on terse arms, which is worse --
+    the bias is not even a constant offset). Accuracy is the comparable field; ``avg_quality`` is
+    NOT, because the judge's 1-5 rubric distinguishes "correct but verbose" (4) from "concise and
+    correct" (5), so it moves with reply LENGTH at constant accuracy -- measured both directions on
+    2026-09-18 (a41 18 words shorter: q|correct 2.93 -> 3.94; personaplex_ft 30 words longer:
+    3.78 -> 3.02). Read accuracy; treat quality as a style statistic.
+    """
+    assert name in ("llm_judge", "alias_match"), f"unknown grader {name!r}"
+    block = {"name": name, "schema_version": GRADER_SCHEMA_VERSION}
+    if model is not None:
+        block["model"] = model
+    return block
+
+
 class LLMGrading(Job):
     """Grade ASR transcriptions using an LLM judge."""
 
@@ -776,6 +801,13 @@ class LLMGrading(Job):
             "accuracy": sum(i["binary_correct"] for i in eval_results) / n if n else 0.0,
             "avg_quality": sum(i["quality_score"] for i in eval_results) / n if n else 0.0,
         }
+        # WHICH GRADER PRODUCED THIS NUMBER, in the data rather than in a naming convention.
+        # AliasMatchGrading deliberately emits this identical schema so it can be a drop-in for the
+        # tail of the pipeline -- which also made the two indistinguishable once the number left the
+        # job, and a judged score and an alias score differ by ~6 pts on base. The grader was
+        # recoverable only from the `quick_` tag prefix, and that has now caused the same misreading
+        # twice. `_grader_block` is shared with AliasMatchGrading so the two can never drift.
+        summary["grader"] = _grader_block("llm_judge", model=self.llm_name)
         with open(str(self.out_summary.get()), "w") as f:
             json.dump(summary, f, indent=2)
 

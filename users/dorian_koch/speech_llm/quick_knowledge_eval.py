@@ -55,6 +55,7 @@ from .knowledge_benchmark import (
     resolve_audex_weights,
     MOSHI_BACKEND,
 )
+from .knowledge_benchmark import _grader_block
 from .result_notify import notify_result
 from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
@@ -118,7 +119,7 @@ def alias_match(prediction: str, answer: str, aliases) -> tuple[int, int]:
     return 0, 1
 
 
-def summarize(eval_results: list[dict]) -> dict:
+def summarize(eval_results: list[dict], grader: str = "alias_match") -> dict:
     """Aggregate eval rows into the same {category: {n, accuracy, avg_quality}, overall: {...}}
     schema ``LLMGrading`` emits, so downstream consumers are agnostic to which grader ran."""
     cats: dict[str, list] = {}
@@ -137,6 +138,10 @@ def summarize(eval_results: list[dict]) -> dict:
         "accuracy": sum(i["binary_correct"] for i in eval_results) / n if n else 0.0,
         "avg_quality": sum(i["quality_score"] for i in eval_results) / n if n else 0.0,
     }
+    # Stamped with the SAME helper LLMGrading uses, so the two graders cannot drift apart in how
+    # they identify themselves. This schema is deliberately identical to the judge's in every other
+    # respect -- which is exactly why the identity has to be a field and not a filename convention.
+    summary["grader"] = _grader_block(grader)
     return summary
 
 
