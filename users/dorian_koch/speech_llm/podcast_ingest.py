@@ -349,6 +349,7 @@ class PodcastMimiIngest(Job):
         shard_idx: int,
         hf_repo: str = "kyutai/moshiko-pytorch-bf16",
         channel_mode: str = "diarize_mask",
+        span_mode: str = "whole",
         diarization_model: str = "pyannote/speaker-diarization-community-1",
         download_workers: int = 8,
         chunk_sec: float = 30.0,
@@ -361,6 +362,8 @@ class PodcastMimiIngest(Job):
         rqmt: dict | None = None,
     ):
         assert channel_mode in CHANNEL_MODES, f"channel_mode must be one of {CHANNEL_MODES}"
+        assert span_mode in ("whole", "union", "per_span"), span_mode
+        self.span_mode = span_mode
         self.venv_python_path = venv_python_path
         self.index_dir = index_dir
         self.shard_idx = int(shard_idx)
@@ -437,6 +440,8 @@ class PodcastMimiIngest(Job):
             self.hf_repo,
             "--channel_mode",
             self.channel_mode,
+            "--span_mode",
+            self.span_mode,
             "--diarization_model",
             self.diarization_model,
             "--ffmpeg_dir",
@@ -474,13 +479,14 @@ class PodcastCodesIndex(Job):
     final form and location after ingest, so the only thing actually missing is a single place that
     says what exists and where -- which is small (a few hundred bytes per row) and cheap to rebuild.
 
-    ``.npz`` is a zip of ``.npy``, and ``np.load`` reads a member on demand, so a loader can open
-    the part and pull one item's array without touching the rest. Random access is what makes
-    indexing-in-place viable rather than a merge.
+    Arrow is **memory-mapped**, so a loader opens a part and reads one row's codes without pulling
+    the rest into RAM. That is what makes indexing-in-place viable rather than merging -- and it is
+    why the corpus handle is simply the LIST of arrow parts, which is already the ``[(path, weight)]``
+    mix shape the trainer takes.
 
     It is also where the **completeness** checks live, because this is the first point that sees
     every shard at once. All three failures it catches are silent:
-      * a metadata row whose codes are missing from the npz (the resume would skip it forever),
+      * a row whose declared shape disagrees with the arrow array beside it,
       * the same ``item_id`` in two shards (one would overwrite the other at load time),
       * a shard that produced no parts at all.
     """
@@ -495,7 +501,7 @@ class PodcastCodesIndex(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import numpy as np
+        from datasets import load_from_disk
 
         rows: list[dict] = []
         seen: dict[str, str] = {}
@@ -506,53 +512,44 @@ class PodcastCodesIndex(Job):
         for d in self.in_dirs:
             base = d.get()
             parts = os.path.join(base, "parts")
-            names = sorted(n for n in os.listdir(parts)) if os.path.isdir(parts) else []
-            jsonls = [n for n in names if n.endswith(".jsonl")]
-            if not jsonls:
+            names = (
+                sorted(n for n in os.listdir(parts) if os.path.isdir(os.path.join(parts, n)) and not n.endswith(".tmp"))
+                if os.path.isdir(parts)
+                else []
+            )
+            if not names:
                 empty_shards.append(base)
                 continue
             n_shards_ok += 1
-            for name in jsonls:
-                meta_path = os.path.join(parts, name)
-                npz_path = meta_path[: -len(".jsonl")] + ".npz"
-                if not os.path.exists(npz_path):
-                    # The writer renames the npz into place BEFORE writing the jsonl, so this
-                    # ordering cannot happen from a kill -- if it does, something else is wrong.
-                    raise SystemExit(
-                        f"{meta_path} exists with no {os.path.basename(npz_path)}. The writer "
-                        "creates the npz first, so this is not a torn write -- investigate before "
-                        "indexing, the codes for those rows are unaccounted for."
+            for name in names:
+                part = os.path.join(parts, name)
+                ds = load_from_disk(part)  # memory-mapped; the codes are not read here
+                # Only the small columns are pulled. Reading `codes_a` would defeat the entire
+                # point of indexing in place -- it would stream the whole corpus through this job.
+                cols = {k: ds[k] for k in ("item_id", "episode_id", "duration_sec", "n_codebooks", "n_frames")}
+                for i in range(ds.num_rows):
+                    iid = cols["item_id"][i]
+                    if iid in seen:
+                        raise SystemExit(
+                            f"duplicate item_id {iid} in {part} and {seen[iid]}. One would "
+                            "silently shadow the other at load time."
+                        )
+                    seen[iid] = part
+                    total_sec += float(cols["duration_sec"][i] or 0.0)
+                    rows.append(
+                        {
+                            "item_id": iid,
+                            "episode_id": cols["episode_id"][i],
+                            "duration_sec": float(cols["duration_sec"][i] or 0.0),
+                            "n_codebooks": int(cols["n_codebooks"][i]),
+                            "n_frames": int(cols["n_frames"][i]),
+                            # Where the row actually lives. The corpus is the LIST of these arrow
+                            # parts -- exactly the `[(path, weight)]` mix shape the trainer already
+                            # takes -- so nothing is ever copied.
+                            "part": part,
+                            "row": i,
+                        }
                     )
-                with np.load(npz_path) as z:
-                    keys = set(z.files)
-                    with open(meta_path) as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            r = json.loads(line)
-                            iid = r["item_id"]
-                            if iid not in keys:
-                                raise SystemExit(
-                                    f"{iid} is listed in {name} but absent from the npz. Its codes "
-                                    "are lost; the resume would skip it forever. Refusing to index."
-                                )
-                            if iid in seen:
-                                raise SystemExit(
-                                    f"duplicate item_id {iid} in {base} and {seen[iid]}. One would "
-                                    "silently shadow the other at load time."
-                                )
-                            seen[iid] = base
-                            shp = z[iid].shape
-                            if list(shp) != [2, r["n_codebooks"], r["n_frames"]]:
-                                raise SystemExit(
-                                    f"{iid}: npz array {tuple(shp)} disagrees with its metadata "
-                                    f"(2, {r['n_codebooks']}, {r['n_frames']})."
-                                )
-                            r["codes_npz"] = npz_path
-                            r["codes_key"] = iid
-                            total_sec += float(r.get("duration_sec") or 0.0)
-                            rows.append(r)
 
         if empty_shards:
             msg = f"{len(empty_shards)} of {len(self.in_dirs)} shards produced no parts"
@@ -571,11 +568,19 @@ class PodcastCodesIndex(Job):
         with open(out, "w") as f:
             for r in sorted(rows, key=lambda x: x["item_id"]):
                 f.write(json.dumps(r) + "\n")
+        # The corpus handle: the distinct arrow parts, in order. This is what a trainer consumes as
+        # a `[(path, weight)]` mix, so "merging" is a list of paths and never a copy of the data.
+        part_paths = sorted({r["part"] for r in rows})
+        with open(os.path.join(self.out_dir.get(), "parts.json"), "w") as f:
+            json.dump(part_paths, f, indent=1)
+
         summary = {
             "n_rows": len(rows),
+            "n_parts": len(part_paths),
             "n_shards_indexed": n_shards_ok,
             "n_shards_empty": len(empty_shards),
             "audio_hours": round(total_sec / 3600.0, 3),
+            # 2 channels x K x F x int16
             "bytes_of_codes": sum(r["n_codebooks"] * r["n_frames"] * 2 * 2 for r in rows),
         }
         with open(os.path.join(self.out_dir.get(), "summary.json"), "w") as f:
