@@ -7,10 +7,8 @@ supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latt
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Priority 1 (user supersession 2026-09-18): the few-string/K4 direction is VETOED. The pending
-proposal-group screen `ContextBudgetProfileJob.vAFyI06vKHv5` was canceled after 72s, with no
-completed measurement; do not restart it. The old 256-draw pack timed out without checkpoints;
-earlier cost screens remain failed. G4a.3 is unread.
+Priority 1: K4 is VETOED; its proposal-group screen was canceled without a result. Do not restart
+it or the timed-out 256-draw pack. Earlier cost screens remain failed; G4a.3 is unread.
 Direct complete-path rescoring/loss is implemented and reviewed. The 2h adaptive cost screen is
 SUBMITTED: `PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`,
 `config/sae_4a_path_budget_profile.py`; initial state PENDING. Audit its completed random/stress
@@ -26,8 +24,11 @@ Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
 `reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
-S2e is complete/audited; its gains are recorded under "Reopened seeded refinement" and do not
-prove freezing necessary. Conditional joint-training ideas are queued below, pending S2f.
+S2g phi fit is RUNNING: `SupervisedReverseInitJob.4GzzIJEpK5vp`, Slurm `1873518_1`; matched
+joint adaptation `BoundedAdaptationJob.tQrU8qMosRg9` waits for phi (4h+8h caps). Protocol: "S2g
+independent supervised reverse initialization" below. Monitor training, own reads and pending S2f
+comparisons; handoff: `reports/codex_4a_supervised_reverse_launch_2026-09-18.md`.
+S2e is complete/audited; its gains do not prove freezing necessary. Other joint-training ideas remain queued.
 §4b remains complete and unchanged.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
@@ -1679,6 +1680,99 @@ Independent review: `reports/codex_4a_s2f_final_code_review_2026-09-18.md`; impl
 `reports/codex_4a_s2f_implementation_2026-09-18.md`; launch/monitor handoff:
 `reports/codex_4a_s2f_launch_2026-09-18.md`. Recognition and runtime outcomes remain pending.
 
+**S2g independent supervised reverse initialization (user 2026-09-18; registered before results).**
+The user authorizes this baseline now, independently of the conditional queue below. Keep the
+original supervised recognizer `65NNK8Bwxdtd/epoch.024.pt`. Fit phi independently using the same
+10 h seed's `SeedGoldPhonesJob.zii9E9tvr51e/output/seed_gold_phones.json`, with exactly the
+`CvHoldoutSplitJob.sD7U6CYs8ACM` manifests: 2,821 training and 28 held-out utterances out of
+2,849 (9.998 h). Verify phone targets against the recognizer's `PhoneTargetHdfJob.DXDTg3VoP47A`
+after index conversion. `GoldPhonesJob.ZGSp0hxyd2YP` is dev evaluation only, never an initialization
+input. Reuse the existing enc50 K500 units and speaker eta; access only the seed tags during fitting.
+No gold timestamps/boundaries, recognizer predictions, LM, or additional labeled utterances enter.
+
+Objective: maximize the existing `SegmentalReverseModel.log_likelihood(z, y, eta)`, summing over
+durations with the phone sequence fixed. Reuse S1a's `with_edge_sil` convention: one SIL token at
+each utterance edge around the gold phone core, with latent durations. This is not a marginal over
+optional interior SIL insertions. Preserve `ReverseConfig` (d_min=2, phone d_max=25, SIL d_max=50)
+and all emission parameters. Require complete train/CV tag coverage and duration feasibility;
+infeasible examples stop the preparation, with no silent filtering or altered duration support.
+The existing fixed-string reverse DP uses FP32; independently check its tiny-case values/gradients
+and real-batch finiteness. The subsequent joint adaptation keeps S2f's whole-lattice FP64.
+
+Use the existing reverse `FitConfig` reference: eight full epochs, batch size 8, Adam defaults,
+lr 0.003, weight decay 0, clipping 5, loss `-sum(logp)/sum(frames)`, and its batch ordering.
+Use seed 42 from S2f for model initialization and the fit shuffle. Save per-epoch checkpoints and
+training/held-out conditional NLL; the **fixed final epoch 8** supplies phi, with no gold-based
+checkpoint choice. Eight epochs is the reference fitting schedule, not a prior claim of convergence.
+Export only the reverse state in the existing checkpoint namespace; strict roundtrip loading must
+leave the original recognizer and frozen seed teacher unchanged.
+
+New spend is bounded by the inherited 4h phi-initialization envelope plus one 8h single-GPU
+adaptation envelope (12h total training allocation, within one day). Before fitting, profile three
+private-seed-42 random actual batches across the eight-epoch inventory plus the earliest longest
+stress batch. Restore initial model/optimizer/RNG between cases and before fitting; time full
+forward/backward/optimizer steps and record shapes, tags, memory and nonzero finite duration/emission
+gradients. Require `max(measured step) * actual scheduled updates * 1.25 + elapsed setup/profile`
+to fit the 4h cap. This uses the inherited 25% allowance and does not guarantee future runtime.
+Precompute audit adds one stress case when distinct: the actual batch maximizing
+`B * padded_unit_frames * padded_phone_tokens` (including edge SIL), earliest on ties. The
+fixed-string DP loops over phone tokens as well as unit frames; the longest audio batch need not
+maximize its work. Keep the original three random and longest-audio cases, the same maximum-step
+formula and the unchanged 4h cap; no additional training allocation is introduced.
+No cost pass, missing inputs, infeasibility or numerical failure means no adaptation release;
+preserve evidence and diagnose without silently shortening the fit. No automatic sweep/retry.
+Both GPU tasks are nonresumable: a scheduler interruption cannot automatically obtain a second
+allocation beyond the registered cap. `tries=1` alone would not enforce this in the workspace.
+
+Then change **only the reverse checkpoint** in the S2f `U_joint` training configuration. Keep its
+theta checkpoint, 100h train/CV manifests, eight subepochs, feature partition 4, seed 42, both
+models trainable, fixed tau 2, cycle 1, seed KL 1, rate 0, aggregate 0.1, beta 1/trigram, FP64,
+optimizer, batching and evaluation. Reuse banked controls without resubmission. Initialization
+differs in supervision, data exposure and fitting depth; this compares initialization procedures,
+not a matched-update attribution to any one of those factors. No additional LM ablation is added
+to this single baseline; S2f's registered three-arm ablation continues unchanged.
+
+Completion requires the fixed phi checkpoint plus the eight-subepoch adaptation and registered
+greedy PER/fixed-v2 WER reads. Preserve G4a.S2d and G4a.2. Primary comparison is fixed epoch 8,
+paired dev-other WER against the original recognizer and S2f `U_joint`, with the existing
+speaker-bootstrap convention; improvement requires the corresponding delta CI upper bound <0.
+Report PER and dev-clean separately, retaining S2f's fixed-epoch-4 paired PER reads and
+final/selected WER reads (no additional epoch-4 WER decode). Apply the existing epochs-4–8
+weighted-LM selector as the secondary endpoint, with banked S2e C/D results as context.
+No baseline improvement is presumed or required to report completion.
+Source/input references: `reports/codex_4a_supervised_reverse_source_map_2026-09-18.md` and
+`reports/codex_4a_supervised_reverse_data_map_2026-09-18.md`. Fresh protocol and source reviews
+must precede compute.
+Protocol audit is DONE: `reports/codex_4a_supervised_reverse_protocol_audit_2026-09-18.md`.
+It verifies the seed split, 2,824 fitting updates and preserved comparison/gates, including the
+extra padded-work stress case. Source review and actual runtime/ASR results remain separate gates.
+
+Precompute implementation checks confirm all 2,849 targets match the recognizer's HDF, all
+train/held-out items are feasible and covered, and exported phi loads strictly into the actual
+adaptation model. The finalized adaptation config differs from `U_joint` only in phi checkpoint
+and output paths. Fixed-epoch-4 paired PER, final/selected WER and all eight subepochs' phone-rate
+and distinct-string reads are registered. Implementation evidence:
+`reports/codex_4a_supervised_reverse_baseline_impl_2026-09-18.md`.
+Independent source review is DONE, with no open findings:
+`reports/codex_4a_supervised_reverse_source_review_2026-09-18.md`. Its source hashes must be
+verified at launch because the initializer's Sisyphus identity does not automatically hash code.
+CPU checks and source review do not establish runtime fit, convergence or an ASR improvement.
+Tested implementation commit, including bounded adaptation execution:
+`01fd07bcddaa48e727bd1b7d422b4a17f82dd899`.
+
+S2g submitted through `config/sae_4a_supervised_reverse_init.py`: phi job
+`speech_llm/sae/emc/supervised_reverse_init/SupervisedReverseInitJob.4GzzIJEpK5vp`, Slurm
+`1873518_1` (RUNNING at the current handoff), then
+`speech_llm/sae/emc/supervised_reverse_init/BoundedAdaptationJob.tQrU8qMosRg9` waiting for the fixed phi export.
+Each job's fixed endpoint is `output/models/epoch.008.pt`. Monitor the fit's cost gate and loss
+history, the adaptation and registered PER/WER chain; completion requires matching finished jobs
+and artifacts, not submission or checkpoints alone. Ten pending banked S2f outputs affect only
+downstream paired reads. Audit those comparisons once the existing S2f chain provides them.
+Manager PID `743880`, process start token `190657206`; exact launch/source pins and run paths:
+`reports/codex_4a_supervised_reverse_launch_2026-09-18.md`. No GPU timing or ASR result is claimed.
+Root-pane `%0` watcher is armed at 60s intervals: event `sis-743880-3604204852-STfmV4nf`,
+monitor `/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.743880.STfmV4nf`.
+
 **Joint-refinement planning while S2f waits (user 2026-09-18; hypotheses, no new training allocation).**
 Start from the stabilized package: its cycle contribution over matched self-distillation is
 measured by C−D above. S2f first tests whether that package already permits useful phi updates;
@@ -2843,8 +2937,8 @@ then had 8h40m36s remaining; cancellation evidence is
 **Complete-path user supersession (2026-09-18; registered before compute).** Sample at least
 512 complete alignments per utterance, directly rescore them, and train on those paths without
 per-string conditional inference. Choose the largest validated count compatible with the user's
-new **24 h wall-clock cap for complete training**, interpreted as one parallel matched P3/P6
-allocation, not 24 h per epoch or sequential arm. This supersedes the prior 8 h release cap and
+new **24 h wall-clock cap for complete training**, interpreted as a matched P3/P6 run with both
+arms parallel, not 24 h per epoch or sequential arm. This supersedes the prior 8 h release cap and
 48s proxy prospectively; the old screens still failed their own gates. Keep 100 h speech, cold
 initialization, eight subepochs/477 updates, seed, optimizer, tau 8→2, beta, band, duration support,
 aggregate term and fixed/selected ASR evaluation. S2f and §4b are separate and unchanged.
@@ -2895,7 +2989,10 @@ gradient, normalized weighted frame occupancies and bounded memory.
 
 For an eligible M, **all sixteen** cases (four batches × two states × P3/P6) must take <=144s.
 The inherited 1.25 overhead factor gives 477×144×1.25=23h51m, within 24h. This is a conservative
-release proxy, not a guarantee of trajectory time; the full allocation itself has a 24h hard cap.
+release proxy, not a guarantee of trajectory time; the complete training must enforce a 24h cap.
+Before training release, account for `settings.py`'s 11.5h per-allocation limit and automatic
+resumption of resumable tasks. A time request alone is not a cumulative cap: scheduling/resumption
+must preserve the full-run budget and checkpoint trajectory without changing workspace settings.
 First validate both priors at M512. Then double M on P6 until the first cost/memory rejection;
 between a passing and failing count, refine by bisection rounded to a multiple of four. A single
 cost failure rejects that M; numerical failure stops the screen. Stop count exploration at 90min

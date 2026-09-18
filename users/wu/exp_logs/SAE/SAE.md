@@ -72,7 +72,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    S2e improves its 10 h seed (audited). Next priority: reduce six-gram candidate cost after checkpoint-free timeout.
-   K4 vetoed; profile >=512 direct alignment candidates, largest count within 24h training. Monitor S2f.
+   Profile >=512 alignments within 24h training; monitor S2f and independent 10h phi-init baseline S2g.
    S3c/DP64 CLOSED FAIL; S3d stopped; cold P3/P6 ASR gate unread. Live state and budgets: `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.

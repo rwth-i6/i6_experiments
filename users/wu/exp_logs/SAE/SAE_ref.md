@@ -39,6 +39,14 @@ follow-up separates removing the sequence-LM factor from removing both it and th
 aggregate regularizer. Shared warm initialization and the evaluation decoder retain their disclosed
 LM history/use; this is not an LM-never-used claim. Live cost and seeded protocols are in `SAE_4A.md`.
 
+**User amendment, independent supervised initialization (2026-09-18):** add a baseline that fits
+the reverse model independently on the same labeled 10 h used for the recognizer. Condition on
+the gold phone sequences and observed speech units, marginalizing segment durations; do not use
+recognizer predictions or additional labeled utterances/boundaries. Retain the original recognizer
+checkpoint, then change only the reverse initializer in the matched 100 h joint-adaptation arm.
+This explicitly authorizes gold phone sequences for reverse initialization; the 100 h adaptation
+remains speech-only. Existing S2f LM ablations and the separate alignment-budget screen continue.
+
 **User supersession, later 2026-09-18:** the user vetoes the K4/few-string direction because it
 defeats the intended exploration. Sample complete alignments instead, starting at 512 and choosing
 as many as measured throughput permits under **24 h wall clock for the complete new training run**.
