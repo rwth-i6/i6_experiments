@@ -549,6 +549,9 @@ emit_epad: {str(bool(hp.get("emit_epad", False))).lower()}
 clamp_text_to_speech: {str(bool(hp.get("clamp_text_to_speech", False))).lower()}
 onset_floor: {str(bool(hp.get("onset_floor", False))).lower()}
 text_lead_frames: {int(hp.get("text_lead_frames", 0))}
+aug_gain_prob: {float(hp.get("aug_gain_prob", 0.0))}
+aug_noise_prob: {float(hp.get("aug_noise_prob", 0.0))}
+aug_echo_reverb_prob: {float(hp.get("aug_echo_reverb_prob", 0.0))}
 text_pad_target_share: {hp.get("text_pad_target_share", "null")}
 pack_to_window: {str(bool(hp.get("pack_to_window", False))).lower()}
 pack_gap_min_sec: {float(hp.get("pack_gap_min_sec", 0.5))}

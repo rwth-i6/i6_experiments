@@ -69,8 +69,24 @@ class MimiAugmentationProbe(Job):
 
     def run(self):
         import os
+        from pathlib import Path
 
         worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimi_aug_probe_worker.py")
+
+        # The worker runs under the JOB venv, whose sys.path has neither the recipe tree nor the
+        # owned `moshi_family` package -- Sisyphus puts the recipe root on the WORKER's path
+        # programmatically, not via PYTHONPATH, so a subprocess never inherits it. Without this the
+        # worker dies on `from moshi_family.models.loaders import CheckpointInfo` ~5 s in, after the
+        # GPU is allocated (hit 2026-09-18, job 4220940).
+        # ⚠ Walk up UNRESOLVED: `recipe/` is a symlink tree, so resolving would land in projects/
+        # and miss the sibling packages. Same reasoning as `launch_training` in finetune.py.
+        recipe_root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
+        extra_paths = []
+        if recipe_root:
+            lib_parent = os.path.join(recipe_root, "speech_llm", "full_duplex")
+            if os.path.isdir(lib_parent):
+                extra_paths.append(lib_parent)
+            extra_paths.append(recipe_root)
 
         def env_hook(env):
             if self.env_ffmpeg_path is not None:
@@ -98,7 +114,11 @@ class MimiAugmentationProbe(Job):
                 self.hf_repo,
             ],
             log_label="mimi_aug_probe",
-            extra_env={"HF_HOME": HF_HOME_DIR.get(), "HF_HUB_CACHE": HF_CACHE_DIR.get()},
+            extra_env={
+                "HF_HOME": HF_HOME_DIR.get(),
+                "HF_HUB_CACHE": HF_CACHE_DIR.get(),
+                "PYTHONPATH": os.pathsep.join(extra_paths + [os.environ.get("PYTHONPATH", "")]).strip(os.pathsep),
+            },
             env_hook=env_hook,
         )
 
