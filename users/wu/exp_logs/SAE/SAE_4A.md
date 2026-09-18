@@ -7,13 +7,13 @@ supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latt
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Seeded work: saved-output error analysis is audited; added deletions concentrate on short phones,
-but reverse-update causation remains untested. S2e is SUBMITTED / QUEUED at the launch check:
-`PackedEmcTrainJob.9NHxwYexks7U`, SLURM `1865746_1`, `config/sae_4a_seeded_refine.py`.
-The four-arm FP64 round has one 8-hour allocation. On its terminal event, verify all four arms and
-checkpoints before starting the registered PER/WER readouts. No automatic second training allocation.
-Protocol, gates, artifacts and pending decisions: "Reopened seeded refinement" below; launch handoff:
-`reports/codex_4a_seeded_round_launch_2026-09-18.md`. No new recognition result exists yet.
+Seeded work: S2e training COMPLETE for all four arms, epoch 8 / step 477; all checkpoints retained.
+`PackedEmcTrainJob.9NHxwYexks7U`, SLURM `1865746_1`, finished in 4h43m19s within its 8h cap.
+Registered PER/WER readouts are active under manager `3198327`, `config/sae_4a_seeded_refine.py`.
+Recognition gains and reverse-update causation remain undecided. On the next readout event, verify
+registered fixed/selected paired scores against init and matched controls, then audit before interpreting.
+No further training allocation is authorized. Protocol and evidence: "Reopened seeded refinement";
+handoff: `reports/codex_4a_s2e_training_completion_and_reads_2026-09-18.md`.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
 Matched 256-draw P3/P6 training is RUNNING: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`,
@@ -1565,22 +1565,26 @@ and in-job scoring. A comparable "usable" verdict remains unresolved without a m
 sclite read; this does not block the paired own-init improvement test. Audit:
 `reports/codex_4a_seeded_round_protocol_audit_2026-09-18.md`.
 
-**Active S2e run and next decision (2026-09-18).** Submitted
-`PackedEmcTrainJob.9NHxwYexks7U` / SLURM `1865746_1`, QUEUED at the launch check with exactly
-GPU4 / CPU64 / 256 GiB / 8h. Wrapper `config/sae_4a_seeded_refine.py`; recipe commit
-`7a327bd8bebb1479d2ce9ba064b503524f8edb98`. All four production configs and inputs are present;
-no training score or checkpoint has been measured yet. The independent code review found no
-release blocker (`reports/codex_4a_seeded_round_code_review_2026-09-18.md`). Run outputs:
+**Active S2e run and next decision (2026-09-18).** Training COMPLETE:
+`PackedEmcTrainJob.9NHxwYexks7U` / SLURM `1865746_1`, exit 0:0, 00:32:50–05:16:09 CEST
+(4h43m19s). Its single GPU4 / CPU64 / 256 GiB allocation stayed within the 8h cap. All four arms
+have return-code-zero completion markers, epochs 1–8 saved, and final epoch 8 / global step 477.
+Actual generated configs retain the registered seed, warm phi and whole-lattice FP64. Loss-history
+extraction is in `reports/codex_4a_s2e_training_numbers_2026-09-18.md`; completion and recognition
+quality are separate readouts. Wrapper `config/sae_4a_seeded_refine.py`; recipe commit
+`7a327bd8bebb1479d2ce9ba064b503524f8edb98`. The independent code review found no release blocker
+(`reports/codex_4a_seeded_round_code_review_2026-09-18.md`). Run outputs:
 `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2e_pack/`; launch handoff and environment:
 `reports/codex_4a_seeded_round_launch_2026-09-18.md`.
 
-The six registered init/historical word-decode jobs are also queued; the new-model readouts wait
-for training. Automatic training retries are held to enforce the single-allocation budget. On
-allocation termination, verify each arm's epoch-8 checkpoint and completion, then run the registered
-PER/WER/selector/paired chains. If incomplete, inspect saved progress and remaining budget before
-any continuation; no second training allocation is currently authorized. Read fixed-epoch A/B and
-C/D contrasts for mechanism and cycle contribution, then the own-init gates at last and selected
-checkpoints. Any improvement claim requires actual paired scores and a fresh audit.
+Registered readout manager `3198327` is active; the verified graph has 38 queued / 336 waiting
+jobs, no error/unknown states, and the training pack finished. This resumes the PER, fixed-v2 WER,
+label-free selector and paired-comparison chains, including the historical/init word-error reads;
+it does not launch more training. Completion/readout handoff:
+`reports/codex_4a_s2e_training_completion_and_reads_2026-09-18.md`.
+Next, read fixed-epoch A/B and C/D contrasts for mechanism and cycle contribution, then the own-init
+gates at last and selected checkpoints. Recognition results are pending; any improvement claim
+requires actual paired scores and a fresh audit. No second training allocation is authorized.
 
 ### Withdrawn standalone-initializer proposal (2026-09-16)
 
