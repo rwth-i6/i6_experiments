@@ -2,33 +2,29 @@
 
 ## State
 
-User-authorized new model, 2026-09-18: evaluate, implement and execute autonomously. Main direction
-is unsupervised silence removal, a stride-3 CNN as in the completed local wav2vec-U 2.0 reproduction,
-and phone paths with adjacent repeat collapse and no CTC blank. Keep the cycle objective and exact
-trigram marginalization. Cold model implementation and source review are complete (`323de02`,
-with lattice `5cc9c72`); no model training has run. Joint VAD preparation
-`BlankfreeVadHdfJob.SAjz8y1cT06g`, Slurm `1883648`, is complete. The profile graph
-`config/sae_4a_blankfree_profile.run` now has `BlankfreeCostProfileJob.3Nmqmdz20Wyi` RUNNING.
-Next: verify the actual-data cost/support gate, then launch the registered cold four-epoch experiment and inspect
-outputs. Launch/artifact pointers: `reports/sae_blankfree_profile_launch_2026-09-18.md`.
-Historical M512 and supervised-init results remain in `SAE_4A.md`; neither is a new-model result.
+User-authorized main direction: unsupervised VAD, stride-3 CNN from the local wav2vec-U 2.0
+reproduction, adjacent repeat collapse, no CTC blank, and exact-trigram cycle marginalization.
+Implementation/source review and joint VAD preparation `BlankfreeVadHdfJob.SAjz8y1cT06g` are
+complete. No new-model training result exists.
 
-Follow-up user instruction: also run independent supervised initialization of both models on the
-existing labeled 10 h, alongside cold trigram joint training. Preparation is shared, supervision
-and checkpoints are not. The user explicitly chooses **separate initialization only**, with no
-100 h adaptation after it. The support census `BlankfreeSeedSupportJob.ctjDDgnu43kW` is complete:
-one theta training target fails; all phi targets pass. Both fits remain unreleased under the
-registered gate. See "Actual-data support result" below. User decision pending on the proposed
-single-item theta exclusion; no protocol amendment or filtering has been applied.
-The original-M512 sampled-group replay is COMPLETE and audited: `GenericExecJob.awnR46wSTGCf`,
-Slurm `1883777`, exit0:0 in19m19s. P6 importance weights concentrate despite diverse draws;
-see "Sampled-group result" below and `reports/sae_sample_group_result_audit_2026-09-18.md`.
-Event monitors are armed under `/e/scratch/spell/wu24/codex-sisyphus-monitor/`:
-profile `monitor.4111620.Eq25JHJT` remains live after the support event on 2026-09-19.
-Seed support `monitor.4144463.6MdufYoD` and sampled-group `monitor.4154180.4DfP5FYL` are terminal
-DONE; no re-arm for either completed diagnostic.
-Resume the main branches from their terminal artifacts and release criteria; no new-model
-training result is available yet.
+First profile `BlankfreeCostProfileJob.3Nmqmdz20Wyi` passes cost/gradient checks, but its audit
+cannot verify finite loss and post-update parameters. Reviewed completion of these checks is
+`BlankfreeCostProfileJob.kh2oJqt9Jb6a`, capped at 21 minutes within the original profiling budget.
+It is QUEUED as Slurm 1885014 under manager 393793/start 195281585, selector
+`config/sae_4a_blankfree_profile.run`. Root watcher is armed at
+`/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.393793.6CEewmKG`.
+See "Actual-data cost profile" below. Next: verify its terminal result against the original gate,
+then launch the registered cold four-subepoch experiment and inspect outputs.
+
+The separate supervised 10 h branch ends after independent theta/phi initialization and evaluation;
+the user explicitly excludes 100 h adaptation. Audited support job
+`BlankfreeSeedSupportJob.ctjDDgnu43kW` finds one unsupported theta training target; all phi targets
+pass. Both fits remain unreleased. User decision pending on single-item theta exclusion; no
+filtering or protocol amendment is applied. See "Actual-data support result" below.
+
+M512 sampled-group diagnostic is complete/audited; see "Sampled-group result" below. Historical
+M512/supervised results remain in `SAE_4A.md`. Old monitors `monitor.4111620.Eq25JHJT`,
+`monitor.4144463.6MdufYoD`, and `monitor.4154180.4DfP5FYL` are terminal DONE.
 
 ## Objective and authority
 
@@ -163,11 +159,32 @@ the actual corpus reconciliation is complete (see actual-data support result bel
 
 The model/train/profile/evaluation integration is committed as `323de02` and independently
 source-reviewed. A tiny end-to-end CPU step has finite loss and nonzero gradients in both
-models; actual-data runtime/support remain pending. Sources and exact settings:
+models; actual-data profile results appear below. Sources and exact settings:
 `reports/sae_blankfree_model_impl_2026-09-18.md`,
 `reports/sae_blankfree_model_review_2026-09-18.md`. Separate selectors are
 `config/sae_4a_blankfree_prepare.run`, `config/sae_4a_blankfree_profile.run`, and
 `config/sae_4a_blankfree.run`; the final selector is not released until the profile passes.
+
+### Actual-data cost profile (2026-09-19)
+
+`BlankfreeCostProfileJob.3Nmqmdz20Wyi/output/profile.json` records 456 actual loader updates
+over eight subepochs (57 each), maximum measured complete-update time 18.5895833 s, and
+10596.0625 s = 2.943 h after the registered 1.25 allowance. The saved cost gate is true, below
+the eight-hour ceiling. All ten prescribed batch/temperature updates have finite, nonzero gradients
+in both parameter families. Independent audit `reports/sae_blankfree_profile_audit_2026-09-19.md`
+is CANNOT_TELL for full release: total-loss and post-optimizer parameter finiteness were not saved
+or checked. The original complete-update finiteness gate remains binding; training is unreleased
+until the missing evidence is measured. Preserve this first profile as the cost/gradient result.
+Its Slurm allocation used 8m47s; the completion of the missing checks is capped at 21 minutes,
+keeping cumulative profile allocation at most 29m47s within the original 30-minute budget.
+The same ten cases will be measured by `BlankfreeCostProfileJob.kh2oJqt9Jb6a`, with both missing
+finiteness predicates saved and enforced. Its source review is complete
+(`reports/sae_blankfree_profile_finiteness_review_2026-09-19.md`, implementation `49e9658`).
+The objective, timing stages and scientific gate are unchanged; no measured pass is assumed.
+Completion provenance: `reports/sae_blankfree_profile_completion_2026-09-19.md`;
+current launch: `reports/sae_blankfree_profile_finiteness_launch_2026-09-19.md`.
+This measures cold update cost and numerical behavior, not recognition or trained-state runtime.
+The first training release remains four subepochs; extension to eight still requires G4a.3.
 
 ## Supervised 10 h separate initialization only
 
@@ -234,8 +251,7 @@ amendment. MFA frame supervision on all items is the disclosed alternative; no f
 
 The shared VAD manifest reconciles train/dev-clean/dev-other counts 28539/2703/2864 and retained
 frames 15427853/831372/781130 with the reproduction. No short/empty or length-mismatched items
-were reported. The independent cold cost profile is now running; this supervised target failure
-does not change its release gate.
+were reported. This supervised target failure does not change the independent cold release gate.
 
 Artifacts: `work/speech_llm/sae/emc/blankfree_seed_jobs/BlankfreeSeedSupportJob.ctjDDgnu43kW/output/`
 (`support.json`, `support.txt`, `collapsed_targets.hdf`), plus the shared VAD job's manifest.
