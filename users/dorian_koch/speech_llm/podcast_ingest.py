@@ -75,6 +75,29 @@ SMOKE_AUDIO_URLS = [
 ]
 
 
+def _moshi_pythonpath() -> str:
+    """PYTHONPATH for a worker that imports both ``moshi_family`` and ``moshi``.
+
+    🔴 TWO entries are required and only one is obvious. ``speech_llm/full_duplex`` provides
+    ``moshi_family``; the **recipe root** provides ``moshi`` itself (kyutai's package). A worker
+    given only the first dies on ``from moshi.models import loaders`` -- a ModuleNotFoundError
+    about five seconds in, *after* the GPU has been allocated. That is exactly how the first
+    podcast smoke test failed, and ``mimi_aug_probe`` had already been fixed the same way; the
+    lesson simply had not been carried across.
+    """
+    from pathlib import Path
+
+    root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
+    if not root:
+        raise RuntimeError("could not locate the recipe root from podcast_ingest.py")
+    parts = []
+    lib_parent = os.path.join(root, "speech_llm", "full_duplex")
+    if os.path.isdir(lib_parent):
+        parts.append(lib_parent)
+    parts.append(root)
+    return os.pathsep.join(parts)
+
+
 def _moshi_family_lib_parent() -> str:
     """Absolute dir to put on PYTHONPATH so ``import moshi_family...`` resolves in a job venv.
 
@@ -419,7 +442,8 @@ class PodcastMimiIngest(Job):
                 "index was built with -- the two are set independently and must agree."
             )
 
-        env: dict[str, str] = {"PYTHONPATH": lib_parent}
+        # BOTH paths: lib_parent for `moshi_family`, the recipe root for `moshi` itself.
+        env: dict[str, str] = {"PYTHONPATH": _moshi_pythonpath()}
         ffmpeg_dir = ""
         if self.env_ffmpeg_path is not None:
             InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
@@ -610,6 +634,39 @@ class PodcastCodesIndex(Job):
 MIMI_SEC_PER_AUDIO_HOUR = 1.70
 DIARIZE_SEC_PER_AUDIO_HOUR = 36.0
 DECODE_SEC_PER_AUDIO_HOUR = 14.4
+
+# ---- MEASURED on a real shard, 2026-09-18 (JRE #2553, 2.68 episode-hours) --------------------
+# From `summary.json`'s `sec_per_episode_hour`, which exists so the model is checked rather than
+# trusted. These are per EPISODE-hour (not per retained hour), because that is what a shard is
+# sized in: you pay diarization on the whole episode and separation only on what survives.
+#
+#   decode    2.71   predicted 14.4  -> our ffmpeg is ~5x faster than assumed
+#   diarize  34.50   predicted 36.0  -> good prediction; still the bottleneck
+#   separate 28.14   predicted 14.4  -> ~2x MORE than assumed, see below
+#   encode    4.26   predicted  1.70 -> includes one subprocess start + mimi load per BATCH
+#             -----
+#            69.61   total, vs ~65 predicted -- the total was close, the breakdown was not.
+#
+# ⚠ The separation figure is the one to be careful with. The 6-clip run measured RTF 0.01 (~100x
+# realtime) on ~35 s clips; here it came out at 65.9 s per RETAINED hour, i.e. **RTF 0.018, ~55x
+# realtime**. Real dialogues average ~171 s and the 120 s / 10 s overlapping chunking adds ~9% on
+# long spans, so the short-clip number was optimistic. Use the measured one.
+# ⚠ The encode figure carries fixed cost: one mimi model load per batch, amortised over
+# `batch_episodes`. At batch_episodes=1 (the smoke test) it is ~10 s per retained hour; it tends
+# toward MIMI_SEC_PER_AUDIO_HOUR as batches grow.
+DUPLEX_SEC_PER_EPISODE_HOUR = 69.6
+#: Fraction of an episode that survives `extract_valid_dialogues`. Measured 0.427 on JRE #2553,
+#: reproducing the independent `jre_yield` run exactly (42.7%).
+DUPLEX_RETENTION = 0.427
+
+
+def duplex_episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
+    """Episode-hours one SEPARATING shard can do in ``target_runtime_hours``, from measured cost.
+
+    ~207 episode-hours at the 4 h default, so JRE's ~5,500 h is ~27 shards. Note this is
+    episode-hours in, not corpus-hours out: at 42.7% retention a shard yields ~88 h of dialogue.
+    """
+    return (float(target_runtime_hours) * 3600.0) / DUPLEX_SEC_PER_EPISODE_HOUR
 
 
 def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) -> float:
@@ -884,7 +941,7 @@ class PodcastDuplexIngest(Job):
             "--mimi_encoder",
             encoder,
             "--moshi_lib_parent",
-            lib_parent,
+            _moshi_pythonpath(),
             "--diarization_model",
             self.diarization_model,
             "--num_steps",
