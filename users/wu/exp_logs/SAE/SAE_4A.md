@@ -2691,8 +2691,10 @@ speedup baseline or a full-run estimate. Report loader/enumeration allocation ov
 New wrapper `config/sae_4a_context_grouped_profile.py`; at most 30 minutes, inherited
 GPU1/CPU16/mem64/gpu_mem96, no automatic repeat. This screen plus one conditional 8h P3/P6
 training allocation fits the remaining 9h06m30s. No candidate count is released before this
-screen passes and its result is audited. If equivalent batching also fails, return to the
-separately derived selected-alignment/path scorer; keep the scientific ASR gate unchanged.
+screen passes and its result is audited. If equivalent batching also fails, use its stage timings
+to choose between equivalent compiled DP and the separately derived selected-alignment/path
+scorer; keep the scientific ASR gate unchanged. Register and review the chosen implementation
+and bounded measurement within the remaining allowance before further compute.
 
 **Precompute checks.** Candidate-only recipe commit `29dc1bc` separates the two passes; production
 defaults remain 256 draws / sampling 16 / conditional 4. On 17-utterance FP64 fixtures at both
@@ -2708,6 +2710,23 @@ protocol audit: `reports/codex_4a_random_grouping_protocol_audit_2026-09-18.md`.
 `output/sae/4a/context_grouped_profile/profile.json` and `profile.txt`. Source hashes match the
 reviewed implementation. Actual selected batches, timings, memory and cost gate remain pending;
 launch/monitor handoff: `reports/codex_4a_context_grouped_profile_launch_2026-09-18.md`.
+
+**Compilation option (user 2026-09-18; source evidence only).** The supplied reference
+`/e/project1/spell/wu24/2026-08-27_speech_llm_errrorcor/2027_ICASSP_sync/jpt/jea_round1_optimized_speech_lm_gated_cross_att.py:215`
+uses CPU Numba `@njit(fastmath=False)` for a float32 maximum-score CTC path and backtrace;
+the wrapper transfers detached emissions and the skip mask to CPU at lines 260–264. This is
+a concrete compilation precedent, not a measured speedup for EMC. Reusing its best-path
+recurrence would change the current alignment marginalization. Assess compilation of the
+existing recurrence, preserving FP64 sums and gradient statistics; consider GPU frame-body
+fusion of `emc/candidates.py::_fixed_phone_step` (also used during checkpoint replay), and a
+CPU Numba implementation where transfer and workload costs permit. The current conditional
+DP computes detached forward/backward posterior statistics and feeds an autograd surrogate;
+compiling only the best-path operation would not supply these. The earlier
+S1b profiling above motivates fusion but does not establish the current candidate bottleneck.
+Any comparison must use matched random real batches plus the registered long-batch stress,
+include transfers and the complete measured training work, and report compilation separately.
+The grouped-screen protocol and gates remain unchanged. Source feasibility review:
+`reports/codex_4a_alignment_compile_feasibility_2026-09-18.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
