@@ -168,6 +168,76 @@ _MRAG_SUFFIX = (
     "neither speaker needs to say hi or hello again.\n"
 ) + _COMMON_SUFFIX
 
+# --- v8: the splice-composable rambling exchange ------------------------------------------------
+# WHY. Measured with corpus_words.py (3,000 random rows, seed 0, both corpora through the same
+# code): v5 is 11.0 median assistant words per TURN over 2 assistant turns; v7 came out at 6.0 over
+# 3, i.e. it HALVED the thing it was built to raise. MoshiRAG's shape is ~30 words in ONE turn --
+# and v5 already contains a template that beats it outright: engaging_teacher, 44.0 median words in
+# exactly 1.0 turns, sitting at 12.5% share. So "concentrate the answer into one turn" has never
+# actually been tested at scale, and a corpus of long SINGLE assistant turns is how to test it.
+#
+# The second idea is the user's, and it is the structural one: make every row exactly TWO turns and
+# splice-composable, so `pack_clips_into_window` (moshi_train_data.py:211) can concatenate N rows
+# into one window and TURN COUNT becomes a free training knob instead of a property baked into the
+# corpus at generation time. That function draws each partner with `rng.choice` on every draw, so a
+# row gets DIFFERENT neighbours every epoch -- the composition is augmentation, not a fixed dataset
+# shape -- and with its default max_extra=8 a 60 s window holds up to 9 rows, an 18-turn
+# conversation. One corpus then serves any conversation length, which is what makes this cheaper
+# than generating long dialogues directly.
+#
+# What makes it HARD is that the neighbours are random and unrelated. Every cross-row reference a
+# generator writes by reflex -- a greeting, a sign-off, "as I mentioned", "speaking of which", "my
+# next question", a pronoun with no antecedent, or a question handed back to the user -- becomes
+# FALSE the moment the row is spliced next to a stranger. A greeting repeated nine times in one
+# window is not a small artefact; it is the dominant pattern the model would learn. Hence
+# _SPLICE_SUFFIX: every rule in it is one specific way a spliced conversation stops cohering.
+#
+# The rambling is rambling in FORM, not in FACT. Spontaneous speech is redundant, not
+# information-dense, so length comes from restating, hedging and colour -- never from new checkable
+# specifics. A prompt that says "elaborate" without that fence is an invitation to fabricate, and a
+# confident invented answer is the one thing a knowledge corpus must not teach (the v5
+# followup_topic_change lesson: 33% live questions, 22% claiming to look things up).
+_SPLICE_SUFFIX = (
+    "Length -- this OVERRIDES the 'get to the point quickly' rule further down:\n"
+    "- The assistant's single turn should ramble a little: aim for roughly fifty to seventy "
+    "spoken words. It should sound like someone happy to talk, not someone being interviewed.\n"
+    "- Reach the actual answer EARLY, in the first sentence, and then keep talking around it. "
+    "Never make the listener wait through a wind-up before the answer arrives.\n"
+    "- Get the extra length the way people really do speak at length: saying the point a second "
+    "way, a brief hedge about your own memory, mild enthusiasm, a small self-correction.\n"
+    "- Do NOT introduce any new name, number, date, place, title or statistic beyond what the "
+    "question and its answer already contain. If you find yourself reaching for a specific you "
+    "were not given, drop it and say something general instead.\n"
+    "\n"
+    "Structure -- exactly two turns:\n"
+    "- Turn one is the user asking the question. Turn two is the assistant answering. Nothing "
+    "else. Do not write a third turn.\n"
+    "- The user's turn is only the question, phrased the way somebody would actually say it out "
+    "loud. No preamble, no 'I was wondering', no 'quick question'.\n"
+    "\n"
+    "Splice safety -- this exchange will be joined end to end with OTHER, UNRELATED exchanges "
+    "between the same two people. It must stand completely alone, and must never imply that it is "
+    "the beginning of a conversation, the end of one, or a continuation of anything:\n"
+    "- No greeting and no farewell of any kind: no hi, hey, hello, thanks, bye, talk soon. Do not "
+    "open a turn with 'so', 'well' or 'anyway' either -- those imply something came before.\n"
+    "- No closing offer and no sign-off: not 'hope that helps', 'let me know', 'anything else', "
+    "'is that what you meant'.\n"
+    "- No reference to anything said before or after: not 'as I mentioned', 'like we discussed', "
+    "'you asked earlier', 'as I said', 'going back to', 'speaking of which', 'on a related note', "
+    "'another thing', 'my next question', 'one more thing'.\n"
+    "- No ordering words: not 'first', 'firstly', 'to start with', 'finally', 'lastly'.\n"
+    "- Every person, place and thing must be NAMED inside this exchange. The user must not open "
+    "with 'he', 'she', 'it', 'they', 'that one' or 'the sequel' pointing at something that was "
+    "never stated here.\n"
+    "- The assistant must NOT ask the user anything and must not invite a follow-up. The next "
+    "thing said will be an unrelated question from the user, so a question handed back would "
+    "simply never be answered.\n"
+    "- Neither speaker uses a name for the other, introduces themselves, or refers to how long "
+    "they have been talking.\n"
+    "- Keep a steady, consistent register throughout: the same two relaxed, friendly adults, "
+    "neither formal nor performatively chatty.\n"
+) + _COMMON_SUFFIX
+
 
 DIALOGUE_INSTRUCTION_TEMPLATES = [
     # Template 0 — direct, assistant-led
@@ -304,6 +374,44 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
         "two short rounds of ordinary conversation that need no specific fact and introduce no new "
         "name, number or date.  The user MUST speak first.  Total turns: 6-8.\n" + _MRAG_SUFFIX
     ),
+    # --- v8: two turns, long single answer, splice-composable ----------------------------------
+    # Template 14 - ramble_answer_first: the workhorse. Answer-early is deliberate and is the one
+    # ordering choice that matters here. Our measured failure mode is late/empty replies, so a
+    # template that makes the model earn its way to the fact through a wind-up would train exactly
+    # the wrong habit; putting the answer in the first sentence and the length AFTER it trains
+    # holding the floor once the content is already delivered.
+    (
+        "Write a two-turn spoken exchange.  The user asks the question above; the assistant "
+        "answers it in ONE turn that states the answer straight away and then keeps talking about "
+        "it for several more sentences - why it is memorable, what sort of thing it is, how people "
+        "usually react to it - without adding any new specifics.  Total turns: 2.\n"
+        + _SPLICE_SUFFIX
+    ),
+    # Template 15 - ramble_colour: the length comes from an OPINION, which is the safest possible
+    # filler for a knowledge corpus because an opinion cannot be a wrong fact. Explicitly fenced as
+    # reaction-not-fact so it cannot become a smuggled claim.
+    (
+        "Write a two-turn spoken exchange.  The user asks the question above; the assistant gives "
+        "the answer immediately, then adds a short personal-sounding aside about it - finding it "
+        "surprising, having always liked it, thinking it is underrated - and winds down naturally "
+        "without closing the conversation.  The aside must be an opinion or a reaction, never a "
+        "new fact.  A single [chuckle] is allowed if it genuinely fits.  Total turns: 2.\n"
+        + _SPLICE_SUFFIX
+    ),
+    # Template 16 - ramble_thinking_aloud: trains disfluent floor-holding, which is the duplex
+    # behaviour the A-series keeps measuring as lost (collapsed take_turn, 30-60% empty replies).
+    # The hedge is fenced to be about PHRASING or MEMORY, never about whether the answer is right:
+    # hedging on correct answers would teach spurious uncertainty, which is its own failure.
+    # WATCH THIS ONE - if an arm on this mixture shows rising hedging on correct answers, drop this
+    # template rather than the whole corpus.
+    (
+        "Write a two-turn spoken exchange.  The user asks the question above; the assistant answers "
+        "in ONE turn that sounds like somebody thinking out loud who already knows the answer: it "
+        "says the answer early, then circles back, rephrases it once, and hedges lightly about how "
+        "it remembers the detail.  The hedge is about wording or recall only - never doubt about "
+        "whether the answer is correct - and the turn must not end on a question.  "
+        "Total turns: 2.\n" + _SPLICE_SUFFIX
+    ),
 ]
 
 
@@ -324,6 +432,9 @@ DIALOGUE_INSTRUCTION_TEMPLATE_NAMES = [
     "mrag_qa",
     "mrag_mixed",
     "mrag_two_facts",
+    "ramble_answer_first",
+    "ramble_colour",
+    "ramble_thinking_aloud",
 ]
 assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
 
@@ -378,6 +489,10 @@ DIALOGUE_TEMPLATE_WEIGHTS = [
     0,  # mrag_qa
     0,  # mrag_mixed
     0,  # mrag_two_facts
+    # v8 splice-composable templates, likewise addressed by name only.
+    0,  # ramble_answer_first
+    0,  # ramble_colour
+    0,  # ramble_thinking_aloud
 ]
 
 
