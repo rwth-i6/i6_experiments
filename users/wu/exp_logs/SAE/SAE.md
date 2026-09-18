@@ -72,8 +72,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    S2e and S2f U_joint improve their 10 h seed (audited); S2f LM-ablation WER gains are final-only.
-   S2g own/init/C read audited; its paired S2f read is submitted. Monitor M512 within 24h;
-   seeded BT/alternation awaits the S2g comparison.
+   S2g is complete: fixed-endpoint improvement over init and S2f passes (audited).
+   Monitor M512 within 24h; seeded BT/alternation awaits a registered new allocation.
    S3c/DP64 CLOSED FAIL; S3d stopped; cold P3/P6 ASR gate unread. Live state and budgets: `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
