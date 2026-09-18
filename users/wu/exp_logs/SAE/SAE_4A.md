@@ -2,18 +2,18 @@
 
 ## State
 
-Two active questions remain within §4a: cold-start cycle learning, and the user-reopened 10 h
+§4a tracks cold-start cycle learning and the user-reopened 10 h
 supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latter is a disclosed
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Seeded work: S2e training COMPLETE for all four arms, epoch 8 / step 477; all checkpoints retained.
-`PackedEmcTrainJob.9NHxwYexks7U`, SLURM `1865746_1`, finished in 4h43m19s within its 8h cap.
-Registered PER/WER readouts are active under manager `3198327`, `config/sae_4a_seeded_refine.py`.
-Recognition gains and reverse-update causation remain undecided. On the next readout event, verify
-registered fixed/selected paired scores against init and matched controls, then audit before interpreting.
-No further training allocation is authorized. Protocol and evidence: "Reopened seeded refinement";
-handoff: `reports/codex_4a_s2e_training_completion_and_reads_2026-09-18.md`.
+Seeded work: S2e training and all registered readouts COMPLETE, independently audited.
+`PackedEmcTrainJob.9NHxwYexks7U`, `config/sae_4a_seeded_refine.py`: C passes dev-other PER IMPROVE
+and WER REFINE at final epoch 8 and LM-selected epoch 4. WER is 25.23% / 25.91% versus init 26.50%.
+Matched C−D supports a cycle benefit; freeze-only B still degrades severely. Selected dev-clean WER
+does not clearly improve. These are single-seed, reused-dev results for supervised initialization.
+The round is complete; no further seeded training or readout is queued. Protocol, results and limits:
+"Reopened seeded refinement"; audit: `reports/codex_4a_s2e_results_audit_2026-09-18.md`.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
 Matched 256-draw P3/P6 training TIMED OUT without a checkpoint:
@@ -24,7 +24,7 @@ budget or protocol change is authorized. Before any restart, establish a viable 
 within that allowance or obtain a user-approved budget/protocol amendment. Keep the registered
 candidate objective, data and gates unchanged. See "First allocation timeout" below and
 `reports/codex_4a_context_timeout_2026-09-18.md`; the cold allocation watcher has terminated.
-S2e readout monitoring continues independently. §4b remains complete and unchanged.
+No computation or watcher remains active for either branch. §4b remains complete and unchanged.
 
 ## Objective
 
@@ -1561,7 +1561,7 @@ and in-job scoring. A comparable "usable" verdict remains unresolved without a m
 sclite read; this does not block the paired own-init improvement test. Audit:
 `reports/codex_4a_seeded_round_protocol_audit_2026-09-18.md`.
 
-**Active S2e run and next decision (2026-09-18).** Training COMPLETE:
+**Completed S2e run (2026-09-18).** Training COMPLETE:
 `PackedEmcTrainJob.9NHxwYexks7U` / SLURM `1865746_1`, exit 0:0, 00:32:50–05:16:09 CEST
 (4h43m19s). Its single GPU4 / CPU64 / 256 GiB allocation stayed within the 8h cap. All four arms
 have return-code-zero completion markers, epochs 1–8 saved, and final epoch 8 / global step 477.
@@ -1573,14 +1573,62 @@ quality are separate readouts. Wrapper `config/sae_4a_seeded_refine.py`; recipe 
 `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2e_pack/`; launch handoff and environment:
 `reports/codex_4a_seeded_round_launch_2026-09-18.md`.
 
-Registered readout manager `3198327` is active; the verified graph has 38 queued / 336 waiting
-jobs, no error/unknown states, and the training pack finished. This resumes the PER, fixed-v2 WER,
-label-free selector and paired-comparison chains, including the historical/init word-error reads;
-it does not launch more training. Completion/readout handoff:
-`reports/codex_4a_s2e_training_completion_and_reads_2026-09-18.md`.
-Next, read fixed-epoch A/B and C/D contrasts for mechanism and cycle contribution, then the own-init
-gates at last and selected checkpoints. Recognition results are pending; any improvement claim
-requires actual paired scores and a fresh audit. No second training allocation is authorized.
+**Audited recognition results (2026-09-18).** All registered readouts are complete, including
+epoch-wise PER, selectors, fixed-v2 sclite WER and paired comparisons. Evaluation retains the same
+2864 dev-other utterances / 33 speakers, 177275 reference phones and 50948 reference words.
+The label-free weighted-LM-perplexity argmin over epochs 4–8 selects epoch 7 for A/B and epoch 4
+for C/D; no gold scores enter selection. Rates below are percentages.
+
+| Model | Selected epoch | PER, epoch 8 | PER, selected | WER, epoch 8 | WER, selected |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original 10 h seed | seed 24 | 11.5741 | 11.5741 | 26.50 | 26.50 |
+| A: joint control | 7 | 26.3229 | 25.3375 | 68.74 | 66.14 |
+| B: freeze-only | 7 | 24.5348 | 23.6988 | 61.78 | 59.93 |
+| C: stabilized cycle | 4 | 10.8859 | 10.7889 | 25.23 | 25.91 |
+| D: self-distillation control | 4 | 11.0540 | 10.9784 | 25.90 | 26.65 |
+
+Paired deltas below are **percentage points**, with 95% speaker-bootstrap intervals (PER:
+2000 replicates, seed 0; WER: 10000, seed 42). Lower is better. Epoch 8 is the predefined final
+endpoint, reported separately from the label-free-selected endpoint.
+
+| Contrast / endpoint | PER delta [95% CI] | WER delta [95% CI] |
+| --- | ---: | ---: |
+| C − init, epoch 8 | −0.6882 [−0.8779, −0.5197] | −1.2699 [−1.7587, −0.8245] |
+| C − init, selected 4 | −0.7852 [−0.9872, −0.6000] | −0.5967 [−1.1027, −0.0925] |
+| C − D, epoch 8 | −0.1681 [−0.2412, −0.0977] | −0.6693 [−0.8646, −0.4741] |
+| C − D, selected 4 | −0.1895 [−0.2638, −0.1255] | −0.7400 [−1.0126, −0.5041] |
+| B − A, epoch 8 | −1.7882 [−2.2608, −1.3176] | −6.9541 [−8.1009, −5.8411] |
+| B − A, selected 7 | −1.6387 [−2.0783, −1.1945] | −6.2103 [−7.2616, −5.2091] |
+
+**Gate decision:** C meets G4a.S2d IMPROVE and G4a.2 REFINE at both endpoints. D meets PER
+IMPROVE, but selected WER has delta +0.1433 [−0.2697, +0.5526], so does not establish selected
+WER refinement. A/B fail HOLD. Freezing reverse updates improves over joint training but leaves
+severe degradation versus initialization; it is insufficient by itself. The fresh FP64 joint
+control also degrades, so corrected precision does not remove the failure. The matched C−D
+contrast supports a positive cycle contribution under the stabilized settings. C versus A changes
+freezing, temperature, rate regularization and direct seed KL together; it cannot isolate KL or
+another single component as the remedy. No new duration analysis establishes a short-phone mechanism.
+
+**Dev-clean qualification:** C final WER is 13.95% versus seed 14.65%, delta −0.7003
+[−0.9125, −0.4869]. C selected WER is 14.77%, delta +0.1176 [−0.1114, +0.3420]: improvement
+is inconclusive at this endpoint. C PER is 5.6010% / 5.5122% (final / selected), versus seed
+5.8003%. C−D final WER favors C by −0.2004 [−0.3421, −0.0604] points, while final PER
+does not clearly differ (+0.0496 [−0.0228, +0.1172] points). No all-split/all-endpoint claim.
+
+The retrospective fixed-v2 dev-other WER of historical S2d is 72.46% at epoch 1 and 67.62% at
+epoch 8, confirming severe word-error degradation alongside its recorded phone-error pattern.
+Those old-precision runs are not the sole causal baseline for S2e. The unmatched §1d 21.87%
+score still cannot establish a comparable usability verdict. All intervals condition on fixed
+trained models and reused dev sets; they do not measure training-seed variability or untouched-test
+generalization. This result concerns the disclosed 10 h supervised-init → 100 h speech-only branch;
+it establishes no cold-start unsupervised ASR improvement.
+
+Independent audit: `reports/codex_4a_s2e_results_audit_2026-09-18.md`; full numeric extraction and
+resolved artifact paths: `reports/codex_4a_s2e_results_extract_2026-09-18.md`. Ground truth is under
+the run output base above: `{A_joint,B_freeze,C_stabilized,D_selfdistill}/{ep8,selected}/dev-other/`,
+`paired_per/`, `paired_wer/` and selector outputs. The audited raw C/init counts are 19298 / 19126 /
+20518 phone errors and 12856 / 13199 / 13503 word errors (final / selected / init).
+The registered round is complete; no second training allocation or further readout is queued.
 
 ### Withdrawn standalone-initializer proposal (2026-09-16)
 
