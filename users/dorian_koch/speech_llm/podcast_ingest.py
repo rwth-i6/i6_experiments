@@ -703,3 +703,266 @@ def podcast_codes(
         tk.register_output(f"podcast_codes/{tag}/work_index", index.out_dir)
         tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
     return codes_index.out_dir, index.out_dir, shard_dirs
+
+
+# ---------------------------------------------------------------------------------------------
+# True per-speaker separation, via the DuplexChat pipeline's own stage functions
+# ---------------------------------------------------------------------------------------------
+#: Upstream of the DuplexChat construction/reconstruction pipeline, pinned. MIT for code+metadata.
+DUPLEXCHAT_URL = "https://github.com/sarulab-speech/DuplexChat.git"
+#: Pinned so the dependency is reproducible and visible in the graph. Bumping it can change what
+#: `extract_valid_dialogues` selects and therefore what the corpus contains, so it is a deliberate
+#: decision, never a floating HEAD.
+DUPLEXCHAT_COMMIT = "f798f311330125f392ef181492acb758413100c4"
+
+
+def duplexchat_repo(commit: str = DUPLEXCHAT_COMMIT):
+    """The pinned DuplexChat checkout. Returns the repo ``tk.Path``.
+
+    A clone job rather than a copy of their modules into our tree: the dependency stays explicit in
+    the graph, the licence and attribution stay with the code, and a bump is one constant.
+    ``CloneGitRepositoryJob`` honours ``commit`` (its ``elif self.commit is not None`` branch), so
+    the pin is real.
+    """
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    return CloneGitRepositoryJob(url=DUPLEXCHAT_URL, commit=commit, checkout_folder_name="DuplexChat").out_repository
+
+
+class PodcastDuplexIngest(Job):
+    """Download -> diarize -> extract dialogues -> SEPARATE -> Mimi-encode, one shard.
+
+    The difference from :class:`PodcastMimiIngest` is the one that matters for a full-duplex model:
+    that job's ``diarize_mask`` builds two channels by muting the other speaker's turns in a mono
+    mix, so during one speaker's turn the other's backchannels and laughter sit *inside* their
+    channel. This job runs real separation (DialogueSidon), so each channel is one speaker.
+
+    **Their code, not a reimplementation**, because reading it turned up four correctness details an
+    independent version would plausibly miss -- and our own first attempt missed three:
+
+    * ``separate._maybe_swap`` resolves the **source-separation permutation ambiguity** across the
+      120 s / 10 s overlapping chunks. A separator has no notion of which output channel is which
+      speaker, so without this a channel silently changes speaker at a chunk boundary -- fatal for
+      duplex training and audible only by listening.
+    * ``diarize.run_diarization`` handles **both** pyannote output shapes (community-1's
+      ``DiarizeOutput.speaker_diarization`` and the older ``Annotation.itertracks``). Ours used
+      ``itertracks`` only, which would have crashed on the model we had set as the default.
+    * ...and it passes an in-memory ``{"waveform", "sample_rate"}`` dict rather than a path, so the
+      broken torchcodec in that venv is harmless. That venv does have a broken torchcodec.
+    * ``dialogue.extract_valid_dialogues`` applies the dominance filter **after** splitting long
+      dialogues, so a span that is balanced on average but contains a long monologue is still caught.
+
+    Their filters are also what makes JRE usable: sponsor reads, monologue stretches, third-speaker
+    intrusions and intro music are all removed. Measured on two real JRE episodes: **42.7% and 37.3%
+    retention**.
+
+    ⚠ **Two venvs, one job.** DialogueSidon's environment is torch 2.11.0+cu128 and the moshi stack
+    is 2.12.1+cu126, so they cannot share a process. The worker runs in the DuplexChat venv and
+    shells out to ``podcast_mimi_encode.py`` in the moshi venv per batch. Separated audio lives only
+    in ``$TMPDIR`` and is unlinked after each batch -- never stored durably, which is the point of
+    emitting codes.
+
+    ⚠ **Separation is span-scoped**, so unlike ``span_mode="whole"`` this encodes the extracted
+    dialogues rather than whole episodes (on a solo sponsor read there is no second channel to
+    produce). Re-deciding spans later costs a re-separate. The diarization turn list is stored per
+    row so the DuplexChat-style filters -- and Open Yap's ``turns_per_minute`` /
+    ``turn_taking_gap_ms`` -- stay computable downstream without re-downloading.
+
+    ⚠ **Cost.** Per episode-hour: decode ~14 s + diarize ~36 s. Per retained hour: separate ~36 s
+    (RTF 0.01, measured on our own H100) + Mimi ~1.7 s. At JRE's ~40% retention that is ~65 s per
+    episode-hour, so a 4 h shard holds ~220 episode-hours. Separation roughly doubles the GPU cost
+    of the mask approach and buys the thing that makes the corpus worth having.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None, "max_items": 0}
+
+    def __init__(
+        self,
+        *,
+        duplex_venv_python,
+        mimi_venv_python,
+        repo_dir: tk.Path,
+        index_dir: tk.Path,
+        shard_idx: int,
+        diarization_model: str = "pyannote/speaker-diarization-community-1",
+        num_steps: int = 30,
+        gap_seconds: float = 5.0,
+        max_single_speaker_ratio: float = 0.8,
+        min_duration_seconds: float = 10.0,
+        max_duration_seconds: float = 600.0,
+        max_xcorr: float = 0.30,
+        max_failure_frac: float = 0.25,
+        drift_tolerance_sec: float = 5.0,
+        download_workers: int = 6,
+        batch_episodes: int = 4,
+        max_items: int = 0,
+        code_version: int = 1,
+        env_ffmpeg_path: tk.Path | None = None,
+        rqmt: dict | None = None,
+    ):
+        self.duplex_venv_python = duplex_venv_python
+        self.mimi_venv_python = mimi_venv_python
+        self.repo_dir = repo_dir
+        self.index_dir = index_dir
+        self.shard_idx = int(shard_idx)
+        self.diarization_model = diarization_model
+        self.num_steps = int(num_steps)
+        self.gap_seconds = float(gap_seconds)
+        self.max_single_speaker_ratio = float(max_single_speaker_ratio)
+        self.min_duration_seconds = float(min_duration_seconds)
+        self.max_duration_seconds = float(max_duration_seconds)
+        self.max_xcorr = float(max_xcorr)
+        self.max_failure_frac = float(max_failure_frac)
+        self.drift_tolerance_sec = float(drift_tolerance_sec)
+        self.download_workers = int(download_workers)
+        self.batch_episodes = int(batch_episodes)
+        self.max_items = int(max_items)
+        self.code_version = int(code_version)
+        self.env_ffmpeg_path = env_ffmpeg_path
+        self.out_dir = self.output_path("codes", directory=True)
+        self.rqmt = rqmt or {"gpu": 1, "cpu": 8, "mem": 64, "time": 8}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        # WHERE our ffmpeg lives, and HOW FAST we go, are not WHAT this job computes. If any of
+        # these reached the hash, tuning concurrency would re-run every already-ingested shard.
+        # Everything that can change the CONTENT -- the filter thresholds, num_steps, max_xcorr,
+        # the diarizer -- stays hashed on purpose.
+        for k in ("env_ffmpeg_path", "download_workers", "batch_episodes"):
+            d.pop(k, None)
+        return super().hash(d)
+
+    def tasks(self):
+        # Resumable: `done` is rebuilt from the arrow parts already written, so Sisyphus
+        # reschedules an interrupted shard on its own. Per CLAUDE.md, do NOT clear such a task
+        # with `hpc-rerun --include-interrupted`.
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        try:
+            with open(os.path.join(self.out_dir.get(), "progress.json")) as f:
+                p = json.load(f)
+            return f"{p.get('ok', 0)} ok / {p.get('failed', 0)} failed, {p.get('kept_hours', 0)} h kept"
+        except Exception:  # noqa: BLE001
+            return None
+
+    def run(self):
+        lib_parent = _moshi_family_lib_parent()
+        script = os.path.join(lib_parent, "moshi_family", "podcast_duplex_main.py")
+        encoder = os.path.join(lib_parent, "moshi_family", "podcast_mimi_encode.py")
+        shard = os.path.join(self.index_dir.get(), f"shard_{self.shard_idx:05d}.jsonl")
+        if not os.path.exists(shard):
+            raise FileNotFoundError(
+                f"{shard} does not exist -- shard_idx {self.shard_idx} is outside the num_shards "
+                "the index was built with; the two are set independently and must agree."
+            )
+
+        env: dict[str, str] = {}
+        if self.env_ffmpeg_path is None:
+            raise ValueError(
+                "env_ffmpeg_path is required: decoding to 16 kHz mono for the separator goes "
+                "through OUR ffmpeg, never a system one. Pass "
+                "env_ffmpeg_path=InstallFFmpeg().out_path (hash-free)."
+            )
+        InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+
+        args = [
+            "--shard_jsonl",
+            shard,
+            "--out_dir",
+            self.out_dir.get(),
+            "--repo_src",
+            os.path.join(self.repo_dir.get(), "src"),
+            "--ffmpeg_dir",
+            self.env_ffmpeg_path.get(),
+            "--mimi_python",
+            self.mimi_venv_python.get(),
+            "--mimi_encoder",
+            encoder,
+            "--moshi_lib_parent",
+            lib_parent,
+            "--diarization_model",
+            self.diarization_model,
+            "--num_steps",
+            self.num_steps,
+            "--download_workers",
+            self.download_workers,
+            "--batch_episodes",
+            self.batch_episodes,
+            "--max_xcorr",
+            self.max_xcorr,
+            "--max_failure_frac",
+            self.max_failure_frac,
+            "--drift_tolerance_sec",
+            self.drift_tolerance_sec,
+            "--gap_seconds",
+            self.gap_seconds,
+            "--max_single_speaker_ratio",
+            self.max_single_speaker_ratio,
+            "--min_duration_seconds",
+            self.min_duration_seconds,
+            "--max_duration_seconds",
+            self.max_duration_seconds,
+        ]
+        if self.max_items:
+            args += ["--max_items", self.max_items]
+
+        run_worker_script(
+            self.duplex_venv_python.get(),
+            script,
+            args,
+            log_label=f"Podcast duplex ingest shard {self.shard_idx}",
+            with_hf_home=True,
+            extra_env=env,
+        )
+
+
+def podcast_duplex_codes(
+    *,
+    duplex_venv_python,
+    mimi_venv_python,
+    tag: str,
+    source: str,
+    num_shards: int,
+    rss_urls: list[str] | None = None,
+    manifest: tk.Path | None = None,
+    max_episodes: int = 0,
+    register: bool = True,
+    require_all_shards: bool = True,
+    exclude_audio_urls: list[str] | None = None,
+    **ingest_kwargs,
+):
+    """Wire work-index -> N sharded SEPARATING ingests -> codes index.
+
+    Returns ``(codes_index_dir, work_index_dir, shard_dirs)``.
+    """
+    repo = duplexchat_repo()
+    index = PodcastWorkIndex(
+        source=source,
+        num_shards=num_shards,
+        rss_urls=rss_urls,
+        manifest=manifest,
+        max_episodes=max_episodes,
+        exclude_audio_urls=(SMOKE_AUDIO_URLS if exclude_audio_urls is None else exclude_audio_urls),
+    )
+    shard_dirs = []
+    for k in range(num_shards):
+        job = PodcastDuplexIngest(
+            duplex_venv_python=duplex_venv_python,
+            mimi_venv_python=mimi_venv_python,
+            repo_dir=repo,
+            index_dir=index.out_dir,
+            shard_idx=k,
+            env_ffmpeg_path=InstallFFmpeg().out_path,
+            **ingest_kwargs,
+        )
+        shard_dirs.append(job.out_dir)
+    codes_index = PodcastCodesIndex(in_dirs=shard_dirs, require_all_shards=require_all_shards)
+    if register:
+        tk.register_output(f"podcast_codes/{tag}/work_index", index.out_dir)
+        tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
+    return codes_index.out_dir, index.out_dir, shard_dirs
