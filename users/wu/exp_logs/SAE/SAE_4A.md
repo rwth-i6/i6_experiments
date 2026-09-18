@@ -1798,6 +1798,18 @@ measured by C−D above. S2f first tests whether that package already permits us
 neither a need to freeze nor a need to slow phi follows from the old A/B comparison. Preserve
 the fixed seed KL, tau 2, disabled rate term and registered LM ablations while interpreting it.
 
+**Causal-read clarification (2026-09-18).** Fresh verification of the banked contrasts confirms
+that freeze-only helps but still degrades the seed, while cycle addition helps under stabilized
+settings. No single culprit among temperature, rate regularization and missing seed anchoring is
+isolated by the bundled stabilized comparison. Corrected precision also leaves the joint-control
+failure. The short-phone error pattern remains descriptive, not a duration-causality result.
+Crucially, S2d already tested BT with supervised initialization: all three BT packages worsened
+paired endpoint PER versus their control on both splits. Their interleaved training used 895
+optimizer steps versus 477 for the control, so the result concerns the implemented BT package.
+The proposed new BT comparison changes its objective/initialization context; it is not the first
+seeded BT test. Verified artifacts and attribution limits:
+`reports/codex_4a_seeded_cause_evidence_audit_2026-09-18.md`.
+
 The next mechanism read should separate recognizer changes from reverse-model changes using
 the same speech and a crossed evaluation of initial/current theta and initial/current phi at
 fixed registered checkpoints. Compare posterior phone identity, duration/count statistics and
@@ -1812,8 +1824,8 @@ options ahead of the older mechanism remedies below. S2f's independent LM ablati
 unchanged; S2g measures independent reverse initialization. No new GPU allocation is released by
 this planning amendment. First obtain their registered results, audit the matched comparisons,
 then register the selected follow-up's cost screen and allocation before launch, with fresh
-protocol audit and source review. Earlier cold
-BT gate failures remain closed; they do not settle BT from a supervised initializer.
+protocol audit and source review. Earlier cold and seeded S2d BT failures remain closed;
+BT under the stabilized objective or independently supervised phi remains unmeasured.
 
 - **BT package alone:** compare with S2f `U_joint` from its original theta and warm phi, retaining
   real-speech cycle learning and the fixed seed KL. Add the existing detached text→phi units→real

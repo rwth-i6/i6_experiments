@@ -52,7 +52,7 @@ initializer and consider subepoch-level alternating ASR/reverse updates, includi
 training with the other model frozen. Keep the LM-prior ablation independent of these proposals.
 The user clarifies single-pass odd/even subepoch alternation, without replaying batches; the exact
 schedule is specified in `SAE_4A.md`.
-These additions concern the seeded track; cold BT failures and the separate M512 protocol remain
+These additions concern the seeded track; prior cold and seeded BT results and the M512 protocol remain
 unchanged. Define separate schedule and BT comparisons before combining them; freezing has not
 been established as mandatory. Follow-up specifications and release conditions are in `SAE_4A.md`.
 
