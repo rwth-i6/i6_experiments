@@ -39,6 +39,11 @@ follow-up separates removing the sequence-LM factor from removing both it and th
 aggregate regularizer. Shared warm initialization and the evaluation decoder retain their disclosed
 LM history/use; this is not an LM-never-used claim. Live cost and seeded protocols are in `SAE_4A.md`.
 
+**Testing clarification, 2026-09-18:** the user requires randomly sampled training batches because
+`laplace:1000` sequence sorting makes early-batch timing optimistic. Future cost screens sample real
+batches across the registered training schedule with a fixed recorded seed; retain a long-batch stress
+case separately. First-batch or length-quantile measurements alone cannot support a whole-run estimate.
+
 Separately, the user authorizes the frozen higher-context diagnostic and then direct six-gram candidate
 reweighting training in §4a, independently of S3d. On 2026-09-17 the user additionally authorizes starting
 `SAE_4B.md`: reproduce a sparse autoencoder on frozen w2v2 and extract phoneme information with supervised

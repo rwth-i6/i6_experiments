@@ -9,18 +9,20 @@ Constraints and baselines are in `SAE_ref.md`; original failed results and gates
 
 Priority 1 (user 2026-09-18): reduce six-gram execution cost/search space. The old 256-draw
 P3/P6 pack `PackedEmcTrainJob.ikngRyQaeQTl` timed out without checkpoints; do not restart it.
-G4a.3 is unread. The 16/4-draw cost screen is SUBMITTED, Slurm `1871464_1`,
-`ContextBudgetProfileJob.bg8ErQSa8scY`, `config/sae_4a_context_budget_profile.py` (30m cap).
-On completion, check all six cases for each K against the registered cost/numerical rule; only
-a passing budget may proceed to matched P3/P6 training. Deduct actual screen use from the
-9h29m47s cold allowance. Protocol and next decision: "Reduced-candidate cost screen" below;
-handoff: `reports/codex_4a_candidate_budget_profile_launch_2026-09-18.md`.
+G4a.3 is unread. The 16/4-draw screen `ContextBudgetProfileJob.bg8ErQSa8scY` completed in
+23m17s; both counts FAIL the cost gate (audited). Remaining cold allowance: 9h06m30s.
+The equivalent conditional-batching screen is SUBMITTED: `ContextBudgetProfileJob.Ewy32i9ZEc3F`,
+Slurm `1872250_1`, `config/sae_4a_context_grouped_profile.py` (30m cap). It samples real random
+batches across all eight subepochs plus a longest-batch stress, per user correction. On completion,
+audit actual cases against <=48s/numerical checks and deduct allocation use before any training
+release. Protocol/results: "Conditional grouping and random-batch amendment" below; handoff:
+`reports/codex_4a_context_grouped_profile_launch_2026-09-18.md`. No smaller-K training is released.
 
 Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
 `config/sae_4a_trainable_reverse.py` (8h cap). Three arms unfreeze phi and ablate the sequence LM
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
-`reports/codex_4a_s2f_launch_2026-09-18.md`.
+`reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, still queued).
 S2e is complete/audited; its gains are recorded under "Reopened seeded refinement" and do not
 prove freezing necessary. §4b remains complete and unchanged.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
@@ -2628,6 +2630,84 @@ strict checkpoint loading only. Implementation and review:
 `reports/codex_4a_candidate_budget_profile_review_2026-09-18.md`; handoff:
 `reports/codex_4a_candidate_budget_profile_launch_2026-09-18.md`. No smaller-K training has
 been released: actual timings, gradients, memory and retained counts are still pending.
+
+**Cost-screen result (2026-09-18; audited).** The job and all 12 numerical cases completed;
+Slurm `1871464_1` exited 0:0 in 23m17s. Model states, candidate counts, finite/nonzero theta/phi
+gradients and parameter-preservation checks passed. The case-level `PASS` labels refer to these
+checks, not the timing criterion. Neither candidate count passes the registered cost gate.
+
+| State / actual batch | K16 total seconds | K4 total seconds |
+| --- | ---: | ---: |
+| Cold tau 8 / first | 53.532 | 45.005 |
+| Cold tau 8 / lower median | 126.232 | 125.077 |
+| Cold tau 8 / maximum | 124.410 | 121.716 |
+| DP64 epoch 8 tau 2 / first | 47.648 | 45.962 |
+| DP64 epoch 8 tau 2 / lower median | 126.875 | 121.875 |
+| DP64 epoch 8 tau 2 / maximum | 130.825 | 124.295 |
+
+These are synchronized forward-plus-neural-backward timings without optimizer updates. Batch indices
+are 0/54/42 out of 59 in subepoch 1, with maximum lengths 392/720/861 frames and 128/122/102
+utterances. Only 1/6 K16 and 2/6 K4 cases meet <=48s. Reject both for training under this gate;
+G4a.3 is still unread. Deducting actual allocation leaves 9h06m30s of the cold allowance.
+Ground truth: `work/analysis/context_budget_profile/ContextBudgetProfileJob.bg8ErQSa8scY/output/profile.json`;
+extraction: `reports/codex_4a_candidate_budget_results_2026-09-18.md`; independent audit:
+`reports/codex_4a_candidate_budget_result_audit_2026-09-18.md`.
+
+On the longer batches, proposal sampling takes about 35–37s, conditional scoring 85–93s, LM
+scoring below 3s and neural backward below 0.2s. Conditional cost changes little between K16 and K4.
+The code executes four-utterance conditional groups inside sixteen-utterance sampling groups;
+raising only the conditional cap cannot cross that enclosing boundary. Kernel-launch/bandwidth
+explanations remain hypotheses. The previous larger-group K256 test was slower, so this does not
+establish a speedup at small K. Diagnosis:
+`reports/codex_4a_small_candidate_cost_diagnosis_2026-09-18.md`.
+
+**Conditional grouping and random-batch amendment (2026-09-18; before measurement).** Given the
+stage-level evidence, first test an equivalent execution change before the previously deferred
+sampled-alignment estimator: retain sampling groups of 16 and their per-tag RNG/candidate order,
+collect sampled strings, then score conditional groups across the full learner batch. In the
+new measurement only, the conditional upper bound is the actual neural batch size; retain the
+existing 48 GiB store and transient/resident-memory guards to subdivide it. Keep the candidate
+objective, exact within-string alignment sum, rate finite differences and gradient normalization.
+Require old/new string equality and FP64 loss/gradient parity on fixtures crossing both former
+group boundaries, including forced memory splitting, before GPU measurement.
+
+The user's testing correction replaces first/median/max selection for this new screen: uniformly
+sample three real training minibatches without replacement across the entire eight-subepoch
+schedule using an independent `random.Random(42)` reservoir (42 is the inherited reference seed).
+Use the actual RETURNN epoch order/loader construction and unchanged batching, not synthetic
+repacking or cropped speech. Add the global longest batch as a separate stress case (earliest
+subepoch/index breaks ties); if already sampled, do not duplicate it. Record selected subepoch,
+local/global step, tags, lengths, shapes and all inventory metadata. Selection uses no labels,
+model scores or timings. Retain only sampled/stress raw batches during enumeration.
+
+Replay the three or four unique batches at cold tau 8 and banked DP64 epoch-8 tau 2, at K16 and
+K4, with matched RNG/state restoration. Use the batch's original source epoch/step for sampling
+and an explicit temperature override; this is a workload replay, not a trained trajectory.
+The new cost rule is <=48s for **every** measured random/stress case and the same numerical
+checks, selecting the larger passing K. The old six-case gate remains FAIL; the new operating
+point is registered before any result. Old fixed-batch timings are diagnostics, not a paired
+speedup baseline or a full-run estimate. Report loader/enumeration allocation overhead separately.
+
+New wrapper `config/sae_4a_context_grouped_profile.py`; at most 30 minutes, inherited
+GPU1/CPU16/mem64/gpu_mem96, no automatic repeat. This screen plus one conditional 8h P3/P6
+training allocation fits the remaining 9h06m30s. No candidate count is released before this
+screen passes and its result is audited. If equivalent batching also fails, return to the
+separately derived selected-alignment/path scorer; keep the scientific ASR gate unchanged.
+
+**Precompute checks.** Candidate-only recipe commit `29dc1bc` separates the two passes; production
+defaults remain 256 draws / sampling 16 / conditional 4. On 17-utterance FP64 fixtures at both
+K/temperature settings, ordered candidates match the saved original implementation, and losses,
+summaries and gradients agree within 1e-10 with full grouping and forced memory splitting. These
+checks establish the tested equivalence, not GPU speed or recognition. Immutable prechange sources
+and hashes are referenced in `reports/codex_4a_context_grouping_impl_2026-09-18.md`.
+Independent source review: `reports/codex_4a_context_grouping_review_2026-09-18.md`; prelaunch
+protocol audit: `reports/codex_4a_random_grouping_protocol_audit_2026-09-18.md`.
+
+**Grouped-screen submission (2026-09-18).** `ContextBudgetProfileJob.Ewy32i9ZEc3F`, Slurm
+`1872250_1`, scheduler-confirmed pending under the registered 30m cap. Registered outputs:
+`output/sae/4a/context_grouped_profile/profile.json` and `profile.txt`. Source hashes match the
+reviewed implementation. Actual selected batches, timings, memory and cost gate remain pending;
+launch/monitor handoff: `reports/codex_4a_context_grouped_profile_launch_2026-09-18.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
