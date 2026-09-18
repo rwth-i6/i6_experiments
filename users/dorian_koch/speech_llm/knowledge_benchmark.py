@@ -17,6 +17,7 @@ from sisyphus import Job, Task, tk
 from datasets import load_from_disk
 import json
 import os
+import time
 from pathlib import Path
 
 from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
@@ -662,6 +663,12 @@ Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explan
 #: rather than silently inheriting the new meaning.
 GRADER_SCHEMA_VERSION = 1
 
+#: A judge failure is scored as a WRONG ANSWER, not as a missing measurement, so it biases accuracy
+#: downward -- retry before accepting one. 64 concurrent workers against a single vLLM server make
+#: transient busy/timeout responses ordinary.
+JUDGE_MAX_ATTEMPTS = 4
+JUDGE_RETRY_BACKOFF_S = 2.0
+
 
 def _grader_block(name: str, *, model: str | None = None) -> dict:
     """Identity of the grader that produced a summary, written INTO the summary.
@@ -766,15 +773,40 @@ class LLMGrading(Job):
                     aliases=", ".join(aliases),
                     transcription=r["transcription"],
                 )
-                try:
-                    resp = client.chat.completions.create(
-                        model=self.llm_name,
-                        messages=[{"role": "user", "content": prompt}],
-                        response_format={"type": "json_object"},
-                    )
-                    grade = json.loads(resp.choices[0].message.content)
-                except Exception:
-                    grade = {"binary": 0, "quality": 1, "reasoning": "LLM request/parse error"}
+                # RETRY, because a failure here is recorded as a WRONG ANSWER (binary 0), not as a
+                # missing measurement -- so every transient blip biases the arm's accuracy downward.
+                # There was no retry at all until 2026-09-18 and the exception was discarded, so the
+                # cause was unknowable; 18 of 78 tags carried 1-2 such rows per 1000. The load makes
+                # transients likely: `datasets.map(num_proc=64)` below points 64 workers at one vLLM
+                # server, so a busy/timeout response is ordinary, and a malformed JSON body happens
+                # even under response_format.
+                #
+                # The row is still KEPT (scored 0) rather than dropped if every attempt fails: `n` is
+                # part of the registered output path now, and silently shrinking the denominator would
+                # make the path lie about the sample size. The count is reported as `judge_errors` in
+                # the summary instead, and the exception is recorded so the next failure is
+                # diagnosable rather than anonymous.
+                grade = None
+                last_err = ""
+                for attempt in range(JUDGE_MAX_ATTEMPTS):
+                    try:
+                        resp = client.chat.completions.create(
+                            model=self.llm_name,
+                            messages=[{"role": "user", "content": prompt}],
+                            response_format={"type": "json_object"},
+                        )
+                        grade = json.loads(resp.choices[0].message.content)
+                        break
+                    except Exception as e:  # noqa: BLE001 -- any failure is retryable here
+                        last_err = f"{type(e).__name__}: {e}"[:200]
+                        if attempt + 1 < JUDGE_MAX_ATTEMPTS:
+                            time.sleep(JUDGE_RETRY_BACKOFF_S * (2**attempt))
+                if grade is None:
+                    grade = {
+                        "binary": 0,
+                        "quality": 1,
+                        "reasoning": f"LLM request/parse error after {JUDGE_MAX_ATTEMPTS} attempts -- {last_err}",
+                    }
                 return {
                     "binary_correct": grade.get("binary", 0),
                     "quality_score": grade.get("quality", 1),
