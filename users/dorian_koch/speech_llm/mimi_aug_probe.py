@@ -36,7 +36,7 @@ class MimiAugmentationProbe(Job):
         duration_sec: float = 60.0,
         hf_repo: str = "kyutai/moshiko-pytorch-bf16",
         env_ffmpeg_path: tk.Path | None = None,
-        code_version: int = 1,
+        code_version: int = 2,  # 2: proper cost benchmark -- warmup, pre-sync, batch 2, length assert
     ):
         """``code_version`` is the lever for a worker change that is not in the hash otherwise --
         bump it to force a re-measure. ``env_ffmpeg_path`` travels with the job rather than being

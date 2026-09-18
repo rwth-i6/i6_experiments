@@ -197,6 +197,81 @@ def main():
         with torch.no_grad():
             return mimi.decode(c[None].to(args.device))[0, 0].cpu().numpy().astype(np.float32)
 
+    # ---- COST BENCHMARK -- done properly, separate from the distance loop ----------------------
+    # The first version of this probe reported decode as 23x CHEAPER than encode (23.1 ms vs
+    # 538.6 ms). That contradicts the architecture -- mimi's encoder and decoder are near mirrors,
+    # both transformers run over the same 750 frames, and the only genuinely asymmetric piece is the
+    # quantizer (argmin search in, embedding lookup out), which is a few GFLOP. In neural codecs the
+    # decoder is usually the MORE expensive half, so a 23x decoder advantage runs backwards from
+    # expectation.
+    #
+    # It rested on an unvalidated assumption: the decoded LENGTH was never checked. Both audio
+    # metrics truncate to min(len(a), len(b)), so a short decode would be fast AND produce entirely
+    # plausible numbers -- and would also inflate the code-change FLOOR by comparing a misaligned
+    # signal. So: assert the length, discard warmup, and synchronise BEFORE each timer as well as
+    # after (otherwise a timer absorbs whatever was still queued from the previous call).
+    def _sync():
+        if args.device == "cuda":
+            torch.cuda.synchronize()
+
+    def _time(fn, reps=10, warmup=3):
+        for _ in range(warmup):
+            fn()
+        _sync()
+        t0 = time.perf_counter()
+        for _ in range(reps):
+            fn()
+        _sync()
+        return 1000.0 * (time.perf_counter() - t0) / reps
+
+    bench = {}
+    _x0 = None
+    for _i in idx:
+        try:
+            _c = load_channel(_i, a_col)[:end]
+        except Exception:  # noqa: BLE001
+            continue
+        if _c.shape[0] >= sr:
+            _x0 = _c
+            break
+    if _x0 is None:
+        raise SystemExit("no readable row long enough to benchmark")
+
+    _w1 = torch.from_numpy(_x0[None, None, :]).float().to(args.device)
+    # Batch 2 is what TRAINING actually does: encode_stereo_window passes the two channels as
+    # [2, 1, T]. Reporting only batch 1 overstates the per-window cost of the real path.
+    _w2 = torch.cat([_w1, _w1], dim=0)
+
+    with torch.no_grad():
+        _codes1 = mimi.encode(_w1)
+        bench["encode_b1_ms"] = _time(lambda: mimi.encode(_w1))
+        bench["encode_b2_ms"] = _time(lambda: mimi.encode(_w2))
+        bench["decode_b1_ms"] = _time(lambda: mimi.decode(_codes1))
+
+        # THE ASSERT. If this fails, every distance in this report is computed on misaligned
+        # signals and the whole measurement is void.
+        _dec = mimi.decode(_codes1)
+        bench["decode_out_samples"] = int(_dec.shape[-1])
+        bench["encode_in_samples"] = int(_w1.shape[-1])
+        bench["decode_length_ratio"] = float(_dec.shape[-1]) / float(_w1.shape[-1])
+
+        # Split the encode: encode_to_latent(quantize=False) is SEANet + transformer, so the
+        # difference from a full encode isolates the RVQ argmin -- the one asymmetric piece.
+        try:
+            bench["encode_to_latent_b1_ms"] = _time(lambda: mimi.encode_to_latent(_w1, quantize=False))
+            bench["quantizer_b1_ms"] = bench["encode_b1_ms"] - bench["encode_to_latent_b1_ms"]
+        except Exception as e:  # noqa: BLE001
+            bench["encode_to_latent_error"] = f"{type(e).__name__}: {e}"[:120]
+
+    print("[probe] cost benchmark:", json.dumps(bench, indent=1), flush=True)
+    _ratio = bench["decode_length_ratio"]
+    if abs(_ratio - 1.0) > 0.02:
+        raise SystemExit(
+            f"decode returned {bench['decode_out_samples']} samples for "
+            f"{bench['encode_in_samples']} in (ratio {_ratio:.4f}). Every distance below would be "
+            "computed on misaligned signals -- refusing to report numbers. Fix the round trip first."
+        )
+
     acc = {
         k: {
             "floor": [],
