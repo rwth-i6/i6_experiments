@@ -134,6 +134,22 @@ def get_mwer_segmenter_root() -> tk.Path:
     assert getattr(gs, "MWERSEGMENTER_ROOT", None), "MWERSEGMENTER_ROOT not set"
     return tk.Path(getattr(gs, "MWERSEGMENTER_ROOT"), hash_overwrite="MWERSEGMENTER_ROOT")
 
+def get_cosyvoice_python_exe() -> tk.Path:
+    """
+    Python executable of the venv with the CosyVoice repo's dependencies (flow matching + HiFT vocoder for the
+    speech-token -> wav resynthesis of the TTS eval, plus Whisper for its WER); pinned deps that must not go into the
+    main venv. Hash-neutral, like :func:`get_mcif_python_exe`.
+    """
+    assert getattr(gs, "COSYVOICE_PYTHON_EXE", None), "COSYVOICE_PYTHON_EXE not set"
+    return tk.Path(getattr(gs, "COSYVOICE_PYTHON_EXE"), hash_overwrite="COSYVOICE_PYTHON")
+
+
+def get_cosyvoice_root() -> tk.Path:
+    """Checkout of https://github.com/FunAudioLLM/CosyVoice (with ``third_party/Matcha-TTS``)."""
+    assert getattr(gs, "COSYVOICE_ROOT", None), "COSYVOICE_ROOT not set"
+    return tk.Path(getattr(gs, "COSYVOICE_ROOT"), hash_overwrite="COSYVOICE_ROOT")
+
+
 _orig_i6_core_util_get_executable_path: Optional[Callable[..., tk.Path]] = None
 
 
