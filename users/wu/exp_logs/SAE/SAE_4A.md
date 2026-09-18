@@ -17,11 +17,12 @@ Priority 2: S2f COMPLETE and audited, `PackedEmcTrainJob.bd0W5Il9CtyN`,
 `config/sae_4a_trainable_reverse.py`. U_joint meets dev-other PER IMPROVE and WER REFINE
 at both endpoints; LM-ablation arms meet PER HOLD and final-only WER REFINE. C comparison
 and dev-clean are mixed. Evidence: "S2f recognition results" below.
-S2g phi fit COMPLETE; adaptation RUNNING, `BoundedAdaptationJob.tQrU8qMosRg9`, Slurm
-`1873630_1`, `config/sae_4a_supervised_reverse_init.py` (8h cap). At the same snapshot,
-checkpoint 6 exists, epoch 7 is active, no WER. After its own reads finish, launch
-`config/sae_4a_supervised_reverse_compare.py` for ten deferred U_joint comparisons, then audit.
-Both active watchers verified; status: `reports/codex_4a_live_status_2026-09-18b.md`.
+S2g fit, adaptation and own recognition COMPLETE, `BoundedAdaptationJob.tQrU8qMosRg9`,
+Slurm `1873630_1`, `config/sae_4a_supervised_reverse_init.py`. Own/init/C read is audited;
+see "S2g recognition results" below. Ten U_joint comparisons are SUBMITTED through
+`config/sae_4a_supervised_reverse_compare.py`; primary S2g-specific gate awaits those paired CIs.
+The comparison watcher is armed. Verify artifacts and audit on its event. Completion/launch evidence:
+`reports/codex_4a_s2g_completion_compare_2026-09-18.md`.
 
 Seeded BT and odd/even subepoch alternation remain conditional on the completed S2g comparison;
 register/audit the selected follow-up and allocation before launch. Specifications:
@@ -1843,13 +1844,53 @@ The matched 100 h joint-adaptation job is now submitted as Slurm `1873630_1`, PE
 with its unchanged 8h allocation; S2f `1871484_1` is also PENDING. Own PER/WER and the paired
 S2f comparisons remain unread. Status evidence: `reports/codex_4a_seeded_monitor_repair_2026-09-18.md`.
 
-Current handoff: `config/sae_4a_supervised_reverse_init.py` covers S2g's own outputs and the
-available init/C comparisons. After S2g and S2f finish, run
-`config/sae_4a_supervised_reverse_compare.py` for the full registered graph, including all ten
-paired U_joint outputs. These comparisons remain required for completion. Both wrappers retain
-the original training job identities and byte-identical adaptation config; code pin `e1352581a`.
-Current manager is `1032883`, start token `190995602`, owner `wu24`, in
-`sae_4a_s2g_20260918_core`; log `log/sae_4a_supervised_reverse_init.manager.core.log`.
+Current handoff: S2g's own graph is COMPLETE. The full registered graph, including the ten
+paired U_joint outputs, is submitted through `config/sae_4a_supervised_reverse_compare.py`.
+These comparisons remain required for completion. Both wrappers retain the original training
+job identities and byte-identical adaptation config; code pin `e1352581a`. Training is reused.
+
+**S2g recognition results (2026-09-18; own/init/C read audited, U_joint comparison pending).**
+`BoundedAdaptationJob.tQrU8qMosRg9`, Slurm `1873630_1`, completed with exit 0:0 in
+**1h38m17s**, within its 8h allowance, with all eight checkpoints and own registered recognition
+outputs. The fixed epoch-8 independently supervised phi initialization is followed by the
+registered 100 h speech-only joint adaptation. Generated S2g versus S2f U_joint training configs
+differ only in the phi checkpoint and output model path. The weighted-LM selector over epochs
+4–8 chooses epoch 4; retain the fixed epoch-8 primary endpoint. Rates below are percentages.
+
+| Split | PER, epoch 8 | PER, selected 4 | WER, epoch 8 | WER, selected 4 |
+| --- | ---: | ---: | ---: | ---: |
+| dev-clean | 5.3361 | 5.3743 | 13.77 | 14.58 |
+| dev-other | 10.6642 | 10.6783 | 24.91 | 25.79 |
+
+Dev-other uses the same 2864 utterances / 33 speakers, 177275 reference phones and 50948
+reference words. Fixed-v2 WER derives from 12689 word errors at epoch 8. Registered paired
+speaker-bootstrap deltas below are percentage points, S2g minus baseline; WER uses 10000 draws,
+seed 42, and PER uses 2000 draws, seed 0.
+
+| Metric / contrast / endpoint | Delta [95% CI] |
+| --- | ---: |
+| WER vs init, epoch 8 | −1.5977 [−2.0550, −1.1583] |
+| WER vs init, selected | −0.7086 [−1.1633, −0.2504] |
+| WER vs C, epoch 8 | −0.3278 [−0.5062, −0.1514] |
+| WER vs C, selected | −0.1119 [−0.2442, +0.0221] |
+| PER vs init, epoch 8 | −0.9099 [−1.0931, −0.7443] |
+| PER vs init, selected | −0.8958 [−1.0906, −0.7193] |
+
+The own-init comparison meets G4a.S2d IMPROVE and G4a.2 REFINE at both endpoints. Final WER
+also improves versus frozen-reverse C; the selected WER difference from C is inconclusive.
+Dev-clean WER deltas versus init are −0.8823 [−1.0607, −0.6980] at epoch 8 and
+−0.0735 [−0.2971, +0.1468] selected; only the final gain is clear. Versus C they are
+−0.1820 [−0.3020, −0.0581] final and −0.1912 [−0.3175, −0.0797] selected.
+The S2g-specific primary comparison requires the paired fixed-epoch-8 WER interval against
+S2f U_joint as well as init; its verdict remains pending. This compares initialization procedures
+with different supervision, exposure and fitting depth. It does not isolate a single ingredient
+or establish cold-start learning. Preserve the reused-dev/fixed-model interval qualifications.
+
+Ground truth: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2g_supervised_phi/`,
+including `U_supervised_phi/`, `paired_per/` and `paired_wer/`. Literal extraction:
+`reports/codex_4a_s2g_results_extract_2026-09-18.md`; own/init/C audit:
+`reports/codex_4a_s2g_results_audit_2026-09-18.md`. Completion/ten-job comparison submission:
+`reports/codex_4a_s2g_completion_compare_2026-09-18.md`. No new training allocation is released.
 
 **Joint-refinement planning while S2f waits (user 2026-09-18; hypotheses, no new training allocation).**
 Start from the stabilized package: its cycle contribution over matched self-distillation is
