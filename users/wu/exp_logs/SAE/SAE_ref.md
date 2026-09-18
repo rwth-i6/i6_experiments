@@ -39,6 +39,15 @@ follow-up separates removing the sequence-LM factor from removing both it and th
 aggregate regularizer. Shared warm initialization and the evaluation decoder retain their disclosed
 LM history/use; this is not an LM-never-used claim. Live cost and seeded protocols are in `SAE_4A.md`.
 
+**User supersession, later 2026-09-18:** the user vetoes the K4/few-string direction because it
+defeats the intended exploration. Sample complete alignments instead, starting at 512 and choosing
+as many as measured throughput permits under **24 h wall clock for the complete new training run**.
+Directly rescore and train over those paths, removing per-string conditional inference. This is
+an explicitly authorized approximation change, not an exact full-space sum. The 24 h prospective
+training cap supersedes the old 8 h release cap; earlier costs/gate failures remain historical facts.
+Register the path estimator, numerical checks, cost-selection rule and bounded profiling allocation
+before launch. Preserve random real batches, the cold ASR gate, and the separate S2f/§4b scopes.
+
 **Testing clarification, 2026-09-18:** the user requires randomly sampled training batches because
 `laplace:1000` sequence sorting makes early-batch timing optimistic. Future cost screens sample real
 batches across the registered training schedule with a fixed recorded seed; retain a long-batch stress

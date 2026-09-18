@@ -7,18 +7,19 @@ supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latt
 seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
 Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
 
-Priority 1 (user 2026-09-18): reduce six-gram execution cost/search space. The old 256-draw
-P3/P6 pack `PackedEmcTrainJob.ikngRyQaeQTl` timed out without checkpoints; do not restart it.
-G4a.3 is unread. The 16/4-draw screen `ContextBudgetProfileJob.bg8ErQSa8scY` completed in
-23m17s; both counts FAIL the cost gate (audited). The equivalent conditional-batching screen
-`ContextBudgetProfileJob.Ewy32i9ZEc3F` is COMPLETE in 24m42s; K16 and K4 again FAIL, now on
-random actual batches across eight subepochs plus longest-batch stress. K4 takes 49.539–56.638s
-against <=48s; its proposal stage dominates. Remaining cold allowance: 8h41m48s.
-The proposal-group-only K4 screen is SUBMITTED: `ContextBudgetProfileJob.vAFyI06vKHv5`,
-Slurm `1872813_1`, `config/sae_4a_proposal_grouped_profile.py` (30m cap). Audit all eight cases,
-actual group coverage and elapsed allocation before any training release. Protocol/results:
-"Conditional grouping and random-batch amendment" below; launch handoff:
-`reports/codex_4a_proposal_grouping_launch_2026-09-18.md`. No smaller-K training is released.
+Priority 1 (user supersession 2026-09-18): the few-string/K4 direction is VETOED. The pending
+proposal-group screen `ContextBudgetProfileJob.vAFyI06vKHv5` was canceled after 72s, with no
+completed measurement; do not restart it. The old 256-draw pack timed out without checkpoints;
+earlier cost screens remain failed. G4a.3 is unread.
+Direct complete-path rescoring/loss is implemented and reviewed. The 2h adaptive cost screen is
+SUBMITTED: `PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`,
+`config/sae_4a_path_budget_profile.py`; initial state PENDING. Audit its completed random/stress
+batch evidence, then choose the largest tested M>=512 passing all sixteen P3/P6 full-update cases
+at <=144s. Release matched training only after that gate, with the user's **24 h complete-training
+cap**; no qualifying count means no release. Preserve the ASR gate and finite-M caveats.
+Live protocol: "Complete-path user supersession" below. Prior ledger: 8h40m36s before this 2h screen.
+Handoff: `reports/codex_4a_path_budget_profile_launch_2026-09-18.md`; stop evidence:
+`reports/codex_4a_vetoed_k4_stop_2026-09-18.md`.
 
 Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
 `config/sae_4a_trainable_reverse.py` (8h cap). Three arms unfreeze phi and ablate the sequence LM
@@ -2621,7 +2622,7 @@ deduplicated, and the conditional DP subsequently sums every legal alignment/rev
 for each retained string, including paths not sampled. States are combined within those constrained
 DPs; candidate phone strings are not spliced to create additional strings.
 
-A cheaper complete-path importance estimator was examined but is deferred. It would target the full
+A cheaper complete-path importance estimator was examined but was deferred at this point. It would target the full
 P6 partition through finite-sample weighted gradients rather than the current exact sum over retained
 strings, and is not an equivalent implementation substitution. The literature does not establish its
 cold-ASR variance or effectiveness; a separate mathematical/numerical gate would be needed. Verified
@@ -2629,6 +2630,9 @@ sources and qualifications are in `reports/codex_4a_context_importance_literatur
 ([Veach and Guibas, 1995](https://www.cs.jhu.edu/~misha/ReadingSeminar/Papers/Veach95.pdf),
 [Mnih and Rezende, 2016](https://proceedings.mlr.press/v48/mnihb16.pdf)). Keep the current finite-string
 objective for the authorized learning run.
+
+**Superseded by the user's later 2026-09-18 instruction:** the direct complete-path learner below
+replaces that finite-string direction; the earlier derivation must be checked against current code.
 
 **Reduced-candidate cost screen (user 2026-09-18; registered before measurement).** The user
 rejects the observed runtime and authorizes smaller phoneme/alignment search spaces as priority 1.
@@ -2828,6 +2832,106 @@ source manifest: `reports/codex_4a_proposal_grouping_sha256_2026-09-18.json`; re
 hashes match; output prefix is `output/sae/4a/proposal_grouped_profile/`. Runtime, actual guarded
 group sizes and cost eligibility remain pending. Handoff:
 `reports/codex_4a_proposal_grouping_launch_2026-09-18.md`.
+
+**Proposal-screen veto (user 2026-09-18).** K4/few-string training is withdrawn because reducing
+the outer search that far conflicts with the intended exploration. The manager and exact task
+`1872813_1` were stopped; allocation use was 72s. Partial files retain `RUNNING` with no completed
+cases and are not a result. Do not resume `vAFyI06vKHv5` or release K4. The old budget ledger
+then had 8h40m36s remaining; cancellation evidence is
+`reports/codex_4a_vetoed_k4_stop_2026-09-18.md`.
+
+**Complete-path user supersession (2026-09-18; registered before compute).** Sample at least
+512 complete alignments per utterance, directly rescore them, and train on those paths without
+per-string conditional inference. Choose the largest validated count compatible with the user's
+new **24 h wall-clock cap for complete training**, interpreted as one parallel matched P3/P6
+allocation, not 24 h per epoch or sequential arm. This supersedes the prior 8 h release cap and
+48s proxy prospectively; the old screens still failed their own gates. Keep 100 h speech, cold
+initialization, eight subepochs/477 updates, seed, optimizer, tau 8→2, beta, band, duration support,
+aggregate term and fixed/selected ASR evaluation. S2f and §4b are separate and unchanged.
+
+The latent path includes CTC frame symbols, SIL token-start decisions and reverse durations.
+For M draws (a multiple of four), draw 3M/4 from the current full-P3 posterior at tau and M/4
+at 1.5 tau. Retain repeated draws. With raw target score s_n(h) containing live recognizer and
+reverse normalized log probabilities plus frozen beta log P_n(y), use the normalized mixture
+`m(h)=0.75 Q3,tau(h)+0.25 Q3,1.5tau(h)` and
+`log Zhat_n = logsumexp_h[s_n(h)/tau - stopgrad(log m(h))] - log M`.
+Both exact P3 forward normalizers are already available from sampling. All proposal-density
+terms and discrete paths detach; target scores retain every parameter-dependent normalizer,
+including terms shared by all paths. Cycle loss remains mean_utt(-log Zhat_n/T), training theta
+and phi. Do not deduplicate alignments out of the estimator. Reusing one LM score for identical
+strings is an execution optimization only; inverse expansion preserves every occurrence.
+
+This changes the old finite-string truncated partition into an importance estimate of the full
+banded-path partition. Zhat is unbiased under support/scoring conditions; log Zhat and normalized
+gradients are generally biased at finite M. Neither approach is an exact unrestricted full sum.
+Path ESS, maximum weight, unique alignments/strings and string-aggregated ESS characterize sampled
+exploration but cannot certify unseen P6 mass. Larger M is not assumed to give nested RNG prefixes.
+
+**Rate clarification and chosen rule.** The current rate measure is joint-posterior, depending
+on phi in value; only its gradient is theta-only. The earlier importance report's "q-only measure"
+description was incorrect. Use the new sampled Pn weights for the non-SIL token mean and the
+existing squared relative-rate value, rho, coefficient and utterance averaging. Preserve the
+central finite-difference rule with +/-0.25 token tilts on these same weighted paths and theta-only
+surrogate; no exact-P3 rate substitution or extra posterior DP. This retains finite-difference
+truncation error as well as sampling error. Source derivation:
+`reports/codex_4a_path_objective_spec_2026-09-18.md`; independent mathematical audit:
+`reports/codex_4a_path_estimator_math_audit_2026-09-18.md`. The conditional validity of the estimator
+establishes no implementation correctness, adequate overlap or recognition improvement.
+
+**Precompute and cost gate.** Require independent tiny exhaustive path/proposal checks (including
+true longer-context P6 and P6=P3), duplicate weighting, live shared-normalizer and theta/phi gradient
+checks, sampled-rate FD/gradient-routing checks, ragged/private-RNG integration and no conditional-DP
+calls. Keep default exact/finite-string branches unchanged and introduce an explicit hashed path
+draw count. Batch frozen P6 scoring through the existing vectorized API with old BOS/SIL/no-EOS,
+per-token cast and sum semantics; actual banked-score parity must pass.
+
+One new profiling allocation is capped at 2h, GPU1/CPU16/mem64/gpu_mem96, one try, charged against
+the prior unused 8h40m36s cold allocation allowance. Reuse the same real seed-42 reservoir batches
+(global steps 173,417,146) and earliest maximum (144) from the 477-batch inventory. Restore initial
+weights/buffers/RNG/optimizer state per case; cold tau8 and strict DP64 epoch8/step477 tau2 remain
+the two operating points. Measure full forward, backward and the reference optimizer step, with
+inventory/setup reported separately. Require finite nonzero theta/phi gradients, no rate-to-phi
+gradient, normalized weighted frame occupancies and bounded memory.
+
+For an eligible M, **all sixteen** cases (four batches × two states × P3/P6) must take <=144s.
+The inherited 1.25 overhead factor gives 477×144×1.25=23h51m, within 24h. This is a conservative
+release proxy, not a guarantee of trajectory time; the full allocation itself has a 24h hard cap.
+First validate both priors at M512. Then double M on P6 until the first cost/memory rejection;
+between a passing and failing count, refine by bisection rounded to a multiple of four. A single
+cost failure rejects that M; numerical failure stops the screen. Stop count exploration at 90min
+elapsed, reserving 30min for P3 validation/finalization. Qualify the largest fully measured count
+passing both priors; test earlier P6-passing counts if necessary and time permits. If the search
+budget ends before the bracket closes, disclose that the largest tested count is only a bound.
+Never fall back below 512. No eligible count means no training release. Record measured timing,
+memory and overlap diagnostics before committing the selected M to the matched training pack.
+Keep G4a.3 unchanged: fixed epoch4 dev-other PER<0.50 and positive own-phi speaker-matched gap;
+report paired comparisons and epoch8/label-free selection separately.
+
+Precompute protocol audit accepts the cost arithmetic, matched comparison and preserved ASR gate:
+`reports/codex_4a_path_cost_protocol_audit_2026-09-18.md`. Eligibility still requires all sixteen
+measured cases; the 2h adaptive search can end with an open bracket and establish only the largest
+tested passing count. No alignment count has yet demonstrated the new cost gate.
+
+Executable implementation: speech commits `c2e530be75a3c329de1323ca9fc8d3132576499a`
+(batched frozen LM scoring) and `fa3a2e2da9e0eacf1ccf739fde573d40a4f40904` (complete-path
+loss and opt-in draw count). Independent path/gradient, banked-score parity and default-route CPU
+checks are recorded in `reports/codex_4a_complete_path_impl_2026-09-18.md` and
+`reports/codex_4a_path_lm_batch_impl_2026-09-18.md`. Source review has no open findings:
+`reports/codex_4a_complete_path_source_review_2026-09-18.md`. This clears precompute only;
+GPU affordability, finite-M statistical adequacy and ASR improvement remain unmeasured.
+Profiler implementation and provenance: `reports/codex_4a_path_budget_profile_impl_2026-09-18.md`;
+reviewed profiler SHA256 `f1c4091589fddd2477eaf480070442bf826d212b5868f1b474b4da495712e148`.
+
+Submitted `analysis/path_budget_profile/PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`
+(initially PENDING), via `config/sae_4a_path_budget_profile.py`, GPU1/CPU16/mem64/gpu_mem96,
+2h hard cap and one attempt. Expected outputs are this job's `output/profile.json` and
+`output/profile.txt`, registered at `output/sae/4a/path_budget_profile/`. Completion requires the
+job's finished state plus these matching provenance/case outputs; submission is not a timing result.
+Manager PID `466543`, start token `190323219`, owner `wu24`, native tmux
+`sae4a_path_budget_profile_manager`; command/environment and submission evidence:
+`reports/codex_4a_path_budget_profile_launch_2026-09-18.md`. No matched training has been released.
+Root-pane `%0` watcher is armed at 60s intervals: event `sis-466543-2020136003-ZrkyAMG9`,
+monitor `/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.466543.ZrkyAMG9`.
 
 **Compilation option (user 2026-09-18; source evidence only).** The supplied reference
 `/e/project1/spell/wu24/2026-08-27_speech_llm_errrorcor/2027_ICASSP_sync/jpt/jea_round1_optimized_speech_lm_gated_cross_att.py:215`
