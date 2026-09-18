@@ -237,40 +237,57 @@ def main():
     if _x0 is None:
         raise SystemExit("no readable row long enough to benchmark")
 
-    _w1 = torch.from_numpy(_x0[None, None, :]).float().to(args.device)
-    # Batch 2 is what TRAINING actually does: encode_stereo_window passes the two channels as
-    # [2, 1, T]. Reporting only batch 1 overstates the per-window cost of the real path.
-    _w2 = torch.cat([_w1, _w1], dim=0)
+    # The row above is whatever the corpus happens to hold, and that is NOT the length training
+    # pays for: triviaqa_mix rows are ~15 s while the trainer windows to duration_sec (60 s). The
+    # first version of this block benchmarked the 15 s row and the report printed it as the cost
+    # "per 60 s window" -- the same unvalidated-length mistake this block was written to fix, one
+    # level up. Cost depends on length, not on content, so a full-length window can legitimately be
+    # built by tiling the row to exactly `end` samples. Benchmark BOTH and report both, so the
+    # scaling is visible instead of assumed.
+    _full = np.resize(_x0, end).astype(np.float32) if _x0.shape[0] < end else _x0[:end]
 
-    with torch.no_grad():
-        _codes1 = mimi.encode(_w1)
-        bench["encode_b1_ms"] = _time(lambda: mimi.encode(_w1))
-        bench["encode_b2_ms"] = _time(lambda: mimi.encode(_w2))
-        bench["decode_b1_ms"] = _time(lambda: mimi.decode(_codes1))
+    def _bench_one(x, prefix):
+        w1 = torch.from_numpy(x[None, None, :]).float().to(args.device)
+        # Batch 2 is what TRAINING actually does: encode_stereo_window passes the two channels as
+        # [2, 1, T]. Reporting only batch 1 overstates the per-window cost of the real path.
+        w2 = torch.cat([w1, w1], dim=0)
+        with torch.no_grad():
+            codes1 = mimi.encode(w1)
+            bench[f"{prefix}_seconds"] = round(x.shape[0] / sr, 3)
+            bench[f"{prefix}_encode_b1_ms"] = _time(lambda: mimi.encode(w1))
+            bench[f"{prefix}_encode_b2_ms"] = _time(lambda: mimi.encode(w2))
+            bench[f"{prefix}_decode_b1_ms"] = _time(lambda: mimi.decode(codes1))
 
-        # THE ASSERT. If this fails, every distance in this report is computed on misaligned
-        # signals and the whole measurement is void.
-        _dec = mimi.decode(_codes1)
-        bench["decode_out_samples"] = int(_dec.shape[-1])
-        bench["encode_in_samples"] = int(_w1.shape[-1])
-        bench["decode_length_ratio"] = float(_dec.shape[-1]) / float(_w1.shape[-1])
+            # THE ASSERT. If this fails, every distance in this report is computed on misaligned
+            # signals and the whole measurement is void.
+            dec = mimi.decode(codes1)
+            bench[f"{prefix}_decode_out_samples"] = int(dec.shape[-1])
+            bench[f"{prefix}_encode_in_samples"] = int(w1.shape[-1])
+            bench[f"{prefix}_decode_length_ratio"] = float(dec.shape[-1]) / float(w1.shape[-1])
 
-        # Split the encode: encode_to_latent(quantize=False) is SEANet + transformer, so the
-        # difference from a full encode isolates the RVQ argmin -- the one asymmetric piece.
-        try:
-            bench["encode_to_latent_b1_ms"] = _time(lambda: mimi.encode_to_latent(_w1, quantize=False))
-            bench["quantizer_b1_ms"] = bench["encode_b1_ms"] - bench["encode_to_latent_b1_ms"]
-        except Exception as e:  # noqa: BLE001
-            bench["encode_to_latent_error"] = f"{type(e).__name__}: {e}"[:120]
+            # Split the encode: encode_to_latent(quantize=False) is SEANet + transformer, so the
+            # difference from a full encode isolates the RVQ argmin -- the one asymmetric piece.
+            try:
+                bench[f"{prefix}_encode_to_latent_b1_ms"] = _time(lambda: mimi.encode_to_latent(w1, quantize=False))
+                bench[f"{prefix}_quantizer_b1_ms"] = (
+                    bench[f"{prefix}_encode_b1_ms"] - bench[f"{prefix}_encode_to_latent_b1_ms"]
+                )
+            except Exception as e:  # noqa: BLE001
+                bench[f"{prefix}_encode_to_latent_error"] = f"{type(e).__name__}: {e}"[:120]
+
+    _bench_one(_x0, "row")
+    _bench_one(_full, "window")
 
     print("[probe] cost benchmark:", json.dumps(bench, indent=1), flush=True)
-    _ratio = bench["decode_length_ratio"]
-    if abs(_ratio - 1.0) > 0.02:
-        raise SystemExit(
-            f"decode returned {bench['decode_out_samples']} samples for "
-            f"{bench['encode_in_samples']} in (ratio {_ratio:.4f}). Every distance below would be "
-            "computed on misaligned signals -- refusing to report numbers. Fix the round trip first."
-        )
+    for _p in ("row", "window"):
+        _ratio = bench[f"{_p}_decode_length_ratio"]
+        if abs(_ratio - 1.0) > 0.02:
+            raise SystemExit(
+                f"decode returned {bench[f'{_p}_decode_out_samples']} samples for "
+                f"{bench[f'{_p}_encode_in_samples']} in (ratio {_ratio:.4f}). Every distance below "
+                "would be computed on misaligned signals -- refusing to report numbers. "
+                "Fix the round trip first."
+            )
 
     acc = {
         k: {
@@ -355,7 +372,11 @@ def main():
         "seed": args.seed,
         "duration_sec": args.duration_sec,
         "sample_rate": sr,
-        "timing_ms_per_window": {
+        "cost_benchmark": bench,
+        # ⚠ UNWARMED: these come from the distance loop, which has no warmup and whose only sync is
+        # an incidental .cpu(). They ran 8x high on the first run. Kept for the augmentation costs;
+        # quote "cost_benchmark" for encode/decode.
+        "timing_ms_per_window_unwarmed": {
             "encode": enc_ms,
             "decode": dec_ms,
             "decode_plus_encode": dec_ms + enc_ms,
@@ -388,10 +409,28 @@ def main():
     L.append(f"mimi augmentation probe -- {n_used} windows of {args.duration_sec}s, seed {args.seed}")
     L.append(f"corpus: {args.corpus}")
     L.append("")
-    L.append(f"COST per {args.duration_sec}s window (1 channel):")
-    L.append(f"  encode            {enc_ms:8.1f} ms")
-    L.append(f"  decode            {dec_ms:8.1f} ms")
-    L.append(f"  decode+encode     {dec_ms + enc_ms:8.1f} ms   = {(dec_ms + enc_ms) / enc_ms:.2f}x encode alone")
+    _we, _w2e = bench["window_encode_b1_ms"], bench["window_encode_b2_ms"]
+    _wd, _ws = bench["window_decode_b1_ms"], bench["window_seconds"]
+    _reps, _warm = _time.__defaults__
+    L.append(f"COST per {_ws}s window -- {_warm} warmup + {_reps} timed reps, synced before AND after:")
+    L.append(f"  encode batch 1 (one channel)  {_we:8.2f} ms")
+    L.append(f"  encode batch 2 (both chans)   {_w2e:8.2f} ms   <- what training actually calls")
+    L.append(f"  decode batch 1                {_wd:8.2f} ms")
+    if _w2e:
+        L.append(f"  decode+encode                 {_wd + _w2e:8.2f} ms   = {(_wd + _w2e) / _w2e:.2f}x encode alone")
+    if "window_quantizer_b1_ms" in bench:
+        L.append(
+            f"  of which RVQ argmin           {bench['window_quantizer_b1_ms']:8.2f} ms   (the one asymmetric piece)"
+        )
+    L.append("")
+    L.append(
+        f"  at the corpus's own row length ({bench['row_seconds']}s): "
+        f"encode_b2 {bench['row_encode_b2_ms']:.2f} ms, decode {bench['row_decode_b1_ms']:.2f} ms"
+    )
+    L.append(
+        f"  ⚠ UNWARMED loop wall clock, do NOT quote: encode {enc_ms:.1f} ms, decode {dec_ms:.1f} ms "
+        "(ran ~8x high on run 1; kept only for the augmentation timings)"
+    )
     L.append("")
     L.append("CODE CHANGE (fraction of codebook/frame positions that differ; lower = closer)")
     L.append("  FLOOR   = codec round trip alone, no augmentation")
