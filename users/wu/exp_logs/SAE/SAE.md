@@ -73,7 +73,7 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    Prior cold failures, completed S2e/S2f/S2g supervised refinements and audited M512 output inspection:
    `SAE_4A.md`. GAN-lineage initialization remains retired; S3d remains stopped.
    New main direction: VAD + stride-3 blank-free model, `SAE_4A_blankfree.md`: cold trigram joint
-   training and separate supervised 10 h fits (no adaptation); sampled-group diversity is a side task.
+   training and separate supervised 10 h fits (no adaptation); sampled-group diagnostic is complete/audited.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE

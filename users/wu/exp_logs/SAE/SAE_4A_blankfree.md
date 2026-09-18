@@ -21,12 +21,14 @@ and checkpoints are not. The user explicitly chooses **separate initialization o
 behind the shared VAD job via `config/sae_4a_blankfree_seed_support.run`. Then inspect support
 before releasing the independently implemented fits. Launch/artifacts:
 `reports/sae_blankfree_seed_support_launch_2026-09-18.md`.
-The original-M512 sampled-group replay is queued as `GenericExecJob.awnR46wSTGCf`, Slurm
-`1883777`; result/audit pending. Handoff: `reports/sae_sample_group_relaunch_2026-09-18.md`.
+The original-M512 sampled-group replay is COMPLETE and audited: `GenericExecJob.awnR46wSTGCf`,
+Slurm `1883777`, exit0:0 in19m19s. P6 importance weights concentrate despite diverse draws;
+see "Sampled-group result" below and `reports/sae_sample_group_result_audit_2026-09-18.md`.
 Event monitors are armed under `/e/scratch/spell/wu24/codex-sisyphus-monitor/`:
-profile `monitor.4111620.Eq25JHJT`, seed support `monitor.4144463.6MdufYoD`,
-sampled groups `monitor.4154180.4DfP5FYL`. Resume from each terminal artifact and its release
-criterion; no training result is available yet.
+profile `monitor.4111620.Eq25JHJT` and seed support `monitor.4144463.6MdufYoD` (both verified
+live at23:47). Sampled-group monitor `monitor.4154180.4DfP5FYL` is terminal DONE; no re-arm.
+Resume the main branches from their terminal artifacts and release criteria; no new-model
+training result is available yet.
 
 ## Objective and authority
 
@@ -220,12 +222,12 @@ the fit/evaluation selector is `config/sae_4a_blankfree_seed.run`.
 
 Submission: `GenericExecJob.awnR46wSTGCf`, Slurm `1883777`, via
 `config/sae_4a_sample_group_diversity.run`; output `output/sae/4a/m512_sample_group_diversity.json`.
-Source review DONE; measured results pending. Launch/provenance:
+Source review and result audit DONE. Launch/provenance:
 `reports/sae_sample_group_relaunch_2026-09-18.md`. The replay imports immutable original M512
 sources from `artifacts/m512_frozen_source/src` (recipe commit `e1352581`); all 15 pinned source
 hashes and original input/config/checkpoint hashes are preserved. Independent source verification:
-`reports/sae_sample_group_repair_review_2026-09-18.md`. Remaining allocation is29m24s within
-the original30min side-task ceiling; no extra compute budget is implied.
+`reports/sae_sample_group_repair_review_2026-09-18.md`. Actual completed replay allocation is
+19m19s; cumulative side allocation19m55s is within the original30min ceiling.
 
 The latest matched M512 P3/P6 run samples complete paths in both arms; historical DP64 trigram
 used a full sum. Check actual sampling groups, not only final greedy hypotheses. Reuse registered
@@ -243,3 +245,35 @@ One GPU, at most 30 minutes, using the inherited profile resource envelope, no a
 Script: `analysis/m512_sample_group_diversity.py`; implementation report:
 `reports/sae_sample_group_impl_2026-09-18.md`. Source review precedes execution, independent audit
 precedes a causal interpretation. This side task must not hold up a launch-ready main experiment.
+
+### Sampled-group result (2026-09-18, audited)
+
+All16 registered cases completed: four actual batches of124/103/113/71 items, 411 groups per
+arm/state and1644 rows total. Cold uses tau8; final uses each arm's epoch8/step477 checkpoint at
+tau2. Every group contains512 draws, with384 target-temperature and128 hot draws. Every group
+has512 unique joint paths and512 unique recognizer paths. Means below weight utterance groups
+equally, not batches; strings retain the sampler's token-start SIL convention.
+
+| Arm / state | Unique strings, mean | Path ESS, mean | String-aggregated ESS, mean | Groups ESS<2 | Groups max weight>0.9 |
+|---|---:|---:|---:|---:|---:|
+| P3 cold | 512.00 | 395.00 | 395.00 | 0/411 | 0/411 |
+| P3 final | 510.06 | 384.14 | 379.35 | 0/411 | 0/411 |
+| P6 cold | 512.00 | 3.74 | 3.74 | 106/411 | 35/411 |
+| P6 final | 493.97 | 3.50 | 3.45 | 165/411 | 76/411 |
+
+ESS=1/sum(normalized_importance_weight²). P6 final median path ESS is2.39; its string count
+is324–512, median506. Thus P6 has strong finite-sample importance-weight concentration despite
+distinct alignments and generally many distinct training strings. In40.1% of its final groups,
+ESS is below2; in18.5%, one path carries over90% of normalized weight. Weight concentration is
+already present in the cold replay. These descriptive scales do not establish true-posterior
+coverage or prove a cause of the final greedy-output pattern.
+
+The matched M512 arms both sample paths. Their final checkpoints differ; cold-to-final also
+changes temperature. Cold deterministic seeding supports an order-dependent concentration
+observation, but exact cold state hashes/draw keys were not saved for a strict same-path causal
+contrast. Historical exact-P3 DP64 is not an ESS comparator. No P6 accuracy or intrinsic-prior
+quality conclusion follows. Keep the already registered new-model exact-P3 experiment unchanged.
+
+Ground truth: `output/sae/4a/m512_sample_group_diversity.json` (15191900 bytes); completion and
+all case summaries: `reports/sae_sample_group_completion_2026-09-18.md`; independent audit:
+`reports/sae_sample_group_result_audit_2026-09-18.md`. Side task complete; no additional run.
