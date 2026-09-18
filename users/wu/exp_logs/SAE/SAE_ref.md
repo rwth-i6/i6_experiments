@@ -1,5 +1,17 @@
 # SAE — the reward's lam_1 (LM prior) and lam_2 (KL anchor)
 
+**User amendment, 2026-09-18, after M512 output inspection:** main direction is a new cycle model
+with unsupervised silence removal, wav2vec-U 2.0 CNN stride, no CTC blank and adjacent repeat collapse.
+Evaluate, implement and execute autonomously; verify the cited paper's actual preprocessing rather
+than assume it removes SIL. This authorizes a new bounded round, preserving label quarantine and
+historical gates. Diversity within M512 sampled alignment groups is a parallel side task. Live
+protocol, resource limits and new-model results: `SAE_4A_blankfree.md`.
+**Follow-up instruction:** run both independent 10 h supervised initialization and cold unsupervised
+trigram joint training with this new topology. The supervised branch is disclosed and separate;
+it supplies no parameters or labels to the cold branch.
+The user explicitly chooses separate initialization only for the supervised branch, with no
+100 h joint adaptation after those fits.
+
 ## Current research constraints (user priority 2026-09-16)
 
 The objective is pure unsupervised ASR without GANs, with cold-start improvement as the active research

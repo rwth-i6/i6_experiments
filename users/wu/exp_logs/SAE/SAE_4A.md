@@ -5,6 +5,10 @@
 §4a tracks cold-start cycle learning and disclosed 10 h supervised-init → 100 h speech-only
 refinement. Constraints/baselines: `SAE_ref.md`; original gates remain. No GAN or standalone SylCipher.
 
+New main direction (user, after the M512 output read): VAD + stride-3 blank-free cycle model;
+evaluate, implement and execute under `SAE_4A_blankfree.md`. Within-group alignment-sample diversity
+is an independent side task there. The completed runs below remain evidence, not pending work.
+
 Priority 1: matched **M512** P3/P6 training COMPLETE, `BoundedPathEmcTrainJob.mkNtyN6U5pvr`,
 Slurm `1873833_1`, `config/sae_4a_path512_train.py`: both eight subepochs/477 updates,
 4h23m19s allocation. Full registered graph completion is verified. **G4a.3 FAIL at epoch 4
@@ -13,7 +17,7 @@ Requested collapse/diversity inspection COMPLETE and audited over all saved dev 
 P6 shows strong initial-phone bias and excess short-motif repetition, with distinct whole outputs;
 see "Output-collapse result" for matched reference comparisons and nonmonotone trajectory.
 No WER is needed or registered; the previous "WER pending" description was incorrect.
-This does not release another training run. M512 and the original cold gate stay fixed;
+This completed result does not release another M512 run. Its original cold gate stays fixed;
 K4 remains vetoed and the timed-out 256-draw pack must not restart.
 
 Priority 2: S2f COMPLETE and audited, `PackedEmcTrainJob.bd0W5Il9CtyN`,

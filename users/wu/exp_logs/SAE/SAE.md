@@ -69,15 +69,11 @@ group-normalized advantages.
 Older entries retain historical state; the current no-GAN, cold-start priority governs new work.
 
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
-   no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
-   GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
-   S2e and S2f U_joint improve their 10 h seed (audited); S2f LM-ablation WER gains are final-only.
-   S2g is complete: fixed-endpoint improvement over init and S2f passes (audited).
-   M512 training and full registered graph complete; epoch-4 cold gate FAIL in both arms (audited).
-   Output-diversity inspection complete and audited: strong P6 initial-phone bias and excess short
-   motif repetition, with distinct whole outputs. Results in §4a; no WER work or new training.
-   Seeded BT/alternation awaits a registered new allocation. S3c/DP64 CLOSED FAIL; S3d stopped.
-   Live state and budgets: `SAE_4A.md`.
+   no LLM: phone recognizer + frozen phone m-gram + semi-Markov unit reverse model, marginalized alignment.
+   Prior cold failures, completed S2e/S2f/S2g supervised refinements and audited M512 output inspection:
+   `SAE_4A.md`. GAN-lineage initialization remains retired; S3d remains stopped.
+   New main direction: VAD + stride-3 blank-free model, `SAE_4A_blankfree.md`: cold trigram joint
+   training and separate supervised 10 h fits (no adaptation); sampled-group diversity is a side task.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
