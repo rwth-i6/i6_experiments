@@ -7,26 +7,26 @@ is unsupervised silence removal, a stride-3 CNN as in the completed local wav2ve
 and phone paths with adjacent repeat collapse and no CTC blank. Keep the cycle objective and exact
 trigram marginalization. Cold model implementation and source review are complete (`323de02`,
 with lattice `5cc9c72`); no model training has run. Joint VAD preparation
-`BlankfreeVadHdfJob.SAjz8y1cT06g`, Slurm `1883648`, is running. The profile graph
-`config/sae_4a_blankfree_profile.run` is launched; `BlankfreeCostProfileJob.3Nmqmdz20Wyi` waits
-for that census and `FlatRecognizerInitJob.0J9d6wjrkRYH` (Slurm `1883714`). Next: verify the
-actual-data cost/support gate, then launch the registered cold four-epoch experiment and inspect
+`BlankfreeVadHdfJob.SAjz8y1cT06g`, Slurm `1883648`, is complete. The profile graph
+`config/sae_4a_blankfree_profile.run` now has `BlankfreeCostProfileJob.3Nmqmdz20Wyi` RUNNING.
+Next: verify the actual-data cost/support gate, then launch the registered cold four-epoch experiment and inspect
 outputs. Launch/artifact pointers: `reports/sae_blankfree_profile_launch_2026-09-18.md`.
 Historical M512 and supervised-init results remain in `SAE_4A.md`; neither is a new-model result.
 
 Follow-up user instruction: also run independent supervised initialization of both models on the
 existing labeled 10 h, alongside cold trigram joint training. Preparation is shared, supervision
 and checkpoints are not. The user explicitly chooses **separate initialization only**, with no
-100 h adaptation after it. The support census `BlankfreeSeedSupportJob.ctjDDgnu43kW` is queued
-behind the shared VAD job via `config/sae_4a_blankfree_seed_support.run`. Then inspect support
-before releasing the independently implemented fits. Launch/artifacts:
-`reports/sae_blankfree_seed_support_launch_2026-09-18.md`.
+100 h adaptation after it. The support census `BlankfreeSeedSupportJob.ctjDDgnu43kW` is complete:
+one theta training target fails; all phi targets pass. Both fits remain unreleased under the
+registered gate. See "Actual-data support result" below. User decision pending on the proposed
+single-item theta exclusion; no protocol amendment or filtering has been applied.
 The original-M512 sampled-group replay is COMPLETE and audited: `GenericExecJob.awnR46wSTGCf`,
 Slurm `1883777`, exit0:0 in19m19s. P6 importance weights concentrate despite diverse draws;
 see "Sampled-group result" below and `reports/sae_sample_group_result_audit_2026-09-18.md`.
 Event monitors are armed under `/e/scratch/spell/wu24/codex-sisyphus-monitor/`:
-profile `monitor.4111620.Eq25JHJT` and seed support `monitor.4144463.6MdufYoD` (both verified
-live at23:47). Sampled-group monitor `monitor.4154180.4DfP5FYL` is terminal DONE; no re-arm.
+profile `monitor.4111620.Eq25JHJT` remains live after the support event on 2026-09-19.
+Seed support `monitor.4144463.6MdufYoD` and sampled-group `monitor.4154180.4DfP5FYL` are terminal
+DONE; no re-arm for either completed diagnostic.
 Resume the main branches from their terminal artifacts and release criteria; no new-model
 training result is available yet.
 
@@ -158,7 +158,7 @@ the tested numerical contracts, not runtime or recognition. Reports:
 `reports/sae_blankfree_lattice_review_2026-09-18.md`.
 
 Joint-mask preparation `7f09df6` has a two-utterance HDF fixture and mismatch failure check;
-the actual corpus reconciliation is pending. Report:
+the actual corpus reconciliation is complete (see actual-data support result below). Report:
 `reports/sae_blankfree_data_impl_2026-09-18.md`. No new-model training result exists.
 
 The model/train/profile/evaluation integration is committed as `323de02` and independently
@@ -217,6 +217,32 @@ gradient and support tests pass. These do not establish actual-data feasibility 
 Evidence: `reports/sae_blankfree_seed_impl_2026-09-18.md`,
 `reports/sae_blankfree_seed_review_2026-09-18.md`. After the terminal support census passes,
 the fit/evaluation selector is `config/sae_4a_blankfree_seed.run`.
+
+### Actual-data support result (2026-09-19)
+
+`BlankfreeSeedSupportJob.ctjDDgnu43kW` is FINISHED; Slurm 1884825_1 COMPLETED, exit 0:0 in 1m24s.
+The report and closed HDF are present; HDF has 2849 sequence tags/lengths and 349607 target tokens.
+The fixed split remains 2821 train/28 held. Train targets have 347935 original/346251 collapsed
+tokens (1684 merged); held targets 3377/3356 (21 merged). No retained sequence is empty.
+Theta support fails for exactly one training item, `8629-261139-0016`: original 622 frames,
+retained 322, CNN outputs 108, original 132/collapsed 131 phones. All other theta targets and all
+2849 phi targets pass. The failing item's phi bound is 268<=322<=3400.
+Thus `supported_all=false`; completed census does not release either fit under the original gate.
+Root proposes excluding this one item from theta training only while preserving sequence loss,
+phi data and all evaluation references. This is a pending user protocol decision, not an applied
+amendment. MFA frame supervision on all items is the disclosed alternative; no fallback is active.
+
+The shared VAD manifest reconciles train/dev-clean/dev-other counts 28539/2703/2864 and retained
+frames 15427853/831372/781130 with the reproduction. No short/empty or length-mismatched items
+were reported. The independent cold cost profile is now running; this supervised target failure
+does not change its release gate.
+
+Artifacts: `work/speech_llm/sae/emc/blankfree_seed_jobs/BlankfreeSeedSupportJob.ctjDDgnu43kW/output/`
+(`support.json`, `support.txt`, `collapsed_targets.hdf`), plus the shared VAD job's manifest.
+Verification: `reports/sae_blankfree_seed_support_completion_2026-09-19.md`.
+Independent audit confirms artifact consistency, the fixed split and zero exact theta likelihood
+for that one target: `reports/sae_blankfree_seed_support_audit_2026-09-19.md`.
+The original support gate is not met; no fit-quality result exists.
 
 ## Independent side task: diversity within sampled groups
 
