@@ -2,35 +2,31 @@
 
 ## State
 
-§4a tracks cold-start cycle learning and the user-reopened 10 h
-supervised-init → 100 h speech-only refinement analysis (2026-09-17). The latter is a disclosed
-seeded track, not an unsupervised initializer. No GAN or standalone SylCipher work is authorized.
-Constraints and baselines are in `SAE_ref.md`; original failed results and gates remain unchanged.
+§4a tracks cold-start cycle learning and disclosed 10 h supervised-init → 100 h speech-only
+refinement. Constraints/baselines: `SAE_ref.md`; original gates remain. No GAN or standalone SylCipher.
 
-Priority 1: the user selects **512 complete paths** for matched P3/P6 training. All sixteen
-random/stress full-update cases pass the numerical/timing release gate (audited); ASR remains
-unmeasured. Larger-count benchmark COMPLETE: fully validated M=1200 (search censored);
-`PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`, `config/sae_4a_path_budget_profile.py`.
-M512 training is SUBMITTED: `BoundedPathEmcTrainJob.mkNtyN6U5pvr`, Slurm `1873833_1` (PENDING),
-`config/sae_4a_path512_train.py`. Monitor training and all registered ASR reads. Its initial 11.5h allocation
-cannot automatically resume. Any explicit continuation must fit the verified remainder of the
-**24h cumulative training cap**. Keep G4a.3 and fixed/selected paired ASR reads unchanged;
-check finite-sample concentration alongside recognition. Live protocol and evidence: "Later user
-selection: M512 training" below. K4 remains vetoed; never restart it or the timed-out 256-draw pack.
+Priority 1: matched **M512** P3/P6 training RUNNING, `BoundedPathEmcTrainJob.mkNtyN6U5pvr`,
+Slurm `1873833_1`, `config/sae_4a_path512_train.py`. At 18:15 CEST on 2026-09-18, checkpoints
+are 3/1, logs are in epochs 4/2, allocation about 1h15; no WER/training ESS yet.
+Monitor G4a.3, registered fixed/selected paired reads and concentration. Initial 11.5h cannot
+automatically resume; explicit continuation must fit verified **24h cumulative** remainder.
+Protocol: "Later user selection: M512 training". Larger-count benchmark COMPLETE (M1200,
+censored); it does not change M512. K4 remains vetoed; never restart the timed-out 256-draw pack.
 
-Priority 2: S2f training COMPLETE, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
-`config/sae_4a_trainable_reverse.py`; recognition queued. Three arms unfreeze phi and ablate the sequence LM
-or both training text-prior terms. Monitor training and registered recognition chains; audit actual
-fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
-`reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
-S2g phi fit is COMPLETE (8 epochs, 8m25s); matched `BoundedAdaptationJob.tQrU8qMosRg9` is
-PENDING, Slurm `1873630_1` (8h cap). Monitor own reads, then deferred comparisons with S2f.
-Protocol/results: "S2g independent supervised reverse initialization" below.
-Seeded BT and odd/even subepoch alternation lead the conditional queue; retain the independent
-S2f LM ablation. Read existing results before selecting/funding a new arm. S2e's audited gains
-do not prove freezing necessary. Specifications: "User-prioritized seeded BT and alternating updates".
-§4b remains complete and unchanged.
-Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
+Priority 2: S2f COMPLETE and audited, `PackedEmcTrainJob.bd0W5Il9CtyN`,
+`config/sae_4a_trainable_reverse.py`. U_joint meets dev-other PER IMPROVE and WER REFINE
+at both endpoints; LM-ablation arms meet PER HOLD and final-only WER REFINE. C comparison
+and dev-clean are mixed. Evidence: "S2f recognition results" below.
+S2g phi fit COMPLETE; adaptation RUNNING, `BoundedAdaptationJob.tQrU8qMosRg9`, Slurm
+`1873630_1`, `config/sae_4a_supervised_reverse_init.py` (8h cap). At the same snapshot,
+checkpoint 6 exists, epoch 7 is active, no WER. After its own reads finish, launch
+`config/sae_4a_supervised_reverse_compare.py` for ten deferred U_joint comparisons, then audit.
+Both active watchers verified; status: `reports/codex_4a_live_status_2026-09-18b.md`.
+
+Seeded BT and odd/even subepoch alternation remain conditional on the completed S2g comparison;
+register/audit the selected follow-up and allocation before launch. Specifications:
+"User-prioritized seeded BT and alternating updates". §4b stays complete.
+Do not restart S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; checkpoints 1–6 remain.
 
 ## Objective
 
@@ -1687,6 +1683,61 @@ for all eight U_joint and U_no_lattice_lm epochs, plus U_no_text_prior epochs 2�
 U_no_text_prior epoch-1 extraction is complete and its two dev-split posterior forwards are queued.
 Recognition and paired gates remain unread; training completion does not establish improvement.
 Evidence: `reports/codex_4a_queue_inventory_2026-09-18.md`.
+
+**S2f recognition results (2026-09-18, independently audited).** The registered epoch PER,
+label-free selectors, fixed-v2 sclite WER and paired comparisons are complete. All three
+selectors choose epoch 4 by the inherited weighted-LM criterion over epochs 4–8. The operating
+point remains 10 h supervised theta initialization, warm phi, 100 h speech-only adaptation,
+eight subepochs/477 updates, seed 42, and the registered fixed decoder. Dev-other contains the
+same 2864 utterances, 33 speakers, 177275 reference phones and 50948 words. Rates are percentages.
+
+| Arm | PER, epoch 8 | PER, selected 4 | WER, epoch 8 | WER, selected 4 |
+| --- | ---: | ---: | ---: | ---: |
+| U_joint | 11.2385 | 10.7172 | 25.30 | 25.72 |
+| U_no_lattice_lm | 11.6322 | 11.4038 | 25.44 | 26.25 |
+| U_no_text_prior | 11.6266 | 11.3344 | 25.46 | 26.19 |
+
+Own-init and banked C/D values remain in the S2e result table. Deltas below are percentage points,
+arm minus baseline, with the registered 95% speaker-bootstrap intervals (WER: 10000 draws, seed 42).
+
+| Contrast / endpoint | WER delta [95% CI] |
+| --- | ---: |
+| U_joint − init, epoch 8 | −1.2071 [−1.6873, −0.7528] |
+| U_joint − init, selected | −0.7832 [−1.2667, −0.2906] |
+| U_no_lattice_lm − init, epoch 8 | −1.0678 [−1.5313, −0.6125] |
+| U_no_lattice_lm − init, selected | −0.2532 [−0.7289, +0.2136] |
+| U_no_text_prior − init, epoch 8 | −1.0481 [−1.5152, −0.5894] |
+| U_no_text_prior − init, selected | −0.3140 [−0.7771, +0.1371] |
+| U_joint − C, epoch 8 | +0.0628 [−0.1364, +0.2565] |
+| U_joint − C, selected | −0.1865 [−0.3299, −0.0371] |
+| U_no_lattice_lm − U_joint, epoch 8 | +0.1394 [−0.0495, +0.3368] |
+| U_no_lattice_lm − U_joint, selected | +0.5300 [+0.2917, +0.7476] |
+| U_no_text_prior − U_no_lattice_lm, epoch 8 | +0.0196 [−0.1383, +0.1768] |
+| U_no_text_prior − U_no_lattice_lm, selected | −0.0608 [−0.1788, +0.0591] |
+
+**Gate read:** U_joint meets G4a.S2d IMPROVE: PER deltas versus init are −0.3356
+[−0.5696, −0.1143] at epoch 8 and −0.8569 [−1.0527, −0.6793] selected (2000 draws, seed 0).
+It also meets G4a.2 REFINE at both endpoints. Both LM-ablation arms meet PER HOLD only;
+their final WER improves, but their selected WER intervals cross zero. The stabilized recipe
+therefore refines the seed with phi trainable. Enabling phi updates versus C gives a small selected
+WER gain and an inconclusive final WER difference; final PER worsens by +0.3526
+[+0.2547, +0.4535], while selected PER improves by −0.0716 [−0.1123, −0.0311].
+
+Removing the sequence-LM adaptation factor worsens selected WER and both PER endpoints versus
+U_joint; the final WER difference is inconclusive. Removing the aggregate term as well adds no
+clear adjacent WER change. These ablations retain shared LM-exposed initialization, the LM-based
+selector and the official-four-gram decoder; they do not measure a model with no LM history/use.
+Dev-clean is mixed: final U_joint PER worsens versus init by +0.196 [+0.077, +0.321] points;
+selected WER has an inconclusive −0.020 [−0.254, +0.205] point delta. The no-lattice-LM
+selected WER worsens by +0.222 [+0.007, +0.436] points versus init. Preserve the S2e
+qualifications about reused dev sets, fixed-model
+intervals and training-seed variability. This is seeded refinement evidence; cold-start ASR is unread.
+
+Ground truth: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_s2f_pack/`, including
+`paired_per/`, `paired_wer/` and each arm's selector/fixed/selected outputs. Literal extraction:
+`reports/codex_4a_seeded_status_results_2026-09-18b.md`; independent audit:
+`reports/codex_4a_s2f_results_audit_2026-09-18b.md`. No additional training allocation follows;
+complete S2g's registered paired comparison before choosing the conditional follow-up.
 
 **S2g independent supervised reverse initialization (user 2026-09-18; registered before results).**
 The user authorizes this baseline now, independently of the conditional queue below. Keep the
