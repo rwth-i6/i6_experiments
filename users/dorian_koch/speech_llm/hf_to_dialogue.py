@@ -134,6 +134,41 @@ _COMMON_SUFFIX = (
     "and 'text'. No explanations, no markdown wrapper.\n"
 )
 
+# --- v7: the MoshiRAG answer shape -----------------------------------------------------------
+# Constraints lifted from arXiv 2604.12928 Table 15 ("v1 LLM prompts used for generating
+# conversation scripts"), saved verbatim in projects/2026-01-speech-llm/paper_recipes.md.
+#
+# WHY these and not more length: our corpus is 11 assistant words per TURN (median, measured by
+# corpus_words.py) spread over 2-8 turns, i.e. ~30 words per ROW. MoshiRAG's is ~30 words in ONE
+# turn. So the word BUDGET already matches and the thirty-word cap is not the lever -- the lever is
+# that they spend it in a single utterance and we fragment it. Every turn boundary is a
+# turn-taking event, and a corpus of 11-word turns teaches a duplex model to yield the floor
+# constantly, which is the terseness/empty-reply behaviour the A-series keeps measuring.
+#
+# The second borrowed idea is the "unaugmented turn": their prompt defines one as "general
+# knowledge or conversational filler, requiring no external information", and their conversations
+# mix them with the fact-carrying turns. So most of their gradient teaches conversational
+# behaviour on turns that carry NO factual load, while every assistant turn in our corpus IS the
+# fact. That is the mechanism this corpus exists to test.
+_MRAG_SUFFIX = (
+    "Important rules — these are the MoshiRAG recipe and they override any instinct to elaborate:\n"
+    "- Be short and concise. Keep each turn within thirty words. A turn longer than thirty "
+    "spoken words is wrong here even if it reads well.\n"
+    "- Directly answer the user's question in a SINGLE turn. Avoid backs and forths — never "
+    "split one answer across two assistant turns, and never continue an answer after the user "
+    "reacts.\n"
+    "- A turn does not have to be a full sentence; a few words or a short phrase are fine, "
+    "provided they sound natural spoken aloud.\n"
+    "- An assistant turn may open or close with ordinary conversational filler. But 'let me "
+    "check this for you', 'let me see' and 'let me think' must never appear — the assistant is "
+    "not consulting anything.\n"
+    "- Convert numbers, dates and abbreviations to readable words (twenty-five, not 25; "
+    "December twenty-first, not 12/21; kilograms, not kg; percent, not %).\n"
+    "- Do not greet. The user is shown a hello message before the conversation starts, so "
+    "neither speaker needs to say hi or hello again.\n"
+) + _COMMON_SUFFIX
+
+
 DIALOGUE_INSTRUCTION_TEMPLATES = [
     # Template 0 — direct, assistant-led
     (
@@ -236,6 +271,39 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
         "sentences — but together they cover the answer and an interesting detail or two.  "
         "The user MUST speak first.  Total turns: 6-8.\n" + _COMMON_SUFFIX
     ),
+    # --- Templates 11-13: the v7 / MoshiRAG shape ----------------------------------------------
+    # Single-turn ANSWERS inside a multi-turn CONVERSATION. Their format example is a six-to-eight
+    # turn exchange in which each moshi reply is one turn -- so this is not "make the corpus
+    # shorter", it is "stop fragmenting each answer".
+    #
+    # Template 11 — mrag_qa: the minimal augmented exchange, one question, one answer turn.
+    (
+        "Write a short spoken dialogue: the user asks the question above, and the assistant "
+        "answers it in a SINGLE turn.  Shape that one turn as a brief natural opening, then the "
+        "correct answer with a little substance, then optionally a few closing words — all as one "
+        "continuous piece of speech, never split across turns.  The user MUST speak first.  "
+        "Total turns: 2.\n" + _MRAG_SUFFIX
+    ),
+    # Template 12 — mrag_mixed: their "(unaugmented)" concept, which is the real borrowing. Most
+    # rounds carry NO factual load; one carries the gold fact. This is the only template in the
+    # corpus where the assistant is trained to converse without stating a fact.
+    (
+        "Write a spoken conversation of several short rounds.  In exactly ONE round the user asks "
+        "the question above and the assistant answers it in a single turn.  In every OTHER round "
+        "the user chats around the same topic and the assistant replies from ordinary general "
+        "knowledge or plain conversational reaction — replies that require no specific external "
+        "information, and that must NOT introduce any new name, number, date, place or statistic.  "
+        "Every assistant reply is exactly one turn.  The user MUST speak first.  "
+        "Total turns: 6-8.\n" + _MRAG_SUFFIX
+    ),
+    # Template 13 — mrag_two_facts: two augmented rounds. Declared in TEMPLATE_EXTRA_FACTS so the
+    # second question is a REAL supplied fact rather than an invented one (the v6 lesson).
+    (
+        "Write a spoken conversation in which the user asks TWO factual questions, in separate "
+        "rounds, and the assistant answers each one in a SINGLE turn.  Around them include one or "
+        "two short rounds of ordinary conversation that need no specific fact and introduce no new "
+        "name, number or date.  The user MUST speak first.  Total turns: 6-8.\n" + _MRAG_SUFFIX
+    ),
 ]
 
 
@@ -253,6 +321,9 @@ DIALOGUE_INSTRUCTION_TEMPLATE_NAMES = [
     "quickfire",
     "clarify_then_answer",
     "reactive_chat",
+    "mrag_qa",
+    "mrag_mixed",
+    "mrag_two_facts",
 ]
 assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
 
@@ -302,6 +373,11 @@ DIALOGUE_TEMPLATE_WEIGHTS = [
     3,  # quickfire              — many short turns
     2,  # clarify_then_answer    — several short turns
     3,  # reactive_chat          — many short turns w/ backchannels
+    # v7 templates are addressed by name through `examples_per_template`; the legacy
+    # weighted path must never sample them or existing corpora would change shape.
+    0,  # mrag_qa
+    0,  # mrag_mixed
+    0,  # mrag_two_facts
 ]
 
 
@@ -344,6 +420,8 @@ TEMPLATE_EXTRA_FACTS: dict[str, int] = {
     # 6-8 turns of "several short, quick questions" off ONE gold fact means the rest are invented
     # too -- it had the second-highest live-question rate (4.0%) after followup_topic_change.
     "quickfire": 2,
+    # v7: the second question is supplied, never invented (the v6 lesson).
+    "mrag_two_facts": 1,
 }
 
 #: Prepended to the supplied facts. The OVERRIDE sentence is load-bearing: `followup_topic_change`'s

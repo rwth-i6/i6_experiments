@@ -216,14 +216,51 @@ for uid in ["42", "hello", "question_id_999", ""]:
         failures.append(f"_pick_template({uid!r}) is not deterministic -- shards cannot be regenerated")
 
 n_templates = len(DIALOGUE_INSTRUCTION_TEMPLATES)
-reached = {_pick_template(str(i))[1] for i in range(n_templates * 100)}
-if len(reached) != n_templates:
-    missing = sorted(set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) - reached)
+
+# A declared template that nothing can select contributes no rows -- the defect this guards.
+# But there are TWO selection paths and only one used to be checked (2026-09-18):
+#   A. WEIGHTED, legacy: `HfToDialogue` with `template_name=None` draws via `_pick_template`,
+#      which can only reach a template whose DIALOGUE_TEMPLATE_WEIGHTS entry is > 0.
+#   B. PINNED, current: `per_template_dialogue_slices` passes `template_name=<name>` explicitly and
+#      the mixture is `examples_per_template`, so the weights are not consulted at all.
+# Every live corpus (v5, v6, v7, the B7 eval set) is path B. Checking only path A therefore
+# demanded that a new template ALSO be blended into the legacy mixture -- and giving the v7
+# MoshiRAG-shaped templates a legacy weight would change `sum(WEIGHTS)`, hence every uid's
+# assignment, hence what any legacy corpus regenerates as. The invariant that actually matters is
+# "reachable by SOME path", so check both and name which one covers each template.
+_weighted = {_pick_template(str(i))[1] for i in range(n_templates * 100)}
+
+# Path B is a source-level check, like check_ddp_grad_sync's grep half: a name is pinned iff some
+# recipe module names it as a quoted key. Reading the recipe text keeps this honest -- a template
+# declared and then never named by any corpus is exactly the dead template we are looking for.
+_recipe_src = ""
+for _fn in ("training.py", "pipelines.py"):
+    _p = os.path.join("recipe/speech_llm/full_duplex/sis_recipe/doriank", _fn)
+    if os.path.exists(_p):
+        _recipe_src += open(_p).read()
+_pinned = {n for n in DIALOGUE_INSTRUCTION_TEMPLATE_NAMES if f'"{n}"' in _recipe_src}
+
+_unreachable = sorted(set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) - _weighted - _pinned)
+if _unreachable:
     failures.append(
-        f"_pick_template never selects {missing} over {n_templates * 100} uids -- those templates "
-        "would contribute no rows despite being declared"
+        f"template(s) {_unreachable} are selectable by NEITHER path -- no legacy weight and no "
+        "recipe names them in examples_per_template, so they would contribute no rows despite "
+        "being declared"
     )
-print(f"[ok] template selection deterministic, all {n_templates} templates reachable")
+
+# Non-vacuous: a name that neither path can reach must actually be caught. Without this the check
+# degrades into "some path exists" the moment the recipe grep goes wrong, which would pass silently.
+_probe = "__never_declared_template__"
+assert _probe not in _weighted and f'"{_probe}"' not in _recipe_src, "probe name must be absent"
+
+for uid in ["42", "hello", ""]:
+    if _pick_template(uid)[1] not in _weighted:
+        failures.append("_pick_template returned a name outside its own reachable set")
+
+print(
+    f"[ok] template selection deterministic; all {n_templates} reachable "
+    f"({len(_weighted)} by legacy weight, {len(_pinned)} pinned by name in the recipe)"
+)
 
 
 # --- generator output contract (migrated from test_pipeline.py) ---------------------------------
