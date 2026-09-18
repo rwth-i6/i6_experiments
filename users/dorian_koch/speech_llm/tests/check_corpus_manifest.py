@@ -81,9 +81,19 @@ def check_epoch_arithmetic_is_per_corpus():
         P = lambda s: SimpleNamespace(get=lambda: s)  # noqa: E731
         out_j, out_t = os.path.join(tmp, "m.json"), os.path.join(tmp, "m.txt")
         job = SimpleNamespace(
-            tag="t", note="", entries=[(P(big), 0.5, 60.0), (P(small), 0.5, None)],
-            duration_sec=60, batch_sequences=2, max_steps=10,
-            out_json=P(out_j), out_txt=P(out_t),
+            tag="t",
+            note="",
+            entries=[(P(big), 0.5, 60.0), (P(small), 0.5, None)],
+            duration_sec=60,
+            batch_sequences=2,
+            max_steps=10,
+            # B8 provenance: the fixture models the REAL job, so a field added to run() shows up
+            # here as a missing attribute rather than being silently absent from the output.
+            license=None,
+            source_url=None,
+            retrieved_at=None,
+            out_json=P(out_j),
+            out_txt=P(out_t),
         )
         CorpusManifest.run(job)
         import json
@@ -110,11 +120,21 @@ def check_no_slack_rows_are_counted():
         path = _corpus(tmp, "tight", [60.0, 60.0, 90.0], True)
         P = lambda s: SimpleNamespace(get=lambda: s)  # noqa: E731
         out_j = os.path.join(tmp, "m.json")
-        CorpusManifest.run(SimpleNamespace(
-            tag="t", note="", entries=[(P(path), 1.0, 60.0)], duration_sec=60,
-            batch_sequences=None, max_steps=None,
-            out_json=P(out_j), out_txt=P(os.path.join(tmp, "m.txt")),
-        ))
+        CorpusManifest.run(
+            SimpleNamespace(
+                tag="t",
+                note="",
+                entries=[(P(path), 1.0, 60.0)],
+                duration_sec=60,
+                batch_sequences=None,
+                max_steps=None,
+                license=None,
+                source_url=None,
+                retrieved_at=None,
+                out_json=P(out_j),
+                out_txt=P(os.path.join(tmp, "m.txt")),
+            )
+        )
         import json
 
         c = json.load(open(out_j))["corpora"][0]
@@ -132,9 +152,53 @@ def check_label_is_not_output():
     print("[ok] a corpus is labelled by its job dir, not the 'output' every path ends in")
 
 
+def check_provenance_is_not_hashed():
+    """B8: recording WHERE a corpus came from must never re-run it.
+
+    The backlog specified these fields as "defaulting to None so nothing re-hashes". That is only
+    true while they stay None -- `__sis_hash_exclude__` drops an argument only while it EQUALS the
+    listed default, so the first manifest that actually records a licence would be hashed like any
+    other kwarg and re-run. Hence the unconditional pop in `CorpusManifest.hash`, and hence this
+    check: the interesting case is a POPULATED field, not an absent one.
+    """
+    import sisyphus.job
+
+    entries = [("/some/corpus/output", 1.0, None)]
+
+    def build(**kw):
+        # ⚠ Each construction needs a cleared `created_jobs`: JobSingleton returns the SAME object
+        # for two constructions that hash alike, so without this the equality below would pass
+        # because `a is b` while the populated provenance was silently discarded -- a vacuous pass
+        # in exactly the place this guard watches. Same trap as check_rqmt_not_hashed.py.
+        sisyphus.job.created_jobs.clear()
+        return CorpusManifest(tag="t", entries=entries, duration_sec=60, **kw)
+
+    bare = build()
+    full = build(license="CC-BY-4.0", source_url="https://example.org/ds", retrieved_at="2026-09-18")
+    assert bare._sis_hash() == full._sis_hash(), (
+        "populating provenance moved the hash -- recording a licence would re-run every manifest"
+    )
+
+    # The fields must still REACH the job; a "fix" that routed them nowhere would pass the line
+    # above trivially.
+    assert full.license == "CC-BY-4.0"
+    assert full.source_url == "https://example.org/ds"
+    assert full.retrieved_at == "2026-09-18"
+
+    # Non-vacuous: a real input change MUST still re-hash, or the pop is a blanket mute.
+    other = build()
+    other.duration_sec = None
+    different = CorpusManifest(tag="t", entries=entries, duration_sec=120)
+    assert bare._sis_hash() != different._sis_hash(), (
+        "a differing duration_sec did not re-hash -- the hash is not discriminating at all"
+    )
+    print("[ok] provenance (license/source_url/retrieved_at) is recorded but never hashed")
+
+
 if __name__ == "__main__":
     check_duration_column_and_offset_fallback()
     check_epoch_arithmetic_is_per_corpus()
     check_no_slack_rows_are_counted()
     check_label_is_not_output()
+    check_provenance_is_not_hashed()
     print("ALL PASS")

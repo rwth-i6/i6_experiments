@@ -68,16 +68,54 @@ class CorpusManifest(Job):
 
     __sis_hash_exclude__ = {"note": ""}
 
-    def __init__(self, *, tag, entries, duration_sec, batch_sequences=None, max_steps=None, note=""):
-        """`entries`: list of (tk.Path, weight, window_sec|None) -- paths in VALUE position."""
+    #: Provenance fields (backlog B8). Descriptive metadata about where a corpus CAME FROM -- it
+    #: says nothing about what the manifest computes, so it must never reach the hash.
+    _PROVENANCE = ("license", "source_url", "retrieved_at")
+
+    def __init__(
+        self,
+        *,
+        tag,
+        entries,
+        duration_sec,
+        batch_sequences=None,
+        max_steps=None,
+        note="",
+        license=None,
+        source_url=None,
+        retrieved_at=None,
+    ):
+        """`entries`: list of (tk.Path, weight, window_sec|None) -- paths in VALUE position.
+
+        ``license`` / ``source_url`` / ``retrieved_at`` record where a corpus came from, for the
+        corpora that are not ours (B8). All three are dropped in :meth:`hash`.
+        """
         self.tag = tag
         self.entries = entries
         self.duration_sec = duration_sec
         self.batch_sequences = batch_sequences
         self.max_steps = max_steps
         self.note = note
+        self.license = license
+        self.source_url = source_url
+        self.retrieved_at = retrieved_at
         self.out_json = self.output_path("manifest.json")
         self.out_txt = self.output_path("manifest.txt")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        # Provenance is dropped UNCONDITIONALLY, not via `__sis_hash_exclude__`.
+        #
+        # ⚠ The backlog row specified "defaulting to None so nothing re-hashes", and that is only
+        # half right -- it is true exactly while the fields stay None. `__sis_hash_exclude__`
+        # excludes an argument only while it EQUALS the listed default, so the first corpus that
+        # actually records `license="CC-BY-4.0"` would be hashed like any other kwarg and re-run,
+        # which is the one thing this field must never cause. Same shape as the `compute` pop in
+        # `SpeechFinetune.hash` and the reason `__sis_hash_exclude__` could not do that job either.
+        d = dict(parsed_args)
+        for k in cls._PROVENANCE:
+            d.pop(k, None)
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -123,6 +161,11 @@ class CorpusManifest(Job):
         manifest = {
             "tag": self.tag,
             "note": self.note,
+            # Provenance (B8). Emitted even when None, so a manifest that does NOT record where its
+            # corpus came from says so explicitly rather than by the key being absent.
+            "license": self.license,
+            "source_url": self.source_url,
+            "retrieved_at": self.retrieved_at,
             "duration_sec": self.duration_sec,
             "batch_sequences": self.batch_sequences,
             "max_steps": self.max_steps,
