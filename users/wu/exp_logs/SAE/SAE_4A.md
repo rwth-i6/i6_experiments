@@ -18,8 +18,8 @@ cannot automatically resume. Any explicit continuation must fit the verified rem
 check finite-sample concentration alongside recognition. Live protocol and evidence: "Later user
 selection: M512 training" below. K4 remains vetoed; never restart it or the timed-out 256-draw pack.
 
-Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
-`config/sae_4a_trainable_reverse.py` (8h requested). Three arms unfreeze phi and ablate the sequence LM
+Priority 2: S2f training COMPLETE, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
+`config/sae_4a_trainable_reverse.py`; recognition queued. Three arms unfreeze phi and ablate the sequence LM
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
 `reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
@@ -1679,6 +1679,14 @@ seed teacher, beta-zero LM invariance and aggregate-loss removal; they establish
 Independent review: `reports/codex_4a_s2f_final_code_review_2026-09-18.md`; implementation:
 `reports/codex_4a_s2f_implementation_2026-09-18.md`; launch/monitor handoff:
 `reports/codex_4a_s2f_launch_2026-09-18.md`. Recognition and runtime outcomes remain pending.
+
+**S2f training complete (2026-09-18).** Slurm `1871484_1` completed with exit 0:0 in
+**1h37m56s**, with archived Sisyphus finished markers for `PackedEmcTrainJob.bd0W5Il9CtyN`.
+All three arms have reached the checkpoint evaluation chain. At the verified snapshot, extraction
+for all eight U_joint and U_no_lattice_lm epochs, plus U_no_text_prior epochs 2–8, is queued;
+U_no_text_prior epoch-1 extraction is complete and its two dev-split posterior forwards are queued.
+Recognition and paired gates remain unread; training completion does not establish improvement.
+Evidence: `reports/codex_4a_queue_inventory_2026-09-18.md`.
 
 **S2g independent supervised reverse initialization (user 2026-09-18; registered before results).**
 The user authorizes this baseline now, independently of the conditional queue below. Keep the
