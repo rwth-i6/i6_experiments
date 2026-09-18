@@ -6,9 +6,12 @@
 refinement. Constraints/baselines: `SAE_ref.md`; original gates remain. No GAN or standalone SylCipher.
 
 Priority 1: matched **M512** P3/P6 training RUNNING, `BoundedPathEmcTrainJob.mkNtyN6U5pvr`,
-Slurm `1873833_1`, `config/sae_4a_path512_train.py`. At 18:15 CEST on 2026-09-18, checkpoints
-are 3/1, logs are in epochs 4/2, allocation about 1h15; no WER/training ESS yet.
-Monitor G4a.3, registered fixed/selected paired reads and concentration. Initial 11.5h cannot
+Slurm `1873833_1`, `config/sae_4a_path512_train.py`. At 20:52 CEST on 2026-09-18, P3 has
+finished eight subepochs/477 updates; P6 has checkpoint 6 and is in epoch 7, step 42. Allocation
+used: 3h51m51s. **G4a.3 FAIL at epoch 4 in both arms**, audited; P6 is worse than P3 on dev-other.
+Evidence: "M512 interim recognition" below. Complete the already registered eight-epoch/final
+and selected readouts; WER and live path-concentration results remain pending. Existing watcher is active.
+No further training allocation follows from this failure. Initial 11.5h cannot
 automatically resume; explicit continuation must fit verified **24h cumulative** remainder.
 Protocol: "Later user selection: M512 training". Larger-count benchmark COMPLETE (M1200,
 censored); it does not change M512. K4 remains vetoed; never restart the timed-out 256-draw pack.
@@ -3280,6 +3283,43 @@ in `sae4a_path512_train_manager`; provenance and exact launch environment:
 job directory, with histories and all registered fixed/selected ASR comparisons. A submitted job
 is not a completion or learning result. Preserve checkpoints on interruption and account for
 elapsed allocation before any explicitly bounded continuation. The adaptive benchmark is untouched.
+
+**M512 interim recognition (2026-09-18, audited; full run pending).** The fixed epoch-4
+comparison is available for the registered cold P3/P6 M512 run above, with the same 100 h data,
+cold initializer, eight-subepoch/477-update schedule and tau 8→2 anneal. Each arm samples from
+its own evolving model using the same 512-path rule. The matched evaluation uses the same gold,
+greedy collapse/blank/SIL removal and utterances: dev-other 2864 / 177275 reference phones;
+dev-clean 2703 / 193644 phones. Rates/deltas below are percentages/percentage points.
+
+| Epoch-4 split | P3 PER | P6 PER | P6 − P3 [95% speaker CI] |
+| --- | ---: | ---: | ---: |
+| dev-other | 84.4868 | 86.3799 | +1.8931 [+0.8970, +3.1280] |
+| dev-clean | 82.7606 | 82.7601 | −0.0005 [−0.3078, +0.3109] |
+
+The own-phi same-speaker derangement gaps are positive: corpus per-frame gaps are +2.213992
+(P3) and +2.322235 (P6), each on 500 items / 33 speakers with no drops. The distinct macro
+means are +2.078646 [1.979121, 2.187127] and +2.182352 [2.103110, 2.270082]; those intervals
+belong to the macro statistics. **G4a.3 fails for both arms** because epoch-4 dev-other PER
+exceeds the required 50%, despite the positive gaps. Six-gram does not improve the matched
+epoch-4 dev-other read; the dev-clean contrast is inconclusive.
+
+Latest common saved checkpoint is epoch 6: dev-other PER is 84.1393% P3 / 84.9099% P6.
+No paired epoch-6 interval is available, so this is trajectory context.
+P3 reaches 86.7663% dev-other PER at epoch 8; P6 epoch 8 and both selected/WER outputs are
+pending at this snapshot. No live path ESS or maximum-weight statistic is available; preflight
+concentration extremes cannot diagnose this run's failure. Training has no reported nonfinite/OOM
+error and remains inside its initial allocation, which establishes execution progress only.
+
+The original gate says "continue only if" epoch 4 passes; the later user authorization explicitly
+registers an eight-epoch run and its final/selected evaluations. Finish that existing allocation
+and its reads without treating it as authorization for another run. Preserve the failed gate;
+no phase closure follows from this interim PER read.
+
+Ground truth: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_path512_train/`, specifically
+`{p3_finite,p6_finite}/ep4/` and `p6_minus_p3/ep4/`. Literal extraction and exact later-epoch
+values: `reports/codex_4a_m512_recognition_extract_2026-09-18.md`; independent audit:
+`reports/codex_4a_m512_partial_audit_2026-09-18.md`; runtime/checkpoint/watcher evidence:
+`reports/codex_4a_m512_status_2026-09-18c.md`.
 
 **Adaptive benchmark complete (2026-09-18).** `PathBudgetProfileJob.lEqez28WWd2q`, Slurm
 `1873152_1`, finished successfully (0:0) in **1h33m34s**, with completed Sisyphus markers and
