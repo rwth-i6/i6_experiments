@@ -10,21 +10,24 @@ Constraints and baselines are in `SAE_ref.md`; original failed results and gates
 Priority 1 (user 2026-09-18): reduce six-gram execution cost/search space. The old 256-draw
 P3/P6 pack `PackedEmcTrainJob.ikngRyQaeQTl` timed out without checkpoints; do not restart it.
 G4a.3 is unread. The 16/4-draw screen `ContextBudgetProfileJob.bg8ErQSa8scY` completed in
-23m17s; both counts FAIL the cost gate (audited). Remaining cold allowance: 9h06m30s.
-The equivalent conditional-batching screen is SUBMITTED: `ContextBudgetProfileJob.Ewy32i9ZEc3F`,
-Slurm `1872250_1`, `config/sae_4a_context_grouped_profile.py` (30m cap). It samples real random
-batches across all eight subepochs plus a longest-batch stress, per user correction. On completion,
-audit actual cases against <=48s/numerical checks and deduct allocation use before any training
-release. Protocol/results: "Conditional grouping and random-batch amendment" below; handoff:
-`reports/codex_4a_context_grouped_profile_launch_2026-09-18.md`. No smaller-K training is released.
+23m17s; both counts FAIL the cost gate (audited). The equivalent conditional-batching screen
+`ContextBudgetProfileJob.Ewy32i9ZEc3F` is COMPLETE in 24m42s; K16 and K4 again FAIL, now on
+random actual batches across eight subepochs plus longest-batch stress. K4 takes 49.539–56.638s
+against <=48s; its proposal stage dominates. Remaining cold allowance: 8h41m48s.
+The proposal-group-only K4 screen is SUBMITTED: `ContextBudgetProfileJob.vAFyI06vKHv5`,
+Slurm `1872813_1`, `config/sae_4a_proposal_grouped_profile.py` (30m cap). Audit all eight cases,
+actual group coverage and elapsed allocation before any training release. Protocol/results:
+"Conditional grouping and random-batch amendment" below; launch handoff:
+`reports/codex_4a_proposal_grouping_launch_2026-09-18.md`. No smaller-K training is released.
 
 Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN`,
 `config/sae_4a_trainable_reverse.py` (8h cap). Three arms unfreeze phi and ablate the sequence LM
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
-`reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, still queued).
+`reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
 S2e is complete/audited; its gains are recorded under "Reopened seeded refinement" and do not
-prove freezing necessary. §4b remains complete and unchanged.
+prove freezing necessary. Conditional joint-training ideas are queued below, pending S2f.
+§4b remains complete and unchanged.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
 ## Objective
@@ -1675,6 +1678,53 @@ Independent review: `reports/codex_4a_s2f_final_code_review_2026-09-18.md`; impl
 `reports/codex_4a_s2f_implementation_2026-09-18.md`; launch/monitor handoff:
 `reports/codex_4a_s2f_launch_2026-09-18.md`. Recognition and runtime outcomes remain pending.
 
+**Joint-refinement planning while S2f waits (user 2026-09-18; hypotheses, no new training allocation).**
+Start from the stabilized package: its cycle contribution over matched self-distillation is
+measured by C−D above. S2f first tests whether that package already permits useful phi updates;
+neither a need to freeze nor a need to slow phi follows from the old A/B comparison. Preserve
+the fixed seed KL, tau 2, disabled rate term and registered LM ablations while interpreting it.
+
+The next mechanism read should separate recognizer changes from reverse-model changes using
+the same speech and a crossed evaluation of initial/current theta and initial/current phi at
+fixed registered checkpoints. Compare posterior phone identity, duration/count statistics and
+own-versus-mismatched reconstruction discrimination with speaker controls. Gold-based S/D/I and short/repeated-phone
+errors remain explanatory evaluation only. Better likelihood or these proxies cannot replace
+paired fixed-decoder WER; a checkpoint swap is not the counterfactual training trajectory.
+
+Conditional queue, before combining interventions:
+
+1. **Smaller reverse updates, still trainable.** If S2f and the matched read implicate harmful
+   phi movement, first change only phi's update size against U_joint. Compare changes in its
+   predicted distributions, not raw parameter norms or the nominal theta/phi learning-rate ratio.
+   This is a low-cost hypothesis, not an established cure: older seeded reads show phi fitting
+   durations usefully and refitting phi reducing drift, so slowing an underfitted phi can hurt.
+2. **Give phi a stable seed-conditioned reference.** If harmful co-adaptation persists, consider
+   a reverse-only auxiliary loss from a separate lattice using the frozen seed recognizer and
+   live phi on real speech; preserve theta's current cycle loss. Audio units remain the targets.
+   The hypothesis is to stabilize phone/audio associations while both models learn. Its posterior
+   still depends on phi and can inherit seed errors; this is not a fixed alignment target.
+   The current posterior already detaches, and direct seed KL constrains theta only: adding
+   another detach is a no-op. Specify the auxiliary's weighting, normalization, inherited LM
+   setting and extra DP cost before testing. This differs from the old posterior-tilt anchor
+   in theta's cycle loss and from constraining phi near its imperfect warm start.
+3. **Lagged/EMA targets are a later alternative.** They may reduce target volatility, but lag
+   alone does not anchor phone identity and may also carry errors forward. Retain the fixed seed
+   as a reference; ordinary ASR self-training evidence is not evidence for this joint cycle.
+
+Keep each first comparison to one intervention, retain a matched self-distillation reference,
+and assess both init improvement and the delta against stabilized joint training. No numeric
+update ratio, new regularizer weight, teacher lag or extra spend is selected here. Register the
+chosen follow-up, label-free selection, fixed endpoint and resource cap after S2f's audited read.
+Source feasibility: `reports/codex_4a_joint_objective_review_2026-09-18.md`.
+Independent planning audit: `reports/codex_4a_joint_planning_audit_2026-09-18.md`.
+Literature bounds the analogy: [Makishima et al. 2022](https://www.isca-archive.org/interspeech_2022/makishima22_interspeech.pdf)
+report useful joint ASR–TTS learning and an additional stepwise-training benefit on LibriTTS
+100 h paired plus 360 h text-only data; neither supervision nor reverse targets match this run.
+[Manohar et al. 2021](https://arxiv.org/pdf/2106.07759) support EMA targets in ordinary ASR
+self-training, not EMA of a jointly trained reverse channel. These motivate options, not predicted
+local gains or a new freeze schedule. Verified full-text review and other limits:
+`reports/codex_4a_joint_stability_literature_2026-09-18.md`.
+
 ### Withdrawn standalone-initializer proposal (2026-09-16)
 
 **User scope correction:** the SylCipher-inspired experiment below is withdrawn before any implementation
@@ -2705,11 +2755,79 @@ and hashes are referenced in `reports/codex_4a_context_grouping_impl_2026-09-18.
 Independent source review: `reports/codex_4a_context_grouping_review_2026-09-18.md`; prelaunch
 protocol audit: `reports/codex_4a_random_grouping_protocol_audit_2026-09-18.md`.
 
-**Grouped-screen submission (2026-09-18).** `ContextBudgetProfileJob.Ewy32i9ZEc3F`, Slurm
-`1872250_1`, scheduler-confirmed pending under the registered 30m cap. Registered outputs:
-`output/sae/4a/context_grouped_profile/profile.json` and `profile.txt`. Source hashes match the
-reviewed implementation. Actual selected batches, timings, memory and cost gate remain pending;
-launch/monitor handoff: `reports/codex_4a_context_grouped_profile_launch_2026-09-18.md`.
+**Grouped-screen result (audited 2026-09-18).** `ContextBudgetProfileJob.Ewy32i9ZEc3F`, Slurm
+`1872250_1`, completed 0:0 in 24m42s under the 30m cap; both registered outputs and finished
+markers exist. Outputs: `output/sae/4a/context_grouped_profile/profile.json` and `profile.txt`.
+Source hashes match the reviewed implementation. The 477-batch inventory took 194.489s;
+independent seed-42 sampling selected global steps 173, 417, 146; the earliest maximum was
+step 144 (1226 frames, tied at 451). All four batches were distinct.
+
+| Actual batch (subepoch/local index; utterances/max frames) | K16 cold / trained seconds | K4 cold / trained seconds |
+| --- | ---: | ---: |
+| Random 0 (3/54; 124/708) | 88.909 / 93.632 | 51.336 / 51.421 |
+| Random 1 (8/0; 103/852) | 92.652 / 98.542 | 52.811 / 54.195 |
+| Random 2 (3/27; 113/777) | 91.410 / 100.487 | 55.766 / 56.638 |
+| Maximum stress (3/25; 71/1226) | 97.483 / 98.397 | 49.539 / 50.112 |
+
+Times are complete forward plus neural backward, without optimizer, at cold tau 8 and strict
+banked epoch-8/step-477 tau 2. Both K values have **0/8 cases <=48s: FAIL**; no training release.
+All numerical assertions pass: finite losses and nonzero finite theta/phi gradients, maximum
+posterior row-sum error 4.843e-12, unchanged parameters and absent rate-to-phi gradients.
+The files' `PASS` fields refer only to these assertions and must not be read as the cost verdict.
+For K4, proposal scoring/sampling takes about 29–40s, conditional DP 15–20s; LM and neural
+backward are small. Proposal work is therefore the next efficiency target. These are no paired
+speedup estimates against the old fixed batches, and the screen does not establish whole-run time.
+Remaining cold allowance is 8h41m48s: at most one further 30m screen plus a conditional 8h pack
+fits, with 11m48s left. Keep <=48s and the original ASR gate unchanged.
+Completion: `reports/codex_4a_context_grouped_completion_2026-09-18.md`; literal extraction:
+`reports/codex_4a_context_grouped_results_extract_2026-09-18.md`; fresh audit:
+`reports/codex_4a_context_grouped_results_audit_2026-09-18.md`.
+
+**Proposal-group screen (registered 2026-09-18, before compute).** Prioritize the now-dominant
+proposal stage with one execution-only change: increase its upper group cap from 16 to the
+actual neural batch size, retaining the existing 48 GiB store/transient/resident guards and
+per-tag sampling generators. Keep full-batch conditional grouping. This is smaller than porting
+the recurrence to a compiler and is tested separately; no combined optimization or new estimator.
+Source feasibility: `reports/codex_4a_compile_screen_source_plan_2026-09-18.md`.
+
+Preselect K4 only (three target draws plus one hot draw), which was closer to the unchanged
+cost gate. K16 remains unreleased; this screen cannot qualify it. Replay the same three sampled
+real batches and longest stress, cold tau 8/hot 12 and strict banked epoch-8 tau 2/hot 3, preserving
+source epochs/steps, seeds, all data/order, weights and objective. Verify inventory and selected
+batch metadata against `Ewy32i9ZEc3F`; report actual guarded group sizes and peak memory.
+Each case must execute at least one proposal group above 16 to establish intervention coverage;
+if guards keep all its groups at or below 16, report the no-op and do not qualify training from it.
+Require ordered per-tag proposal/dedup equality and FP64 loss/gradient parity within 1e-10 on
+fixtures crossing the old group boundary and forced memory splitting before GPU measurement.
+Production defaults and old profiler behavior stay unchanged; a hashed profile-only switch
+selects the new path. Compilation remains a separate queued option, not part of this screen.
+
+New wrapper `config/sae_4a_proposal_grouped_profile.py`, registered output prefix
+`output/sae/4a/proposal_grouped_profile/`: one GPU/16 CPUs/64 GiB, gpu_mem 96 GiB,
+30m cap, no automatic repeat. Require **all eight** complete forward+neural-backward cases
+<=48s and the same numerical checks. Keep enumeration overhead separate; no full-run ETA claim.
+At most this allocation plus a conditional 8h P3/P6 pack fits the remaining 8h41m48s with the
+stated reserve. If it fails, do not release training or silently relax the gate; reconcile actual
+remaining allowance before another direction. Source review and protocol audit precede launch.
+Protocol audit: `reports/codex_4a_proposal_grouping_protocol_audit_2026-09-18.md`; its coverage
+and precompute-parity requirements are incorporated above.
+
+**Proposal-screen precompute checks.** The new hashed profiler switch preserves the old false
+path and all production defaults. Sixteen CPU fixtures pass, including K4 sampling 16 versus
+17 at both temperatures and a forced 16+1 sampling split with conditional grouping held at 17:
+ordered proposals/dedup agree exactly, and FP64 losses, masses and gradients agree within 1e-10.
+The explicit release field requires all eight numerical/time/actual-group-coverage checks;
+no-op evidence is retained as ineligible. Source review has no findings and independently verifies
+the manifest and unchanged baseline sources/inputs. These checks do not establish GPU performance.
+Implementation and immutable snapshot: `reports/codex_4a_proposal_grouping_impl_2026-09-18.md`;
+source manifest: `reports/codex_4a_proposal_grouping_sha256_2026-09-18.json`; review:
+`reports/codex_4a_proposal_grouping_source_review_2026-09-18.md`.
+
+**Proposal-screen submission (2026-09-18).** `ContextBudgetProfileJob.vAFyI06vKHv5`, Slurm
+`1872813_1`, scheduler-confirmed pending with the registered resources and 30m cap. All source
+hashes match; output prefix is `output/sae/4a/proposal_grouped_profile/`. Runtime, actual guarded
+group sizes and cost eligibility remain pending. Handoff:
+`reports/codex_4a_proposal_grouping_launch_2026-09-18.md`.
 
 **Compilation option (user 2026-09-18; source evidence only).** The supplied reference
 `/e/project1/spell/wu24/2026-08-27_speech_llm_errrorcor/2027_ICASSP_sync/jpt/jea_round1_optimized_speech_lm_gated_cross_att.py:215`
@@ -2717,16 +2835,19 @@ uses CPU Numba `@njit(fastmath=False)` for a float32 maximum-score CTC path and 
 the wrapper transfers detached emissions and the skip mask to CPU at lines 260–264. This is
 a concrete compilation precedent, not a measured speedup for EMC. Reusing its best-path
 recurrence would change the current alignment marginalization. Assess compilation of the
-existing recurrence, preserving FP64 sums and gradient statistics; consider GPU frame-body
-fusion of `emc/candidates.py::_fixed_phone_step` (also used during checkpoint replay), and a
-CPU Numba implementation where transfer and workload costs permit. The current conditional
+existing recurrence, preserving FP64 sums and gradient statistics. With the measured K4 stage
+costs, prioritize the proposal forward/FFBS tensor cells; keep Python frame slicing, RNG and
+output bookkeeping outside compiled cells and account for shape-driven recompilation. The
+conditional `emc/candidates.py::_fixed_phone_step` is a secondary target. CPU Numba remains a
+candidate where transfer and workload costs permit. The current conditional
 DP computes detached forward/backward posterior statistics and feeds an autograd surrogate;
 compiling only the best-path operation would not supply these. The earlier
 S1b profiling above motivates fusion but does not establish the current candidate bottleneck.
 Any comparison must use matched random real batches plus the registered long-batch stress,
 include transfers and the complete measured training work, and report compilation separately.
 The grouped-screen protocol and gates remain unchanged. Source feasibility review:
-`reports/codex_4a_alignment_compile_feasibility_2026-09-18.md`.
+`reports/codex_4a_alignment_compile_feasibility_2026-09-18.md`; refined source targets:
+`reports/codex_4a_compile_screen_source_plan_2026-09-18.md`.
 
 ### Higher-context pilot result (audited 2026-09-17)
 
