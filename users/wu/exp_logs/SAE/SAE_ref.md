@@ -47,6 +47,13 @@ checkpoint, then change only the reverse initializer in the matched 100 h joint-
 This explicitly authorizes gold phone sequences for reverse initialization; the 100 h adaptation
 remains speech-only. Existing S2f LM ablations and the separate alignment-budget screen continue.
 
+**User proposals, seeded refinement (later 2026-09-18):** reopen back-translation on the supervised
+initializer and consider subepoch-level alternating ASR/reverse updates, including reciprocal
+training with the other model frozen. Keep the LM-prior ablation independent of these proposals.
+These additions concern the seeded track; cold BT failures and the separate M512 protocol remain
+unchanged. Define separate schedule and BT comparisons before combining them; freezing has not
+been established as mandatory. Follow-up specifications and release conditions are in `SAE_4A.md`.
+
 **User supersession, later 2026-09-18:** the user vetoes the K4/few-string direction because it
 defeats the intended exploration. Sample complete alignments instead, starting at 512 and choosing
 as many as measured throughput permits under **24 h wall clock for the complete new training run**.

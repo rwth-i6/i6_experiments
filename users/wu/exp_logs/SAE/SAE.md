@@ -71,8 +71,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
 0. **§4a exact-marginal cycle (EMC) — ACTIVE, ahead of the rest by user direction 2026-09-15.** Phone-level,
    no LLM: CTC recognizer + frozen phone m-gram + semi-Markov unit reverse model, exact DP, tempered (tau = 2).
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
-   S2e improves its 10 h seed (audited). Next priority: reduce six-gram candidate cost after checkpoint-free timeout.
-   Start matched 512-path training within 24h; keep larger-count benchmark running; monitor S2f/S2g.
+   S2e improves its 10 h seed (audited). Next: read M512 and the seeded trainable-phi/LM controls.
+   Monitor M512 within 24h and S2f/S2g; larger-count benchmark complete; seeded BT/alternation queued.
    S3c/DP64 CLOSED FAIL; S3d stopped; cold P3/P6 ASR gate unread. Live state and budgets: `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.

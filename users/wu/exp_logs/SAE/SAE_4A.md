@@ -9,8 +9,8 @@ Constraints and baselines are in `SAE_ref.md`; original failed results and gates
 
 Priority 1: the user selects **512 complete paths** for matched P3/P6 training. All sixteen
 random/stress full-update cases pass the numerical/timing release gate (audited); ASR remains
-unmeasured. The larger-count benchmark continues independently: `PathBudgetProfileJob.lEqez28WWd2q`,
-Slurm `1873152_1`, `config/sae_4a_path_budget_profile.py`, with its existing watcher and 2h cap.
+unmeasured. Larger-count benchmark COMPLETE: fully validated M=1200 (search censored);
+`PathBudgetProfileJob.lEqez28WWd2q`, Slurm `1873152_1`, `config/sae_4a_path_budget_profile.py`.
 M512 training is SUBMITTED: `BoundedPathEmcTrainJob.mkNtyN6U5pvr`, Slurm `1873833_1` (PENDING),
 `config/sae_4a_path512_train.py`. Monitor training and all registered ASR reads. Its initial 11.5h allocation
 cannot automatically resume. Any explicit continuation must fit the verified remainder of the
@@ -23,12 +23,12 @@ Priority 2: S2f is SUBMITTED, Slurm `1871484_1`, `PackedEmcTrainJob.bd0W5Il9CtyN
 or both training text-prior terms. Monitor training and registered recognition chains; audit actual
 fixed/selected paired scores against init and S2e C/D before claims. Protocol below; handoff:
 `reports/codex_4a_s2f_manager_recovery_2026-09-18.md` (same submitted job, existing watcher).
-S2g phi fit: `SupervisedReverseInitJob.4GzzIJEpK5vp`, Slurm `1873518_1`; matched
-joint adaptation `BoundedAdaptationJob.tQrU8qMosRg9` waits for phi (4h+8h caps). Protocol: "S2g
-independent supervised reverse initialization" below. Monitor training, own reads and pending S2f
-comparisons; verify its pending terminal event before claiming completion. Handoff:
-`reports/codex_4a_supervised_reverse_launch_2026-09-18.md`.
-S2e is complete/audited; its gains do not prove freezing necessary. Other joint-training ideas remain queued.
+S2g phi fit is COMPLETE (8 epochs, 8m25s); matched `BoundedAdaptationJob.tQrU8qMosRg9` is
+PENDING, Slurm `1873630_1` (8h cap). Monitor own reads, then deferred comparisons with S2f.
+Protocol/results: "S2g independent supervised reverse initialization" below.
+Seeded BT and matched alternating updates now lead the conditional queue; retain the independent
+S2f LM ablation. Read existing results before selecting/funding a new arm. S2e's audited gains
+do not prove freezing necessary. Specifications: "User-prioritized seeded BT and alternating updates".
 §4b remains complete and unchanged.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
@@ -1773,6 +1773,25 @@ Manager PID `743880`, process start token `190657206`; exact launch/source pins 
 Root-pane `%0` watcher is armed at 60s intervals: event `sis-743880-3604204852-STfmV4nf`,
 monitor `/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.743880.STfmV4nf`.
 
+**Independent phi fit complete (2026-09-18).** Slurm `1873518_1` completed with exit 0:0 in
+**8m25s**, with archived Sisyphus finished markers, all eight checkpoints and 2,824 updates.
+The random/stress cost gate passed. Training conditional NLL/frame changed from 4.46945 at epoch 1
+to 3.29034 at epoch 8; held-out NLL/frame changed from 3.51912 to 3.38357, with its lowest recorded
+value 3.36134 at epoch 6. Keep the preregistered epoch-8 export; these fitting curves do not establish
+an ASR improvement or monotone held-out convergence. Ground truth is this job's
+`output/history.json`, `output/cost_gate.json` and `output/models/epoch.008.pt`.
+The matched 100 h joint-adaptation job is now submitted as Slurm `1873630_1`, PENDING for priority
+with its unchanged 8h allocation; S2f `1871484_1` is also PENDING. Own PER/WER and the paired
+S2f comparisons remain unread. Status evidence: `reports/codex_4a_seeded_monitor_repair_2026-09-18.md`.
+
+Current handoff: `config/sae_4a_supervised_reverse_init.py` covers S2g's own outputs and the
+available init/C comparisons. After S2g and S2f finish, run
+`config/sae_4a_supervised_reverse_compare.py` for the full registered graph, including all ten
+paired U_joint outputs. These comparisons remain required for completion. Both wrappers retain
+the original training job identities and byte-identical adaptation config; code pin `e1352581a`.
+Current manager is `1032883`, start token `190995602`, owner `wu24`, in
+`sae_4a_s2g_20260918_core`; log `log/sae_4a_supervised_reverse_init.manager.core.log`.
+
 **Joint-refinement planning while S2f waits (user 2026-09-18; hypotheses, no new training allocation).**
 Start from the stabilized package: its cycle contribution over matched self-distillation is
 measured by C−D above. S2f first tests whether that package already permits useful phi updates;
@@ -1787,6 +1806,62 @@ errors remain explanatory evaluation only. Better likelihood or these proxies ca
 paired fixed-decoder WER; a checkpoint swap is not the counterfactual training trajectory.
 
 Conditional queue, before combining interventions:
+
+**User-prioritized seeded BT and alternating updates (2026-09-18).** The user reopens these
+options ahead of the older mechanism remedies below. S2f's independent LM ablation continues
+unchanged; S2g measures independent reverse initialization. No new GPU allocation is released by
+this planning amendment. First obtain their registered results, audit the matched comparisons,
+then register the selected follow-up's cost screen and allocation before launch, with fresh
+protocol audit and source review. Earlier cold
+BT gate failures remain closed; they do not settle BT from a supervised initializer.
+
+- **BT package alone:** compare with S2f `U_joint` from its original theta and warm phi, retaining
+  real-speech cycle learning and the fixed seed KL. Add the existing detached text→phi units→real
+  L15-frame collage→theta CTC package. Start from the smallest existing BT reference setting:
+  weight 0.1, four-subepoch ramp, 128 text sentences per eligible real batch, full theta depth,
+  argmax unit content with sampled durations/speaker/frame nuisance. This is a reference setting,
+  not a seeded optimum. Generation gives phi no BT gradient; phi remains trainable on real speech.
+  The separate BT optimizer step increases theta exposure, so any gain belongs to this whole
+  training package. Keep the existing synthetic-pass BatchNorm policy and disclose the rolling
+  frame-pool mean fallback and its reset after a resumed process; do not silently change rendering.
+- **Alternation alone:** keep U_joint's initialization, objective and optimizer values. For each
+  of its eight logical data subepochs, replay the same batch inventory in two blocks: theta updates
+  with phi fixed, then phi updates with theta fixed. Each side receives the same real-speech
+  exposure and number of updates as U_joint; the extra passes and total optimizer calls are part
+  of the cost. A simple odd/even split of the original eight subepochs is not this matched design:
+  it halves per-side updates and couples each model to different partition slots. Preserve Adam
+  state across switches, set inactive gradients to None, and freeze all inactive model state,
+  including theta BatchNorm buffers, with an explicit frozen-teacher evaluation mode. Common
+  validation remains unchanged. This is block-coordinate training; its posterior is still
+  recomputed under the live side, so it is not an EM monotonicity guarantee.
+- **Reciprocal BT / combination:** keep as a later, separately specified comparison. Frozen phi
+  generating units/features to train theta and frozen theta generating phone targets for phi are
+  feasible directions. Training phi with fixed pseudo-phone strings and real units via its
+  conditional likelihood changes the current soft lattice objective as well as the schedule.
+  Specify hard/soft targets, refresh timing, SIL/duration feasibility and normalization before
+  implementing it; do not treat an additional detach as a new objective. Combine BT and alternation
+  only after the individual comparisons are interpretable.
+
+For either first follow-up, retain the common fixed epoch-8 endpoint, fixed decoder and paired
+speaker-bootstrap WER comparisons against the original 10 h initializer and matched U_joint;
+claim improvement only when the corresponding delta CI upper bound is below zero. Report greedy
+PER, dev-clean and fixed epoch-4 diagnostics separately, keeping G4a.S2d/G4a.2 and the existing
+label-free secondary selector. If independent supervised phi is used instead, its S2g U_joint
+must be the matched control for every arm; never change initialization in just the intervention.
+No 100 h gold targets enter these methods. The LM-off question uses S2f's fixed endpoint and
+LM-free greedy read, with shared initialization/decoder/selection LM history disclosed as above.
+
+Source constraints and historical BT provenance:
+`reports/codex_4a_seeded_alternation_map_2026-09-18.md`. Methodological evidence:
+`reports/codex_4a_seeded_cycle_literature_2026-09-18.md`.
+[Makishima et al. 2022](https://www.isca-archive.org/interspeech_2022/makishima22_interspeech.pdf)
+motivate staged freezing in a different paired-speech/TTS setting;
+[Hori et al. 2019](https://arxiv.org/pdf/1811.01690) distinguish fixed reverse scoring from
+hard pseudo-transcript training. Neither establishes a benefit here.
+[Minka's EM note](https://tminka.github.io/papers/minka-em-tut.pdf) distinguishes a fixed E-step
+posterior bound from merely alternating parameter blocks. No likelihood guarantee implies WER gain.
+
+The older conditional remedies remain available after these user-prioritized comparisons:
 
 1. **Smaller reverse updates, still trainable.** If S2f and the matched read implicate harmful
    phi movement, first change only phi's update size against U_joint. Compare changes in its
@@ -3073,6 +3148,23 @@ in `sae4a_path512_train_manager`; provenance and exact launch environment:
 job directory, with histories and all registered fixed/selected ASR comparisons. A submitted job
 is not a completion or learning result. Preserve checkpoints on interruption and account for
 elapsed allocation before any explicitly bounded continuation. The adaptive benchmark is untouched.
+
+**Adaptive benchmark complete (2026-09-18).** `PathBudgetProfileJob.lEqez28WWd2q`, Slurm
+`1873152_1`, finished successfully (0:0) in **1h33m34s**, with completed Sisyphus markers and
+`output/profile.json`/`profile.txt`. The largest fully validated measured count is **M1200**:
+all sixteen registered random/stress, cold/trained, P3/P6 cases pass. Full updates take
+31.948–143.444 s against the 144 s gate; peak GPU allocation is 44.341 GiB. The recorded state
+restoration, actual optimizer advancement, both-model updates, finite gradients, absent rate-to-phi
+gradient and normalization checks pass (maximum frame error 2.11e-14).
+
+The search is censored with an open bracket: M1216 fails one P6 case at 144.629 s; M1208 has
+only six P6 cases and no P3 validation. Thus M1200 is a measured bound, not a proven maximum.
+The budget-aware stop reason is `observed_cost_based_remaining_budget`. Source/artifact and
+selection-rule correspondence: `reports/codex_4a_path_budget_terminal_read_2026-09-18.md`.
+Charge the actual 1h33m34s to the pre-screen 8h40m36s cold allowance, leaving 7h07m02s;
+the separately authorized M512 complete-training ceiling remains 24h. No new allocation follows
+from this result. The user's **M512 training stays fixed**, and no ASR benefit is established by
+the benchmark.
 Root-pane `%0` watcher is armed at 60s intervals: event `sis-466543-2020136003-ZrkyAMG9`,
 monitor `/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.466543.ZrkyAMG9`.
 
