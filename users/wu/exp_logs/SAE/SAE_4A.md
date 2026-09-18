@@ -5,16 +5,16 @@
 §4a tracks cold-start cycle learning and disclosed 10 h supervised-init → 100 h speech-only
 refinement. Constraints/baselines: `SAE_ref.md`; original gates remain. No GAN or standalone SylCipher.
 
-Priority 1: matched **M512** P3/P6 training RUNNING, `BoundedPathEmcTrainJob.mkNtyN6U5pvr`,
-Slurm `1873833_1`, `config/sae_4a_path512_train.py`. At 20:52 CEST on 2026-09-18, P3 has
-finished eight subepochs/477 updates; P6 has checkpoint 6 and is in epoch 7, step 42. Allocation
-used: 3h51m51s. **G4a.3 FAIL at epoch 4 in both arms**, audited; P6 is worse than P3 on dev-other.
-Evidence: "M512 interim recognition" below. Complete the already registered eight-epoch/final
-and selected readouts; WER and live path-concentration results remain pending. Existing watcher is active.
-No further training allocation follows from this failure. Initial 11.5h cannot
-automatically resume; explicit continuation must fit verified **24h cumulative** remainder.
-Protocol: "Later user selection: M512 training". Larger-count benchmark COMPLETE (M1200,
-censored); it does not change M512. K4 remains vetoed; never restart the timed-out 256-draw pack.
+Priority 1: matched **M512** P3/P6 training COMPLETE, `BoundedPathEmcTrainJob.mkNtyN6U5pvr`,
+Slurm `1873833_1`, `config/sae_4a_path512_train.py`: both eight subepochs/477 updates,
+4h23m19s allocation. Full registered graph completion is verified. **G4a.3 FAIL at epoch 4
+in both arms**, audited; see "M512 interim recognition" below.
+Requested collapse/diversity inspection COMPLETE and audited over all saved dev items.
+P6 shows strong initial-phone bias and excess short-motif repetition, with distinct whole outputs;
+see "Output-collapse result" for matched reference comparisons and nonmonotone trajectory.
+No WER is needed or registered; the previous "WER pending" description was incorrect.
+This does not release another training run. M512 and the original cold gate stay fixed;
+K4 remains vetoed and the timed-out 256-draw pack must not restart.
 
 Priority 2: S2f COMPLETE and audited, `PackedEmcTrainJob.bd0W5Il9CtyN`,
 `config/sae_4a_trainable_reverse.py`. U_joint meets dev-other PER IMPROVE and WER REFINE
@@ -3320,6 +3320,88 @@ Ground truth: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_path512_train
 values: `reports/codex_4a_m512_recognition_extract_2026-09-18.md`; independent audit:
 `reports/codex_4a_m512_partial_audit_2026-09-18.md`; runtime/checkpoint/watcher evidence:
 `reports/codex_4a_m512_status_2026-09-18c.md`.
+
+**M512 final saved recognition (2026-09-18, audited).** Both arms and all registered readouts
+are finished; no WER job is part of this graph. At fixed epoch 8, dev-other PER is 86.7663%
+(P3) / 87.9989% (P6), with paired P6−P3 delta +1.2325 points [0.3414, 2.2830]. Dev-clean
+PER is 85.3876% / 84.4793%, delta −0.9084 [−1.1859, −0.6395]. The label-free selectors
+choose P3 epoch 4 and P6 epoch 5; dev-other PER is 84.4868% / 85.2529%, dev-clean
+82.7606% / 82.7508%. There is no paired selected-versus-selected interval, so the fixed-8
+intervals do not apply to that contrast. The failed fixed-4 cold gate is retained.
+Completion/artifact inventory: `reports/codex_4a_m512_output_inventory_2026-09-18.md`;
+independent final-read audit: `reports/codex_4a_m512_final_read_audit_2026-09-18.md`.
+These recognition scores do not diagnose the type of output collapse; the requested analysis follows.
+
+**Output-collapse inspection (user clarification 2026-09-18; before measurement).** The user
+requests literal collapse patterns and output diversity, with no WER work. The M512 recipe has
+`word_wer=False`; earlier statements that WER was pending were incorrect. Its registered
+recognition outputs are greedy phones, PER, selectors and paired/derangement diagnostics.
+
+Use all dev-clean/dev-other saved hypotheses and matching evaluation-only reference phones for
+both P3/P6 at epochs 1, 4, 8 and their existing label-free-selected checkpoints. Preserve the
+saved greedy-collapse/blank/SIL convention and report actual checkpoint identities. Measure token
+and utterance counts, empty/duplicate strings, active phone types, unigram entropy/effective
+vocabulary and phone frequencies; bigram/trigram/sixgram diversity and frequent patterns;
+within-utterance repeated trigram/sixgram fractions; adjacent repeats and longest identical-phone
+runs; modal-prefix shares at lengths 1/2/4/8; output/reference length ratios and correlation.
+Report corpus-weighted and per-utterance summaries separately. These fixed inspection scales
+are descriptive, not new gates or selection criteria; compare with reference statistics because
+natural phone sequences repeat too. Copy existing substitution/deletion/insertion totals.
+
+Show matched final-epoch literal examples for the first three lexical utterance IDs per split,
+plus three extreme repetition examples ranked by repeated-trigram fraction (lexical tie-break).
+The latter illustrate extremes, not representative prevalence. Use full sets for all summary
+metrics; do not choose examples by recognition error. Output diversity does not measure sampled
+alignment ESS, recover unseen sixgram support, or by itself establish audio dependence.
+Implementation: `analysis/m512_output_diversity.py`; results:
+`reports/sae_4a_m512_output_diversity_2026-09-18/`. No new decoding/training is requested.
+
+**Output-collapse result (2026-09-18, audited).** Inspection completed on all 2703 dev-clean /
+2864 dev-other utterances, with zero unmatched IDs: P3 epochs 1/4/8 and P6 epochs 1/4/5/8,
+14 distinct arm/checkpoint/split cases. Selected checkpoints are P3=4 and P6=5, not additional
+conditions. Final epoch 8 dev-other results:
+
+| Quantity | Reference | P3 | P6 |
+|---|---:|---:|---:|
+| Distinct complete strings | 2862 | 2864 | 2864 |
+| Empty outputs | 1 | 0 | 0 |
+| Active phone types | 39 | 39 | 38 |
+| Effective unigram vocabulary (2^entropy) | 28.50 | 27.05 | 22.87 |
+| Modal first phone, share of nonempty strings | DH, 15.33% | AH, 69.17% | AA, 93.51% |
+| Within-utterance repeated trigram occurrences | 3.488% | 4.266% | 5.779% |
+| Within-utterance repeated sixgram occurrences | 0.398% | 0.122% | 0.136% |
+| Total emitted/reference phone count | 1 | 0.933 | 0.968 |
+| Paired utterance-length correlation | 1 | 0.960 | 0.961 |
+
+Repeated ngrams count overlapping occurrences after the first within each utterance, divided by
+all eligible windows, aggregated over the corpus. Trigram numerators/denominators are reference
+5984/171549, P3 6815/159736 and P6 9583/165822. P6 begins AA in 2678/2864 items; its modal
+two-phone prefix AA AH occurs in 30.66%, and four-phone prefix AA DH AH M in 7.51%.
+Thus the strongest shared prefix is short. AH accounts for 14.05% of P6 tokens versus 9.53%
+in references. The same pattern appears on dev-clean: P6 starts AA in 92.23%, effective
+vocabulary is 22.55 versus reference 28.33, and repeated trigrams are 6.552% versus 3.978%;
+all 2703 P6 outputs are distinct. Long exact sixgram repetition is below the reference on both
+splits. These data support strong initial-phone bias, skewed phone frequencies and excess short
+motif reuse; whole-string uniqueness alone misses these defects. Length tracking does not
+establish phonetic content dependence on audio, and these diagnostics do not identify a cause.
+
+The trajectory is nonmonotone. On dev-other, P6 AA starts occupy 77.65% at epoch 4, 45.71% at
+selected epoch 5 and 93.51% at epoch 8, while effective vocabulary rises 18.85 → 21.54 → 22.87.
+P3 modal starts fall from 90.85% at selected epoch 4 to 69.17% at epoch 8. Epoch-1 aggregate
+length ratios are only P3 0.480 / P6 0.426; differing lengths qualify repetition comparisons.
+
+Literal first-16-phone prefixes for the prespecified first lexical dev-other ID `116-288045-0000`:
+reference `EH Z AY AH P R OW CH T DH AH S IH T IY` (116 phones total),
+P3 `AH V R AH L AE T AY CH AH S EY T IY D` (97),
+P6 `AA AH AE F AH M P IH NG K M AO R T ER` (98).
+One prespecified repetition extreme, P6 `4570-14911-0009`, contains Z DH AH ten times in
+184 phones; repeated trigrams 26.37% versus matched reference 9.22%. This is an extreme,
+not corpus prevalence. Full examples and per-utterance values are in
+`reports/sae_4a_m512_output_diversity_2026-09-18/{summary.md,results.json,per_utterance.tsv}`.
+Execution: `reports/codex_4a_m512_diversity_execution_2026-09-18.md`;
+independent raw-output/full-cohort verification:
+`reports/codex_4a_m512_diversity_results_audit_2026-09-18.md` (DONE).
+The descriptive inspection is complete; G4a.3 and training authorization are unchanged.
 
 **Adaptive benchmark complete (2026-09-18).** `PathBudgetProfileJob.lEqez28WWd2q`, Slurm
 `1873152_1`, finished successfully (0:0) in **1h33m34s**, with completed Sisyphus markers and

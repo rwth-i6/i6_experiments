@@ -39,6 +39,12 @@ follow-up separates removing the sequence-LM factor from removing both it and th
 aggregate regularizer. Shared warm initialization and the evaluation decoder retain their disclosed
 LM history/use; this is not an LM-never-used claim. Live cost and seeded protocols are in `SAE_4A.md`.
 
+**User clarification, 2026-09-18 (M512 output inspection):** no WER work is needed for the current
+read. Inspect actual phone-output collapse patterns and diversity, using saved hypotheses and
+evaluation-only references. The original cold gate is retained. Word decoding is disabled in the
+M512 recipe; prior status wording that WER was pending was incorrect. Live diagnostic scope is
+in `SAE_4A.md`, "Output-collapse inspection".
+
 **User amendment, independent supervised initialization (2026-09-18):** add a baseline that fits
 the reverse model independently on the same labeled 10 h used for the recognizer. Condition on
 the gold phone sequences and observed speech units, marginalizing segment durations; do not use

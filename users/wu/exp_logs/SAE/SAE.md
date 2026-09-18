@@ -73,7 +73,9 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    GAN-lineage init retired; supervised-seed S2d FAIL and S3b-CT CLOSED FAIL. S3b-OR endpoint is audited;
    S2e and S2f U_joint improve their 10 h seed (audited); S2f LM-ablation WER gains are final-only.
    S2g is complete: fixed-endpoint improvement over init and S2f passes (audited).
-   M512 epoch-4 cold gate FAIL in both arms (audited); finish registered final/WER reads within 24h.
+   M512 training and full registered graph complete; epoch-4 cold gate FAIL in both arms (audited).
+   Output-diversity inspection complete and audited: strong P6 initial-phone bias and excess short
+   motif repetition, with distinct whole outputs. Results in §4a; no WER work or new training.
    Seeded BT/alternation awaits a registered new allocation. S3c/DP64 CLOSED FAIL; S3d stopped.
    Live state and budgets: `SAE_4A.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
