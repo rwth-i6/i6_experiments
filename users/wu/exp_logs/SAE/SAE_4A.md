@@ -16,19 +16,15 @@ No further training allocation is authorized. Protocol and evidence: "Reopened s
 handoff: `reports/codex_4a_s2e_training_completion_and_reads_2026-09-18.md`.
 Do not restart stopped S3d `ReturnnTrainingJob.Pso7oeIpqYjY`; its checkpoints 1–6 remain.
 
-Matched 256-draw P3/P6 training is RUNNING: `PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`,
-wrapper `config/sae_4a_context_train.py`. It retains execution caps 16/4, eight subepochs, fixed
-epoch-4/8 and label-free-selected evaluations, and G4a.3. The user accepted a 19.1h projection with
-the existing 1.1 margin (21.01h total allowance); the former 512-draw pack remains superseded.
-
-The last cold-run status read had no checkpoint or recognition output; the measured runtime makes
-the old full-run projection unreliable. See "Live training cost and recognition status" below.
-Automatic continuation is held pending a runtime/budget decision; no additional budget is authorized.
-
-At the existing watcher wake-up, check both arms' actual checkpoints and terminal state before any
-resume. Do not automatically repeat a run that saved no checkpoint. If evaluations exist, retain
-the registered paired PER/gap and hypothesis checks. Profiling provenance and the unchanged
-scientific protocol are below. §4b is complete and left unchanged at the user's request.
+Matched 256-draw P3/P6 training TIMED OUT without a checkpoint:
+`PackedEmcTrainJob.ikngRyQaeQTl` / SLURM `1859550_1`, `config/sae_4a_context_train.py`.
+It is PAUSED for execution cost; G4a.3 and all recognition readouts remain unread. An automatic
+retry would repeat unsaved work. The remaining accepted allowance is 9h29m47s; no additional
+budget or protocol change is authorized. Before any restart, establish a viable execution plan
+within that allowance or obtain a user-approved budget/protocol amendment. Keep the registered
+candidate objective, data and gates unchanged. See "First allocation timeout" below and
+`reports/codex_4a_context_timeout_2026-09-18.md`; the cold allocation watcher has terminated.
+S2e readout monitoring continues independently. §4b remains complete and unchanged.
 
 ## Objective
 
@@ -2444,10 +2440,38 @@ Startup consumed about 1.5 minutes. P3 steps 1/5/10/21 were logged after 0:09:07
 2:11:30 / 4:21:32; P6 steps 1/5/10/20 after 0:09:51 / 1:03:13 / 2:29:13 / 4:24:11. Latest step
 times were 975.9s and 996.9s. This operating point is substantially slower than the isolated first-batch
 profile used for the accepted projection. No full-run ETA or convergence claim is supported yet.
-The current allocation remains active, with any automatic continuation held pending a decision
-within the accepted total budget. Timing and execution evidence:
+At that status read the allocation remained active, with automatic continuation held pending a
+decision within the accepted total budget. Timing and execution evidence:
 `reports/codex_4a_context_time_limit_status_2026-09-17.md`. No training objective, checkpoint, gate
 or registered evaluation was changed by this status read.
+
+**First allocation timeout (2026-09-18).** SLURM `1859550_1` reached its 11h30m cap and ended
+TIMEOUT at 05:32:22 CEST after 11h30m49s elapsed (start 2026-09-17 18:01:33). P3's last completed
+step is subepoch 1 / step 52, 90.24% of that subepoch; P6's is step 46, 79.37%. Both model
+directories are empty: no checkpoint or optimizer state, no completed-epoch loss history, and
+no epoch-4/8 PER, gap, selection or hypothesis artifact. Although Sisyphus labels the task
+`interrupted_resumable`, resubmission would start again from registered flat theta / random phi;
+it cannot recover these partial updates. This is an execution limit, not a read of G4a.3 or evidence
+for or against six-gram recognition quality.
+
+The accepted profile itself is reproduced: actual P6 step 0 takes 144.375s versus 143.953577s in
+the profile, at the same 128-by-392-frame batch and matching printed losses. The next P6 batches
+have padded lengths 577/654/697 and take 420/655/789s. Later completed-step medians are 897.085s
+for P3 and 1001.968s for P6. The short first batch was not representative of later work; multiplying
+its cost by 477 updates underestimated the run. The profile did exercise the training-mode loss,
+rate finite differences and backward with the accepted 256 draws / 16-and-4 execution caps.
+Length and learned state change together in the logs, so their individual cost contributions are
+not isolated, and no equivalent execution repair is demonstrated. Do not replace the old estimate
+with a new whole-run extrapolation from these partial-epoch observations.
+
+Decision: keep this run paused and preserve its artifacts. Actual allocation use leaves 9h29m47s
+of the accepted 21h00m36s; repeating the current execution has not shown it can even reach its first
+checkpoint within that remainder. No restart, extra allocation, data/candidate reduction or gate
+change was made. A restart requires a viable execution plan within the remainder or a user-approved
+budget/protocol amendment. The cold watcher is terminal; there is no active cold job to re-arm.
+The independently monitored S2e recognition readouts continue. Evidence:
+`reports/codex_4a_context_timeout_2026-09-18.md`,
+`reports/codex_4a_context_runtime_comparison_2026-09-18.md`.
 
 **Sampling clarification.** The 256 draws are complete joint paths. Their emitted phone strings are
 deduplicated, and the conditional DP subsequently sums every legal alignment/reverse segmentation
