@@ -26,7 +26,7 @@ fixed/selected paired scores against init and S2e C/D before claims. Protocol be
 S2g phi fit is COMPLETE (8 epochs, 8m25s); matched `BoundedAdaptationJob.tQrU8qMosRg9` is
 PENDING, Slurm `1873630_1` (8h cap). Monitor own reads, then deferred comparisons with S2f.
 Protocol/results: "S2g independent supervised reverse initialization" below.
-Seeded BT and matched alternating updates now lead the conditional queue; retain the independent
+Seeded BT and odd/even subepoch alternation lead the conditional queue; retain the independent
 S2f LM ablation. Read existing results before selecting/funding a new arm. S2e's audited gains
 do not prove freezing necessary. Specifications: "User-prioritized seeded BT and alternating updates".
 §4b remains complete and unchanged.
@@ -1824,12 +1824,12 @@ BT gate failures remain closed; they do not settle BT from a supervised initiali
   The separate BT optimizer step increases theta exposure, so any gain belongs to this whole
   training package. Keep the existing synthetic-pass BatchNorm policy and disclose the rolling
   frame-pool mean fallback and its reset after a resumed process; do not silently change rendering.
-- **Alternation alone:** keep U_joint's initialization, objective and optimizer values. For each
-  of its eight logical data subepochs, replay the same batch inventory in two blocks: theta updates
-  with phi fixed, then phi updates with theta fixed. Each side receives the same real-speech
-  exposure and number of updates as U_joint; the extra passes and total optimizer calls are part
-  of the cost. A simple odd/even split of the original eight subepochs is not this matched design:
-  it halves per-side updates and couples each model to different partition slots. Preserve Adam
+- **Alternation alone (user correction, 2026-09-18):** keep U_joint's initialization, objective,
+  optimizer values and original eight-subepoch data schedule. Train theta only in subepochs
+  **1, 3, 5, 7**, with phi frozen; train phi only in **2, 4, 6, 8**, with theta frozen.
+  This supersedes the same-batch replay proposal: use one pass per subepoch, with no replay or
+  added subepochs. Each model is active in four subepochs rather than all eight; report actual
+  per-side updates and exposure under the unchanged partition-4 ordering. Preserve Adam
   state across switches, set inactive gradients to None, and freeze all inactive model state,
   including theta BatchNorm buffers, with an explicit frozen-teacher evaluation mode. Common
   validation remains unchanged. This is block-coordinate training; its posterior is still

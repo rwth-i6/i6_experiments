@@ -50,6 +50,8 @@ remains speech-only. Existing S2f LM ablations and the separate alignment-budget
 **User proposals, seeded refinement (later 2026-09-18):** reopen back-translation on the supervised
 initializer and consider subepoch-level alternating ASR/reverse updates, including reciprocal
 training with the other model frozen. Keep the LM-prior ablation independent of these proposals.
+The user clarifies single-pass odd/even subepoch alternation, without replaying batches; the exact
+schedule is specified in `SAE_4A.md`.
 These additions concern the seeded track; cold BT failures and the separate M512 protocol remain
 unchanged. Define separate schedule and BT comparisons before combining them; freezing has not
 been established as mandatory. Follow-up specifications and release conditions are in `SAE_4A.md`.
