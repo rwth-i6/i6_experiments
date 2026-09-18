@@ -49,6 +49,10 @@ WINNER_TRAIN_JOB = "i6_core/returnn/training/ReturnnTrainingJob.8iFbool3x3TU"
 DLM_DATA_STAGE = "train"
 # Continue-train the winner with GlowTTS TTS audio added to its paired-audio branch (winner_plus_tts.py).
 WINNER_PLUS_TTS = True
+# Quick comparability check: plain-CTC recog of an already-written finetune checkpoint, e.g. 1 for
+# epoch.001.pt. 0 = off. The checkpoint is referenced as a RAW PATH (no creator), so this does not
+# depend on the still-running training job and is runnable the moment the file exists.
+EVAL_FINETUNE_EPOCH = 1
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
 
@@ -161,6 +165,53 @@ def py():
         from .winner_plus_tts import train_winner_plus_tts
 
         train_winner_plus_tts(prefix=f"{prefix}/winner-plus-tts", winner_model=winner_model)
+
+    if EVAL_FINETUNE_EPOCH:
+        # Same plain-CTC recog as the winner's `ctc-only-batched` row, on the finetune's epoch-N
+        # checkpoint, so the two numbers are directly comparable (winner: 1.78/3.95/1.92/4.34).
+        import dataclasses
+        from i6_core.returnn.training import PtCheckpoint
+        from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
+        from .winner_plus_tts import FINETUNE_TRAIN_JOB
+
+        _ep = EVAL_FINETUNE_EPOCH
+        _ckpt = tk.Path(f"{FINETUNE_TRAIN_JOB}/output/models/epoch.{_ep:03d}.pt")
+        _ft_model = dataclasses.replace(ctc_lm_kwargs["ctc_model"], checkpoint=PtCheckpoint(_ckpt))
+        _ctc_res = _ctc_only_recog_batched(
+            prefix=f"{prefix}/winner-plus-tts/ctc-only-ep{_ep:03d}",
+            task=ctc_lm_kwargs["task"],
+            ctc_model=_ft_model,
+            aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
+            num_shards=ctc_lm_kwargs["num_shards"],
+            extra_config=ctc_lm_kwargs.get("extra_config"),
+        )
+        # The winner's BEST configuration (1.36/2.93/1.56/3.24): CTC+AED+LM label-sync first-pass
+        # search, no prior. Same call as exp2026_05_28_tts_encoder_fzj.py:3064, only the checkpoint
+        # differs, so the numbers are directly comparable.
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+            ctc_aed_lm_label_sync_recog_auto_scale_batched,
+        )
+
+        _ls_res = ctc_aed_lm_label_sync_recog_auto_scale_batched(
+            prefix=f"{prefix}/winner-plus-tts/ctc+aed+lm-labelsync-ep{_ep:03d}",
+            task=ctc_lm_kwargs["task"],
+            aed_ctc_model=_ft_model,
+            lm=ctc_lm_kwargs["lm"],
+            aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
+            num_shards=ctc_lm_kwargs["num_shards"],
+        )
+        # "Never miss a result" sink: a mini_task that fires exactly when these recogs finish,
+        # writing output/RESULTS/<tag> + a line in RESULTS.jsonl, so a landed WER cannot sit unread.
+        # This setup had no sink at all; the job lives in our own tree, so it is a free import.
+        notify_result(
+            f"winner-plus-tts-ep{_ep:03d}",
+            {"ctc_only": _ctc_res.output, "ctc_aed_lm_labelsync": _ls_res.output},
+            note=(
+                f"winner+TTS finetune epoch {_ep}. Winner baselines"
+                " (dev-clean/dev-other/test-clean/test-other):"
+                " plain CTC 1.78/3.95/1.92/4.34, label-sync 1.36/2.93/1.56/3.24."
+            ),
+        )
 
     # End-to-end check (2026-09-16): the same winner recogs with the 729M DLM (LfAv45zfWLtF).
     # The builder looks up _get_imported_dlm at call time, so swapping it makes the DLM-sum recogs
