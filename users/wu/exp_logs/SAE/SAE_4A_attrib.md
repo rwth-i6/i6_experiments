@@ -7,9 +7,20 @@ constraint stand). Gold enters evaluation only.
 
 ## State
 
-Phase registered; design review and three implementers dispatched in parallel (steps 1, 2+3, 4).
-No job launched yet. Watcher: none. NEXT: code review of each delta, then launch steps 1-3 at once;
-step 4 launches after its weight-0 profile (100 updates) projects a run under the allocation limit.
+Design review done and folded in (amendments below). Steps 2 and 3 (four arms) are reviewed and
+RUNNING since 2026-09-19 ~11:35, one manager each, started from the setup dir under the sis venv:
+norev pid 609684 `BoundedBlankfreeTrainingJob.QolqasLCAL94` Slurm 1890449; agg1 pid 609688
+`.81Kc6iySxEBH` 1890448; agg10 pid 609690 `.bDYARBE8qXp6` 1890450; k64 pid 609686 (upstream
+`MfccFeatureJob.2eZj7qHNWU8Z` 1890446, `BlankfreeCodeUnitsJob.hUMSFX5whbSo` 1890447, then
+`.3AwI6Poud7xt`; k64 manager loaded the graph with the dev-K64 gap jobs). Watchers (re-arm first
+on resume, one per manager, from the setup dir):
+`bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_{norev,agg1,agg10,k64}.py 120`.
+Step 1: job built, code review returned four fixes (count-matched JSD primary, inventory assert,
+frozen input paths, margins in the summary); implementer applying them; not launched. Step 4:
+fairseq port in progress (implementer hit a turn limit once; resumed with interim-report order).
+NEXT: on each watcher verdict dispatch executor; launch step 1 after its fix and re-review of the
+diff only; step 4 profile before any full arm. Launch reports:
+`reports/sae_attrib_steps23_launch_2026-09-19.md`.
 
 ## Question
 
@@ -124,6 +135,17 @@ Original step texts above stand as provenance; the following supersede them wher
   signature; it is consistent with the directional H1 and does not by itself establish it. The GAN
   row is decoded from the weighted_lm_ppl-selected checkpoint (seed 0, update 148000, `SAE_1c.md`),
   since `per.json` stores no strings.
+- **Step 1 implementation notes (before any read).** Reader and job:
+  `recipe/i6_experiments/users/wu/experiments/unsupervised_asr/ngram_mode_seeking.py`
+  (`NgramModeSeekingJob`, Witten-Bell trigram fit by the job; config `config/sae_4a_attrib_ngram.py`).
+  The reproduction's PER job stored no strings, so the GAN row is decoded from `checkpoint_best.pt`
+  (= update 148000) by the existing `GanPseudoLabelJob` on the valid split, restricted to the
+  2864 dev-other ids; its labels are SIL-stripped, so the SIL-inclusive secondary is n/a for the GAN
+  row. Bootstrap convention fixed now: decisive comparisons are per-resample differences with
+  percentile CIs; single-row JSDs render the plug-in estimate with a reverse-percentile CI, because
+  resampling inflates the plug-in JSD. Known defect: `PhoneNgramPrior.per_token_log_probs`
+  double-counts length-1 sequences (worked around in the reader; training-path use to be checked
+  in code review).
 - **Step 2.** Zeroing emission and duration together leaves an unnormalized segmentation count that
   favors maximal phone rate, a non-content confound. Amended delta: the emission score is zero, the
   duration model is frozen at its cold initialization (a proper distribution over legal d), phi gets
