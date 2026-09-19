@@ -14,8 +14,13 @@ Primary strings   SIL-REMOVED for every row and for the text side.  SIL tokens f
                   string are stripped and counted (``sil_stripped``); ``<SIL>``/``[SIL]``/``sil``
                   spellings are mapped onto ``SIL`` by ``emc.prior``'s one alias table before that,
                   so a fairseq-dictionary hypothesis and an EMC decode share the inventory.  Every
-                  row is asserted to be inside the 39 ARPAbet monophones; the text side and the
-                  reference (gold) row are asserted to realise all 39.
+                  row is asserted to be inside the 39 ARPAbet monophones; the text side, the
+                  reference (gold) row and any row flagged ``require_full_inventory`` (the GAN row,
+                  whose symbols come from the fairseq generator's own dictionary) are asserted to
+                  realise all 39.  A row file may cover more utterances than the reference set (the
+                  GAN decode covers dev-clean + dev-other): it is RESTRICTED to the reference ids,
+                  the surplus is counted in ``ids_dropped``, and no reference id may be missing, so
+                  the restricted id set equals the reference set exactly.
 Estimator         ONE trigram, fit by this job on the SIL-stripped text corpus and used for every
                   row: interpolated Witten-Bell (trigram -> bigram -> unigram -> uniform), i.e.
                   ``emc.prior.PhoneNgramPrior.from_counts``, the single smoothing implementation of
@@ -36,11 +41,16 @@ JSD               base 2 (bits), n = 1..4, between the row's n-gram distribution
                   JSD(P,Q) = 0.5 KL(P||M) + 0.5 KL(Q||M), M = (P+Q)/2.
 Secondary         mean log P3 per token under the TRAINING SIL-INCLUSIVE trigram (``prior_npz``) on
                   the SIL-inclusive strings, for the model rows that have one; gold is n/a.
-Uncertainty       utterance-block bootstrap, ``n_bootstrap`` resamples, ``seed``, CI95 as the
-                  2.5/97.5 percentiles, on every mean log-prob and every JSD.  The SAME resampled
-                  utterance multiset is used for every row inside a replicate, so the rendered
-                  differences are paired.  The text side is fixed (not resampled): the CIs describe
-                  utterance sampling of the rows only.
+Uncertainty       utterance-block bootstrap, ``n_bootstrap`` resamples, ``seed``.  The SAME
+                  resampled utterance multiset is used for every row inside a replicate, so every
+                  difference is paired.  The text side is fixed (not resampled): the intervals
+                  describe utterance sampling of the rows only.  Interval conventions, fixed before
+                  the read: a per-row mean log-prob carries the PERCENTILE CI95; a per-row JSD
+                  carries the plug-in point estimate with the REVERSE-PERCENTILE (bias-corrected)
+                  CI95, because a resample covers only ~63% of the distinct utterances, which
+                  shrinks the observed n-gram support and inflates a plug-in JSD; every decisive
+                  comparison is a per-resample difference summarised by the PERCENTILE CI95.  The
+                  json carries ``ci95``, ``ci95_basic`` and ``bootstrap_bias`` for every statistic.
 Rendered          ``summary.md`` MUST render, explicitly and each as a PAIRED-difference bootstrap
                   with its CI95 (SAE_4A_attrib.md "Design-review amendments", 2026-09-19):
                     (a) ep4 mean SIL-free trigram log-prob per phone MINUS the GAN's,
@@ -137,12 +147,17 @@ class PhoneRow:
     """One scored row: per-utterance phone id sequences, SIL-free (primary) and raw (secondary)."""
 
     def __init__(self, name: str, utt_ids: Sequence[str], primary: Sequence[Sequence[int]],
-                 raw: Optional[Sequence[Sequence[int]]] = None, sil_stripped: int = 0):
+                 raw: Optional[Sequence[Sequence[int]]] = None, sil_stripped: int = 0,
+                 ids_dropped: int = 0, secondary_na_reason: Optional[str] = None):
         self.name = name
         self.utt_ids = list(utt_ids)
         self.primary = [np.asarray(s, dtype=np.int64) for s in primary]
         self.raw = None if raw is None else [np.asarray(s, dtype=np.int64) for s in raw]
         self.sil_stripped = int(sil_stripped)
+        # utterances present in the row's file but outside the reference set (e.g. the GAN decode
+        # covers dev-clean + dev-other and is restricted here to the dev-other reference ids)
+        self.ids_dropped = int(ids_dropped)
+        self.secondary_na_reason = secondary_na_reason
         assert len(self.primary) == len(self.utt_ids)
         assert self.raw is None or len(self.raw) == len(self.utt_ids)
 
@@ -187,11 +202,19 @@ def _to_ids(tokens: Sequence[str]) -> List[int]:
 
 
 def build_row(name: str, path: str, *, utt_ids: Sequence[str], split: Optional[str] = None,
-              raw_path: Optional[str] = None) -> PhoneRow:
-    """One row on the reference utterance set; SIL stripped from the primary strings."""
+              raw_path: Optional[str] = None, require_full_inventory: bool = False,
+              secondary_na_reason: Optional[str] = None) -> PhoneRow:
+    """One row RESTRICTED to the reference utterance set; SIL stripped from the primary strings.
+
+    The restricted id set is asserted to equal the reference set exactly (no reference utterance
+    may be missing); ids outside it are dropped and counted.  ``require_full_inventory`` asserts
+    that the row realises all 39 ARPAbet monophones after the alias mapping -- the inventory check
+    for a row whose symbols come from a foreign dictionary (the fairseq generator's).
+    """
     raw_map = load_phone_json(path, split)
     missing = [u for u in utt_ids if u not in raw_map]
     assert not missing, f"{name}: {len(missing)} reference utterances missing, e.g. {missing[:3]}"
+    ids_dropped = len(raw_map) - len(utt_ids)
     primary, stripped = [], 0
     for utt in utt_ids:
         ids = _to_ids(raw_map[utt])
@@ -204,9 +227,13 @@ def build_row(name: str, path: str, *, utt_ids: Sequence[str], split: Optional[s
         missing = [u for u in utt_ids if u not in sil_map]
         assert not missing, f"{name}: SIL-inclusive strings miss {len(missing)} utterances"
         sil_inclusive = [_to_ids(sil_map[utt]) for utt in utt_ids]
-    row = PhoneRow(name, utt_ids, primary, sil_inclusive, stripped)
+    row = PhoneRow(name, utt_ids, primary, sil_inclusive, stripped, ids_dropped=ids_dropped,
+                   secondary_na_reason=secondary_na_reason)
     outside = set(row.inventory()) - set(_prior.ARPABET_39)
     assert not outside, f"{name}: symbols outside the 39 ARPAbet monophones: {sorted(outside)}"
+    if require_full_inventory:
+        absent = set(_prior.ARPABET_39) - set(row.inventory())
+        assert not absent, f"{name}: the mapped inventory misses {sorted(absent)} of the 39 ARPAbet phones"
     return row
 
 
@@ -373,7 +400,8 @@ def analyse(rows: Sequence[PhoneRow], *, fit, text_ngrams: Dict[int, "np.ndarray
     per_row = {}
     for row in rows:
         entry = {"n_utts": row.n_utts, "n_phones": row.n_phones, "sil_stripped": row.sil_stripped,
-                 "inventory": row.inventory()}
+                 "ids_dropped": row.ids_dropped, "inventory": row.inventory(),
+                 "secondary_na_reason": row.secondary_na_reason}
         sums, toks = _utt_logprobs(fit, row.primary)
         entry["_lp"] = (sums, toks)
         entry["_tables"] = {n: _row_ngram_table(row.primary, n, text_ngrams[n]) for n in orders}
@@ -436,12 +464,14 @@ def _difference(result: dict, left: str, right: str, kind: str, order: Optional[
             **_stat(point, samples)}
 
 
-def _fmt(stat: Optional[dict], digits: int = 4) -> str:
+def _fmt(stat: Optional[dict], digits: int = 4, interval: str = "ci95",
+         na: Optional[str] = None) -> str:
+    """``value [lo, hi]`` under the requested interval convention (see ``_stat``)."""
     if stat is None:
-        return "n/a"
+        return na or "n/a"
     if not stat.get("available", True):
         return f"n/a (missing row: {', '.join(stat['missing'])})"
-    lo, hi = stat["ci95"]
+    lo, hi = stat[interval]
     return f"{stat['value']:.{digits}f} [{lo:.{digits}f}, {hi:.{digits}f}]"
 
 
@@ -455,8 +485,14 @@ def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[s
              f"{spec['text_side']['tokens_counted']} phones, SIL stripped "
              f"({spec['text_side']['sil_tokens_stripped']} SIL tokens removed)",
              f"- estimator: {spec['text_side']['smoothing']}, natural log; JSD base 2 (bits)",
-             f"- bootstrap: {spec['n_bootstrap']} utterance resamples, seed {spec['seed']}, CI95 percentile, "
-             "paired across rows", ""]
+             f"- bootstrap: {spec['n_bootstrap']} utterance-block resamples, seed {spec['seed']}, "
+             "one shared resample per replicate so every difference is paired",
+             "- interval conventions (fixed before the read): a per-row mean log-prob carries the "
+             "percentile CI95; a per-row JSD carries the plug-in point estimate with the "
+             "REVERSE-PERCENTILE (bias-corrected) CI95, because resampling utterances shrinks the "
+             "observed n-gram support and inflates a plug-in JSD; every decisive comparison is a "
+             "per-resample difference with the percentile CI95. The json carries both intervals "
+             "and the bootstrap bias for every statistic.", ""]
     header = "| row | utts | phones | mean log P3 per phone (nats) | " + \
              " | ".join(f"JSD n={n}" for n in orders) + " | secondary log P3 per token (SIL-incl.) |"
     lines += [header, "|" + "---|" * (4 + len(orders) + 1)]
@@ -468,8 +504,10 @@ def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[s
         rec = rows[name]
         cells = [name, str(rec["n_utts"]), str(rec["n_phones"]),
                  _fmt(rec["mean_logprob_per_phone"])]
-        cells += [_fmt(rec["jsd"][str(n)]) for n in orders]
-        cells.append(_fmt(rec["secondary_mean_logprob_per_token_sil_inclusive"]))
+        cells += [_fmt(rec["jsd"][str(n)], interval="ci95_basic") for n in orders]
+        cells.append(_fmt(rec["secondary_mean_logprob_per_token_sil_inclusive"],
+                          na=f"n/a: {rec['secondary_na_reason']}" if rec.get("secondary_na_reason")
+                          else "n/a"))
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "## Pre-registered comparisons (paired-difference bootstrap, CI95)", ""]
     comp = result["comparisons"]
@@ -480,15 +518,8 @@ def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[s
         stat = comp[key]
         left, right = stat["left"], stat["right"]
         lines.append(f"({tag}) {left} minus {right}, {what}: {_fmt(stat)}")
-        if stat.get("available"):
-            blo, bhi = stat["ci95_basic"]
-            lines.append(f"      bootstrap bias {stat['bootstrap_bias']:+.4f}; "
-                         f"bias-corrected (reverse-percentile) CI95 [{blo:.4f}, {bhi:.4f}]")
-    lines += ["", "CI95 above is the percentile interval of the paired difference replicates. "
-                  "Resampling utterances shrinks the observed n-gram support, which inflates a "
-                  "plug-in JSD, so a JSD percentile interval sits above the full-sample value; the "
-                  "reverse-percentile interval recentres on it. Both are in the json for every "
-                  "statistic."]
+    lines += ["", "Each comparison above is the difference of the two rows inside the SAME "
+                  "resample, summarised by the percentile CI95 of those differences."]
     ref = comp["jsd4_reference_line"]
     per_row = ", ".join(f"{name} {value:.4f}" for name, value in ref["rows_jsd4"].items())
     lines += ["", f"Reference line (descriptive only, decides nothing): Lin's gold-vs-text 4-gram JSD "
@@ -507,11 +538,14 @@ def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[s
 class NgramModeSeekingJob(Job):
     """CPU, in-process: fit the SIL-free trigram on the text side and score the banked decodes.
 
-    :param rows: ordered ``{row name: {"path": tk.Path, "split": str|None, "raw": tk.Path|None}}``;
-        ``path`` holds the SIL-removed (primary) strings, ``raw`` the SIL-inclusive ones (secondary,
-        scored under ``prior_npz``), ``split`` selects a split inside a split-keyed json.
-    :param reference_row: the row whose utterance ids define the scored set; every other row must
-        cover it exactly (paired bootstrap).
+    :param rows: ordered ``{row name: cfg}`` with ``cfg`` keys ``path`` (the SIL-removed primary
+        strings; ``None`` = the row is absent and its comparisons render as n/a), ``raw`` (the
+        SIL-inclusive strings for the secondary read under ``prior_npz``), ``split`` (a split key
+        inside a split-keyed json), ``require_full_inventory`` (assert the row realises all 39
+        ARPAbet phones after the alias mapping) and ``secondary_na`` (the reason rendered in the
+        secondary column when the row has no SIL-inclusive strings).
+    :param reference_row: the row whose utterance ids define the scored set; every other row is
+        restricted to those ids and must cover all of them (paired bootstrap).
     :param corpus_phn: the phonemized text corpus behind the training trigram (SIL-inclusive; this
         job strips SIL).
     :param prior_npz: the TRAINED SIL-inclusive trigram, for the secondary read only.
@@ -560,10 +594,13 @@ class NgramModeSeekingJob(Job):
                 print(f"row {name}: ABSENT (no per-utterance hypotheses given)", flush=True)
                 continue
             row = build_row(name, cfg["path"], utt_ids=utt_ids, split=cfg.get("split"),
-                            raw_path=cfg.get("raw"))
+                            raw_path=cfg.get("raw"),
+                            require_full_inventory=bool(cfg.get("require_full_inventory")),
+                            secondary_na_reason=cfg.get("secondary_na"))
             rows.append(row)
             print(f"row {name}: {row.n_utts} utts, {row.n_phones} phones, "
-                  f"{len(row.inventory())} phone types, {row.sil_stripped} SIL stripped", flush=True)
+                  f"{len(row.inventory())} phone types, {row.sil_stripped} SIL stripped, "
+                  f"{row.ids_dropped} ids outside the reference set dropped", flush=True)
         ref = next(r for r in rows if r.name == self.reference_row)
         missing_inv = set(_prior.ARPABET_39) - set(ref.inventory())
         assert not missing_inv, f"the reference row misses {sorted(missing_inv)} of the 39 ARPAbet phones"
