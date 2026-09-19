@@ -62,7 +62,13 @@ from i6_experiments.users.dorian_koch.speech_llm.common import (
 )
 from i6_experiments.users.dorian_koch.speech_llm.tts import InstallFFmpeg
 
-CHANNEL_MODES = ("diarize_mask", "stereo_passthrough", "mono_both", "dialogue_sidon")
+CHANNEL_MODES = (
+    "diarize_mask",
+    "stereo_passthrough",
+    "mono_both",
+    "dialogue_sidon",
+    "dialogue_sidon_whole",
+)
 
 # 🔴 `diarize_mask` is REJECTED for production duplex data (user, by ear, 2026-09-19).
 # It is a per-sample gate on the mono mix, not separation: in overlap BOTH channels receive the
@@ -675,6 +681,33 @@ DUPLEX_SEC_PER_EPISODE_HOUR = 69.6
 DUPLEX_RETENTION = 0.427
 
 
+#: 🔴 PREDICTED, NOT MEASURED -- replace with the pilot's own `sec_per_episode_hour` before sizing
+#: anything at corpus scale. Derived from the measured dialogue-path breakdown by re-pricing the two
+#: stages that stop being filter-scoped when the WHOLE episode is separated:
+#:
+#:    decode    2.71  (unchanged -- already whole-episode)
+#:    diarize  34.50  (unchanged -- already whole-episode)
+#:    separate 65.90  (was 28.14 at 42.7% retention, i.e. 28.14 / 0.427)
+#:    encode    9.98  (was 4.26, same reasoning)
+#:             ------
+#:            113.09  vs 69.6 for the dialogue path = 1.63x
+#:
+#: The dialogue path's 69.6 was measured end to end on JRE #2553 and its BREAKDOWN was not what the
+#: per-stage model predicted (decode 5x faster, separate 2x slower), which is exactly why this
+#: number is marked predicted: the same could be true again. `PodcastEpisodeIngest` writes
+#: `summary.json` with the real figure per shard, and `metrics.jsonl` per episode.
+EPISODE_SEC_PER_EPISODE_HOUR = 113.1
+
+
+def episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
+    """Episode-hours one WHOLE-EPISODE separating shard can do in ``target_runtime_hours``.
+
+    ~127 episode-hours at the 4 h default, so JRE's ~5,500 h is ~44 shards (vs ~27 for the
+    dialogue path, which only separates what survives filtering).
+    """
+    return (float(target_runtime_hours) * 3600.0) / EPISODE_SEC_PER_EPISODE_HOUR
+
+
 def duplex_episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
     """Episode-hours one SEPARATING shard can do in ``target_runtime_hours``, from measured cost.
 
@@ -703,6 +736,10 @@ def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) 
         # way runs ~5.3 h per job against a 4 h target -- under the 8 h walltime, so it would
         # never fail, just quietly miss the target the sharding exists to hit.
         return duplex_episode_hours_per_shard(target_runtime_hours)
+    if channel_mode == "dialogue_sidon_whole":
+        # Separation runs on 100% of the episode here, not the ~42.7% that survives filtering, so
+        # this must NOT reuse the dialogue constant -- doing so under-shards by ~33%.
+        return episode_hours_per_shard(target_runtime_hours)
     per_hour = MIMI_SEC_PER_AUDIO_HOUR + DECODE_SEC_PER_AUDIO_HOUR
     if channel_mode == "diarize_mask":
         per_hour += DIARIZE_SEC_PER_AUDIO_HOUR
@@ -1002,6 +1039,267 @@ class PodcastDuplexIngest(Job):
             with_hf_home=True,
             extra_env=env,
         )
+
+
+class PodcastEpisodeIngest(Job):
+    """Download -> diarize -> SEPARATE THE WHOLE EPISODE -> repair permutation -> Mimi-encode.
+
+    The difference from :class:`PodcastDuplexIngest` is *when* DuplexChat's editorial filter is
+    applied. That job calls ``run_separation`` inside ``for dlg in extract_valid_dialogues(...)``,
+    which bakes the filter into the artifact: 57% of JRE is discarded at ingest and cannot be
+    recovered without paying for separation again. This job separates the whole episode and stores
+    the **full** diarization beside the codes, so slicing becomes a separate, cheap, CPU-only job
+    (:class:`PodcastDialogueSlice`) re-runnable at any parameters, for ever.
+
+    That works because ``dialogue.py`` imports nothing but ``dataclasses`` and reads only
+    ``seg["speaker"]/["start"]/["end"]`` -- ``extract_valid_dialogues`` is a **pure function of the
+    diarization segments**. Store the segments and their slicing is reproducible bit-for-bit later.
+
+    Whole-episode separation needs no change to their code: ``run_separation`` already chunks
+    internally (120 s chunks, 10 s overlap, cross-fade stitch).
+
+    **What this keeps that their pipeline discards**, none of it recoverable later without re-running
+    the whole separation pass:
+
+    * ``exclusive_speaker_diarization`` -- the same turns with overlaps removed. Its **difference**
+      from ``speaker_diarization`` is the overlap map, free, and overlap is the full-duplex signal.
+    * ``speaker_embeddings`` -- one centroid per speaker, stored with the label list because
+      pyannote documents them as "sorted in ``speaker_diarization.labels()`` order" and without the
+      labels the matrix is anonymous. Cross-episode identity, guest de-duplication and PersonaPlex
+      voice prompts need this; nothing else provides it.
+    * the per-window permutation evidence (see below).
+
+    ⚠ **Permutation.** ``separate._maybe_swap`` decides each chunk's channel assignment against the
+    previous chunk **as already stitched** -- a chain, with no margin threshold and the decision
+    discarded. Over ~89 chunks of a 2.7 h episode, routed through ad breaks, one bad link propagates
+    to the end. We leave their function alone and repair the stitched output afterwards against the
+    episode-level diarization (``moshi_family.perm_repair``), which cannot drift because every
+    window is scored against one episode-wide reference. **Measured (Test A, 2026-09-19, 18 episodes
+    with ground truth from per-speaker mics): the chain preserves speaker identity 14/18, the
+    anchored repair 18/18.** The failure mode is MUSIC interludes (3/6 chained), not solo ad reads
+    (6/6) -- a solo read still has one consistent voice to correlate, music has none. The repair also
+    fixes the global convention for free: channel 0 is always the longest-speaking speaker, the same
+    way in every episode.
+
+    ⚠ **Two venvs, one job.** DialogueSidon's environment is torch 2.11.0+cu128 and the moshi stack
+    is 2.12.1+cu126, so they cannot share a process. The worker runs in the DuplexChat venv and
+    shells out per episode to ``podcast_mimi_encode.py`` in the moshi venv. Separated audio lives
+    only in ``$TMPDIR`` and is unlinked immediately -- never stored durably.
+
+    ⚠ **One episode per encoder call, deliberately.** A 2.7 h episode is ~1.9 GB of float32 stereo
+    crossing the venv boundary as a wav; batching multiplies that in ``$TMPDIR``. The mimi model load
+    (~15 s) amortises fine over hours of audio, so there is nothing to win by batching here.
+
+    ⚠ **Mimi is causal**, so slicing frames out of a whole-episode encode is NOT bit-identical to
+    encoding that dialogue alone -- each window inherits left-context from before it. This is the
+    more inference-faithful of the two (the model streams from the start) and is the deliberate
+    trade; it means parity against :class:`PodcastDuplexIngest` is checked on *spans*, not on codes.
+
+    ⚠ **Cost.** Separation now runs on 100% of the episode rather than the ~42.7% that survives
+    filtering, so the whole pass is ~1.6x the dialogue path: measured ~69.6 s/episode-hour there,
+    predicted ~110 here. **Derive the shard count from a measured shard's own
+    ``sec_per_episode_hour``, not from that prediction** -- ``shards_for_hours`` is wired for it.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None, "max_items": 0}
+
+    def __init__(
+        self,
+        *,
+        duplex_venv_python,
+        mimi_venv_python,
+        repo_dir: tk.Path,
+        index_dir: tk.Path,
+        shard_idx: int,
+        diarization_model: str = "pyannote/speaker-diarization-community-1",
+        num_steps: int = 30,
+        seed: int = 1234,
+        repair_permutation: bool = True,
+        max_xcorr: float = 0.30,
+        max_failure_frac: float = 0.25,
+        drift_tolerance_sec: float = 5.0,
+        download_workers: int = 6,
+        max_items: int = 0,
+        code_version: int = 1,
+        duplexchat_commit: str = DUPLEXCHAT_COMMIT,
+        env_ffmpeg_path: tk.Path | None = None,
+        rqmt: dict | None = None,
+    ):
+        self.duplex_venv_python = duplex_venv_python
+        self.mimi_venv_python = mimi_venv_python
+        self.repo_dir = repo_dir
+        self.index_dir = index_dir
+        self.shard_idx = int(shard_idx)
+        self.diarization_model = diarization_model
+        self.num_steps = int(num_steps)
+        # Hashed on purpose: the diffusion is seeded from it, so it decides the audio the corpus is
+        # built from. We deliberately do NOT store the separated waveform, so the seed plus this
+        # code is the only thing that makes the audio reproducible at all.
+        self.seed = int(seed)
+        self.repair_permutation = bool(repair_permutation)
+        self.max_xcorr = float(max_xcorr)
+        self.max_failure_frac = float(max_failure_frac)
+        self.drift_tolerance_sec = float(drift_tolerance_sec)
+        self.download_workers = int(download_workers)
+        self.max_items = int(max_items)
+        self.code_version = int(code_version)
+        self.duplexchat_commit = duplexchat_commit
+        self.env_ffmpeg_path = env_ffmpeg_path
+        self.out_dir = self.output_path("codes", directory=True)
+        # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
+        # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
+        self.rqmt = rqmt or {"gpu": 1, "cpu": 8, "mem": 64, "time": 8}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        # WHERE our ffmpeg lives and HOW FAST we go are not WHAT this job computes. If any reached
+        # the hash, tuning concurrency would re-run every already-ingested shard. Everything that
+        # can change the CONTENT -- num_steps, seed, max_xcorr, the diarizer, whether the
+        # permutation is repaired -- stays hashed on purpose.
+        for k in ("env_ffmpeg_path", "download_workers"):
+            d.pop(k, None)
+        return super().hash(d)
+
+    def tasks(self):
+        # Resumable: `done` is rebuilt from the arrow parts already written, so Sisyphus reschedules
+        # an interrupted shard on its own. Per CLAUDE.md, do NOT clear such a task with
+        # `hpc-rerun --include-interrupted`.
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        try:
+            with open(os.path.join(self.out_dir.get(), "progress.json")) as f:
+                p = json.load(f)
+            return f"{p.get('ok', 0)} ok / {p.get('failed', 0)} failed, {p.get('episode_hours', 0)} ep-h"
+        except Exception:  # noqa: BLE001
+            return None
+
+    def run(self):
+        lib_parent = _moshi_family_lib_parent()
+        script = os.path.join(lib_parent, "moshi_family", "podcast_episode_main.py")
+        encoder = os.path.join(lib_parent, "moshi_family", "podcast_mimi_encode.py")
+        shard = os.path.join(self.index_dir.get(), f"shard_{self.shard_idx:05d}.jsonl")
+        if not os.path.exists(shard):
+            raise FileNotFoundError(
+                f"{shard} does not exist -- shard_idx {self.shard_idx} is outside the num_shards "
+                "the index was built with; the two are set independently and must agree."
+            )
+
+        env: dict[str, str] = {}
+        if self.env_ffmpeg_path is None:
+            raise ValueError(
+                "env_ffmpeg_path is required: decoding to 16 kHz mono for the separator goes "
+                "through OUR ffmpeg, never a system one. It is also the TIME BASE a later slice "
+                "job must reproduce. Pass env_ffmpeg_path=InstallFFmpeg().out_path (hash-free)."
+            )
+        InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+
+        args = [
+            "--shard_jsonl",
+            shard,
+            "--out_dir",
+            self.out_dir.get(),
+            "--repo_src",
+            os.path.join(self.repo_dir.get(), "src"),
+            "--duplexchat_commit",
+            self.duplexchat_commit,
+            "--ffmpeg_dir",
+            self.env_ffmpeg_path.get(),
+            "--mimi_python",
+            self.mimi_venv_python.get(),
+            "--mimi_encoder",
+            encoder,
+            "--moshi_lib_parent",
+            _moshi_pythonpath(),
+            "--diarization_model",
+            self.diarization_model,
+            "--num_steps",
+            self.num_steps,
+            "--seed",
+            self.seed,
+            "--repair_permutation",
+            1 if self.repair_permutation else 0,
+            "--download_workers",
+            self.download_workers,
+            "--max_xcorr",
+            self.max_xcorr,
+            "--max_failure_frac",
+            self.max_failure_frac,
+            "--drift_tolerance_sec",
+            self.drift_tolerance_sec,
+        ]
+        if self.max_items:
+            args += ["--max_items", self.max_items]
+
+        run_worker_script(
+            self.duplex_venv_python.get(),
+            script,
+            args,
+            log_label=f"Podcast episode ingest shard {self.shard_idx}",
+            with_hf_home=True,
+            extra_env=env,
+        )
+
+
+def podcast_episode_codes(
+    *,
+    duplex_venv_python,
+    mimi_venv_python,
+    tag: str,
+    source: str,
+    num_shards: int,
+    rss_urls: list[str] | None = None,
+    manifest: tk.Path | None = None,
+    max_episodes: int = 0,
+    register: bool = True,
+    require_all_shards: bool = True,
+    exclude_audio_urls: list[str] | None = None,
+    **ingest_kwargs,
+):
+    """Wire work-index -> N sharded WHOLE-EPISODE separating ingests -> codes index.
+
+    Returns ``(codes_index_dir, work_index_dir, shard_dirs)``.
+
+    The output is one row per EPISODE with the full diarization attached, which is an intermediate
+    artifact rather than a training corpus: run :class:`PodcastDialogueSlice` over it to get
+    training-shaped rows. That separation is the entire point -- the expensive, once-only work
+    (download, diarize, separate, encode) lands here, and every editorial decision about what counts
+    as a usable dialogue becomes a cheap CPU job downstream.
+
+    ⚠ ``num_shards`` must come from ``shards_for_hours(..., channel_mode="dialogue_sidon")``, which
+    prices the whole-episode path from its own measured cost. Sizing it with the gating model gives
+    ~33% too few shards and jobs that quietly overrun the target runtime.
+    """
+    repo = duplexchat_repo()
+    index = PodcastWorkIndex(
+        source=source,
+        num_shards=num_shards,
+        rss_urls=rss_urls,
+        manifest=manifest,
+        max_episodes=max_episodes,
+        exclude_audio_urls=(SMOKE_AUDIO_URLS if exclude_audio_urls is None else exclude_audio_urls),
+    )
+    shard_dirs = []
+    for k in range(num_shards):
+        job = PodcastEpisodeIngest(
+            duplex_venv_python=duplex_venv_python,
+            mimi_venv_python=mimi_venv_python,
+            repo_dir=repo,
+            index_dir=index.out_dir,
+            shard_idx=k,
+            env_ffmpeg_path=InstallFFmpeg().out_path,
+            **ingest_kwargs,
+        )
+        shard_dirs.append(job.out_dir)
+    codes_index = PodcastCodesIndex(in_dirs=shard_dirs, require_all_shards=require_all_shards)
+    if register:
+        tk.register_output(f"podcast_episodes/{tag}/work_index", index.out_dir)
+        tk.register_output(f"podcast_episodes/{tag}/codes_index", codes_index.out_dir)
+    return codes_index.out_dir, index.out_dir, shard_dirs
 
 
 def podcast_duplex_codes(

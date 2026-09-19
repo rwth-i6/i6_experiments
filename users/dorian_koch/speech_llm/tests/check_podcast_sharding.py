@@ -25,9 +25,11 @@ from i6_experiments.users.dorian_koch.speech_llm.podcast_ingest import (  # noqa
     CHANNEL_MODES,
     DUPLEX_RETENTION,
     DUPLEX_SEC_PER_EPISODE_HOUR,
+    EPISODE_SEC_PER_EPISODE_HOUR,
     REJECTED_CHANNEL_MODES,
     audio_hours_per_shard,
     duplex_episode_hours_per_shard,
+    episode_hours_per_shard,
     shards_for_hours,
 )
 
@@ -95,6 +97,28 @@ print("[5] the rejected mode is declared, so a caller can refuse it")
 check("diarize_mask is marked rejected", "diarize_mask" in REJECTED_CHANNEL_MODES)
 check("dialogue_sidon is NOT rejected", "dialogue_sidon" not in REJECTED_CHANNEL_MODES)
 check("stereo_passthrough is NOT rejected (dual-channel sources)", "stereo_passthrough" not in REJECTED_CHANNEL_MODES)
+
+print("[5b] the WHOLE-EPISODE mode is priced separately from the dialogue mode")
+whole = audio_hours_per_shard("dialogue_sidon_whole", 4.0)
+check("dialogue_sidon_whole == episode_hours_per_shard", whole == episode_hours_per_shard(4.0))
+check("dialogue_sidon_whole ~127 input-h/shard", 120.0 < whole < 135.0, f"got {whole:.1f}")
+# Non-vacuous, and the whole reason the mode exists: separation runs on 100% of the episode here
+# rather than the 42.7% that survives filtering, so reusing the dialogue constant under-shards.
+check(
+    "it is MEANINGFULLY cheaper per shard than the dialogue path",
+    sep / whole > 1.5,
+    f"dialogue {sep:.0f} vs whole {whole:.0f} input-h per shard",
+)
+n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
+check("JRE whole-episode == 44 shards", n_whole == 44, f"got {n_whole}")
+whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0
+check("...landing within 5% of the 4 h target", whole_h <= 4.0 * 1.05, f"{whole_h:.2f} h")
+check(
+    "sizing it with the DIALOGUE model would overrun",
+    (JRE_H / n_sep) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0 > 4.0 * 1.15,
+    "the two models agree too closely for this to be a real trap",
+)
+print(f"       -> {n_whole} shards @ {whole_h:.2f} h  (dialogue path: {n_sep} @ {good_h:.2f} h)")
 
 print("[6] retained hours, so a corpus size is never quoted as input hours")
 retained = JRE_H * DUPLEX_RETENTION
