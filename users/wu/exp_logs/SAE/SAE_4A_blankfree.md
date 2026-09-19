@@ -5,18 +5,16 @@
 User-authorized main direction: unsupervised VAD, stride-3 CNN from the local wav2vec-U 2.0
 reproduction, adjacent repeat collapse, no CTC blank, and exact-trigram cycle marginalization.
 Implementation/source review and joint VAD preparation `BlankfreeVadHdfJob.SAjz8y1cT06g` are
-complete. No new-model training result exists.
+complete. The first four-subepoch cold training and its registered evaluations are complete.
 
 Corrected profile `BlankfreeCostProfileJob.kh2oJqt9Jb6a` is complete and independently audited:
 the original finite-update and cost gate passes. See "Actual-data cost profile" below.
-Root released `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL` through `config/sae_4a_blankfree.run`
-for the registered first four subepochs, one eight-hour allocation without automatic resume.
-Manager 475675/start 195377114 is launched; Slurm 1885150 is PENDING. Generated config confirms
-`num_epochs=4`. Root watcher is armed at
-`/e/scratch/spell/wu24/codex-sisyphus-monitor/monitor.475675.aibHKPru`. Launch/artifacts:
-`reports/sae_blankfree_training_launch_2026-09-19.md`.
-Next: inspect epoch-1/4 outputs and the epoch-4 own-phi derangement result.
-Extension to eight remains conditional on the unchanged G4a.3 gate.
+`BoundedBlankfreeTrainingJob.5lBwcDjv2ItL`, Slurm 1885150, completed exit 0:0 in 43m59s;
+the full `config/sae_4a_blankfree.run` graph has 19 finished jobs and no active/error job.
+Epoch-1/4 output and epoch-4 own-phi results are independently audited; see result section below.
+G4a.3 FAILS: dev-other PER 0.864877 exceeds 0.50, despite a positive own-phi gap. The cold
+four-subepoch experiment is complete; no extension to eight or replacement experiment is released.
+Watcher `monitor.475675.aibHKPru` is terminal DONE; no re-arm for this completed graph.
 
 The separate supervised 10 h branch ends after independent theta/phi initialization and evaluation;
 the user explicitly excludes 100 h adaptation. Audited support job
@@ -157,7 +155,7 @@ the tested numerical contracts, not runtime or recognition. Reports:
 
 Joint-mask preparation `7f09df6` has a two-utterance HDF fixture and mismatch failure check;
 the actual corpus reconciliation is complete (see actual-data support result below). Report:
-`reports/sae_blankfree_data_impl_2026-09-18.md`. No new-model training result exists.
+`reports/sae_blankfree_data_impl_2026-09-18.md`.
 
 The model/train/profile/evaluation integration is committed as `323de02` and independently
 source-reviewed. A tiny end-to-end CPU step has finite loss and nonzero gradients in both
@@ -197,6 +195,55 @@ root releases the registered first four subepochs, not the conditional eight-sub
 Actual profiling allocations total 8m47s + 8m42s = 17m29s, within the original 30-minute budget.
 Evidence: `reports/sae_blankfree_profile_finiteness_completion_2026-09-19.md` and
 `reports/sae_blankfree_profile_finiteness_audit_2026-09-19.md`.
+
+## First cold four-subepoch result (2026-09-19)
+
+Training `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL` completed the registered four subepochs
+(partition 4) in one Slurm allocation of 43m59s, exit 0:0. Epoch-1 and epoch-4 checkpoints and
+all registered evaluations are complete. This is the bundled VAD/stride-3/blank-free/exact-P3
+operating point above, with cold initialization and unchanged data/schedule. The checkpoints'
+training temperatures are 8 and 2 respectively; evaluation uses registered greedy decoding.
+SIL-inclusive adjacent repeats are collapsed before SIL removal, with no second collapse.
+
+Full dev-other (2864 utterances, unchanged 177275 reference phones):
+
+| Measure | Epoch 1 | Epoch 4 |
+|---|---:|---:|
+| Distinct phone strings | 2864 | 2864 |
+| Empty strings | 0 | 0 |
+| Emitted non-SIL phones | 120187 | 169036 |
+| Phones / original-audio second | 6.53204 | 9.18694 |
+| Non-SIL phone types used | 39 | 38 |
+| Most frequent phone / share | AH / 14.08% | N / 12.94% |
+| Strings of at most 5 phones | 4 | 4 |
+| Strings of at most 10 phones | 76 | 19 |
+| Original-reference PER | 0.834602 | 0.864877 |
+
+Dev-clean PER is 0.826548 at epoch 1 and 0.848407 at epoch 4. Epoch-4 dev-other own-minus-donor
+reverse log likelihood is +2.4808968 per retained frame (500 selected/feasible/matched); own
+-4.4247514 versus donor -6.9056483. Dev-clean gap is +2.6842944 with 496/500 matched. These
+speaker-matched swap scores concern the registered reverse-model diagnostic, not recognition
+correctness or a causal attribution to preprocessing.
+
+Literal epoch-4 dev-other examples (full phone strings):
+
+- `116-288045-0014`: REF `P R AH D UW S IH M`; HYP `T AH L IH NG HH ER D Z`.
+- `116-288045-0017`: REF `D UW Y UW D AW T HH OW M ER`; HYP `T EH DH IH S T AH N M AE N D Z`.
+
+The saved outputs do not show empty, shared-string or single-phone collapse on this split.
+However, 58.1% of epoch-4 outputs begin with AH. The audit confirms exact SIL removal without
+recollapse: 53 adjacent-equal phone pairs remain in 52 items after intervening SIL removal.
+Broad output diversity coexists with substantial phone errors; uniqueness is not an accuracy
+measure. G4a.3's positive-gap condition passes, while dev-other PER<0.50 fails. No extension
+to eight subepochs is released. Comparison with historical sampled P6 cannot isolate a cause
+because preprocessing, architecture and marginalization changed together.
+
+Ground truth: `output/exp2025_11_06_speech_llms/librispeech/sae_4a_blankfree/ep{1,4}/dev-{clean,other}/`
+(`per.json`, `decode_stats.json`, `greedy_raw.json`, `greedy_phones.json`; epoch-4
+`derangement_gap.json`). Checkpoints are in the concrete training job's `output/models/`.
+Completion/extraction: `reports/sae_blankfree_training_completion_2026-09-19.md`.
+Independent scientific audit: `reports/sae_blankfree_training_result_audit_2026-09-19.md`
+(DONE_WITH_CONCERNS: phone error misses the recognition gate).
 
 ## Supervised 10 h separate initialization only
 
