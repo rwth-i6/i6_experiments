@@ -19,6 +19,7 @@ Run: CUDA_HOME=/usr .venv/bin/python recipe/.../tests/check_episode_slice.py
 """
 
 import ast
+import glob
 import importlib.util
 import os
 import sys
@@ -123,6 +124,53 @@ check("defines no substitute for their rules", not (ours & forbidden), str(ours 
 # All four thresholds must be forwarded, or a "policy change" would silently do nothing.
 for kw in ("gap_seconds", "max_single_speaker_ratio", "min_duration_seconds", "max_duration_seconds"):
     check(f"forwards {kw}", f"{kw}=args.{kw}" in src.replace(" ", ""), "not passed through")
+
+print("[3b] a dialogue's turns are THEIR run's segments, not a time-range query")
+# The bug this exists for (found 2026-09-19 on the pilot): `turns_json` was rebuilt as "every
+# episode segment overlapping [dlg.start, dlg.end)". Diarization segments OVERLAP (1.8-9.6% of a
+# JRE episode) and `_two_speaker_runs` closes a run when a third speaker appears rather than
+# clipping the timeline -- so a third speaker's segment can sit inside a kept run's span without
+# belonging to it. Result: **101 of 262 pilot dialogues (38.5%) carried 3-4 speakers**, silently
+# breaking the "exactly what DuplexChat does" premise, and putting a third voice inside a channel
+# that is supposed to hold one person.
+check("slices dlg.segments, not a time window", "for s in dlg.segments" in src)
+check(
+    "no time-overlap re-derivation survives",
+    's["end"] > dlg.start' not in src and 's["start"] < dlg.end' not in src,
+)
+
+_clones = sorted(glob.glob(str(SETUP / "work/i6_core/tools/git/CloneGitRepositoryJob.*/output/DuplexChat/src")))
+if not _clones:
+    check("DuplexChat clone available for the behavioural half", False, "no clone found")
+else:
+    sys.path.insert(0, _clones[0])
+    from duplexchat_pipe.dialogue import extract_valid_dialogues  # noqa: E402
+
+    # Two speakers talking, with a THIRD speaker's segment overlapping the run's span -- the exact
+    # shape that diarization overlap produces and that a time-range query cannot tell apart.
+    segs = [
+        {"speaker": "A", "start": 0.0, "end": 4.0},
+        {"speaker": "B", "start": 4.0, "end": 9.0},
+        {"speaker": "A", "start": 9.0, "end": 14.0},
+        {"speaker": "C", "start": 6.0, "end": 7.0},  # overlaps, belongs to no kept 2-speaker run
+        {"speaker": "B", "start": 14.0, "end": 20.0},
+    ]
+    segs.sort(key=lambda s: s["start"])
+    dlgs = extract_valid_dialogues(
+        segs, gap_seconds=5.0, max_single_speaker_ratio=0.9, min_duration_seconds=1.0, max_duration_seconds=600.0
+    )
+    check("their filter returns at least one dialogue", len(dlgs) >= 1, f"{len(dlgs)}")
+    if dlgs:
+        d = dlgs[0]
+        own = {s["speaker"] for s in d.segments}
+        overlap_query = {s["speaker"] for s in segs if s["end"] > d.start and s["start"] < d.end}
+        check("dlg.segments has exactly 2 speakers", len(own) == 2, str(sorted(own)))
+        # Non-vacuous: the old derivation must really differ, or this proves nothing.
+        check(
+            "the time-overlap query really does pull in a third (non-vacuity)",
+            len(overlap_query) > len(own),
+            f"own={sorted(own)} overlap={sorted(overlap_query)}",
+        )
 
 print("[4] the whole-episode assumption is asserted, not assumed")
 check("refuses a row whose frame 0 is not episode t=0", "span_start_sec" in src and "!= 0.0" in src)
