@@ -245,6 +245,21 @@ Completion/extraction: `reports/sae_blankfree_training_completion_2026-09-19.md`
 Independent scientific audit: `reports/sae_blankfree_training_result_audit_2026-09-19.md`
 (DONE_WITH_CONCERNS: phone error misses the recognition gate).
 
+**Comparison with earlier cold outputs (user question, 2026-09-19):** uniqueness is not a new
+gain: both historical M512 arms also had 2864 distinct/nonempty dev-other outputs. At epoch 4,
+their active inventories were P3=36/P6=35 versus new=38; their unigram entropies were
+4.3638/4.2363 bits versus new=4.389. Modal first-phone shares were P3 AH=90.85%, P6 AA=77.65%,
+versus new AH=58.1%. Thus the prefix concentration is smaller, while broad token diversity is
+similar to old P3. These are descriptive comparisons of different bundled setups, not an ablation.
+Historical outputs already included English-like local fragments (`DH AH`, `AE N D`) and
+reused syllable-shaped motifs; neither those fragments nor whole-string diversity establishes
+coherent sentences. The historical matched n-gram repetition diagnostic has not been rerun on
+the new model, so no claim of reduced short-motif repetition follows. Baseline measurements:
+`reports/sae_4a_m512_output_diversity_2026-09-18/summary.md`, epoch-4 dev-other rows.
+Same-ID literal comparison and independent qualitative review:
+`reports/sae_blankfree_pattern_comparison_2026-09-19.md`. Local phonotactic plausibility is a
+qualitative judgment on saved phone strings, not a word decode or formal coherence measurement.
+
 ## Supervised 10 h separate initialization only
 
 User explicitly requests this alongside the cold joint model and explicitly excludes subsequent
