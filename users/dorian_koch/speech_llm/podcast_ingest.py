@@ -218,14 +218,33 @@ class PodcastWorkIndex(Job):
         ns = {"itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd"}
         items: list[dict] = []
         for url in self.rss_urls:
+            # A local path (or file:// URL) reads straight off disk. This is the SUPPORTED way to
+            # run the corpus, not a debugging convenience -- see `rss_urls` in __init__ for why the
+            # live fetch cannot be trusted from a compute node here.
+            xml = b""
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": ua})
-                with urllib.request.urlopen(req, timeout=120) as r:
-                    xml = r.read()
+                if not str(url).startswith(("http://", "https://")):
+                    local = str(url)[7:] if str(url).startswith("file://") else str(url)
+                    with open(local, "rb") as fh:
+                        xml = fh.read()
+                else:
+                    req = urllib.request.Request(url, headers={"User-Agent": ua})
+                    with urllib.request.urlopen(req, timeout=120) as r:
+                        xml = r.read()
                 root = ET.fromstring(xml)
             except Exception as e:  # noqa: BLE001
-                print(f"[index] FEED FAILED {url}: {type(e).__name__}: {e}", flush=True)
-                continue
+                # FATAL, not `continue`. A feed that fails silently produces a SMALLER corpus that
+                # looks entirely healthy -- fewer shards, every one of them green -- and the cause
+                # is a single line in a log nobody reads. Measured 2026-09-19: the RWTH egress
+                # truncated this 5.4 MB chunked response to 270 KB (2,753 items -> 71) and handed
+                # back a scrambled tail, so the parse failed ~5% in. Had the XML happened to stay
+                # well-formed at the cut, the run would have quietly ingested 2.6% of JRE.
+                raise RuntimeError(
+                    f"feed {url} could not be read: {type(e).__name__}: {e}\n"
+                    f"  read {len(xml)} bytes.\n"
+                    f"  If this is a truncated download rather than a bad feed, stage the XML and "
+                    f"pass the FILE PATH in rss_urls -- see the note on that argument."
+                ) from e
             chan = root.find("channel")
             feed_title = (chan.findtext("title") or url).strip() if chan is not None else url
             cats = []
@@ -352,7 +371,7 @@ class PodcastWorkIndex(Job):
         )
         print(msg, flush=True)
         if self.overlapping_spans == "raise" and n_overlapping:
-            raise SystemExit(msg + " -- overlapping_spans='raise'")
+            raise RuntimeError(msg + " -- overlapping_spans='raise'")
         if self.overlapping_spans == "merge":
             print("[index] overlapping spans MERGED (a merged span may hold >2 speakers)", flush=True)
         return list(by_ep.values())
@@ -375,7 +394,7 @@ class PodcastWorkIndex(Job):
         if self.max_episodes:
             items = items[: self.max_episodes]
         if not items:
-            raise SystemExit("index produced ZERO work items -- refusing to write empty shards")
+            raise RuntimeError("index produced ZERO work items -- refusing to write empty shards")
 
         # Deterministic order before packing, so the same source always yields the same shards.
         items.sort(key=lambda it: it["item_id"])
@@ -493,8 +512,18 @@ class PodcastMimiIngest(Job):
         # BOTH paths: lib_parent for `moshi_family`, the recipe root for `moshi` itself.
         env: dict[str, str] = {"PYTHONPATH": _moshi_pythonpath()}
         ffmpeg_dir = ""
+        env_hook = None
         if self.env_ffmpeg_path is not None:
-            InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+            # Via env_hook, NOT extra_env: `add_to_env` PREPENDS to PATH/LD_LIBRARY_PATH, and
+            # `run_worker_script` applies extra_env with `dict.update`. Mixing ffmpeg into a fresh
+            # dict therefore produced `PATH=<ffmpeg>/bin:` and REPLACED the inherited PATH, which
+            # breaks any squashfs-packed venv (its bin/python is a shell launcher needing
+            # basename/dirname) with exit 127 before Python starts. env_hook runs on the full env.
+            _ff = self.env_ffmpeg_path
+
+            def env_hook(e, _ff=_ff):  # noqa: F811
+                InstallFFmpeg.add_to_env(_ff, e)
+
             ffmpeg_dir = self.env_ffmpeg_path.get()
         else:
             raise ValueError(
@@ -539,6 +568,7 @@ class PodcastMimiIngest(Job):
             log_label=f"Podcast mimi ingest shard {self.shard_idx}",
             with_hf_home=True,
             extra_env=env,
+            env_hook=env_hook,
         )
 
 
@@ -602,7 +632,7 @@ class PodcastCodesIndex(Job):
                 for i in range(ds.num_rows):
                     iid = cols["item_id"][i]
                     if iid in seen:
-                        raise SystemExit(
+                        raise RuntimeError(
                             f"duplicate item_id {iid} in {part} and {seen[iid]}. One would "
                             "silently shadow the other at load time."
                         )
@@ -626,7 +656,7 @@ class PodcastCodesIndex(Job):
         if empty_shards:
             msg = f"{len(empty_shards)} of {len(self.in_dirs)} shards produced no parts"
             if self.require_all_shards:
-                raise SystemExit(
+                raise RuntimeError(
                     msg + ". Read their summary.json / failures.jsonl. Indexing anyway would "
                     "produce a corpus that is quietly missing whole shards -- pass "
                     "require_all_shards=False only once you know why."
@@ -634,7 +664,7 @@ class PodcastCodesIndex(Job):
             print(f"[index] WARNING: {msg}", flush=True)
 
         if not rows:
-            raise SystemExit("indexed ZERO rows -- refusing to present this as a corpus.")
+            raise RuntimeError("indexed ZERO rows -- refusing to present this as a corpus.")
 
         out = os.path.join(self.out_dir.get(), "index.jsonl")
         with open(out, "w") as f:
@@ -1022,7 +1052,15 @@ class PodcastDuplexIngest(Job):
                 "through OUR ffmpeg, never a system one. Pass "
                 "env_ffmpeg_path=InstallFFmpeg().out_path (hash-free)."
             )
-        InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+        # Via env_hook, NOT extra_env: `add_to_env` PREPENDS to PATH/LD_LIBRARY_PATH, and
+        # `run_worker_script` applies extra_env with `dict.update`. Mixing ffmpeg into a fresh
+        # dict therefore produced `PATH=<ffmpeg>/bin:` and REPLACED the inherited PATH, which
+        # breaks any squashfs-packed venv (its bin/python is a shell launcher needing
+        # basename/dirname) with exit 127 before Python starts. env_hook runs on the full env.
+        _ff = self.env_ffmpeg_path
+
+        def env_hook(e, _ff=_ff):
+            InstallFFmpeg.add_to_env(_ff, e)
 
         args = [
             "--shard_jsonl",
@@ -1072,6 +1110,7 @@ class PodcastDuplexIngest(Job):
             log_label=f"Podcast duplex ingest shard {self.shard_idx}",
             with_hf_home=True,
             extra_env=env,
+            env_hook=env_hook,
         )
 
 
@@ -1236,7 +1275,15 @@ class PodcastEpisodeIngest(Job):
                 "through OUR ffmpeg, never a system one. It is also the TIME BASE a later slice "
                 "job must reproduce. Pass env_ffmpeg_path=InstallFFmpeg().out_path (hash-free)."
             )
-        InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+        # Via env_hook, NOT extra_env: `add_to_env` PREPENDS to PATH/LD_LIBRARY_PATH, and
+        # `run_worker_script` applies extra_env with `dict.update`. Mixing ffmpeg into a fresh
+        # dict therefore produced `PATH=<ffmpeg>/bin:` and REPLACED the inherited PATH, which
+        # breaks any squashfs-packed venv (its bin/python is a shell launcher needing
+        # basename/dirname) with exit 127 before Python starts. env_hook runs on the full env.
+        _ff = self.env_ffmpeg_path
+
+        def env_hook(e, _ff=_ff):
+            InstallFFmpeg.add_to_env(_ff, e)
 
         args = [
             "--shard_jsonl",
@@ -1287,6 +1334,7 @@ class PodcastEpisodeIngest(Job):
             # __init__ needs the moshi stack). The worker loads perm_repair by file path, and the
             # encoder subprocess sets its own PYTHONPATH from --moshi_lib_parent.
             extra_env=env,
+            env_hook=env_hook,
         )
 
 
