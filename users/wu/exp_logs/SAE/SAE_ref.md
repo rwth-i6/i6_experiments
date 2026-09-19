@@ -146,8 +146,11 @@ that window: AH 742,873 / AE 208,622 / AA 50,473 / EY 6,578 / EH 1,257 (all sent
 on this bed (the cold blankfree reference `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL`, 58.1 % AH-first at
 epoch 4, and the 4A attribution arms) shares this prior; within-bed comparisons stay valid, but the
 prior-shaped absolute numbers (step 1 JSDs, sentence-initial statistics) and any comparison against the
-GAN, whose fairseq text data binarize the full 39.6 M-line file, carry this confound. Correction in
-progress: same recipe on a seeded uniform-random 1,010,000-line sample (`SAE_4A_attrib.md`, prior refit).
+GAN, whose fairseq text data binarize the full 39.6 M-line file, carry this confound. Corrected prior
+available: `PhoneNgramPriorJob.RtzbESkOedsT` on a seeded uniform 1,010,000-line sample
+(`SampleLinesJob.orN768ARKwlt`, held-out trigram ppl 9.56). The cold rerun with it (`SAE_4A_attrib.md`,
+priorshuf) lands at ep4 PER 0.883 vs 0.865 with the sentence-initial collapse moved from AH to HH, so
+the window is not the cause of the collapse; new cycle beds should still use the sampled prior.
 Surfaced by the step 1 audit `reports/sae_attrib_step1_audit_2026-09-19.md`.
 
 **Lattice semantics for sequence-prior extensions:** a complete latent path includes frame labels,

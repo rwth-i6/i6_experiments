@@ -18,10 +18,8 @@ on resume, one per manager, from the setup dir):
 Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
 priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
 `BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
-`SampleLinesJob.orN768ARKwlt`), review clean, training RUNNING since ~15:05 (Slurm 1891355) under
-manager pid 1020639 (restarted under the sis venv after a create_files crash; `log/sae_4a_attrib_priorshuf.manager.log`;
-watcher `bash ~/.claude/skills/sis/sis_watch.sh 1020639 config/sae_4a_attrib_priorshuf.py 120`).
-Steps 2 norev/agg1/agg10 DONE (Results); k64 finished, being read. Step 4: review clean
+`SampleLinesJob.orN768ARKwlt`) DONE (Results: not the cause). Steps 2 and 3 DONE and audited
+(Results). Only step 4 is live. Step 4: review clean
 (`reports/sae_attrib_step4_review_2026-09-19.md`), profile read (amendment above), seven arms RUNNING
 since ~13:40 at b=16 under manager pid 885934 (`config/sae_4a_attrib_ganrev.py`,
 `log/sae_4a_attrib_ganrev.manager.log`): w0_s0 `FairseqW2vu2TrainJob.9HnmO6ULORKl` 1891056;
@@ -279,3 +277,30 @@ dev-other PER improves on 0.865 by > 0.05 paired; if PER stays within +-0.03 and
 above 40 %, the window is not the cause of the collapse (only of its AH flavour). Steps 2-4 keep
 running: their reads are within-bed and stay valid, but the H1/H2 verdicts are provisional until
 priorshuf is read, and step 4's GAN corners are compared to the cycle only through PER.
+
+**priorshuf result (2026-09-19, `reports/sae_attrib_priorshuf_read_2026-09-19.md`):**
+`BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
+`SampleLinesJob.orN768ARKwlt` (1,010,000 uniform lines, seed 0; initial phones DH 0.167, HH 0.130,
+IH 0.083, AY 0.083, AE 0.062; held-out trigram ppl 9.56 vs the biased window's 9.47). ep1 dev-other
+PER 0.8206 (best ep1 of any cold arm), ep4 0.8829 (dev-clean 0.8653); paired vs reference ep4
++0.018 [+0.015, +0.022] (improved 837 / worse 1610); gap 2.44; first phone AH 0.003, AE 0.001,
+**HH 0.886**, W 0.066; 60.2 phones/utt, 39 distinct. Reading against the pre-registration: PER is
+inside the +-0.03 band (slightly worse), so the biased window is NOT the cause of the PER collapse.
+The AH-first share did drop below 20 %, but only because the collapse moved to HH, a frequent
+initial of the new window: a single-phone sentence start is a property of the objective on this bed,
+the prior window only chooses which phone. The defect stays recorded for absolute statistics and
+GAN comparisons; it is closed as a cause. Read through the same registered chain the steps 2/3
+audit reproduced; not separately audited.
+
+### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
+Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
+marginal alone (norev) is worst; unigram/bigram matching at 10x weight, a K=64 MFCC reverse target
+and an unbiased prior each leave ep4 PER at 0.88-0.92; every arm degrades from ep1 to ep4 while its
+losses fall. The cold reverse term is the only tested component whose removal makes things clearly
+worse. Step 1 shows the collapsed output is not a high-likelihood mode of the prior either. So the
+failure is not "the trigram is too weak a matcher" in the sense of missing modes, and not "the
+reverse model degrades the recognizer"; the objective as a whole has descent directions that lower
+PER-relevant content while raising likelihood (the sentence-initial single phone is one visible
+instance). Step 4 tells whether the same reverse term inside the GAN objective is harmless, which
+would locate the fault in the alignment-sum-times-prior term and make a sequence-level
+mode-covering term inside the cycle the next design.
