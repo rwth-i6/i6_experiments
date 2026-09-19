@@ -584,9 +584,14 @@ batch (2.0 vs 0.83 nats at order 3, the small-sample bias curve), which is the v
 surrogate never uses (its denominator is the EMA, its numerator is linear in the batch counts), so
 the gradient estimator is not the log-of-batch-average form of Liu 2017; (ii) the ep4 EMA read is
 LOWER than every single-state level, including the full pass, at every order (0.45 vs 0.83 at order
-3): the EMA blends ~100 past steps of a moving model, and the union of several model states covers
-more text trigrams than the checkpoint itself does, so the step 5b "KL3 0.45, within half a nat of
-its floor" overstated the criterion descent by about 0.4 nats. The 5b criterion-descent verdict
+3). Audited CONFIRMED (`reports/sae_attrib_step6_audit_items1_4_2026-09-20.md`): numbers, branch,
+one pass per utterance (28,254 = the arm's train.segments) all reproduce; the explanation is
+sharpened by the audit: pooling alone saturates at 0.83 (100 batches 0.85), so the EMA's 0.45 needs
+the blend to span DIFFERENT model states (the EMA buffers ride in the state_dict and are never reset;
+0.99^57 = 56 % of the ep4 EMA mass comes from sub-epoch 3 and earlier, at tau >= 3.17), and a union
+of model states covers more text trigrams than any one checkpoint; a CV-pass contamination is
+refuted (diagnostics only under training). The step 5b "KL3 0.45, within half a nat of its floor"
+overstated the criterion descent by about 0.4 nats. The 5b criterion-descent verdict
 survives at the checkpoint level (0.83 < 1.2, the pre-registered "optimises" bound), the "half a
 nat" phrasing is overturned. Diagnostic consequence for any later coverage arm: report the term on
 the checkpoint (a periodic full-pass or a >= 100-batch accumulation), never on the training EMA.
@@ -619,13 +624,21 @@ of the GAN's. The ep1->ep4 "degradation" is entirely the null's: the reference's
 (every prior-carrying arm shows the same: the excess rises ep1 -> ep4 while raw PER worsens, because
 the ep4 decodes are longer and more skewed). Restatement (rule: E/N differing by < 0.02 = a movement
 of the null): the step 2 and 3 between-arm PER movements (norev, k64, agg1, agg10 vs the reference)
-and the step 5b movements odm3_lam0.1 vs odm3 (-0.018), odm3_prior vs priorshuf (-0.007) and
-odm3_lam1 vs priorshuf (+0.024) are movements of length/unigram skew, not of content. The one pair
-whose E/N differ by more than 0.02 is odm3_prior vs odm3 at ep4 (0.023 vs 0.001, PER -0.025): the
-lattice prior adds about 4,000 excess hits (2.3 % of N) on top of the coverage term, a real but
-chance-scale effect. Consequence: no PER movement banked in this phase is a content measurement;
-future cold arms are read by E/N (with S3b-OR / GAN as the scale), and the take-off gate stays
-PER < 0.50 because that is the only band the null cannot reach.
+and the step 5b movements odm3_prior vs priorshuf (-0.007) and odm3_lam1 vs priorshuf (+0.024)
+are movements of length/unigram skew, not of content. Pairs whose E/N differ by more than 0.02 at
+ep4 (audit count: 14 of 66 cold pairs, e.g. odm3_prior vs odm3 0.022, odm3_lam0.1 vs odm3 0.024):
+by the rule these movements are not attributed to the null; their size, at most 0.025 of N (about
+4,400 hits), is under 4 % of the S3b-OR signal. Audited CONFIRMED_WITH_CAVEATS
+(`reports/sae_attrib_step6_audit_items1_4_2026-09-20.md`): every number reproduces, S/D/I verified
+against per.json, null convention as pre-registered; my first write-up's "only pair above 0.02"
+sentence was wrong (14 pairs) and is corrected here; E/N equals null PER minus arm PER identically
+(C - I = N (1 - PER)), and it correlates with hypothesis length across the cold decodes (Spearman
+0.62), so the fixed 0.02 bound is not scale-free between arms of different decode length
+(amendment, original rule preserved above: pairwise attributions are reported with the length
+caveat, the per-arm null-level read stands). Consequence: no PER movement banked in this phase
+exceeds 2.5 % of N over its own null, none is a content measurement at the scale the positive
+controls set; future cold arms are read by E/N with S3b-OR / GAN as the scale, and the take-off
+gate stays PER < 0.50 because that is the only band the null cannot reach.
 - **Hyperparameter review** (user 2026-09-19: "maybe some bad hyperparameter leads to the fail"):
   a fresh-context review of the bed's constants against the reference setups and the literature
   report sec. 3/6 (feature conditioning, temperature schedule, batch, optimiser, capacity, EMA);
