@@ -59,6 +59,20 @@ __all__ = ["py"]
 # Cells of the auto-generated paper tables (see _build_tables):
 # registered-output name -> the recog score collection or the train-hours variable behind it.
 _table_results: Dict[str, Any] = {}
+
+
+def _train_steps(exp) -> tk.Variable:
+    """the number of updates of a training (for the tables), like _train_hours"""
+    from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
+    from i6_experiments.users.zeyer.returnn.total_runtime_from_training import (
+        GetNumTrainStepsFromReturnnTrainingJob,
+    )
+
+    if isinstance(exp, ModelWithCheckpoints):
+        exp = exp.get_training_job()
+    return GetNumTrainStepsFromReturnnTrainingJob(exp.out_learning_rates).out_num_steps
+
+
 __setup_root_prefix__ = "exp2026_05_28_tts_encoder_fzj"
 
 PHONEMES_DATA_KEY = "phonemes"
@@ -1821,11 +1835,14 @@ def py():
             },
         ),
         (f"{_abl_prefix}-dursilonly", {"pseudo_enc_duration_sil_only": True}),
-        (f"{_abl_prefix}-trainemb", {"pseudo_enc_frozen_table": None}),
+        (f"{_abl_prefix}-trainemb", {"pseudo_enc_frozen_table": None, "with_ctc_lm_recog": True}),
         (f"{_abl_prefix}-sil0", {"glow_tts_add_silence_between_words": 0.0}),
         # text-amount ladder around the winning P75: P37 = 2x text per epoch, P150 = half
         (f"{_abl_prefix}-textP37", {"text_train_epoch_split": 37}),
         (f"{_abl_prefix}-textP150", {"text_train_epoch_split": 150}),
+        # P300 = a quarter of the winner's text per step (AZ, 2026-09-19: the audio ladder's other
+        # direction, full audio with less text)
+        (f"{_abl_prefix}-textP300", {"text_train_epoch_split": 300}),
         # Amount of distinct text at the fixed ~1:1 text-to-audio ratio of P75 (AZ, 2026-09-16):
         # a random 50 / 25 / 10% of the 40.4M LM lines with the partition scaled alike (P38 / 19 / 8),
         # so every subepoch sees the same amount of text and the subset is passed ~4 / 8 / 19 times
@@ -1840,7 +1857,7 @@ def py():
         # The text-util paper's larger model (24 encoder, 8 decoder layers) with the injection (AZ, 2026-09-19);
         # the no-text control is the encL24-decL8 baseline in the specaug loop. Same batch and caps as the
         # winner, so the same steps; the step time is the open question.
-        (f"{_abl_prefix}-encL24-decL8", {"enc_num_layers": 24, "dec_num_layers": 8}),
+        (f"{_abl_prefix}-encL24-decL8", {"enc_num_layers": 24, "dec_num_layers": 8, "with_ctc_lm_recog": True}),
         # Paired-data ladder at ~constant update steps (AZ, 2026-09-16): a random 50 / 25 / 10 / 0% of the
         # train-960 utterances, the text partition scaled so the text fills the freed batch budget
         # (P75 is ~1:1 audio:text hours, so P = 75 / (2 - audio fraction)); nep38 as the winner.
@@ -1852,6 +1869,12 @@ def py():
         # diversity check for the 25% point: all 960 h but a quarter of the passes (audio partition 4,
         # 38 subepochs = 9.5 passes per rank); same per-step mixture and audio amount as audio25
         (f"{_abl_prefix}-audioP4-textP43", {"ls_train_epoch_split": 4, "text_train_epoch_split": 43}),
+        # The 25 / 10% points with MATCHED updates (AZ, 2026-09-19): the P = 75 / (2 - f) rule assumed text
+        # costs steps like audio; with less audio the text lands in label-capped text-only batches and costs
+        # ~2x (measured 11.3k / 12.4k steps per subepoch vs the winner's 6.5k), so the text per subepoch must
+        # stay near the winner's: P 79 / 77 (fitted from the measured steps). audio50 (1.5x) is kept as is.
+        (f"{_abl_prefix}-audio25-textP79", {"ls_audio_subset": 0.25, "text_train_epoch_split": 79}),
+        (f"{_abl_prefix}-audio10-textP77", {"ls_audio_subset": 0.1, "text_train_epoch_split": 77}),
         # the winner with the tables of our own Gaussian-HMM aligner instead of the MFA ones (see
         # _gauss_hmm_tables): the injection without any MFA dependence
         (
@@ -1868,6 +1891,7 @@ def py():
             {
                 "pseudo_enc_frozen_table": _gauss_hmm_tables_pronvar.out_mean_table,
                 "pseudo_enc_duration_table": _gauss_hmm_tables_pronvar.out_duration_table,
+                "with_ctc_lm_recog": True,
             },
         ),
         # the 3 HMM states of every phone as the units (AZ), each with its own Gaussian mean and
@@ -1930,6 +1954,7 @@ def py():
                 "pseudo_enc_duration_scale": None,
                 "pseudo_enc_duration_range": (5, 10),
                 "pseudo_enc_lerp": False,
+                "with_ctc_lm_recog": True,
             },
         ),
         # The textogram cell with a fixed 6 frames per phone (the dur07 mean), the phoneme counterpart
@@ -2984,6 +3009,7 @@ def _build_tables(prefix: str):
         return {
             **{col: ((score.output, key) if score is not None else None) for col, key in keys.items()},
             "hours": _table_results.get(f"{alias}/train_time_hours"),
+            "steps": _table_results.get(f"{alias}/train_steps"),
         }
 
     def _ls(name: str, recog: str = "aed+ctc-batched", **literals) -> Dict[str, Any]:
@@ -3009,7 +3035,7 @@ def _build_tables(prefix: str):
     # LS headline: the injection methods against the audio-only baselines, with the training cost.
     _table(
         "ls-main",
-        ["method", *ls_wer, "hours"],
+        ["method", *ls_wer, "steps", "hours"],
         [
             _ls(base, method="no text"),
             _ls(base76, method="no text, \\\\ twice the epochs"),
@@ -3053,18 +3079,30 @@ def _build_tables(prefix: str):
         "ls-representation",
         ["acoustics", "units", "durations", *ls_wer_other],
         [
-            _ls(win, acoustics="MFA log-mel table", units="phonemes", durations="log-normal per phone"),
-            _ls(f"{win}-unidur", acoustics="MFA log-mel table", units="phonemes", durations="uniform 5 to 10"),
-            _ls(f"{win}-trainemb", acoustics="trained embedding", units="phonemes", durations="log-normal per phone"),
-            _ls(f"{win}-trainemb-unidur", acoustics="trained embedding", units="phonemes", durations="uniform 5 to 10"),
-            _ls(_textogram, acoustics="one-hot channels", units="phonemes", durations="uniform 5 to 10"),
+            _ls(win, acoustics="MFA \\\\ log-mel table", units="phonemes", durations="log-normal \\\\ per phone"),
+            _ls(
+                f"{win}-unidur", acoustics="MFA \\\\ log-mel table", units="phonemes", durations="uniform \\\\ 5 to 10"
+            ),
+            _ls(
+                f"{win}-trainemb",
+                acoustics="trained \\\\ embedding",
+                units="phonemes",
+                durations="log-normal \\\\ per phone",
+            ),
+            _ls(
+                f"{win}-trainemb-unidur",
+                acoustics="trained \\\\ embedding",
+                units="phonemes",
+                durations="uniform \\\\ 5 to 10",
+            ),
+            _ls(_textogram, acoustics="one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"),
             _ls(
                 "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
-                acoustics="one-hot channels",
+                acoustics="one-hot \\\\ channels",
                 units="phonemes",
                 durations="fixed 6",
             ),
-            _ls(_textogram_chars, acoustics="one-hot channels", units="characters", durations="fixed 4"),
+            _ls(_textogram_chars, acoustics="one-hot \\\\ channels", units="characters", durations="fixed 4"),
         ],
     )
     # The remaining ablations of the winning recipe, one ingredient flipped each.
@@ -3072,14 +3110,14 @@ def _build_tables(prefix: str):
         "ls-ablations",
         ["variant", *ls_wer_other],
         [
-            _ls(win, variant="the recipe"),
+            _ls(win, variant="none"),
             _ls(f"{win}-nolerp", variant="no interpolation"),
             _ls(f"{win}-sil0", variant="no silence between words"),
             _ls(f"{win}-silbound", variant="silence at the utterance bounds"),
         ],
     )
     # Where the tables come from: MFA vs our single-Gaussian HMM aligner, phones vs HMM states.
-    _ghmm = "single-Gaussian \\\\ HMM (ours)"
+    _ghmm = "single-Gauss. \\\\ HMM (ours)"
     _table(
         "ls-table-source",
         ["aligner", "pronvar", "table", "unit", *ls_wer],
@@ -3087,59 +3125,115 @@ def _build_tables(prefix: str):
             _ls(
                 win,
                 aligner="MFA \\\\ (GMM-HMM)",
-                pronvar="all, aligned",
-                table="mean over \\\\ aligned frames",
+                pronvar="all",
+                table="frame \\\\ mean",
                 unit="phone",
             ),
-            _ls(f"{win}-gausshmmtables", aligner=_ghmm, pronvar="one sampled", table="Gaussian means", unit="phone"),
+            _ls(
+                f"{win}-gausshmmtables",
+                aligner=_ghmm,
+                pronvar="sampled",
+                table="Gauss. \\\\ means",
+                unit="phone",
+            ),
             _ls(
                 f"{win}-gausshmmtables-pronvar",
                 aligner=_ghmm,
-                pronvar="all, aligned",
-                table="Gaussian means",
+                pronvar="all",
+                table="Gauss. \\\\ means",
                 unit="phone",
             ),
             _ls(
                 f"{win}-gausshmmstates-pronvar",
                 aligner=_ghmm,
-                pronvar="all, aligned",
-                table="Gaussian means",
-                unit="HMM state",
+                pronvar="all",
+                table="Gauss. \\\\ means",
+                unit="HMM \\\\ state",
             ),
         ],
     )
-    # Amount of distinct text at a constant text share per step (subset + partition scaled alike),
-    # and the partition-only variants (which change the text share).
+    # The seen text-to-audio ratio at full data (all of train-960, all of the LM text): the text per
+    # subepoch (partition P) from none to 2x the recipe; updates grow with the text.
     _table(
-        "ls-text-amount",
-        ["text", "text_ratio", "text_passes", *ls_wer_other],
+        "ls-text-ratio",
+        ["text_ratio", "text_passes", "steps", *ls_wer_other],
         [
-            _ls(f"{win}-textP150", text="100\\%", text_ratio="1:2", text_passes=1),
-            _ls(win, text="100\\%", text_ratio="1:1", text_passes=2),
-            _ls(f"{win}-textP37", text="100\\%", text_ratio="2:1", text_passes=4),
-            _ls(f"{win}-lmsub50-textP38", text="50\\%", text_ratio="1:1", text_passes=4),
-            _ls(f"{win}-lmsub25-textP19", text="25\\%", text_ratio="1:1", text_passes=8),
-            _ls(f"{win}-lmsub10-textP8", text="10\\%", text_ratio="1:1", text_passes=19),
-            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", text_ratio="1:1", text_passes=152),
+            _ls(base76, text_ratio="0:1", text_passes=0),
+            _ls(f"{win}-textP300", text_ratio="1:4", text_passes=0.5),
+            _ls(f"{win}-textP150", text_ratio="1:2", text_passes=1),
+            _ls(win, text_ratio="1:1", text_passes=2),
+            _ls(f"{win}-textP37", text_ratio="2:1", text_passes=4),
         ],
     )
-    # Amount of paired audio at a constant number of updates.
+    # Amount of distinct text at the recipe's seen ratio (subset + partition scaled alike).
+    _table(
+        "ls-text-amount",
+        ["text", "used_ratio", "text_passes", "steps", *ls_wer_other],
+        [
+            _ls(win, text="100\\%", used_ratio="86:1", text_passes=2),
+            _ls(f"{win}-lmsub50-textP38", text="50\\%", used_ratio="44:1", text_passes=4),
+            _ls(f"{win}-lmsub25-textP19", text="25\\%", used_ratio="22:1", text_passes=8),
+            _ls(f"{win}-lmsub10-textP8", text="10\\%", used_ratio="9.5:1", text_passes=19),
+            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", used_ratio="1.6:1", text_passes=152),
+        ],
+    )
+    # Amount of paired audio: random subsets of train-960, the text filling the freed budget.
     _table(
         "ls-audio-amount",
-        ["audio_h", "audio_passes", "text_ratio", "text_passes", *ls_wer_other],
+        ["audio_h", "audio_passes", "used_ratio", "text_ratio", "text_passes", "steps", *ls_wer_other],
         [
-            _ls(win, audio_h="960", audio_passes=152, text_ratio="1:1", text_passes=2),
-            _ls(f"{win}-audio50-textP50", audio_h="480", audio_passes=152, text_ratio="3:1", text_passes=3),
-            _ls(f"{win}-audio25-textP43", audio_h="240", audio_passes=152, text_ratio="7:1", text_passes=3.5),
+            _ls(win, audio_h="960", audio_passes=152, used_ratio="86:1", text_ratio="1:1", text_passes=2),
+            _ls(
+                f"{win}-audio50-textP50",
+                audio_h="480",
+                audio_passes=152,
+                used_ratio="170:1",
+                text_ratio="3:1",
+                text_passes=3,
+            ),
+            _ls(
+                f"{win}-audio25-textP43",
+                audio_h="240",
+                audio_passes=152,
+                used_ratio="350:1",
+                text_ratio="7:1",
+                text_passes=3.5,
+            ),
+            _ls(
+                f"{win}-audio25-textP79",
+                audio_h="240",
+                audio_passes=152,
+                used_ratio="350:1",
+                text_ratio="4:1",
+                text_passes=1.9,
+            ),
             _ls(
                 f"{win}-audioP4-textP43",
                 audio_h="960",
                 audio_passes=38,
+                used_ratio="86:1",
                 text_ratio="7:1",
                 text_passes=3.5,
             ),
-            _ls(f"{win}-audio10-textP39", audio_h="96", audio_passes=152, text_ratio="19:1", text_passes=3.9),
-            _ls(f"{win}-audio0-textP38", audio_h="0", audio_passes=0, text_ratio="1:0", text_passes=4),
+            _ls(
+                f"{win}-audio10-textP39",
+                audio_h="96",
+                audio_passes=152,
+                used_ratio="860:1",
+                text_ratio="19:1",
+                text_passes=3.9,
+            ),
+            _ls(
+                f"{win}-audio10-textP77",
+                audio_h="96",
+                audio_passes=152,
+                used_ratio="860:1",
+                text_ratio="11:1",
+                text_passes=2.0,
+            ),
+            _ls(
+                f"{win}-audio0-textP38", audio_h="0", audio_passes=0, used_ratio="1:0", text_ratio="1:0", text_passes=4
+            ),
         ],
     )
     # LM combinations on LS.
@@ -3157,6 +3251,10 @@ def _build_tables(prefix: str):
                 (base, "no text"),
                 (win, "frozen MFA table"),
                 (f"{win}-nolerp", "frozen MFA table, \\\\ no interpolation"),
+                (f"{win}-trainemb", "trained embedding"),
+                (_textogram, "textogram"),
+                (f"{win}-gausshmmtables-pronvar", "frozen HMM table"),
+                (f"{win}-encL24-decL8", "frozen MFA table, \\\\ EncL24-DecL8"),
             ]
             for recog, rlabel in ls_recogs
         ],
@@ -3225,32 +3323,42 @@ def _build_tables(prefix: str):
             ),
         ],
     )
-    # Loquacious medium: the text variants of the injection, with the per-source dev WERs.
+    # Loquacious medium: the injected text (source weighting, text per step), per-source dev WERs.
+    # Source share ~ hours^alpha of the large transcripts (alpha 1 = as they are, 0 = uniform);
+    # P68 = the LS per-step ratio (~1:1 text:audio hours), P240 = 68/240 of that.
     med = f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s"
+    _base_med = "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s"
     _table(
-        "loq-text-variants",
-        ["variant", *loq_keys],
+        "loq-text",
+        ["alpha", "used_ratio", "text_ratio", *loq_keys],
         [
-            _loq("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", variant="no text"),
-            _loq(med, variant="large transcripts, \\\\ P240"),
-            _loq(f"{med}-txtP68", variant="large transcripts, \\\\ P68 (10x text)"),
-            _loq(f"{med}-txtSrcExp0_5", variant="sources reweighted, \\\\ alpha 0.5"),
-            _loq(f"{med}-txtSrcExp0", variant="sources uniform"),
-            _loq(f"{med}-txtP68-txtSrcExp0", variant="sources uniform, \\\\ 10x text"),
-            _loq(f"{med}-loqtables", variant="Loquacious MFA tables"),
-            _loq(f"{med}-loqtables-txtSrcExp0", variant="Loquacious MFA tables, \\\\ sources uniform"),
+            _loq(_base_med, alpha="-", used_ratio="0:1", text_ratio="0:1"),
+            _loq(med, alpha="1", used_ratio="10:1", text_ratio="1:3.5"),
+            _loq(f"{med}-txtP68", alpha="1", used_ratio="10:1", text_ratio="1:1"),
+            _loq(f"{med}-txtSrcExp0_5", alpha="0.5", used_ratio="10:1", text_ratio="1:3.5"),
+            _loq(f"{med}-txtSrcExp0", alpha="0", used_ratio="10:1", text_ratio="1:3.5"),
+            _loq(f"{med}-txtP68-txtSrcExp0", alpha="0", used_ratio="10:1", text_ratio="1:1"),
+        ],
+    )
+    # Loquacious medium: the text representation (which tables, textogram cells), per-source dev WERs.
+    _table(
+        "loq-representation",
+        ["representation", "alpha", *loq_keys],
+        [
+            _loq(_base_med, representation="no text", alpha="-"),
+            _loq(f"{med}-txtSrcExp0", representation="LibriSpeech \\\\ MFA table", alpha="0"),
+            _loq(f"{med}-loqtables", representation="Loquacious \\\\ MFA table", alpha="1"),
+            _loq(f"{med}-loqtables-txtSrcExp0", representation="Loquacious \\\\ MFA table", alpha="0"),
             _loq(
                 "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                variant="textogram, \\\\ sources uniform",
+                representation="one-hot ch., \\\\ uniform dur.",
+                alpha="0",
             ),
             _loq(
                 "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                variant="trained emb. + uniform dur., \\\\ sources uniform",
+                representation="trained emb., \\\\ uniform dur.",
+                alpha="0",
             ),
-            _loq(
-                "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s-seed2", variant="no text, seed 2"
-            ),
-            _loq(f"{med}-txtSrcExp0-seed2", variant="sources uniform, \\\\ seed 2"),
         ],
     )
     # LM combinations on Loquacious.
@@ -3616,6 +3724,7 @@ def _train_asr_base_multigpu(
         search_config={"aux_loss_layers": [enc_num_layers]},  # the recog model needs the last CTC head built
     )
     _table_results[prefix + "/aed/" + name + "/train_time_hours"] = _train_hours(exp)
+    _table_results[prefix + "/aed/" + name + "/train_steps"] = _train_steps(exp)
     # Headline AED+CTC first-pass recog (sharded, tuned scales), same as base-ls.
     _table_results[prefix + "/aed/" + name + "/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
@@ -4057,6 +4166,7 @@ def _train_loquacious_baselines(*, prefix: str):
             recog_training_func=functools.partial(recog_training_exp_batched, num_shards=1),
         )
         _table_results[f"{prefix}/loq/aed/{name}/train_time_hours"] = _train_hours(exp)
+        _table_results[f"{prefix}/loq/aed/{name}/train_steps"] = _train_steps(exp)
         _table_results[f"{prefix}/loq/aed/{name}/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
             prefix=f"{prefix}/loq/aed/{name}/aed+ctc-batched",
             task=task,
@@ -4814,6 +4924,7 @@ def _train_tts_encoder(
         recog_training_func=recog_training_func,
     )
     _table_results[prefix + "/aed/" + name + "/train_time_hours"] = _train_hours(exp)
+    _table_results[prefix + "/aed/" + name + "/train_steps"] = _train_steps(exp)
     # Joint AED+CTC first-pass recog with tuned scales. multi-GPU: sharded over the full node
     # (batched); single-GPU (RZ): the standard non-batched recog. This is the headline WER.
     if num_processes > 1:

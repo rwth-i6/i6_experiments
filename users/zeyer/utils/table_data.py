@@ -177,6 +177,24 @@ def _resolve_tolerant(cell):
         return _PENDING
 
 
+def _final_matches_manifest(final_path: str, manifest) -> bool:
+    """False when the finished table is from an earlier version of the recipe's table
+    (other row count, or other authored literal cells), e.g. after rows were added or relabelled:
+    the old job's output symlink then still resolves until the new job has run."""
+    import json
+
+    with open(final_path) as f:
+        rows = json.load(f)
+    if len(rows) != len(manifest["rows"]):
+        return False
+    for row, mrow in zip(rows, manifest["rows"]):
+        for k in manifest["columns"]:
+            v = mrow.get(k)
+            if isinstance(v, str) and row.get(k) != v:
+                return False
+    return True
+
+
 def refresh_preview(manifest_dir: str):
     """Re-resolve every ``<name>.manifest.pkl`` in ``manifest_dir`` from current disk state
     -> ``<name>.data.json`` (pending cells = the ``·`` glyph);
@@ -196,7 +214,8 @@ def refresh_preview(manifest_dir: str):
         name = os.path.basename(mpath)[: -len(".manifest.pkl")]
         preview_path = os.path.join(manifest_dir, f"{name}.data.json")
         final_path = os.path.join(final_dir, f"{name}.data.json")
-        if os.path.exists(final_path):  # dangling output symlink -> False, i.e. job not finished
+        if os.path.exists(final_path) and _final_matches_manifest(final_path, manifest):
+            # (a dangling output symlink -> exists False, i.e. the job is not finished)
             shutil.copyfile(final_path, preview_path)
             print(f"{name}: final")
         else:
