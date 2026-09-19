@@ -4,7 +4,10 @@ Two properties, both checked against something that is NOT the production code p
   * a row scored against ITS OWN n-gram distribution has JSD 0 at every order;
   * the mean SIL-free trigram log-prob per phone equals an explicit interpolated Witten-Bell
     computation written out here from literal counts (so a wrong BOS padding, a wrong backoff
-    context, or a wrong token weighting fails the test).
+    context, or a wrong token weighting fails the test);
+  * the count-matched primary read takes its budget from the shortest row, leaves that row intact
+    (so its matched JSD against a text side identical to it is 0) and cuts every longer row down
+    to it, and the PASS/FAIL cells follow the pre-registered margins.
 """
 
 from __future__ import annotations
@@ -141,8 +144,52 @@ def test_row_against_identical_text_side_has_zero_jsd():
             assert abs(result["rows"]["fixture"]["jsd"][order]["value"]) < 1e-12, order
 
 
+def test_count_matching_and_prereg_verdicts():
+    """Count matching: the budget is the smallest row's phone count and that row stays whole."""
+    lines = [" ".join(p for p in UTTS[u] if p != "SIL") for u in UTT_IDS]
+    with tempfile.TemporaryDirectory() as tmp:
+        corpus = _write(tmp, "text.phn", lines)
+        short = {u: [p for p in UTTS[u] if p != "SIL"] for u in UTT_IDS}
+        long = {u: short[u] * 2 for u in UTT_IDS}          # same ids, twice the phones
+        p_short = _write(tmp, "short.json", short)
+        p_long = _write(tmp, "long.json", long)
+        fit, text_ngrams, _ = M.read_text_side(
+            corpus, n_count_lines=len(lines), n_held_lines=0, held_stride=0, orders=(1, 2, 3, 4),
+            require_full_inventory=False)
+        row_short = M.build_row("short", p_short, utt_ids=UTT_IDS)
+        row_long = M.build_row("long", p_long, utt_ids=UTT_IDS)
+        result = M.analyse([row_short, row_long], fit=fit, text_ngrams=text_ngrams,
+                           orders=(1, 2, 3, 4), n_bootstrap=8, seed=0)
+        match = result["count_matching"]
+        assert match["budget_phones"] == min(row_short.n_phones, row_long.n_phones)
+        assert match["budget_phones"] == row_short.n_phones and match["budget_row"] == "short"
+        # the row that sets the budget keeps every phone; the longer row is cut down to it
+        assert result["rows"]["short"]["n_phones_matched"] == row_short.n_phones
+        assert 0 < result["rows"]["long"]["n_phones_matched"] <= match["budget_phones"]
+        # the text side IS the short row, so its count-matched JSD is 0 at every order
+        for order in ("1", "2", "3", "4"):
+            assert abs(result["rows"]["short"]["jsd_matched"][order]["value"]) < 1e-12, order
+        diff = M._difference(result, "long", "short", "jsd", 4, matched=True)
+        assert diff["available"] and diff["count_matched"] and math.isfinite(diff["value"])
+
+    # the PASS/FAIL cells rendered beside the comparisons (margins from SAE_4A_attrib.md)
+    cases = [("ep4_minus_gold_jsd4", 0.06, [0.01, 0.10], "PASS"),    # margin met, CI excludes 0
+             ("ep4_minus_gold_jsd4", 0.06, [-0.01, 0.10], "FAIL"),   # margin met, CI includes 0
+             ("ep4_minus_gan_jsd4", 0.04, [0.01, 0.08], "FAIL"),     # below the 0.05 margin
+             ("ep4_minus_gan_logprob", -0.05, [-0.20, 0.10], "PASS"),  # >= -0.10, no CI condition
+             ("ep4_minus_gan_logprob", -0.15, [-0.30, -0.05], "FAIL"),
+             ("gan_minus_gold_jsd4", 0.07, [-0.02, 0.15], "PASS"),   # within +-0.10
+             ("gan_minus_gold_jsd4", 0.15, [0.10, 0.20], "FAIL")]
+    for key, value, ci, want in cases:
+        got = M._verdict({"available": True, "value": value, "ci95": ci}, key)["verdict"]
+        assert got == want, (key, value, ci, got, want)
+    absent = M._verdict({"available": False, "missing": ["gan_s0"]}, "ep4_minus_gan_jsd4")
+    assert absent["verdict"] == "n/a"
+
+
 if __name__ == "__main__":
     test_self_jsd_is_zero()
     test_mean_logprob_matches_hand_computation()
     test_row_against_identical_text_side_has_zero_jsd()
+    test_count_matching_and_prereg_verdicts()
     print("ok")

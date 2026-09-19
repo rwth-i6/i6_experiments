@@ -14,10 +14,12 @@ Primary strings   SIL-REMOVED for every row and for the text side.  SIL tokens f
                   string are stripped and counted (``sil_stripped``); ``<SIL>``/``[SIL]``/``sil``
                   spellings are mapped onto ``SIL`` by ``emc.prior``'s one alias table before that,
                   so a fairseq-dictionary hypothesis and an EMC decode share the inventory.  Every
-                  row is asserted to be inside the 39 ARPAbet monophones; the text side, the
-                  reference (gold) row and any row flagged ``require_full_inventory`` (the GAN row,
-                  whose symbols come from the fairseq generator's own dictionary) are asserted to
-                  realise all 39.  A row file may cover more utterances than the reference set (the
+                  row is asserted to be inside the 39 ARPAbet monophones; the text side and
+                  the reference (gold) row are asserted to realise all 39.  A row may also be
+                  flagged ``require_full_inventory``, but the GAN row is NOT: the same checkpoint's
+                  train-split dump realises 38 of the 39 (it never emits ZH), so the full-inventory
+                  assert would abort the read (code review 2026-09-19); the subset assert stands
+                  for every row.  A row file may cover more utterances than the reference set (the
                   GAN decode covers dev-clean + dev-other): it is RESTRICTED to the reference ids,
                   the surplus is counted in ``ids_dropped``, and no reference id may be missing, so
                   the restricted id set equals the reference set exactly.
@@ -39,6 +41,19 @@ JSD               base 2 (bits), n = 1..4, between the row's n-gram distribution
                   utterances and the text corpus's; n-grams are taken inside one utterance / one
                   corpus line only (no BOS/EOS padding, no context across a boundary).
                   JSD(P,Q) = 0.5 KL(P||M) + 0.5 KL(Q||M), M = (P+Q)/2.
+Count matching    a plug-in JSD DEPENDS ON THE ROW'S TOKEN COUNT (fewer tokens -> sparser observed
+                  support -> larger JSD; measured on gold dev-other by the code review of
+                  2026-09-19: +0.013 bits at -15% of the tokens, +0.064 at -50%) and the rows
+                  differ in phone count, so the PRIMARY read is COUNT MATCHED.  The budget is the
+                  smallest phone count over the scored rows; for the point estimate and inside
+                  EVERY bootstrap replicate each row is subsampled by WHOLE utterances -- one
+                  shuffled utterance order, shared by all rows, truncated at the first utterance
+                  that would push the row past the budget -- and every JSD and every
+                  pre-registered difference is computed on that subsample.  Inside a replicate the
+                  budget is lowered to the smallest resampled row total when a row cannot reach
+                  the pre-registered budget, so the rows are always matched to each other.  The
+                  shuffle is a fixed stream derived from ``seed``.  The unmatched full-count
+                  statistics are kept and rendered as a SECONDARY table.
 Secondary         mean log P3 per token under the TRAINING SIL-INCLUSIVE trigram (``prior_npz``) on
                   the SIL-inclusive strings, for the model rows that have one; gold is n/a.
 Uncertainty       utterance-block bootstrap, ``n_bootstrap`` resamples, ``seed``.  The SAME
@@ -57,6 +72,11 @@ Rendered          ``summary.md`` MUST render, explicitly and each as a PAIRED-di
                     (b) ep4 4-gram JSD MINUS gold's,
                     (c) ep4 4-gram JSD MINUS the GAN's,
                     (d) GAN 4-gram JSD MINUS gold's.
+                  Each carries its PRE-REGISTERED margin and direction and a PASS/FAIL cell
+                  computed from the banked numbers (``PREREGISTERED_COMPARISONS`` below, from
+                  SAE_4A_attrib.md's design-review amendments): (a) >= -0.10 nats; (b) and (c)
+                  >= +0.05 bits AND the difference CI95 excluding zero; (d) within +-0.10 bits.
+                  Both rows' phone counts, full and matched, are printed beside every comparison.
                   ``jsd4_reference_line`` (0.27) is Lin's corpus-size-dependent gold-vs-text value
                   and is rendered as a DESCRIPTIVE reference line beside the 4-gram JSDs only; it
                   decides nothing.  A comparison whose row is absent is rendered as "n/a" naming
@@ -80,6 +100,24 @@ __all__ = ["NgramModeSeekingJob", "PhoneRow", "ngram_counts", "jensen_shannon_bi
 
 BASE = _prior.N_TYPES  # 40 = 39 ARPAbet + SIL; the packing radix of an n-gram id
 _SENTINEL = _prior.N_TYPES  # marks a line break in a packed stream (never a phone id)
+
+# The step-1 predictions, fixed before the numbers (SAE_4A_attrib.md, "Design-review amendments",
+# 2026-09-19).  They live here, with the producing code, so summary.md states what was predicted
+# and whether it held; ``rule`` "ge" = value >= margin, "abs_le" = |value| <= margin.
+PREREGISTERED_COMPARISONS = {
+    "ep4_minus_gan_logprob": {
+        "tag": "a", "rule": "ge", "margin": -0.10, "unit": "nats", "ci_excludes_zero": False,
+        "direction": ">= -0.10 nats (cold ep4 log-prob at least the GAN's minus 0.10)"},
+    "ep4_minus_gold_jsd4": {
+        "tag": "b", "rule": "ge", "margin": 0.05, "unit": "bits", "ci_excludes_zero": True,
+        "direction": ">= +0.05 bits and the difference CI95 excluding zero"},
+    "ep4_minus_gan_jsd4": {
+        "tag": "c", "rule": "ge", "margin": 0.05, "unit": "bits", "ci_excludes_zero": True,
+        "direction": ">= +0.05 bits and the difference CI95 excluding zero"},
+    "gan_minus_gold_jsd4": {
+        "tag": "d", "rule": "abs_le", "margin": 0.10, "unit": "bits", "ci_excludes_zero": False,
+        "direction": "within +-0.10 bits of gold"},
+}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -389,10 +427,48 @@ def _stat(value: float, samples: Sequence[float]) -> dict:
             "n_resamples": int(arr.size)}
 
 
+def _matched_weights(lengths: "np.ndarray", order_idx: "np.ndarray", budget: float,
+                     n_utts: int) -> "np.ndarray":
+    """Utterance weights of the COUNT-MATCHED subsample (see "Count matching" in the docstring).
+
+    ``order_idx`` is the shuffled utterance order (with repeats inside a bootstrap replicate);
+    whole utterances are taken from its front and the prefix stops at the first utterance that
+    would push the phone count past ``budget``.  A prefix rule, not a greedy fill: no utterance
+    length is preferred, so the subsample is an unbiased shortening of the row.
+    """
+    cum = np.cumsum(lengths[order_idx])
+    k = int(np.searchsorted(cum, budget, side="right"))
+    return np.bincount(order_idx[:k], minlength=n_utts).astype(np.float64)
+
+
+def _verdict(stat: dict, key: str) -> dict:
+    """PASS/FAIL of one pre-registered comparison, from the banked numbers only."""
+    spec = PREREGISTERED_COMPARISONS[key]
+    out = {"tag": spec["tag"], "margin": spec["margin"], "unit": spec["unit"],
+           "rule": spec["rule"], "direction": spec["direction"],
+           "requires_ci_excludes_zero": spec["ci_excludes_zero"]}
+    value = stat.get("value", float("nan"))
+    if not stat.get("available", True) or not np.isfinite(value):
+        out.update({"point_meets_margin": None, "ci_excludes_zero": None, "verdict": "n/a"})
+        return out
+    lo, hi = stat["ci95"]
+    meets = bool(value >= spec["margin"]) if spec["rule"] == "ge" else bool(abs(value) <= spec["margin"])
+    excludes = bool(np.isfinite(lo) and np.isfinite(hi) and (lo > 0.0 or hi < 0.0))
+    ok = meets and (excludes or not spec["ci_excludes_zero"])
+    out.update({"point_meets_margin": meets, "ci_excludes_zero": excludes,
+                "verdict": "PASS" if ok else "FAIL"})
+    return out
+
+
 def analyse(rows: Sequence[PhoneRow], *, fit, text_ngrams: Dict[int, "np.ndarray"],
             training_prior=None, orders: Sequence[int] = (1, 2, 3, 4),
             n_bootstrap: int = 1000, seed: int = 0) -> dict:
-    """Every number of the read, with paired utterance-block bootstrap CIs (see module docstring)."""
+    """Every number of the read, count matched and with paired utterance-block bootstrap CIs.
+
+    Primary statistics are computed on the count-matched subsample of each row (module docstring,
+    "Count matching"); the unmatched full-count statistics are computed as well and banked as the
+    secondary read.
+    """
     n_utts = rows[0].n_utts
     for row in rows:
         assert row.n_utts == n_utts, f"{row.name}: {row.n_utts} utterances, expected {n_utts}"
@@ -404,64 +480,118 @@ def analyse(rows: Sequence[PhoneRow], *, fit, text_ngrams: Dict[int, "np.ndarray
                  "secondary_na_reason": row.secondary_na_reason}
         sums, toks = _utt_logprobs(fit, row.primary)
         entry["_lp"] = (sums, toks)
+        entry["_len"] = np.asarray([float(s.size) for s in row.primary], dtype=np.float64)
         entry["_tables"] = {n: _row_ngram_table(row.primary, n, text_ngrams[n]) for n in orders}
         if row.raw is not None and training_prior is not None:
             entry["_lp_raw"] = _utt_logprobs(training_prior, row.raw)
             entry["n_tokens_sil_inclusive"] = int(entry["_lp_raw"][1].sum())
         per_row[row.name] = entry
 
-    def point_lp(key, entry):
-        sums, toks = entry[key]
-        return float(sums.sum() / max(toks.sum(), 1.0))
+    # the pre-registered common phone budget: the smallest row decides how long every row may be
+    budget = float(min(row.n_phones for row in rows))
 
-    boot = {name: {"logprob": [], "logprob_raw": [], "jsd": {n: [] for n in orders}}
+    def weighted_lp(entry, key, w):
+        sums, toks = entry[key]
+        return float((w * sums).sum() / max(float((w * toks).sum()), 1.0))
+
+    ones = np.ones(n_utts, dtype=np.float64)
+    rng = np.random.default_rng(seed)                 # the utterance-block resamples
+    rng_match = np.random.default_rng([int(seed), 1])  # the count-matching shuffles, same seed
+    order0 = rng_match.permutation(n_utts)
+    w_match0 = {name: _matched_weights(entry["_len"], order0, budget, n_utts)
+                for name, entry in per_row.items()}
+
+    boot = {name: {"logprob": [], "logprob_matched": [], "logprob_raw": [],
+                   "jsd": {n: [] for n in orders}, "jsd_matched": {n: [] for n in orders}}
             for name in per_row}
-    rng = np.random.default_rng(seed)
+    budgets = []
     for _ in range(int(n_bootstrap)):
         draw = rng.integers(0, n_utts, size=n_utts)
         w = np.bincount(draw, minlength=n_utts).astype(np.float64)  # shared by every row: paired
+        order_r = rng_match.permutation(draw)          # one matching order, shared by every row
+        budget_r = min([budget] + [float(entry["_len"][draw].sum()) for entry in per_row.values()])
+        budgets.append(budget_r)
         for name, entry in per_row.items():
-            sums, toks = entry["_lp"]
-            boot[name]["logprob"].append(float((w * sums).sum() / max((w * toks).sum(), 1.0)))
+            wm = _matched_weights(entry["_len"], order_r, budget_r, n_utts)
+            boot[name]["logprob"].append(weighted_lp(entry, "_lp", w))
+            boot[name]["logprob_matched"].append(weighted_lp(entry, "_lp", wm))
             if "_lp_raw" in entry:
-                rsums, rtoks = entry["_lp_raw"]
-                boot[name]["logprob_raw"].append(float((w * rsums).sum() / max((w * rtoks).sum(), 1.0)))
+                boot[name]["logprob_raw"].append(weighted_lp(entry, "_lp_raw", w))
             for n in orders:
                 table = entry["_tables"][n]
-                boot[name]["jsd"][n].append(float("nan") if table is None else _jsd_from_table(table, w))
+                boot[name]["jsd"][n].append(
+                    float("nan") if table is None else _jsd_from_table(table, w))
+                boot[name]["jsd_matched"][n].append(
+                    float("nan") if table is None else _jsd_from_table(table, wm))
 
     out_rows = {}
     for name, entry in per_row.items():
         rec = {k: v for k, v in entry.items() if not k.startswith("_")}
-        rec["mean_logprob_per_phone"] = _stat(point_lp("_lp", entry), boot[name]["logprob"])
-        rec["jsd"] = {}
+        wm0 = w_match0[name]
+        rec["n_phones_matched"] = int((wm0 * entry["_len"]).sum())
+        rec["n_utts_matched"] = int(wm0.sum())
+        rec["mean_logprob_per_phone_matched"] = _stat(weighted_lp(entry, "_lp", wm0),
+                                                      boot[name]["logprob_matched"])
+        rec["mean_logprob_per_phone"] = _stat(weighted_lp(entry, "_lp", ones),
+                                              boot[name]["logprob"])
+        rec["jsd_matched"], rec["jsd"] = {}, {}
         for n in orders:
             table = entry["_tables"][n]
-            rec["jsd"][str(n)] = _stat(float("nan") if table is None else _jsd_from_table(table, None),
-                                       boot[name]["jsd"][n])
+            rec["jsd_matched"][str(n)] = _stat(
+                float("nan") if table is None else _jsd_from_table(table, wm0),
+                boot[name]["jsd_matched"][n])
+            rec["jsd"][str(n)] = _stat(
+                float("nan") if table is None else _jsd_from_table(table, None),
+                boot[name]["jsd"][n])
         rec["secondary_mean_logprob_per_token_sil_inclusive"] = (
-            _stat(point_lp("_lp_raw", entry), boot[name]["logprob_raw"]) if "_lp_raw" in entry else None)
+            _stat(weighted_lp(entry, "_lp_raw", ones), boot[name]["logprob_raw"])
+            if "_lp_raw" in entry else None)
         out_rows[name] = rec
-    return {"rows": out_rows, "_boot": boot, "_point": {
+
+    matching = {
+        "budget_phones": budget,
+        "budget_row": min(out_rows, key=lambda nm: out_rows[nm]["n_phones"]),
+        "rule": ("whole utterances taken from one shuffled order shared by the rows, prefix "
+                 "truncated at the first utterance that would exceed the budget"),
+        "applies_to": "every primary JSD, every primary mean log-prob and all four comparisons",
+        "seed_stream": [int(seed), 1],
+        "replicate_budget_mean": float(np.mean(budgets)) if budgets else float("nan"),
+        "replicate_budget_min": float(np.min(budgets)) if budgets else float("nan"),
+        "n_phones_full": {nm: out_rows[nm]["n_phones"] for nm in out_rows},
+        "n_phones_matched": {nm: out_rows[nm]["n_phones_matched"] for nm in out_rows},
+        "n_utts_matched": {nm: out_rows[nm]["n_utts_matched"] for nm in out_rows},
+    }
+    return {"rows": out_rows, "_boot": boot, "count_matching": matching, "_point": {
         name: {"logprob": out_rows[name]["mean_logprob_per_phone"]["value"],
-               "jsd": {n: out_rows[name]["jsd"][str(n)]["value"] for n in orders}} for name in out_rows}}
+               "logprob_matched": out_rows[name]["mean_logprob_per_phone_matched"]["value"],
+               "jsd": {n: out_rows[name]["jsd"][str(n)]["value"] for n in orders},
+               "jsd_matched": {n: out_rows[name]["jsd_matched"][str(n)]["value"] for n in orders}}
+        for name in out_rows}}
 
 
-def _difference(result: dict, left: str, right: str, kind: str, order: Optional[int] = None) -> dict:
-    """Paired difference left - right with a bootstrap CI, or an explicit n/a naming what is absent."""
+def _difference(result: dict, left: str, right: str, kind: str, order: Optional[int] = None,
+                *, matched: bool = True) -> dict:
+    """Paired difference left - right with a bootstrap CI, or an explicit n/a naming what is absent.
+
+    ``matched=True`` (the primary read) differences the COUNT-MATCHED statistics: inside one
+    replicate both rows are resampled with the same utterance weights and then subsampled to the
+    same phone budget from the same shuffled order, so the difference is paired twice over.
+    ``matched=False`` gives the unmatched full-count difference, banked as the secondary.
+    """
     absent = [name for name in (left, right) if name not in result["rows"]]
     if absent:
         return {"available": False, "missing": absent, "left": left, "right": right, "kind": kind,
-                "order": order}
+                "order": order, "count_matched": matched}
+    key = ("logprob" if kind == "logprob" else "jsd") + ("_matched" if matched else "")
     if kind == "logprob":
-        point = result["_point"][left]["logprob"] - result["_point"][right]["logprob"]
-        samples = [a - b for a, b in zip(result["_boot"][left]["logprob"], result["_boot"][right]["logprob"])]
+        point = result["_point"][left][key] - result["_point"][right][key]
+        samples = [a - b for a, b in zip(result["_boot"][left][key], result["_boot"][right][key])]
     else:
-        point = result["_point"][left]["jsd"][order] - result["_point"][right]["jsd"][order]
-        samples = [a - b for a, b in zip(result["_boot"][left]["jsd"][order],
-                                         result["_boot"][right]["jsd"][order])]
+        point = result["_point"][left][key][order] - result["_point"][right][key][order]
+        samples = [a - b for a, b in zip(result["_boot"][left][key][order],
+                                         result["_boot"][right][key][order])]
     return {"available": True, "left": left, "right": right, "kind": kind, "order": order,
-            **_stat(point, samples)}
+            "count_matched": matched, **_stat(point, samples)}
 
 
 def _fmt(stat: Optional[dict], digits: int = 4, interval: str = "ci95",
@@ -478,6 +608,8 @@ def _fmt(stat: Optional[dict], digits: int = 4, interval: str = "ci95",
 def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[str],
                    spec: dict) -> str:
     rows = result["rows"]
+    match = result["count_matching"]
+    comp = result["comparisons"]
     lines = ["# SAE 4A step 1 -- n-gram mode-seeking check", "",
              "Training-free read; conventions and pre-registered comparisons are in the docstring of",
              "`recipe/i6_experiments/users/wu/experiments/unsupervised_asr/ngram_mode_seeking.py`.", "",
@@ -492,38 +624,75 @@ def render_summary(result: dict, *, orders: Sequence[int], row_order: Sequence[s
              "REVERSE-PERCENTILE (bias-corrected) CI95, because resampling utterances shrinks the "
              "observed n-gram support and inflates a plug-in JSD; every decisive comparison is a "
              "per-resample difference with the percentile CI95. The json carries both intervals "
-             "and the bootstrap bias for every statistic.", ""]
-    header = "| row | utts | phones | mean log P3 per phone (nats) | " + \
-             " | ".join(f"JSD n={n}" for n in orders) + " | secondary log P3 per token (SIL-incl.) |"
-    lines += [header, "|" + "---|" * (4 + len(orders) + 1)]
+             "and the bootstrap bias for every statistic.",
+             "- COUNT MATCHING (primary, fixed before the read): a plug-in JSD grows as a row's "
+             "token count shrinks and the rows differ in length, so every primary statistic and "
+             f"all four comparisons are computed on a subsample of whole utterances down to a "
+             f"common budget of {int(match['budget_phones'])} phones -- the smallest row "
+             f"({match['budget_row']}) -- drawn from one shuffled utterance order shared by the "
+             f"rows, for the point estimate and inside every bootstrap replicate (replicate "
+             f"budget: mean {match['replicate_budget_mean']:.0f}, min "
+             f"{match['replicate_budget_min']:.0f} phones). The unmatched full-count numbers are "
+             "the secondary table below and are NOT the pre-registered read.", ""]
+    header = ("| row | utts | phones (full) | phones (matched) | mean log P3 per phone "
+              "(nats, matched) | " + " | ".join(f"JSD n={n} (matched)" for n in orders) +
+              " | secondary log P3 per token (SIL-incl.) |")
+    lines += [header, "|" + "---|" * (5 + len(orders) + 1)]
     for name in row_order:
         if name not in rows:
-            cells = [name, "n/a", "n/a", "n/a (row absent)"] + ["n/a (row absent)" for _ in orders]
-            lines.append("| " + " | ".join(cells + ["n/a"]) + " |")
+            cells = [name, "n/a", "n/a", "n/a", "n/a (row absent)"]
+            cells += ["n/a (row absent)" for _ in orders] + ["n/a"]
+            lines.append("| " + " | ".join(cells) + " |")
             continue
         rec = rows[name]
-        cells = [name, str(rec["n_utts"]), str(rec["n_phones"]),
-                 _fmt(rec["mean_logprob_per_phone"])]
-        cells += [_fmt(rec["jsd"][str(n)], interval="ci95_basic") for n in orders]
+        cells = [name, str(rec["n_utts"]), str(rec["n_phones"]), str(rec["n_phones_matched"]),
+                 _fmt(rec["mean_logprob_per_phone_matched"])]
+        cells += [_fmt(rec["jsd_matched"][str(n)], interval="ci95_basic") for n in orders]
         cells.append(_fmt(rec["secondary_mean_logprob_per_token_sil_inclusive"],
                           na=f"n/a: {rec['secondary_na_reason']}" if rec.get("secondary_na_reason")
                           else "n/a"))
         lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", "## Pre-registered comparisons (paired-difference bootstrap, CI95)", ""]
-    comp = result["comparisons"]
-    for tag, key, what in (("a", "ep4_minus_gan_logprob", "mean SIL-free trigram log-prob per phone (nats)"),
-                           ("b", "ep4_minus_gold_jsd4", "4-gram JSD (bits)"),
-                           ("c", "ep4_minus_gan_jsd4", "4-gram JSD (bits)"),
-                           ("d", "gan_minus_gold_jsd4", "4-gram JSD (bits)")):
+
+    lines += ["", "## Pre-registered comparisons (count matched; paired-difference bootstrap, "
+                  "percentile CI95)", "",
+              "| # | comparison | value [CI95] | pre-registered | verdict | phones full -> matched |",
+              "|---|---|---|---|---|---|"]
+    tags = (("a", "ep4_minus_gan_logprob", "mean SIL-free trigram log-prob per phone (nats)"),
+            ("b", "ep4_minus_gold_jsd4", "4-gram JSD (bits)"),
+            ("c", "ep4_minus_gan_jsd4", "4-gram JSD (bits)"),
+            ("d", "gan_minus_gold_jsd4", "4-gram JSD (bits)"))
+    for tag, key, what in tags:
         stat = comp[key]
-        left, right = stat["left"], stat["right"]
-        lines.append(f"({tag}) {left} minus {right}, {what}: {_fmt(stat)}")
+        pre = stat.get("prereg", {})
+        counts = "; ".join(f"{nm} {rows[nm]['n_phones']} -> {rows[nm]['n_phones_matched']}"
+                           for nm in (stat["left"], stat["right"]) if nm in rows) or "n/a"
+        lines.append(f"| ({tag}) | {stat['left']} minus {stat['right']}, {what} | {_fmt(stat)} | "
+                     f"{pre.get('direction', 'n/a')} | {pre.get('verdict', 'n/a')} | {counts} |")
     lines += ["", "Each comparison above is the difference of the two rows inside the SAME "
-                  "resample, summarised by the percentile CI95 of those differences."]
+                  "resample and the SAME count-matched budget, summarised by the percentile CI95 "
+                  "of those differences. PASS = the point estimate meets the pre-registered "
+                  "margin, and for (b) and (c) additionally the difference CI95 excludes zero "
+                  "(SAE_4A_attrib.md, design-review amendments 2026-09-19)."]
+
+    lines += ["", "## Secondary: unmatched full-count statistics (not the pre-registered read)", "",
+              "| row | phones | mean log P3 per phone (nats) | " +
+              " | ".join(f"JSD n={n}" for n in orders) + " |",
+              "|" + "---|" * (3 + len(orders))]
+    for name in row_order:
+        if name not in rows:
+            lines.append("| " + " | ".join([name, "n/a", "n/a"] + ["n/a" for _ in orders]) + " |")
+            continue
+        rec = rows[name]
+        cells = [name, str(rec["n_phones"]), _fmt(rec["mean_logprob_per_phone"])]
+        cells += [_fmt(rec["jsd"][str(n)], interval="ci95_basic") for n in orders]
+        lines.append("| " + " | ".join(cells) + " |")
+    unmatched = "; ".join(f"({tag}) {_fmt(comp[key + '_unmatched'])}" for tag, key, _ in tags)
+    lines += ["", f"Same four comparisons WITHOUT count matching: {unmatched}."]
+
     ref = comp["jsd4_reference_line"]
     per_row = ", ".join(f"{name} {value:.4f}" for name, value in ref["rows_jsd4"].items())
     lines += ["", f"Reference line (descriptive only, decides nothing): Lin's gold-vs-text 4-gram JSD "
-                  f"{ref['value']} is corpus-size dependent. 4-gram JSD by row: {per_row}."]
+                  f"{ref['value']} is corpus-size dependent. Count-matched 4-gram JSD by row: {per_row}."]
     if spec.get("absent_rows"):
         lines += ["", f"Rows absent from this read: {', '.join(spec['absent_rows'])} "
                       "(their comparisons are n/a above)."]
@@ -542,7 +711,8 @@ class NgramModeSeekingJob(Job):
         strings; ``None`` = the row is absent and its comparisons render as n/a), ``raw`` (the
         SIL-inclusive strings for the secondary read under ``prior_npz``), ``split`` (a split key
         inside a split-keyed json), ``require_full_inventory`` (assert the row realises all 39
-        ARPAbet phones after the alias mapping) and ``secondary_na`` (the reason rendered in the
+        ARPAbet phones after the alias mapping; NOT set for the GAN row, whose generator never
+        emits ZH -- code review 2026-09-19) and ``secondary_na`` (the reason rendered in the
         secondary column when the row has no SIL-inclusive strings).
     :param reference_row: the row whose utterance ids define the scored set; every other row is
         restricted to those ids and must cover all of them (paired bootstrap).
@@ -616,19 +786,28 @@ class NgramModeSeekingJob(Job):
                          orders=self.jsd_orders, n_bootstrap=self.n_bootstrap, seed=self.seed)
 
         ep4, gan, gold = (self.comparison_rows[k] for k in ("ep4", "gan", "gold"))
-        comparisons = {
-            "ep4_minus_gan_logprob": _difference(result, ep4, gan, "logprob"),
-            "ep4_minus_gold_jsd4": _difference(result, ep4, gold, "jsd", 4),
-            "ep4_minus_gan_jsd4": _difference(result, ep4, gan, "jsd", 4),
-            "gan_minus_gold_jsd4": _difference(result, gan, gold, "jsd", 4),
-            # Descriptive only (design review 2026-09-19): Lin's gold-vs-text value is corpus-size
-            # dependent, so it is reported beside the 4-gram JSDs and decides nothing.
-            "jsd4_reference_line": {
-                "value": self.jsd4_reference_line, "decides": False,
-                "note": "Lin's gold-vs-text 4-gram JSD; corpus-size dependent, descriptive only",
-                "rows_jsd4": {name: rec["jsd"]["4"]["value"] for name, rec in result["rows"].items()}},
-        }
+        # Primary = count matched (module docstring, "Count matching"); the unmatched full-count
+        # difference of the same pair is banked beside it as the secondary.
+        comparisons = {}
+        for key, left, right, kind, order in (
+                ("ep4_minus_gan_logprob", ep4, gan, "logprob", None),
+                ("ep4_minus_gold_jsd4", ep4, gold, "jsd", 4),
+                ("ep4_minus_gan_jsd4", ep4, gan, "jsd", 4),
+                ("gan_minus_gold_jsd4", gan, gold, "jsd", 4)):
+            stat = _difference(result, left, right, kind, order, matched=True)
+            stat["prereg"] = _verdict(stat, key)
+            comparisons[key] = stat
+            comparisons[key + "_unmatched"] = _difference(result, left, right, kind, order,
+                                                          matched=False)
+        # Descriptive only (design review 2026-09-19): Lin's gold-vs-text value is corpus-size
+        # dependent, so it is reported beside the 4-gram JSDs and decides nothing.
+        comparisons["jsd4_reference_line"] = {
+            "value": self.jsd4_reference_line, "decides": False,
+            "note": "Lin's gold-vs-text 4-gram JSD; corpus-size dependent, descriptive only",
+            "rows_jsd4": {name: rec["jsd_matched"]["4"]["value"] for name, rec in result["rows"].items()},
+            "rows_jsd4_unmatched": {name: rec["jsd"]["4"]["value"] for name, rec in result["rows"].items()}}
         result["comparisons"] = comparisons
+        print("count matching:", json.dumps(result["count_matching"]), flush=True)
 
         spec = {"rows": spec_rows, "reference_row": self.reference_row,
                 "comparison_rows": self.comparison_rows, "absent_rows": absent,
@@ -642,8 +821,17 @@ class NgramModeSeekingJob(Job):
                     "logprob": "natural log, two BOS context symbols, no EOS term, token weighted",
                     "jsd": "base 2 (bits), n-grams inside one utterance/line, pooled over utterances",
                     "bootstrap": "utterance-block, shared resample across rows (paired), CI95 percentile",
+                    "count_matching": ("primary JSDs, primary mean log-probs and all four "
+                                       "comparisons are computed on a whole-utterance subsample of "
+                                       "every row down to the smallest row's phone count, in the "
+                                       "point estimate and in every replicate; the unmatched "
+                                       "full-count statistics are banked as the secondary"),
+                    "prereg": "PASS = point estimate meets the margin; (b) and (c) also need the "
+                              "difference CI95 to exclude zero",
                     "secondary": "mean log P3 per token under the trained SIL-inclusive trigram"}}
-        payload = {"spec": spec, "rows": result["rows"], "comparisons": comparisons}
+        payload = {"spec": spec, "rows": result["rows"], "comparisons": comparisons,
+                   "count_matching": result["count_matching"],
+                   "prereg": PREREGISTERED_COMPARISONS}
         with open(self.out_json.get_path(), "w") as fh:
             json.dump(payload, fh, indent=2, sort_keys=True)
         summary = render_summary(result, orders=self.jsd_orders, row_order=list(spec_rows),
