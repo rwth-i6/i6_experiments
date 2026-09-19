@@ -294,18 +294,44 @@ class FairseqW2vu2ProfileJob(FairseqW2vu2TrainJob):
     at lam_rev = 0, so the projected wall time of a 150k-update run can be compared to the 0.24 s per
     update of the reproduction.
 
-    ``sec_per_update`` is read off fairseq's own ``ups`` meter (updates per second over the log
+    ``sec_per_update`` is read off fairseq's own ``ups`` meter (updates per second over the last log
     interval, i.e. the average the run itself reports); ``peak_gpu_mib`` is the maximum of
     ``nvidia-smi`` samples taken every 2 s in this process, and ``peak_alloc_gb`` is
     ``total - min(gb_free)`` over the log records, i.e. torch's own ``max_memory_allocated``.
+
+    The run logs every ``log_interval`` updates (10, against the reproduction's 100), so a
+    100-update profile yields a speed series at 10, 20, ... 100 instead of one end-of-run number.
+    ``sec_per_update_warm`` is the mean of ``1 / ups`` over the records from ``WARMUP_UPDATES`` on
+    -- the records are equally spaced, so that mean is the window's total time per update, with the
+    warmup updates (CUDA/cuDNN autotuning, first lattice allocation) left out.
     """
 
-    def __init__(self, *, max_update_cap: int = 2000, **kwargs):
+    # fairseq 0.12.2 writes `[<ts>][train_inner][INFO] - {json}`; older releases wrote
+    # `<ts> | INFO | train_inner | {json}`. Match the tag and take the trailing object, so the
+    # parse does not depend on the separator of the installed release.
+    _TRAIN_INNER_RE = re.compile(r"train_inner.*?(\{.*\})\s*$")
+
+    _RECORD_KEYS = ("num_updates", "ups", "wps", "wall", "train_wall", "gb_free",
+                    "loss", "loss_rev", "rev_per_frame", "rev_batch_utts")
+
+    # The speed series is averaged from this update on; earlier updates carry the warmup the
+    # 150k-update projection must not inherit.
+    WARMUP_UPDATES = 20
+
+    def __init__(self, *, max_update_cap: int = 2000, log_interval: int = 10, **kwargs):
+        """:param log_interval: updates between fairseq ``train_inner`` records (the speed series).
+
+        The reproduction logs every 100 updates, i.e. a 100-update profile would report a single
+        number covering the warmup as well; 10 gives 9 records in updates 20..100 to average.
+        """
         super().__init__(**kwargs)
         updates = int(self.overrides.get("optimization.max_update", 0))
         assert 0 < updates <= max_update_cap, (
             f"a profile job must be short: optimization.max_update = {updates}"
         )
+        self.log_interval = int(log_interval)
+        assert self.log_interval > 0
+        self.overrides["common.log_interval"] = self.log_interval
         self.out_profile = self.output_path("profile.json")
         self.rqmt = dict(self.rqmt)
         self.rqmt["time"] = 1
@@ -319,6 +345,25 @@ class FairseqW2vu2ProfileJob(FairseqW2vu2TrainJob):
             ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], text=True
         )
         return float(out.strip().splitlines()[0])
+
+    @classmethod
+    def _parse_train_inner(cls, log_path: str) -> list:
+        """fairseq's ``train_inner`` json records in a train.log, oldest first."""
+        import json
+
+        records = []
+        with open(log_path) as fh:
+            for line in fh:
+                m = cls._TRAIN_INNER_RE.search(line.rstrip())
+                if not m:
+                    continue
+                try:
+                    rec = json.loads(m.group(1))
+                except ValueError:
+                    continue
+                if "ups" in rec and "num_updates" in rec:
+                    records.append({k: rec[k] for k in rec if k in cls._RECORD_KEYS})
+        return records
 
     def run(self):
         import json
@@ -347,22 +392,10 @@ class FairseqW2vu2ProfileJob(FairseqW2vu2TrainJob):
             watcher.join(timeout=10)
         wall = time.time() - t0
 
-        records = []
-        with open(self.out_log.get_path()) as fh:
-            for line in fh:
-                m = re.search(r"\|\s*(\{.*\})\s*$", line.rstrip())
-                if not m:
-                    continue
-                try:
-                    rec = json.loads(m.group(1))
-                except ValueError:
-                    continue
-                if "ups" in rec and "num_updates" in rec:
-                    records.append({k: rec[k] for k in rec if k in
-                                    ("num_updates", "ups", "wps", "wall", "train_wall", "gb_free",
-                                     "loss", "loss_rev", "rev_per_frame", "rev_batch_utts")})
+        records = self._parse_train_inner(self.out_log.get_path())
         assert records, f"no train_inner json record with 'ups' in {self.out_log.get_path()}"
         last = records[-1]
+        warm = [r for r in records if float(r["num_updates"]) >= self.WARMUP_UPDATES]
         total_mib = self._gpu_totals()
         gb_free = [float(r["gb_free"]) for r in records if "gb_free" in r]
         profile = {
@@ -372,6 +405,12 @@ class FairseqW2vu2ProfileJob(FairseqW2vu2TrainJob):
             "num_updates": int(float(last["num_updates"])),
             "sec_per_update": 1.0 / float(last["ups"]),
             "ups": float(last["ups"]),
+            "log_interval": self.log_interval,
+            "warmup_updates": self.WARMUP_UPDATES,
+            "n_records_warm": len(warm),
+            "sec_per_update_warm": (
+                sum(1.0 / float(r["ups"]) for r in warm) / len(warm) if warm else None
+            ),
             "job_wall_sec": wall,
             "peak_gpu_mib": peak[0],
             "gpu_total_mib": total_mib,
