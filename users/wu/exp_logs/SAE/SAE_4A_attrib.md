@@ -112,6 +112,44 @@ mode-covering objective, H1-directional confirmed. All six arms >= control + 0.1
 trained reverse model absorbs even the GAN's signal, H2 primary. Anything else: weight-dependent,
 report the curve; no single-arm claim. Ceiling: 7 runs x 2 allocations x 11.5 h.
 
+## Design-review amendments (2026-09-19, `reports/sae_attrib_design_review_2026-09-19.md`; accepted before any launch)
+
+Original step texts above stand as provenance; the following supersede them where they conflict.
+
+- **Step 1.** The 0.27 threshold is Lin's gold-vs-text, corpus-size-dependent value; keep it as a
+  descriptive reference only. Decisive comparisons become paired-difference bootstraps: (i) cold ep4
+  mean SIL-free trigram log-prob >= GAN's minus 0.10; (ii) cold ep4 4-gram JSD minus gold's >= 0.05
+  and minus GAN's >= 0.05, both difference CIs excluding zero; (iii) GAN minus gold within 0.10.
+  All true reads "the cold output is prior-shaped despite high prior likelihood", a mode-seeking
+  signature; it is consistent with the directional H1 and does not by itself establish it. The GAN
+  row is decoded from the weighted_lm_ppl-selected checkpoint (seed 0, update 148000, `SAE_1c.md`),
+  since `per.json` stores no strings.
+- **Step 2.** Zeroing emission and duration together leaves an unnormalized segmentation count that
+  favors maximal phone rate, a non-content confound. Amended delta: the emission score is zero, the
+  duration model is frozen at its cold initialization (a proper distribution over legal d), phi gets
+  no update. Phones per second is a required readout. Two additional single-delta arms on the
+  unchanged blankfree control (reverse term present): lambda_agg = 1 and 10 (control 0.1). The
+  aggregate term already matches expected run-unigram/bigram counts to text, i.e. it is the bed's
+  existing mode-covering term; these arms are the cheapest falsifier of "add a mode-covering term".
+  Prediction: neither beats 0.865 by more than 0.05 paired. Ceiling for step 2 becomes 3 GPU x 1 h.
+- **Step 4.** tau is set to 1 (plain marginal likelihood) instead of 2: the tau=2 alignment sum is
+  concave in q and pays for high-entropy posteriors, which the discriminator can exploit; tau=2 was
+  the cold anneal endpoint, not a GAN constant. To separate "term present" from "phi updated", the
+  lam_rev=1.0 seed-1 run is replaced by a frozen-phi arm at lam_rev=0.1 seed 0 (phi = the blankfree
+  ep4 reverse model, `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL`, no update). Controls are
+  seed-matched (s0 0.214, s1 0.205) and every arm is read at its own weighted_lm_ppl-selected
+  checkpoint exactly as the reproduction. "Harmless" requires an activity criterion: the arm's dev
+  reverse log-likelihood per retained frame must exceed the cold phi's, or its own-minus-donor gap
+  must be positive; a term that stays inactive at 0.01 says nothing. Cost: the trigram lattice
+  measured 18.2 s per 128-utterance update; even at beta=0 the term may dominate the 0.24 s GAN
+  update. The profile runs at b = 160 (all) and b = 16 utterances per generator update; the launch
+  uses the largest b whose projected wall time x 1.25 is at most 20 h, and b is recorded as part of
+  the delta. A 2 to 50x overrun is not cured by resumability.
+- **Decision rule.** A discriminator inside the cycle would breach the no-GAN mainline rule; that
+  branch is a user decision, not an orchestrator next step. The "freeze phi" branch is void unless
+  step 2's no-reverse arm beats 0.865 by more than 0.05 paired. Any outcome pattern not listed is
+  reported without a mechanism claim.
+
 ## Decision rule for the phase
 
 Steps 1, 2, 4 as predicted: the cycle needs a mode-covering distribution term and the reverse model can
