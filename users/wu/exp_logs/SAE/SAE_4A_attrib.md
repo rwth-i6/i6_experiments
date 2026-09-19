@@ -17,18 +17,21 @@ on resume: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_g
 Step 5 (odm arms; user 2026-09-19: progress without waiting for step 4, NO GAN component):
 pre-registered, design-reviewed and code-reviewed (Results, "Step 5 design" + amendments; speech-llm
 commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib_step5_{impl,design_review,review,launch}_2026-09-19.md`).
-LIVE since 2026-09-19 ~21:30 under manager pid 3896872 (`config/sae_4a_attrib_odm.py`,
-`log/sae_4a_attrib_odm.manager.log`): prior0 `BoundedBlankfreeTrainingJob.HxMWJ5osM8NU` SLURM
-1895827 (~12 s/step) and the lam_agg profile `BlankfreeGradNormProfileJob.iX6xWSYdo1a7` SLURM
-1895838. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 3896872 config/sae_4a_attrib_odm.py 600`.
-odm3 / odm3_norev are NOT registered until `LAM_AGG` in `config_sae_4a_attrib_odm_v1.py` is set.
-NEXT: when the profile finishes, extractor reads out/summary.txt (median ratio prior/agg, its
-1-significant-digit rounding, tau, batch count, three median norms); record lam_agg here and in the
-config docstring (implementer, hash census on prior0 HxMWJ5osM8NU unchanged); executor restarts
-manager 3896872 so odm3 / odm3_norev join; re-arm the watcher with the new pid. Then ep1 abort read
-(surrogate) and ep4 gate read per arm. Stage 2 only on a take-off (phi fit on step-5 posteriors,
-frozen, cycle + bt_a, pack6 recipe). Step 4: on each watcher verdict dispatch executor; when all
-seven finish, extractor for the PER table, gate read, synthesis.
+Profile DONE (lam_agg 0.009, Results) and prior0 DONE, gate FAIL (Results). LIVE since 2026-09-19
+~23:30 under manager pid 354995 (`config/sae_4a_attrib_odm.py`, `log/sae_4a_attrib_odm.manager.log`,
+speech-llm commit 478caf7): odm3 `BoundedBlankfreeTrainingJob.PiNZJCFoN8bX` SLURM 1896433 and
+odm3_norev `.QhMVw6T6SG0v` SLURM 1896434 (4 subepochs; prior0 took ~1.5 h). Watcher:
+`bash ~/.claude/skills/sis/sis_watch.sh 354995 config/sae_4a_attrib_odm.py 600`.
+NEXT: on the watcher verdict dispatch executor; when both arms finish, extractor reads the
+registered aliases `output/exp2025_11_06_speech_llms/librispeech/sae_4a_attrib/{odm3,odm3_norev}/`
+(ep1/ep4 per.json + decode_stats.json, ep4 derangement_gap.json, paired_per and
+paired_per_priorshuf) AND the training `learning_rates` agg_* diagnostics (order-3 surrogate mean
+over the last subepoch for the ep1 abort rule; CE vs floor H(p_text3); floored mass; max ratio);
+labels from the alias tree, never from a hash list. Gate read per arm as pre-registered (odm3: PER,
+gap, rate; odm3_norev: PER, rate), then audit if any arm moves vs priorshuf, then synthesis. Stage 2
+only on a take-off (phi fit on step-5 posteriors, frozen, cycle + bt_a, pack6 recipe). Step 4: on
+each watcher verdict dispatch executor; when all seven finish, extractor for the PER table, gate
+read, synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -393,6 +396,41 @@ DONE_WITH_CONCERNS; MUST items folded before any launch, the original gate text 
   NaN or |mean over the last subepoch| > 100 stops the arm, read as "not optimisable at this
   operating point", not as a gate FAIL. lam_agg is priced at EMA step 0 (f_ema = f_batch), i.e.
   exactly the CE gradient at init; the EMA lag from step 2 on is what the diagnostics monitor.
+
+### Step 5 lam_agg profile (2026-09-19, `BlankfreeGradNormProfileJob.iX6xWSYdo1a7`, finished)
+Recognizer-parameter gradient norms at init, tau 8.0, lam_tau 1.0, 20 distinct training batches
+(`work/speech_llm/sae/emc/blankfree_train_jobs/BlankfreeGradNormProfileJob.iX6xWSYdo1a7/output/{summary.txt,grad_norms.json}`,
+read `reports/sae_attrib_step5_stall_2026-09-19.md`): median |g_prior| / |g_agg3| = 0.00861, median
+|g_ltau0| / |g_agg3| = 5.32e-05, all norms finite. Pre-registered rule gives **lam_agg = 0.009**
+(set in `config_sae_4a_attrib_odm_v1.py` before odm3 / odm3_norev were registered). Side reading:
+at init the cycle term without the prior moves the recognizer by 6e-3 of what the prior term does
+(and 6e-5 of the unit-weight order-3 term), so on this bed the recognizer is driven almost entirely
+by whichever distribution term is present; the reconstruction tie is gradient-wise negligible at
+tau 8. Informative, not a gate.
+
+### Step 5, prior0 (2026-09-19): removing the lattice prior alone changes nothing; gate FAIL
+Arm prior0 = priorshuf bed + `prior_weight` 0 (`BoundedBlankfreeTrainingJob.HxMWJ5osM8NU`, 4
+subepochs). Read off the registered aliases
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_attrib/prior0/{ep1,ep4}/dev-other/`
+(`BlankfreeGreedyPerJob.fLupKOkGMf2e` ep1, `.2tYIWV7srcAn` ep4), paired_per(/_priorshuf)/ep4;
+not audited (the extractor's first read had the epochs swapped, corrected from the alias tree).
+
+| read | value |
+|---|---|
+| ep1 dev-other greedy PER (S/D/I) | 0.9066 (44314 / 115956 / 449), rate 3.36 /s |
+| ep4 dev-other greedy PER (S/D/I) | 0.8814 (108130 / 45122 / 3000), rate 7.35 /s (in band) |
+| ep4 derangement gap (500 utts) | +0.532 (own -5.683, deranged -6.215 per frame) |
+| paired delta vs priorshuf ep4 (`gBec5S4Wa2F5`) | -0.0015 [-0.0091, +0.0052], n = 2864 utts, 33 speakers |
+| paired delta vs reference ep4 (`5lBwcDjv2ItL`) | +0.0165 [+0.0091, +0.0227] |
+
+Gate: PER clause FAIL (0.88 vs < 0.50); rate and gap clauses pass, which again shows they do not
+discriminate. Reading: on the unbiased-prior bed, deleting the lattice prior term outright leaves
+ep4 PER unchanged (CI contains 0), so the prior term neither causes the collapse nor holds the
+0.87-0.88 level; whatever shapes the recognizer here is the remaining objective (rate term, order-2
+agg at 0.1, cycle with a trainable phi). The ep1 decode is deletion-heavy (rate 3.4 /s, 65 % D) and
+recovers in-band by ep4, like the other arms. The +0.017 vs the reference is the prior-window
+effect already banked for priorshuf, not a prior0 effect. Isolates the odm3 reading: any odm3
+movement vs priorshuf is attributable to the coverage term, not to the prior removal.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
