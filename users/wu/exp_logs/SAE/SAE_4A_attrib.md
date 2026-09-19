@@ -27,8 +27,11 @@ lam0.01_s0 `.reCovgFXvSDj` 1891050; lam0.01_s1 `.ZTklLDlrH8Vv` 1891058; lam0.1_s
 1891057; lam0.1_s1 `.h7YWOSQjA7AH` 1891054; lam1.0_s0 `.oF22UaRGYy2k` 1891052; frozen_lam0.1_s0
 `.mumOHh9l2vkK` 1891055. rqmt time 11.5 h (partition cap), so each arm spans two allocations via
 checkpoint_last resume. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
-NEXT: on each watcher verdict dispatch executor; launch priorshuf when its review is clean (1 GPU,
-~45 min) and arm its watcher; steps 2/3 reads: extractor for ep4 PER, AH-first, gap, paired deltas.
+priorshuf n-gram JSD read DONE (Results, `NgramModeSeekingJob.vlhnotaFKKj5`, manager exited).
+NEXT: on each step-4 watcher verdict dispatch executor; when all seven arms finish, extractor for
+the step-4 PER table, then the step-4 gate read and the synthesis; a pre-registered order-3
+aggregate arm (lattice prior term off, exact expected-trigram forward KL) is the candidate next
+design if step 4 locates the fault in the lattice prior term (see Results, priorshuf n-gram read).
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -291,6 +294,32 @@ initial of the new window: a single-phone sentence start is a property of the ob
 the prior window only chooses which phone. The defect stays recorded for absolute statistics and
 GAN comparisons; it is closed as a cause. Read through the same registered chain the steps 2/3
 audit reproduced; not separately audited.
+
+**priorshuf n-gram read (2026-09-19, `NgramModeSeekingJob.vlhnotaFKKj5`,
+`config/sae_4a_attrib_ngram_priorshuf.py`, `output/sae/4a/attrib/{ngram_mode_seeking_priorshuf.json,summary_priorshuf.md}`,
+report `reports/sae_attrib_priorshuf_jsd_launch_2026-09-19.md`):** the step-1 reader with the text
+side moved to the priorshuf window (`SampleLinesJob.orN768ARKwlt`, SIL stripped) and its trigram
+(`RtzbESkOedsT`); same budget rule, 1000 utterance-block resamples, seed 0. Not audited.
+
+| row | mean SIL-free log P3 / phone | JSD1 | JSD2 | JSD3 | JSD4 vs unbiased text |
+|---|---|---|---|---|---|
+| blankfree ep1 | -5.919 | 0.218 | 0.565 | 0.799 | 0.937 |
+| blankfree ep4 | -3.289 | 0.067 | 0.280 | 0.495 | 0.711 |
+| priorshuf ep1 | -6.069 | 0.226 | 0.593 | 0.819 | 0.946 |
+| priorshuf ep4 | -3.611 | 0.026 | 0.214 | 0.443 | 0.692 |
+| GAN s0 (update 148000) | -2.727 | 0.002 | 0.019 | 0.078 | 0.254 |
+| gold (MFA) | -2.534 | 0.002 | 0.016 | 0.067 | 0.225 |
+
+Cells (priorshuf ep4 as "ep4"): (i) ep4 minus GAN log P3 = -0.886 [-0.908, -0.858]: FAIL; (ii) ep4
+minus gold JSD4 +0.444, CI excludes 0: PASS; (iii) GAN minus gold +0.029: PASS. Reading: the unbiased
+prior closes the unigram gap (JSD1 0.067 to 0.026, the L_agg target is now unbiased) and leaves
+orders 3-4 where the biased window left them (JSD4 0.711 to 0.692, gold 0.225); the decoded
+trigram likelihood is LOWER under the unbiased prior (-3.61 vs -3.29). The training statistic
+`prior_per_token` (posterior-expected, SIL-inclusive, lattice tokens) reaches -2.55 at ep4 in the
+same run (`output/.../priorshuf/train/learning_rates`), a full nat above what the greedy decode
+scores on the same trigram, and the priorshuf and reference loss curves are identical to two
+decimals at every subepoch. The prior term is satisfied inside the lattice posterior, not on the
+emitted string, and it moves the marginals, not the sequence structure JSD3/4 measures.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
