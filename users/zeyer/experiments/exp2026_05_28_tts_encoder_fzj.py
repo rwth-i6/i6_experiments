@@ -1809,6 +1809,17 @@ def py():
                 "pseudo_enc_duration_range": (5, 10),
             },
         ),
+        # fixed duration for every unit (Thomas et al. 2022 use a fixed 4 frames per grapheme);
+        # 6 = the mean frames per phone of the dur07 recipe (5.9, MFA table, count-weighted)
+        (
+            f"{_abl_prefix}-fixdur6",
+            {
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (6, 6),
+            },
+        ),
         (f"{_abl_prefix}-dursilonly", {"pseudo_enc_duration_sil_only": True}),
         (f"{_abl_prefix}-trainemb", {"pseudo_enc_frozen_table": None}),
         (f"{_abl_prefix}-sil0", {"glow_tts_add_silence_between_words": 0.0}),
@@ -1919,6 +1930,42 @@ def py():
                 "pseudo_enc_duration_scale": None,
                 "pseudo_enc_duration_range": (5, 10),
                 "pseudo_enc_lerp": False,
+            },
+        ),
+        # Textogram on characters (A-Z + apostrophe, the space as the silence entry) with a fixed
+        # 4-frame duration per character: the original paper's units and duration model (AZ);
+        # 4 frames x 5.3 chars per word = the winner's ~22 frames per word (5.9 x 3.8 phones).
+        # ~1.4x the labels per sentence of the phoneme stream, so the label caps are scaled alike.
+        (
+            "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {
+                "pseudo_enc_units": "chars",
+                "pseudo_enc_channel_concat": True,
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (4, 4),
+                "pseudo_enc_lerp": False,
+                "max_phon_len": 420,
+                "batch_size_phon": 8_400,
+                "extra_config_updates": {
+                    "optimizer.class": rf.build_dict(Muon)["class"],
+                    "packed_tensors": True,
+                    "torch_distributed": {"reduce_type": "grad_explicit"},
+                    "batch_size": None,
+                    "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 8_400},
+                    "batching": "random",
+                    "torch_cuda_graph": {
+                        "batch_size_bound": 500,
+                        "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 420},
+                        "warmup_steps": 0,
+                        "compile": True,
+                    },
+                    "optimizer.weight_decay": 0.027,
+                    "specaugment_num_spatial_mask_factor": 50,
+                    "specaugment_steps": (1850, 5550, 9250),
+                },
             },
         ),
         (
@@ -2943,34 +2990,62 @@ def _build_tables(prefix: str):
         ["method", *ls_wer, "hours"],
         [
             _ls(base, method="no text"),
-            _ls(base76, method="no text, twice the epochs"),
-            _ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS (frozen GlowTTS)"),
-            _ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, trained emb., layer 4"),
-            _ls(f"{win}-trainemb", method="pseudo encoder, trained emb., front-end"),
+            _ls(base76, method="no text, \\\\ twice the epochs"),
+            _ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS \\\\ (frozen GlowTTS)"),
+            _ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, \\\\ trained emb., layer 4"),
+            _ls(f"{win}-trainemb", method="pseudo encoder, \\\\ trained emb., front-end"),
             _ls(win, method="frozen MFA table (ours)"),
-            _ls(f"{win}-gausshmmtables-pronvar", method="frozen HMM table (ours, no MFA)"),
+            _ls(f"{win}-gausshmmtables-pronvar", method="frozen HMM table \\\\ (ours, no MFA)"),
         ],
     )
-    # Ablations of the winning recipe, one ingredient flipped each.
+    # The duration model of the pseudo encoder: d = round(median * scale * exp(jitter * N(0,1))),
+    # per-phone medians from the MFA table; vs one median for all phones, uniform, fixed.
+    _textogram = "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
+    _textogram_chars = (
+        "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
+    )
+    _lognormal = "log-normal, \\\\ per-phone median"
+    _table(
+        "ls-durations",
+        ["distribution", "jitter", "scale", *ls_wer_other],
+        [
+            _ls(win, distribution=_lognormal, jitter="0.45", scale="0.7"),
+            _ls(f"{win}-dursig0", distribution=_lognormal, jitter="0", scale="0.7"),
+            _ls(f"{win}-dursig02", distribution=_lognormal, jitter="0.2", scale="0.7"),
+            _ls(f"{win}-dursig07", distribution=_lognormal, jitter="0.7", scale="0.7"),
+            _ls(win.replace("dur07", "dur05"), distribution=_lognormal, jitter="0.45", scale="0.5"),
+            _ls(win.replace("dur07", "dur10"), distribution=_lognormal, jitter="0.45", scale="1.0"),
+            _ls(
+                f"{win}-dursilonly",
+                distribution="log-normal, \\\\ one median for all phones",
+                jitter="0.45",
+                scale="0.7",
+            ),
+            _ls(f"{win}-unidur", distribution="uniform 5 to 10", jitter="-", scale="-"),
+            _ls(f"{win}-fixdur6", distribution="fixed 6", jitter="-", scale="-"),
+        ],
+    )
+    # The text representation: frozen MFA log-mel table vs trained embedding vs one-hot channels
+    # (textogram), with the units and the duration model each uses.
+    _table(
+        "ls-representation",
+        ["acoustics", "units", "durations", *ls_wer_other],
+        [
+            _ls(win, acoustics="MFA log-mel table", units="phonemes", durations="log-normal per phone"),
+            _ls(f"{win}-unidur", acoustics="MFA log-mel table", units="phonemes", durations="uniform 5 to 10"),
+            _ls(f"{win}-trainemb", acoustics="trained embedding", units="phonemes", durations="log-normal per phone"),
+            _ls(f"{win}-trainemb-unidur", acoustics="trained embedding", units="phonemes", durations="uniform 5 to 10"),
+            _ls(_textogram, acoustics="one-hot channels", units="phonemes", durations="uniform 5 to 10"),
+            _ls(_textogram_chars, acoustics="one-hot channels", units="characters", durations="fixed 4"),
+        ],
+    )
+    # The remaining ablations of the winning recipe, one ingredient flipped each.
     _table(
         "ls-ablations",
         ["variant", *ls_wer_other],
         [
             _ls(win, variant="the recipe"),
-            _ls(f"{win}-dursig0", variant="duration jitter 0"),
-            _ls(f"{win}-dursig02", variant="duration jitter 0.2"),
-            _ls(f"{win}-dursig07", variant="duration jitter 0.7"),
-            _ls(win.replace("dur07", "dur05"), variant="duration scale 0.5"),
-            _ls(win.replace("dur07", "dur10"), variant="duration scale 1.0"),
             _ls(f"{win}-nolerp", variant="no interpolation"),
-            _ls(f"{win}-unidur", variant="uniform durations 5 to 10"),
-            _ls(f"{win}-dursilonly", variant="durations: silence vs speech only"),
-            _ls(f"{win}-trainemb", variant="trained embedding"),
-            _ls(f"{win}-trainemb-unidur", variant="trained embedding + uniform durations"),
-            _ls(
-                "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
-                variant="textogram (one-hot channels)",
-            ),
             _ls(f"{win}-sil0", variant="no silence between words"),
             _ls(f"{win}-silbound", variant="silence at the utterance bounds"),
         ],
@@ -2982,36 +3057,42 @@ def _build_tables(prefix: str):
         [
             _ls(win, tables="MFA phone means"),
             _ls(f"{win}-gausshmmtables", tables="HMM phone means"),
-            _ls(f"{win}-gausshmmtables-pronvar", tables="HMM phone means, pron. variants"),
-            _ls(f"{win}-gausshmmstates-pronvar", tables="HMM state means, pron. variants"),
+            _ls(f"{win}-gausshmmtables-pronvar", tables="HMM phone means, \\\\ pron. variants"),
+            _ls(f"{win}-gausshmmstates-pronvar", tables="HMM state means, \\\\ pron. variants"),
         ],
     )
     # Amount of distinct text at a constant text share per step (subset + partition scaled alike),
     # and the partition-only variants (which change the text share).
     _table(
         "ls-text-amount",
-        ["text", "partition", "passes", *ls_wer_other],
+        ["text", "text_ratio", "text_passes", *ls_wer_other],
         [
-            _ls(f"{win}-textP150", text="100\\%", partition="150", passes="1"),
-            _ls(win, text="100\\%", partition="75", passes="2"),
-            _ls(f"{win}-textP37", text="100\\%", partition="37", passes="4"),
-            _ls(f"{win}-lmsub50-textP38", text="50\\%", partition="38", passes="4"),
-            _ls(f"{win}-lmsub25-textP19", text="25\\%", partition="19", passes="8"),
-            _ls(f"{win}-lmsub10-textP8", text="10\\%", partition="8", passes="19"),
-            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", partition="1", passes="152"),
+            _ls(f"{win}-textP150", text="100\\%", text_ratio="1:2", text_passes=1),
+            _ls(win, text="100\\%", text_ratio="1:1", text_passes=2),
+            _ls(f"{win}-textP37", text="100\\%", text_ratio="2:1", text_passes=4),
+            _ls(f"{win}-lmsub50-textP38", text="50\\%", text_ratio="1:1", text_passes=4),
+            _ls(f"{win}-lmsub25-textP19", text="25\\%", text_ratio="1:1", text_passes=8),
+            _ls(f"{win}-lmsub10-textP8", text="10\\%", text_ratio="1:1", text_passes=19),
+            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", text_ratio="1:1", text_passes=152),
         ],
     )
     # Amount of paired audio at a constant number of updates.
     _table(
         "ls-audio-amount",
-        ["audio", "partition", *ls_wer_other],
+        ["audio_h", "audio_passes", "text_ratio", "text_passes", *ls_wer_other],
         [
-            _ls(win, audio="100\\%", partition="75"),
-            _ls(f"{win}-audio50-textP50", audio="50\\%", partition="50"),
-            _ls(f"{win}-audio25-textP43", audio="25\\%", partition="43"),
-            _ls(f"{win}-audioP4-textP43", audio="100\\%, a quarter of the passes", partition="43"),
-            _ls(f"{win}-audio10-textP39", audio="10\\%", partition="39"),
-            _ls(f"{win}-audio0-textP38", audio="0\\%", partition="38"),
+            _ls(win, audio_h="960", audio_passes=152, text_ratio="1:1", text_passes=2),
+            _ls(f"{win}-audio50-textP50", audio_h="480", audio_passes=152, text_ratio="3:1", text_passes=3),
+            _ls(f"{win}-audio25-textP43", audio_h="240", audio_passes=152, text_ratio="7:1", text_passes=3.5),
+            _ls(
+                f"{win}-audioP4-textP43",
+                audio_h="960",
+                audio_passes=38,
+                text_ratio="7:1",
+                text_passes=3.5,
+            ),
+            _ls(f"{win}-audio10-textP39", audio_h="96", audio_passes=152, text_ratio="19:1", text_passes=3.9),
+            _ls(f"{win}-audio0-textP38", audio_h="0", audio_passes=0, text_ratio="1:0", text_passes=4),
         ],
     )
     # LM combinations on LS.
@@ -3028,7 +3109,7 @@ def _build_tables(prefix: str):
             for name, label in [
                 (base, "no text"),
                 (win, "frozen MFA table"),
-                (f"{win}-nolerp", "frozen MFA table, no interpolation"),
+                (f"{win}-nolerp", "frozen MFA table, \\\\ no interpolation"),
             ]
             for recog, rlabel in ls_recogs
         ],
@@ -3045,13 +3126,7 @@ def _build_tables(prefix: str):
                 "base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
                 subset="small",
                 audio_h="250",
-                model="no text, 24M",
-            ),
-            _loq(
-                "base-small-nFullEp200-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
-                subset="small",
-                audio_h="250",
-                model="no text, 16.8M",
+                model="no text",
             ),
             _loq(
                 f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
@@ -3063,13 +3138,7 @@ def _build_tables(prefix: str):
                 "base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
                 subset="medium1k",
                 audio_h="1000",
-                model="no text, 24M",
-            ),
-            _loq(
-                "base-medium1k-nFullEp162-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
-                subset="medium1k",
-                audio_h="1000",
-                model="no text, 16.8M",
+                model="no text",
             ),
             _loq(
                 f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
@@ -3081,13 +3150,7 @@ def _build_tables(prefix: str):
                 "base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
                 subset="medium",
                 audio_h="2500",
-                model="no text, 24M",
-            ),
-            _loq(
-                "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
-                subset="medium",
-                audio_h="2500",
-                model="no text, 16.8M",
+                model="no text",
             ),
             _loq(
                 f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
@@ -3099,13 +3162,13 @@ def _build_tables(prefix: str):
                 "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
                 subset="large",
                 audio_h="25000",
-                model="no text, 24M",
+                model="no text",
             ),
             _loq(
                 "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
                 subset="large",
                 audio_h="25000",
-                model="no text, 24M, twice the epochs",
+                model="no text, \\\\ twice the epochs",
             ),
             _loq(
                 f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
@@ -3122,25 +3185,25 @@ def _build_tables(prefix: str):
         ["variant", *loq_keys],
         [
             _loq("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", variant="no text"),
-            _loq(med, variant="large transcripts, P240"),
-            _loq(f"{med}-txtP68", variant="large transcripts, P68 (10x text)"),
-            _loq(f"{med}-txtSrcExp0_5", variant="sources reweighted, alpha 0.5"),
+            _loq(med, variant="large transcripts, \\\\ P240"),
+            _loq(f"{med}-txtP68", variant="large transcripts, \\\\ P68 (10x text)"),
+            _loq(f"{med}-txtSrcExp0_5", variant="sources reweighted, \\\\ alpha 0.5"),
             _loq(f"{med}-txtSrcExp0", variant="sources uniform"),
-            _loq(f"{med}-txtP68-txtSrcExp0", variant="sources uniform, 10x text"),
+            _loq(f"{med}-txtP68-txtSrcExp0", variant="sources uniform, \\\\ 10x text"),
             _loq(f"{med}-loqtables", variant="Loquacious MFA tables"),
-            _loq(f"{med}-loqtables-txtSrcExp0", variant="Loquacious MFA tables, sources uniform"),
+            _loq(f"{med}-loqtables-txtSrcExp0", variant="Loquacious MFA tables, \\\\ sources uniform"),
             _loq(
                 "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                variant="textogram, sources uniform",
+                variant="textogram, \\\\ sources uniform",
             ),
             _loq(
                 "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                variant="trained emb. + uniform durations, sources uniform",
+                variant="trained emb. + uniform dur., \\\\ sources uniform",
             ),
             _loq(
                 "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s-seed2", variant="no text, seed 2"
             ),
-            _loq(f"{med}-txtSrcExp0-seed2", variant="sources uniform, seed 2"),
+            _loq(f"{med}-txtSrcExp0-seed2", variant="sources uniform, \\\\ seed 2"),
         ],
     )
     # LM combinations on Loquacious.
@@ -4235,6 +4298,13 @@ def _train_tts_encoder(
             units_dim=phon_dim,
             sil_between_words=glow_tts_add_silence_between_words,
         )
+    elif pseudo_enc_units == "chars":
+        # Character path (textogram on graphemes): letters + apostrophe, the space is the silence
+        # entry; reuses the phoneme stream like the subword path.
+        phon_dim = Dim(len(_CHAR_UNITS) + 1, name="char_units")
+        phon_extern = {k: v for k, v in phon_extern.items() if k != "vocab"}
+        phon_extern["sparse_dim"] = phon_dim
+        text_map_seq = functools.partial(_char_units_map_seq, target_key=tgt_key, spm_dim=spm_dim, units_dim=phon_dim)
     elif pseudo_enc_phone_states:
         # State path: the map_seq expands every phone to its sub-states, so the stream and both
         # tables are indexed by the state vocab and the pseudo encoder is unchanged (AZ).
@@ -5213,6 +5283,8 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         units = config.typed_value("pseudo_enc_units", "phonemes")
         if units == "spm":
             vocab_dim = target_dim
+        elif units == "chars":
+            vocab_dim = Dim(len(_CHAR_UNITS), name="chars")
         else:
             assert units == "phonemes", f"unknown pseudo_enc_units {units!r}"
             # HMM sub-states as the units: the stream carries state ids, the tables have a row per state
@@ -6510,7 +6582,9 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
     )
     start_layer = config.int("pseudo_enc_start_layer", -1)
     assert start_layer >= 0, "pseudo-enc single-stream: layer-split injection only"
-    assert config.typed_value("pseudo_enc_units", "phonemes") == "phonemes", "pseudo-enc single-stream: phonemes only"
+    assert config.typed_value("pseudo_enc_units", "phonemes") in ("phonemes", "chars"), (
+        "pseudo-enc single-stream: phonemes or chars (both on the phonemes stream)"
+    )
     data = extern_data[config.typed_value("default_input")]
     data_spatial_dim = data.get_time_dim_tag()
     targets = extern_data[config.typed_value("target")]
@@ -6824,6 +6898,53 @@ def _subword_units_map_seq(
             units.append(sil_idx)
         units.append(int(idx))
     if rng.uniform() < sil_end:
+        units.append(sil_idx)
+
+    out = TensorDict()
+    out.data[target_key] = Tensor(
+        target_key,
+        dims=[_Dim(None, name="spm_seq")],
+        dtype="int32",
+        sparse_dim=spm_dim,
+        raw_tensor=np.array(spm_ids, dtype="int32"),
+    )
+    out.data[PHONEMES_DATA_KEY] = Tensor(
+        PHONEMES_DATA_KEY,
+        dims=[_Dim(None, name="unit_seq")],
+        dtype="int32",
+        sparse_dim=units_dim,
+        raw_tensor=np.array(units, dtype="int32"),
+    )
+    return out
+
+
+_CHAR_UNITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ'"  # the LS text inventory without the space
+
+
+def _char_units_map_seq(seq, *, target_key, spm_dim, units_dim, **_kwargs):
+    """PostprocessingDataset map_seq: raw utf8 bytes -> (spm target, character unit seq).
+
+    The units are the characters of the (upper-cased) text; the space is the silence entry
+    (the last vocab entry, shared with blank), placed deterministically at every word boundary
+    and at both ends, i.e. the word boundary is a symbol as in a grapheme textogram.
+    Characters outside ``_CHAR_UNITS`` are dropped.
+
+    :param seq: the raw sequence from the dataset
+    :param target_key: key of the spm target in the output
+    :param spm_dim: spm vocab dim
+    :param units_dim: unit vocab dim, i.e. the characters plus the space entry
+    """
+    import numpy as np
+    from returnn.tensor import Tensor, TensorDict, Dim as _Dim
+
+    spm, _ = _glowtts_text_tokenizers()
+    orth = bytes(np.asarray(seq["data"].raw_tensor).astype("uint8").tolist()).decode("utf8")
+    spm_ids = spm.get_seq(orth)
+    sil_idx = len(_CHAR_UNITS)
+
+    units = [sil_idx]
+    for word in orth.upper().split():
+        units.extend(_CHAR_UNITS.index(ch) for ch in word if ch in _CHAR_UNITS)
         units.append(sil_idx)
 
     out = TensorDict()
