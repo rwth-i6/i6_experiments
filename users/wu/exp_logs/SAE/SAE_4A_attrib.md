@@ -7,53 +7,28 @@ constraint stand). Gold enters evaluation only.
 
 ## State
 
-Steps 1-3 and priorshuf DONE and audited (Results); their managers have exited. Live: step 4's
-manager pid 885934 (`config/sae_4a_attrib_ganrev.py`, `log/sae_4a_attrib_ganrev.manager.log`),
-seven `FairseqW2vu2TrainJob` arms RUNNING since ~13:40 at b=16 (w0_s0 `9HnmO6ULORKl` 1891056;
-lam0.01_s0 `reCovgFXvSDj` 1891050; lam0.01_s1 `ZTklLDlrH8Vv` 1891058; lam0.1_s0 `YM9FkZ2qzoVW`
-1891057; lam0.1_s1 `h7YWOSQjA7AH` 1891054; lam1.0_s0 `oF22UaRGYy2k` 1891052; frozen_lam0.1_s0
-`mumOHh9l2vkK` 1891055); each spans two 11.5 h allocations via checkpoint_last resume. Re-arm first
-on resume: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
-Step 5 (odm arms; user 2026-09-19: progress without waiting for step 4, NO GAN component):
-pre-registered, design-reviewed and code-reviewed (Results, "Step 5 design" + amendments; speech-llm
-commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib_step5_{impl,design_review,review,launch}_2026-09-19.md`).
-Step 5 DONE: profile (lam_agg 0.009), prior0, odm3, odm3_norev all read, every gate FAIL, coverage
-term neither satisfied nor optimised at 0.009 (Results). The odm manager (pid 354995) exited clean.
-Step 5b (odm3_lam0.1, odm3_lam1, odm3_prior; speech-llm commit f6d2863; launched 2026-09-19 21:10,
-the "2026-09-20" in its report names is a mislabel) DONE 2026-09-19 22:00: all three gates FAIL,
-coverage term optimises at lam_agg 0.1 and 1.0 with PER content-free (Results, "Step 5b result");
-manager 761439 exited clean. Audit of the paired movements, a failure-pattern analysis and a
-literature pass on cold ODM/cycle objectives are in flight (reports named in that section).
-User direction 2026-09-19 evening: continue autonomously, analyse the failure pattern and optimise
-the setup; the user expects some combination of ODM / LM prior / reverse model to work; plan
-changes are shown to the user before execution. Standing decision (user 2026-09-19, `SAE_ref.md`
-prior-window entry): every new experiment that uses an n-gram uses the unbiased uniform-sample
-fit (the priorshuf bed), never the alphabetical head window.
-Step 6 plan APPROVED by the user 2026-09-19 (not yet pre-registered in Results, nothing
-dispatched), grounded in `reports/sae_attrib_failure_pattern_2026-09-19.md` (mechanism M1: at cold
-start only the reverse emission depends on which phone a frame gets, its gradient is ~1/160 of the
-prior's; the ep1->ep4 "degradation" is insertions, not lost hits) and
-`reports/sae_attrib_literature_cold_odm_2026-09-19.md` (batch-averaged ODM is a biased estimator
-that converges to the majority guess, Liu/Chen/Deng 2017 Table 1: 83 % -> 9.6 % with the unbiased
-SPDG form). E2/E3 (label-free cluster-to-phone assignment as reverse-model init) WITHDRAWN: same
-move as SAE_1a(iii) GW-OT 0.86 and SAE_1f entry 3 (null-level), gold-map ceiling 0.76 at K=40.
-Approved items, all on the priorshuf bed, single delta each, the take-off gate unchanged:
- (1) estimator-bias check: re-evaluate the odm3_lam1 ep4 checkpoint's order-3 coverage term at the
-     training batch and at 10x / 100x batch (short GPU sisyphus job, no training); if the gap to
-     the 8.242 floor grows with batch the estimator is the problem;
- (2) E4 destroyed-structure control: odm3_lam1 with input frames (and the unit stream) permuted
-     within each utterance, fixed seed; prediction rule in the failure-pattern report section E4;
- (4) E0 null-adjusted reader (CPU): S/D/I/C per arm and for a length-and-unigram-matched random
-     string, all banked attrib decodes plus S3b-OR frozen and GAN seed 0;
- (3) conditional on (1): one arm with the coverage term as a full-corpus-batch (gradient
-     accumulation) or SPDG dual estimate, prior and reverse model kept at the bed values.
-Not approved: E5 aux k-means head, positional unigram term, more coverage weight.
-NEXT: pre-register items 1, 2, 4 in Results (gate/prediction text from the report sections),
-implementer (training-code deltas and the CPU reader in non-overlapping files; new Job classes in
-new modules), code-reviewer (incl. "prior_npz is the sampled fit"), launch; item 3 after (1) reads.
-Step 4: on each watcher verdict dispatch executor; when all seven finish, extractor for the PER
-table, gate read, synthesis.
-Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
+Steps 1-3, priorshuf, 5 and 5b DONE, audited, every gate FAIL (Results); their managers exited.
+Live: step 4's manager pid 885934 (`config/sae_4a_attrib_ganrev.py`, seven `FairseqW2vu2TrainJob`
+arms at b=16, SLURM 1891050-1891058, each two 11.5 h allocations via checkpoint_last resume;
+`reports/sae_attrib_step4_launch_2026-09-19.md`). Watcher pids 790893/790898; re-arm first on
+resume if dead: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
+Standing user directions (2026-09-19): continue autonomously, no GAN component in new arms, every
+n-gram from the sampled fit (priorshuf bed), plan changes shown to the user before execution.
+Step 6 (user-approved plan, pre-registered in Results "Step 6 pre-registration"; grounding
+`reports/sae_attrib_failure_pattern_2026-09-19.md`, `reports/sae_attrib_literature_cold_odm_2026-09-19.md`):
+item 1 estimator-bias check (`OdmCoverageBatchEvalJob`, config `config_sae_4a_attrib_step6_est_v1`),
+item 2 E4 arm `odm3_lam1_perm` (config `..._step6_e4_v1`), item 4 E0 null reader
+(`NullAdjustedEditCountsJob`, config `..._step6_null_v1`), item 3 only on item 1 outcome (B); a
+hyperparameter review of the bed (user question 2026-09-19) runs in parallel, report
+`reports/sae_attrib_step6_hparam_audit_2026-09-19.md`. Three implementers and the review were
+dispatched 2026-09-19 (reports `reports/sae_attrib_step6_{est,e4,null}_impl_2026-09-19.md`).
+NEXT: on the implementer reports, code-reviewer (single delta each; census that odm3_lam1
+`rtSciqxHBgXC` and odm3 `PiNZJCFoN8bX` keep their hashes; prior_npz is the sampled fit), then
+executor launches the three configs (three managers, one per config, sis_env PATH), watcher on
+each; read item 1 by rule (A)/(B)/(C), item 2 by the KL3 rule, item 4 by the E/N rule; audit any
+non-null-level cold arm; then decide item 3 and any retuning arm the review motivates (shown to
+the user first unless defect-level). Step 4: on each watcher verdict dispatch executor; when all
+seven finish, extractor for the PER table, gate read, synthesis.
 
 ## Question
 
@@ -536,6 +511,64 @@ stand are lam0.1 vs odm3 -0.018, prior vs odm3 -0.025, prior vs priorshuf -0.007
 priorshuf +0.024. Caveat: derangement_gap.json carries no CI, so the gap clause's "CI excluding
 0" sub-clause is unevaluated in every arm of steps 5 and 5b (does not change any FAIL). Follow-ups opened on the user's direction (2026-09-19): failure-pattern analysis
 `reports/sae_attrib_failure_pattern_2026-09-19.md`, literature `reports/sae_attrib_literature_cold_odm_2026-09-19.md`.
+
+### Step 6 pre-registration (2026-09-19, user-approved plan; fixed before any job)
+Grounding: failure-pattern report (M1: at cold start only the reverse emission depends on which
+phone a frame gets, its gradient ~1/160 of the prior's; the ep1->ep4 "degradation" is insertions,
+not lost hits; sections E0, E4) and literature report (sec. 2: content-free optima at high n-gram fit
+are established; sec. 6 item 2: batch-averaged ODM is a biased log-of-average estimator, Liu 2017
+Table 1). E2/E3 withdrawn (same move as SAE_1a(iii) GW-OT 0.86 and SAE_1f entry 3). Not approved:
+E5 aux k-means head, positional unigram term, more coverage weight. All items on the priorshuf bed
+(`prior_npz` = the sampled fit `RtzbESkOedsT`), one delta each, the take-off gate unchanged where a
+PER is read; n = 1 per item, disclosed.
+- **Item 1, estimator-bias check** (GPU forward only, no training; new Job in a new module): the
+  odm3_lam1 ep4 checkpoint (`rtSciqxHBgXC`) re-evaluated on the bed's training data at tau 2 with the
+  training step's own f_batch forward (module mode as `BlankfreeGradNormProfileJob`, no update):
+  forward CE per order 1-3, `-sum p_text log clamp(f)`, at four aggregation levels: per bed batch
+  (mean and sd over >= 40 batches), expected counts accumulated over 10 and over 100 consecutive bed
+  batches, and one full pass over all of tc100; floors H(p_text_o) (8.242 at order 3) and the job's
+  own ep4 EMA read (CE3 8.69, KL3 0.45) beside them. Read: KL3_full = CE3_full minus 8.242.
+  Decision rule: (A) KL3_full <= 0.60 (within 0.15 of the EMA read): the training read IS the
+  corpus-level value, the coverage criterion is satisfied at content-free PER for the true objective,
+  item 3 (full-corpus-batch / SPDG arm) is DROPPED. (B) KL3_full >= 1.2: the EMA read understated
+  the criterion; item 3 funded, one arm. (C) between: unresolved, item 3 not funded. Stated
+  expectation: (A), because the implemented surrogate's gradient is the ratio form with a detached
+  EMA denominator, i.e. the forward-CE gradient at the EMA frequency (the dual form), not the
+  log-of-batch-average Liu 2017 shows to be biased. The batch-size curve (b, 10b, 100b) is reported as
+  the small-sample bias curve, informative only.
+- **Item 2, E4 destroyed-structure control** (1 GPU arm, ~45 min): `odm3_lam1_perm` = odm3_lam1 +
+  `permute_frames_seed` 0: in the training forward step every per-frame stream of each utterance
+  (recognizer input features, the unit stream, any per-frame mask) is permuted by ONE per-utterance
+  permutation drawn from seed 0 and the utterance tag, so frame-level pairs stay intact and only the
+  temporal order is destroyed; lengths, per-utterance marginals, eta, schedule, every weight unchanged;
+  the flag is absent from every existing arm's args (existing hashes unmoved, confirmed by census);
+  eval decodes untouched and NOT read (the dev PER of this arm is not interpretable). Read: KL3 at
+  ep4 and subepochs 2-4 from `learning_rates`. Decision rule: KL3(ep4) <= 0.55 (within 0.1 of
+  odm3_lam1's 0.45): the order-3 criterion is satisfiable with no temporal structure; coverage is
+  closed as a lever on this bed at any weight and the step 5b "criterion descent" read is closed
+  negative. KL3(ep4) >= 1.2: the descent uses real temporal structure; a re-priced coverage arm is
+  the next candidate. Between: unresolved, reported.
+- **Item 4, E0 null-adjusted reader** (CPU sisyphus job, new module; conventions of
+  `analysis/emc_hyp_inspect.py` sections 5/7: SIL-stripped, campaign edit convention, 5 draws, seed
+  0, null drawn at the hypothesis's own per-utterance length and own unigram distribution): for each
+  of the 24 banked attrib dev-other decodes (reference, norev, k64, agg1, agg10, priorshuf, prior0,
+  odm3, odm3_norev, odm3_lam0.1, odm3_lam1, odm3_prior at ep1 and ep4), the S3b-OR frozen decode
+  (`PackedEmcTrainJob.go0lRvkvA6Kq`) and the GAN seed-0 decode (`FairseqW2vu2TrainJob.HOb2GgtYT7Bc`):
+  S, D, I, C = N - S - D, PER for the arm, mean and sd over the draws for the null, and the excess
+  hits E = (C - I)_arm minus mean (C - I)_null, reported as E/N (N = 177,275). Decision rule per arm:
+  null-level iff |E/N| < 0.02 (the S3b rate arms sat 0.003-0.019 above their nulls); a cold arm with
+  E/N >= 0.05 is flagged for audit as an unexpected content signal. Positive control: S3b-OR and the
+  GAN must show E/N >= 0.2, else the statistic is not trusted. Restatement rule: a paired PER
+  movement between two cold arms whose E/N differ by less than 0.02 is a movement of the null
+  (length and unigram skew), not of content, and the step 2, 3, 5b between-arm readings are restated
+  accordingly. Prediction: every cold arm null-level at ep1 and ep4; the ep1->ep4 PER rise is
+  reproduced by the null redrawn at ep4's own length and skew.
+- **Item 3** (full-corpus-batch or SPDG coverage arm) only on outcome (B) of item 1.
+- **Hyperparameter review** (user 2026-09-19: "maybe some bad hyperparameter leads to the fail"):
+  a fresh-context review of the bed's constants against the reference setups and the literature
+  report sec. 3/6 (feature conditioning, temperature schedule, batch, optimiser, capacity, EMA);
+  any retuning arm it motivates is a plan change shown to the user before launch unless it is a
+  defect-level misconfiguration with a single-delta fix.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
