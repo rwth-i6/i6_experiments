@@ -1826,6 +1826,10 @@ def py():
         # (542,660 lines = (40,418,261 + 281,241) / 75), passed 152x; the 281,241 train transcripts are
         # part of it as in every lmsub run, so the LM subset is 261,419 lines (0.65%)
         (f"{_abl_prefix}-lmsub0_65-textP1", {"ls_lm_subset_lines": 261_419, "text_train_epoch_split": 1}),
+        # The text-util paper's larger model (24 encoder, 8 decoder layers) with the injection (AZ, 2026-09-19);
+        # the no-text control is the encL24-decL8 baseline in the specaug loop. Same batch and caps as the
+        # winner, so the same steps; the step time is the open question.
+        (f"{_abl_prefix}-encL24-decL8", {"enc_num_layers": 24, "dec_num_layers": 8}),
         # Paired-data ladder at ~constant update steps (AZ, 2026-09-16): a random 50 / 25 / 10 / 0% of the
         # train-960 utterances, the text partition scaled so the text fills the freed batch budget
         # (P75 is ~1:1 audio:text hours, so P = 75 / (2 - audio fraction)); nep38 as the winner.
@@ -2211,15 +2215,29 @@ def py():
     # Decoupled weight decay shrinks by lr*wd per step, so its total is 0.794x as well.
     # nep76 (AZ, 2026-09-19): the matched-steps control for the injection runs, which take about twice
     # the steps of the nep38 baseline (44 h vs 20 h); same step-keyed settings, twice the audio passes.
-    for _sa_factor, _nep in ((82, 38), (70, 38), (60, 38), (50, 38), (40, 38), (30, 38), (50, 76)):
+    # (50, 38, 24, 8): the text-util paper's larger model (24 encoder, 8 decoder layers) as the no-text
+    # control of the encL24-decL8 injection run (AZ, 2026-09-19).
+    for _sa_factor, _nep, _enc, _dec in (
+        (82, 38, 16, 6),
+        (70, 38, 16, 6),
+        (60, 38, 16, 6),
+        (50, 38, 16, 6),
+        (40, 38, 16, 6),
+        (30, 38, 16, 6),
+        (50, 76, 16, 6),
+        (50, 38, 24, 8),
+    ):
+        _size = f"-encL{_enc}-decL{_dec}" if (_enc, _dec) != (16, 6) else ""
         _train_asr_base_multigpu(
-            f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep{_nep}-packed-graphc-specaug{_sa_factor}-stepcomp",
+            f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep{_nep}-packed-graphc-specaug{_sa_factor}-stepcomp{_size}",
             prefix=prefix,
             with_ctc_lm_recog=(_sa_factor == 50),  # the reported baseline gets the CTC+LM recog
             feature_extraction=None,
             base_lr=1.0,
             peak_lr=5e-3,
             nep=_nep,
+            enc_num_layers=_enc,
+            dec_num_layers=_dec,
             behavior_version=29,  # packed tensors need >= 29
             extra_config_updates={
                 "optimizer.class": rf.build_dict(Muon)["class"],
