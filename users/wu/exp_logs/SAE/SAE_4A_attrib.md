@@ -16,15 +16,19 @@ norev pid 609684 `BoundedBlankfreeTrainingJob.QolqasLCAL94` Slurm 1890449; agg1 
 on resume, one per manager, from the setup dir):
 `bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_{norev,agg1,agg10,k64}.py 120`.
 Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
-priorshuf arm (sampled-window prior refit + cold rerun) being implemented, not launched. Step 4:
-port committed (f3b6a4d56), code review interim clean on checks 1-6 (`reports/sae_attrib_step4_review_2026-09-19.md`,
-hash census and resume unchecked); profile jobs all errored on the job's own log regex
-(`reports/sae_attrib_step4_profile_2026-09-19.md`; training itself ran, ~0.9 s/update at 100 updates),
-fix being implemented, then relaunch `config/sae_4a_attrib_ganrev_profile.py` with -co on the three
-error jobs.
-NEXT: on each watcher verdict dispatch executor; profile relaunch after the regex fix; review
-priorshuf diff then launch it (1 GPU, ~45 min); step 4 full arms only after profile numbers and the
-review's census/resume checks. Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`.
+priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
+`BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
+`SampleLinesJob.orN768ARKwlt`), code review pending, not launched. Step 4: review clean
+(`reports/sae_attrib_step4_review_2026-09-19.md`), profile read (amendment above), seven arms RUNNING
+since ~13:40 at b=16 under manager pid 885934 (`config/sae_4a_attrib_ganrev.py`,
+`log/sae_4a_attrib_ganrev.manager.log`): w0_s0 `FairseqW2vu2TrainJob.9HnmO6ULORKl` 1891056;
+lam0.01_s0 `.reCovgFXvSDj` 1891050; lam0.01_s1 `.ZTklLDlrH8Vv` 1891058; lam0.1_s0 `.YM9FkZ2qzoVW`
+1891057; lam0.1_s1 `.h7YWOSQjA7AH` 1891054; lam1.0_s0 `.oF22UaRGYy2k` 1891052; frozen_lam0.1_s0
+`.mumOHh9l2vkK` 1891055. rqmt time 11.5 h (partition cap), so each arm spans two allocations via
+checkpoint_last resume. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
+NEXT: on each watcher verdict dispatch executor; launch priorshuf when its review is clean (1 GPU,
+~45 min) and arm its watcher; steps 2/3 reads: extractor for ep4 PER, AH-first, gap, paired deltas.
+Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
 
@@ -171,6 +175,15 @@ Original step texts above stand as provenance; the following supersede them wher
   update. The profile runs at b = 160 (all) and b = 16 utterances per generator update; the launch
   uses the largest b whose projected wall time x 1.25 is at most 20 h, and b is recorded as part of
   the delta. A 2 to 50x overrun is not cured by resumability.
+  *Profile read and ceiling amendment (2026-09-19, `reports/sae_attrib_step4_profile2_2026-09-19.md`,
+  jobs FairseqW2vu2ProfileJob.{oeUcv631Ief8,yTNMDgEA6aNF,1EXLBLMTUblA}, warm mean over updates 20-100):*
+  sec/update lam0 0.258, lam1.0 b=16 0.439, lam1.0 b=160 0.890; peak GPU 6.8 / 8.6 / 17.6 GB. The
+  term's cost is mostly a fixed per-update part (b=16 adds 0.18 s, b=160 adds 0.63 s), so at 150,000
+  updates b=160 projects 37 h and b=16 18.3 h; x1.25 = 22.9 h, over the 20 h ceiling by 15 %, and no
+  smaller b fixes that. Amendment: ceiling raised to 24 h projected, launch at **b = 16** (recorded as
+  part of the delta), arms resumable from checkpoint_last.pt; a resumed arm is not bit-reproducible
+  because the sub-batch RNG is not checkpointed (code review). Reverse loss at update 100: 6.31 (b=160)
+  / 6.43 (b=16).
 - **Decision rule.** A discriminator inside the cycle would breach the no-GAN mainline rule; that
   branch is a user decision, not an orchestrator next step. The "freeze phi" branch is void unless
   step 2's no-reverse arm beats 0.865 by more than 0.05 paired. Any outcome pattern not listed is
