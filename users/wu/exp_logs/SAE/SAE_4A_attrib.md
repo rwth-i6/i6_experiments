@@ -220,6 +220,28 @@ not supported by this read. Repeats/SIL cannot drive (i) (audit section 6). Unve
 "PER 0.214, ppl-selected" label of the GAN checkpoint (its curve job is gone; the checkpoint identity
 itself is byte-verified).
 
+### Step 2 (2026-09-19): removing the reverse term hurts; more aggregate weight does not rescue
+Cold blankfree bed, 4 subepochs, ep4 dev-other greedy PER, paired vs the reference
+`5lBwcDjv2ItL` ep4 (0.8649, AH-first 0.581, 59.0 phones/utt). Reads: `reports/sae_attrib_norev_read_2026-09-19.md`,
+`reports/sae_attrib_agg_read_2026-09-19.md`, first-phone shares computed identically for all four
+decodes in `reports/sae_attrib_firstphone_2026-09-19.md`. Not yet audited (audit with step 3).
+
+| arm (training job) | ep1 PER | ep4 PER | paired delta [CI] | ep4 gap | first phone | phones/utt |
+|---|---|---|---|---|---|---|
+| norev `QolqasLCAL94` (emission 0, phi frozen) | 0.8505 | 0.9357 | +0.071 [+0.056, +0.088] | -0.026 | AH 0.950 | 68.5 |
+| agg1 `81Kc6iySxEBH` (lambda_agg 1) | 0.8213 | 0.9202 | +0.055 [+0.051, +0.060] | 3.44 | AH 0.919 | 61.0 |
+| agg10 `bDYARBE8qXp6` (lambda_agg 10) | 0.8582 | 0.8986 | +0.034 [+0.027, +0.040] | 3.39 | AE 0.778, AH 0.004 | 58.9 |
+
+Against the pre-registered rules: norev is worse by > 0.05, so the cold reverse term carries content
+the trigram marginal alone lacks (it is not a passive absorber; H2 in the "reverse degrades" form is
+not supported on this bed). Neither agg arm beats the reference, both regress, so a stronger
+mode-covering unigram/bigram term does not rescue the cycle here (H1 in the "needs a mode-covering
+term" form is not supported either, with the caveat that the agg target is derived from the biased
+prior below). The sentence-initial pattern tracks the prior window in every arm: AH dominates where
+the trigram rules, and lambda_agg 10 flips it to AE, the window's second-most-frequent initial,
+without improving PER. So the initial-phone collapse is a symptom of the prior, and the PER
+collapse persists once it is removed.
+
 ### Prior-window defect (2026-09-19, surfaced by the step 1 audit, verified by count)
 The training trigram's text window is the first 1.01 M lines of an alphabetically sorted corpus:
 73.5 % of its sentences start with AH, 20.7 % with AE, 5.0 % with AA. Details and consequences in
