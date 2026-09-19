@@ -64,6 +64,21 @@ from i6_experiments.users.dorian_koch.speech_llm.tts import InstallFFmpeg
 
 CHANNEL_MODES = ("diarize_mask", "stereo_passthrough", "mono_both", "dialogue_sidon")
 
+# 🔴 `diarize_mask` is REJECTED for production duplex data (user, by ear, 2026-09-19).
+# It is a per-sample gate on the mono mix, not separation: in overlap BOTH channels receive the
+# same mixed audio, and even outside overlap the other speaker bleeds through because the channel
+# IS the mix. The user compared all four candidates on two windows (55.6% and 19.9% overlap) and
+# ranked DialogueSidon first "by far", SepFormer "useless", and gating "isn't the right tool for
+# us here". ⚠ Our SI-SDR pilot ranked gating FIRST (+6.19 dB) -- the metric rewards gating on the
+# non-overlapped majority and cannot score a resynthesis at all, so it is a domain-gap measurement
+# and not a ranking. See `projects/2026-01-speech-llm/audio_datasets.md`.
+#
+# So for a mono source that needs two speakers, the mode is `dialogue_sidon` via
+# `PodcastDuplexIngest`. `diarize_mask` remains only as the cheap baseline the comparison was
+# made against. `stereo_passthrough` is unaffected and is the right mode for sources that are
+# already dual-channel (Open Yap, DuplexChat reconstructions) -- nothing is separated there.
+REJECTED_CHANNEL_MODES = ("diarize_mask",)
+
 #: Episodes burned on smoke tests. `podcast_codes()` excludes these from every real corpus by
 #: default, so test audio can never end up inside training data -- a guarantee in code rather than a
 #: note somebody has to remember. Add to this list whenever an episode is used for a test.
@@ -677,6 +692,17 @@ def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) 
     slower than the compute, shards take longer than the target and the (resumable) job simply
     continues after a walltime reschedule.
     """
+    if channel_mode not in CHANNEL_MODES:
+        raise ValueError(f"unknown channel_mode {channel_mode!r}; expected one of {CHANNEL_MODES}")
+    if channel_mode == "dialogue_sidon":
+        # 🔴 The separating path is NOT the sum of the per-stage constants above. It is measured
+        # end to end (decode + diarize + separate + encode = 69.6 s/episode-hour) and it is the
+        # only mode whose cost was checked against a real shard rather than predicted. Delegating
+        # is the point: deriving it from the constants here yields the GATING number, which is
+        # ~33% too optimistic (276 vs 207 input-hours per shard), so a duplex corpus sized that
+        # way runs ~5.3 h per job against a 4 h target -- under the 8 h walltime, so it would
+        # never fail, just quietly miss the target the sharding exists to hit.
+        return duplex_episode_hours_per_shard(target_runtime_hours)
     per_hour = MIMI_SEC_PER_AUDIO_HOUR + DECODE_SEC_PER_AUDIO_HOUR
     if channel_mode == "diarize_mask":
         per_hour += DIARIZE_SEC_PER_AUDIO_HOUR
@@ -686,7 +712,7 @@ def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) 
 def shards_for_hours(
     est_total_hours: float,
     *,
-    channel_mode: str = "diarize_mask",
+    channel_mode: str,
     target_runtime_hours: float = 4.0,
     max_shards: int = 0,
 ) -> int:
