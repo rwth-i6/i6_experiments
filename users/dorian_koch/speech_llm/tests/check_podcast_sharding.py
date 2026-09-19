@@ -60,10 +60,12 @@ check(
 )
 
 print("[2] the real sizing call, at JRE scale")
-JRE_H = 5500.0
+#: 7,386 episode-hours, summed from the staged feed's own itunes:duration over all 2,753 items
+#: (2026-09-19). Was 5,500 from a ~2 h/episode guess.
+JRE_H = 7386.0
 n_sep = shards_for_hours(JRE_H, channel_mode="dialogue_sidon")
 n_gate = shards_for_hours(JRE_H, channel_mode="diarize_mask")
-check("JRE separating == 27 shards (matches the docstring)", n_sep == 27, f"got {n_sep}")
+check("JRE separating == 36 shards (matches the docstring)", n_sep == 36, f"got {n_sep}")
 check("would have been under-sharded as gating", n_gate < n_sep, f"{n_gate} vs {n_sep}")
 # The consequence, stated in the unit that matters: hours per job.
 bad_h = (JRE_H / n_gate) * DUPLEX_SEC_PER_EPISODE_HOUR / 3600.0
@@ -92,7 +94,7 @@ try:
     check("max_shards raises", False, "silently accepted")
 except ValueError as e:
     check("max_shards raises", True)
-    check("the error carries the numbers", "27" in str(e) and "10" in str(e), str(e)[:90])
+    check("the error carries the numbers", "36" in str(e) and "10" in str(e), str(e)[:90])
 
 print("[5] the rejected mode is declared, so a caller can refuse it")
 check("diarize_mask is marked rejected", "diarize_mask" in REJECTED_CHANNEL_MODES)
@@ -118,11 +120,14 @@ check(
     f"dialogue {sep:.0f} vs whole {whole:.0f} input-h per shard (ratio {sep / whole:.2f})",
 )
 n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
-# 42 since EPISODE_SEC_PER_EPISODE_HOUR became MEASURED (107.55, smoke 4262569) instead of predicted
+# 51 = 7,386 measured episode-hours / 147.1 per shard. Was 42 when the corpus size was a 5,500
+# guess and 44 before the cost was measured. Both inputs are now measured; pinned so that
+# re-pricing either one has to be a deliberate edit here too.
+# EPISODE_SEC_PER_EPISODE_HOUR became MEASURED (107.55, smoke 4262569) instead of predicted
 # (113.1 -> 44). Pinned rather than derived, so re-pricing the constant has to be a deliberate edit
 # here too: the shard count decides the fan-out of a ~165 GPU-h corpus run, and a constant that
 # drifts silently is how a 4 h-target shard quietly becomes a 6 h one that the partition kills.
-check("JRE whole-episode == 38 shards", n_whole == 38, f"got {n_whole}")
+check("JRE whole-episode == 51 shards", n_whole == 51, f"got {n_whole}")
 whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0
 check("...landing within 5% of the 4 h target", whole_h <= 4.0 * 1.05, f"{whole_h:.2f} h")
 check(
@@ -133,10 +138,16 @@ check(
 print(f"       -> {n_whole} shards @ {whole_h:.2f} h  (dialogue path: {n_sep} @ {good_h:.2f} h)")
 
 print("[6] retained hours, so a corpus size is never quoted as input hours")
-retained = JRE_H * DUPLEX_RETENTION
-check("JRE yields ~2,350 dialogue-hours", 2300.0 < retained < 2400.0, f"got {retained:.0f}")
+# MEASURED on the pilot: DuplexChat's filter keeps 32.67% of JRE, not the 42.7% their own corpus
+# average gives (`DUPLEX_RETENTION`). JRE retains materially less, so size the YIELD with the
+# measured number and keep their constant for their own path.
+JRE_RETENTION = 0.3267
+retained = JRE_H * JRE_RETENTION
+check("JRE yields ~2,410 dialogue-hours", 2350.0 < retained < 2480.0, f"got {retained:.0f}")
 check("per shard ~88 h retained", 80.0 < sep * DUPLEX_RETENTION < 95.0, f"got {sep * DUPLEX_RETENTION:.1f}")
-print(f"       -> {JRE_H:.0f} episode-h in, {retained:.0f} dialogue-h out at {100 * DUPLEX_RETENTION:.1f}% retention")
+print(
+    f"       -> {JRE_H:.0f} episode-h in, {retained:.0f} dialogue-h out at {100 * JRE_RETENTION:.1f}% retention (measured)"
+)
 
 print("[7] episode ids must be the same in EVERY process, for ever")
 # The bug: `abs(hash(guid)) % 10**16`. Python salts str hashing per process, so every rebuild of the

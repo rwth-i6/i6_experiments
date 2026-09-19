@@ -33,8 +33,12 @@ import numpy as np  # noqa: E402
 
 
 class _FakeTable:
-    def __init__(self, n):
+    def __init__(self, n, column_names=None):
         self.num_rows = n
+        # A real pyarrow table always has this, and `_Corpus` reads it to tell a pre-encoded
+        # (mimi codes) corpus from a waveform one. Kept on the fake so the schema check stays
+        # STRICT -- a table type without `column_names` is a bug, not a wav corpus.
+        self.column_names = list(column_names or ["audio_assistant", "audio_user", "alignments"])
 
 
 def _corpus(n, **kw):
