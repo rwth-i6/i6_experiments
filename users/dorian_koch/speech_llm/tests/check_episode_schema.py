@@ -171,6 +171,7 @@ print("[5] the worker writes every column the episode schema declares")
 # connects them. A column declared here and never set by the worker is a KeyError at the end of a
 # multi-hour shard, after the GPU work is already spent.
 worker = (LIB / "podcast_episode_main.py").read_text()
+jobsrc = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/podcast_ingest.py").read_text()
 missing = [k for k in e if k not in BASE and f'"{k}"' not in worker and f'"{k}"' not in src]
 check("no episode column is unset by both worker and encoder", not missing, f"missing {missing}")
 
@@ -190,6 +191,33 @@ for node in ast.walk(wtree):
             if "--row_mode" in vals and "episode" in vals:
                 sent = True
 check("the encoder subprocess passes --row_mode episode", sent)
+
+print("[7] the DuplexChat-venv worker must not import the moshi_family PACKAGE")
+# The bug: `from moshi_family.perm_repair import repair_permutation`. The module is pure numpy, but
+# importing it as a package member executes moshi_family/__init__.py, which pulls in the moshi model
+# stack. That venv is torch 2.11.0+cu128 for DialogueSidon and has no sentencepiece, so this died
+# with ModuleNotFoundError AFTER the GPU was allocated. Caught by the smoke; guarded here.
+wtree = ast.parse(worker)
+pkg_imports = [
+    n
+    for n in ast.walk(wtree)
+    if (isinstance(n, ast.ImportFrom) and (n.module or "").startswith("moshi_family"))
+    or (isinstance(n, ast.Import) and any(a.name.startswith("moshi_family") for a in n.names))
+]
+check(
+    "no moshi_family package import anywhere in the worker", not pkg_imports, f"lines {[n.lineno for n in pkg_imports]}"
+)
+check("perm_repair is loaded by file path instead", "spec_from_file_location" in worker and "perm_repair_py" in worker)
+check("--perm_repair_py is a REQUIRED arg", '"--perm_repair_py"' in worker and "required=True" in worker)
+check("the job passes --perm_repair_py", '"--perm_repair_py"' in jobsrc)
+# Non-vacuity: the isolation only matters if the package init really is heavy. If moshi_family ever
+# becomes import-light this guard should be reconsidered rather than silently kept.
+init = (LIB / "__init__.py").read_text()
+check(
+    "moshi_family/__init__ really does pull in the model stack (so the isolation is needed)",
+    "from . import models" in init or "import models" in init,
+    init[:120],
+)
 
 print()
 if fails:

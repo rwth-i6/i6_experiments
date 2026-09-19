@@ -1233,6 +1233,8 @@ class PodcastEpisodeIngest(Job):
             self.mimi_venv_python.get(),
             "--mimi_encoder",
             encoder,
+            "--perm_repair_py",
+            os.path.join(lib_parent, "moshi_family", "perm_repair.py"),
             "--moshi_lib_parent",
             _moshi_pythonpath(),
             "--diarization_model",
@@ -1261,6 +1263,9 @@ class PodcastEpisodeIngest(Job):
             args,
             log_label=f"Podcast episode ingest shard {self.shard_idx}",
             with_hf_home=True,
+            # No PYTHONPATH: nothing in this venv may import `moshi_family` as a package (its
+            # __init__ needs the moshi stack). The worker loads perm_repair by file path, and the
+            # encoder subprocess sets its own PYTHONPATH from --moshi_lib_parent.
             extra_env=env,
         )
 
