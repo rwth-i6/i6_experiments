@@ -1096,3 +1096,155 @@ def gauss_hmm_ls960(
     tk.register_output(f"{prefix}/{name}/phone_durations.npz", tables.out_duration_table)
     tk.register_output(f"{prefix}/{name}/tables_stats.json", tables.out_stats)
     return tables
+
+
+def gauss_hmm_frame_mean_table(tables: GaussHmmTablesJob, alias_prefix: str) -> GaussHmmFrameMeanTableJob:
+    """
+    The per-phone mean log-mel over the frames of the Gaussian-HMM's Viterbi alignment of train-960,
+    i.e. the MFA table construction on our own alignment (AZ: separates the aligner from the table
+    construction, Gaussian means vs frame mean). Durations: the ones of ``tables`` (same alignment).
+    """
+    from i6_experiments.users.zeyer.datasets.librispeech import _get_librispeech_ogg_zip_dict
+
+    job = GaussHmmFrameMeanTableJob(
+        alignment_hdf=tables.alignment_hdf,
+        ogg_zips=[_get_librispeech_ogg_zip_dict()[p] for p in _LS_TRAIN_PARTS],
+        phoneme_vocab=tables.phoneme_vocab,
+        returnn_root=tables.returnn_root,
+        num_sub_states=tables.num_sub_states,
+    )
+    job.add_alias(f"{alias_prefix}/frame-mean-table")
+    tk.register_output(f"{alias_prefix}/frame_mean_logmel.npz", job.out_mean_table)
+    tk.register_output(f"{alias_prefix}/frame_mean_stats.json", job.out_stats)
+    return job
+
+
+class GaussHmmFrameMeanTableJob(Job):
+    """
+    Per-phone mean log-mel frame over real audio, using the Gaussian-HMM's Viterbi alignment
+    (state per 10 ms frame, ``alignment_hdf``) instead of the MFA intervals:
+    the construction of :class:`ComputeMfaPhoneMeanLogMelJob` on our own alignment.
+    The log-mel front-end is the aligner's (= the ASR's ``asr_logmel`` front-end):
+    peak-normalized waveform -> ``rf.audio.log_mel_filterbank_from_raw`` defaults.
+
+    ``out_mean_table``: npz ``means`` [vocab, F] and ``labels`` (labels without frames: global mean);
+    ``out_stats``: json.
+    """
+
+    def __init__(
+        self,
+        *,
+        alignment_hdf: tk.Path,
+        ogg_zips: List[tk.Path],
+        phoneme_vocab: tk.Path,
+        returnn_root: tk.Path,
+        num_sub_states: int = 3,
+        num_filters: int = 80,
+    ):
+        super().__init__()
+        self.alignment_hdf = alignment_hdf
+        self.ogg_zips = ogg_zips
+        self.phoneme_vocab = phoneme_vocab
+        self.returnn_root = returnn_root
+        self.num_sub_states = num_sub_states
+        self.num_filters = num_filters
+        self.rqmt = {"cpu": 8, "mem": 24, "time": 12}
+        self.out_mean_table = self.output_path("mean_logmel.npz")
+        self.out_stats = self.output_path("stats.json")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import sys
+
+        sys.path.insert(0, self.returnn_root.get_path())
+
+        import json
+        import numpy as np
+        import torch
+        import returnn.frontend as rf
+        from returnn.tensor import Tensor, Dim, batch_dim
+        from returnn.datasets import init_dataset
+        from returnn.datasets.hdf import HDFDataset
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        torch.set_num_threads(int(self.rqmt["cpu"]))
+        rf.select_backend_torch()
+        batch_dim.dyn_size_ext = rf.convert_to_tensor(torch.tensor(1, dtype=torch.int32), dims=[])
+
+        vocab = Vocabulary(self.phoneme_vocab.get_path(), unknown_label="[UNKNOWN]")
+        labels = list(vocab.labels)
+        num_labels = len(labels)
+        k = self.num_sub_states
+        dim_f = self.num_filters
+        out_dim = Dim(dim_f, name="mel")
+
+        hdf = HDFDataset([self.alignment_hdf.get_path()])
+        hdf.init_seq_order(epoch=1)
+        tag_to_idx = {tag: i for i, tag in enumerate(hdf.get_all_tags())}
+
+        audio_ds = init_dataset(
+            {
+                "class": "OggZipDataset",
+                "path": [p.get_path() for p in self.ogg_zips],
+                "use_cache_manager": True,
+                # = datasets.librispeech._raw_audio_opts (not imported: that module needs returnn_common)
+                "audio": {"features": "raw", "sample_rate": 16_000, "peak_normalization": True, "preemphasis": None},
+                "targets": None,
+                "fixed_random_seed": 1,
+                "seq_ordering": "sorted_reverse",
+            }
+        )
+        audio_ds.init_seq_order(epoch=1)
+
+        def _log_mel(audio_np: np.ndarray) -> np.ndarray:
+            raw = torch.tensor(audio_np[None, :], dtype=torch.float32)
+            time_dim = Dim(int(raw.shape[1]), name="time")
+            src = Tensor("audio", dims=[batch_dim, time_dim], dtype="float32", raw_tensor=raw)
+            feats, feats_dim = rf.audio.log_mel_filterbank_from_raw(
+                src, in_spatial_dim=time_dim, out_dim=out_dim, sampling_rate=16_000
+            )
+            return feats.copy_compatible_to_dims_raw([batch_dim, feats_dim, out_dim])[0].numpy()
+
+        sums = np.zeros((num_labels, dim_f), dtype=np.float64)
+        counts = np.zeros((num_labels,), dtype=np.int64)
+        n_seqs = n_missing = n_len_mismatch = 0
+        seq_idx = 0
+        while audio_ds.is_less_than_num_seqs(seq_idx):
+            audio_ds.load_seqs(seq_idx, seq_idx + 1)
+            tag = audio_ds.get_tag(seq_idx)
+            audio = audio_ds.get_data(seq_idx, "data")
+            seq_idx += 1
+            if tag not in tag_to_idx:
+                n_missing += 1
+                continue
+            states = np.asarray(hdf.get_corpus_seq(tag_to_idx[tag]).features["data"]).astype(np.int64)
+            feats = _log_mel(np.asarray(audio, dtype=np.float32).reshape(-1))  # [T, F]
+            if feats.shape[0] != len(states):
+                n_len_mismatch += 1
+                assert abs(feats.shape[0] - len(states)) <= 2, (tag, feats.shape, states.shape)
+                t = min(feats.shape[0], len(states))
+                feats, states = feats[:t], states[:t]
+            phones = states // k
+            np.add.at(sums, phones, feats.astype(np.float64))
+            np.add.at(counts, phones, 1)
+            n_seqs += 1
+            if n_seqs % 10000 == 0:
+                print(f"{n_seqs} seqs done", file=sys.stderr)
+
+        global_mean = sums.sum(axis=0) / max(int(counts.sum()), 1)
+        means = np.zeros((num_labels, dim_f), dtype=np.float32)
+        for i in range(num_labels):
+            means[i] = (sums[i] / counts[i]) if counts[i] > 0 else global_mean
+        np.savez(self.out_mean_table.get_path(), means=means, labels=np.array(labels, dtype=object))
+        stats = {
+            "n_seqs": n_seqs,
+            "n_missing_in_alignment": n_missing,
+            "n_len_mismatch": n_len_mismatch,
+            "frame_counts": {labels[i]: int(counts[i]) for i in range(num_labels)},
+            "num_sub_states": k,
+        }
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump(stats, f, indent=2)
+        print("done:", n_seqs, "seqs;", n_missing, "not in the alignment;", n_len_mismatch, "length mismatches")

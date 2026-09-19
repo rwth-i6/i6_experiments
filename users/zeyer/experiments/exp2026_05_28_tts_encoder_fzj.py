@@ -1712,6 +1712,7 @@ def py():
     # log-mels, trained on train-960 only; its emission means and Viterbi durations replace the MFA tables.
     from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_gauss_hmm import (
         gauss_hmm_ls960,
+        gauss_hmm_frame_mean_table,
         gauss_hmm_state_tables,
     )
 
@@ -1795,6 +1796,11 @@ def py():
         name="gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960",
     )
     _gauss_hmm_state_tables_pronvar = gauss_hmm_state_tables(
+        _gauss_hmm_tables_pronvar, prefix + "/gauss-hmm/gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960"
+    )
+    # the MFA table construction (mean over the aligned frames) on our own alignment (AZ, 2026-09-19):
+    # separates the aligner from the table construction (Gaussian means vs frame mean)
+    _gauss_hmm_frame_mean_pronvar = gauss_hmm_frame_mean_table(
         _gauss_hmm_tables_pronvar, prefix + "/gauss-hmm/gauss-hmm-mono1g-edgesilinit3-sil3-pronvar-ls960"
     )
     # the same with the MFA-estimated normalized transition model: the cleanest setup to describe
@@ -1892,6 +1898,14 @@ def py():
                 "pseudo_enc_frozen_table": _gauss_hmm_tables_pronvar.out_mean_table,
                 "pseudo_enc_duration_table": _gauss_hmm_tables_pronvar.out_duration_table,
                 "with_ctc_lm_recog": True,
+            },
+        ),
+        # the same alignment, but the table as the mean over the aligned frames (as with MFA)
+        (
+            f"{_abl_prefix}-gausshmmframemean-pronvar",
+            {
+                "pseudo_enc_frozen_table": _gauss_hmm_frame_mean_pronvar.out_mean_table,
+                "pseudo_enc_duration_table": _gauss_hmm_tables_pronvar.out_duration_table,
             },
         ),
         # the 3 HMM states of every phone as the units (AZ), each with its own Gaussian mean and
@@ -3141,6 +3155,13 @@ def _build_tables(prefix: str):
                 aligner=_ghmm,
                 pronvar="all",
                 table="Gauss. \\\\ means",
+                unit="phone",
+            ),
+            _ls(
+                f"{win}-gausshmmframemean-pronvar",
+                aligner=_ghmm,
+                pronvar="all",
+                table="frame \\\\ mean",
                 unit="phone",
             ),
             _ls(
