@@ -20,11 +20,13 @@ commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib
 Step 5 DONE: profile (lam_agg 0.009), prior0, odm3, odm3_norev all read, every gate FAIL, coverage
 term neither satisfied nor optimised at 0.009 (Results). The odm manager (pid 354995) exited clean.
 Step 5b pre-registered (Results, "Step 5b design"): odm3_lam0.1, odm3_lam1 (criterion descent)
-and odm3_prior (user 2026-09-20, coverage + prior together). In flight: implementer adds the three
-arms to `config_sae_4a_attrib_odm_v1.py` (report `reports/sae_attrib_step5b_impl_2026-09-20.md`).
-NEXT: executor starts the manager on `config/sae_4a_attrib_odm.py` again (finished jobs skipped),
-arm the watcher with the new pid (`bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_odm.py 600`);
-on DONE read the three arms off the alias tree (`.../sae_4a_attrib/<arm>/`, incl.
+and odm3_prior (user 2026-09-20, coverage + prior together); speech-llm commit f6d2863
+(`reports/sae_attrib_step5b_{impl,launch}_2026-09-20.md`). LIVE since 2026-09-20 ~01:30 under
+manager pid 761439 (`config/sae_4a_attrib_odm.py`, `log/sae_4a_attrib_odm.manager.log`): odm3_lam0.1
+`BoundedBlankfreeTrainingJob.3CPzeMckKPjs` SLURM 1897475, odm3_lam1 `.rtSciqxHBgXC` 1897476,
+odm3_prior `.vrxgDshRaFae` 1897477 (~1.5 h each once running). Watcher:
+`bash ~/.claude/skills/sis/sis_watch.sh 761439 config/sae_4a_attrib_odm.py 600`.
+NEXT: on DONE read the three arms off the alias tree (`.../sae_4a_attrib/<arm>/`, incl.
 paired_per_odm3) plus `learning_rates` agg_ce_tri for KL3; gate + descent reads as pre-registered;
 audit any movement vs odm3 whose CI excludes 0; then the phase synthesis. Stage 2 only on a
 take-off. Step 4: on each watcher verdict dispatch executor; when all seven finish, extractor for
