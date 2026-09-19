@@ -19,18 +19,40 @@ pre-registered, design-reviewed and code-reviewed (Results, "Step 5 design" + am
 commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib_step5_{impl,design_review,review,launch}_2026-09-19.md`).
 Step 5 DONE: profile (lam_agg 0.009), prior0, odm3, odm3_norev all read, every gate FAIL, coverage
 term neither satisfied nor optimised at 0.009 (Results). The odm manager (pid 354995) exited clean.
-Step 5b pre-registered (Results, "Step 5b design"): odm3_lam0.1, odm3_lam1 (criterion descent)
-and odm3_prior (user 2026-09-20, coverage + prior together); speech-llm commit f6d2863
-(`reports/sae_attrib_step5b_{impl,launch}_2026-09-20.md`). LIVE since 2026-09-20 ~01:30 under
-manager pid 761439 (`config/sae_4a_attrib_odm.py`, `log/sae_4a_attrib_odm.manager.log`): odm3_lam0.1
-`BoundedBlankfreeTrainingJob.3CPzeMckKPjs` SLURM 1897475, odm3_lam1 `.rtSciqxHBgXC` 1897476,
-odm3_prior `.vrxgDshRaFae` 1897477 (~1.5 h each once running). Watcher:
-`bash ~/.claude/skills/sis/sis_watch.sh 761439 config/sae_4a_attrib_odm.py 600`.
-NEXT: on DONE read the three arms off the alias tree (`.../sae_4a_attrib/<arm>/`, incl.
-paired_per_odm3) plus `learning_rates` agg_ce_tri for KL3; gate + descent reads as pre-registered;
-audit any movement vs odm3 whose CI excludes 0; then the phase synthesis. Stage 2 only on a
-take-off. Step 4: on each watcher verdict dispatch executor; when all seven finish, extractor for
-the PER table, gate read, synthesis.
+Step 5b (odm3_lam0.1, odm3_lam1, odm3_prior; speech-llm commit f6d2863; launched 2026-09-19 21:10,
+the "2026-09-20" in its report names is a mislabel) DONE 2026-09-19 22:00: all three gates FAIL,
+coverage term optimises at lam_agg 0.1 and 1.0 with PER content-free (Results, "Step 5b result");
+manager 761439 exited clean. Audit of the paired movements, a failure-pattern analysis and a
+literature pass on cold ODM/cycle objectives are in flight (reports named in that section).
+User direction 2026-09-19 evening: continue autonomously, analyse the failure pattern and optimise
+the setup; the user expects some combination of ODM / LM prior / reverse model to work; plan
+changes are shown to the user before execution. Standing decision (user 2026-09-19, `SAE_ref.md`
+prior-window entry): every new experiment that uses an n-gram uses the unbiased uniform-sample
+fit (the priorshuf bed), never the alphabetical head window.
+Step 6 plan APPROVED by the user 2026-09-19 (not yet pre-registered in Results, nothing
+dispatched), grounded in `reports/sae_attrib_failure_pattern_2026-09-19.md` (mechanism M1: at cold
+start only the reverse emission depends on which phone a frame gets, its gradient is ~1/160 of the
+prior's; the ep1->ep4 "degradation" is insertions, not lost hits) and
+`reports/sae_attrib_literature_cold_odm_2026-09-19.md` (batch-averaged ODM is a biased estimator
+that converges to the majority guess, Liu/Chen/Deng 2017 Table 1: 83 % -> 9.6 % with the unbiased
+SPDG form). E2/E3 (label-free cluster-to-phone assignment as reverse-model init) WITHDRAWN: same
+move as SAE_1a(iii) GW-OT 0.86 and SAE_1f entry 3 (null-level), gold-map ceiling 0.76 at K=40.
+Approved items, all on the priorshuf bed, single delta each, the take-off gate unchanged:
+ (1) estimator-bias check: re-evaluate the odm3_lam1 ep4 checkpoint's order-3 coverage term at the
+     training batch and at 10x / 100x batch (short GPU sisyphus job, no training); if the gap to
+     the 8.242 floor grows with batch the estimator is the problem;
+ (2) E4 destroyed-structure control: odm3_lam1 with input frames (and the unit stream) permuted
+     within each utterance, fixed seed; prediction rule in the failure-pattern report section E4;
+ (4) E0 null-adjusted reader (CPU): S/D/I/C per arm and for a length-and-unigram-matched random
+     string, all banked attrib decodes plus S3b-OR frozen and GAN seed 0;
+ (3) conditional on (1): one arm with the coverage term as a full-corpus-batch (gradient
+     accumulation) or SPDG dual estimate, prior and reverse model kept at the bed values.
+Not approved: E5 aux k-means head, positional unigram term, more coverage weight.
+NEXT: pre-register items 1, 2, 4 in Results (gate/prediction text from the report sections),
+implementer (training-code deltas and the CPU reader in non-overlapping files; new Job classes in
+new modules), code-reviewer (incl. "prior_npz is the sampled fit"), launch; item 3 after (1) reads.
+Step 4: on each watcher verdict dispatch executor; when all seven finish, extractor for the PER
+table, gate read, synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -478,6 +500,42 @@ gate, same reads, single delta each from odm3 (`PiNZJCFoN8bX`):
   moves nothing at ep4, so a PASS or a movement here is attributable to the interaction.
 Reading rule: n = 1 seed, no ranking between arms on a FAIL; a PER movement vs odm3 needs its CI to
 exclude 0 and an audit before it is written up.
+
+### Step 5b result (2026-09-19 22:00): the coverage term optimises, PER stays content-free; gate FAIL all three
+Arms as pre-registered above, single delta each from odm3 (`PiNZJCFoN8bX`): odm3_lam0.1
+`BoundedBlankfreeTrainingJob.3CPzeMckKPjs`, odm3_lam1 `.rtSciqxHBgXC`, odm3_prior `.vrxgDshRaFae`
+(SLURM 1897475-77, 43 min each). Read off the alias tree, **dev-other** split of every ep/paired
+dir (each holds dev-clean/ and dev-other/; the first extractor pass took dev-clean by mistake and
+its numbers, e.g. odm3 0.8896, are the dev-clean ones), `reports/sae_attrib_step5b_extract_2026-09-19.md`;
+CE3 from each job's `output/learning_rates`, floor 8.242 as in the step 5 read.
+
+| arm | ep1 PER | ep4 PER (S/D/I; rate /s) | ep4 gap | paired vs odm3 0.9008 | paired vs priorshuf 0.8829 | paired vs reference 0.8649 | CE3 ep1-4 (KL3 ep4) |
+|---|---|---|---|---|---|---|---|
+| odm3_lam0.1 | 0.8457 | 0.8829 (126295 / 21451 / 8765; 8.95) | +3.81 | -0.0179 [-0.0250, -0.0106] | -0.0001 [-0.0039, +0.0044] | +0.0180 [+0.0140, +0.0225] | 9.82 / 9.06 / 8.92 / 8.88 (0.64) |
+| odm3_lam1 | 0.9104 | 0.9069 (129382 / 17018 / 14375; 9.49) | +2.53 | +0.0062 [-0.0019, +0.0147] | +0.0240 [+0.0194, +0.0296] | +0.0420 [+0.0361, +0.0488] | 9.89 / 9.09 / 8.82 / 8.69 (0.45) |
+| odm3_prior | 0.8164 | 0.8756 (125652 / 18237 / 11329; 9.26) | +2.46 | -0.0252 [-0.0313, -0.0183] | -0.0073 [-0.0108, -0.0036] | +0.0107 [+0.0069, +0.0147] | 10.02 / 9.72 / 9.77 / 9.67 (1.43) |
+
+Gate reads (pre-registered): PER clause FAIL in all three (0.88 / 0.91 / 0.88 against < 0.50);
+rate and gap clauses pass in all three. **No take-off; stage 2 is not funded.**
+Criterion-descent read: at lam_agg 0.1 and 1.0 the order-3 coverage term optimises by the
+pre-registered rule (KL3 at ep4 0.64 and 0.45 nats, both below 1.2 and monotone over subepochs
+2-4) while PER stays in the content-free band and, at lam 1.0, is significantly worse than
+priorshuf (+0.024). This is the pre-registered "satisfied content-free" outcome: a batch-level
+trigram match within half a nat of its floor is reachable without content, so more coverage weight
+is not a route and amendment E's destroyed-structure control is the next read on this term.
+odm3_prior (coverage + lattice prior) is the best cold arm on this bed after priorshuf's ep1
+(ep1 0.816; ep4 -0.007 vs priorshuf, CI excluding 0), but the movement is within the band and its
+KL3 (1.43, non-monotone) shows the coverage term at 0.009 still not optimised; the 2x2
+{prior} x {coverage} is complete: priorshuf 0.883, prior0 0.881, odm3 0.901, odm3_prior 0.876
+(ep4 dev-other); every corner content-free, the spread 0.025 is smaller than the ep1-to-ep4
+degradation of any single arm. Audited CONFIRMED_WITH_CAVEATS
+(`reports/sae_attrib_step5b_audit_2026-09-19.md`): every number reproduces from the artifacts,
+the config diffs are the intended single knob each, the floor 8.242 is the job's own
+agg_htext_tri (the amendment's "about 2.26" was a different convention), and the movements that
+stand are lam0.1 vs odm3 -0.018, prior vs odm3 -0.025, prior vs priorshuf -0.007, lam1 vs
+priorshuf +0.024. Caveat: derangement_gap.json carries no CI, so the gap clause's "CI excluding
+0" sub-clause is unevaluated in every arm of steps 5 and 5b (does not change any FAIL). Follow-ups opened on the user's direction (2026-09-19): failure-pattern analysis
+`reports/sae_attrib_failure_pattern_2026-09-19.md`, literature `reports/sae_attrib_literature_cold_odm_2026-09-19.md`.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram

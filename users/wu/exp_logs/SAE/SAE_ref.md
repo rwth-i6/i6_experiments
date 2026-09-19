@@ -152,6 +152,12 @@ available: `PhoneNgramPriorJob.RtzbESkOedsT` on a seeded uniform 1,010,000-line 
 priorshuf) lands at ep4 PER 0.883 vs 0.865 with the sentence-initial collapse moved from AH to HH, so
 the window is not the cause of the collapse; new cycle beds should still use the sampled prior.
 Surfaced by the step 1 audit `reports/sae_attrib_step1_audit_2026-09-19.md`.
+**Standing decision (user, 2026-09-19):** every new experiment that uses an n-gram (prior, coverage
+target, text-side statistic, selection LM) uses the unbiased uniform-sample fit
+(`SampleLinesJob.orN768ARKwlt` -> `PhoneNgramPriorJob.RtzbESkOedsT`, or the same seeded uniform
+sampling at another size), never the alphabetical head window. The only arms still on the biased
+window are the pre-defect steps 2-3 of `SAE_4A_attrib.md` (norev, k64, agg1, agg10); their reads
+are within-bed only and are not compared in absolute terms against priorshuf-bed arms.
 
 **Lattice semantics for sequence-prior extensions:** a complete latent path includes frame labels,
 token-emission choices and reverse segmentation. Existing SIL transitions permit either a repeat or
