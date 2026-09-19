@@ -48,12 +48,17 @@ from returnn.tensor import Tensor, Dim
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.model_interfaces import ModelDef
+from i6_experiments.users.zeyer.train_v4 import _train_hours
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import aed as _aed
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import Model
 from i6_experiments.users.zeyer.external_models.glow_tts import GlowTtsLogMel, get_glow_tts_phoneme_vocab_size
 from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder import train_ls_base, DbMelFeatureExtractor
 
 __all__ = ["py"]
+
+# Cells of the auto-generated paper tables (see _build_tables):
+# registered-output name -> the recog score collection or the train-hours variable behind it.
+_table_results: Dict[str, Any] = {}
 __setup_root_prefix__ = "exp2026_05_28_tts_encoder_fzj"
 
 PHONEMES_DATA_KEY = "phonemes"
@@ -2855,7 +2860,289 @@ def py():
         },
     )
 
+    # Auto-generated paper tables from the results registered above (see _build_tables).
+    _build_tables(prefix)
+
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
+
+
+def _build_tables(prefix: str):
+    """
+    The paper's result tables as Sisyphus outputs (``output/tables-data/<name>.data.json``),
+    built from the recog results and train hours in :data:`_table_results`.
+    Presentation (headers, units, captions) lives in the paper repo
+    (``tables-spec/`` + ``scripts/render_tables.py``); ``scripts/sync_tables.sh`` pulls the JSON.
+    A result not (yet) in the graph is a null cell;
+    the preview manifests render a pending cell as a placeholder.
+    """
+    from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob, write_preview_manifest
+
+    def _table(name: str, columns: Sequence[str], rows: Sequence[Dict[str, Any]]):
+        job = WriteTableDataJob(columns=list(columns), rows=list(rows))
+        tk.register_output(f"tables-data/{name}.data.json", job.out_json)
+        tk.register_output(f"tables-data/{name}.tsv", job.out_tsv)
+        write_preview_manifest(name, list(columns), list(rows), "output/tables-data-preview")
+
+    ls_keys = {
+        "dev_clean": "dev-clean",
+        "dev_other": "dev-other",
+        "test_clean": "test-clean",
+        "test_other": "test-other",
+    }
+    # column order = table order: dev (all + per source), then test
+    loq_keys = {
+        "dev": "dev",
+        "dev_voxpopuli": "dev_voxpopuli",
+        "dev_commonvoice": "dev_commonvoice",
+        "dev_librispeech": "dev_librispeech",
+        "dev_yodas": "dev_yodas",
+        "test": "test",
+    }
+
+    def _cells(alias: str, keys: Dict[str, str], recog: str = "aed+ctc-batched") -> Dict[str, Any]:
+        """the WER cells of one recog result plus the train hours; a missing result gives null cells"""
+        score = _table_results.get(f"{alias}/{recog}")
+        return {
+            **{col: ((score.output, key) if score is not None else None) for col, key in keys.items()},
+            "hours": _table_results.get(f"{alias}/train_time_hours"),
+        }
+
+    def _ls(name: str, recog: str = "aed+ctc-batched", **literals) -> Dict[str, Any]:
+        return {**literals, **_cells(f"{prefix}/aed/{name}", ls_keys, recog)}
+
+    def _loq(name: str, recog: str = "aed+ctc-batched", **literals) -> Dict[str, Any]:
+        return {**literals, **_cells(f"{prefix}/loq/aed/{name}", loq_keys, recog)}
+
+    win = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
+    base = "asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug50-stepcomp"
+    base76 = "asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep76-packed-graphc-specaug50-stepcomp"
+    ls_wer = list(ls_keys)
+    ls_wer_other = ["dev_other", "test_other"]
+
+    # LS headline: the injection methods against the audio-only baselines, with the training cost.
+    _table(
+        "ls-main",
+        ["method", *ls_wer, "hours"],
+        [
+            _ls(base, method="no text"),
+            _ls(base76, method="no text, twice the epochs"),
+            _ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS (frozen GlowTTS)"),
+            _ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, trained emb., layer 4"),
+            _ls(f"{win}-trainemb", method="pseudo encoder, trained emb., front-end"),
+            _ls(win, method="frozen MFA table (ours)"),
+            _ls(f"{win}-gausshmmtables-pronvar", method="frozen HMM table (ours, no MFA)"),
+        ],
+    )
+    # Ablations of the winning recipe, one ingredient flipped each.
+    _table(
+        "ls-ablations",
+        ["variant", *ls_wer_other],
+        [
+            _ls(win, variant="the recipe"),
+            _ls(f"{win}-dursig0", variant="duration jitter 0"),
+            _ls(f"{win}-dursig02", variant="duration jitter 0.2"),
+            _ls(f"{win}-dursig07", variant="duration jitter 0.7"),
+            _ls(win.replace("dur07", "dur05"), variant="duration scale 0.5"),
+            _ls(win.replace("dur07", "dur10"), variant="duration scale 1.0"),
+            _ls(f"{win}-nolerp", variant="no interpolation"),
+            _ls(f"{win}-unidur", variant="uniform durations 5 to 10"),
+            _ls(f"{win}-dursilonly", variant="durations: silence vs speech only"),
+            _ls(f"{win}-trainemb", variant="trained embedding"),
+            _ls(f"{win}-trainemb-unidur", variant="trained embedding + uniform durations"),
+            _ls(
+                "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+                variant="textogram (one-hot channels)",
+            ),
+            _ls(f"{win}-sil0", variant="no silence between words"),
+            _ls(f"{win}-silbound", variant="silence at the utterance bounds"),
+        ],
+    )
+    # Where the tables come from: MFA vs our single-Gaussian HMM aligner, phones vs HMM states.
+    _table(
+        "ls-table-source",
+        ["tables", *ls_wer],
+        [
+            _ls(win, tables="MFA phone means"),
+            _ls(f"{win}-gausshmmtables", tables="HMM phone means"),
+            _ls(f"{win}-gausshmmtables-pronvar", tables="HMM phone means, pron. variants"),
+            _ls(f"{win}-gausshmmstates-pronvar", tables="HMM state means, pron. variants"),
+        ],
+    )
+    # Amount of distinct text at a constant text share per step (subset + partition scaled alike),
+    # and the partition-only variants (which change the text share).
+    _table(
+        "ls-text-amount",
+        ["text", "partition", "passes", *ls_wer_other],
+        [
+            _ls(f"{win}-textP150", text="100\\%", partition="150", passes="1"),
+            _ls(win, text="100\\%", partition="75", passes="2"),
+            _ls(f"{win}-textP37", text="100\\%", partition="37", passes="4"),
+            _ls(f"{win}-lmsub50-textP38", text="50\\%", partition="38", passes="4"),
+            _ls(f"{win}-lmsub25-textP19", text="25\\%", partition="19", passes="8"),
+            _ls(f"{win}-lmsub10-textP8", text="10\\%", partition="8", passes="19"),
+            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", partition="1", passes="152"),
+        ],
+    )
+    # Amount of paired audio at a constant number of updates.
+    _table(
+        "ls-audio-amount",
+        ["audio", "partition", *ls_wer_other],
+        [
+            _ls(win, audio="100\\%", partition="75"),
+            _ls(f"{win}-audio50-textP50", audio="50\\%", partition="50"),
+            _ls(f"{win}-audio25-textP43", audio="25\\%", partition="43"),
+            _ls(f"{win}-audioP4-textP43", audio="100\\%, a quarter of the passes", partition="43"),
+            _ls(f"{win}-audio10-textP39", audio="10\\%", partition="39"),
+            _ls(f"{win}-audio0-textP38", audio="0\\%", partition="38"),
+        ],
+    )
+    # LM combinations on LS.
+    ls_recogs = [
+        ("aed+ctc-batched", "AED+CTC"),
+        ("ctc+lm-batched", "CTC+LM"),
+        ("ctc+aed+lm-labelsync-batched", "AED+CTC+LM"),
+    ]
+    _table(
+        "ls-lm",
+        ["model", "search", *ls_wer],
+        [
+            _ls(name, recog, model=label, search=rlabel)
+            for name, label in [
+                (base, "no text"),
+                (win, "frozen MFA table"),
+                (f"{win}-nolerp", "frozen MFA table, no interpolation"),
+            ]
+            for recog, rlabel in ls_recogs
+        ],
+    )
+
+    # Loquacious: the scale axis, control vs injection per subset.
+    inj = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon"
+    loq_wer = ["dev", "test"]
+    _table(
+        "loq-scale",
+        ["subset", "audio_h", "model", *loq_wer, "hours"],
+        [
+            _loq(
+                "base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="small",
+                audio_h="250",
+                model="no text, 24M",
+            ),
+            _loq(
+                "base-small-nFullEp200-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+                subset="small",
+                audio_h="250",
+                model="no text, 16.8M",
+            ),
+            _loq(
+                f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
+                subset="small",
+                audio_h="250",
+                model="injection",
+            ),
+            _loq(
+                "base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="medium1k",
+                audio_h="1000",
+                model="no text, 24M",
+            ),
+            _loq(
+                "base-medium1k-nFullEp162-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+                subset="medium1k",
+                audio_h="1000",
+                model="no text, 16.8M",
+            ),
+            _loq(
+                f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
+                subset="medium1k",
+                audio_h="1000",
+                model="injection",
+            ),
+            _loq(
+                "base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="medium",
+                audio_h="2500",
+                model="no text, 24M",
+            ),
+            _loq(
+                "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s",
+                subset="medium",
+                audio_h="2500",
+                model="no text, 16.8M",
+            ),
+            _loq(
+                f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
+                subset="medium",
+                audio_h="2500",
+                model="injection",
+            ),
+            _loq(
+                "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="large",
+                audio_h="25000",
+                model="no text, 24M",
+            ),
+            _loq(
+                "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="large",
+                audio_h="25000",
+                model="no text, 24M, twice the epochs",
+            ),
+            _loq(
+                f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
+                subset="large",
+                audio_h="25000",
+                model="injection",
+            ),
+        ],
+    )
+    # Loquacious medium: the text variants of the injection, with the per-source dev WERs.
+    med = f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s"
+    _table(
+        "loq-text-variants",
+        ["variant", *loq_keys],
+        [
+            _loq("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", variant="no text"),
+            _loq(med, variant="large transcripts, P240"),
+            _loq(f"{med}-txtP68", variant="large transcripts, P68 (10x text)"),
+            _loq(f"{med}-txtSrcExp0_5", variant="sources reweighted, alpha 0.5"),
+            _loq(f"{med}-txtSrcExp0", variant="sources uniform"),
+            _loq(f"{med}-txtP68-txtSrcExp0", variant="sources uniform, 10x text"),
+            _loq(f"{med}-loqtables", variant="Loquacious MFA tables"),
+            _loq(f"{med}-loqtables-txtSrcExp0", variant="Loquacious MFA tables, sources uniform"),
+            _loq(
+                "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
+                variant="textogram, sources uniform",
+            ),
+            _loq(
+                "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
+                variant="trained emb. + uniform durations, sources uniform",
+            ),
+            _loq(
+                "base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s-seed2", variant="no text, seed 2"
+            ),
+            _loq(f"{med}-txtSrcExp0-seed2", variant="sources uniform, seed 2"),
+        ],
+    )
+    # LM combinations on Loquacious.
+    _table(
+        "loq-lm",
+        ["model", "search", *loq_wer],
+        [
+            _loq(name, recog, model=label, search=rlabel)
+            for name, label in [
+                ("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "medium, no text"),
+                (f"{med}-txtSrcExp0_5", "medium, injection, alpha 0.5"),
+                (f"{med}-txtSrcExp0", "medium, injection, uniform"),
+                (
+                    "base-large-srcExp0_5-nFullEp5_7-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                    "large, no text, alpha 0.5",
+                ),
+            ]
+            for recog, rlabel in ls_recogs
+        ],
+    )
 
 
 @functools.cache
@@ -3053,6 +3340,8 @@ def _train_asr_base_multigpu(
     base_lr: float = 0.5,
     peak_lr: float = 1e-3,
     nep: int = 25,
+    enc_num_layers: int = 16,
+    dec_num_layers: int = 6,
     behavior_version: int = 25,
     torch_distributed: Optional[Dict[str, Any]] = None,
     batch_size_feat: int = 100_000,
@@ -3114,7 +3403,7 @@ def _train_asr_base_multigpu(
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            num_layers=16,
+            num_layers=enc_num_layers,
             out_dim=1024,
             encoder_layer=rf.build_dict(
                 ConformerEncoderLayer,
@@ -3126,7 +3415,7 @@ def _train_asr_base_multigpu(
         ),
         "dec_build_dict": rf.build_dict(
             TransformerDecoder,
-            num_layers=6,
+            num_layers=dec_num_layers,
             model_dim=1024,
             norm=rf.build_dict(rf.RMSNorm),
             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
@@ -3164,7 +3453,7 @@ def _train_asr_base_multigpu(
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
+            "aux_loss_layers": [4, 10, 16] + ([enc_num_layers] if enc_num_layers > 16 else []),
             "dec_aux_loss_layers": [3],
             # AED BPE-target cap, matching base-ls/v1 (spm10k).
             # This is NOT the frame-sync per-frame "75 trap":
@@ -3196,14 +3485,15 @@ def _train_asr_base_multigpu(
         gpu_mem=96,
         recog_training_func=recog_training_exp_batched,
         recog_def=model_recog_with_recomb,  # joint AED+CTC per-epoch recog, fixed scales 1/1
-        search_config={"aux_loss_layers": [16]},  # the recog model needs the layer-16 CTC head built
+        search_config={"aux_loss_layers": [enc_num_layers]},  # the recog model needs the last CTC head built
     )
+    _table_results[prefix + "/aed/" + name + "/train_time_hours"] = _train_hours(exp)
     # Headline AED+CTC first-pass recog (sharded, tuned scales), same as base-ls.
-    aed_ctc_timesync_recog_recomb_auto_scale_batched(
+    _table_results[prefix + "/aed/" + name + "/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
         task=task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=16,
+        aux_ctc_layer=enc_num_layers,
         num_shards=8,
     )
     # CTC(+labelwise prior)+LM with the LS trafo LM, sharded over the node (the LM baseline).
@@ -3214,23 +3504,27 @@ def _train_asr_base_multigpu(
         )
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model, _lms
 
-        ctc_recog_recomb_labelwise_prior_auto_scale_batched(
-            prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
-            task=task,
-            ctc_model=exp.get_last_fixed_epoch(),
-            lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
-            labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
-            aux_ctc_layer=16,
-            num_shards=8,
+        _table_results[prefix + "/aed/" + name + "/ctc+lm-batched"] = (
+            ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
+                task=task,
+                ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=enc_num_layers,
+                num_shards=8,
+            )
         )
         # CTC+AED+LM via label-sync first-pass search (no prior, as ESPnet).
-        ctc_aed_lm_label_sync_recog_auto_scale_batched(
-            prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
-            task=task,
-            aed_ctc_model=exp.get_last_fixed_epoch(),
-            lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
-            aux_ctc_layer=16,
-            num_shards=8,
+        _table_results[prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched"] = (
+            ctc_aed_lm_label_sync_recog_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
+                task=task,
+                aed_ctc_model=exp.get_last_fixed_epoch(),
+                lm=_get_lm_model(_lms["n32-d1024-claix2023"]),
+                aux_ctc_layer=enc_num_layers,
+                num_shards=8,
+            )
         )
         # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model).
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
@@ -3244,7 +3538,7 @@ def _train_asr_base_multigpu(
             asr_model=exp.get_last_fixed_epoch(),
             dlm=_get_imported_dlm(),
             labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
-            aux_ctc_layer=16,
+            aux_ctc_layer=enc_num_layers,
             num_shards=8,
         )
         # CTC+AED+DLM: the DLM input hyps from label-sync CTC+AED (numHyps32LS settings).
@@ -3254,7 +3548,7 @@ def _train_asr_base_multigpu(
             asr_model=exp.get_last_fixed_epoch(),
             dlm=_get_imported_dlm(),
             labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
-            aux_ctc_layer=16,
+            aux_ctc_layer=enc_num_layers,
             num_shards=8,
         )
     return exp
@@ -3634,7 +3928,8 @@ def _train_loquacious_baselines(*, prefix: str):
             env_updates=env_updates,
             recog_training_func=functools.partial(recog_training_exp_batched, num_shards=1),
         )
-        aed_ctc_timesync_recog_recomb_auto_scale_batched(
+        _table_results[f"{prefix}/loq/aed/{name}/train_time_hours"] = _train_hours(exp)
+        _table_results[f"{prefix}/loq/aed/{name}/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
             prefix=f"{prefix}/loq/aed/{name}/aed+ctc-batched",
             task=task,
             aed_ctc_model=exp.get_last_fixed_epoch(),
@@ -3655,22 +3950,26 @@ def _train_loquacious_baselines(*, prefix: str):
                 ctc_aed_lm_label_sync_recog_auto_scale_batched,
             )
 
-            ctc_recog_recomb_labelwise_prior_auto_scale_batched(
-                prefix=f"{prefix}/loq/aed/{name}/ctc+lm-batched",
-                task=task,
-                ctc_model=exp.get_last_fixed_epoch(),
-                lm=_get_loq_lm(),
-                labelwise_prior=_get_loq_transcription_labelwise_prior(vocab, task),
-                aux_ctc_layer=aux_ctc_layer,
-                num_shards=8,
+            _table_results[f"{prefix}/loq/aed/{name}/ctc+lm-batched"] = (
+                ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+                    prefix=f"{prefix}/loq/aed/{name}/ctc+lm-batched",
+                    task=task,
+                    ctc_model=exp.get_last_fixed_epoch(),
+                    lm=_get_loq_lm(),
+                    labelwise_prior=_get_loq_transcription_labelwise_prior(vocab, task),
+                    aux_ctc_layer=aux_ctc_layer,
+                    num_shards=8,
+                )
             )
-            ctc_aed_lm_label_sync_recog_auto_scale_batched(
-                prefix=f"{prefix}/loq/aed/{name}/ctc+aed+lm-labelsync-batched",
-                task=task,
-                aed_ctc_model=exp.get_last_fixed_epoch(),
-                lm=_get_loq_lm(),
-                aux_ctc_layer=aux_ctc_layer,
-                num_shards=8,
+            _table_results[f"{prefix}/loq/aed/{name}/ctc+aed+lm-labelsync-batched"] = (
+                ctc_aed_lm_label_sync_recog_auto_scale_batched(
+                    prefix=f"{prefix}/loq/aed/{name}/ctc+aed+lm-labelsync-batched",
+                    task=task,
+                    aed_ctc_model=exp.get_last_fixed_epoch(),
+                    lm=_get_loq_lm(),
+                    aux_ctc_layer=aux_ctc_layer,
+                    num_shards=8,
+                )
             )
 
 
@@ -3736,6 +4035,9 @@ def _train_tts_encoder(
     # HMM sub-states per phone as the units of the text stream (state id = phone id * K + k),
     # with the frozen table and the duration table indexed by the state vocab; None = phones
     pseudo_enc_phone_states: Optional[int] = None,
+    # model size; the defaults are the paper's base model (EncL16-DecL6-D1024)
+    enc_num_layers: int = 16,
+    dec_num_layers: int = 6,
     glow_tts_add_silence_between_words: Optional[float] = None,
     glow_tts_add_silence_beginning: Optional[float] = None,
     glow_tts_add_silence_end: Optional[float] = None,
@@ -4007,7 +4309,7 @@ def _train_tts_encoder(
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            num_layers=16,
+            num_layers=enc_num_layers,
             out_dim=1024,
             encoder_layer=rf.build_dict(
                 ConformerEncoderLayer,
@@ -4019,7 +4321,7 @@ def _train_tts_encoder(
         ),
         "dec_build_dict": rf.build_dict(
             TransformerDecoder,
-            num_layers=6,
+            num_layers=dec_num_layers,
             model_dim=1024,
             norm=rf.build_dict(rf.RMSNorm),
             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
@@ -4055,7 +4357,7 @@ def _train_tts_encoder(
     # since AED-only per-epoch WERs are unreliable;
     # the recog model needs the layer-16 CTC head built (config_updates is training-only).
     recog_model_cfg = {
-        "aux_loss_layers": [16],
+        "aux_loss_layers": [enc_num_layers],
         **(
             {
                 "pseudo_speech_enc": True,
@@ -4194,7 +4496,7 @@ def _train_tts_encoder(
             ),
             "learning_rate_control_error_measure": "ce",  # set explicitly since there is no TrainDef
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_loss_layers": [4, 10, 16],
+            "aux_loss_layers": [4, 10, 16] + ([enc_num_layers] if enc_num_layers > 16 else []),
             "dec_aux_loss_layers": [3],
             "max_seq_length_default_target": 75,  # text batches have no audio length cap
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
@@ -4376,14 +4678,15 @@ def _train_tts_encoder(
         gpu_mem=gpu_mem,
         recog_training_func=recog_training_func,
     )
+    _table_results[prefix + "/aed/" + name + "/train_time_hours"] = _train_hours(exp)
     # Joint AED+CTC first-pass recog with tuned scales. multi-GPU: sharded over the full node
     # (batched); single-GPU (RZ): the standard non-batched recog. This is the headline WER.
     if num_processes > 1:
-        aed_ctc_timesync_recog_recomb_auto_scale_batched(
+        _table_results[prefix + "/aed/" + name + "/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
             prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
             task=task,
             aed_ctc_model=exp.get_last_fixed_epoch(),
-            aux_ctc_layer=16,
+            aux_ctc_layer=enc_num_layers,
             num_shards=8,
             extra_config=recog_model_cfg,
         )
@@ -4404,25 +4707,29 @@ def _train_tts_encoder(
             else:
                 lm = _get_lm_model(_lms["n32-d1024-claix2023"])
                 labelwise_prior = _get_ls_transcription_labelwise_prior(vocab, task)
-            ctc_recog_recomb_labelwise_prior_auto_scale_batched(
-                prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
-                task=task,
-                ctc_model=exp.get_last_fixed_epoch(),
-                lm=lm,
-                labelwise_prior=labelwise_prior,
-                aux_ctc_layer=16,
-                num_shards=8,
-                extra_config=recog_model_cfg,
+            _table_results[prefix + "/aed/" + name + "/ctc+lm-batched"] = (
+                ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+                    prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
+                    task=task,
+                    ctc_model=exp.get_last_fixed_epoch(),
+                    lm=lm,
+                    labelwise_prior=labelwise_prior,
+                    aux_ctc_layer=enc_num_layers,
+                    num_shards=8,
+                    extra_config=recog_model_cfg,
+                )
             )
             # CTC+AED+LM via label-sync first-pass search (no prior, as ESPnet).
-            ctc_aed_lm_label_sync_recog_auto_scale_batched(
-                prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
-                task=task,
-                aed_ctc_model=exp.get_last_fixed_epoch(),
-                lm=lm,
-                aux_ctc_layer=16,
-                num_shards=8,
-                extra_config=recog_model_cfg,
+            _table_results[prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched"] = (
+                ctc_aed_lm_label_sync_recog_auto_scale_batched(
+                    prefix=prefix + "/aed/" + name + "/ctc+aed+lm-labelsync-batched",
+                    task=task,
+                    aed_ctc_model=exp.get_last_fixed_epoch(),
+                    lm=lm,
+                    aux_ctc_layer=enc_num_layers,
+                    num_shards=8,
+                    extra_config=recog_model_cfg,
+                )
             )
         # CTC+DLM DLM-sum with the imported RZ headline DLM (transfer onto this model), LS only.
         if with_ctc_lm_recog and loq_subset is None:
@@ -4437,7 +4744,7 @@ def _train_tts_encoder(
                 asr_model=exp.get_last_fixed_epoch(),
                 dlm=_get_imported_dlm(),
                 labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
-                aux_ctc_layer=16,
+                aux_ctc_layer=enc_num_layers,
                 num_shards=8,
                 extra_config=recog_model_cfg,
             )
@@ -4448,7 +4755,7 @@ def _train_tts_encoder(
                 asr_model=exp.get_last_fixed_epoch(),
                 dlm=_get_imported_dlm(),
                 labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
-                aux_ctc_layer=16,
+                aux_ctc_layer=enc_num_layers,
                 num_shards=8,
                 extra_config=recog_model_cfg,
             )
@@ -4461,7 +4768,7 @@ def _train_tts_encoder(
             prefix=prefix + "/aed/" + name + "/aed+ctc",
             task=task,
             aed_ctc_model=exp.get_last_fixed_epoch(),
-            aux_ctc_layer=16,
+            aux_ctc_layer=enc_num_layers,
             # construction-relevant flags (pseudo-enc etc.), like the batched branch above;
             # without this, pseudo-enc recogs rebuild the default TTS model and fail to load.
             extra_config=recog_model_cfg,

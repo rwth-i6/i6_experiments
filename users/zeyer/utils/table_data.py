@@ -56,7 +56,9 @@ class WriteTableDataJob(Job):
         a literal (str / int / float / bool / None),
         or a Sisyphus value resolved at run time --
         a ``Variable`` via ``.get()``,
-        or a ``Path`` / ``Variable`` whose file is read and parsed as JSON, else float, else stripped text.
+        or a ``Path`` / ``Variable`` whose file is read and parsed as JSON, else float, else stripped text,
+        or a tuple ``(source, key, ...)``: the resolved source (a JSON dict / list) indexed by the keys,
+        e.g. one metric out of a recog result file.
         A missing or ``None`` cell is written as an empty TSV field and ``null`` in JSON.
     :param sort_by: optional column keys to sort the (resolved) rows by before writing.
     :param float_fmt: printf format for float cells in the TSV (JSON keeps full precision).
@@ -87,6 +89,13 @@ class WriteTableDataJob(Job):
 
         if cell is None or isinstance(cell, (str, int, float, bool)):
             return cell
+        if isinstance(cell, tuple):
+            # (source, key, ...): one entry of a JSON file, e.g. a metric of a recog result
+            source, *keys = cell
+            value = WriteTableDataJob._resolve(source)
+            for key in keys:
+                value = value[key]
+            return value
         # A Sisyphus Path/Variable backed by a file: read and parse it (JSON, else float, else text).
         get_path = getattr(cell, "get_path", None)
         if callable(get_path):
