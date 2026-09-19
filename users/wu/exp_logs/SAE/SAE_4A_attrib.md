@@ -564,11 +564,90 @@ PER is read; n = 1 per item, disclosed.
   accordingly. Prediction: every cold arm null-level at ep1 and ep4; the ep1->ep4 PER rise is
   reproduced by the null redrawn at ep4's own length and skew.
 - **Item 3** (full-corpus-batch or SPDG coverage arm) only on outcome (B) of item 1.
+
+### Step 6, item 1 result (2026-09-20 00:06): branch (C), the EMA read understates the checkpoint's KL3 by 0.38 nats
+`OdmCoverageBatchEvalJob.kIWwqpNqrTGH` (SLURM 1899039, 3 min; commit 483ea33; review
+`reports/sae_attrib_step6_est_review_2026-09-19.md` CLEAN_WITH_NOTES: "full" = the arm's train
+partition, 28,254 distinct utterances, dropout live as in the training statistic; the coverage term
+takes no temperature, so "tau 2" only labels the checkpoint). Output
+`output/.../sae_4a_attrib/step6/est_bias/summary.txt`. Floor recomputed 8.2417 (matches 8.242).
+
+| order | KL at one bed batch (~126 utts, mean +/- sd over 40) | 10 batches | 100 batches | full pass | EMA read at ep4 |
+|---|---|---|---|---|---|
+| 1 | 0.062 +/- 0.009 | 0.053 | 0.053 | 0.053 | 0.014 |
+| 2 | 0.431 +/- 0.067 | 0.306 | 0.287 | 0.284 | 0.099 |
+| 3 | 2.016 +/- 0.341 | 1.042 | 0.852 | **0.830** | 0.450 |
+
+KL3_full = 0.830: **branch (C)** (between 0.60 and 1.2), unresolved by the rule, item 3 NOT funded.
+Two things the table establishes: (i) the per-batch log-of-frequency is strongly biased at the bed
+batch (2.0 vs 0.83 nats at order 3, the small-sample bias curve), which is the value the ratio
+surrogate never uses (its denominator is the EMA, its numerator is linear in the batch counts), so
+the gradient estimator is not the log-of-batch-average form of Liu 2017; (ii) the ep4 EMA read is
+LOWER than every single-state level, including the full pass, at every order (0.45 vs 0.83 at order
+3): the EMA blends ~100 past steps of a moving model, and the union of several model states covers
+more text trigrams than the checkpoint itself does, so the step 5b "KL3 0.45, within half a nat of
+its floor" overstated the criterion descent by about 0.4 nats. The 5b criterion-descent verdict
+survives at the checkpoint level (0.83 < 1.2, the pre-registered "optimises" bound), the "half a
+nat" phrasing is overturned. Diagnostic consequence for any later coverage arm: report the term on
+the checkpoint (a periodic full-pass or a >= 100-batch accumulation), never on the training EMA.
+
+### Step 6, item 4 result (2026-09-20 00:10): no cold arm carries more than 2.5 % of N in excess hits; the ep1->ep4 PER rise is the null's
+`NullAdjustedEditCountsJob.Ohl1XSzqNF08` (CPU; commit 133f002; review
+`reports/sae_attrib_step6_null_review_2026-09-19.md` CLEAN_WITH_NOTES; reader snapshot
+`reports/snapshots/emc_null_sdic_2026-09-19.py`). Output
+`output/.../sae_4a_attrib/step6/null_sdic/summary.md` (per-decode job hashes in its second table);
+every arm's S/D/I reproduce the banked per.json exactly. E/N = excess hits (C - I) over the mean of 5
+length-and-unigram-matched random strings, N = 177,275; null PER sd over draws <= 0.0007.
+
+| decode | PER (arm / null) | E/N | | decode | PER (arm / null) | E/N |
+|---|---|---|---|---|---|---|
+| reference ep1 / ep4 | 0.835 / 0.836, 0.865 / 0.889 | +0.001, +0.024 | | odm3 ep1 / ep4 | 0.834 / 0.852, 0.901 / 0.902 | +0.018, +0.001 |
+| priorshuf ep1 / ep4 | 0.821 / 0.823, 0.883 / 0.904 | +0.002, +0.021 | | odm3_norev ep1 / ep4 | 0.836 / 0.851, 0.874 / 0.870 | +0.015, -0.003 |
+| prior0 ep1 / ep4 | 0.907 / 0.907, 0.881 / 0.883 | -0.000, +0.001 | | odm3_lam0.1 ep1 / ep4 | 0.846 / 0.865, 0.883 / 0.908 | +0.020, +0.025 |
+| norev ep1 / ep4 | 0.851 / 0.849, 0.936 / 0.955 | -0.002, +0.020 | | odm3_lam1 ep1 / ep4 | 0.910 / 0.926, 0.907 / 0.916 | +0.015, +0.009 |
+| k64 ep1 / ep4 | 0.837 / 0.843, 0.915 / 0.920 | +0.006, +0.005 | | odm3_prior ep1 / ep4 | 0.816 / 0.831, 0.876 / 0.899 | +0.015, +0.023 |
+| agg1 ep1 / ep4 | 0.821 / 0.828, 0.920 / 0.925 | +0.006, +0.005 | | S3b-OR frozen ep4 | 0.454 / 0.862 | **+0.409** |
+| agg10 ep1 / ep4 | 0.858 / 0.873, 0.899 / 0.908 | +0.015, +0.009 | | GAN seed 0 | 0.214 / 0.910 | **+0.696** |
+
+Reads by the pre-registered rules: positive controls pass (0.41 and 0.70 >= 0.2). No cold arm
+reaches the 0.05 audit flag. 20 of 24 cold decodes are null-level (|E/N| < 0.02); four ep4 decodes
+sit 0.001-0.005 above the bound (reference 0.024, odm3_lam0.1 0.025, odm3_prior 0.023, priorshuf
+0.021), so the prediction "every cold arm null-level" is NOT met to the letter; in substance every
+cold arm carries at most 2.5 % of N in excess hits, i.e. under 4 % of the S3b-OR signal and 3.6 %
+of the GAN's. The ep1->ep4 "degradation" is entirely the null's: the reference's null PER rises
+0.836 -> 0.889 while the arm rises 0.835 -> 0.865 and its excess hits GROW from 245 to 4,318
+(every prior-carrying arm shows the same: the excess rises ep1 -> ep4 while raw PER worsens, because
+the ep4 decodes are longer and more skewed). Restatement (rule: E/N differing by < 0.02 = a movement
+of the null): the step 2 and 3 between-arm PER movements (norev, k64, agg1, agg10 vs the reference)
+and the step 5b movements odm3_lam0.1 vs odm3 (-0.018), odm3_prior vs priorshuf (-0.007) and
+odm3_lam1 vs priorshuf (+0.024) are movements of length/unigram skew, not of content. The one pair
+whose E/N differ by more than 0.02 is odm3_prior vs odm3 at ep4 (0.023 vs 0.001, PER -0.025): the
+lattice prior adds about 4,000 excess hits (2.3 % of N) on top of the coverage term, a real but
+chance-scale effect. Consequence: no PER movement banked in this phase is a content measurement;
+future cold arms are read by E/N (with S3b-OR / GAN as the scale), and the take-off gate stays
+PER < 0.50 because that is the only band the null cannot reach.
 - **Hyperparameter review** (user 2026-09-19: "maybe some bad hyperparameter leads to the fail"):
   a fresh-context review of the bed's constants against the reference setups and the literature
   report sec. 3/6 (feature conditioning, temperature schedule, batch, optimiser, capacity, EMA);
   any retuning arm it motivates is a plan change shown to the user before launch unless it is a
   defect-level misconfiguration with a single-delta fix.
+  Result (2026-09-19, `reports/sae_attrib_step6_hparam_audit_2026-09-19.md`, DONE_WITH_CONCERNS):
+  no scalar retune worth funding; both parameter groups move, clip 5.0 inert (|g| ~ 0.1), no
+  BN train/eval mismatch, no schedule short of its value, no NaN. Two defect-level findings, both
+  claim-scoping: (1) budget: every cold arm stops at 228 optimiser updates (57 per sub-epoch,
+  39 min of an 8 h rqmt; the cost profile cleared 456 over 8 sub-epochs, the extension is gated on
+  G4a.3 PER < 0.50, the working GAN ran 150k updates on the same L15 features), so every FAIL here
+  reads "no take-off within 228 updates"; not the mechanism (S3b-OR reached 0.454 in the same 228
+  with an informative frozen phi; the S3b arms at 456 stayed in 0.83-0.91). (2) the KL-form L_agg
+  gradient is damped 0.01x by the EMA blend (`agg.py:187-196`), so the bed's lam_agg 0.1 is an
+  effective 1e-3 and the failure-pattern report's "coverage ~12x prior" is ~0.12x: the cold bed
+  is prior-driven (already the reason step 5 moved to the ratio form; bookkeeping only).
+  Speculative, not funded: the three GAN generator-side auxiliaries absent from the bed
+  (smoothness 1.5, code penalty 3.0, aux k-means 0.5; E5 not approved), tau ending at 2 not 1
+  (S3b-OR took off on the same schedule), phi/theta lr ratio 30 traced to a batch-8 reference.
+  Proposed to the user, not launched: one budget arm, odm3_prior (the best cold corner) at 16
+  sub-epochs (912 updates, ~2.6 h), keep_epochs 1/4/8/16, pre-registered prediction PER stays in
+  0.83-0.91 at 8 and 16 while every health statistic improves (M6 signature).
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
