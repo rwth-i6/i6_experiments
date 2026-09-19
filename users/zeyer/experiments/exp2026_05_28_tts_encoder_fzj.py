@@ -1932,6 +1932,20 @@ def py():
                 "pseudo_enc_lerp": False,
             },
         ),
+        # The textogram cell with a fixed 6 frames per phone (the dur07 mean), the phoneme counterpart
+        # of the character textogram below (AZ).
+        (
+            "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {
+                "pseudo_enc_channel_concat": True,
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (6, 6),
+                "pseudo_enc_lerp": False,
+            },
+        ),
         # Textogram on characters (A-Z + apostrophe, the space as the silence entry) with a fixed
         # 4-frame duration per character: the original paper's units and duration model (AZ);
         # 4 frames x 5.3 chars per word = the winner's ~22 frames per word (5.9 x 3.8 phones).
@@ -2984,6 +2998,14 @@ def _build_tables(prefix: str):
     ls_wer = list(ls_keys)
     ls_wer_other = ["dev_other", "test_other"]
 
+    def _old_impl(row: Dict[str, Any]) -> Dict[str, Any]:
+        """a row trained with the earlier implementation (no packed tensors, no CUDA graphs): starred hours"""
+        from sisyphus.delayed_ops import DelayedFormat
+
+        if row["hours"] is not None:
+            row["hours"] = DelayedFormat("{:.0f}$^*$", row["hours"])
+        return row
+
     # LS headline: the injection methods against the audio-only baselines, with the training cost.
     _table(
         "ls-main",
@@ -2991,8 +3013,8 @@ def _build_tables(prefix: str):
         [
             _ls(base, method="no text"),
             _ls(base76, method="no text, \\\\ twice the epochs"),
-            _ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS \\\\ (frozen GlowTTS)"),
-            _ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, \\\\ trained emb., layer 4"),
+            _old_impl(_ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS \\\\ (frozen GlowTTS)")),
+            _old_impl(_ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, \\\\ trained emb., layer 4")),
             _ls(f"{win}-trainemb", method="pseudo encoder, \\\\ trained emb., front-end"),
             _ls(win, method="frozen MFA table (ours)"),
             _ls(f"{win}-gausshmmtables-pronvar", method="frozen HMM table \\\\ (ours, no MFA)"),
@@ -3036,6 +3058,12 @@ def _build_tables(prefix: str):
             _ls(f"{win}-trainemb", acoustics="trained embedding", units="phonemes", durations="log-normal per phone"),
             _ls(f"{win}-trainemb-unidur", acoustics="trained embedding", units="phonemes", durations="uniform 5 to 10"),
             _ls(_textogram, acoustics="one-hot channels", units="phonemes", durations="uniform 5 to 10"),
+            _ls(
+                "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+                acoustics="one-hot channels",
+                units="phonemes",
+                durations="fixed 6",
+            ),
             _ls(_textogram_chars, acoustics="one-hot channels", units="characters", durations="fixed 4"),
         ],
     )
@@ -3051,14 +3079,33 @@ def _build_tables(prefix: str):
         ],
     )
     # Where the tables come from: MFA vs our single-Gaussian HMM aligner, phones vs HMM states.
+    _ghmm = "single-Gaussian \\\\ HMM (ours)"
     _table(
         "ls-table-source",
-        ["tables", *ls_wer],
+        ["aligner", "pronvar", "table", "unit", *ls_wer],
         [
-            _ls(win, tables="MFA phone means"),
-            _ls(f"{win}-gausshmmtables", tables="HMM phone means"),
-            _ls(f"{win}-gausshmmtables-pronvar", tables="HMM phone means, \\\\ pron. variants"),
-            _ls(f"{win}-gausshmmstates-pronvar", tables="HMM state means, \\\\ pron. variants"),
+            _ls(
+                win,
+                aligner="MFA \\\\ (GMM-HMM)",
+                pronvar="all, aligned",
+                table="mean over \\\\ aligned frames",
+                unit="phone",
+            ),
+            _ls(f"{win}-gausshmmtables", aligner=_ghmm, pronvar="one sampled", table="Gaussian means", unit="phone"),
+            _ls(
+                f"{win}-gausshmmtables-pronvar",
+                aligner=_ghmm,
+                pronvar="all, aligned",
+                table="Gaussian means",
+                unit="phone",
+            ),
+            _ls(
+                f"{win}-gausshmmstates-pronvar",
+                aligner=_ghmm,
+                pronvar="all, aligned",
+                table="Gaussian means",
+                unit="HMM state",
+            ),
         ],
     )
     # Amount of distinct text at a constant text share per step (subset + partition scaled alike),
