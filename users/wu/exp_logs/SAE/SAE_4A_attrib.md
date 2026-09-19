@@ -18,8 +18,9 @@ on resume, one per manager, from the setup dir):
 Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
 priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
 `BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
-`SampleLinesJob.orN768ARKwlt`), review clean, RUNNING since ~14:30 under manager pid 936874
-(`log/sae_4a_attrib_priorshuf.manager.log`; watcher `bash ~/.claude/skills/sis/sis_watch.sh 936874 config/sae_4a_attrib_priorshuf.py 120`).
+`SampleLinesJob.orN768ARKwlt`), review clean, training RUNNING since ~15:05 (Slurm 1891355) under
+manager pid 1020639 (restarted under the sis venv after a create_files crash; `log/sae_4a_attrib_priorshuf.manager.log`;
+watcher `bash ~/.claude/skills/sis/sis_watch.sh 1020639 config/sae_4a_attrib_priorshuf.py 120`).
 Steps 2 norev/agg1/agg10 DONE (Results); k64 finished, being read. Step 4: review clean
 (`reports/sae_attrib_step4_review_2026-09-19.md`), profile read (amendment above), seven arms RUNNING
 since ~13:40 at b=16 under manager pid 885934 (`config/sae_4a_attrib_ganrev.py`,
