@@ -17,21 +17,18 @@ on resume: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_g
 Step 5 (odm arms; user 2026-09-19: progress without waiting for step 4, NO GAN component):
 pre-registered, design-reviewed and code-reviewed (Results, "Step 5 design" + amendments; speech-llm
 commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib_step5_{impl,design_review,review,launch}_2026-09-19.md`).
-Profile DONE (lam_agg 0.009, Results) and prior0 DONE, gate FAIL (Results). LIVE since 2026-09-19
-~23:30 under manager pid 354995 (`config/sae_4a_attrib_odm.py`, `log/sae_4a_attrib_odm.manager.log`,
-speech-llm commit 478caf7): odm3 `BoundedBlankfreeTrainingJob.PiNZJCFoN8bX` SLURM 1896433 and
-odm3_norev `.QhMVw6T6SG0v` SLURM 1896434 (4 subepochs; prior0 took ~1.5 h). Watcher:
-`bash ~/.claude/skills/sis/sis_watch.sh 354995 config/sae_4a_attrib_odm.py 600`.
-NEXT: on the watcher verdict dispatch executor; when both arms finish, extractor reads the
-registered aliases `output/exp2025_11_06_speech_llms/librispeech/sae_4a_attrib/{odm3,odm3_norev}/`
-(ep1/ep4 per.json + decode_stats.json, ep4 derangement_gap.json, paired_per and
-paired_per_priorshuf) AND the training `learning_rates` agg_* diagnostics (order-3 surrogate mean
-over the last subepoch for the ep1 abort rule; CE vs floor H(p_text3); floored mass; max ratio);
-labels from the alias tree, never from a hash list. Gate read per arm as pre-registered (odm3: PER,
-gap, rate; odm3_norev: PER, rate), then audit if any arm moves vs priorshuf, then synthesis. Stage 2
-only on a take-off (phi fit on step-5 posteriors, frozen, cycle + bt_a, pack6 recipe). Step 4: on
-each watcher verdict dispatch executor; when all seven finish, extractor for the PER table, gate
-read, synthesis.
+Step 5 DONE: profile (lam_agg 0.009), prior0, odm3, odm3_norev all read, every gate FAIL, coverage
+term neither satisfied nor optimised at 0.009 (Results). The odm manager (pid 354995) exited clean.
+Step 5b pre-registered (Results, "Step 5b design"): odm3_lam0.1, odm3_lam1 (criterion descent)
+and odm3_prior (user 2026-09-20, coverage + prior together). In flight: implementer adds the three
+arms to `config_sae_4a_attrib_odm_v1.py` (report `reports/sae_attrib_step5b_impl_2026-09-20.md`).
+NEXT: executor starts the manager on `config/sae_4a_attrib_odm.py` again (finished jobs skipped),
+arm the watcher with the new pid (`bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_odm.py 600`);
+on DONE read the three arms off the alias tree (`.../sae_4a_attrib/<arm>/`, incl.
+paired_per_odm3) plus `learning_rates` agg_ce_tri for KL3; gate + descent reads as pre-registered;
+audit any movement vs odm3 whose CI excludes 0; then the phase synthesis. Stage 2 only on a
+take-off. Step 4: on each watcher verdict dispatch executor; when all seven finish, extractor for
+the PER table, gate read, synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -431,6 +428,54 @@ agg at 0.1, cycle with a trainable phi). The ep1 decode is deletion-heavy (rate 
 recovers in-band by ep4, like the other arms. The +0.017 vs the reference is the prior-window
 effect already banked for priorshuf, not a prior0 effect. Isolates the odm3 reading: any odm3
 movement vs priorshuf is attributable to the coverage term, not to the prior removal.
+
+### Step 5, odm3 and odm3_norev (2026-09-20): the coverage term does not take off; gate FAIL both
+Arms on the priorshuf bed, prior_weight 0, L_agg order 3 with the ratio gradient at lam_agg 0.009
+(profile above), 4 subepochs; odm3 `BoundedBlankfreeTrainingJob.PiNZJCFoN8bX`, odm3_norev
+`.QhMVw6T6SG0v` (reverse emission 0, phi frozen). Read off the alias tree
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_attrib/{odm3,odm3_norev}/` (ep1/ep4 per.json,
+decode_stats.json, ep4 derangement_gap.json, paired_per, paired_per_priorshuf); not audited.
+
+| arm | ep1 PER (rate /s) | ep4 PER (S/D/I; rate /s) | ep4 gap | paired vs priorshuf ep4 0.8829 | paired vs reference ep4 0.8649 |
+|---|---|---|---|---|---|
+| odm3 | 0.8336 (8.07) | 0.9008 (115872 / 39147 / 4663; 7.76) | +0.812 | +0.0178 [+0.0112, +0.0241] | +0.0359 [+0.0289, +0.0422] |
+| odm3_norev | 0.8363 (7.81) | 0.8735 (71155 / 83023 / 664; 5.16) | -0.010 | -0.0095 [-0.0202, +0.0009] | +0.0086 [-0.0023, +0.0184] |
+
+Gate reads (pre-registered): odm3 PER clause FAIL (0.90), rate and gap clauses pass; odm3_norev
+PER clause FAIL (0.87) and rate clause FAIL (5.16 /s below 5.80). **No take-off; stage 2 is not
+funded.** odm3 is significantly WORSE than the priorshuf control (CI excludes 0); odm3_norev is not
+distinguishable from it (CI contains 0) and is deletion-heavy (D 83k of 177k). Both arms sit in
+the usual ep1 band (0.834 / 0.836; priorshuf ep1 0.821) and degrade to ep4 like every cold arm
+before them. Coverage diagnostics (`reports/sae_attrib_odm_diag_read_2026-09-20.md`, from each job's
+`output/learning_rates`, train side, epochs 1-4): order-3 forward CE odm3 10.04 / 9.73 / 9.83 / 9.94,
+odm3_norev 10.04 / 9.73 / 9.83 / 9.96 against the constant floor H(p_text3) = 8.242, i.e. KL3 1.80 ->
+1.70 (odm3) and 1.80 -> 1.72 (norev), lowest at ep2 (1.49); trained surrogate (sum of 3 orders,
+fixed point -3) -6.5 / -2.9 / -2.7 / -2.7, no NaN or inf, so the ep1 abort rule does not fire;
+posterior-expected phone rate 12.8 -> 11.1 /s against the greedy 7.8 /s (the expectation-vs-mode gap
+of c5 again). Reading: at lam_agg 0.009 the coverage term is neither satisfied (1.7 nats above its
+floor) nor optimised (0.1 nat of descent, non-monotone). The pre-registered matching rule priced it
+against the prior term's gradient, and prior0 showed that term to be inert at ep4 on this bed, so
+the coverage term inherited an inert weight; odm3 also lost the order-2 KL agg at 0.1 (11x more
+weight than 0.009), and odm3 is worse than prior0 by about the same margin as agg weight was removed
+(+0.018 vs priorshuf). The odm3_norev arm's L_tau (entropy bonus + duration only) rises from -1.17
+to -0.51 while its deletions grow; the cycle side without emission is not a stabiliser.
+
+### Step 5b design (2026-09-20, pre-registered before launch)
+Two questions the step-5 arms leave open, both answerable with ~1.5 h arms on the same bed, same
+gate, same reads, single delta each from odm3 (`PiNZJCFoN8bX`):
+- **Criterion descent** (does the coverage term optimise at all when it is allowed to?): odm3_lam0.1
+  (lam_agg 0.1, the bed's order-2 weight) and odm3_lam1 (lam_agg 1.0). Informative read fixed now:
+  KL3 = CE3 minus 8.242 at ep4; "the term optimises" iff KL3 at ep4 is below 1.2 nats (a third of the
+  way from 1.8 to the floor) and monotone over subepochs 2-4; PER read by the take-off gate as before.
+  A descending KL3 with PER in the content-free band is the "satisfied content-free" outcome and would
+  call for the destroyed-structure control (amendment E), not for more weight.
+- **Both sides** (user 2026-09-20: the prior is "one-sided", not toxic; run coverage and the lattice
+  prior together): odm3_prior = odm3 + prior_weight 1.0 (the bed's value), completing the 2x2
+  {prior on/off} x {coverage on/off} whose other corners are priorshuf, prior0 and odm3. Read: paired
+  vs odm3 and vs priorshuf; gate as odm3. Expectation stated in advance from prior0: the prior alone
+  moves nothing at ep4, so a PASS or a movement here is attributable to the interaction.
+Reading rule: n = 1 seed, no ranking between arms on a FAIL; a PER movement vs odm3 needs its CI to
+exclude 0 and an audit before it is written up.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
