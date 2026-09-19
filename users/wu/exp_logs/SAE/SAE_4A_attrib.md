@@ -15,15 +15,20 @@ lam0.01_s0 `reCovgFXvSDj` 1891050; lam0.01_s1 `ZTklLDlrH8Vv` 1891058; lam0.1_s0 
 `mumOHh9l2vkK` 1891055); each spans two 11.5 h allocations via checkpoint_last resume. Re-arm first
 on resume: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
 Step 5 (odm arms; user 2026-09-19: progress without waiting for step 4, NO GAN component):
-pre-registered (Results, "Step 5 design" + details). In flight 2026-09-19 evening: implementer
-(order-3 run-trigram counts, ratio-gradient L_agg, prior_weight-0 guard, `BlankfreeGradNormProfileJob`,
-`config_sae_4a_attrib_odm_v1.py` with arms odm3 / odm3_norev, wrappers `config/sae_4a_attrib_odm_profile.py`,
-`config/sae_4a_attrib_odm.py`; report `reports/sae_attrib_step5_impl_2026-09-19.md`) and
-design-reviewer (`reports/sae_attrib_step5_design_review_2026-09-19.md`) in parallel.
-NEXT: fold MUST amendments; code-reviewer; launch the profile config, read median ratio -> set
-LAM_AGG (record here); launch both arms; gate read at ep4. Stage 2 only on a take-off (phi fit on
-step-5 posteriors, frozen, cycle + bt_a, pack6 recipe). Step 4: on each watcher verdict dispatch
-executor; when all seven finish, extractor for the PER table, gate read, synthesis.
+pre-registered, design-reviewed and code-reviewed (Results, "Step 5 design" + amendments; speech-llm
+commits 6a71763 + a6cdcac, `config_sae_4a_attrib_odm_v1.py`, reports `sae_attrib_step5_{impl,design_review,review,launch}_2026-09-19.md`).
+LIVE since 2026-09-19 ~21:30 under manager pid 3896872 (`config/sae_4a_attrib_odm.py`,
+`log/sae_4a_attrib_odm.manager.log`): prior0 `BoundedBlankfreeTrainingJob.HxMWJ5osM8NU` SLURM
+1895827 (~12 s/step) and the lam_agg profile `BlankfreeGradNormProfileJob.iX6xWSYdo1a7` SLURM
+1895838. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 3896872 config/sae_4a_attrib_odm.py 600`.
+odm3 / odm3_norev are NOT registered until `LAM_AGG` in `config_sae_4a_attrib_odm_v1.py` is set.
+NEXT: when the profile finishes, extractor reads out/summary.txt (median ratio prior/agg, its
+1-significant-digit rounding, tau, batch count, three median norms); record lam_agg here and in the
+config docstring (implementer, hash census on prior0 HxMWJ5osM8NU unchanged); executor restarts
+manager 3896872 so odm3 / odm3_norev join; re-arm the watcher with the new pid. Then ep1 abort read
+(surrogate) and ep4 gate read per arm. Stage 2 only on a take-off (phi fit on step-5 posteriors,
+frozen, cycle + bt_a, pack6 recipe). Step 4: on each watcher verdict dispatch executor; when all
+seven finish, extractor for the PER table, gate read, synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
