@@ -7,32 +7,23 @@ constraint stand). Gold enters evaluation only.
 
 ## State
 
-Design review done and folded in (amendments below). Steps 2 and 3 (four arms: norev
-`BoundedBlankfreeTrainingJob.QolqasLCAL94`, agg1 `.81Kc6iySxEBH`, agg10 `.bDYARBE8qXp6`, k64
-`.3AwI6Poud7xt`) DONE; their managers and the priorshuf and ngram_priorshuf managers have exited.
-The ONLY live manager is step 4's, pid 885934; re-arm its watcher first on resume (command below).
-Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
-priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
-`BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
-`SampleLinesJob.orN768ARKwlt`) DONE (Results: not the cause). Steps 2 and 3 DONE and audited
-(Results). Only step 4 is live. Step 4: review clean
-(`reports/sae_attrib_step4_review_2026-09-19.md`), profile read (amendment above), seven arms RUNNING
-since ~13:40 at b=16 under manager pid 885934 (`config/sae_4a_attrib_ganrev.py`,
-`log/sae_4a_attrib_ganrev.manager.log`): w0_s0 `FairseqW2vu2TrainJob.9HnmO6ULORKl` 1891056;
-lam0.01_s0 `.reCovgFXvSDj` 1891050; lam0.01_s1 `.ZTklLDlrH8Vv` 1891058; lam0.1_s0 `.YM9FkZ2qzoVW`
-1891057; lam0.1_s1 `.h7YWOSQjA7AH` 1891054; lam1.0_s0 `.oF22UaRGYy2k` 1891052; frozen_lam0.1_s0
-`.mumOHh9l2vkK` 1891055. rqmt time 11.5 h (partition cap), so each arm spans two allocations via
-checkpoint_last resume. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
-priorshuf n-gram JSD read DONE (Results, `NgramModeSeekingJob.vlhnotaFKKj5`, manager exited).
-NEXT (user 2026-09-19: progress without waiting for step 4; NO GAN component in the route, user
-2026-09-19): design step 5 = the corpus-level coverage term as the MAIN distribution term (Results,
-"Step 5 design"): lattice prior_weight 0 (the cycle keeps only the reconstruction tie), L_agg at
-order 3 with the ratio gradient and lam_agg O(1), cold blankfree bed, 4 subepochs, control = the
-reference `5lBwcDjv2ItL`; pre-register the take-off gate (ep4 dev-other greedy PER < 0.50, gap > 0,
-rate in band) before the first job; implementer spec + tests, code-reviewer, design-reviewer, then
-launch. Stage 2 (only after a take-off): phi fit on the step-5 posteriors, frozen, cycle + bt_a
-(pack6 recipe). Then: on each step-4 watcher verdict dispatch executor; when all seven arms finish,
-extractor for the step-4 PER table, gate read and synthesis.
+Steps 1-3 and priorshuf DONE and audited (Results); their managers have exited. Live: step 4's
+manager pid 885934 (`config/sae_4a_attrib_ganrev.py`, `log/sae_4a_attrib_ganrev.manager.log`),
+seven `FairseqW2vu2TrainJob` arms RUNNING since ~13:40 at b=16 (w0_s0 `9HnmO6ULORKl` 1891056;
+lam0.01_s0 `reCovgFXvSDj` 1891050; lam0.01_s1 `ZTklLDlrH8Vv` 1891058; lam0.1_s0 `YM9FkZ2qzoVW`
+1891057; lam0.1_s1 `h7YWOSQjA7AH` 1891054; lam1.0_s0 `oF22UaRGYy2k` 1891052; frozen_lam0.1_s0
+`mumOHh9l2vkK` 1891055); each spans two 11.5 h allocations via checkpoint_last resume. Re-arm first
+on resume: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
+Step 5 (odm arms; user 2026-09-19: progress without waiting for step 4, NO GAN component):
+pre-registered (Results, "Step 5 design" + details). In flight 2026-09-19 evening: implementer
+(order-3 run-trigram counts, ratio-gradient L_agg, prior_weight-0 guard, `BlankfreeGradNormProfileJob`,
+`config_sae_4a_attrib_odm_v1.py` with arms odm3 / odm3_norev, wrappers `config/sae_4a_attrib_odm_profile.py`,
+`config/sae_4a_attrib_odm.py`; report `reports/sae_attrib_step5_impl_2026-09-19.md`) and
+design-reviewer (`reports/sae_attrib_step5_design_review_2026-09-19.md`) in parallel.
+NEXT: fold MUST amendments; code-reviewer; launch the profile config, read median ratio -> set
+LAM_AGG (record here); launch both arms; gate read at ep4. Stage 2 only on a take-off (phi fit on
+step-5 posteriors, frozen, cycle + bt_a, pack6 recipe). Step 4: on each watcher verdict dispatch
+executor; when all seven finish, extractor for the PER table, gate read, synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -346,6 +337,57 @@ the EMA; lam_agg O(1), matched to the removed term's gradient norm at init; reco
 odm3_norev (reverse emission 0, the pure Yeh objective on this bed); control = reference ep4 0.865.
 Gate (take-off, pre-registered before launch): ep4 dev-other greedy PER < 0.50 AND positive gap
 AND rate in [0.6, 1.5] x rho, paired vs the reference; stage 2 funded only on a take-off.
+
+Pre-registration details (2026-09-19, fixed before the first step-5 job; code survey
+`reports/sae_attrib_step5_code_survey_2026-09-19.md`):
+- Bed and inputs: the priorshuf bed (`config_sae_4a_attrib_v1` control with `prior_npz` =
+  `PhoneNgramPriorJob.RtzbESkOedsT` on the unbiased window `SampleLinesJob.orN768ARKwlt`), so the
+  L_agg target is the unbiased text; all other constants as the reference (`lam_rate` 3.0, 4
+  subepochs, recognizer, batch). The lattice prior enters the DP scores as `prior_weight *
+  prior_log_bi`, so `prior_weight` 0 must be implemented as "term skipped", never 0 * (-inf).
+- L_agg order 3: expected trigram counts of the run-collapsed string by the exact (last run label,
+  previous run label) recursion, tested against brute-force enumeration at fp32 on tiny shapes and
+  for padding inertness; p_text at orders 1-3 from the same SIL-stripped text convention as the
+  existing bigram target; uni/bigram terms keep their current form and weights.
+- lam_agg is NOT chosen by hand: a short profile job (extension of `BlankfreeCostProfileJob`) logs
+  the recognizer-parameter gradient norm of the removed prior term (L_tau at prior_weight 1 minus
+  L_tau at prior_weight 0) and of the order-3 ratio loss at init on the same batches (>= 20 steps);
+  lam_agg = median ratio, rounded to one significant digit, recorded here before the arm launch.
+- Rate clause reads the greedy emitted rate (`phone_rate_original_hz` in decode_stats), band
+  [5.80, 14.49]/s (rho 9.66/s, `SAE_4A.md` S3b-R), never a posterior expectation. Gap clause reads
+  the arm's own derangement gap with the CI excluding 0. PER clause paired vs the priorshuf ep4
+  decode (the bed's control) AND vs the reference `5lBwcDjv2ItL`; n = 1 seed per arm, disclosed.
+- Outcome semantics: a FAIL licenses "the corpus-level coverage term does not take off at this
+  operating point"; it does not license "Empirical-ODM does not work" (no batch-size schedule, no
+  SPDG dual, no LM decode; lit report sec. 4 and 9d). A PASS funds stage 2 only.
+
+Design-review amendments (2026-09-19, `reports/sae_attrib_step5_design_review_2026-09-19.md`,
+DONE_WITH_CONCERNS; MUST items folded before any launch, the original gate text above stands):
+- Third arm **prior0** = priorshuf bed + `prior_weight` 0 only (existing order-2 KL agg, lam_agg
+  0.1): odm3 vs priorshuf changes two things (prior removal AND the new agg), so prior0 isolates the
+  removal. Cheapest arm; launched with the other two.
+- Gate per arm: odm3 and prior0 keep all three clauses; **odm3_norev drops the gap clause** (its
+  frozen cold phi makes the gap un-passable by construction, cf. norev -0.026), gap stays a
+  diagnostic. Epoch rule: ep4 ONLY decides; an ep1 take-off is informative, not a PASS. PER < 0.50 is
+  the decisive clause; the gap is neither necessary nor sufficient (S3b-R: +1.9 at PER 0.847).
+- Diagnostics required in the training log, separate keys from the trained surrogate: forward CE
+  per order and its floor H(p_text_o) (about 2.26 nats at order 3), floored p_text mass, max ratio;
+  frequencies (counts / total), never raw counts. These split "coverage satisfied content-free"
+  from "not optimised" if PER stays in the 0.83-0.91 content-free band.
+- Profile: at the subepoch-1 tau (8.0; the prior gradient depends on tau), >= 20 distinct batches
+  inside the new job (the existing cost profile uses 4 fixed batches), cycle-term norm recorded too.
+- Reading rules: n = 1 seed, so no between-arm ranking on a FAIL; SHOULD (at the gate read) report
+  the own-unigram random-string null for every arm whose PER lands in the content-free band; a
+  destroyed-structure control only if the CE reaches its floor at content-free PER.
+- What remains in L_tau for odm3_norev: the 1/tau Renyi-entropy bonus for diffuse q plus the cold
+  duration model. Disclosed; the arm is the pure "coverage + rate + duration" objective on this bed.
+- Code review (`reports/sae_attrib_step5_review_2026-09-19.md`, CLEAN_WITH_NOTES): the ratio
+  loss's absolute floor 1e-6 let one missing frequent trigram carry a per-cell weight up to 1e6, so
+  the floor becomes per-cell max(1e-6, 0.01 p_text(w)) (weight <= 100; gradient still the forward-CE
+  gradient at the fixed point). Pre-registered ep1 abort for odm3 / odm3_norev: order-3 surrogate
+  NaN or |mean over the last subepoch| > 100 stops the arm, read as "not optimisable at this
+  operating point", not as a gate FAIL. lam_agg is priced at EMA step 0 (f_ema = f_batch), i.e.
+  exactly the CE gradient at init; the EMA lag from step 2 on is what the diagnostics monitor.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
