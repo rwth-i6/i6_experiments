@@ -96,6 +96,26 @@ SMOKE_AUDIO_URLS = [
 ]
 
 
+def _stable_id(key: str) -> str:
+    """A 16-digit episode id that is the SAME in every process, for ever.
+
+    🔴 This used to be `abs(hash(key)) % 10**16`, and Python's builtin `hash()` on a str is
+    **salted per process** unless PYTHONHASHSEED is set. So every rebuild of the work index minted
+    completely different ids for the same episodes -- which silently breaks the two things ids are
+    for: resume (`episodes.json` records ids, so a rebuilt index would re-do a finished shard) and
+    growing a corpus (an episode could never be recognised as already ingested). It was invisible
+    because within one process the ids are perfectly consistent, and the index is normally built
+    once.
+
+    sha256 is stable across processes, machines and Python versions. Truncating to 16 digits leaves
+    ~5e15 values; at JRE's ~2k episodes the collision probability is ~4e-13, and `PodcastCodesIndex`
+    hard-fails on a duplicate `item_id` anyway, so a collision is loud rather than silent.
+    """
+    import hashlib
+
+    return f"{int(hashlib.sha256(key.encode('utf-8')).hexdigest()[:16], 16) % (10**16):016d}"
+
+
 def _moshi_pythonpath() -> str:
     """PYTHONPATH for a worker that imports both ``moshi_family`` and ``moshi``.
 
@@ -228,7 +248,7 @@ class PodcastWorkIndex(Job):
                 guid = (ep.findtext("guid") or enc.get("url")).strip()
                 items.append(
                     {
-                        "item_id": f"rss_{abs(hash(guid)) % (10**16):016d}",
+                        "item_id": f"rss_{_stable_id(guid)}",
                         "audio_url": enc.get("url"),
                         "source": "rss",
                         "spans": None,
@@ -278,7 +298,7 @@ class PodcastWorkIndex(Job):
                 ep = by_ep.setdefault(
                     url,
                     {
-                        "item_id": f"dc_{abs(hash(url)) % (10**16):016d}",
+                        "item_id": f"dc_{_stable_id(url)}",
                         "audio_url": url,
                         "source": "duplexchat",
                         "spans": [],
@@ -1300,6 +1320,147 @@ def podcast_episode_codes(
         tk.register_output(f"podcast_episodes/{tag}/work_index", index.out_dir)
         tk.register_output(f"podcast_episodes/{tag}/codes_index", codes_index.out_dir)
     return codes_index.out_dir, index.out_dir, shard_dirs
+
+
+class PodcastDialogueSlice(Job):
+    """Slice whole-episode code rows into dialogue rows -- CPU only, no GPU, no audio.
+
+    The cheap half of the whole-episode design. :class:`PodcastEpisodeIngest` pays once for
+    download, diarization, separation and Mimi encoding; this decides what counts as a usable
+    dialogue, and can be re-run at any parameters for as long as the episode corpus exists.
+
+    It reproduces DuplexChat's slicing **exactly**, by importing and calling their
+    ``extract_valid_dialogues`` from the pinned clone rather than re-implementing it. That is
+    possible at all because ``dialogue.py`` imports nothing but ``dataclasses`` and reads only
+    ``seg["speaker"]/["start"]/["end"]`` -- it is a pure function of the diarization segments, and
+    the segments are stored on every episode row.
+
+    ⚠ **Never re-implement their rules here.** The four filters interact in ways that are easy to get
+    subtly wrong: dominance is applied *after* long dialogues are chunked (so a span that is balanced
+    on average but contains a long monologue is still caught), single-speaker runs are dropped by
+    never being *emitted* rather than by a filter, and a gap of exactly ``gap_seconds`` splits.
+
+    **The four filter thresholds and the episode gate are hashed constructor args**, so a different
+    retention policy is a new cheap CPU job rather than a re-separation. That is the entire payoff of
+    the design: at DuplexChat's defaults JRE retains **42.7%**, and changing that number used to cost
+    the whole ~173 GPU-h separation pass.
+
+    ⚠ **Frame mapping.** An episode row's frame 0 is episode t=0 (``span_start_sec == 0.0``, asserted
+    at run time), so a dialogue at [start, end) seconds becomes frames
+    ``[floor(start*fr), ceil(end*fr))`` -- floor/ceil rather than round, matching the existing
+    ``spans_json`` convention, so a slice is a superset of the dialogue and never clips its edges.
+    The emitted row's ``span_*`` describe the frames actually taken; the requested seconds are kept
+    in ``channel_info``.
+
+    ⚠ **The codes layout is codebook-major** (``k * n_frames + f``), so slicing frames is a slice of
+    the second axis after reshaping. A contiguous slice of the flat array would take a band of
+    *codebooks* instead -- valid-looking output, completely wrong audio.
+
+    ⚠ Output is a second copy of the (much smaller) retained codes rather than an index into the
+    episode rows. At ~1.44 MB per stereo hour that is ~3.4 GB for all of JRE, which is cheap enough
+    that plugging into every existing consumer unchanged is worth more than avoiding the copy.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None, "rows_per_part": 2000}
+
+    def __init__(
+        self,
+        *,
+        mimi_venv_python,
+        repo_dir: tk.Path,
+        in_dir: tk.Path,
+        gap_seconds: float = 5.0,
+        max_single_speaker_ratio: float = 0.8,
+        min_duration_seconds: float = 10.0,
+        max_duration_seconds: float = 600.0,
+        min_dialogues_per_episode: int = 4,
+        rows_per_part: int = 2000,
+        code_version: int = 1,
+        rqmt: dict | None = None,
+    ):
+        self.mimi_venv_python = mimi_venv_python
+        self.repo_dir = repo_dir
+        self.in_dir = in_dir
+        self.gap_seconds = float(gap_seconds)
+        self.max_single_speaker_ratio = float(max_single_speaker_ratio)
+        self.min_duration_seconds = float(min_duration_seconds)
+        self.max_duration_seconds = float(max_duration_seconds)
+        self.min_dialogues_per_episode = int(min_dialogues_per_episode)
+        self.rows_per_part = int(rows_per_part)
+        self.code_version = int(code_version)
+        self.out_dir = self.output_path("codes", directory=True)
+        # No GPU: this only reads arrow and calls a pure-Python filter. Memory is one episode's
+        # codes at a time (~4 MB for 2.7 h) plus the rows accumulating toward one part.
+        self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
+
+    def tasks(self):
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        try:
+            with open(os.path.join(self.out_dir.get(), "summary.json")) as f:
+                s = json.load(f)
+            return f"{s.get('n_dialogues', 0)} dlg, {s.get('kept_hours', 0)} h, retention {s.get('retention', 0):.3f}"
+        except Exception:  # noqa: BLE001
+            return None
+
+    def run(self):
+        lib_parent = _moshi_family_lib_parent()
+        script = os.path.join(lib_parent, "moshi_family", "podcast_slice_main.py")
+        run_worker_script(
+            self.mimi_venv_python.get(),
+            script,
+            [
+                "--in_dir",
+                self.in_dir.get(),
+                "--out_dir",
+                self.out_dir.get(),
+                "--repo_src",
+                os.path.join(self.repo_dir.get(), "src"),
+                "--gap_seconds",
+                self.gap_seconds,
+                "--max_single_speaker_ratio",
+                self.max_single_speaker_ratio,
+                "--min_duration_seconds",
+                self.min_duration_seconds,
+                "--max_duration_seconds",
+                self.max_duration_seconds,
+                "--min_dialogues_per_episode",
+                self.min_dialogues_per_episode,
+                "--rows_per_part",
+                self.rows_per_part,
+            ],
+            log_label="Podcast dialogue slice",
+            extra_env={"PYTHONPATH": _moshi_pythonpath()},
+        )
+
+
+def podcast_sliced_codes(
+    *,
+    mimi_venv_python,
+    tag: str,
+    episode_shard_dirs: list,
+    register: bool = True,
+    require_all_shards: bool = True,
+    **slice_kwargs,
+):
+    """One :class:`PodcastDialogueSlice` per episode shard -> a codes index over the results.
+
+    Returns ``(codes_index_dir, slice_dirs)``. One slice job per ingest shard rather than one over
+    everything, so the fan-out matches the ingest and a re-slice parallelises the same way.
+    """
+    repo = duplexchat_repo()
+    slice_dirs = []
+    for d in episode_shard_dirs:
+        job = PodcastDialogueSlice(mimi_venv_python=mimi_venv_python, repo_dir=repo, in_dir=d, **slice_kwargs)
+        slice_dirs.append(job.out_dir)
+    codes_index = PodcastCodesIndex(in_dirs=slice_dirs, require_all_shards=require_all_shards)
+    if register:
+        tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
+    return codes_index.out_dir, slice_dirs
 
 
 def podcast_duplex_codes(

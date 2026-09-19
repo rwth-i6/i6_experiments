@@ -27,6 +27,7 @@ from i6_experiments.users.dorian_koch.speech_llm.podcast_ingest import (  # noqa
     DUPLEX_SEC_PER_EPISODE_HOUR,
     EPISODE_SEC_PER_EPISODE_HOUR,
     REJECTED_CHANNEL_MODES,
+    _stable_id,
     audio_hours_per_shard,
     duplex_episode_hours_per_shard,
     episode_hours_per_shard,
@@ -125,6 +126,42 @@ retained = JRE_H * DUPLEX_RETENTION
 check("JRE yields ~2,350 dialogue-hours", 2300.0 < retained < 2400.0, f"got {retained:.0f}")
 check("per shard ~88 h retained", 80.0 < sep * DUPLEX_RETENTION < 95.0, f"got {sep * DUPLEX_RETENTION:.1f}")
 print(f"       -> {JRE_H:.0f} episode-h in, {retained:.0f} dialogue-h out at {100 * DUPLEX_RETENTION:.1f}% retention")
+
+print("[7] episode ids must be the same in EVERY process, for ever")
+# The bug: `abs(hash(guid)) % 10**16`. Python salts str hashing per process, so every rebuild of the
+# work index minted different ids for the same episodes -- silently breaking resume (episodes.json
+# stores ids, so a rebuilt index re-does finished shards) and any attempt to grow a corpus. Invisible
+# in practice because within ONE process the ids are perfectly consistent.
+import subprocess  # noqa: E402
+
+ids_here = (_stable_id("https://example.com/a.mp3"), _stable_id("guid-abc"))
+check("deterministic within the process", ids_here == (
+    _stable_id("https://example.com/a.mp3"), _stable_id("guid-abc")))
+check("distinct inputs give distinct ids", ids_here[0] != ids_here[1])
+check("ids are 16 digits", all(len(i) == 16 and i.isdigit() for i in ids_here), str(ids_here))
+
+prog = (
+    "import sys;sys.path.insert(0,%r);sys.path.insert(0,%r);"
+    "from i6_experiments.users.dorian_koch.speech_llm.podcast_ingest import _stable_id;"
+    "print(_stable_id('https://example.com/a.mp3'),_stable_id('guid-abc'))"
+) % (str(SETUP / "recipe"), str(SETUP / "recipe" / "sisyphus"))
+outs = set()
+for _ in range(3):
+    r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True,
+                       env={**os.environ, "CUDA_HOME": "/usr"})
+    outs.add(r.stdout.strip())
+check("identical across 3 separate processes", len(outs) == 1, f"got {outs}")
+check("...and matches this process", outs and outs.pop() == " ".join(ids_here))
+
+# Non-vacuous: prove the mechanism the fix replaces really is unstable, so this guard cannot pass
+# by testing a property that was never at risk.
+old = set()
+for _ in range(4):
+    r = subprocess.run([sys.executable, "-c", "print(abs(hash('guid-abc')) % (10**16))"],
+                       capture_output=True, text=True)
+    old.add(r.stdout.strip())
+check("the OLD builtin-hash id really was unstable (non-vacuity)", len(old) > 1,
+      f"builtin hash gave one value {old} -- PYTHONHASHSEED may be pinned in this environment")
 
 print()
 if fails:
