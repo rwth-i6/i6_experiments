@@ -74,6 +74,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    `SAE_4A.md`. GAN-lineage initialization remains retired; S3d remains stopped.
    New main direction: VAD + stride-3 blank-free model, `SAE_4A_blankfree.md`: cold trigram joint
    training and separate supervised 10 h fits (no adaptation); sampled-group diagnostic is complete/audited.
+   Blankfree cold ep4 0.865 FAILS G4a.3. **Attribution 2x2 (user 2026-09-19), `SAE_4A_attrib.md`:**
+   training-free mode-seeking read, no-reverse arm, K=64 reverse arm, GAN+reverse arms, in parallel.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
