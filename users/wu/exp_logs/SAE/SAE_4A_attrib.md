@@ -18,7 +18,9 @@ on resume, one per manager, from the setup dir):
 Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
 priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
 `BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
-`SampleLinesJob.orN768ARKwlt`), code review pending, not launched. Step 4: review clean
+`SampleLinesJob.orN768ARKwlt`), review clean, RUNNING since ~14:30 under manager pid 936874
+(`log/sae_4a_attrib_priorshuf.manager.log`; watcher `bash ~/.claude/skills/sis/sis_watch.sh 936874 config/sae_4a_attrib_priorshuf.py 120`).
+Steps 2 norev/agg1/agg10 DONE (Results); k64 finished, being read. Step 4: review clean
 (`reports/sae_attrib_step4_review_2026-09-19.md`), profile read (amendment above), seven arms RUNNING
 since ~13:40 at b=16 under manager pid 885934 (`config/sae_4a_attrib_ganrev.py`,
 `log/sae_4a_attrib_ganrev.manager.log`): w0_s0 `FairseqW2vu2TrainJob.9HnmO6ULORKl` 1891056;
@@ -241,6 +243,21 @@ prior below). The sentence-initial pattern tracks the prior window in every arm:
 the trigram rules, and lambda_agg 10 flips it to AE, the window's second-most-frequent initial,
 without improving PER. So the initial-phone collapse is a symptom of the prior, and the PER
 collapse persists once it is removed.
+
+### Step 3 (2026-09-19): MFCC K=64 reverse target does not take off
+`BoundedBlankfreeTrainingJob.3AwI6Poud7xt` (reverse observation = MFCC K=64 codes, everything else
+the reference bed), read `reports/sae_attrib_k64_read_2026-09-19.md`. ep1 dev-other PER 0.8370, ep4
+0.9147 (dev-clean 0.8952); paired vs reference ep4 +0.050 [+0.039, +0.061], improved 545 / worse 2011;
+ep4 gap +0.75 (own -3.67 vs deranged -4.43 per frame, 500 utts); first phone AH 0.870; 61.6 phones/utt.
+Prediction "PER > 0.80" held; the route criterion (PER < 0.50 with a positive gap) is not met, so the
+K=64 target is not extended. The positive gap says the K=64 reverse model does learn some
+utterance-specific structure, yet the recognizer still collapses, which separates "reverse target
+informativeness" from "recognizer takes off" on this bed.
+
+**Cross-arm observation (descriptive, all five cold arms):** every arm gets WORSE from epoch 1 to
+epoch 4 (reference 0.835 to 0.865, norev 0.850 to 0.936, agg1 0.821 to 0.920, agg10 0.858 to 0.899,
+k64 0.837 to 0.915) while its training losses fall. Whatever is optimized is anti-correlated with
+PER on this bed after the first subepoch. This is the pattern the priorshuf arm tests first.
 
 ### Prior-window defect (2026-09-19, surfaced by the step 1 audit, verified by count)
 The training trigram's text window is the first 1.01 M lines of an alphabetically sorted corpus:
