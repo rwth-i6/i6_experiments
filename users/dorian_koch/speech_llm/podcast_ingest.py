@@ -89,6 +89,13 @@ REJECTED_CHANNEL_MODES = ("diarize_mask",)
 #: default, so test audio can never end up inside training data -- a guarantee in code rather than a
 #: note somebody has to remember. Add to this list whenever an episode is used for a test.
 SMOKE_AUDIO_URLS = [
+    # JRE #2553 (9,958 s) and #2554 (9,494 s). These two are where every measured cost constant in
+    # this file comes from, and they are the long-episode smoke for the whole-episode path -- the
+    # short pinecast clip below is under one 120 s separation chunk, so it cannot exercise chunking,
+    # the multi-GB encode allocation, or the permutation chain at all. Excluded here so test audio
+    # can never reach training data: a guarantee in code rather than a note someone has to remember.
+    "https://traffic.megaphone.fm/GLT4909015971.mp3",
+    "https://traffic.megaphone.fm/GLT1673171329.mp3",
     # 74.5 s episode, pinecast/colour-out-the-box; chosen as the shortest DuplexChat episode that
     # still carries a 20-90 s dialogue span, so the download is ~1 MB.
     "https://pinecast.com/listen/70469672-3d59-42c0-a2ba-121d97b1a1dc:"
