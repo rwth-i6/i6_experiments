@@ -136,6 +136,20 @@ PER results. The subsequent canonical first-batch loss/backward check passes; se
 control is now complete; its operating point, endpoint comparison and limitations are under "Precision-only
 control result". Any content-treatment comparison must use a control with the same numerical computation.
 
+**Training-prior text window is alphabetically biased (2026-09-19, verified by count):** the blankfree
+trigram prior `PhoneNgramPriorJob.TRPE0D5nF3bh` (defaults `n_count_lines` 1,000,000, every 101st line
+held out) is fit on the FIRST 1,010,000 lines of `PhonemizeWithSilJob.DbFgvZOGZQ8F/output/text.phn.gz`
+(39,630,169 lines of librispeech-lm-norm.txt, which is alphabetically sorted). Sentence-initial phone in
+that window: AH 742,873 / AE 208,622 / AA 50,473 / EY 6,578 / EH 1,257 (all sentences start with
+"a ..."); a slice at line 2,000,000 is 100 % AE-initial. The prior conditions on a BOS context
+(`sae/emc/prior.py:69,271`), so P(AH | BOS SIL) is about 0.74 under the training prior. Every cycle arm
+on this bed (the cold blankfree reference `BoundedBlankfreeTrainingJob.5lBwcDjv2ItL`, 58.1 % AH-first at
+epoch 4, and the 4A attribution arms) shares this prior; within-bed comparisons stay valid, but the
+prior-shaped absolute numbers (step 1 JSDs, sentence-initial statistics) and any comparison against the
+GAN, whose fairseq text data binarize the full 39.6 M-line file, carry this confound. Correction in
+progress: same recipe on a seeded uniform-random 1,010,000-line sample (`SAE_4A_attrib.md`, prior refit).
+Surfaced by the step 1 audit `reports/sae_attrib_step1_audit_2026-09-19.md`.
+
 **Lattice semantics for sequence-prior extensions:** a complete latent path includes frame labels,
 token-emission choices and reverse segmentation. Existing SIL transitions permit either a repeat or
 a new adjacent SIL token, so the shorthand `B(pi)` in earlier formulas is not strict standard CTC

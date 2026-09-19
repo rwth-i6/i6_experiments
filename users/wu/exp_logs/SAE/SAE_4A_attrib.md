@@ -15,12 +15,16 @@ norev pid 609684 `BoundedBlankfreeTrainingJob.QolqasLCAL94` Slurm 1890449; agg1 
 `.3AwI6Poud7xt`; k64 manager loaded the graph with the dev-K64 gap jobs). Watchers (re-arm first
 on resume, one per manager, from the setup dir):
 `bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_{norev,agg1,agg10,k64}.py 120`.
-Step 1: job built, code review returned four fixes (count-matched JSD primary, inventory assert,
-frozen input paths, margins in the summary); implementer applying them; not launched. Step 4:
-fairseq port in progress (implementer hit a turn limit once; resumed with interim-report order).
-NEXT: on each watcher verdict dispatch executor; launch step 1 after its fix and re-review of the
-diff only; step 4 profile before any full arm. Launch reports:
-`reports/sae_attrib_steps23_launch_2026-09-19.md`.
+Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
+priorshuf arm (sampled-window prior refit + cold rerun) being implemented, not launched. Step 4:
+port committed (f3b6a4d56), code review interim clean on checks 1-6 (`reports/sae_attrib_step4_review_2026-09-19.md`,
+hash census and resume unchecked); profile jobs all errored on the job's own log regex
+(`reports/sae_attrib_step4_profile_2026-09-19.md`; training itself ran, ~0.9 s/update at 100 updates),
+fix being implemented, then relaunch `config/sae_4a_attrib_ganrev_profile.py` with -co on the three
+error jobs.
+NEXT: on each watcher verdict dispatch executor; profile relaunch after the regex fix; review
+priorshuf diff then launch it (1 GPU, ~45 min); step 4 full arms only after profile numbers and the
+review's census/resume checks. Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`.
 
 ## Question
 
@@ -180,4 +184,39 @@ bottleneck phi before touching the prior. Step 3 taking off: an unsupervised rou
 
 ## Results
 
-(none yet)
+### Step 1 (2026-09-19): mode-seeking signature NOT supported, cell (i) fails
+`NgramModeSeekingJob.o2V5IRjMDy3K` (`output/sae/4a/attrib/{ngram_mode_seeking.json,summary.md}`),
+dev-other, count-matched primary (budget 120,187 phones set by ep1), text side = the training prior's
+window (SIL stripped), Witten-Bell trigram, 1000 utterance-block resamples. Audited from a fresh context,
+every number reproduced to 6 decimals: `reports/sae_attrib_step1_audit_2026-09-19.md`
+(CONFIRMED_WITH_CAVEATS).
+
+| row | mean SIL-free log P3 / phone | JSD4 vs text |
+|---|---|---|
+| blankfree ep1 (PER 0.835) | -6.2027 | 0.9359 |
+| blankfree ep4 (PER 0.865) | -3.3424 | 0.7134 |
+| GAN s0 checkpoint_best = update 148000 | -3.0087 | 0.3021 |
+| gold (MFA) | -2.8898 | 0.2749 |
+
+Cells: (i) ep4 minus GAN log P3 = -0.334 [-0.347, -0.290], needed >= -0.10: FAIL. (ii) ep4 minus gold
+JSD4 +0.439, ep4 minus GAN +0.411, CIs exclude 0: PASS. (iii) GAN minus gold +0.027: PASS.
+Reading: the cold epoch-4 output is far from text at every order AND has lower trigram likelihood
+than the GAN and than gold. The cycle is not sitting on a high-likelihood, low-coverage mode; it has
+not reached the prior's high-likelihood region at all. H1 in the "likelihood is mode-seeking" form is
+not supported by this read. Repeats/SIL cannot drive (i) (audit section 6). Unverified: the
+"PER 0.214, ppl-selected" label of the GAN checkpoint (its curve job is gone; the checkpoint identity
+itself is byte-verified).
+
+### Prior-window defect (2026-09-19, surfaced by the step 1 audit, verified by count)
+The training trigram's text window is the first 1.01 M lines of an alphabetically sorted corpus:
+73.5 % of its sentences start with AH, 20.7 % with AE, 5.0 % with AA. Details and consequences in
+`SAE_ref.md` ("Training-prior text window is alphabetically biased"). It offers a direct, prior-side
+explanation of the AH-first collapse (58.1 % at ep4) that none of steps 1-4 tests, and it confounds
+every cycle-vs-GAN comparison (the GAN's text data are the full corpus). Added arm, pre-registered:
+**priorshuf** = the cold blankfree reference (`5lBwcDjv2ItL`, 4 subepochs) with the only delta a
+trigram refit on a seeded uniform-random 1,010,000-line sample of the same corpus (same recipe,
+same defaults). Prediction if the window is a main cause: ep4 AH-first share drops below 20 % and
+dev-other PER improves on 0.865 by > 0.05 paired; if PER stays within +-0.03 and AH-first stays
+above 40 %, the window is not the cause of the collapse (only of its AH flavour). Steps 2-4 keep
+running: their reads are within-bed and stay valid, but the H1/H2 verdicts are provisional until
+priorshuf is read, and step 4's GAN corners are compared to the cycle only through PER.
