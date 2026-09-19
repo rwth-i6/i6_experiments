@@ -28,10 +28,16 @@ lam0.01_s0 `.reCovgFXvSDj` 1891050; lam0.01_s1 `.ZTklLDlrH8Vv` 1891058; lam0.1_s
 `.mumOHh9l2vkK` 1891055. rqmt time 11.5 h (partition cap), so each arm spans two allocations via
 checkpoint_last resume. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
 priorshuf n-gram JSD read DONE (Results, `NgramModeSeekingJob.vlhnotaFKKj5`, manager exited).
-NEXT: on each step-4 watcher verdict dispatch executor; when all seven arms finish, extractor for
-the step-4 PER table, then the step-4 gate read and the synthesis; a pre-registered order-3
-aggregate arm (lattice prior term off, exact expected-trigram forward KL) is the candidate next
-design if step 4 locates the fault in the lattice prior term (see Results, priorshuf n-gram read).
+NEXT (user 2026-09-19: progress without waiting for step 4): design step 5 = the pack6 recipe with an
+UNSUPERVISED phi: fit phi on the GAN s0 checkpoint's train-set decodes (GanPseudoLabelJob on the train
+split, update 148000), freeze it, run EMC from flat theta with and without bt_a; pre-register the
+gate (dev-other PER < 0.50 at sub-epoch 4 or 8, paired BT-vs-frozen delta with CI excluding 0,
+usability read against the GAN's own 0.21) before the first job; design-reviewer before launch.
+Rationale: BT is the KL(p || q) side the cycle lacks, and every BT read so far says it helps only
+when phi carries content (P-BT warm collage 0.31, pack6 frozen phi + BT -0.03/-0.017 paired) and
+hurts when phi is fit on content-free decodes (S3b-BT-aux cold +0.01..+0.045). Then: on each
+step-4 watcher verdict dispatch executor; when all seven arms finish, extractor for the step-4 PER
+table, gate read and synthesis. The order-3 aggregate arm stays a fallback candidate.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
