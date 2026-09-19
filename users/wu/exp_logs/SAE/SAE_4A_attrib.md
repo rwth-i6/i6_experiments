@@ -7,14 +7,10 @@ constraint stand). Gold enters evaluation only.
 
 ## State
 
-Design review done and folded in (amendments below). Steps 2 and 3 (four arms) are reviewed and
-RUNNING since 2026-09-19 ~11:35, one manager each, started from the setup dir under the sis venv:
-norev pid 609684 `BoundedBlankfreeTrainingJob.QolqasLCAL94` Slurm 1890449; agg1 pid 609688
-`.81Kc6iySxEBH` 1890448; agg10 pid 609690 `.bDYARBE8qXp6` 1890450; k64 pid 609686 (upstream
-`MfccFeatureJob.2eZj7qHNWU8Z` 1890446, `BlankfreeCodeUnitsJob.hUMSFX5whbSo` 1890447, then
-`.3AwI6Poud7xt`; k64 manager loaded the graph with the dev-K64 gap jobs). Watchers (re-arm first
-on resume, one per manager, from the setup dir):
-`bash ~/.claude/skills/sis/sis_watch.sh <pid> config/sae_4a_attrib_{norev,agg1,agg10,k64}.py 120`.
+Design review done and folded in (amendments below). Steps 2 and 3 (four arms: norev
+`BoundedBlankfreeTrainingJob.QolqasLCAL94`, agg1 `.81Kc6iySxEBH`, agg10 `.bDYARBE8qXp6`, k64
+`.3AwI6Poud7xt`) DONE; their managers and the priorshuf and ngram_priorshuf managers have exited.
+The ONLY live manager is step 4's, pid 885934; re-arm its watcher first on resume (command below).
 Step 1: DONE and audited (Results). Prior-window defect found and recorded (Results, `SAE_ref.md`);
 priorshuf arm implemented (speech-llm commit 34ada2b, `config/sae_4a_attrib_priorshuf.py`,
 `BoundedBlankfreeTrainingJob.gBec5S4Wa2F5`, prior `PhoneNgramPriorJob.RtzbESkOedsT` on
