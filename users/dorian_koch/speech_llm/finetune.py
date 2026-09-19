@@ -569,6 +569,7 @@ depth_lr: {_yaml_float(hp.get("depth_lr", _lr))}
 temporal_lr: {_yaml_float(hp.get("temporal_lr", _lr))}
 audio_other_weight: {_yaml_float(hp.get("audio_other_weight", 0.01))}
 text_pad_weight: {_yaml_float(hp.get("text_pad_weight", 0.5))}
+text_loss_weight: {_yaml_float(hp.get("text_loss_weight", 1.0))}
 loss_norm: {hp.get("loss_norm", "count")}
 warmup_steps: {hp.get("warmup_steps", 200)}
 grad_clip: {_yaml_float(hp.get("grad_clip", 1.0))}
