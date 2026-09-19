@@ -28,16 +28,15 @@ lam0.01_s0 `.reCovgFXvSDj` 1891050; lam0.01_s1 `.ZTklLDlrH8Vv` 1891058; lam0.1_s
 `.mumOHh9l2vkK` 1891055. rqmt time 11.5 h (partition cap), so each arm spans two allocations via
 checkpoint_last resume. Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
 priorshuf n-gram JSD read DONE (Results, `NgramModeSeekingJob.vlhnotaFKKj5`, manager exited).
-NEXT (user 2026-09-19: progress without waiting for step 4): design step 5 = the pack6 recipe with an
-UNSUPERVISED phi: fit phi on the GAN s0 checkpoint's train-set decodes (GanPseudoLabelJob on the train
-split, update 148000), freeze it, run EMC from flat theta with and without bt_a; pre-register the
-gate (dev-other PER < 0.50 at sub-epoch 4 or 8, paired BT-vs-frozen delta with CI excluding 0,
-usability read against the GAN's own 0.21) before the first job; design-reviewer before launch.
-Rationale: BT is the KL(p || q) side the cycle lacks, and every BT read so far says it helps only
-when phi carries content (P-BT warm collage 0.31, pack6 frozen phi + BT -0.03/-0.017 paired) and
-hurts when phi is fit on content-free decodes (S3b-BT-aux cold +0.01..+0.045). Then: on each
-step-4 watcher verdict dispatch executor; when all seven arms finish, extractor for the step-4 PER
-table, gate read and synthesis. The order-3 aggregate arm stays a fallback candidate.
+NEXT (user 2026-09-19: progress without waiting for step 4; NO GAN component in the route, user
+2026-09-19): design step 5 = the corpus-level coverage term as the MAIN distribution term (Results,
+"Step 5 design"): lattice prior_weight 0 (the cycle keeps only the reconstruction tie), L_agg at
+order 3 with the ratio gradient and lam_agg O(1), cold blankfree bed, 4 subepochs, control = the
+reference `5lBwcDjv2ItL`; pre-register the take-off gate (ep4 dev-other greedy PER < 0.50, gap > 0,
+rate in band) before the first job; implementer spec + tests, code-reviewer, design-reviewer, then
+launch. Stage 2 (only after a take-off): phi fit on the step-5 posteriors, frozen, cycle + bt_a
+(pack6 recipe). Then: on each step-4 watcher verdict dispatch executor; when all seven arms finish,
+extractor for the step-4 PER table, gate read and synthesis.
 Launch reports: `reports/sae_attrib_steps23_launch_2026-09-19.md`, `reports/sae_attrib_step4_launch_2026-09-19.md`.
 
 ## Question
@@ -326,6 +325,31 @@ same run (`output/.../priorshuf/train/learning_rates`), a full nat above what th
 scores on the same trigram, and the priorshuf and reference loss curves are identical to two
 decimals at every subepoch. The prior term is satisfied inside the lattice posterior, not on the
 emitted string, and it moves the marginals, not the sequence structure JSD3/4 measures.
+
+### Step 5 design (2026-09-19, pre-registration pending, no job yet)
+Literature (`reports/lit_odm_direction_2026-09-19.md`): Liu, Chen, Deng (NeurIPS 2017, sec. 2.3)
+prove that the label-space cost "LM score of the model's own output" is mode-seeking and converges
+to the majority guess, while the forward cross-entropy sum_w p_LM(w) log p_out(w) between the LM
+n-gram distribution and the model's CORPUS-LEVEL expected output n-gram frequencies is
+coverage-seeking and trains (OCR 9.6 % vs 83 %); the estimator matters as much as the direction
+(SGD at batch 10k 56 % vs their per-n-gram dual 9.6 %). Yeh et al. (ICLR 2019) train a frame-local
+classifier (11-frame splice) with that forward cost at order 5 and reach TIMIT 42.6 PER fully
+unsupervised (36.5 with HMM self-training; LM-decoded, not comparable to greedy dev-other). No
+published work pairs such a seed with a cycle or back-translation refinement. Reading against this
+phase: once phi absorbs (cold fixed point), the only pressure left on q is the lattice prior term,
+which is Liu's mode-seeking label-space cost; the sentence-initial single phone is its majority-guess
+signature. BT is the conditional coverage side and needs a content-carrying phi (pack6, P-BT);
+L_agg is the marginal coverage side and needs none, but it is currently order <= 2, priced 0.1, and
+its gradient is damped by (1 - count_ema_decay) = 0.01 through the EMA blend (`agg.py:196`), so
+agg10 was an effective 0.1 at order 2 under a dominant mode-seeking term.
+Design: lattice prior_weight 0 (L_tau = reconstruction tie only); L_agg order 3 by the exact
+"last two non-blank phones" recursion (K^2 states per frame); loss = -sum_w p_text(w) c_batch(w) /
+c_EMA(w).detach() (ratio gradient, EMA only in the denominator), value reported as the forward CE on
+the EMA; lam_agg O(1), matched to the removed term's gradient norm at init; recognizer unchanged
+(1-layer conv, kernel 9, stride 3: the frame-local class Yeh's result needs). Arms: odm3 (as above);
+odm3_norev (reverse emission 0, the pure Yeh objective on this bed); control = reference ep4 0.865.
+Gate (take-off, pre-registered before launch): ep4 dev-other greedy PER < 0.50 AND positive gap
+AND rate in [0.6, 1.5] x rho, paired vs the reference; stage 2 funded only on a take-off.
 
 ### Interim synthesis after steps 1-3 and priorshuf (step 4 pending, ~18 h)
 Within the cold blankfree bed nothing that changes the distribution term rescues it: the trigram
