@@ -226,7 +226,13 @@ itself is byte-verified).
 Cold blankfree bed, 4 subepochs, ep4 dev-other greedy PER, paired vs the reference
 `5lBwcDjv2ItL` ep4 (0.8649, AH-first 0.581, 59.0 phones/utt). Reads: `reports/sae_attrib_norev_read_2026-09-19.md`,
 `reports/sae_attrib_agg_read_2026-09-19.md`, first-phone shares computed identically for all four
-decodes in `reports/sae_attrib_firstphone_2026-09-19.md`. Not yet audited (audit with step 3).
+decodes in `reports/sae_attrib_firstphone_2026-09-19.md`. Audited with step 3 from a fresh context
+(`reports/sae_attrib_steps23_audit_2026-09-19.md`, CONFIRMED_WITH_CAVEATS): PERs, S/D/I and the paired
+deltas with speaker-clustered CIs reproduce exactly; config diffs vs the reference show only the
+intended delta per arm; norev's reverse tensors are bit-identical ep1 vs ep4. Caveats: norev zeroes
+the reverse EMISSION term and keeps the cold duration model, so its cell is about that term; all
+arms are failing decodes, so the cells license "not funding", never "would not have worked"; the
+shared prior is common-mode within the bed.
 
 | arm (training job) | ep1 PER | ep4 PER | paired delta [CI] | ep4 gap | first phone | phones/utt |
 |---|---|---|---|---|---|---|
