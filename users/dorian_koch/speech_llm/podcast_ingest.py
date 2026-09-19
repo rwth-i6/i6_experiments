@@ -738,35 +738,35 @@ DUPLEX_SEC_PER_EPISODE_HOUR = 69.6
 DUPLEX_RETENTION = 0.427
 
 
-#: ✅ MEASURED 2026-09-19 on the whole-episode smoke (SLURM 4262569, c23g), against the 113.1 this
-#: constant was predicted at. The prediction held to within 5%, but its BREAKDOWN did not -- which is
-#: the same lesson the dialogue path taught and the reason it was marked predicted:
+#: ✅ MEASURED on the PILOT SHARD through the manager (2026-09-19, SLURM 4263279, c25g): 3 episodes,
+#: **7.817 episode-hours**, 0 failures. This is the number the whole "one shard first" gate exists to
+#: produce, and it supersedes both the 113.1 prediction and the 107.55 from the 2-episode smoke.
 #:
-#:              predicted   measured
-#:    decode         2.71       6.16   (2.3x slower)
-#:    diarize       34.50      35.63   (spot on)
-#:    separate      65.90      47.99   (27% FASTER -- the dominant term, and the one that was a guess)
-#:    repair            -       0.45   (new stage, negligible)
-#:    encode         9.98      14.42   (44% slower)
-#:                 ------     ------
-#:                 113.09     107.55
+#:                  predicted   smoke (2.6 ep-h)   PILOT (7.8 ep-h)
+#:    decode             2.71               6.16               3.60
+#:    diarize           34.50              35.63              24.32
+#:    separate          65.90              47.99              61.56   <- bottleneck, 63%
+#:    repair                -               0.45               0.16
+#:    encode             9.98              14.42               6.93
+#:                     ------             ------             ------
+#:                     113.09             107.55              97.88
 #:
-#: Measured over 2.577 episode-hours: JRE #2554 (2.56 h, the only one that exercises chunking, the
-#: multi-GB encode and the permutation chain) plus a 74.5 s clip whose own figures are dominated by
-#: model load and are excluded from the per-stage read above. `separate` is still the bottleneck at
-#: 45% of the total.
+#: The trend down is fixed-cost amortisation: model loads (~60 s) and the mimi encoder's per-batch
+#: startup are spread over more audio as the sample grows, and a real shard is ~130 episode-hours --
+#: 17x the pilot -- so if anything this is still conservative. `separate` stays the bottleneck and is
+#: the only term worth optimising.
 #:
-#: ⚠ n = ONE real episode. A shard is ~40 episodes and episode length varies ~4x across the feed, so
-#: treat this as good to ~10%, not to the decimal. `PodcastEpisodeIngest` writes `summary.json` with
-#: the real figure per shard and `metrics.jsonl` per episode -- re-derive from the PILOT before the
-#: full fan-out, which is the step this constant exists to make safe.
-EPISODE_SEC_PER_EPISODE_HOUR = 107.55
+#: ⚠ Still n = 3 episodes, all 2.3-3.0 h. JRE episode length varies ~4x, and the cost is priced PER
+#: EPISODE-HOUR, so the scaling should hold -- but the shard target is 4 h against an 8 h walltime,
+#: i.e. 2x headroom, which is what absorbs the error. Each shard writes its own `summary.json`;
+#: re-read them after the first few of the full fan-out rather than trusting this to the decimal.
+EPISODE_SEC_PER_EPISODE_HOUR = 97.88
 
 
 def episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
     """Episode-hours one WHOLE-EPISODE separating shard can do in ``target_runtime_hours``.
 
-    ~134 episode-hours at the 4 h default, so JRE's ~5,500 h is ~42 shards (vs ~27 for the
+    ~147 episode-hours at the 4 h default, so JRE's ~5,500 h is ~38 shards (vs ~27 for the
     dialogue path, which only separates what survives filtering).
     """
     return (float(target_runtime_hours) * 3600.0) / EPISODE_SEC_PER_EPISODE_HOUR

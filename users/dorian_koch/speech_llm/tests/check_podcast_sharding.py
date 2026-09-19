@@ -102,20 +102,27 @@ check("stereo_passthrough is NOT rejected (dual-channel sources)", "stereo_passt
 print("[5b] the WHOLE-EPISODE mode is priced separately from the dialogue mode")
 whole = audio_hours_per_shard("dialogue_sidon_whole", 4.0)
 check("dialogue_sidon_whole == episode_hours_per_shard", whole == episode_hours_per_shard(4.0))
-check("dialogue_sidon_whole ~134 input-h/shard", 125.0 < whole < 142.0, f"got {whole:.1f}")
+check("dialogue_sidon_whole ~147 input-h/shard", 138.0 < whole < 156.0, f"got {whole:.1f}")
 # Non-vacuous, and the whole reason the mode exists: separation runs on 100% of the episode here
-# rather than the 42.7% that survives filtering, so reusing the dialogue constant under-shards.
+# rather than the ~33% that survives filtering, so reusing the dialogue constant under-shards.
+#
+# The threshold is 1.25, not the 1.5 it was first written at. That 1.5 encoded the PREDICTED
+# whole-episode cost (113.1, ratio 1.63); measured on the pilot the whole-episode path is 97.88
+# s/episode-hour against the dialogue path's 69.6, i.e. **1.41x** -- cheaper than predicted because
+# `separate` came in under model. So this guard correctly fired on a real change in the numbers, and
+# the fix is to re-price it, not to widen it to meaninglessness: 1.25 still fails loudly if anyone
+# reuses the dialogue constant here (which would be a ratio of exactly 1.0 and under-shard by 41%).
 check(
-    "it is MEANINGFULLY cheaper per shard than the dialogue path",
-    sep / whole > 1.5,
-    f"dialogue {sep:.0f} vs whole {whole:.0f} input-h per shard",
+    "it packs MEANINGFULLY fewer episode-hours per shard than the dialogue path",
+    sep / whole > 1.25,
+    f"dialogue {sep:.0f} vs whole {whole:.0f} input-h per shard (ratio {sep / whole:.2f})",
 )
 n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
 # 42 since EPISODE_SEC_PER_EPISODE_HOUR became MEASURED (107.55, smoke 4262569) instead of predicted
 # (113.1 -> 44). Pinned rather than derived, so re-pricing the constant has to be a deliberate edit
 # here too: the shard count decides the fan-out of a ~165 GPU-h corpus run, and a constant that
 # drifts silently is how a 4 h-target shard quietly becomes a 6 h one that the partition kills.
-check("JRE whole-episode == 42 shards", n_whole == 42, f"got {n_whole}")
+check("JRE whole-episode == 38 shards", n_whole == 38, f"got {n_whole}")
 whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0
 check("...landing within 5% of the 4 h target", whole_h <= 4.0 * 1.05, f"{whole_h:.2f} h")
 check(
