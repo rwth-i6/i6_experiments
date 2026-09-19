@@ -708,28 +708,35 @@ DUPLEX_SEC_PER_EPISODE_HOUR = 69.6
 DUPLEX_RETENTION = 0.427
 
 
-#: 🔴 PREDICTED, NOT MEASURED -- replace with the pilot's own `sec_per_episode_hour` before sizing
-#: anything at corpus scale. Derived from the measured dialogue-path breakdown by re-pricing the two
-#: stages that stop being filter-scoped when the WHOLE episode is separated:
+#: ✅ MEASURED 2026-09-19 on the whole-episode smoke (SLURM 4262569, c23g), against the 113.1 this
+#: constant was predicted at. The prediction held to within 5%, but its BREAKDOWN did not -- which is
+#: the same lesson the dialogue path taught and the reason it was marked predicted:
 #:
-#:    decode    2.71  (unchanged -- already whole-episode)
-#:    diarize  34.50  (unchanged -- already whole-episode)
-#:    separate 65.90  (was 28.14 at 42.7% retention, i.e. 28.14 / 0.427)
-#:    encode    9.98  (was 4.26, same reasoning)
-#:             ------
-#:            113.09  vs 69.6 for the dialogue path = 1.63x
+#:              predicted   measured
+#:    decode         2.71       6.16   (2.3x slower)
+#:    diarize       34.50      35.63   (spot on)
+#:    separate      65.90      47.99   (27% FASTER -- the dominant term, and the one that was a guess)
+#:    repair            -       0.45   (new stage, negligible)
+#:    encode         9.98      14.42   (44% slower)
+#:                 ------     ------
+#:                 113.09     107.55
 #:
-#: The dialogue path's 69.6 was measured end to end on JRE #2553 and its BREAKDOWN was not what the
-#: per-stage model predicted (decode 5x faster, separate 2x slower), which is exactly why this
-#: number is marked predicted: the same could be true again. `PodcastEpisodeIngest` writes
-#: `summary.json` with the real figure per shard, and `metrics.jsonl` per episode.
-EPISODE_SEC_PER_EPISODE_HOUR = 113.1
+#: Measured over 2.577 episode-hours: JRE #2554 (2.56 h, the only one that exercises chunking, the
+#: multi-GB encode and the permutation chain) plus a 74.5 s clip whose own figures are dominated by
+#: model load and are excluded from the per-stage read above. `separate` is still the bottleneck at
+#: 45% of the total.
+#:
+#: ⚠ n = ONE real episode. A shard is ~40 episodes and episode length varies ~4x across the feed, so
+#: treat this as good to ~10%, not to the decimal. `PodcastEpisodeIngest` writes `summary.json` with
+#: the real figure per shard and `metrics.jsonl` per episode -- re-derive from the PILOT before the
+#: full fan-out, which is the step this constant exists to make safe.
+EPISODE_SEC_PER_EPISODE_HOUR = 107.55
 
 
 def episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
     """Episode-hours one WHOLE-EPISODE separating shard can do in ``target_runtime_hours``.
 
-    ~127 episode-hours at the 4 h default, so JRE's ~5,500 h is ~44 shards (vs ~27 for the
+    ~134 episode-hours at the 4 h default, so JRE's ~5,500 h is ~42 shards (vs ~27 for the
     dialogue path, which only separates what survives filtering).
     """
     return (float(target_runtime_hours) * 3600.0) / EPISODE_SEC_PER_EPISODE_HOUR

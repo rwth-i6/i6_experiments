@@ -102,7 +102,7 @@ check("stereo_passthrough is NOT rejected (dual-channel sources)", "stereo_passt
 print("[5b] the WHOLE-EPISODE mode is priced separately from the dialogue mode")
 whole = audio_hours_per_shard("dialogue_sidon_whole", 4.0)
 check("dialogue_sidon_whole == episode_hours_per_shard", whole == episode_hours_per_shard(4.0))
-check("dialogue_sidon_whole ~127 input-h/shard", 120.0 < whole < 135.0, f"got {whole:.1f}")
+check("dialogue_sidon_whole ~134 input-h/shard", 125.0 < whole < 142.0, f"got {whole:.1f}")
 # Non-vacuous, and the whole reason the mode exists: separation runs on 100% of the episode here
 # rather than the 42.7% that survives filtering, so reusing the dialogue constant under-shards.
 check(
@@ -111,7 +111,11 @@ check(
     f"dialogue {sep:.0f} vs whole {whole:.0f} input-h per shard",
 )
 n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
-check("JRE whole-episode == 44 shards", n_whole == 44, f"got {n_whole}")
+# 42 since EPISODE_SEC_PER_EPISODE_HOUR became MEASURED (107.55, smoke 4262569) instead of predicted
+# (113.1 -> 44). Pinned rather than derived, so re-pricing the constant has to be a deliberate edit
+# here too: the shard count decides the fan-out of a ~165 GPU-h corpus run, and a constant that
+# drifts silently is how a 4 h-target shard quietly becomes a 6 h one that the partition kills.
+check("JRE whole-episode == 42 shards", n_whole == 42, f"got {n_whole}")
 whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0
 check("...landing within 5% of the 4 h target", whole_h <= 4.0 * 1.05, f"{whole_h:.2f} h")
 check(
@@ -135,8 +139,7 @@ print("[7] episode ids must be the same in EVERY process, for ever")
 import subprocess  # noqa: E402
 
 ids_here = (_stable_id("https://example.com/a.mp3"), _stable_id("guid-abc"))
-check("deterministic within the process", ids_here == (
-    _stable_id("https://example.com/a.mp3"), _stable_id("guid-abc")))
+check("deterministic within the process", ids_here == (_stable_id("https://example.com/a.mp3"), _stable_id("guid-abc")))
 check("distinct inputs give distinct ids", ids_here[0] != ids_here[1])
 check("ids are 16 digits", all(len(i) == 16 and i.isdigit() for i in ids_here), str(ids_here))
 
@@ -147,8 +150,9 @@ prog = (
 ) % (str(SETUP / "recipe"), str(SETUP / "recipe" / "sisyphus"))
 outs = set()
 for _ in range(3):
-    r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True,
-                       env={**os.environ, "CUDA_HOME": "/usr"})
+    r = subprocess.run(
+        [sys.executable, "-c", prog], capture_output=True, text=True, env={**os.environ, "CUDA_HOME": "/usr"}
+    )
     outs.add(r.stdout.strip())
 check("identical across 3 separate processes", len(outs) == 1, f"got {outs}")
 check("...and matches this process", outs and outs.pop() == " ".join(ids_here))
@@ -157,11 +161,15 @@ check("...and matches this process", outs and outs.pop() == " ".join(ids_here))
 # by testing a property that was never at risk.
 old = set()
 for _ in range(4):
-    r = subprocess.run([sys.executable, "-c", "print(abs(hash('guid-abc')) % (10**16))"],
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, "-c", "print(abs(hash('guid-abc')) % (10**16))"], capture_output=True, text=True
+    )
     old.add(r.stdout.strip())
-check("the OLD builtin-hash id really was unstable (non-vacuity)", len(old) > 1,
-      f"builtin hash gave one value {old} -- PYTHONHASHSEED may be pinned in this environment")
+check(
+    "the OLD builtin-hash id really was unstable (non-vacuity)",
+    len(old) > 1,
+    f"builtin hash gave one value {old} -- PYTHONHASHSEED may be pinned in this environment",
+)
 
 print()
 if fails:
