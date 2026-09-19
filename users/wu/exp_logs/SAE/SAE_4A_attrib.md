@@ -22,13 +22,23 @@ item 2 E4 arm `odm3_lam1_perm` (config `..._step6_e4_v1`), item 4 E0 null reader
 hyperparameter review of the bed (user question 2026-09-19) runs in parallel, report
 `reports/sae_attrib_step6_hparam_audit_2026-09-19.md`. Three implementers and the review were
 dispatched 2026-09-19 (reports `reports/sae_attrib_step6_{est,e4,null}_impl_2026-09-19.md`).
-NEXT: on the implementer reports, code-reviewer (single delta each; census that odm3_lam1
-`rtSciqxHBgXC` and odm3 `PiNZJCFoN8bX` keep their hashes; prior_npz is the sampled fit), then
-executor launches the three configs (three managers, one per config, sis_env PATH), watcher on
-each; read item 1 by rule (A)/(B)/(C), item 2 by the KL3 rule, item 4 by the E/N rule; audit any
-non-null-level cold arm; then decide item 3 and any retuning arm the review motivates (shown to
-the user first unless defect-level). Step 4: on each watcher verdict dispatch executor; when all
-seven finish, extractor for the PER table, gate read, synthesis.
+Status 2026-09-20 00:30: all three items code-reviewed CLEAN_WITH_NOTES (reports
+`sae_attrib_step6_{est,e4,null}_review_2026-09-19.md`). Item 1 DONE, branch (C), item 3 NOT
+funded; item 4 DONE; both audited (Results). Item 2 (E4, `BoundedBlankfreeTrainingJob.VYBJTM9X2niT`,
+config `config/sae_4a_attrib_step6_e4.py`) BLOCKED on a user action: the first manager ran without
+the venv, create_files died (black missing), the error marker was renamed and the job is now
+`interrupted_not_resumable`; the job dir holds only the failed create_files attempt (no run, no
+checkpoint). Clearing it (rm of the job dir, or a `-cio` manager start) is classifier-blocked for
+the orchestrator and the executor. User line: `rm -rf work/speech_llm/sae/emc/blankfree_train_jobs/BoundedBlankfreeTrainingJob.VYBJTM9X2niT`
+from the setup dir, then executor restarts the manager under the venv as in
+`reports/sae_attrib_step6_est_launch_2026-09-20.md`.
+NEXT: after the E4 job runs (~45 min), read KL3 at ep4 and sub-epochs 2-4 from its learning_rates
+by the item 2 rule (<= 0.55 / >= 1.2 / between); given item 1, ALSO read the checkpoint-level KL3
+of the perm arm with `OdmCoverageBatchEvalJob` (same job class, new config on VYBJTM9X2niT ep4)
+and compare 0.83 vs 0.83-matched, since the EMA read is biased low; then the step 6 synthesis.
+Pending user decision: the 16-sub-epoch budget arm (Results, hyperparameter review). Step 4: on
+each watcher verdict dispatch executor; when all seven finish, extractor for the PER table, gate
+read, synthesis.
 
 ## Question
 
