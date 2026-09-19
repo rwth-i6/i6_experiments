@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess as sp
-from typing import Dict, Sequence
+from typing import Dict, Optional, Sequence
 
 from sisyphus import Job, Task, tk
 
@@ -62,6 +62,10 @@ class W2vu2PerEvalJob(Job):
 
     requires_env = "w2vu"
 
+    # SAE §4a step 4. Conditional exclusion (Job.hash): both parameters left at None are dropped
+    # from the hash, so every PER eval that existed before this delta keeps its dir name.
+    __sis_hash_exclude__ = {"hyps_splits": None, "extra_user_dir": None}
+
     def __init__(
         self,
         *,
@@ -71,7 +75,15 @@ class W2vu2PerEvalJob(Job):
         feats_dir: tk.Path,     # MergeW2vu2DataJob-style dir holding valid.npy/.lengths/.ids
         gold: tk.Path,
         python_exe: tk.Path = W2VU_PYTHON,
+        hyps_splits: Optional[Sequence[str]] = None,
+        extra_user_dir: Optional[str] = None,
     ):
+        """:param hyps_splits: also write ``greedy_phones.{split}.json`` (the very decode scored
+            here) for these splits, so a paired per-item read scores the same strings.
+        :param extra_user_dir: a further fairseq user dir to import before the checkpoint is loaded;
+            a §4a step-4 arm was trained with a subclassed task/model whose names are registered
+            there.
+        """
         super().__init__()
         self.checkpoint = checkpoint
         self.data_dir = data_dir
@@ -79,8 +91,13 @@ class W2vu2PerEvalJob(Job):
         self.feats_dir = feats_dir
         self.gold = gold
         self.python_exe = python_exe
+        self.hyps_splits = tuple(hyps_splits) if hyps_splits is not None else None
+        self.extra_user_dir = extra_user_dir
 
         self.out_per = self.output_path("per.json")
+        self.out_hyps = {
+            s: self.output_path(f"greedy_phones.{s}.json") for s in (self.hyps_splits or ())
+        }
         self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 2, "cpu": 4}
 
     def tasks(self):
@@ -98,11 +115,17 @@ class W2vu2PerEvalJob(Job):
             "--gold", self.gold.get_path(),
             "--out", self.out_per.get_path(),
         ]
+        if self.hyps_splits:
+            args += ["--hyps-dir", os.path.dirname(self.out_per.get_path())]
+        if self.extra_user_dir:
+            args += ["--user-dir", self.extra_user_dir]
         print("RUN:", " ".join(args), flush=True)
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join([recipe, env.get("PYTHONPATH", "")]).strip(os.pathsep)
         sp.check_call(args, env=env)
 
+        for s, p in self.out_hyps.items():
+            assert os.path.exists(p.get_path()), f"no hypotheses written for split {s}"
         with open(self.out_per.get_path()) as f:
             print(json.dumps(json.load(f), indent=2), flush=True)
 

@@ -26,8 +26,11 @@ swept for BEST-RQ rather than inherited; SAE_PLAN §1c says {20, 30, 40}).
 from __future__ import annotations
 
 import os
+import re
 import subprocess as sp
-from typing import Any, Dict
+import threading
+import time
+from typing import Any, Dict, Optional
 
 import yaml
 from sisyphus import Job, Task, tk
@@ -35,6 +38,18 @@ from sisyphus import Job, Task, tk
 from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.text import W2VU_PYTHON, assert_w2vu_env
 
 _alias_prefix = "sae/1c"
+
+# SAE §4a step 4: the fairseq user module that adds the reverse term (a package dir, so that the
+# `sys.path.insert(parent)` fairseq does for a user dir exposes nothing else).
+REV_USER_DIR = os.path.join(os.path.dirname(__file__), "userdir", "w2vu_rev")
+
+# phi's optimizer, inherited verbatim from the registered blank-free bed
+# (emc_train_jobs.PHI_LEARNING_RATE / EMC_ADAM_BETAS / EMC_ADAM_EPS / EMC_WEIGHT_DECAY, which are
+# themselves §1c's generator-group values at phi's own learning rate).
+REV_PHI_LR = 3.0e-3
+REV_PHI_ADAM_BETAS = [0.5, 0.98]
+REV_PHI_ADAM_EPS = 1e-06
+REV_PHI_WEIGHT_DECAY = 0.0
 
 
 def w2vu2_overrides(
@@ -76,6 +91,16 @@ class FairseqW2vu2TrainJob(Job):
 
     requires_env = "w2vu"  # class attr -> not an __init__ arg -> not hashed (settings.py::worker_wrapper)
 
+    # SAE §4a step 4 parameters. Conditional exclusion (Job.hash): a parameter left at the value
+    # below is dropped from the hash, so every job that existed before this delta keeps its dir name,
+    # while any arm that actually sets one gets a new hash. Verified by census, not by reasoning.
+    __sis_hash_exclude__ = {
+        "lam_rev": None,
+        "rev_units_dir": None,
+        "rev_batch_utts": None,
+        "rev_frozen_phi": None,
+    }
+
     def __init__(
         self,
         *,
@@ -87,7 +112,23 @@ class FairseqW2vu2TrainJob(Job):
         python_exe: tk.Path = W2VU_PYTHON,
         time_rqmt: float = 11.5,
         gpu_mem: int = 80,
+        lam_rev: Optional[float] = None,
+        rev_units_dir: Optional[tk.Path] = None,
+        rev_batch_utts: Optional[int] = None,
+        rev_frozen_phi: Optional[tk.Path] = None,
     ):
+        """``lam_rev`` > 0 switches the run to the reverse-term user module (SAE §4a step 4).
+
+        :param lam_rev: weight of ``L_rev`` in the generator loss. ``None`` and ``0.0`` both run the
+            reproduction's own config, byte for byte -- no phi, no unit field, fairseq's own
+            ``unpaired_audio_text`` / ``wav2vec_u``. ``0.0`` differs from ``None`` only in the job
+            hash, which is what makes the weight-0 rerun a separate job dir.
+        :param rev_units_dir: ``W2vu2RevUnitsJob`` output dir ({split}.rev500, {split}.eta.npy).
+        :param rev_batch_utts: b, the utterances per generator update the term is computed on
+            (``None`` / 0 = the whole batch, which reproduces the full term).
+        :param rev_frozen_phi: a blank-free checkpoint to load phi from; phi is then never updated
+            and the run declares no ``reverse`` optimizer group.
+        """
         super().__init__()
         self.data_dir = data_dir
         self.text_data = text_data
@@ -95,6 +136,12 @@ class FairseqW2vu2TrainJob(Job):
         self.overrides = dict(overrides)
         self.aux_target_postfix = aux_target_postfix
         self.python_exe = python_exe
+        self.lam_rev = lam_rev
+        self.rev_units_dir = rev_units_dir
+        self.rev_batch_utts = rev_batch_utts
+        self.rev_frozen_phi = rev_frozen_phi
+        if self._rev_active():
+            assert rev_units_dir is not None, "lam_rev > 0 needs rev_units_dir"
 
         self.out_dir = self.output_path("train", directory=True)
         self.out_best = self.output_path("train/checkpoint_best.pt")
@@ -102,8 +149,13 @@ class FairseqW2vu2TrainJob(Job):
         self.out_log = self.output_path("train.log")
         self.rqmt = {"gpu": 1, "gpu_mem": gpu_mem, "mem": 60, "time": time_rqmt, "cpu": 8}
 
+    def _rev_active(self) -> bool:
+        return self.lam_rev is not None and float(self.lam_rev) > 0
+
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        # resume="run": fairseq restarts from checkpoint_last.pt in the save dir, so a run that hits
+        # the allocation limit continues in the next allocation instead of starting over.
+        yield Task("run", resume="run", rqmt=self.rqmt)
 
     def _fairseq_dir(self) -> str:
         out = sp.check_output(
@@ -161,6 +213,8 @@ class FairseqW2vu2TrainJob(Job):
             "checkpoint.save_dir": self.out_dir.get_path(),
             "distributed_training.distributed_world_size": 1,
         })
+        if self._rev_active():
+            settings.update(self._rev_settings())
         for k, v in sorted(settings.items()):
             node = cfg
             *parents, leaf = k.split(".")
@@ -176,6 +230,43 @@ class FairseqW2vu2TrainJob(Job):
             yaml.safe_dump(cfg, f, sort_keys=False)
         return out
 
+    def _rev_settings(self) -> Dict[str, Any]:
+        """The SAE §4a step-4 delta on top of the reproduction's config, and nothing else.
+
+        The user dir moves to the `w2vu_rev` package, which registers fairseq's own task and model
+        first and then the two subclasses; task and model names move to those subclasses; phi gets
+        its own composite-optimizer group unless it is frozen (fairseq's composite optimizer asserts
+        that the declared groups are exactly the `param_group` tags it finds, and frozen parameters
+        never reach it).
+
+        `model.rev_phi_seed` is the run's own `common.seed`: phi's cold initialization follows the
+        arm's seed, the way every other initialization in the run does.
+        """
+        seed = int(self.overrides.get("common.seed", 0))
+        s: Dict[str, Any] = {
+            "common.user_dir": REV_USER_DIR,
+            "task._name": "unpaired_audio_text_rev",
+            "task.rev_units_dir": self.rev_units_dir.get_path(),
+            "model._name": "wav2vec_u_rev",
+            "model.lam_rev": float(self.lam_rev),
+            "model.rev_batch_utts": int(self.rev_batch_utts or 0),
+            "model.rev_phi_seed": seed,
+        }
+        if self.rev_frozen_phi is not None:
+            s["model.rev_frozen_phi"] = self.rev_frozen_phi.get_path()
+        else:
+            s.update({
+                "optimizer.groups.reverse.lr": [REV_PHI_LR],
+                "optimizer.groups.reverse.lr_float": None,
+                "optimizer.groups.reverse.optimizer._name": "adam",
+                "optimizer.groups.reverse.optimizer.adam_betas": REV_PHI_ADAM_BETAS,
+                "optimizer.groups.reverse.optimizer.adam_eps": REV_PHI_ADAM_EPS,
+                "optimizer.groups.reverse.optimizer.weight_decay": REV_PHI_WEIGHT_DECAY,
+                "optimizer.groups.reverse.lr_scheduler._name": "fixed",
+                "optimizer.groups.reverse.lr_scheduler.warmup_updates": 0,
+            })
+        return s
+
     def run(self):
         assert_w2vu_env(self.python_exe)
         fs = self._fairseq_dir()
@@ -188,5 +279,105 @@ class FairseqW2vu2TrainJob(Job):
             f"--config-dir={cfg_dir}", "--config-name=w2vu2",
         ]
         print("RUN:", " ".join(args), flush=True)
-        with open(self.out_log.get_path(), "w") as log:
+        # append, not truncate: with resume="run" a second allocation continues the same training
+        # from checkpoint_last.pt and its log must not overwrite the first one's.
+        with open(self.out_log.get_path(), "a") as log:
             sp.check_call(args, stdout=log, stderr=sp.STDOUT)
+
+
+class FairseqW2vu2ProfileJob(FairseqW2vu2TrainJob):
+    """A short GAN run whose cost is measured: seconds per update and peak GPU memory.
+
+    Same code path, config and data as ``FairseqW2vu2TrainJob`` -- only ``optimization.max_update``
+    is short (the config sets it) and the run is instrumented. This is the profile SAE_4A_attrib.md
+    requires before step 4 is funded: 100 updates at lam_rev = 1.0 with b = 160 (all) and b = 16, and
+    at lam_rev = 0, so the projected wall time of a 150k-update run can be compared to the 0.24 s per
+    update of the reproduction.
+
+    ``sec_per_update`` is read off fairseq's own ``ups`` meter (updates per second over the log
+    interval, i.e. the average the run itself reports); ``peak_gpu_mib`` is the maximum of
+    ``nvidia-smi`` samples taken every 2 s in this process, and ``peak_alloc_gb`` is
+    ``total - min(gb_free)`` over the log records, i.e. torch's own ``max_memory_allocated``.
+    """
+
+    def __init__(self, *, max_update_cap: int = 2000, **kwargs):
+        super().__init__(**kwargs)
+        updates = int(self.overrides.get("optimization.max_update", 0))
+        assert 0 < updates <= max_update_cap, (
+            f"a profile job must be short: optimization.max_update = {updates}"
+        )
+        self.out_profile = self.output_path("profile.json")
+        self.rqmt = dict(self.rqmt)
+        self.rqmt["time"] = 1
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)  # a profile is re-run from scratch, never resumed
+
+    @staticmethod
+    def _gpu_totals() -> float:
+        out = sp.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], text=True
+        )
+        return float(out.strip().splitlines()[0])
+
+    def run(self):
+        import json
+
+        stop = threading.Event()
+        peak = [0.0]
+
+        def sample():
+            while not stop.wait(2.0):
+                try:
+                    out = sp.check_output(
+                        ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                        text=True,
+                    )
+                    peak[0] = max(peak[0], max(float(x) for x in out.strip().splitlines()))
+                except Exception as e:  # a failed sample must never kill the run
+                    print(f"nvidia-smi sample failed: {e}", flush=True)
+
+        watcher = threading.Thread(target=sample, daemon=True)
+        watcher.start()
+        t0 = time.time()
+        try:
+            super().run()
+        finally:
+            stop.set()
+            watcher.join(timeout=10)
+        wall = time.time() - t0
+
+        records = []
+        with open(self.out_log.get_path()) as fh:
+            for line in fh:
+                m = re.search(r"\|\s*(\{.*\})\s*$", line.rstrip())
+                if not m:
+                    continue
+                try:
+                    rec = json.loads(m.group(1))
+                except ValueError:
+                    continue
+                if "ups" in rec and "num_updates" in rec:
+                    records.append({k: rec[k] for k in rec if k in
+                                    ("num_updates", "ups", "wps", "wall", "train_wall", "gb_free",
+                                     "loss", "loss_rev", "rev_per_frame", "rev_batch_utts")})
+        assert records, f"no train_inner json record with 'ups' in {self.out_log.get_path()}"
+        last = records[-1]
+        total_mib = self._gpu_totals()
+        gb_free = [float(r["gb_free"]) for r in records if "gb_free" in r]
+        profile = {
+            "lam_rev": self.lam_rev,
+            "rev_batch_utts": self.rev_batch_utts,
+            "max_update": int(self.overrides.get("optimization.max_update", 0)),
+            "num_updates": int(float(last["num_updates"])),
+            "sec_per_update": 1.0 / float(last["ups"]),
+            "ups": float(last["ups"]),
+            "job_wall_sec": wall,
+            "peak_gpu_mib": peak[0],
+            "gpu_total_mib": total_mib,
+            "peak_alloc_gb": (total_mib / 1024.0 - min(gb_free)) if gb_free else None,
+            "records": records,
+        }
+        with open(self.out_profile.get_path(), "w") as fh:
+            json.dump(profile, fh, indent=2)
+        print(json.dumps({k: v for k, v in profile.items() if k != "records"}, indent=2), flush=True)

@@ -42,7 +42,7 @@ def _decode_utt(model, feats, sil_idx, device):
     return [i for i in collapsed if i != sil_idx]         # drop silence (viterbi blank)
 
 
-def _load_model(ckpt, data, text_data, device):
+def _load_model(ckpt, data, text_data, device, user_dirs=()):
     import argparse as _ap
 
     import fairseq
@@ -52,6 +52,11 @@ def _load_model(ckpt, data, text_data, device):
     # registry; training registers them via common.user_dir, so the eval must import it too.
     user_dir = os.path.join(os.path.dirname(fairseq.__file__), "examples", "wav2vec", "unsupervised")
     utils.import_user_module(_ap.Namespace(user_dir=user_dir))
+    # A §4a step-4 arm was trained with a SUBCLASS of that task and model (`unpaired_audio_text_rev`
+    # / `wav2vec_u_rev`); checkpoint_utils does not import user dirs itself, so the arm's own user
+    # dir has to be imported here as well, or its `_name` is simply not in the registry.
+    for extra in user_dirs or ():
+        utils.import_user_module(_ap.Namespace(user_dir=extra))
 
     overrides = {
         "task": {"data": data, "text_data": text_data},
@@ -113,8 +118,14 @@ def _load_feats(feats_path):
     return feats, offsets, ids
 
 
-def _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all, device, limit=0):
-    """Greedy PER of one loaded generator over the dumped features, per split. -> {split: {...}}."""
+def _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all, device, limit=0,
+                 hyps_sink=None):
+    """Greedy PER of one loaded generator over the dumped features, per split. -> {split: {...}}.
+
+    ``hyps_sink`` (a dict) is filled in place with ``{split: {utt id: [phone, ...]}}`` -- the very
+    strings that are scored here, so a paired per-item read (``PairedPerDeltaJob``) uses this decode
+    and not a second one. ``per.json`` itself is unchanged.
+    """
     import editdistance
     import numpy as np
 
@@ -131,6 +142,8 @@ def _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold
         seen[s] += 1
         f = np.asarray(feats[offsets[u]:offsets[u + 1]], dtype=np.float32)
         hyp = tuple(dictionary[i] for i in _decode_utt(model, f, sil_idx, device))
+        if hyps_sink is not None:
+            hyps_sink.setdefault(s, {})[tag] = list(hyp)
         acc[s]["errs"] += editdistance.eval(hyp, gold_all[s][tag])
         acc[s]["ref"] += len(gold_all[s][tag])
         acc[s]["scored"] += 1
@@ -168,7 +181,8 @@ def _best_num_updates(train_dir):
         return None
 
 
-def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, stride, device, limit=0):
+def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, stride, device, limit=0,
+              user_dirs=()):
     """PER trajectory over every save_interval checkpoint, so the PER-min can be compared to the
     unsupervised (weighted_lm_ppl) checkpoint_best -- the objective-alignment check."""
     import glob
@@ -193,7 +207,7 @@ def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, strid
     print(f"curve: {len(sub)}/{len(parsed)} checkpoints (stride={stride}), best={best_upd}", flush=True)
     curve = []
     for upd, ep, path in sub:
-        model, dictionary = _load_model(path, data, text_data, device)
+        model, dictionary = _load_model(path, data, text_data, device, user_dirs=user_dirs)
         sil_idx = dictionary.index("<SIL>")
         assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
         res = _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all,
@@ -262,6 +276,8 @@ def main():
     ap.add_argument("--gold")                         # json {split: {id: [phones]}}; not needed to dump
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=0)   # cap utts scored per split (0 = all); testing
+    ap.add_argument("--hyps-dir")                     # also write greedy_phones.{split}.json here
+    ap.add_argument("--user-dir", action="append", default=[])  # extra fairseq user dir(s) to import
     args = ap.parse_args()
 
     import torch
@@ -277,17 +293,25 @@ def main():
     assert args.gold, "scoring modes need --gold"
     if args.train_dir:
         run_curve(args.train_dir, args.data, args.text_data, args.feats, args.gold, args.out,
-                  args.stride, device, limit=args.limit)
+                  args.stride, device, limit=args.limit, user_dirs=args.user_dir)
         return
 
     assert args.ckpt, "single mode needs --ckpt (or pass --train-dir for the curve)"
     gold_all, id2split = _load_gold(args.gold)
-    model, dictionary = _load_model(args.ckpt, args.data, args.text_data, device)
+    model, dictionary = _load_model(args.ckpt, args.data, args.text_data, device,
+                                    user_dirs=args.user_dir)
     sil_idx = dictionary.index("<SIL>")
     assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
     feats, offsets, ids = _load_feats(args.feats)
+    hyps = {} if args.hyps_dir else None
     out = _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all,
-                       device, limit=args.limit)
+                       device, limit=args.limit, hyps_sink=hyps)
+    if hyps is not None:
+        for s, d in hyps.items():
+            path = os.path.join(args.hyps_dir, f"greedy_phones.{s}.json")
+            with open(path, "w") as f:
+                json.dump(d, f)
+            print(f"wrote {len(d)} hypotheses to {path}", flush=True)
     for s in gold_all:
         print(s, json.dumps(out[s]), flush=True)
     if out["missing_gold"]:
