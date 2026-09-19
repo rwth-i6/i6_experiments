@@ -1184,7 +1184,13 @@ class PodcastEpisodeIngest(Job):
         # the hash, tuning concurrency would re-run every already-ingested shard. Everything that
         # can change the CONTENT -- num_steps, seed, max_xcorr, the diarizer, whether the
         # permutation is repaired -- stays hashed on purpose.
-        for k in ("env_ffmpeg_path", "download_workers"):
+        # ⚠ `rqmt` is popped HERE, not left to `__sis_hash_exclude__`. That mechanism excludes an
+        # argument only while it EQUALS the listed default, so a populated `rqmt` -- reachable via
+        # `podcast_episode_codes(**ingest_kwargs)` -- would be hashed like any other kwarg and
+        # orphan an already-completed ~173 GPU-h separation pass. This is precisely the `Compute`
+        # post-mortem in CLAUDE.md, and the reason that fix needed a hash-excluded channel rather
+        # than `__sis_hash_exclude__`.
+        for k in ("env_ffmpeg_path", "download_workers", "rqmt"):
             d.pop(k, None)
         return super().hash(d)
 
@@ -1306,7 +1312,12 @@ def podcast_episode_codes(
     prices the whole-episode path from its own measured cost. Sizing it with the gating model gives
     ~33% too few shards and jobs that quietly overrun the target runtime.
     """
-    repo = duplexchat_repo()
+    # ⚠ Forward the pin. `duplexchat_commit` is a hashed PodcastEpisodeIngest kwarg that is written
+    # verbatim into `provenance_json`, so calling `duplexchat_repo()` with the module default here
+    # would let a caller pass a different commit, re-hash every shard, record that commit as
+    # provenance -- and actually run the DEFAULT checkout. Silently wrong provenance is worse than
+    # a crash, because the corpus looks correctly labelled.
+    repo = duplexchat_repo(ingest_kwargs.get("duplexchat_commit", DUPLEXCHAT_COMMIT))
     index = PodcastWorkIndex(
         source=source,
         num_shards=num_shards,
@@ -1405,6 +1416,17 @@ class PodcastDialogueSlice(Job):
         # codes at a time (~4 MB for 2.7 h) plus the rows accumulating toward one part.
         self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
 
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        # Same reasoning as PodcastEpisodeIngest: `__sis_hash_exclude__` drops these only while they
+        # equal their defaults, so tuning either would re-hash and re-run a whole re-slice. Neither
+        # changes WHAT is produced -- `rqmt` is scheduling, and `rows_per_part` is arrow layout that
+        # `PodcastCodesIndex` reads through regardless.
+        for k in ("rqmt", "rows_per_part"):
+            d.pop(k, None)
+        return super().hash(d)
+
     def tasks(self):
         yield Task("run", resume="run", rqmt=self.rqmt)
 
@@ -1471,7 +1493,10 @@ def podcast_sliced_codes(
         slice_dirs.append(job.out_dir)
     codes_index = PodcastCodesIndex(in_dirs=slice_dirs, require_all_shards=require_all_shards)
     if register:
-        tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
+        # Its own namespace: `podcast_duplex_codes` already registers
+        # `podcast_codes/<tag>/codes_index`, and building both paths for one podcast -- the natural
+        # way to compare them -- would double-register that alias.
+        tk.register_output(f"podcast_dialogues/{tag}/codes_index", codes_index.out_dir)
     return codes_index.out_dir, slice_dirs
 
 
