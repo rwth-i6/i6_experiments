@@ -27,8 +27,24 @@ after any session resume). First 11.5 h kills expected 2026-09-21 ~01:14 (A) / ~
 "skipped" on the finished 50-arms and each 100-arm's start epoch). Do not edit the blank-free
 modules while nodes run (re-imported on resume). Job dirs:
 `work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.{ks7CbtlvpcIL,reEI2Nd0S77A,4QzmftNlbErt}`.
-NEXT: read ep1 wall time per arm off each node's learning_rates (packed step rate; bt arms carry an
-extra BT step per EMC step); ep4 / ep10 reads as the eval jobs land; the 11.5 h resume check.
+**11.5 h wall, 2026-09-21 ~01:14–01:33 local (all three nodes TIMEOUT as expected).** The pack's
+resume path half-worked on its first real test: node A's auto-resubmit (Slurm 1921159) skipped the
+finished ctrl_50 / odmprior_50 correctly, then both 100-arms died in ~40 s resuming from epoch 067:
+RETURNN `Updater.load_optimizer` calls `torch.load` on `epoch.067.opt.pt`, and torch 2.7.1's
+`weights_only=True` default rejects the `functools.partial` inside the optimizer state
+(`reports/exec_budget_resume_2026-09-21.md`). Fixed in the local RETURNN checkout
+`recipe/returnn/returnn/torch/updater.py:295` (`weights_only=False`, uncommitted, hash-neutral;
+verified on the real epoch.067.opt.pt with the arm's env, `reports/impl_returnn_opt_load_fix_2026-09-21.md`).
+Node A's error marker + submit_log cleared; the manager resubmitted it as Slurm 1921418
+(`reports/exec_budget_resume2_2026-09-21.md`). Nodes B (1921334) and C (1921332) never errored
+(their resubmits had not started) and load the patched module on start. All three resubmits are
+PENDING "ReqNodeNotAvail, Reserved for maintenance"; the 50-arms (ctrl_50, odmprior_50 on A; B/C
+unknown until their logs) are finished on disk and their reads can run. The 100-arms lose the
+maintenance wait, not progress. Watcher re-armed on 2945974 (same command as above).
+NEXT: when the watcher fires, executor confirms each node's resume (50-arms skipped, 100-arms
+resume at epoch 067-ish with optimizer state loaded, first step line) or diagnoses; then read ep1
+wall time per arm off each node's learning_rates (packed step rate; bt arms carry an extra BT step
+per EMC step); ep4 / ep10 / ep50 reads as the eval jobs land.
 
 ## Objective
 
