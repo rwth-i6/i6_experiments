@@ -11,14 +11,20 @@ a function of prior order and of lexicalisation, on dev-other. Job built (`sae/e
 `log/sae_4a_prior_gap.manager.20260920T185700Z.log`, Slurm 1916086; watcher
 `bash ~/.claude/skills/sis/sis_watch.sh 2571413 config/sae_4a_prior_gap.py 300`, re-arm first
 after any session resume, together with the budget and infomax watchers named in their phase
-files); code review of the scorer conventions running in parallel (its verdict decides whether the numbers
-are trusted or the job reruns under a version bump). Convention fixed before the numbers: the gold
-reference is SIL-free and the decode carries SIL, so the job scores both pairings; the
-like-for-like pairing (SIL dropped from the decode) is primary and the SIL-kept pairing is
-disclosed beside it.
-NEXT: watcher verdict on the prior-gap job and the code-review verdict; read the pre-registered
-table (Design, "Step 0"); then decide between the 4-gram importance-sampled correction and the
-lexicon score-function term and write that arm's design and gate here before any node is funded.
+files). The v1 job failed before producing numbers (KenLM compiled with max order 6, the 8-gram
+build aborted; manager exited, watcher done) and the code review
+(`reports/review_prior_gap_2026-09-20.md`) found the lexicon row biased (see Design, "Step 0",
+amendments), so v2 is being written under a new hash: orders 4 and 6 only, two lexicon
+conventions, per-utterance dump. Convention fixed before the numbers: the gold reference is
+SIL-free and the decode carries SIL, so the job scores both pairings; the like-for-like pairing
+(SIL dropped from the decode) is primary and the SIL-kept pairing is disclosed beside it. Sound
+per the review and kept: trigram anchors reproduce the decipherment's −3.20 / −3.99 / −4.63, BOS
+with no end-of-sentence term in every scorer, identical token denominators, the priorshuf
+uniform window (`SampleLinesJob.orN768ARKwlt`) for every prior.
+NEXT: implementer v2 report; executor restarts the manager on the v2 hash (the live manager holds
+the v1 graph); re-arm the watcher; read the pre-registered table; then decide between the 4-gram
+importance-sampled correction and the lexicon score-function term and write that arm's design and
+gate here before any node is funded.
 
 ## Objective
 
@@ -85,6 +91,24 @@ the engagement monitor); neither discriminates more than the trigram -> the prio
 where the private code is identified, recorded as a negative and the phase closes without a node.
 The prediction, written before the numbers: the 4-gram gap grows little (the private code is
 locally English-like), the lexicon gap is large and the null strings have no segmentation.
+
+Amendments after the code review (2026-09-20, `reports/review_prior_gap_2026-09-20.md`, before
+any number was produced; the v1 job had failed on the KenLM order cap): (i) phone n-gram orders
+are 1-4 and 6; the 8-gram is dropped (the installed KenLM supports order 6 at most). (ii) The
+lexicalised prior had two defects: its paired gap was taken over the segmentable subset (about 70
+% of the private strings) while the trigram gap it was compared with covered every utterance, and
+the dropped utterances are exactly where a lexicon separates hardest; and a lexicon word unseen by
+the word trigram cost one `<unk>` rather than being excluded, which lets a non-English string buy
+a cheap score from long rare words. v2 reports two conventions on the full paired set: STRICT
+(lexicon restricted to the word LM's vocabulary, no `<unk>` path; gap on the subset where both
+strings segment, with the trigram gap recomputed on that same subset, and the segmentable
+fraction per string set) and ESCAPE (the same trie plus an escape word for any phone span, costing
+the word LM's `<unk>` transition plus the order-1 phone score and log 0.5 per phone, one fixed
+convention). ESCAPE is the row that enters the decision table's lexicon clause, because a
+training reward must be finite on every string; STRICT is disclosed beside it. (iii) The nulls do
+segment (34 of the 39 phones are single-phone words), so the prediction's last clause is replaced
+by: the nulls' segmentable fraction and lexicon score fall well below gold's. (iv) Per-utterance
+scores are dumped so any subset read is recoverable; every banked aggregate is rendered.
 
 ### Training arm
 
