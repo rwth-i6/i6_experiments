@@ -3,45 +3,32 @@
 ## State
 
 Phase opened 2026-09-20 on the user's directive ("do what wav2vec-U 2.0 actually does"; the
-feature-masking convention was never approved). Survey done
-(`reports/survey_audio_pipeline_2026-09-20.md`), design pre-registered and reviewed
-(APPROVE_WITH_AMENDMENTS, amendments applied below), gate G4a.8 fixed. Implementer building
-`sae/emc/trimmed_audio_data.py` (TrimmedAudioBlankfreeDataJob) and
-`configs/config_sae_4a_prepro_pack_v1.py` (ctrl_20, ctrl_20_s1, prepro_20; N = 20 from
-`SAE_4A_budget.md` "Sub-epoch count"); no job launched. Blank-free modules stay untouched until
-the budget pack's 11.5 h resume has passed (they are re-imported then).
-Build handed back 2026-09-21 (speech-llm d92109b, `reports/impl_prepro_2026-09-20.md`): data jobs
-`TrimmedAudioBlankfreeDataJob` train qb4o6dlW3urA / dev-clean hxIx0ItTvx15 / dev-other
-0IOLr6hZnYWj; 3-utterance CPU smoke: unit agreement 0.738 (not an empty treatment), HDF field
-parity with the bed's shard, no banked hash moved. Two constants were left to the orchestrator and
-are decided: LR warmup 2 sub-epochs at N = 20 (`SAE_4A_budget.md` amendment) and
-ctrl_20_s1 = both seeds moved (flat_seed 1 AND RETURNN random_seed 1: theta init, phi init and
-batch order, the full replicate band); constants set in speech-llm f184df4 (pack
-`PackedBlankfreeTrainJob.YQszIGUOm7Sh`, three arms of one job; flat init ctrl_20 / prepro_20
-`FlatRecognizerInitJob.0J9d6wjrkRYH`, ctrl_20_s1 `.DMSwTLXT9MWG`), pack under code review
-(`reports/review_prepro_2026-09-21.md`). The dev-other data job runs alone under its own manager:
-pid 4154973, `log/sae_4a_prepro_devother.manager.20260920T220641Z.log`, Slurm 1920278 (booster,
-1 GPU, 4 h rqmt), watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 4154973 config/sae_4a_prepro_devother.py 600`
-(`reports/exec_prepro_devother_launch_2026-09-21.md`; a first attempt registered nothing because
-the shim lacked `py()`, fixed).
-Dev-other data job FINISHED and read (Results): funding rule passes (OR total exact, agreement
-0.71, plateau 0.72 far from splices); its manager (4154973) exited cleanly. Code review
-APPROVE_WITH_AMENDMENTS, amendments applied (speech-llm 1b25144 + dbfe6fb): ctrl_20_s1 has
-random_seed 1 and random_seed_offset 1000 (sub-epoch-1 overlap with ctrl_20 0.26, chance 0.25);
-final pack `PackedBlankfreeTrainJob.5EIGJJ1MkcO9` (ctrl_20 vs ctrl_20_s1 diff 8 lines, vs
-prepro_20 60 lines, all HDF paths); null `UntrimmedEncodeAgreementJob.WnGSatwxUEYY`. The train +
-dev-clean data jobs (`config/sae_4a_prepro_data.py`) and the null (`config/sae_4a_prepro_null.py`)
-run under their own managers (executor hand-back 2026-09-21; no report file was written): data manager
-pid 127865, `log/sae_4a_prepro_data.manager.20260920T223130Z.log`, Slurm 1920622 (train, 4 shards)
-and 1920623 (dev-clean), watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 127865 config/sae_4a_prepro_data.py 600`; null manager
-pid 129170: FINISHED and read (Results, "Extraction-path null"): agreement 1.0000, states
-bit-identical; the 0.72 plateau is the cut's effect; funding cleared.
-NEXT: when the data watcher fires, executor funds the pack (`config/sae_4a_prepro_pack.py`,
-`PackedBlankfreeTrainJob.5EIGJJ1MkcO9`, ~10 h on one node, own manager, own watcher) and confirms
-the three arms started; record here; read at kept epochs 1 / 4 / 10 / 20 against G4a.8 with the
-paired reads.
+feature-masking convention was never approved). Survey
+(`reports/survey_audio_pipeline_2026-09-20.md`), pre-registered design and gate G4a.8 below;
+design review and code review both APPROVE_WITH_AMENDMENTS, amendments applied
+(`reports/review_prepro_2026-09-21.md`; code speech-llm d92109b, f184df4, 1b25144, dbfe6fb;
+build/launch reports `reports/impl_prepro_2026-09-20.md`,
+`reports/exec_prepro_devother_launch_2026-09-21.md`, `reports/exec_prepro_pack_launch_2026-09-21.md`).
+Orchestrator constants: LR warmup 2 sub-epochs at N = 20 (`SAE_4A_budget.md` amendment);
+ctrl_20_s1 moves flat_seed 1, random_seed 1, random_seed_offset 1000 (full replicate band;
+sub-epoch-1 batch overlap with ctrl_20 0.26, chance 0.25).
+Pre-funding inputs all FINISHED and read (Results): data jobs `TrimmedAudioBlankfreeDataJob`
+train qb4o6dlW3urA / dev-clean hxIx0ItTvx15 / dev-other 0IOLr6hZnYWj (OR totals exact, unit
+agreement 0.74 / 0.73 / 0.71, plateau 0.72–0.75 far from splices); extraction-path null
+`UntrimmedEncodeAgreementJob.WnGSatwxUEYY` exact (1.0000), so the plateau is the cut's effect.
+Their managers (4154973, 127865, 129170) exited cleanly.
+ACTIVE: the pack `PackedBlankfreeTrainJob.5EIGJJ1MkcO9` (arms ctrl_20 / ctrl_20_s1 / prepro_20,
+flat inits `FlatRecognizerInitJob.0J9d6wjrkRYH` / `.DMSwTLXT9MWG`) funded 2026-09-21 ~01:10 UTC:
+work dir `work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.5EIGJJ1MkcO9`,
+Slurm 1921103 (booster, node jpbo-021-06, 4 GPU, 11.5 h rqmt), all three arms at sub-epoch 1 step 2;
+manager pid 347372, `log/sae_4a_prepro_pack.manager.20260920T230546Z.log`, watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 347372 config/sae_4a_prepro_pack.py 600`.
+Downstream read jobs (PER, rate, gap, paired delta at kept epochs 1 / 4 / 10 / 20) wait on the
+checkpoints under the same manager.
+NEXT: when the pack watcher fires, executor confirms the finish (or diagnoses the failure), then
+extractor reads the kept-epoch rows; read against G4a.8 with the paired delta prepro_20 − ctrl_20
+inside the band ctrl_20 − ctrl_20_s1, plus the wav2vec-U selection statistic per kept epoch;
+record here. Interim ep-1/ep-4 reads only if the watcher wakes early.
 
 ## Objective
 
@@ -201,3 +188,26 @@ trimmed frames) is entirely what trimming did: a seam effect within about 8 fram
 a 28 % change of unit far from any splice, i.e. removing the silence context changes layer-15
 states throughout the utterance (whole-utterance self-attention), not only at the seams. This is
 the treatment the pack measures; the pack is funded (data jobs running).
+
+### Train and dev-clean data jobs (read 2026-09-21; funding inputs of the pack)
+
+`TrimmedAudioBlankfreeDataJob` train qb4o6dlW3urA (Slurm 1920622, 4 shards) and dev-clean
+hxIx0ItTvx15 (Slurm 1920623), `output/summary.txt`; same job class and constants as the dev-other
+row above. Every assert held: OR mask re-derived exact (delta 0), no utterance kept whole, no
+T' < 2, quantizer path 1.000 on one utterance per shard.
+
+| statistic | train (28,539 utts) | dev-clean (2,703 utts) | dev-other (above) |
+|---|---|---|---|
+| original frames | 18,088,388 | 968,057 | 919,980 |
+| trimmed frames T' vs OR-retained | 15,341,417 vs 15,427,853 (−0.56 %) | 825,888 vs 831,372 (−0.66 %) | 775,542 vs 781,130 (−0.7 %) |
+| samples kept | 0.8485 | 0.8537 | 0.8436 |
+| speech segments per utterance | 4.57 | 2.54 | 2.40 |
+| unit agreement bed vs new (all T') | 0.7377 | 0.7268 | 0.7055 |
+| agreement [0,1) / [8,16) / [16,inf) from a splice | 0.27 / 0.78 / 0.75 | 0.27 / 0.78 / 0.74 | 0.22 / 0.75 / 0.72 |
+| k-means distortion new vs bed | 219.18 vs 219.93 (−0.3 %) | 203.44 vs 201.84 (+0.8 %) | 211.59 vs 209.69 (+0.9 %) |
+| unit entropy new vs bed (dead) | 6.063 (0) vs 6.075 (0) | 6.021 (11) vs 6.041 (11) | 6.011 (17) vs 6.034 (11) |
+
+Reading: the three splits show the same picture (seam effect within about 8 frames, a 0.72–0.75
+plateau far from any splice, distortion within 1 % of the bed, no dead-unit collapse); the
+training split fits the frozen quantizer no worse than the bed. With the extraction-path null
+exact, the funding rule holds on every split and the pack is funded.
