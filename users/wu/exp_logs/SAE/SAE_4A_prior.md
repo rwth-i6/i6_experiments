@@ -515,7 +515,12 @@ Reading (probe (i) only; the funding rule is read on (ii), the FFBS draws):
 posterior draws at the schedule's tau (rebuild check: greedy decode of the rebuilt model matches
 the banked decode on 292 / 292 / 299 of 300; max log w − log Z ≤ 0 everywhere; no Z = 0). Reward
 r = neural (first-pass 3.3 M, `Iv6P6YVPNWmB`) minus unigram, SIL dropped, nats per utterance.
-Audit from a fresh context: `reports/audit_sf_probe_2026-09-21.md` (pending at the time of writing).
+Audit from a fresh context (`reports/audit_sf_probe_2026-09-21.md`): CONFIRMED; fractions
+recomputed from per_utt.json 300/300, 300/300, 291/300; strict >, max over the 8 draws only, same
+SIL and tokenisation on both sides; draws genuine at the asserted tau; the 8 / 1 rebuild mismatches
+are single argmax near-ties and cannot move the fraction; ep10 not fragile (next positive margins
++1.5 / +1.9 / +6.7 nats); the scorer is the weakest banked LM (first pass), a stronger one raises
+r(gold); one empty-gold utterance counts as a pass (290 / 299 = 0.970 without it).
 
 | ckpt | distinct strings of 8 | tokens per string sample / greedy / gold | r per token gold / greedy / sample | within-group std (median) | r(gold) > max_g fraction | r(gold) > r(greedy) |
 |---|---|---|---|---|---|---|
