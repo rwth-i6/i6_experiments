@@ -37,6 +37,9 @@ budget is raised 12.5x / 25x and the optimiser is given a schedule? Every earlie
 take-off within 228 updates"; this phase measures the budget axis directly. It does not change the
 objective, the bed, the prior fit or the recognizer.
 
+The objective's relation to the reverse-KL distribution-matching target, and why tau ends at 2, is
+derived in `SAE_4A_objective.md` (reference note, 2026-09-20).
+
 ## Bed and constants (inherited, `SAE_4A_blankfree.md` "Registered first model" and `SAE_4A_attrib.md` Step 5)
 
 priorshuf bed: cold blank-free model (40 outputs, stride 3, VAD-masked L15, K500 reverse units),
