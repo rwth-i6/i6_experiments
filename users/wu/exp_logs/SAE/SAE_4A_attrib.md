@@ -12,10 +12,9 @@ No live manager or watcher (step 4's manager 885934 exited after all seven arms 
 file is stale). Standing user directions (2026-09-19): continue autonomously, no GAN component in
 new arms, every n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
 
-Step 4 (`config/sae_4a_attrib_ganrev.py`): all seven `FairseqW2vu2TrainJob` arms FINISHED
-2026-09-20 (`reports/sae_attrib_step4_restart_2026-09-20.md`); executor dispatched for the eval
-chain and the PER table (`reports/sae_attrib_step4_extract_2026-09-20.md`), then the gate read
-against the pre-registered predictions (Design), then the synthesis.
+Step 4 DONE 2026-09-20, audited: H1 and H2 both FAIL, residual weight-dependent clause; three of
+six joint-phi arms collapsed mid-training, the rest sit at control (Results, "Step 4 result").
+The phase decision rule fires on neither branch; nothing further is funded for step 4.
 
 Step 6 (user-approved plan, pre-registered in Results): item 1 DONE, branch (C), item 3 NOT funded;
 item 4 DONE; both audited (Results). Item 2 (E4 arm `odm3_lam1_perm`,
@@ -676,3 +675,64 @@ PER-relevant content while raising likelihood (the sentence-initial single phone
 instance). Step 4 tells whether the same reverse term inside the GAN objective is harmless, which
 would locate the fault in the alignment-sum-times-prior term and make a sequence-level
 mode-covering term inside the cycle the next design.
+
+### Step 4 result (2026-09-20): the reverse term inside the GAN is neither harmless nor uniformly destructive; H1 and H2 both FAIL, weight-dependent clause
+Seven `FairseqW2vu2TrainJob` arms, 150k updates each, read at their own weighted_lm_ppl-selected
+checkpoint exactly as the reproduction (`W2vu2PerEvalJob`, greedy = Viterbi with zero transitions,
+dev-other 2864 utts / 177,275 phones; paired reads `PairedPerDeltaJob`, corpus-ratio delta vs the
+seed-matched control, speaker bootstrap). Extraction `reports/sae_attrib_step4_extract_2026-09-20.md`,
+trajectories `reports/sae_attrib_step4_trajectories_2026-09-20.md`; audited from a fresh context,
+every PER and CI reproduced digit for digit, checkpoint identity and arm identity (lam_rev, seed,
+frozen phi = `5lBwcDjv2ItL` ep4, w0 without reverse fields) verified from the job dirs:
+`reports/sae_attrib_step4_audit_2026-09-20.md` (CONFIRMED_WITH_CAVEATS).
+
+| arm (train job) | pick (update) | dev-clean PER | dev-other PER | paired delta dev-other [95 % CI] | dev-other own-minus-cold-init phi (nats/frame) |
+|---|---|---|---|---|---|
+| control s0 (banked) | 148k | 0.173 | 0.214 | reference | - |
+| control s1 (banked) | 77k | 0.162 | 0.205 | reference | - |
+| w0_s0 `9HnmO6ULORKl` | 129k | 0.197 | 0.240 | +0.026 [+0.023, +0.029] | - |
+| lam0.01_s0 `reCovgFXvSDj` | 150k | 0.186 | 0.225 | +0.011 [+0.008, +0.013] | +3.21 |
+| lam0.01_s1 `ZTklLDlrH8Vv` | 5k | 0.916 | 0.930 | +0.725 [+0.710, +0.743] | +2.29 |
+| lam0.1_s0 `YM9FkZ2qzoVW` | 24k | 0.860 | 0.872 | +0.657 [+0.646, +0.669] | +2.65 |
+| lam0.1_s1 `h7YWOSQjA7AH` | 60k | 0.870 | 0.885 | +0.680 [+0.668, +0.693] | +2.90 |
+| lam1.0_s0 `oF22UaRGYy2k` | 103k | 0.162 | 0.204 | -0.011 [-0.013, -0.009] | +3.22 |
+| frozen_lam0.1_s0 `mumOHh9l2vkK` | 109k | 0.175 | 0.217 | +0.003 [-0.000, +0.005] | +1.26 (vacuous: own = donor) |
+
+Gate read against the pre-registered predictions (Design, step 4, and the amendment):
+- Port no-op: w0_s0 lands +0.026 from 0.214, inside the +-0.03 band, so the port passes the literal
+  clause; caveat: the paired CI excludes zero and the pick moved (129k vs 148k), i.e. the rerun is
+  a different GAN run, not a byte-identical replay, and the GAN's own run-to-run spread is of the
+  order of the band.
+- H1 (both 0.01 seeds within +0.03): FAIL, lam0.01_s1 collapsed (+0.725). The activity criterion
+  holds for both 0.01 arms (own phi beats a cold-initialised phi by 2.3-3.2 nats/frame on dev-other,
+  `W2vu2RevDevJob`, `output/sae/4a/attrib/ganrev/<arm>/rev_dev.json`), so the term was active; note
+  the job's "cold" is a random-init phi, not the ep4 donor, a weaker check than the amendment's
+  own-minus-donor wording.
+- H2 (all six >= control + 0.10): FAIL, three of six.
+- Residual clause applies: weight-dependent curve, no single-arm claim. lam1.0_s0's -0.011 is not
+  claimable (one seed, non-monotone neighbourhood).
+
+What the curve shows. The three collapsed arms (0.01_s1, 0.1_s0, 0.1_s1) trained normally to
+18k-34k updates (valid weighted_lm_ppl 65-109, vocab_seen 0.72-0.90) and then collapsed
+(vocab_seen 0.10-0.20, weighted_lm_ppl 10^3-10^4, from 51k / 51k / 84k updates on); their selected
+checkpoints are the pre-collapse early ones (5k / 24k / 60k, weighted_lm_ppl 73 / 68 / 42), which
+is why the reads are content-free. The four non-collapsed term-free or term-bearing runs (w0,
+0.01_s0, 1.0_s0, frozen 0.1_s0) all reach the reproduction's operating point (weighted_lm_ppl
+17-19, vocab_seen 0.90-0.925). Collapse count: 3 of 6 jointly-trained-phi arms vs 0 of 3 plain GAN
+runs (two banked controls, w0 rerun) and 0 of 1 frozen-phi arm; at these counts the difference is
+not separable from the GAN's own seed instability, and it is not ordered by weight (1.0 fine,
+0.1 collapsed twice, 0.01 split by seed). The one within-weight contrast, joint phi collapsing
+2/2 at 0.1 while frozen phi at 0.1 stays at control, is consistent with the amendment's "phi
+updated" mechanism but is n=3.
+Frozen arm: corpus-ratio read +0.003 with a CI spanning zero (the job's headline number); the
+macro per-utterance read is -0.007 [-0.011, -0.003]; the two conventions disagree in sign, so no
+direction is claimed.
+
+Conclusion. Inside the GAN objective the reverse term does not degrade a run that stays on the
+GAN's manifold (0.01_s0, 1.0_s0, frozen 0.1_s0 all within +0.011 of control or better), and it
+does not produce the cold bed's uniform content-free PER either; what it adds is a mid-training
+collapse in half the jointly-trained arms. The phase decision rule fires on neither branch ("as
+predicted" needs H1; "collapsing at every weight" needs 6/6). Reading with steps 2 and 5b: the
+cold bed's failure is not the reverse term per se (it is harmless in three GAN runs and its
+removal hurts in the cold bed), which leaves the alignment-sum-times-prior objective and the
+budget as the remaining suspects, in line with the step 6 pre-registration.
