@@ -81,6 +81,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), ACTIVE,
    `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,
    four arms on one node, paired against ctrl_50; gate G4a.5. Objective derivation: `SAE_4A_objective.md`.
+   **Context-dependent reverse model (user 2026-09-20), OPENING, `SAE_4A_cdrev.md`:** emission
+   `p_phi(x_seg | k, previous phone)`; gate G4a.6; design review pending.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
