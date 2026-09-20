@@ -5,10 +5,19 @@
 Phase opened 2026-09-20 on the user's direction (InfoMax proposal, then "augmentation invariance
 could help there; consider this a new arm in phase 4A, implement and execute now"). Four arms,
 one packed node (node_d), N = 50 sub-epochs, all reads paired against the budget round's ctrl_50
-(`SAE_4A_budget.md`, node_a, `PackedBlankfreeTrainJob.ks7CbtlvpcIL`). Status: spec written,
-implementer and design review dispatched in parallel; no job launched yet.
-NEXT: code review of the implementer's change, then launch node_d through the executor; then the
-ep1 / ep4 / ep10 reads.
+(`SAE_4A_budget.md`, node_a, `PackedBlankfreeTrainJob.ks7CbtlvpcIL`). Arm set amended after the
+code review (Design, "Amendment after code review"): ent_50, entaug_50, aug_50, aughi_50. Code:
+2025-10-speech-llm commits 35bcf39 (mechanism, `sae/emc/infomax.py`) and 68549f9 (arm table);
+reviews `reports/review_infomax_2026-09-20.md` (PASS_WITH_CONCERNS, concerns applied),
+`reports/design_review_infomax_2026-09-20.md`. node_d job `PackedBlankfreeTrainJob.YtvrSez8z9Wf`,
+config `config/sae_4a_infomax_pack.py`; launch through the executor in progress (2026-09-20
+evening). In flight: (a) the checkpoint reads (eval-mode entropy, symbol-usage entropy, chance
+null) for the four arms and ctrl_50, registered into the same config last; (b) the private-code
+analysis job on ctrl_50's kept checkpoints in its own config `config/sae_4a_private_code.py`
+(user 2026-09-20: "analyze the output / private code when ready").
+NEXT: confirm node_d submitted (manager pid, watcher); restart its manager once the reads are
+registered; run the private-code config; read ctrl_50 ep10 private-code table first, then node_d
+ep1 / ep4 / ep10.
 
 ## Objective
 
