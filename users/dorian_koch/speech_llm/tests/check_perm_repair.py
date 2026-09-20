@@ -406,6 +406,97 @@ check(
     f"{repm.get('anchor_speakers')} vs {rep_e.get('anchor_speakers')}",
 )
 
+# --------------------------------------------------------------------------------------------
+# The channel-assignment confidence record (added after the 2026-09-20 "can you really verify
+# the shards" question). A globally-flipped episode is invisible in every downstream statistic,
+# so the only defence is recording HOW each episode was decided -- and that record is worthless
+# if a path can skip it.
+import ast as _ast
+
+_EPISODE = os.path.join(SETUP, "recipe/speech_llm/full_duplex/moshi_family/podcast_episode_main.py")
+_tree = _ast.parse(open(_EPISODE).read())
+_fn = next(
+    (n for n in _ast.walk(_tree) if isinstance(n, _ast.FunctionDef) and n.name == "embedding_scores"),
+    None,
+)
+check("embedding_scores still exists", _fn is not None)
+
+if _fn is not None:
+    check(
+        "embedding_scores takes a diag dict",
+        any(a.arg == "diag" for a in _fn.args.args),
+        [a.arg for a in _fn.args.args],
+    )
+
+    # EVERY `return None` must be immediately preceded by a `d[...] = ...` assignment. This is the
+    # coverage claim: a fallback added later that forgets to record itself fails here rather than
+    # silently reporting `unknown` for the rest of the corpus.
+    def _records_reason(body):
+        """Walk a statement list; for each `return None`, was a d[...] assignment just before it?"""
+        bad = []
+        for i, st in enumerate(body):
+            if isinstance(st, _ast.Return) and isinstance(st.value, _ast.Constant) and st.value.value is None:
+                prev = body[i - 1] if i else None
+                ok = (
+                    isinstance(prev, _ast.Assign)
+                    and isinstance(prev.targets[0], _ast.Subscript)
+                    and getattr(prev.targets[0].value, "id", None) == "d"
+                )
+                if not ok:
+                    bad.append(st.lineno)
+            for f in ("body", "orelse", "finalbody"):
+                inner = getattr(st, f, None)
+                if isinstance(inner, list):
+                    bad += _records_reason(inner)
+        return bad
+
+    _bad = _records_reason(_fn.body)
+    check(
+        "every embedding_scores fallback records why",
+        not _bad,
+        f"`return None` with no preceding d[...] at line(s) {_bad}",
+    )
+
+    # ...and the success path must say so too, or a successful episode reads as `unknown`.
+    _last = _fn.body[-1]
+    check(
+        "the success path records reason='ok'",
+        any(
+            isinstance(n, _ast.Assign)
+            and isinstance(n.targets[0], _ast.Subscript)
+            and getattr(n.targets[0].value, "id", None) == "d"
+            and isinstance(n.value, _ast.Constant)
+            and n.value.value == "ok"
+            for n in _ast.walk(_fn)
+        ),
+    )
+
+# The caller must label the decision by the METHOD actually used, and `scores is None` is the
+# blind one. If this ever reads `scores is not None` on the energy side, every unverified episode
+# would be counted as verified -- the exact inversion the record exists to prevent.
+_src = open(_EPISODE).read()
+# Whitespace-normalised: ruff rewraps long lines, and a formatter must not be able to break a
+# check. The CLAIM is the conditional's direction, not its line breaks.
+_flat = " ".join(_src.split())
+check(
+    "decided_by is derived from whether the embedding scorer produced scores",
+    'perm_diag["decided_by"] = ( "embedding" if scores is not None else "energy" )'.replace("( ", "").replace(" )", "")
+    in _flat.replace("( ", "").replace(" )", ""),
+    "the energy side must be the `else` -- inverting it would count every unverified episode as verified",
+)
+check(
+    "summary.json carries the channel_assignment block",
+    '"channel_assignment": channel_assignment,' in _src,
+)
+check(
+    "...and it counts the episodes decided by the blind scorer",
+    '"decided_by_energy"' in _src and '"decided_by_embedding"' in _src,
+)
+check(
+    "...and records centroid_cos, which is how a non-separating separator shows up",
+    '"centroid_cos"' in _src and 'd["centroid_cos"]' in _src,
+)
+
 print()
 if fails:
     print(f"FAILED: {len(fails)} check(s): {fails}")
