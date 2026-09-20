@@ -24,8 +24,12 @@ SIL-free and the decode carries SIL, so the job scores both pairings; the like-f
 per the review and kept: trigram anchors reproduce the decipherment's −3.20 / −3.99 / −4.63, BOS
 with no end-of-sentence term in every scorer, identical token denominators, the priorshuf
 uniform window (`SampleLinesJob.orN768ARKwlt`) for every prior.
-NEXT: watcher verdict on the v2 job; read the pre-registered table (Design, "Step 0", with the
-amendments) off `output/prior_gap.json` via the extractor; then decide between the 4-gram
+Step 0 finished (5 min) and is read in Results; audit dispatched
+(`reports/audit_prior_gap_2026-09-20.md` when it lands); Step 0b (neural phone LM row) is
+pre-registered in Design and its implementer dispatched.
+NEXT: audit verdict on the Step 0 readings and the decision-table amendment; Step 0b job (train
+the phone LM on GPU, rescore in a new PriorGapAnalysisJob instance) launched under the prior_gap
+config's manager; read its rule; then decide between the 4-gram
 importance-sampled correction and the lexicon score-function term and write that arm's design and
 gate here before any node is funded.
 
@@ -113,9 +117,32 @@ segment (34 of the 39 phones are single-phone words), so the prediction's last c
 by: the nulls' segmentable fraction and lexicon score fall well below gold's. (iv) Per-utterance
 scores are dumped so any subset read is recoverable; every banked aggregate is rendered.
 
+### Step 0b: does a neural phone LM learn the lexicon? (pre-registered 2026-09-20, after Step 0's numbers, before the job was written)
+
+Question: can a scorer that runs on a GPU batch of sampled strings inside a training step carry
+the lexicon-level discrimination of Step 0? Candidate: a small causal transformer phone LM (about
+4 layers, width 256, 5 to 8 M parameters, seed 0) trained on the same priorshuf uniform window as
+every other prior, with the window's own SIL convention, held-out perplexity reported on the
+window's held lines; scored in the same PriorGapAnalysisJob (a new job instance with the neural
+LM as an added input; every existing row recomputed unchanged) with the same conventions
+(sentence-start context, no end-of-sentence term, same denominators, both pairings). Two rows:
+the neural LM alone, and the neural LM's gap read against the lexicon ESCAPE row. Read rule,
+fixed now: the neural LM is an adequate lexical scorer if its like-for-like gap exceeds the
+trigram's by at least two thirds of the lexicon ESCAPE row's excess (i.e. gap >= 1.39 + 0.62 =
+2.01) and its strict-subset behaviour tracks the lexicon (gap on the strict subset within 0.3 of
+the lexicon STRICT row); if it lands between the 4-gram and that bar it is a partial proxy and
+the arm's design must say what it loses; if it does not beat the 4-gram, a neural phone LM is not
+the scorer and the exact lexicon must be made batchable (a GPU trie DP) before an arm exists.
+Prediction: the neural LM lands near the lexicon (a phone LM with a receptive field of tens of
+tokens learns word forms; the null strings will score as far below as under the lexicon).
+
 ### Training arm
 
-Written after Step 0; gate G4a.7 to be defined then, from the budget round's thresholds.
+Written after Step 0b; gate G4a.7 to be defined then, from the budget round's thresholds. Sketch
+fixed by Step 0: a score-function term on strings sampled from the lattice posterior
+(forward-filtering backward-sampling in the trigram DP), reward log p_strong(y) − log p_3(y)
+with a per-utterance mean baseline, active from sub-epoch 1, within-group reward variance logged
+as the engagement monitor; the strong scorer is what Step 0b selects.
 
 ## Gate
 
@@ -123,4 +150,49 @@ G4a.7: not yet defined (see Design, "Training arm"). Step 0 has a read rule, not
 
 ## Results
 
-(none yet)
+### Step 0: prior gap on dev-other, ctrl_50 ep10 (2026-09-20; job `PriorGapAnalysisJob.2RkbKYl0v1XK`, audit pending)
+
+2864 utterances, nats per token, gold-minus-private paired gap; like-for-like pairing (gold and
+the SIL-dropped decode) primary; SIL-kept pairing (the string the prior sees in training)
+disclosed. Spread = |even-half − odd-half|.
+
+| prior | gold | private | gap like-for-like | spread | gap SIL-kept | IS log-weight sd per utt (gold / private) | discriminates more than trigram |
+|---|---|---|---|---|---|---|---|
+| unigram WB (live) | −3.50 | −3.67 | 0.16 | 0.002 | 0.07 | – | no |
+| bigram WB (live) | −3.25 | −3.78 | 0.52 | 0.005 | −0.01 | – | no |
+| trigram WB (live) | −3.20 | −4.63 | 1.39 | 0.017 | 0.49 | – | reference |
+| 4-gram KenLM MKN | −2.79 | −4.50 | 1.67 | 0.008 | 1.18 | 12.8 / 17.9 | yes |
+| 6-gram KenLM MKN | −2.57 | −4.26 | 1.62 | 0.014 | 1.25 | 22.8 / 20.0 | yes (below the 4-gram) |
+| lexicon STRICT (subset n = 609) | −2.15 | −4.66 | 2.51 (trigram on same subset 1.09) | 0.060 | 2.23 | 31.0 / 20.9 | yes (subset, disclosed) |
+| lexicon ESCAPE (full set) | −2.19 | −4.46 | 2.32 | 0.016 | 2.18 | 31.7 / 24.3 | yes |
+
+Segmentable under the strict lexicon: gold 0.876, private 0.237, gold null 0.024, private null
+0.011. Null strings score 2 to 4 nats per token below their originals under every prior of order
+2 and above.
+
+Readings (pending audit):
+1. The lexicon is where the private code is identified. The lexicon gap is 0.93 nats per token
+   above the trigram's, against 0.27 for the 4-gram; three quarters of the private strings have no
+   segmentation into vocabulary words at all, against one eighth of gold. Prediction held on the
+   lexicon and on the nulls; the 4-gram gap grew more than "little" (about 20 %), with the caveat
+   that the 4-gram and trigram rows use different smoothing estimators (KenLM modified Kneser-Ney
+   vs live Witten-Bell), so part of that increase may be smoothing, a point given to the audit.
+2. Phone n-gram order is not a proxy for lexical structure: the 6-gram discriminates less than the
+   4-gram. The pre-registered "6/8-gram proxy" idea is dropped; a training reward has to score the
+   lexicon itself or something that has learned it.
+3. The importance-sampled 4-gram correction is closed: the per-utterance log-weight sd is 13 to 18
+   nats against the pre-registered 3-nat ceiling (and 24 to 32 for the lexicon). Only a
+   score-function estimator can carry a lexicalised prior into training.
+
+Decision table outcome as printed: no row fires (the 4-gram discriminates more, so the lexicon
+clause's "but the 4-gram does not" is unmet, while the 4-gram's own estimability condition fails).
+Amendment, made after the numbers and recorded as such: the table did not anticipate "4-gram
+discriminates more but is not estimable"; by the table's own logic the 4-gram route is conditioned
+on estimability and is closed, and the lexicon row discriminates more, so the outcome is the
+lexicon score-function term. The amended reading stands only if the audit confirms readings 1-3.
+
+Consequence for the training arm: the reward must be a lexicon-level score that can be evaluated
+on sampled strings inside a training step. The exact trie Viterbi costs about 1e5 extensions per
+utterance in Python and is not step-rate compatible; Step 0b measures whether a small neural
+phone-level LM trained on the same text learns the lexical constraint (its gap row against the
+lexicon's 2.32) before the arm is designed around it.
