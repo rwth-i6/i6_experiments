@@ -248,4 +248,45 @@ amendments 1-8 applied above and in the implementer's brief).
 
 ## Results
 
-(none yet)
+### Private-code analysis of ctrl_50 (banked 2026-09-20; audit `reports/audit_private_code_2026-09-20.md`, DONE_WITH_CONCERNS)
+
+Jobs: State pointers. dev-other, 2864 utterances; dev-clean tells the same story (audit item 1).
+Audit corrections applied to the numbers below: the part A many-to-one row omitted run collapse
+(banked 0.874 at ep10; recomputed 0.855, code fix pending re-bank); the with-drop oracle is an
+upper bound under the fixed alignment and has no null; the E5 permutation null is bijections
+against a many-to-one statistic and the identity labeling itself clears it, so the E5 rule as
+pre-registered decides nothing (fix pending: matched many-to-one null plus the identity row).
+
+| ctrl_50 dev-other | ep1 | ep4 | ep10 |
+|---|---|---|---|
+| PER as scored | 0.855 | 0.869 | 0.897 |
+| PER, best many-to-one relabeling (label-using; audit-corrected at ep10) | 0.820 | 0.827 | 0.855 |
+| PER, one-to-one-with-drop (label-using upper bound) | 0.822 | 0.862 | 0.841 |
+| PER, label-free decipherment (part E, held half) | - | 0.842 | 0.855 |
+| NMI(symbol, phone), aligned tokens | 0.115 | 0.063 | 0.056 |
+| NMI(symbol, phone), frames | 0.087 | 0.057 | 0.256 |
+| frame error, best many-to-one (identity 0.92 throughout) | 0.898 | 0.869 | 0.699 |
+| NMI(symbol, unit) (gold phone vs unit: 0.461) | 0.148 | 0.092 | 0.377 |
+| NMI(symbol, speaker) (gold: 0.0035) | 0.018 | 0.041 | 0.0065 |
+| trigram log p per token, identity labeling, SIL kept (gold, no SIL: -3.20; identity SIL-free at ep10: -4.62) | - | -7.43 | -3.98 |
+| symbol-usage entropy, tokens, bits (of 40) | 2.82 | 4.56 | 4.99 |
+
+Readings, against the pre-registered ones:
+- Not a relabeling of phones at the token level: every label-using relabeling stays in the band
+  (0.82-0.86) and token NMI falls during training. Deciphering "can be done" only up to that
+  ceiling: the label-free cipher matches the label-using oracles (0.855 vs 0.841-0.855 at ep10),
+  so no information is lost by the absence of labels, and there is nothing phone-like to recover.
+  The output-layer permutation repair is therefore not a lever.
+- Not a speaker code (NMI with speaker at the gold level by ep10). The invariance arms' premise
+  (a nuisance partition that specaug / statistics swap would break) is not supported by this
+  table; they remain the empirical test.
+- Supported (audit item 5d): a frame-level acoustic code whose token sequence is not phone-like.
+  Frame-level phone information rises to 1.3 of 5 bits (frame error 0.70 after the best
+  many-to-one map, floor about 0.93) while token-level information falls; unit tracking rises with
+  it but stays below the gold phones' (0.377 vs 0.461), so "coarse clustering of the reverse
+  units" as written fails.
+- Withdrawn (audit items 3 and 6): the reading "the labeling is already near the prior-best, so
+  the prior is satisfied by a non-phone sequence (identifiability, not stuck optimization)". What
+  the table shows is only that the identity labeling's prior score rose from -7.43 to -3.98
+  between ep4 and ep10 (gold -3.20, like-for-like SIL-free identity -4.62); whether a labeling the
+  prior prefers exists is undecided until the matched null is banked.
