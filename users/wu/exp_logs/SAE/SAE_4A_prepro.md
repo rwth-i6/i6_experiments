@@ -5,8 +5,9 @@
 Phase opened 2026-09-20 on the user's directive ("do what wav2vec-U 2.0 actually does"; the
 feature-masking convention was never approved). Nothing built yet. Code survey of the current
 audio pipeline running (`reports/survey_audio_pipeline_2026-09-20.md`); the implementer spec, the
-design review and the gate thresholds follow it. Sub-epoch count N for this arm comes from the
-budget round's label-free curves (`SAE_4A_budget.md`, decision recorded there and in `SAE_ref.md`).
+design review and the gate thresholds follow it. N = 20 sub-epochs (decided from the budget
+round's label-free curves, `SAE_4A_budget.md` "Sub-epoch count"): pack of prepro_20 + ctrl_20,
+about 6.7 h on one node.
 NEXT: survey -> spec (trimmed audio job, feature extraction on trimmed audio, units, HDFs, control
 at the same N) -> design review -> implementer -> launch.
 

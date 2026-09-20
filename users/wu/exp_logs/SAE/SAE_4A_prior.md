@@ -33,11 +33,17 @@ falsifier). The scorer slot is filled by Step 0b's rule. Code survey banked
 Open user question (SIL vs rVAD): prior text has 13.8 % SIL tokens (sil_prob 0.5, surround;
 the local wav2vec-U pipeline uses 0.25 with rVAD); the gold SIL share on retained frames is being
 computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed change, own arm.
-NEXT: launch the Step 0b rerun (two instances) when the implementer hands it back, arm its
-watcher; in the same config, the CPU probe (i) of the falsifier and the word-unigram / bigram
-ESCAPE rows (one implementer, after the rerun implementer is done: same files); read the rerun
-against the Step 0b rule, fill the scorer slot; then the blank-free FFBS + probe (ii) implementer;
-fund no node before the falsifier's 95 % rule and the budget pack's resume are read.
+User directive 2026-09-20 (`SAE.md`): reach the Step 0b gate and launch the strong-scorer arm,
+autonomously. N = 20 sub-epochs for the arm (`SAE_4A_budget.md` "Sub-epoch count"; replaces the
+N = 50 cost line above: 3.3 h per arm, no resume path needed, ctrl_20 in the same pack). In
+flight: instance (c) of the phone LM (25 M params, 10 M-line sample, held lines excluded;
+`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`); falsifier probe (i) +
+word-unigram / bigram rows (`config/sae_4a_prior_probe.py`); blank-free FFBS sampler + probe (ii)
+job in new modules (`config/sae_4a_sf_probe.py`, `reports/impl_blankfree_sampler_2026-09-20.md`).
+NEXT: launch each as it hands back (executor, own manager, arm watcher); read the rerun and (c)
+against the Step 0b rule; read probes (i) and (ii); then the train-step wiring of the sf and soft
+terms (after tonight's budget-pack resume, since the blank-free modules are re-imported then) and
+the pack sf_20 / soft_20 / ctrl_20.
 
 ## Objective
 
