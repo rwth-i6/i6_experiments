@@ -8,9 +8,12 @@ constraint stand). Gold enters evaluation only.
 ## State
 
 Steps 1-3, priorshuf, 5 and 5b DONE, audited, every gate FAIL (Results); their managers exited.
-No live manager or watcher (step 4's manager 885934 exited after all seven arms finished; its pid
-file is stale). Standing user directions (2026-09-19): continue autonomously, no GAN component in
-new arms, every n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
+Live: E4 manager pid 1721166 (`config/sae_4a_attrib_step6_e4.py`, one job
+`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`, SLURM 1902191, booster;
+`reports/sae_attrib_step6_e4_launch2_2026-09-20.md`). Re-arm first on resume if dead:
+`bash ~/.claude/skills/sis/sis_watch.sh 1721166 config/sae_4a_attrib_step6_e4.py 300`.
+Standing user directions (2026-09-19): continue autonomously, no GAN component in new arms, every
+n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
 
 Step 4 DONE 2026-09-20, audited: H1 and H2 both FAIL, residual weight-dependent clause; three of
 six joint-phi arms collapsed mid-training, the rest sit at control (Results, "Step 4 result").
@@ -18,17 +21,15 @@ The phase decision rule fires on neither branch; nothing further is funded for s
 
 Step 6 (user-approved plan, pre-registered in Results): item 1 DONE, branch (C), item 3 NOT funded;
 item 4 DONE; both audited (Results). Item 2 (E4 arm `odm3_lam1_perm`,
-`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`, config `config/sae_4a_attrib_step6_e4.py`) BLOCKED on
-a user action: its first manager ran without the venv, create_files died (black missing), the job
-is `interrupted_not_resumable` with no run and no checkpoint; clearing it is classifier-blocked
-for orchestrator and executor. User line from the setup dir:
-`rm -rf work/speech_llm/sae/emc/blankfree_train_jobs/BoundedBlankfreeTrainingJob.VYBJTM9X2niT`,
-then executor restarts the manager under the venv as in
-`reports/sae_attrib_step6_est_launch_2026-09-20.md` (~45 min run).
-NEXT (E4): read KL3 at ep4 and sub-epochs 2-4 from learning_rates by the item 2 rule (<= 0.55 /
->= 1.2 / between); ALSO a checkpoint-level KL3 of the perm arm via `OdmCoverageBatchEvalJob` (new
-config on VYBJTM9X2niT ep4) against 0.83, since the EMA read is biased low (item 1); then the
-step 6 synthesis.
+`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`) RUNNING since 2026-09-20 09:37 (~45 min) after the
+user cleared the dir of the first, venv-less attempt. In parallel an implementer writes the
+checkpoint-level KL3 read of the perm arm (`config_sae_4a_attrib_step6_est_perm_v1`, same
+`OdmCoverageBatchEvalJob`, permutation applied at eval as in training; report
+`reports/sae_attrib_step6_est_perm_impl_2026-09-20.md`), to be code-reviewed and launched once
+VYBJTM9X2niT ep4 exists.
+NEXT (E4): on the watcher verdict, executor confirms the finish; read KL3 at ep4 and sub-epochs
+2-4 from learning_rates by the item 2 rule (<= 0.55 / >= 1.2 / between); then the checkpoint-level
+KL3 against 0.83 (item 1 showed the EMA read biased low); then the step 6 synthesis.
 Pending user decision: the 16-sub-epoch budget arm (Results, hyperparameter review).
 
 ## Question
