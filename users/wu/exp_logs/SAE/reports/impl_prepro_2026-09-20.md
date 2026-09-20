@@ -452,3 +452,20 @@ run = py
 Not verified: that the null job *runs* — it needs a GPU and the w2v2 checkpoint. Its encoder,
 quantizer and unit-store calls are copied verbatim from `TrimmedAudioBlankfreeDataJob.run`, which
 is executing successfully on dev-other right now, but that is an argument, not a result.
+
+### Amendment 1b, 2026-09-21 (commit `dbfe6fb`): `random_seed_offset` 1 -> 1000
+
+Coordinator's constant change, to remove the shift caveat above: at 1 the two arms shared four of
+their five full-epoch shuffles; at 1000 the order-seeds are 1001..1005 against 1..5.
+
+* **Measured**: no sub-epoch of `ctrl_20_s1` (k = 1..20) equals any sub-epoch of `ctrl_20`
+  (f = 1..24) — the caveat is gone. Sub-epoch 1 shares **1,842 of `ctrl_20`'s 7,066** utterances
+  (0.26, against the 1/4 a re-drawn permutation gives by chance; sizes 7,066 vs 7,053). The union
+  over any full epoch is still the identical 28,254-sequence set.
+* **Pack** `4TheuktgNpkQ` -> **`5EIGJJ1MkcO9`**. `ctrl_20` vs `ctrl_20_s1` diff = **8 lines**
+  (flat-init path, `random_seed = 1`, `"random_seed_offset": 1000`); `ctrl_20` vs `prepro_20` = 60.
+* **Census** vs commit `1b25144`: 134 -> 134 jobs, 12 -> 12 on disk, **0 banked hashes lost**;
+  121 removed / 121 added, all the pack's own downstream. Null `WnGSatwxUEYY` and the data jobs
+  `qb4o6dlW3urA` / `hxIx0ItTvx15` / `0IOLr6hZnYWj` unchanged.
+* **Checks**: `test_blankfree_budget_config` pass, `test_blankfree_pack` pass; the four shims load
+  (pack 133/236, null 5/2, data 5/4, devother 3/2).
