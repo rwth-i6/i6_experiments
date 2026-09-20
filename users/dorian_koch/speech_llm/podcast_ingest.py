@@ -1229,6 +1229,17 @@ class PodcastEpisodeIngest(Job):
         self.code_version = int(code_version)
         self.duplexchat_commit = duplexchat_commit
         self.env_ffmpeg_path = env_ffmpeg_path
+        # 🔴 Refuse a HALF-configured ASR. `asr_backend` is hashed once set, but the worker
+        # only runs ASR when BOTH this and the venv are present -- so `asr_backend="faster_whisper"`
+        # without `asr_venv_python` re-hashes every shard (a full ~247 GPU-h re-run) and produces a
+        # corpus with `asr_json` NULL in every row: exactly the untrainable corpus this whole plan
+        # exists to eliminate, with no error at graph build or at run time. Cheap to hit while
+        # wiring a recipe, and invisible until a training run pad-collapses weeks later.
+        if bool(asr_backend) != bool(asr_venv_python):
+            raise ValueError(
+                f"asr_backend={asr_backend!r} and asr_venv_python={asr_venv_python!r} must be set "
+                "together: one without the other silently ingests a corpus with no alignments."
+            )
         self.asr_venv_python = asr_venv_python
         self.asr_backend = asr_backend
         self.asr_model = asr_model

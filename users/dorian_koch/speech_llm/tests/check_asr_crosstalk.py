@@ -188,6 +188,59 @@ def main():
     assert not (S.frac_within([], 1.0) >= 0.70), "nan must FAIL the concentration gate"
     ok += 1
 
+    # ----------------------------------------- [9] OVERLAP is kept; only BOUNDARY ties are dropped
+    # The filter's first version dropped every word spoken during simultaneous speech, because its
+    # tie test `other <= d_mine` reads `0 <= 0` when both speakers are active. On the real bake-off
+    # transcripts that was ~40% of everything it removed (173/436 on ch0, 131/427 on ch1) -- and
+    # overlap is the single most valuable thing a duplex corpus holds, the reason `overlap_sec` is
+    # stored at all. Not a crash; just a quietly poorer corpus, invisible once the shards exist.
+    ov_turns = [
+        turn("A", 10.0, 20.0),
+        turn("B", 14.0, 24.0),  # 14-20 s: BOTH speaking
+    ]
+    w_ov = w("simultaneous", 16.0, 16.4)  # midpoint 16.2 -- inside both turns
+    kept_a, _ = A.filter_words_by_turns([w_ov], ov_turns, "A")
+    kept_b, _ = A.filter_words_by_turns([w_ov], ov_turns, "B")
+    assert kept_a and kept_b, (
+        "a word spoken during overlap must survive on ITS OWN channel -- in production the two "
+        f"channels carry different transcripts, so this is not duplication. got A={kept_a} B={kept_b}"
+    )
+    ok += 1
+
+    # Non-vacuity: the OLD rule must genuinely have failed this fixture, or the check proves nothing.
+    _by = A._spans_by_speaker(ov_turns)
+    _starts = {k: [s for s, _ in v] for k, v in _by.items()}
+    _mid = 16.2
+    _d_mine = A._distance_to_spans(_mid, _by["A"], _starts["A"])
+    _old_would_drop = any(A._distance_to_spans(_mid, _by[o], _starts[o]) <= _d_mine for o in _by if o != "A")
+    assert _d_mine == 0.0, f"fixture is wrong: the word must be INSIDE A's turn, d={_d_mine}"
+    assert _old_would_drop, (
+        "non-vacuous: the previous nearest-speaker-with-tie-drop rule must DROP this word, "
+        "otherwise [9] would pass against the very implementation it exists to reject"
+    )
+    ok += 1
+
+    # ...and the boundary case must STILL be dropped from both. That is the original bug (a word
+    # straddling a turn edge written into the assistant stream AND the user stream) and relaxing
+    # overlap must not have relaxed it.
+    bd_turns = [turn("A", 10.0, 20.0), turn("B", 20.1, 30.0)]
+    w_bd = w("straddle", 20.0, 20.1)  # midpoint 20.05 -- outside both, within pad of both
+    kb_a, _ = A.filter_words_by_turns([w_bd], bd_turns, "A")
+    kb_b, _ = A.filter_words_by_turns([w_bd], bd_turns, "B")
+    assert not kb_a and not kb_b, f"an equidistant BOUNDARY word must go to neither channel, got A={kb_a} B={kb_b}"
+    ok += 1
+
+    # The breakdown must be reported, since it is what decomposes a drop rate into "crosstalk" vs
+    # "overlap" vs "someone else was closer" -- the question we could not answer before it existed.
+    st9 = {}
+    mixed = [w_ov, w_bd, w("far_away", 40.0, 40.5)]
+    kept9, drop9 = A.filter_words_by_turns(mixed, ov_turns + [turn("B", 20.1, 30.0)], "A", stats=st9)
+    assert set(st9) == {"outside_own_turns", "other_speaker_closer", "overlap_kept"}, st9
+    assert st9["overlap_kept"] >= 1, st9
+    assert st9["outside_own_turns"] >= 1, st9
+    assert drop9 == len(mixed) - len(kept9), (drop9, len(mixed), len(kept9))
+    ok += 1
+
     # WER must count, and rare-word classification must separate content from function words
     st, _ = S.wer_ops(["the", "tony", "blair"], ["the", "tommy", "blair"])
     assert st["sub"] == 1 and st["n_ref"] == 3, st
