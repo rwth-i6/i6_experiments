@@ -2,43 +2,30 @@
 
 ## State
 
-Phase opened 2026-09-20 on the user's approval ("go ahead. approved."), replacing the
-context-dependent reverse model (`SAE_4A_cdrev.md`, deferred without limit by the user the same
-day, nothing built). Step 0 is a CPU diagnostic, no node: the gold-minus-private-code prior gap as
-a function of prior order and of lexicalisation, on dev-other. Job built (`sae/emc/prior_gap.py`,
-`PriorGapAnalysisJob.l0p0srBryKrs`, config `config/sae_4a_prior_gap.py`, speech-llm commit
-1431dbf; `reports/impl_prior_gap_2026-09-20.md`), launched under its own manager (pid 2571413,
-`log/sae_4a_prior_gap.manager.20260920T185700Z.log`, Slurm 1916086; watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 2571413 config/sae_4a_prior_gap.py 300`, re-arm first
-after any session resume, together with the budget and infomax watchers named in their phase
-files). The v1 job failed before producing numbers (KenLM compiled with max order 6, the 8-gram
-build aborted; manager exited, watcher done) and the code review
-(`reports/review_prior_gap_2026-09-20.md`) found the lexicon row biased (see Design, "Step 0",
-amendments), so v2 runs under a new hash (`PriorGapAnalysisJob.2RkbKYl0v1XK`, speech-llm commit
-291dab1; orders 4 and 6 only, two lexicon conventions, per-utterance dump): manager pid 2790865,
-`log/sae_4a_prior_gap.manager.20260920T192919Z.log`, Slurm 1916711; watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 2790865 config/sae_4a_prior_gap.py 300` (re-arm first
-after any session resume). The v1 pointers above are superseded. Convention fixed before the numbers: the gold reference is
-SIL-free and the decode carries SIL, so the job scores both pairings; the like-for-like pairing
-(SIL dropped from the decode) is primary and the SIL-kept pairing is disclosed beside it. Sound
-per the review and kept: trigram anchors reproduce the decipherment's −3.20 / −3.99 / −4.63, BOS
-with no end-of-sentence term in every scorer, identical token denominators, the priorshuf
-uniform window (`SampleLinesJob.orN768ARKwlt`) for every prior.
-Step 0 finished (5 min), read in Results and audited (confirmed). Step 0b is running:
-`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB` (GPU, 4 h cap, Slurm 1918176) then
-`PriorGapAnalysisJob.Gct95xZHe0zt` (the neural row and the held-line perplexity benchmark
-against the trigram / 4-gram / 6-gram, user request), speech-llm commits 739d9ed, e971603,
-`reports/impl_neural_phone_lm_2026-09-20.md`; manager pid 3231512,
+Phase opened 2026-09-20 on the user's approval, replacing the context-dependent reverse model
+(`SAE_4A_cdrev.md`, deferred without limit by the user the same day, nothing built).
+Step 0 (CPU prior-gap diagnostic, `PriorGapAnalysisJob.2RkbKYl0v1XK`, speech-llm 291dab1,
+`reports/impl_prior_gap_2026-09-20.md`, `reports/review_prior_gap_2026-09-20.md`) is finished,
+read in Results and audited (CONFIRMED). Its v1 (`.l0p0srBryKrs`, 1431dbf) failed on the KenLM
+order cap and is superseded. Conventions fixed before the numbers stand: like-for-like pairing
+(SIL dropped from the decode) primary, SIL-kept disclosed; BOS, no end-of-sentence term, identical
+denominators, every prior from the priorshuf uniform window (`SampleLinesJob.orN768ARKwlt`).
+Step 0b is running: `NeuralPhoneLmTrainJob.Iv6P6YVPNWmB` (GPU, 4 h cap, Slurm 1918176) then
+`PriorGapAnalysisJob.Gct95xZHe0zt` (neural row + held-line perplexity benchmark), speech-llm
+739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`; code review
+`reports/review_neural_phone_lm_2026-09-20.md`. Manager pid 3231512,
 `log/sae_4a_prior_gap.manager.20260920T202826Z.log`; watcher
 `bash ~/.claude/skills/sis/sis_watch.sh 3231512 config/sae_4a_prior_gap.py 600` (re-arm first
-after any resume, with the budget and infomax watchers). Code review of the LM training and
-scorer (leakage, causal mask, convention parity) running in parallel
-(`reports/review_neural_phone_lm_2026-09-20.md`); a BLOCKED verdict reruns under a version bump.
-The code survey for the training arm is banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
-NEXT: review verdict; watcher verdict on Step 0b; read the Step 0b rule and the perplexity
-benchmark; then decide between the 4-gram
-importance-sampled correction and the lexicon score-function term and write that arm's design and
-gate here before any node is funded.
+after any resume, with the budget and infomax watchers).
+Training-arm design and G4a.7 are written (Design "Training arm", Gate); the scorer slot is
+filled by Step 0b's rule. Code survey banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
+Open user question (SIL vs rVAD): prior text has 13.8 % SIL tokens (sil_prob 0.5, surround;
+the local wav2vec-U pipeline uses 0.25 with rVAD); the gold SIL share on retained frames is being
+computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed change, own arm.
+NEXT: watcher verdict on Step 0b; read the neural row against the Step 0b rule and the perplexity
+benchmark (trigram 9.561 expected); fill the scorer slot; design review of the training arm; then
+implementer (blank-free FFBS, fixed-string marginal, LM loading via hashed model_args, soft-input
+term) before any node is funded.
 
 ## Objective
 
@@ -159,17 +146,70 @@ selection reads the same held lines the benchmark reports, so the neural held-ou
 best-of-at-most-3-epochs number on its own report set; the bias is below 1 % in perplexity and
 the number is labelled so, no separate split.
 
-### Training arm
+### Training arm (pre-registered 2026-09-20, before Step 0b's read; the scorer slot is filled by
+Step 0b's rule, nothing else changes with it)
 
-Written after Step 0b; gate G4a.7 to be defined then, from the budget round's thresholds. Sketch
-fixed by Step 0: a score-function term on strings sampled from the lattice posterior
-(forward-filtering backward-sampling in the trigram DP), reward log p_strong(y) − log p_3(y)
-with a per-utterance mean baseline, active from sub-epoch 1, within-group reward variance logged
-as the engagement monitor; the strong scorer is what Step 0b selects.
+Mechanism under test: Step 0 showed the trigram inside the lattice prices the private code only
+1.39 nats/token below gold while a lexicalised prior prices it 2.32 below (Results). A strong,
+non-decomposable scorer p_strong (the Step 0b neural LM if it PASSES, else the lexicon trie DP on
+GPU) cannot sit in the DP, so it enters as a correction term outside it:
+- **Score-function arm `sf_50`.** Per utterance, draw G = 8 strings y_1..y_G from the lattice
+  posterior q_theta(y | x) by forward-filtering backward-sampling in the blank-free trigram DP,
+  vectorised over G inside the existing checkpointed backward recomputation (survey s1: same
+  table, `cx`, `seg_pad`; the CTC/stride-1 `sample_joint_paths` is NOT reused). Reward
+  r(y) = log p_strong(y) − log p_3(y), summed over the string (never per-token: the per-token mean
+  pays for length, `reward.py:115-146`; both LMs score the same y so the length cost cancels in the
+  difference). Advantage A_g = r(y_g) − mean_G r (centre only, no std division). Term
+  lam_sf · mean_G[ A_g · log q_theta(y_g | x) ], log q_theta(y | x) = log A_tau(y) − log Z from the
+  fixed-string blank-free marginal (to be written; the CTC `fixed_phone_log_marginals` is the
+  template), differentiable through theta and phi. Active from sub-epoch 1 with the budget
+  schedule (`blankfree_budget_jobs`), lam_sf chosen so the term's gradient norm at step 1 is
+  0.1–0.3 of the l_tau gradient norm (measured in the 100-step probe, recorded as a choice).
+- **Soft-input arm `soft_50`** (the user's exploration concern, 2026-09-20: sampling may never
+  leave the mode). The wav2vec-U route: argmax segmentation, soft symbol vectors (the per-segment
+  posterior over 40 symbols under the lattice), fed to the same frozen p_strong through its
+  embedding matrix; term lam_soft · [log p_strong(soft y) − log p_3(soft y)], dense gradient, no
+  sampling. Caveat pre-registered: p_strong was trained on one-hot strings; a gain here may be an
+  embedding artefact, so the arm is read only together with sf_50 and the derangement gap.
+- Control: ctrl_50 (budget round, banked; same bed, schedule and step count). Seeds n = 1; a PASS
+  needs a second seed before it is claimed (standing rule).
+- Cost: one extra DP pass per step for sf_50 (~3 passes vs ~2 today, survey s7), so ~900 s per
+  sub-epoch and 50 sub-epochs = 12.5 h > the 11.5 h clamp: the arm runs on the resume path the
+  budget round is establishing, or it is read at the sub-epoch the clamp reaches, recorded before
+  launch. Memory: G = 8 strings x per-frame recomputation stays inside the 96 GiB node if the
+  sampled paths are drawn chunk-wise; measured at a long-S batch in the probe, never assumed.
+
+Monitors (per sub-epoch, label-free, in the training log):
+- `sf_reward_std_within`: std over G of r(y_g), median over utterances. The dead band: if it is
+  below 1.0 nats/utterance (about half a phone's lexicon price) for 5 consecutive sub-epochs after
+  the anneal, the term received no signal; the arm is read UNINFORMATIVE ("sampler does not
+  explore"), which is the user's concern made measurable, not a mechanism null.
+- `sf_unique_strings`: distinct strings among the G samples, mean over utterances (1.0 = mode
+  only); `sf_reward_mean`: the reward on the decode, i.e. log p_strong − log p_3 per utterance
+  (the label-free proxy for the prior gap: it should rise toward gold's value, +2.3 nats/token in
+  Step 0, if the term moves the code); expected phone rate; the rate FD check under its
+  existing tolerance with the term on (code-review pass condition, as in the cdrev review).
+- Disclosed label-using read at ep10 / ep25 / ep50 (nothing enters training or selection): the
+  Step 0 prior-gap table rerun on the arm's decode (`PriorGapAnalysisJob` with the new
+  private-code input), like-for-like pairing: the gap under p_strong should shrink from 2.0–2.3.
+
+Pre-registered prediction: sf_50 moves `sf_reward_mean` up within the first 10 sub-epochs while
+the code is still soft (frame NMI jumps between ep4 and ep10 in ctrl_50); if the code sharpens
+first, `sf_reward_std_within` collapses and the arm reads UNINFORMATIVE. soft_50 is expected to
+move the monitor regardless; whether it moves PER is the open question.
 
 ## Gate
 
-G4a.7: not yet defined (see Design, "Training arm"). Step 0 has a read rule, not a gate.
+**G4a.7** (per arm, dev-other, final sub-epoch or the clamp-reached sub-epoch recorded before
+launch; never best-PER over the kept set; same form as G4a.4): greedy PER < 0.50 AND emitted rate
+in [5.80, 14.49]/s; health: speaker-matched derangement gap > 0. Paired reads (PairedPerDeltaJob):
+sf_50 vs ctrl_50, soft_50 vs ctrl_50, sf_50 vs soft_50. Read at the same sub-epoch count as
+ctrl_50 (matched completion, not matched wall time). UNINFORMATIVE clause: the dead band above;
+an UNINFORMATIVE arm licenses "this sampler at this bed does not explore" and a larger G or a
+higher sampling temperature as the next arm, not "the prior lever fails". FAIL (PER >= 0.50 with
+the monitor engaged) licenses not funding the outside-the-DP correction further; a lexicon inside
+a new lattice is then the remaining route. Abort rule as G4a.4. A PASS is audited from a fresh
+context and needs a second seed. Step 0 and 0b have read rules, not gates.
 
 ## Results
 
