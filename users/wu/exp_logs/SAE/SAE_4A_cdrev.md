@@ -7,11 +7,16 @@ private-code analysis (`SAE_4A_infomax.md` Results) showed the budget control se
 confident frame-level acoustic code whose token sequence is not phone-like, and the training terms
 on a plateau from sub-epoch 12 (`SAE_4A_budget.md` Results). Nothing built or launched. Survey
 (`reports/survey_cdrev_2026-09-20.md`) and literature (`reports/lit_cdrev_2026-09-20.md`, against
-the hypothesis; see Literature) are in; Design is pre-registered; design review dispatched.
-NEXT: design review verdict; implementer (reverse head + lattice term + monitor + config, default-
-off); code review with the bit-identity tests and a 100-step memory / step-rate measurement;
-launch as one packed node; ep1 / ep4 / ep10 reads against ctrl_50 through the paired job;
-private-code table on cdrev_50 and cdrevci_50 at ep10.
+the hypothesis; see Literature) are in; Design is pre-registered; design review returned
+APPROVE_WITH_AMENDMENTS (`reports/design_review_cdrev_2026-09-20.md`, amendments applied below,
+see "Design review"). Implementer dispatched for the context head, lattice term, monitor twin,
+falsifier job and configs.
+NEXT: implementer report; code review with the bit-identity tests, the ctx_post consistency
+assert, rate_fd_check with context on, and a 100-step memory / step-rate measurement; launch the
+falsifier config first and read its pre-registered rule (Design, "Pre-launch falsifier"); only
+then launch the pack as one node; ep1 / ep4 / ep10 reads against ctrl_50 and cdrevci_50 through
+the paired job; private-code table on cdrev_50 and cdrevci_50 at ep10 and ep25 (bank ctrl_50's
+ep25 row first).
 
 ## Objective
 
@@ -82,23 +87,63 @@ bit-identity test (survey note e) must still pass. Memory at the operating point
 measured on the first 100 steps before the node is funded (efficiency rule); the lattice batch
 budget estimator does not know the new tensors and is re-checked, not extrapolated.
 
-Mechanism monitor, logged per sub-epoch: `ctx_gain = E_post[ C[h,k,s] - C[BOS,k,s] ]` in nats per
-emitted token (the BOS row of the same head is the context-free score, so this costs one slice):
-how much the previous phone improves the prediction of the boundary units. Engaged = gain
-> 0.05 by sub-epoch 10; a gain near zero throughout reads the arm UNINFORMATIVE.
+Mechanism monitor, logged per sub-epoch (amended by the design review; the original BOS-row form
+is struck because the BOS row is trained on one sentence-initial segment per utterance and is not
+a context-free reference): a monitor-only context-free twin head, same MLP without `emb_prev`,
+trained on the detached context posterior summed over `h` and never entering the lattice (one
+extra `[B,40,500]` logits and gather); `ctx_gain = E_post[ C_cd[h,k,s] - C_ci[k,s] ]` in nats per
+emitted token: how much the previous symbol improves the prediction of the boundary units under
+the arm's own code. Engaged = gain > 0.05 by sub-epoch 10 (0.05 is a choice; the falsifier's
+gain(gold) per token is recorded beside it); a gain near zero throughout reads the arm
+UNINFORMATIVE. Engagement is acoustic continuity across the arm's own boundaries, not evidence of
+coarticulation. In cdrevci_50 the same monitor must read near zero (both heads context-free).
+
+Pre-launch falsifier (design review amendment 1; a disclosed label-using diagnostic, its fitted
+models discarded, nothing from it enters any arm, checkpoint choice or selection). The
+Objective's quantity is the relative price of two codes under phi, and it can be measured before
+any node is funded: fit a context-free and a boundary-context reverse model (`reverse.fit`, the
+survey's fit path, same table shapes and eta as the arms) on the dev-other even utterances and
+score the odd ones, with y = (a) the gold phone strings and (b) ctrl_50's ep10 collapsed decode
+(the private code); repeat with the folds swapped. Report per y the held delta log-likelihood per
+frame and per token, CD minus CI = gain(y), for both fold directions. Pre-registered rule, in the
+job's docstring: the pack is funded only if gain(gold) - gain(private) > 0 in both fold
+directions by more than the two directions' spread |gain_fold1 - gain_fold2| of that difference.
+If gain(private) >= gain(gold), the context term prices the content-free code no higher than
+phones, the mechanism is refuted before spend, and the pack is not launched: recorded here and
+reported to the user, whose approval of the arm stands above this rule. The falsifier runs in its
+own config (`config/sae_4a_cdrev_falsifier.py`) before the pack config is started.
 
 Arms (one node, N = 50, one seed each unless stated; everything else ctrl_50):
 
 | arm | delta from ctrl_50 | question |
 |---|---|---|
 | cdrev_50 | boundary-context emission | the approved test |
-| cdrevci_50 | same head, `h` replaced by BOS for every segment | architecture control: the extra head without the context; the cdrev_50 vs cdrevci_50 paired delta is the context effect |
+| cdrevci_50 | same head, `h` index replaced by BOS for every segment (an index override, so the two arms differ in the `h` index tensor only) | architecture control: the extra head without the context; the cdrev_50 vs cdrevci_50 paired delta is the context effect |
 | cdrevodm_50 | cdrev_50 + the coverage term of odmprior_50 (lam_agg 0.009, order 3) | context on the coverage bed (user item 2 bed) |
 | cdrev_s2_50 | cdrev_50, second seed | the seed spread a PASS needs; also the n = 2 read of the null |
 
 Paired reads (`PairedPerDeltaJob`, registered per kept epoch): each arm vs ctrl_50; cdrev_50 vs
 cdrevci_50; cdrevodm_50 vs odmprior_50; cdrev_50 vs cdrev_s2_50. Private-code table on cdrev_50
-and cdrevci_50 at ep10 (dev-other), registered in the private-code config once the decodes exist.
+and cdrevci_50 at ep10 and ep25 (dev-other), registered in the private-code config once the
+decodes exist; ctrl_50's ep25 row is banked first (the ep10 frame NMI 0.057 -> 0.256 between ep4
+and ep10 tracks the end of the anneal and is a fragile single-checkpoint baseline).
+
+## Design review (2026-09-20, `reports/design_review_cdrev_2026-09-20.md`)
+
+APPROVE_WITH_AMENDMENTS. Not redundant with attribution: the reverse term carries content on this
+bed (attrib norev 0.936 vs 0.865 at ep4, `SAE_4A_attrib.md`), so the slack mechanism is live.
+Applied: (1) the pre-launch falsifier (Design); (2) the monitor twin head replacing the BOS row,
+and the Gate's "C / G share" form struck (about 2 / d_mean in any state, never near zero, so its
+UNINFORMATIVE clause could not fire); (3) private-code reads cdrev_50 vs cdrevci_50 primary,
+ctrl_50 second, at ep10 and ep25, the "reverse score up" clause replaced by a code-change
+signature; (4) the correctness list carried into the implementer brief (matmul-path context
+posterior from `src + suffix`, `expected_reverse` includes the context term, `C` in `dp_kwargs`
+and stacked in the finite-difference passes, the flag in `reverse_kwargs` for the derangement job,
+consistency assert, `None` short-circuit, `S_first2` by the same cumsum loop, expected memory
+about +4 GiB with autograd saves); (6) prediction wording. Declined: (5) a bidirectional boundary
+window (anticipatory coarticulation) in the cdrev_s2_50 slot; it is a second exactness surface in
+the lattice for a phase whose prediction is a null, and it is recorded as the follow-up if the
+falsifier passes and the carryover arm is null.
 
 ## Gate
 
@@ -108,25 +153,35 @@ PER < 0.50 AND greedy emitted rate in [5.80, 14.49]/s, health clause derangement
 against ctrl_50 at the same sub-epoch through the paired job. A PASS is audited from a fresh
 context and needs a second seed before it is claimed; a negative reads "no take-off in this seed".
 
+Pre-launch condition (design review amendment 1): the falsifier rule in Design passes; otherwise
+the pack is not launched and the refutation is recorded in Results.
+
 Early read at sub-epoch 10 (descriptive, no gate consequence): PER below the arm's own
 length-and-unigram chance null by more than 0.05 = band exit; the private-code table
-(`SAE_4A_infomax.md` "Private-code analysis", audited conventions) on the arm's ep10 decode, read
-against ctrl_50's ep10 row: token-level NMI(symbol, phone) up and frame-level NMI up = the context
-term moved the code toward phones; frame-level NMI down with the reverse score per frame up = the
-expressive decoder took over (the stated risk). Mechanism monitor: the context term's share of the
-reverse score, `mean over arcs of C / G` under the arc posterior, logged per sub-epoch; a share near
-zero throughout means the term never engaged and the arm reads UNINFORMATIVE, not FAIL.
+(`SAE_4A_infomax.md` "Private-code analysis", audited conventions) on the arm's ep10 and ep25
+decodes, read against cdrevci_50's row at the same sub-epoch first (same head architecture, the
+context is the only difference) and ctrl_50's second: token-level NMI(symbol, phone) up and
+frame-level NMI up = the context term moved the code toward phones; frame-level NMI(symbol, phone)
+and NMI(symbol, unit) both down with H(unit | symbol) up vs cdrevci_50 = the code changed and the
+expressive decoder took over (the stated risk, the Chorowski signature). Original clause struck
+by the design review: "frame-level NMI down with the reverse score per frame up" (the reverse
+score contains the context term and rises mechanically). Mechanism monitor: `ctx_gain` against
+the monitor-only twin head (Design); the original "share of the reverse score, C / G" form is
+struck (never near zero in any state); a gain near zero throughout means the term never engaged
+and the arm reads UNINFORMATIVE, not FAIL.
 
 Abort rule per arm: the budget round's (NaN or |surrogate| > 100; expected phone rate < 0.6 rho
 for 5 consecutive sub-epochs after the anneal).
 
-Pre-registered prediction (after the literature read, before the design review): the context head
-engages (ctx_gain > 0.05 nats per token by sub-epoch 10, coarticulation is real), but PER stays in
-the band at every kept checkpoint and the token-level NMI(symbol, phone) at ep10 is within 0.02 of
-ctrl_50's 0.056 in both cdrev arms; the cdrev_50 vs cdrevci_50 paired delta is within the seed
-spread (cdrev_50 vs cdrev_s2_50). If instead the frame-level NMI falls below ctrl_50's 0.256 while
-the reverse score per frame improves, the Chorowski mechanism (the decoder absorbs what the code
-used to carry) is the reading.
+Pre-registered prediction (after the literature read, wording amended by the design review before
+any launch): the context head engages (ctx_gain > 0.05 nats per token by sub-epoch 10; this is
+acoustic continuity across the arm's own boundaries, not coarticulation evidence), but PER stays
+in the band at every kept checkpoint and the token-level NMI(symbol, phone) at ep10 and ep25 is
+within 0.02 of cdrevci_50's in cdrev_50; the cdrev_50 vs cdrevci_50 paired PER delta is within the
+seed spread (cdrev_50 vs cdrev_s2_50). If instead the frame-level NMI and NMI(symbol, unit) fall
+below cdrevci_50's, the Chorowski mechanism (the decoder absorbs what the code used to carry) is
+the reading. What a null licenses: not funding fuller reverse context (the full `G[h,k,s,d]`
+table); the follow-ups in `SAE.md` (prior strength, K = 64 reverse units) stand.
 
 ## Results
 
