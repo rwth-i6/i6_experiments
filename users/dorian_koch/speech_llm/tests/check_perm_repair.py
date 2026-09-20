@@ -295,6 +295,26 @@ try:
 except ValueError:
     check("mismatched scores raise", True)
 
+# --------------------------------------------------- flip_spans must use the SCORER's window
+# Boundaries are placed at each window CENTRE. flip_spans hardcoded WINDOW_FRAMES//2, which is right
+# for the 20 s energy windows and WRONG for the 6 s windows the embedding scorer emits -- every seam
+# landed 7 s late, i.e. 7 s of audio swapped onto the wrong side of the boundary, silently. Found by
+# reading, before it ever ran in production.
+st_w = np.array([0, 0, 1, 1, 1, 0, 0], dtype=np.int64)
+starts_w = np.arange(len(st_w), dtype=np.int64) * HOP_FRAMES
+sp_big = flip_spans(starts_w, st_w, 10_000)
+sp_small = flip_spans(starts_w, st_w, 10_000, window_frames=75)  # 6 s at 12.5 Hz
+check("a shorter scorer window moves the seams", sp_big != sp_small, f"{sp_big} == {sp_small}")
+check(
+    "...by exactly the half-window difference",
+    sp_big and sp_small and (sp_big[0][0] - sp_small[0][0]) == (WINDOW_FRAMES // 2 - 75 // 2),
+    f"{sp_big} vs {sp_small}",
+)
+check(
+    "default is unchanged",
+    flip_spans(starts_w, st_w, 10_000) == flip_spans(starts_w, st_w, 10_000, window_frames=WINDOW_FRAMES),
+)
+
 # --------------------------------------------------- != 2 speakers
 # The separator emits exactly two tracks, so assignment is a binary flip and the Viterbi has two
 # states. Fewer than two speakers must be SKIPPED and SAID so -- silently returning unrepaired audio
