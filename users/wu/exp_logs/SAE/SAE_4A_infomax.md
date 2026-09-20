@@ -248,6 +248,17 @@ amendments 1-8 applied above and in the implementer's brief).
 
 ## Results
 
+### ctrl_50 band reference, registered reads (banked 2026-09-20; `PosteriorEntropyJob` / `SymbolUsageNullJob`, dev-other)
+
+| ctrl_50 | ep1 | ep4 | ep10 | ep25 |
+|---|---|---|---|---|
+| eval-mode entropy, nats per output frame | 3.04 | 2.41 | 0.38 | 0.23 |
+| symbol-usage entropy, bits of 40 | 2.82 | 4.56 | 4.99 | 4.99 |
+| PER minus own chance null | +0.005 | +0.002 | -0.010 | -0.012 |
+
+These replace the code-review wiring values (3.25 / 2.71 / 0.30 / 0.19) quoted in Design; same
+picture. The control never leaves its chance null by more than 0.012 at any kept checkpoint.
+
 ### Interim reads (2026-09-20 19:30, node_d at sub-epoch 8; early read is at sub-epoch 10)
 
 dev-other greedy PER as banked: ent_50 0.856 / 0.860, entaug_50 0.873 / 0.850, aug_50 0.849 /
