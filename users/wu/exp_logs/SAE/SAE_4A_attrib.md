@@ -550,6 +550,16 @@ PER is read; n = 1 per item, disclosed.
   closed as a lever on this bed at any weight and the step 5b "criterion descent" read is closed
   negative. KL3(ep4) >= 1.2: the descent uses real temporal structure; a re-priced coverage arm is
   the next candidate. Between: unresolved, reported.
+  *Amendment (2026-09-20, fixed before the E4 job finished, after item 1 showed the EMA read biased
+  ~0.4 nats low):* the primary read becomes the checkpoint-level full-pass KL3 of the perm arm's ep4
+  checkpoint on its own permuted inputs (`OdmCoverageBatchEvalJob`, config
+  `config_sae_4a_attrib_step6_est_perm_v1`, same batches, tau and prior as item 1's read of
+  odm3_lam1, whose full-pass value is 0.830). Rule with the same margins transported: KL3_full(perm)
+  <= 0.93 (within 0.10 of 0.830): satisfiable without temporal structure, coverage closed as above.
+  KL3_full(perm) >= 2.2 (the EMA rule's 1.2/0.45 ratio applied to 0.830): the descent uses real
+  temporal structure. Between: unresolved. The EMA read and its original thresholds are still
+  reported as the secondary read; if the two reads fall in different branches, the checkpoint-level
+  one decides and the disagreement is recorded.
 - **Item 4, E0 null-adjusted reader** (CPU sisyphus job, new module; conventions of
   `analysis/emc_hyp_inspect.py` sections 5/7: SIL-stripped, campaign edit convention, 5 draws, seed
   0, null drawn at the hypothesis's own per-utterance length and own unigram distribution): for each
