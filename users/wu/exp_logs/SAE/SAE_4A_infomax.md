@@ -53,7 +53,7 @@ Arms, N = 50, one seed each (disclosed), a 2 x 2 on (schedule of lambda) x (inva
 
 | arm | lambda_ent per sub-epoch | invariance | question |
 |---|---|---|---|
-| ent_50 | geometric 0.1 -> 0.001 over sub-epochs 1..10, then 0 | none | does the penalty alone break the stationary point, and does the band survive once it is withdrawn |
+| ent_50 | 0.1 held over sub-epochs 1..10 (the tau 8 -> 2 anneal window), geometric 0.1 -> 0.001 over 11..20, 0 from 21 | none | does the penalty alone break the stationary point, and does the band survive once it is withdrawn |
 | enthold_50 | 0.1 held for all 50 | none | hysteresis / over-confidence of a held penalty |
 | entaug_50 | as ent_50 | S3b-C consistency, specaug view + statistic-swap view | does invariance steer the confident partition toward content |
 | entaughold_50 | as enthold_50 | as entaug_50 | the held variant with invariance |
@@ -63,15 +63,24 @@ recognizer, so it cannot break the point; S3b-C's own caveat says the same); a l
 user asked for a modest lambda; 0.1 is sized below).
 
 The entropy term: on the clean recognizer log posterior the lattice already ran on, per output
-frame `H_t = -sum_k q_t(k) log q_t(k)` over the 40 outputs, mean over the valid output frames of the
-batch, marked as loss `ent` with scale lambda_ent(sub-epoch) from a per-sub-epoch list handled like
-`temperature_schedule`. Sizing: the entropy is at most log 40 = 3.69 nats per output frame and near
-3 in the band; at lambda 0.1 the term is under 7 % of the lattice value per output frame, and its
-per-logit gradient (at most about q_k |log q_k + H|, order 1, normalized per output frame) is of
-the same order as the lattice's (1/tau)(q - post) normalized per unit frame. At the stationary
-point the lattice gradient is near zero, so any nonzero lambda dominates there; 0.1 is chosen so
-that away from it the marginal terms can still win. Reported as_error for these arms only:
-entropy per output frame.
+frame `H_t = -sum_k q_t(k) log q_t(k)` over the 40 outputs in nats (no division by log 40), summed
+over the valid output frames of an utterance and divided by that utterance's retained unit-frame
+count exactly as the lattice term is, then averaged over utterances; marked as loss `ent` with
+scale lambda_ent(sub-epoch) from a per-sub-epoch list handled like `temperature_schedule`, so
+lambda is in the units of lam_tau. Sizing: the entropy is at most log 40 = 3.69 nats per output
+frame; its value in the band is unmeasured (design review amendment 1; banked by the eval-mode read
+below). At lambda 0.1 the term is at most 7 % of the lattice value at the same normalization. Its
+per-logit gradient q_k |log q_k + H| is small at a diffuse posterior (0.02-0.1, design review), and
+the lattice gradient is near zero at the stationary point, so the balance there is not predictable
+from constants; the held arms exist to answer whether 0.1 is enough. The decayed arms hold 0.1
+through the tau anneal (which flattens q while the penalty sharpens it) and withdraw it only after
+tau reaches 2 (amendment 3). Reported as_error for these arms only: entropy per output frame
+(pooled over valid output frames, nats) and lambda.
+
+The penalty is a deliberate mode-seeking departure from the reverse-KL bound of
+`SAE_4A_objective.md` (whose section 5 item 3 rejects the opposite-sign bonus): the bound's
+minimizer is the generative posterior; the penalty targets a sharpened posterior. It is a
+cold-start device, which is why one schedule withdraws it.
 
 The invariance term: `consistency.consistency_loss` as registered for S3b-C (teacher = clean view
 detached, KL(clean || aug), mean over valid clean frames pooled over views, augmented passes under
@@ -81,9 +90,11 @@ is frame for frame:
 - statswap (new, the speaker / loudness proxy): per utterance, replace the utterance's own
   per-dimension mean and standard deviation over its valid frames by those of a different
   utterance of the same batch (a fixed derangement of the batch; a batch of one skips the view),
-  `x' = (x - mu_i) / sd_i * sd_j + mu_j`. The utterance-level feature statistics carry speaker and
-  channel (SAE `speaker.py` builds its speaker code from the utterance-mean L15), so invariance to
-  swapping them is invariance to that code without touching the frame sequence.
+  `x' = (x - mu_i) / sd_i * sd_j + mu_j`, std floored at 1e-3, statistics over valid frames only,
+  swapped only when both partners have at least 200 valid frames (otherwise the utterance keeps its
+  own features), result asserted finite (amendment 6). The utterance-level feature statistics carry
+  speaker and channel (SAE `speaker.py` builds its speaker code from the utterance-mean L15), so
+  invariance to swapping them is invariance to that code without touching the frame sequence.
 The speed view of S3b-C is not used: it needs a second feature dump the VAD-masked bed does not
 have.
 
@@ -94,6 +105,15 @@ kept checkpoint as in the budget round (PER S/D/I, greedy rate, derangement gap,
 dev-clean, label-free selector). Paired reads (PairedPerDeltaJob): each arm vs ctrl_50 at the same
 sub-epoch; entaug_50 vs ent_50 and entaughold_50 vs enthold_50 (the invariance effect); enthold_50
 vs ent_50 (the schedule effect).
+
+Two reads added on the design review (amendments 1, 5, 7), registered for every kept checkpoint of
+the four arms AND of ctrl_50 (its checkpoints exist; ctrl_50 is the band reference the entropy
+clause needs): (i) eval-mode dev-other mean per-output-frame posterior entropy in nats (a forward
+job over the checkpoint, not the train-mode as_error); (ii) greedy symbol-usage entropy of the
+dev-other decode in bits over the 40 outputs (a reader on the decode output; `emc_hyp_inspect`
+already computes the usage histogram) together with the arm's own length-and-unigram-matched
+chance null (the attrib step 6 null script). The consistency KL is reported per view. Second
+implementer round, after the training launch; the ep10 early read waits for it.
 
 Constraint on the code: nodes a, b, c re-import the blank-free modules at their 11.5 h resume
 (2026-09-21 about 01:14 / 01:33). Every edit to a module they import must be behavior-neutral at
@@ -107,20 +127,31 @@ selector exists; never best-PER over the kept set): the budget round's G4a.4 thr
 ctrl_50 at the same sub-epoch through the paired job.
 
 Pre-registered early read at sub-epoch 10 (not a gate): symmetry breaking is declared when the
-entropy per output frame is below 1.0 nat AND the paired dev-other PER delta vs ctrl_50 is outside
-the band, i.e. PER below 0.80. Entropy below 1.0 with PER still in 0.83-0.91 reads "confident but
-content-free" and is the case the invariance arms exist for.
+EVAL-MODE entropy per output frame is below 1.0 nat while ctrl_50's at the same checkpoint is not
+(the tau anneal alone sharpens q, so the arm's number is read against ctrl_50's, amendment 1) AND
+the arm's dev-other PER is below its own length-and-unigram-matched chance null by more than 0.05
+(amendment 7; the null sits at 0.84-0.87 for a length-faithful string, `SAE_4A.md:984`, so a PER
+of 0.80 alone is a screening number, not band exit). Entropy below 1.0 with PER inside the null's
+spread reads "confident but content-free" and is the case the invariance arms exist for.
+
+Low-inventory FAIL (amendment 5; the S3b-C consistency arms collapsed onto 3-4 symbols,
+`SAE_4A.md:984`): greedy symbol-usage entropy below 3 bits with the rate inside the window reads
+FAIL (inventory collapse) at any kept checkpoint from sub-epoch 10 on.
 
 Abort rule per arm (the budget round's, plus one): NaN or |trained surrogate| > 100 in any sub-epoch;
-expected phone rate outside [4, 20]/s at the end of any sub-epoch after the fifth; entropy per
-output frame below 0.05 nats together with a rate outside that window (collapse to a constant
+expected phone rate outside [4, 20]/s at the end of any sub-epoch after the fifth; train-mode entropy
+per output frame below 0.05 nats together with a rate outside that window (collapse to a constant
 output). An aborted arm reads FAIL (collapse) and is not restarted with another constant.
 
-Pre-registered predictions: entropy leaves 2.5-3 nats and drops below 1 within 10 sub-epochs in all
-four arms; ent_50 either takes off or drifts back toward the band after sub-epoch 10; the
-invariance arms have lower PER than their non-invariance twins if the confident partition without
-invariance tracks a nuisance. A PASS is audited from a fresh context and needs a second seed before
-it is claimed.
+Pre-registered predictions: the held arms' eval-mode entropy drops below ctrl_50's from the first
+kept checkpoint and below 1 nat by sub-epoch 10; ent_50's tracks the held arm through sub-epoch 20
+and then either stays (take-off) or drifts back toward ctrl_50's; the invariance arms have lower PER
+than their non-invariance twins if the confident partition without invariance tracks a nuisance;
+the low-inventory failure, if it appears, appears in the held arms first. A PASS is audited from a
+fresh context and needs a second seed before it is claimed.
+
+Design review 2026-09-20 (`reports/design_review_infomax_2026-09-20.md`, APPROVE_WITH_AMENDMENTS;
+amendments 1-8 applied above and in the implementer's brief).
 
 ## Results
 

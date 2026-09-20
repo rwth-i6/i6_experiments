@@ -133,7 +133,22 @@ Consequences:
    marginal level only, and the forward KL already forces `c_hat` to cover `c_text`, which pins its
    entropy near `H(c_text)`.
 
-## 6. Open
+## 6. The content-free point is stationary (added 2026-09-20, design review of `SAE_4A_infomax.md`)
+
+At `q_theta(y | x) = P_psi(y)` for every x and `p_phi(x | y) = p_phi(x)`: the generative posterior
+is `P_psi(y)`, so q is at its own fixed point; phi is trained on pairs whose y carries nothing about
+x, so its optimum stays the marginal; the agg term is exactly satisfied and the rate term nearly so.
+Every term of the exact bound (B) and of the implemented loss is stationary there, while the true
+solution has strictly lower loss through `E[log p_phi(x | y)]`. The frame-factorized recognizer
+cannot represent "sample a whole sentence from the prior", so the actual point is the nearest
+x-independent frame-marginal solution, which is the band. Escape needs a term whose gradient at an
+x-independent recognizer is nonzero and x-dependent: the InfoMax penalty `+ lambda H(Y | X)` of
+`SAE_4A_infomax.md` is such a term only through the network's residual input dependence (at an
+EXACTLY x-independent recognizer its gradient is the same for every frame and points at the
+constant output, which the marginal terms resist). It is a deliberate mode-seeking departure from
+(B), the opposite sign of item 3 in section 5, and a cold-start device to be withdrawn.
+
+## 7. Open
 
 - The Bhattacharyya form (tau = 2) and the KL form (B) share a fixed point but not a gradient
   field; whether the KL form's weighting (`log q - log w` as the per-path advantage) trains better
