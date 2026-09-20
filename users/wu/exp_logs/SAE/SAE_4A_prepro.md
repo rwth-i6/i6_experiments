@@ -36,12 +36,12 @@ run under their own managers (executor hand-back 2026-09-21; no report file was 
 pid 127865, `log/sae_4a_prepro_data.manager.20260920T223130Z.log`, Slurm 1920622 (train, 4 shards)
 and 1920623 (dev-clean), watcher
 `bash ~/.claude/skills/sis/sis_watch.sh 127865 config/sae_4a_prepro_data.py 600`; null manager
-pid 129170, `log/sae_4a_prepro_null.manager.20260920T223143Z.log`, Slurm 1920624, watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 129170 config/sae_4a_prepro_null.py 600`.
-NEXT: read the null (near 1.00 expected: then the 0.72 plateau is the cut's
-effect; a null far below 1.00 means an extraction-path difference and the pack waits for a fix);
-when the data jobs finish, fund the pack (`config/sae_4a_prepro_pack.py`, 5EIGJJ1MkcO9, ~10 h on
-one node) and register the paired reads; record here.
+pid 129170: FINISHED and read (Results, "Extraction-path null"): agreement 1.0000, states
+bit-identical; the 0.72 plateau is the cut's effect; funding cleared.
+NEXT: when the data watcher fires, executor funds the pack (`config/sae_4a_prepro_pack.py`,
+`PackedBlankfreeTrainJob.5EIGJJ1MkcO9`, ~10 h on one node, own manager, own watcher) and confirms
+the three arms started; record here; read at kept epochs 1 / 4 / 10 / 20 against G4a.8 with the
+paired reads.
 
 ## Objective
 
@@ -190,3 +190,14 @@ untrimmed-encode null (`UntrimmedEncodeAgreementJob`, code review amendment) dec
 1.00 attributes the plateau to the cut. The new states fit the bed's quantizer slightly worse
 (+0.9 % distortion, 6 more dead units), as expected for a quantizer fitted on full-waveform
 states; the same frozen quantizer is used, as pre-registered.
+
+**Extraction-path null (read 2026-09-21): `UntrimmedEncodeAgreementJob.WnGSatwxUEYY`
+(speech-llm 1b25144; Slurm 1920624), first 50 dev-other utterances in banked order, UNTRIMMED
+waveform through the new job's encoder + quantizer path: unit agreement with the banked units
+15,544 / 15,544 = 1.0000 on all original frames and 13,087 / 13,087 on the bed-retained frames;
+fp16 states identical to the banked states (max-abs difference 0.000000 on every frame).** The
+extraction path is bit-identical, so the data job's 29.5 % unit disagreement (denominator: all T'
+trimmed frames) is entirely what trimming did: a seam effect within about 8 frames of a splice and
+a 28 % change of unit far from any splice, i.e. removing the silence context changes layer-15
+states throughout the utterance (whole-utterance self-attention), not only at the seams. This is
+the treatment the pack measures; the pack is funded (data jobs running).
