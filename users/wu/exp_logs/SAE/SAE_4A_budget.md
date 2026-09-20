@@ -186,7 +186,9 @@ with the 10-sub-epoch anneal, 5–7 with the 4-sub-epoch one) and the losses wit
 ctrl_50's lattice term moves 1.85 -> 1.73 over sub-epochs 10–50 with the phone rate flat at
 8.7–8.9/s. The stall follows the anneal, not the update count. Decision: N = 20 for every new
 arm, with the schedule's existing proportional form (anneal ceil(0.2 N) = 4 sub-epochs 8 -> 2,
-warmup 1, hold to 12, linear decay to 20; kept checkpoints 1, 4, 10, 20), 3.3 h per arm at the
+warmup 2 [amended 2026-09-21: the 5 % rule gives 1 sub-epoch, which the schedule builder rejects
+as a degenerate ramp; warmup is 0.10 N = 2 sub-epochs for every N = 20 pack], hold to 12, linear
+decay to 20; kept checkpoints 1, 4, 10, 20), 3.3 h per arm at the
 measured step rate, so a pack of three arms fits one 11.5 h node without the resume path. The
 N=50 / N=100 arms already running finish as funded and remain the reference for G4a.4; every
 new arm (prepro, sf, soft) reads against a fresh ctrl_20 in its own pack, never against ctrl_50 at

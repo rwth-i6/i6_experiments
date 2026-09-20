@@ -10,10 +10,19 @@ feature-masking convention was never approved). Survey done
 `configs/config_sae_4a_prepro_pack_v1.py` (ctrl_20, ctrl_20_s1, prepro_20; N = 20 from
 `SAE_4A_budget.md` "Sub-epoch count"); no job launched. Blank-free modules stay untouched until
 the budget pack's 11.5 h resume has passed (they are re-imported then).
-NEXT: on hand-back, executor (own manager, own watcher) runs the dev-other data job ALONE and
-reports the pre-funding reads (OR total == 781,130 else STOP; T'/T; unit agreement overall and by
-splice distance; distortion; T' < 2 count); if unit agreement is not near 1.00, fund the
-three-arm pack and register the paired reads; record both here.
+Build handed back 2026-09-21 (speech-llm d92109b, `reports/impl_prepro_2026-09-20.md`): data jobs
+`TrimmedAudioBlankfreeDataJob` train qb4o6dlW3urA / dev-clean hxIx0ItTvx15 / dev-other
+0IOLr6hZnYWj; 3-utterance CPU smoke: unit agreement 0.738 (not an empty treatment), HDF field
+parity with the bed's shard, no banked hash moved. Two constants were left to the orchestrator and
+are decided: LR warmup 2 sub-epochs at N = 20 (`SAE_4A_budget.md` amendment) and
+ctrl_20_s1 = both seeds moved (flat_seed 1 AND RETURNN random_seed 1: theta init, phi init and
+batch order, the full replicate band). The dev-other data job is being launched alone under its
+own manager (`config/sae_4a_prepro_devother.py`, `reports/exec_prepro_devother_launch_2026-09-21.md`).
+NEXT: arm the dev-other watcher; when it finishes, extractor reads the pre-funding statistics
+(OR total == 781,130 else STOP; T'/T; unit agreement overall and by splice distance; distortion;
+T' < 2 count); code review of the pack config with the constants set; if unit agreement is not
+near 1.00, fund the three-arm pack (`config/sae_4a_prepro_pack.py`, after the train and dev-clean
+data jobs) and register the paired reads; record both here.
 
 ## Objective
 
