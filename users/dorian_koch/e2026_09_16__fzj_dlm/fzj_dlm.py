@@ -47,12 +47,66 @@ WINNER_TRAIN_JOB = "i6_core/returnn/training/ReturnnTrainingJob.8iFbool3x3TU"
 #   "hyps"  -- all hypothesis bundles registered
 #   "train" -- all bundles + the paper-best DLM trained on them (4-GPU DDP), user decision 2026-09-16 22:20
 DLM_DATA_STAGE = "train"
+
+# German cross-lingual arms (german_xling.py). "off" | "surgery" | "armA" | "armB" | "armC".
+# ⚠ COMMA-SEPARATED, and treated as a SET -- "armB,armC" builds both. This is not cosmetic: the
+# stages are mutually exclusive branches, so flipping a single-valued flag from "armB" to "armC"
+# REMOVES arm B from the graph, and the manager then stops tracking and resubmitting it. Arm B is a
+# multi-hour training that resumes across walltime boundaries, so dropping it mid-flight would
+# silently strand it. Verified 2026-09-19 by graph diff: under "armC" alone, arm B's training id
+# is absent.
+# "armA" = the winner, UNMODIFIED, decoded on MLS-de test. It needs no training and no graph-build
+# patch: the recog helpers take `task` as a parameter, so the German task is simply passed in.
+# ⚠ Arm A is CONTEXT, never the baseline: the original 10,240-piece SPM is uppercase English and
+# cannot write German orthography at all (no Ä Ö Ü), so its WER will be catastrophic by construction.
+# Quoting an A->B gain as the contribution would be inflated by "we added three characters".
+GERMAN_STAGE = "armB,armC"
+# Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
+# 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
+GERMAN_BUDGET = "9h"
+# Plan verification step 1: cap arm B at 1 h walltime first. `__time_rqmt` is not hashed, so this is
+# the SAME job as the full run -- it stops early and resumes when the cap is lifted.
+GERMAN_SMOKE = False
+# ⚠ SEPARATE from GERMAN_SMOKE, deliberately. Arm B is mid-run with an 11 h allocation; flipping the
+# shared flag would cap its NEXT resubmission at 1 h. Arm C has never run, and arm B's 1 h smoke
+# found FIVE distinct defects that graph-building cannot see (§69), so arm C gets the same treatment.
+GERMAN_SMOKE_ARMC = False  # smoke PASSED 2026-09-19 19:09: ckpt loads, ogg zip reads, dev eval real, losses fall
+# Arm C sweep: give the BASELINE its best shot before claiming arm B beats it (backlog 82/90/92a).
+# Empty either list to disable. 4 arms x ~50 min training, NO recog (selected on the dev curve).
+# `None` in the enc-mult list = encoder at full LR (the pilot's setting).
+ARM_C_SWEEP_PEAK_LRS = (5e-4, 2e-4)
+ARM_C_SWEEP_ENC_MULTS = (None, 0.1)
+ARM_C_SWEEP_NEP = 10  # the useful window is epochs 2-5 (backlog 85); 10 gives margin
+# ⚠ NO `keep_epochs` for the sweep, for two independent reasons:
+#  1. `learning_rates` records dev scores for **every** epoch regardless of which checkpoints are
+#     retained, and that curve is the whole selection signal here (§92a) -- so retention is
+#     irrelevant to a sweep arm;
+#  2. `cleanup_old_models` lives in **post_config**, so passing it via `extra_config_updates` raises
+#     `AssertionError: cleanup_old_models in post_config would overwrite existing entry in config`.
+# And at nep=10 the RETURNN default keep set is {4,5,8,10}, which already brackets the useful
+# window (epochs 2-5) -- so even the FINAL run does not need the override the §78 trap seemed to
+# demand. The trap was specific to nep=40, where the default set starts at 5 and the optimum was 3.
 # Continue-train the winner with GlowTTS TTS audio added to its paired-audio branch (winner_plus_tts.py).
 WINNER_PLUS_TTS = True
-# Quick comparability check: plain-CTC recog of an already-written finetune checkpoint, e.g. 1 for
-# epoch.001.pt. 0 = off. The checkpoint is referenced as a RAW PATH (no creator), so this does not
-# depend on the still-running training job and is runnable the moment the file exists.
-EVAL_FINETUNE_EPOCH = 1
+# Which finetune checkpoints to evaluate, e.g. 1 -> epoch.001.pt. Empty = off. The checkpoint is
+# referenced as a RAW PATH (no creator), so this does not depend on the still-running training job and
+# becomes runnable the moment the file exists.
+# 🔴 **The FINAL epoch must be in here.** It was `= 1` alone, so the winner+TTS finetune -- a ~12 h,
+# 10-epoch training -- would have run to completion with an eval wired only for its FIRST epoch, i.e.
+# no readable answer to the question it exists to ask (does adding TTS audio help?). Epoch 1 already
+# showed one sub-epoch of TTS audio HURTS (backlog 55); whether 10 epochs recovers is the actual
+# result, and nothing was going to measure it. Keeping 1 as well makes it a dose-response pair
+# rather than a single point.
+EVAL_FINETUNE_EPOCHS = (1, 10)
+
+# Hypothesis-pass WER of the +TTS finetune on REAL LS-960 audio and on GlowTTS audio -- the pair the
+# finetune exists to move (winner 2.22% / 14.53%; old RZ CTC 5.02% / 10.25%, winner_plus_tts.py:7-9).
+# The LS dev/test recogs do NOT answer this: they are a different population (dev/test, unaugmented)
+# from the 2.22% (random 20k of LS-960 *train*, with the GetCtcHypsCfgV6 augmentation).
+# Registers ONLY bundle 01, which carries 2 LS-960 audio passes AND 6 LM-text/GlowTTS shards --
+# i.e. both numbers from one 4-GPU job instead of the full 12-bundle DLM data pass.
+FT_HYPS_WER = True
+FT_HYPS_EPOCH = 10
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
 
@@ -61,6 +115,25 @@ OUR_DLM_IMPORT_DIR = "/e/project1/spell/koch13/setups/2026-09-16-fzj-dlm/import/
 DLM_N1280 = OUR_DLM_IMPORT_DIR + (
     "/base-scalingLaws-enc24-dec8-n1280-nEp200.ReturnnTrainingJob.LfAv45zfWLtF/output/models/epoch.200.pt"
 )
+
+
+# 🔴 OUR OWN trained DLM (backlog 87). `train_paper_best_dlm_4gpu` deliberately wires no recog --
+# "evaluate with the batched DLM-sum instead" (dlm_on_winner.py:252) -- and `fzj_dlm.py` DISCARDS its
+# return value, so nothing in the graph depended on this 50-epoch 4-GPU training. It would have
+# finished green and produced no number. Referenced as a RAW PATH (no creator), like
+# FINETUNE_TRAIN_JOB, so these recogs do not depend on the still-running job and become runnable the
+# moment the checkpoint exists.
+# ⚠ `num_epochs = 50` in its own returnn.config (the alias says nEp200 -- that is 200 counted the
+# other way; RETURNN counts 50 with 4 GPUs), and `model_dim = 1280`. Both read off the config, not
+# inferred from the alias.
+OUR_TRAINED_DLM_EPOCH = 50
+OUR_TRAINED_DLM = (
+    "/e/home/jusers/koch13/jupiter/setups/2026-09-16-fzj-dlm"
+    "/work/i6_core/returnn/training/ReturnnTrainingJob.pMb0YjIfsID0"
+    f"/output/models/epoch.{OUR_TRAINED_DLM_EPOCH:03d}.pt"
+)
+# Set False to drop the eval of our own DLM (e.g. if its recogs crowd the queue).
+EVAL_OUR_TRAINED_DLM = True
 
 
 def _get_dlm(checkpoint: str, *, model_dim: int):
@@ -137,6 +210,85 @@ def py():
         extra_config=ctc_lm_kwargs.get("extra_config"),
     )
 
+    _german_stages = {s.strip() for s in GERMAN_STAGE.split(",") if s.strip()}
+    assert _german_stages <= {"off", "surgery", "armA", "armB", "armC"}, f"unknown German stage: {_german_stages}"
+
+    if _german_stages & {"surgery", "armA", "armB", "armC"}:
+        # Widen the winner's output layer to the German vocab (10,240 -> 10,243). Cheap (CPU) and a
+        # prerequisite for arms B/C, so it is built as soon as any German stage is on -- running it
+        # early de-risks the arm rather than discovering a broken checkpoint mid-training.
+        from .german_xling import get_surgered_winner_checkpoint
+        from .winner_plus_tts import winner_checkpoint
+
+        _de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=GERMAN_BUDGET)
+        tk.register_output(f"{prefix}/german/winner-vocab-extended.pt", _de_ckpt)
+
+    if "armB" in _german_stages:
+        # Arm B -- THE CLAIM: English LS-960 audio + German text injection, from the surgered
+        # checkpoint. See german_xling.train_german_arm_b for what differs from winner_plus_tts.
+        from .german_xling import train_german_arm_b
+
+        train_german_arm_b(
+            prefix=f"{prefix}/german", winner_model=winner_model, budget=GERMAN_BUDGET, smoke=GERMAN_SMOKE
+        )
+
+    if "armC" in _german_stages:
+        # Arm C -- the BASELINE: MLS-de paired audio at the same budget, no text injection.
+        # This is the plan's one controlled comparison (B vs C); see train_german_arm_c for the
+        # list of everything held fixed against arm B.
+        from .german_xling import train_german_arm_c
+
+        train_german_arm_c(
+            prefix=f"{prefix}/german", winner_model=winner_model, budget=GERMAN_BUDGET, smoke=GERMAN_SMOKE_ARMC
+        )
+
+        # Arm C sweep (backlog 82/90/92a). The baseline must get its BEST shot, or "arm B beats arm C"
+        # is an artefact of arm C's config rather than a result -- and §78 showed the pilot's config is
+        # knowingly suboptimal (memorises by epoch 3; peak LR inherited from arm B, whose data stream
+        # is ~100x larger).
+        # ⚠ `no_recog=True`: these arms are selected on the FREE `learning_rates` dev curve, which §92a
+        # proved ranks epochs exactly as WER does. Only the winner gets a real recog afterwards --
+        # otherwise the sweep spends ~9 h of GPU decoding to choose between 50-minute trainings.
+        # `enc_lr_mult` down-weights the ENCODER only: lowering the global LR would also slow the
+        # output layer, which is the one part that genuinely must learn (3 brand-new symbols).
+        for _c_lr in ARM_C_SWEEP_PEAK_LRS:
+            for _c_enc in ARM_C_SWEEP_ENC_MULTS:
+                train_german_arm_c(
+                    prefix=f"{prefix}/german-sweep",
+                    winner_model=winner_model,
+                    budget=GERMAN_BUDGET,
+                    peak_lr=_c_lr,
+                    enc_lr_mult=_c_enc,
+                    nep=ARM_C_SWEEP_NEP,
+                    no_recog=True,
+                )
+
+    if "armA" in _german_stages:
+        # Arm A: winner zero-shot on MLS-de test. Same recog helper and the same winner model object
+        # as the English table above -- only `task` differs, which is what makes it a clean control.
+        from .german_xling import get_mls_de_task
+
+        _de_task = get_mls_de_task(extended_vocab=False)
+        _de_res = _ctc_only_recog_batched(
+            prefix=f"{prefix}/german/armA-winner-zeroshot-mls-de",
+            task=_de_task,
+            ctc_model=ctc_lm_kwargs["ctc_model"],
+            aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
+            num_shards=ctc_lm_kwargs["num_shards"],
+            extra_config=ctc_lm_kwargs.get("extra_config"),
+        )
+        from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
+
+        notify_result(
+            "german-armA-winner-zeroshot",
+            {"mls_de_test_ctc": _de_res.output},
+            note=(
+                "Arm A: English winner, UNMODIFIED vocab, zero-shot on MLS-de test."
+                " CONTEXT ONLY -- the 10,240-piece English SPM cannot write German orthography"
+                " (no umlauts), so a catastrophic WER here is expected and is not a baseline."
+            ),
+        )
+
     if DLM_DATA_STAGE != "off":
         from .dlm_on_winner import get_dlm_task_on_winner
 
@@ -166,7 +318,45 @@ def py():
 
         train_winner_plus_tts(prefix=f"{prefix}/winner-plus-tts", winner_model=winner_model)
 
-    if EVAL_FINETUNE_EPOCH:
+    if FT_HYPS_WER:
+        # The measurement the +TTS finetune was actually built to move: hypothesis-pass WER on REAL
+        # LS-960 audio and on GlowTTS audio. Reference pair (winner_plus_tts.py:7-9, random 20k seed 0,
+        # same augmentation): winner 2.22% / 14.53%, old RZ CTC 5.02% / 10.25%.
+        #
+        # 🔴 Do NOT substitute the LS dev/test recog numbers for the "LS audio" cell. Those are
+        # dev/test, unaugmented; this is a random 20k of LS-960 *train* decoded under
+        # GetCtcHypsCfgV6's dropout/specaug/mixup. Different population -- conflating them is how the
+        # 2.01% misreading in backlog R1 happened.
+        #
+        # Cost control: `get_dlm_task_on_winner` builds the whole 12-bundle DLM-data pass, but
+        # Sisyphus only RUNS what a registered output needs, so registering bundle 01 alone leaves the
+        # other 11 unbuilt. Bundle 01 is the right one: `DLM_DATA_STAGE == "smoke"` already uses it
+        # because it carries both code paths -- 2 LS-960 ogg-audio passes and 6 LM-text/GlowTTS shards
+        # -- so one 4-GPU job yields both halves of the table. Each item is a FULL pass (LS 281,241
+        # seqs; text 538,910), not a shard, so the seed-0 20k sample is a proper random sample of the
+        # population rather than a slice of one length-sorted shard (backlog R1 again).
+        import dataclasses as _dc
+        from i6_core.returnn.training import PtCheckpoint as _PtCkpt
+        from .dlm_on_winner import get_dlm_task_on_winner as _get_dlm_task
+        from .winner_plus_tts import FINETUNE_TRAIN_JOB as _FT_JOB
+
+        _ft_hyps_model = _dc.replace(
+            ctc_lm_kwargs["ctc_model"],
+            checkpoint=_PtCkpt(tk.Path(f"{_FT_JOB}/output/models/epoch.{FT_HYPS_EPOCH:03d}.pt")),
+        )
+        _, _ft_hyp_jobs = _get_dlm_task(
+            hyps_model=_ft_hyps_model,
+            # Same recog model config as the winner's own hypothesis pass -- `pseudo_speech_enc` and
+            # friends. Omitting it builds the GlowTTS variant against a pseudo-encoder checkpoint
+            # (see the ep-eval note below, BatchedReturnnForwardJob.g1vY1m2utxfM).
+            extra_config=ctc_lm_kwargs.get("extra_config"),
+            alias_prefix=f"{prefix}/dlm-data-ft",
+        )
+        for _key, _outs in _ft_hyp_jobs[1].out_files.items():
+            for _fn, _path in _outs.items():
+                tk.register_output(f"{prefix}/dlm-data-ft/hyps-batched-01/{_key}/{_fn}", _path)
+
+    for _ep in EVAL_FINETUNE_EPOCHS:
         # Same plain-CTC recog as the winner's `ctc-only-batched` row, on the finetune's epoch-N
         # checkpoint, so the two numbers are directly comparable (winner: 1.78/3.95/1.92/4.34).
         import dataclasses
@@ -174,7 +364,6 @@ def py():
         from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
         from .winner_plus_tts import FINETUNE_TRAIN_JOB
 
-        _ep = EVAL_FINETUNE_EPOCH
         _ckpt = tk.Path(f"{FINETUNE_TRAIN_JOB}/output/models/epoch.{_ep:03d}.pt")
         _ft_model = dataclasses.replace(ctc_lm_kwargs["ctc_model"], checkpoint=PtCheckpoint(_ckpt))
         _ctc_res = _ctc_only_recog_batched(
@@ -192,6 +381,19 @@ def py():
             ctc_aed_lm_label_sync_recog_auto_scale_batched,
         )
 
+        # 🔴 `pseudo_speech_enc` is REQUIRED here, and its absence is what broke this eval on
+        # 2026-09-18 (BatchedReturnnForwardJob.g1vY1m2utxfM, worker exit 1):
+        #   Unexpected key(s): 'pseudo_enc.embedding.weight', ...
+        #   Missing key(s):    'tts.glow_tts_model.*'   (563 keys)
+        # `aed_glowtts_model_def` branches on `config.bool("pseudo_speech_enc", False)`: without it the
+        # recog builds the **GlowTTS** variant while the checkpoint is a **pseudo-encoder** model.
+        # Plain CTC was unaffected because it never constructs the AED/TTS half.
+        # ⚠ This one key is sufficient: every *shape*-affecting key the model_def reads
+        # (`pseudo_enc_units`, `pseudo_enc_phone_states`, `pseudo_enc_channel_concat`,
+        # `pseudo_enc_start_layer`) is left at its default by the training config too. The remaining
+        # `pseudo_enc_*` keys there (durations, smoothing, specaug, the frozen table) only affect
+        # training-time behaviour or an initialiser the checkpoint overwrites.
+        _ls_extra_config = {**(ctc_lm_kwargs.get("extra_config") or {}), "pseudo_speech_enc": True}
         _ls_res = ctc_aed_lm_label_sync_recog_auto_scale_batched(
             prefix=f"{prefix}/winner-plus-tts/ctc+aed+lm-labelsync-ep{_ep:03d}",
             task=ctc_lm_kwargs["task"],
@@ -199,18 +401,26 @@ def py():
             lm=ctc_lm_kwargs["lm"],
             aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
             num_shards=ctc_lm_kwargs["num_shards"],
+            extra_config=_ls_extra_config,
         )
         # "Never miss a result" sink: a mini_task that fires exactly when these recogs finish,
         # writing output/RESULTS/<tag> + a line in RESULTS.jsonl, so a landed WER cannot sit unread.
         # This setup had no sink at all; the job lives in our own tree, so it is a free import.
+        # 🔴 ONE notification PER eval, deliberately not one bundling both.
+        # The first version passed {"ctc_only": ..., "ctc_aed_lm_labelsync": ...} together, so the
+        # sink depended on BOTH outputs -- and when the label-sync eval failed, the sink could never
+        # run, suppressing the plain-CTC number that HAD landed. That is exactly the failure this sink
+        # exists to prevent, reintroduced by bundling. Keep them independent.
+        _baselines = "Winner baselines (dev-clean/dev-other/test-clean/test-other):"
         notify_result(
-            f"winner-plus-tts-ep{_ep:03d}",
-            {"ctc_only": _ctc_res.output, "ctc_aed_lm_labelsync": _ls_res.output},
-            note=(
-                f"winner+TTS finetune epoch {_ep}. Winner baselines"
-                " (dev-clean/dev-other/test-clean/test-other):"
-                " plain CTC 1.78/3.95/1.92/4.34, label-sync 1.36/2.93/1.56/3.24."
-            ),
+            f"winner-plus-tts-ep{_ep:03d}-ctc-only",
+            {"ctc_only": _ctc_res.output},
+            note=f"winner+TTS finetune epoch {_ep}, plain CTC. {_baselines} 1.78/3.95/1.92/4.34.",
+        )
+        notify_result(
+            f"winner-plus-tts-ep{_ep:03d}-labelsync",
+            {"ctc_aed_lm_labelsync": _ls_res.output},
+            note=(f"winner+TTS finetune epoch {_ep}, CTC+AED+LM label-sync. {_baselines} 1.36/2.93/1.56/3.24."),
         )
 
     # End-to-end check (2026-09-16): the same winner recogs with the 729M DLM (LfAv45zfWLtF).
@@ -220,6 +430,16 @@ def py():
 
     with unittest.mock.patch.object(_fzj, "_get_imported_dlm", lambda: _get_dlm(DLM_N1280, model_dim=1280)):
         _train_winner(prefix + "/dlm-n1280")
+
+    # The same DLM-sum recogs against the DLM WE TRAINED here (backlog 87), so that training finally
+    # has a consumer. Identical mechanism to the block above -- only the checkpoint differs -- which
+    # also makes the two directly comparable: imported n1280 (LfAv45zfWLtF, nEp200) vs ours
+    # (pMb0YjIfsID0) on the winner's own hypotheses.
+    if EVAL_OUR_TRAINED_DLM:
+        with unittest.mock.patch.object(
+            _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
+        ):
+            _train_winner(prefix + f"/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}")
 
 
 def _ctc_only_recog_batched(
@@ -350,7 +570,9 @@ def report(max_listed: int = 60):
     for job in jobs:
         setup, finished = job._sis_setup(), job._sis_setup() and job._sis_finished()
         linked = os.path.islink(job._sis_path())
-        key = "finished" + (" (symlink)" if linked else "") if finished else ("setup, unfinished" if setup else "absent")
+        key = (
+            "finished" + (" (symlink)" if linked else "") if finished else ("setup, unfinished" if setup else "absent")
+        )
         counts[key] = counts.get(key, 0) + 1
         if not finished:
             missing.append(job)

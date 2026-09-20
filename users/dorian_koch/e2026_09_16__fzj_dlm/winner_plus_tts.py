@@ -34,6 +34,7 @@ Three things this deliberately does NOT do:
 
 from __future__ import annotations
 
+import os
 import unittest.mock
 from functools import partial
 from typing import Any, Dict, List
@@ -56,10 +57,23 @@ NUM_TTS_FILES = 100
 TTS_FILES_PER_SUBEPOCH = 10  # ~1000 h vs LS-960's 960 h -> the 1:1 ratio tts_data.py documents
 NEP = NUM_TTS_FILES // TTS_FILES_PER_SUBEPOCH  # sub-epochs; one full pass over the transferred TTS data
 
+# RETURNN FileCache target. NOT the $TMPDIR default: that resolves into JUPITER's 96 GB
+# RAM-backed /var/tmp and died at 85.5 GB. /dev/shm on the same node is 239 GiB, 1% used.
+SHM_ROOT = "/dev/shm"
+FILE_CACHE_DIR = f"{SHM_ROOT}/$USER/returnn/file_cache"
+
 # Fine-tune schedule. The winner ran peak 5e-3 over 38 sub-epochs and ended at 1e-6; RETURNN's
 # import_model_train_epoch1 restarts the epoch counter, optimizer and LR schedule at 1, so re-entering
 # at the winner's peak would undo it. 5e-4 = 1/10 of the original peak.
 PEAK_LR = 5e-4
+
+# Absolute path of this experiment's training job, for referencing an already-written checkpoint as a
+# RAW path (no creator) — lets a quick eval run against epoch N while the training is still going,
+# without making the eval depend on the training job finishing.
+FINETUNE_TRAIN_JOB = (
+    "/e/home/jusers/koch13/jupiter/setups/2026-09-16-fzj-dlm"
+    "/work/i6_core/returnn/training/ReturnnTrainingJob.EXsiZj08AB1C"
+)
 
 _COMBINED_MAIN_NAME = "LS ASR + Text(spm+phon)"  # _train_tts_encoder's DatasetConfigStatic main_name
 
@@ -84,34 +98,75 @@ def sub_epoch_dataset_no_filecache(
     files: List[Any], *, base_opts: Dict[str, Any], multi_proc_dataset: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
     """
-    ``tts_data._get_distribute_files_dataset_for_epoch`` minus the ``CachedFile`` wrapping.
+    ``tts_data._get_distribute_files_dataset_for_epoch``, with the file cache redirected to ``/dev/shm``.
 
-    Why we cannot use the original here (measured 2026-09-17, first launch died on it):
-    **JUPITER compute nodes have no local disk.** ``df`` on a running job shows only
-    ``LiveOS_rootfs 96G`` for ``/`` and ``/var/tmp`` (RAM-backed) plus a 239 G ``/dev/shm`` tmpfs, and
-    ``$TMPDIR`` is unset -- so RETURNN's ``FileCache`` default ``$TMPDIR/$USER/returnn/file_cache``
-    lands in ``/var/tmp`` and every cached byte costs node memory. The run filled it to **85.5 GB** and
-    died with ``We cannot free enough space``, because with 4 DDP ranks and no file sharding each rank
-    randomly picks its *own* 10 zips per sub-epoch: 4 x 10 x 1.8 GB + 16.2 GB of LS-960 ~= 88 GB, which
-    is what the cache reported.
+    The name is a historical artifact and is **load-bearing**: the already-written ``returnn.config``
+    imports this function *by name*, so renaming it would break resume of the in-flight training and
+    re-hash the job, orphaning its finished epochs. Editing the body is run()-side and hash-neutral.
 
-    Caching buys nothing here anyway: the winner's own training reads these very ogg zips straight off
-    the project filesystem -- its ``use_cache_manager: True`` logs ``Cache manager: Error occurred,
-    using local file`` on every rank -- and it trained at 1.16 h/epoch that way. So we read directly too,
-    at zero node-RAM cost, and keep the per-rank file randomisation.
+    History, because this is a reversal and the reason matters:
 
-    Kept byte-for-byte from the original otherwise: same path concatenation order (LS first), same
-    ``AbstractPath`` resolution, same ``MultiProcDataset`` wrapping.
+    *2026-09-17* -- the ``CachedFile`` wrapping was REMOVED here. JUPITER compute nodes have no local
+    disk; ``$TMPDIR`` is unset, so RETURNN's ``FileCache`` default
+    ``$TMPDIR/$USER/returnn/file_cache`` resolved into the **96 GB RAM-backed** ``/var/tmp`` and the
+    first launch died with ``We cannot free enough space`` at 85.5 GB (4 DDP ranks x 10 zips x 1.8 GB
+    + 16.2 GB LS-960 ~= 88 GB). Reading straight off GPFS was justified by the winner's own training,
+    which does exactly that at **1.16 h/epoch**.
+
+    *2026-09-19* -- that justification expired, without any code changing. GPFS random-read latency
+    measured **58 ms, then 105 ms within the same half hour**, against the 17.3 ms baseline recorded
+    in ``clusters/fzj.md``. The finetune fell to ~21 h/epoch against a **12 h** QOS wall -- an epoch
+    longer than its own allocation, so every TIMEOUT restarted it at step 0 and it could never finish
+    (project backlog 22). All 4 GPUs sat at 0% with the dataloader workers in ``D`` state in
+    ``cxiWaitEventWait``, ~170 GB read per rank at 5.4 MB/s.
+
+    So the question was never "cache or not" -- it is **which directory**. The 2026-09-17 diagnosis
+    was right about ``/var/tmp`` and missed that the same node also has a **239 GiB ``/dev/shm``**
+    (1% used; node RAM 857 GiB total, ~376 GiB free with the training resident). The ~88 GB working
+    set that overflowed 96 GB fits there with room to spare. Two measurements make this the only
+    option: GPFS does **not** populate the Linux page cache (a full sequential re-read of a 1.8 GB zip
+    left random latency at 96 ms vs 105 ms cold, and ``buff/cache`` never moved), so an explicit copy
+    is the only way into RAM; and ``CachedFile`` stages each zip **sequentially**, which is the one
+    access pattern GPFS still serves acceptably.
+
+    ``file_cache_opts`` is the supported knob (``returnn/util/file_cache.py::get_instance``), but
+    ``_train_tts_encoder``'s ``post_config_updates`` is a hardcoded literal with no parameter to
+    extend, and it lives in ``users/zeyer/`` which we must not edit; routing it through
+    ``extra_config_updates`` would land it in the **hashed** config and re-run the training. So we set
+    it on the global config here. ``init_dataset`` calls ``file_cache.get_instance()`` *after* this
+    function returns and before constructing the dataset (``returnn/datasets/basic.py:1599``), so it
+    is in time, and eviction/lifecycle stay RETURNN's own via ``set_file_cache``.
+
+    Kept from the original otherwise: same path concatenation order (LS first), same ``AbstractPath``
+    resolution, same ``MultiProcDataset`` wrapping.
     """
+    from returnn.config import get_global_config
+    from returnn.util.file_cache import CachedFile
     from sisyphus.job_path import AbstractPath
     from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
+
+    # Two belts, because the failure mode is silent and already cost one launch.
+    # `file_cache_opts` on the global config is the supported knob, but if the global config is not
+    # wired in *this* process, FileCache falls back to its "$TMPDIR/..." default -- which on JUPITER
+    # ($TMPDIR unset) resolves into the 96 GB RAM-backed /var/tmp, i.e. exactly the volume that died
+    # with "We cannot free enough space" on 2026-09-17. Setting TMPDIR makes that fallback land in
+    # /dev/shm too, so both paths are safe. $USER is expanded by returnn.util.basic.expand_env_vars,
+    # which falls back to the login username when unset.
+    os.environ.setdefault("TMPDIR", SHM_ROOT)
+    config = get_global_config(return_empty_if_none=True)
+    cache_opts = dict(config.typed_value("file_cache_opts") or {})
+    if cache_opts.get("cache_directory") != FILE_CACHE_DIR:
+        cache_opts["cache_directory"] = FILE_CACHE_DIR
+        config.typed_dict["file_cache_opts"] = cache_opts
+    # Logged so the chosen directory is verifiable from log.run.*, not inferred.
+    print(f"[winner_plus_tts] file cache -> {FILE_CACHE_DIR} TMPDIR={os.environ.get('TMPDIR')!r}", flush=True)
 
     opts = base_opts.copy()
     assert opts["class"] == "OggZipDataset"
     files = opts["path"] + files
     files = [fn.get_path() if isinstance(fn, AbstractPath) else fn for fn in files]
     assert all(isinstance(fn, str) for fn in files)
-    opts["path"] = files  # no CachedFile: see docstring
+    opts["path"] = [CachedFile(fn) for fn in files]
 
     if multi_proc_dataset is not None:
         opts = mp_ds_utils.multi_proc_dataset_opts(opts, **multi_proc_dataset)
