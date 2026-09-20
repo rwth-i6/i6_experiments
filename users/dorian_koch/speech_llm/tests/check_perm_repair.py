@@ -262,7 +262,7 @@ starts_t = np.arange(0, n_frames_t - WINDOW_FRAMES, HOP_FRAMES, dtype=np.int64)
 marg_t = np.full(len(starts_t), 2.0)
 lo, hi = len(starts_t) // 3, 2 * len(starts_t) // 3
 marg_t[lo:hi] = -2.0
-out_s, rep_s = repair_permutation(clean, SR, turns, scores=(starts_t, marg_t))
+out_s, rep_s = repair_permutation(clean, SR, turns, scores=(starts_t, marg_t), score_window_frames=WINDOW_FRAMES)
 check("external scores are used", rep_s.get("scoring") == "external", rep_s.get("scoring"))
 check("...and they produce a flip", len(rep_s["flipped_spans_frames"]) == 1, rep_s["flipped_spans_frames"])
 if rep_s["flipped_spans_frames"]:
@@ -286,11 +286,13 @@ check("default path is labelled", rep_e.get("scoring") == "energy_vs_turn_activi
 
 # Non-vacuity: the SAME audio with all-direct scores must NOT flip, or the check above would pass
 # on any input at all.
-_, rep_d = repair_permutation(clean, SR, turns, scores=(starts_t, np.full(len(starts_t), 2.0)))
+_, rep_d = repair_permutation(
+    clean, SR, turns, scores=(starts_t, np.full(len(starts_t), 2.0)), score_window_frames=WINDOW_FRAMES
+)
 check("all-direct scores flip nothing", not rep_d["flipped_spans_frames"], rep_d["flipped_spans_frames"])
 
 try:
-    repair_permutation(clean, SR, turns, scores=(starts_t, marg_t[:-3]))
+    repair_permutation(clean, SR, turns, scores=(starts_t, marg_t[:-3]), score_window_frames=WINDOW_FRAMES)
     check("mismatched scores raise", False, "accepted ragged (starts, margins)")
 except ValueError:
     check("mismatched scores raise", True)
@@ -314,6 +316,66 @@ check(
     "default is unchanged",
     flip_spans(starts_w, st_w, 10_000) == flip_spans(starts_w, st_w, 10_000, window_frames=WINDOW_FRAMES),
 )
+
+# --------------------------------------------------- the two fixes must stay load-bearing
+# Both were bugs in the embedding scorer that the standalone experiment could not see, because it
+# used its own span logic and rescaled the penalty by hand. Neither is visible in a loss curve or an
+# error: one misplaces every seam by ~7 s, the other makes the whole scorer a silent no-op.
+
+# (1) SCALE. SWITCH_PENALTY is derived assuming a confident window scores ~2. Raw embedding margins
+# are cosine differences -- measured p90 0.901 on a real episode. Unnormalised they must flip
+# NOTHING; normalised to the derived units they must flip the marked span.
+# Use the EMBEDDING geometry (6 s windows, 12 s hop) and a realistically-sized flip, not half the
+# episode: a long enough run accumulates gain even at the raw scale, so a half-episode fixture would
+# pass and prove nothing. 50 windows = 600 s, the length actually injected in the end-to-end test.
+# Use the EMBEDDING geometry (6 s windows, 12 s hop) and make the inverted run a MINORITY island:
+# if it is the majority the globally-correct answer really is "the whole episode is inverted", and
+# the fixture proves nothing. 50 windows = 600 s, the length injected end-to-end.
+hop_e = int(round(12.0 * FRAME_RATE))
+win_e = int(round(6.0 * FRAME_RATE))
+n_e = 300
+starts_e = (np.arange(n_e) * hop_e).astype(np.int64)
+marg_raw = np.full(n_e, 0.5)
+marg_raw[100:150] = -0.5
+_, rep_raw = repair_permutation(clean, SR, turns, scores=(starts_e, marg_raw), score_window_frames=win_e)
+check(
+    "raw-scale embedding margins flip NOTHING (the silent no-op)",
+    not rep_raw["flipped_spans_frames"],
+    rep_raw["flipped_spans_frames"],
+)
+_, rep_norm = repair_permutation(
+    clean,
+    SR,
+    turns,
+    scores=(starts_e, 2.0 * marg_raw / float(np.percentile(np.abs(marg_raw), 90))),
+    score_window_frames=win_e,
+)
+check(
+    "...and the SAME margins normalised by p90 do flip",
+    len(rep_norm["flipped_spans_frames"]) == 1,
+    rep_norm["flipped_spans_frames"],
+)
+
+# (2) GEOMETRY, through repair_permutation rather than flip_spans alone -- the plumbing is what
+# production uses and it was untested.
+_, rep_w20 = repair_permutation(clean, SR, turns, scores=(starts_t, marg_t), score_window_frames=WINDOW_FRAMES)
+_, rep_w6 = repair_permutation(clean, SR, turns, scores=(starts_t, marg_t), score_window_frames=75)
+check(
+    "score_window_frames reaches the seams",
+    rep_w20["flipped_spans_frames"] != rep_w6["flipped_spans_frames"],
+    f"{rep_w20['flipped_spans_frames']} == {rep_w6['flipped_spans_frames']}",
+)
+check("...and is recorded", rep_w6.get("score_window_frames") == 75, rep_w6.get("score_window_frames"))
+try:
+    repair_permutation(clean, SR, turns, scores=(starts_t, marg_t))
+    check("scores= without a window raises", False, "accepted")
+except ValueError:
+    check("scores= without a window raises", True)
+try:
+    repair_permutation(clean, SR, turns, score_window_frames=75)
+    check("a window without scores= raises", False, "accepted -- would misplace energy seams")
+except ValueError:
+    check("a window without scores= raises", True)
 
 # --------------------------------------------------- != 2 speakers
 # The separator emits exactly two tracks, so assignment is a binary flip and the Viterbi has two
