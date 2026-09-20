@@ -2,6 +2,11 @@
 
 ## State
 
+DEFERRED without limit by the user on 2026-09-20 ("deferred unlimited"), after the design review
+and before any code was written; the node goes to the prior-strength lever (`SAE_4A_prior.md`).
+Nothing built or launched; the pre-registered design, amendments and falsifier below stand as
+written should the phase be reopened. The remainder of this State is as it stood at deferral.
+
 Phase opened 2026-09-20 on the user's approval ("Context-dependent Reverse Model"), after the
 private-code analysis (`SAE_4A_infomax.md` Results) showed the budget control settling into a
 confident frame-level acoustic code whose token sequence is not phone-like, and the training terms

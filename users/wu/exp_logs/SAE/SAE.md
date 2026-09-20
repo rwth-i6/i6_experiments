@@ -81,10 +81,15 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), ACTIVE,
    `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,
    four arms on one node, paired against ctrl_50; gate G4a.5. Objective derivation: `SAE_4A_objective.md`.
-   **Context-dependent reverse model (user 2026-09-20), OPENING, `SAE_4A_cdrev.md`:** emission
-   `p_phi(x_seg | k, previous phone)`; gate G4a.6; design review pending. Literature is against it
-   (`reports/lit_cdrev_2026-09-20.md`); follow-up candidates if null: prior strength (lexicon-constrained
-   or word-level prior, needs a different lattice) and a smaller reverse unit inventory (K = 64).
+   **Context-dependent reverse model (user 2026-09-20), DEFERRED without limit by the user the same
+   day, `SAE_4A_cdrev.md`:** emission `p_phi(x_seg | k, previous phone)`; gate G4a.6; design reviewed
+   (approve with amendments, applied), nothing built. Literature is against it
+   (`reports/lit_cdrev_2026-09-20.md`).
+   **Prior strength (user 2026-09-20), OPEN, `SAE_4A_prior.md`:** the private code already satisfies
+   the trigram nearly as well as phones (−3.98 vs −3.20 per token), so weight is not the lever;
+   Step 0 is a CPU prior-gap diagnostic (orders 1-8 and the exact lexicalised prior) with a fixed
+   decision table between a 4-gram importance-sampled correction and a lexicon score-function
+   term; gate G4a.7 defined after Step 0. Other follow-up candidate: K = 64 reverse units.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
