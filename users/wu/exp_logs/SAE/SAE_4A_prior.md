@@ -10,15 +10,15 @@ read in Results and audited (CONFIRMED). Its v1 (`.l0p0srBryKrs`, 1431dbf) faile
 order cap and is superseded. Conventions fixed before the numbers stand: like-for-like pairing
 (SIL dropped from the decode) primary, SIL-kept disclosed; BOS, no end-of-sentence term, identical
 denominators, every prior from the priorshuf uniform window (`SampleLinesJob.orN768ARKwlt`).
-Step 0b is running: `NeuralPhoneLmTrainJob.Iv6P6YVPNWmB` (GPU, 4 h cap, Slurm 1918176) then
-`PriorGapAnalysisJob.Gct95xZHe0zt` (neural row + held-line perplexity benchmark), speech-llm
-739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`; code review
-`reports/review_neural_phone_lm_2026-09-20.md`. Manager pid 3231512,
-`log/sae_4a_prior_gap.manager.20260920T202826Z.log`; watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 3231512 config/sae_4a_prior_gap.py 600` (re-arm first
-after any resume, with the budget and infomax watchers).
-Training-arm design and G4a.7 are written (Design "Training arm", Gate); the scorer slot is
-filled by Step 0b's rule. Code survey banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
+Step 0b first pass finished (`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB`, `PriorGapAnalysisJob.Gct95xZHe0zt`,
+speech-llm 739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`,
+`reports/review_neural_phone_lm_2026-09-20.md`): partial proxy, schedule-bound (Results, Step 0b).
+The pre-registered rerun (two instances, 30 epochs, 3.3 M and ~10 M) is being built in the same
+config; its manager, Slurm ids and watcher command are recorded here when launched. The earlier
+manager 3231512 has exited; no watcher is live for this phase.
+Training-arm design and G4a.7 are written (Design "Training arm", Gate), under design review
+(`reports/design_review_prior_arm_2026-09-20.md`); the scorer slot is filled by Step 0b's rule.
+Code survey banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
 Open user question (SIL vs rVAD): prior text has 13.8 % SIL tokens (sil_prob 0.5, surround;
 the local wav2vec-U pipeline uses 0.25 with rVAD); the gold SIL share on retained frames is being
 computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed change, own arm.
@@ -294,3 +294,35 @@ on sampled strings inside a training step. The exact trie Viterbi costs about 1e
 utterance in Python and is not step-rate compatible; Step 0b measures whether a small neural
 phone-level LM trained on the same text learns the lexical constraint (its gap row against the
 lexicon's 2.32) before the arm is designed around it.
+
+### Step 0b: the 3.3 M neural phone LM (2026-09-20; `NeuralPhoneLmTrainJob.Iv6P6YVPNWmB`, scored in `PriorGapAnalysisJob.Gct95xZHe0zt`; not yet audited)
+
+Held-line benchmark (10,000 held lines, 806,207 tokens, every model on the same strings, BOS
+context, no end-of-sentence term, pooled nats per token):
+
+| model | perplexity |
+| --- | --- |
+| trigram (Witten-Bell, live) | 9.557 (expected 9.561, reproduced) |
+| 4-gram KenLM modified Kneser-Ney | 7.271 |
+| 6-gram KenLM modified Kneser-Ney | 5.424 |
+| neural phone LM, 3.3 M, epoch 3 of 3 | 5.774 |
+
+Prior gap (gold − private, nats per token, dev-other, ctrl_50 ep10): like-for-like 1.71 (spread
+0.009, n = 2863), i.e. above the 4-gram's 1.67 and the 6-gram's 1.62 but below the 2.01 bar;
+strict subset 1.52 against the lexicon STRICT row's 2.51 (bar: within 0.3). SIL-kept 1.40.
+Read by the pre-registered rule: **partial proxy**, not an adequate lexical scorer. Under the size
+rerun rule it does not discharge Step 0b.
+
+Training-log reading, made after the numbers: the job's default schedule was 3 epochs of cosine
+decay to zero (8,289 steps, 125 s of GPU; the 4 h cap was irrelevant), the held curve was still
+falling at the last epoch (6.47, 5.87, 5.77) and the train-minus-held gap is 0.001 nats, so the
+model is schedule-bound, not capacity-bound: the 3.3 M model is worse than the 6-gram in
+perplexity while it has seen the counted lines three times. Amendment to the size rerun rule
+(recorded before the rerun is launched): the rerun is two instances, same data, split, held
+lines, optimiser and conventions, 30 epochs each under the same 4 h cap and the existing
+best-held-epoch / no-improvement abort: (a) 4 layers / width 256 (3.3 M, the schedule delta
+alone) and (b) 6 layers / width 384 (about 10 M, the pre-registered size delta). Both are scored
+in the same prior-gap job. Read rule unchanged: 2.01 bar and strict-subset tracking. Expected
+if the lexicon is learnable from this window: (b) below the 6-gram's perplexity and a gap above
+2.01; if both instances plateau near the 6-gram's gap (1.6–1.7), a phone-level LM of this size
+does not learn the lexical constraint from 1 M lines and the GPU trie DP is the scorer.
