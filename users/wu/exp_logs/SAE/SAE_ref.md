@@ -11,6 +11,18 @@ trigram joint training with this new topology. The supervised branch is disclose
 it supplies no parameters or labels to the cold branch.
 The user explicitly chooses separate initialization only for the supervised branch, with no
 100 h joint adaptation after those fits.
+**Reference preprocessing verified from the paper's full text (2026-09-20,
+`SAE/reports/lit_w2vu2_preprocessing_2026-09-20.md`):** wav2vec-U 2.0 (arXiv 2204.02492v2 §4.1)
+removes audio silence with rVAD before extracting layer-15 wav2vec 2.0 Large features and
+inserts SIL at word boundaries with probability 0.5 plus sentence-edge SIL; its "no audio-side
+pre-processing" covers segmentation, k-means, PCA and pooling only. The bed's rVAD + sil_prob 0.5
+is therefore the reference combination. Differences from the reference that stand disclosed:
+features masked after full-waveform SSL extraction (paper cuts the waveform first; unmeasured
+anywhere); no batch-norm/residual generator, no auxiliary MFCC k-means head, no GAN. Reference
+checkpoint selection is label-free: 4-gram phone-LM perplexity divided by the squared fraction of
+vocabulary seen, SIL stripped before both. Gold silence on dev-other after the bed's rVAD: 7.9 %
+of retained frames, 5.7 % of phone runs, against 13.8 % SIL tokens in the prior text
+(`SAE_4A_prior.md`, Bed).
 
 ## Current research constraints (user priority 2026-09-16)
 

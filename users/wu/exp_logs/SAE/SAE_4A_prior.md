@@ -85,9 +85,18 @@ retained 50 Hz count 781,130 and the 60 ms output count 261,295 reproduce the ba
 
 Reading: rVAD removes 60 % of gold silence but 7.9 % of retained frames are still silence, so
 the SIL symbol is needed; the prior expects SIL 2.4x more often than gold shows it and the decode
-sits closer to gold than the prior does. A sil_prob 0.25 text (about 7–8 % SIL tokens) would
-match gold's token share; it is a bed change (new prior, new hashes), a candidate arm for this
-phase's queue, not a patch to a running arm, and not ahead of the training arm.
+sits closer to gold than the prior does. Paper check (`reports/lit_w2vu2_preprocessing_2026-09-20.md`,
+full text of arXiv 2204.02492v2 §4.1): wav2vec-U 2.0 ALSO removes audio silence with rVAD before
+feature extraction and inserts SIL at word boundaries with probability 0.5 plus sentence-edge
+SIL, with no justification and no sweep; "no audio pre-processing" in its abstract refers to
+segmentation, k-means, PCA and pooling only. So the bed's rVAD + 0.5 is the reference
+combination, not a mix-up; the only unmeasured departure is that we mask features after
+full-waveform SSL extraction while the paper cuts the waveform first (already disclosed in
+`SAE_4A_blankfree.md`). wav2vec-U 1.0's sweep (its Fig. 5) picked 0.25 and found 0.5 worse at
+1.0's operating point, and removing audio silence altogether cost 8 PER there. A sil_prob 0.25
+text (about 7–8 % SIL tokens) would match gold's token share; it is a departure from the
+reference, a bed change (new prior, new hashes), a candidate arm for this phase's queue, and not
+ahead of the training arm.
 
 ## Design
 
