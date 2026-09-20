@@ -39,8 +39,12 @@ N = 50 cost line above: 3.3 h per arm, no resume path needed, ctrl_20 in the sam
 flight: instance (c) of the phone LM built (speech-llm d1c14cf: 25.5 M params, 10.1 M-line sample
 seed 1, the original 10,000 held lines removed by content and used as the fit's held-out set;
 `NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`,
-`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`), under code review before
-funding (`reports/review_phone_lm_v2_2026-09-20.md`). Falsifier probe (i) built (speech-llm d22d81d:
+`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`), reviewed
+(`reports/review_phone_lm_v2_2026-09-20.md`, disclosures in Design) and running under its own
+manager: pid 4004154, `log/sae_4a_phone_lm.manager.20260920T214940Z.log`, watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 4004154 config/sae_4a_phone_lm.py 600`
+(`reports/exec_phone_lm_v2_launch_2026-09-20.md`; text jobs Slurm 1920042/1920043 first, then the
+GPU fit, ~2 h estimated). Falsifier probe (i) built (speech-llm d22d81d:
 `NeighbourhoodProbeJob.ZhYOeCltF4wW` ep4 / `.6JZvwE7T1UmA` ep10, word-BIGRAM row
 `PriorGapAnalysisJob.m6lUxAO65f6A`; `reports/impl_prior_probe_2026-09-20.md`) is running under
 its own manager: pid 3849944, `log/sae_4a_prior_probe.manager.20260920T214015Z.log`, watcher
@@ -50,8 +54,8 @@ The word-UNIGRAM row is deferred: KenLM has no order 1, it needs an edit inside 
 stays frozen while the rerun's analysis jobs are pending; it is not on the launch path. Blank-free
 FFBS sampler + probe (ii) job still being built in new modules (`config/sae_4a_sf_probe.py`,
 `reports/impl_blankfree_sampler_2026-09-20.md`).
-NEXT: on the review verdict, fund (c) (executor, own manager, arm watcher); arm the probe (i)
-watcher; read the rerun and (c) against the Step 0b rule; read probes (i) and (ii) (95 % rule,
+NEXT: read the rerun and (c) against the Step 0b rule as their watchers fire (executor confirms
+the finish, extractor reads the gap rows); read probes (i) and (ii) (95 % rule,
 lam_sf calibration); then the train-step wiring of the sf and soft terms (after tonight's
 budget-pack resume, since the blank-free modules are re-imported then) and the pack
 sf_20 / soft_20 / ctrl_20.
@@ -411,3 +415,16 @@ in the same prior-gap job. Read rule unchanged: 2.01 bar and strict-subset track
 if the lexicon is learnable from this window: (b) below the 6-gram's perplexity and a gap above
 2.01; if both instances plateau near the 6-gram's gap (1.6–1.7), a phone-level LM of this size
 does not learn the lexical constraint from 1 M lines and the GPU trie DP is the scorer.
+Instance (c), added under the user's directive to reach the gate (recorded before its launch;
+`reports/impl_phone_lm_v2_2026-09-20.md`, `reports/review_phone_lm_v2_2026-09-20.md`,
+APPROVE_WITH_AMENDMENTS = disclosures only): 6 layers / width 768-class, 25.5 M params, trained on
+10.09 M lines (`SampleLinesJob.tHBnfzwuo9ok`, seed 1) with the benchmark's 10,000 held lines removed
+by content (`ExcludeLinesJob.nOMT5eGtLKDV`) and used as the fit's own held-out set
+(`HeldLinesJob.SKxs9aPu2Sha`, same order, respelling and 512 truncation as the banked benchmark),
+5 epochs, same optimiser and conventions, `NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`,
+`PriorGapAnalysisJob.OO0iAEVLKgOO` (differs from `.Gct95xZHe0zt` in name and neural_lm only).
+Disclosures: (c) moves text, capacity and epochs at once, so its row answers "does more of
+everything reach the bar", never what the extra text alone bought; the benchmark's n-gram rows
+remain fitted on the 1 M-line window, so neural-vs-n-gram is not like-for-like in training data;
+the bar (2.01) and the strict reference (2.51) come from the trigram / lexicon rows and are
+unchanged. Reported held perplexity is the min over epochs on the same held set, as for (a)/(b).
