@@ -14,15 +14,18 @@ after any session resume, together with the budget and infomax watchers named in
 files). The v1 job failed before producing numbers (KenLM compiled with max order 6, the 8-gram
 build aborted; manager exited, watcher done) and the code review
 (`reports/review_prior_gap_2026-09-20.md`) found the lexicon row biased (see Design, "Step 0",
-amendments), so v2 is being written under a new hash: orders 4 and 6 only, two lexicon
-conventions, per-utterance dump. Convention fixed before the numbers: the gold reference is
+amendments), so v2 runs under a new hash (`PriorGapAnalysisJob.2RkbKYl0v1XK`, speech-llm commit
+291dab1; orders 4 and 6 only, two lexicon conventions, per-utterance dump): manager pid 2790865,
+`log/sae_4a_prior_gap.manager.20260920T192919Z.log`, Slurm 1916711; watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 2790865 config/sae_4a_prior_gap.py 300` (re-arm first
+after any session resume). The v1 pointers above are superseded. Convention fixed before the numbers: the gold reference is
 SIL-free and the decode carries SIL, so the job scores both pairings; the like-for-like pairing
 (SIL dropped from the decode) is primary and the SIL-kept pairing is disclosed beside it. Sound
 per the review and kept: trigram anchors reproduce the decipherment's −3.20 / −3.99 / −4.63, BOS
 with no end-of-sentence term in every scorer, identical token denominators, the priorshuf
 uniform window (`SampleLinesJob.orN768ARKwlt`) for every prior.
-NEXT: implementer v2 report; executor restarts the manager on the v2 hash (the live manager holds
-the v1 graph); re-arm the watcher; read the pre-registered table; then decide between the 4-gram
+NEXT: watcher verdict on the v2 job; read the pre-registered table (Design, "Step 0", with the
+amendments) off `output/prior_gap.json` via the extractor; then decide between the 4-gram
 importance-sampled correction and the lexicon score-function term and write that arm's design and
 gate here before any node is funded.
 
