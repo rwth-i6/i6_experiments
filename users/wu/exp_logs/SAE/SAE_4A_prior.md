@@ -53,15 +53,19 @@ stays frozen while the rerun's analysis jobs are pending; it is not on the launc
 FFBS sampler + probe (ii) built (speech-llm 2ae6cc5, new modules only, brute-force checked against
 full enumeration, reproduces the banked greedy decode; `reports/impl_blankfree_sampler_2026-09-20.md`)
 and running: `SampledRewardProbeJob.d1NoUQJ2EXN5` (ep1, tau 8) / `.Y81PrZ6fWWKu` (ep4, tau 5.04) /
-`.HVHIlaUkIkVi` (ep10, tau 2), 300 dev-other utterances, G = 8; manager pid 4178489,
-`log/sae_4a_sf_probe.manager.20260920T221014Z.log`, watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 4178489 config/sae_4a_sf_probe.py 600`. The sf term's
-normalisation is pinned per retained frame (A5, Design amendments).
-NEXT: read the rerun and (c) against the Step 0b rule as their watchers fire (executor confirms
-the finish, extractor reads the gap rows); read probes (i) and (ii) (95 % rule,
-lam_sf calibration); then the train-step wiring of the sf and soft terms (after tonight's
-budget-pack resume, since the blank-free modules are re-imported then) and the pack
-sf_20 / soft_20 / ctrl_20.
+`.HVHIlaUkIkVi` (ep10, tau 2), 300 dev-other utterances, G = 8; FINISHED and read (Results,
+"Pre-launch falsifier (ii)"): r(gold) > max_g in 100 / 100 / 97 % at ep1 / ep4 / ep10, above 95 %
+at every checkpoint, so under the pre-registered rule the sf arm is NOT funded; the soft arm is
+not funded either while the scorer is a partial proxy. The manager (4178489) exited cleanly. The sf
+term's normalisation was pinned per retained frame (A5) before the read. Audit of the reading
+dispatched (`reports/audit_sf_probe_2026-09-21.md`); literature check for the lexicon-in-the-
+objective design dispatched (`reports/lit_lexicon_in_objective_2026-09-21.md`).
+NEXT: read the audit; read instance (c) when its watcher fires (bar 2.01 + strict tracking): if
+(c) is adequate, reconsider the soft arm with (c) as scorer (design amendment, review); otherwise
+Step 0b closes on "no phone LM reaches the bar from this text" and the next arm is the
+lattice-internal lexicon (GPU trie DP; survey banked, literature pending), which needs its own
+pre-registered design, a design review before its first job, and probably its own phase file.
+No training arm of this phase runs before that.
 
 ## Objective
 
@@ -503,3 +507,35 @@ Reading (probe (i) only; the funding rule is read on (ii), the FFBS draws):
 - Word-bigram ESCAPE row (`PriorGapAnalysisJob.m6lUxAO65f6A`): gap 2.287 against the trigram
   row's 2.321, strict 2.512 vs 2.506; the word-LM order above bigram buys 0.03 nats per token, the
   lexicon itself carries the discrimination. The word-unigram row stays deferred (KenLM order 1).
+
+### Pre-launch falsifier (ii): FFBS draws on the blank-free lattice (read 2026-09-21)
+
+`SampledRewardProbeJob.d1NoUQJ2EXN5` (ep1, tau 8) / `.Y81PrZ6fWWKu` (ep4, tau 5.04) /
+`.HVHIlaUkIkVi` (ep10, tau 2), speech-llm 2ae6cc5, 300 fixed dev-other utterances, G = 8 exact
+posterior draws at the schedule's tau (rebuild check: greedy decode of the rebuilt model matches
+the banked decode on 292 / 292 / 299 of 300; max log w − log Z ≤ 0 everywhere; no Z = 0). Reward
+r = neural (first-pass 3.3 M, `Iv6P6YVPNWmB`) minus unigram, SIL dropped, nats per utterance.
+Audit from a fresh context: `reports/audit_sf_probe_2026-09-21.md` (pending at the time of writing).
+
+| ckpt | distinct strings of 8 | tokens per string sample / greedy / gold | r per token gold / greedy / sample | within-group std (median) | r(gold) > max_g fraction | r(gold) > r(greedy) |
+|---|---|---|---|---|---|---|
+| ep1 | 8.00 | 80.1 / 21.5 / 62.9 | +0.84 / −4.12 / −1.42 | 14.9 | **1.0000** | 1.0000 |
+| ep4 | 8.00 | 69.9 / 36.2 / 62.9 | +0.84 / −2.76 / −1.09 | 12.0 | **1.0000** | 1.0000 |
+| ep10 | 7.36 | 57.5 / 59.8 / 62.9 | +0.84 / −0.72 / −0.48 | 5.1 | **0.9700** | 0.9900 |
+
+Gradient-norm ratio (sf over l_tau, A5 per-frame convention, median over 3 batches): 5.0 at ep4
+(lam_sf 0.020 for 0.1x, 0.060 for 0.3x), 1.8 at ep10 (0.055 / 0.166); the utterance_mean
+convention is disclosed in the reports and differs by the 1 / retained factor.
+
+**Verdict under the pre-registered rule: r(gold) exceeds every draw in more than 95 % of
+utterances at EVERY checkpoint (100 %, 100 %, 97 %), so the score-function arm (sf_20) is NOT
+funded and the lattice-internal lexicon design is the next arm.** What the numbers say beyond the
+rule: the draws are diverse (8 of 8 distinct at tau ≥ 5) and the reward is not a dead band (std
+5–15 nats per utterance), so the term would have moved parameters; but even the best of 8 draws
+sits 45–75 nats per utterance below gold at every checkpoint, the sampled strings are scored
+better than the greedy decode at every checkpoint (−1.4 vs −4.1 per token at ep1), and probe (i)
+showed the neural reward's local ordering tracks the trigram already in the DP. A reward whose
+gradient never sees a string near the lexical region cannot supply the lexical constraint; it can
+only re-weight trigram-typicality. The soft (straight-through) arm shares the scorer and the
+same neighbourhood, and is not funded either while the scorer is a partial proxy; it is
+reconsidered only if instance (c) meets the Step 0b bar. Gate G4a.7 stands unread (no arm ran).
