@@ -3,13 +3,17 @@
 ## State
 
 Phase opened 2026-09-20 on the user's directive ("do what wav2vec-U 2.0 actually does"; the
-feature-masking convention was never approved). Nothing built yet. Code survey of the current
-audio pipeline running (`reports/survey_audio_pipeline_2026-09-20.md`); the implementer spec, the
-design review and the gate thresholds follow it. N = 20 sub-epochs (decided from the budget
-round's label-free curves, `SAE_4A_budget.md` "Sub-epoch count"): pack of prepro_20 + ctrl_20,
-about 6.7 h on one node.
-NEXT: survey -> spec (trimmed audio job, feature extraction on trimmed audio, units, HDFs, control
-at the same N) -> design review -> implementer -> launch.
+feature-masking convention was never approved). Survey done
+(`reports/survey_audio_pipeline_2026-09-20.md`), design pre-registered and reviewed
+(APPROVE_WITH_AMENDMENTS, amendments applied below), gate G4a.8 fixed. Implementer building
+`sae/emc/trimmed_audio_data.py` (TrimmedAudioBlankfreeDataJob) and
+`configs/config_sae_4a_prepro_pack_v1.py` (ctrl_20, ctrl_20_s1, prepro_20; N = 20 from
+`SAE_4A_budget.md` "Sub-epoch count"); no job launched. Blank-free modules stay untouched until
+the budget pack's 11.5 h resume has passed (they are re-imported then).
+NEXT: on hand-back, executor (own manager, own watcher) runs the dev-other data job ALONE and
+reports the pre-funding reads (OR total == 781,130 else STOP; T'/T; unit agreement overall and by
+splice distance; distortion; T' < 2 count); if unit agreement is not near 1.00, fund the
+three-arm pack and register the paired reads; record both here.
 
 ## Objective
 

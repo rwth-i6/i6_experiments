@@ -36,14 +36,25 @@ computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed cha
 User directive 2026-09-20 (`SAE.md`): reach the Step 0b gate and launch the strong-scorer arm,
 autonomously. N = 20 sub-epochs for the arm (`SAE_4A_budget.md` "Sub-epoch count"; replaces the
 N = 50 cost line above: 3.3 h per arm, no resume path needed, ctrl_20 in the same pack). In
-flight: instance (c) of the phone LM (25 M params, 10 M-line sample, held lines excluded;
-`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`); falsifier probe (i) +
-word-unigram / bigram rows (`config/sae_4a_prior_probe.py`); blank-free FFBS sampler + probe (ii)
-job in new modules (`config/sae_4a_sf_probe.py`, `reports/impl_blankfree_sampler_2026-09-20.md`).
-NEXT: launch each as it hands back (executor, own manager, arm watcher); read the rerun and (c)
-against the Step 0b rule; read probes (i) and (ii); then the train-step wiring of the sf and soft
-terms (after tonight's budget-pack resume, since the blank-free modules are re-imported then) and
-the pack sf_20 / soft_20 / ctrl_20.
+flight: instance (c) of the phone LM built (speech-llm d1c14cf: 25.5 M params, 10.1 M-line sample
+seed 1, the original 10,000 held lines removed by content and used as the fit's held-out set;
+`NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`,
+`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`), under code review before
+funding (`reports/review_phone_lm_v2_2026-09-20.md`). Falsifier probe (i) built (speech-llm d22d81d:
+`NeighbourhoodProbeJob.ZhYOeCltF4wW` ep4 / `.6JZvwE7T1UmA` ep10, word-BIGRAM row
+`PriorGapAnalysisJob.m6lUxAO65f6A`; `reports/impl_prior_probe_2026-09-20.md`) is running under
+its own manager: pid 3849944, `log/sae_4a_prior_probe.manager.20260920T214015Z.log`, watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 3849944 config/sae_4a_prior_probe.py 600`
+(`reports/exec_prior_probe_launch_2026-09-20.md`; note the venv is `/e/project1/spell/wu24/env/sis_env`).
+The word-UNIGRAM row is deferred: KenLM has no order 1, it needs an edit inside prior_gap.py, which
+stays frozen while the rerun's analysis jobs are pending; it is not on the launch path. Blank-free
+FFBS sampler + probe (ii) job still being built in new modules (`config/sae_4a_sf_probe.py`,
+`reports/impl_blankfree_sampler_2026-09-20.md`).
+NEXT: on the review verdict, fund (c) (executor, own manager, arm watcher); arm the probe (i)
+watcher; read the rerun and (c) against the Step 0b rule; read probes (i) and (ii) (95 % rule,
+lam_sf calibration); then the train-step wiring of the sf and soft terms (after tonight's
+budget-pack resume, since the blank-free modules are re-imported then) and the pack
+sf_20 / soft_20 / ctrl_20.
 
 ## Objective
 

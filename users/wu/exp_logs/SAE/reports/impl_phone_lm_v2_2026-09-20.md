@@ -1,123 +1,144 @@
-# BLOCKED: the 10 M-line phone LM arm (c) cannot be wired without editing `neural_phone_lm.py`
+# Step 0b arm (c): a phone LM on ten times the text (2026-09-20)
 
-Implementer report, 2026-09-20.  Dispatch: a third, larger neural phone LM (8 layers, width 512,
-8 heads, FFN 2048, 5 epochs) trained on a 10,100,000-line uniform sample (seed 1) of the same
-phonemised corpus with the window's 10,000 held lines excluded, plus its `PriorGapAnalysisJob`
-read, in a NEW config `config_sae_4a_phone_lm_v2.py`.
+Implementer report.  Dispatch: a third, larger neural phone LM trained on MORE text than the
+1,010,000-line window, plus its `PriorGapAnalysisJob` read, in a new config.  First pass returned
+BLOCKED (the training job replays its window and derives its held lines, so it can neither be fed a
+filtered text nor be told which lines to hold out); the coordinator then fixed **Option C**: a NEW
+subclass in a NEW module, `neural_phone_lm.py` untouched.  That is what is built here.  Nothing was
+launched.
 
-**Nothing was written into the recipe and nothing was committed.**  Two properties the dispatch
-requires are not injectable through `NeuralPhoneLmTrainJob`'s constructor, and the dispatch's own
-fallback for that case is BLOCKED.  Everything that IS determinate (architecture, parameter count,
-time budget, the analysis instance) is below, so the arm can be built in one pass once the fork
-below is decided.
+## The blocker, and what the subclass does about it
 
-## Blocker 1 -- the train job cannot consume a filtered text file at all
+`NeuralPhoneLmTrainJob._texts()` (`neural_phone_lm.py:707-737`) does not read `window_phn` as a
+corpus: it calls `prior_gap.replay_window_texts` (`prior_gap.py:873-934`), which re-derives the
+sample with `sample_line_indices(n_kept, n_window_lines, sample_seed)` and asserts per line that the
+phone line is the lexicon phonemization of the word line it recovers (`:919`).  Deleting one line
+desynchronises that walk.  Its validation lines are `window_line_flags(window_phn, ...)[1]`, i.e.
+`i % 101` of its OWN input (`:715`), so a fit on a larger sample would also be selected, aborted and
+reported on lines that are not the benchmark's.
 
-`NeuralPhoneLmTrainJob._texts()` (`sae/emc/neural_phone_lm.py:707-737`) does NOT read `window_phn`
-as a corpus.  It calls `prior_gap.replay_window_texts` (`sae/emc/prior_gap.py:873-934`), which
+`NeuralPhoneLmTrainJobV2` overrides `_texts()` and NOTHING else: the two splits are inputs
+(`train_phn`, `held_phn`), written into the job's work dir in the parent's own text form (`<SIL>`
+respelled `SIL`, one line per line, in order) and handed to the inherited `encode_lines` /
+`train_phone_lm` / selection / abort / `save_model` / `heldout.txt` path.  It also REFUSES to train
+if `leakage_check` finds a held line's text in the training file (in the parent that count is
+reported and tolerated -- there the split is by index; here a repeat would mean the exclusion did
+not happen).
 
-* counts `n_kept` = the lines of `word_corpus` whose words are all in the lexicon vocabulary,
-* re-derives the sample selection as `text_sample.sample_line_indices(n_kept, n_window_lines,
-  sample_seed)`, and
-* walks `word_corpus` and `window_phn` IN LOCKSTEP, asserting per line that the window's phone line
-  with SIL removed equals the concatenation of the lexicon pronunciations of the recovered word
-  line (`prior_gap.py:919`), and finally `n_checked == n_window_lines` (`:931`).
+## Files
 
-An `ExcludeLinesJob` output is a file with lines DELETED, so from the first removed line on the
-phone line no longer corresponds to the word line the replay recovers, and the job dies in `run()`
-on the assertion at `prior_gap.py:919`.  There is no constructor argument that bypasses the replay
-(no train-text path input); the only knobs are `n_window_lines`, `held_stride`, `sample_seed`.
-The unfiltered sample (`SampleLinesJob(n_out=10_100_000, seed=1)` output, `n_window_lines=
-10_100_000`, `sample_seed=1`) WOULD replay cleanly -- but then about a quarter of the 10,000 held
-lines (each drawn with probability 10.1 M / 39.63 M) land in training, which is exactly what the
-exclusion job exists to prevent.
+| file | delta |
+|---|---|
+| `speech_llm/sae/emc/neural_phone_lm_v2.py` | NEW. `HeldLinesJob` (writes `window_line_flags(...)[1]` of a window, asserts the count), `NeuralPhoneLmTrainJobV2(NeuralPhoneLmTrainJob)` (adds `train_phn` / `held_phn`, overrides `_texts`), `write_phone_lines`. |
+| `speech_llm/sae/emc/text_filter.py` | NEW. `ExcludeLinesJob`: drops every line whose CONTENT is a line of `exclude`, keeps corpus order, banks `stats.json` / `stats.txt` (corpus lines, removed, distinct excluded lines hit, empty lines dropped, written).  Guards: `expect_corpus_lines`, optional `max_removed`. |
+| `speech_llm/sae/emc/test_neural_phone_lm_v2.py` | NEW, 6 checks (a)-(e) below. |
+| `speech_llm/sae/emc/test_text_filter.py` | NEW, 5 checks. |
+| `configs/config_sae_4a_phone_lm_v2.py` | NEW (workspace shim `config/sae_4a_phone_lm.py`, like `config/sae_4a_prior_gap.py`).  The four-job arm and its read; `config_sae_4a_prior_gap_v1` is IMPORTED ONLY. |
 
-## Blocker 2 -- the held lines are derived, never handed in
+`emc/neural_phone_lm.py`, `emc/prior_gap.py`, `emc/text_sample.py` and
+`configs/config_sae_4a_prior_gap_v1.py` are untouched, as are the other implementer's files.
 
-The train job's validation set is `window_line_flags(window_phn, n_lines=n_window_lines,
-held_stride=held_stride)[1]` -- the lines `i % held_stride == 0` of ITS OWN input
-(`neural_phone_lm.py:715`, `prior_gap.py:805-828`).  The constructor has no held-lines path
-(full signature: `window_phn, word_corpus, bliss_lexicon, g2p_lexicon, n_window_lines,
-held_stride, sample_seed, n_layers, d_model, n_heads, d_ff, max_positions, dropout, epochs, lr,
-warmup_steps, weight_decay, grad_clip, max_tokens_per_batch, sort_window_lines, max_seconds,
-probe_lines, held_improvement_nats, seed, bf16, version`).  On a 10.1 M-line input its held set is
-about 100,000 lines of the NEW sample, not the original 10,000, and that set drives
+## The arm and its hashes (graph load from the setup dir)
 
-* `heldout.txt` / `heldout_nats_per_token` (the number the other two arms report on the original
-  held lines -- no longer comparable),
-* best-epoch selection and the no-improvement abort (`held_improvement_nats`), i.e. WHICH model is
-  saved, and
-* `held_line_benchmark`'s cross-check field `train_job_minus_recomputed_nats`
-  (`prior_gap.py:517-590`, fed `train_meta=scorer.meta` at `:1645`), whose docstring says "the two
-  are the same model on the same lines in the same convention, so a difference is a defect" -- it
-  would bank a large spurious "defect" delta.
-
-The dispatch's instruction for this case ("use an injectable held-lines input if one exists, else
-report BLOCKED") applies: no such input exists.
-
-**What is NOT affected:** the analysis instance (item 3) derives the benchmark lines from ITS OWN
-`window_phn` pin (`prior_gap.py:1536`), which stays `WINDOW_PHN`.  So a `PriorGapAnalysisJob` with
-`neural_lm = (c).out_model` still scores the new model on the ORIGINAL 10,000 held lines, whatever
-the train job trained on.  Item 3 is buildable as specified.
-
-## The fork (for the planner; I chose nothing)
-
-**Option A -- the minimal recipe change (forbidden to me by the dispatch).**  In
-`sae/emc/neural_phone_lm.py`, two optional inputs plus a branch:
-
-```python
-    train_phn: Optional[tk.Path] = None,   # a ready phone-line training text
-    held_phn: Optional[tk.Path] = None,    # the benchmark held lines, handed in
-    ...
-    __sis_hash_exclude__ = {"train_phn": None, "held_phn": None}
+```
+held_lines            HeldLinesJob.SKxs9aPu2Sha            10,000 held lines of WINDOW_PHN
+sample_10m            SampleLinesJob.tHBnfzwuo9ok          10,100,000 lines, seed 1, TEXT_PHN_SIL
+sample_10m_no_held    ExcludeLinesJob.nOMT5eGtLKDV         that sample minus the held-line content
+phone_lm_10m_l8w512   NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy arm (c)
+ctrl_50_ep10/dev-other_neural_10m_l8w512
+                      PriorGapAnalysisJob.OO0iAEVLKgOO     the Step 0b read, scored with (c)
 ```
 
-and in `_texts()`, when both are given, copy/stream those two files instead of calling
-`window_line_flags` + `replay_window_texts` (keep `leakage_check` and the disjointness assertion).
-About 15 lines.  Excluding NEW parameters at their default is hash-neutral (the pattern already
-used for `prior_gap`'s `neural_lm`), so `Iv6P6YVPNWmB`, `xObXEwRpvmzd`, `pBozvj6c3l16` and the four
-analysis instances keep their hashes -- but the module is re-imported live by the two RUNNING train
-jobs on every resubmit, so the edit must be made with that in mind.  With it, the dispatch's design
-(SampleLinesJob 10.1 M seed 1 -> ExcludeLinesJob -> train job, held lines handed in) works exactly
-as written and the train job validates, selects and reports on the ORIGINAL 10,000 held lines.
+Aliases `sae/4a/phone_lm_v2/...`; outputs under `<setup>/librispeech/sae_4a_phone_lm_v2/...`.
 
-**Option B -- config-level only, but it needs constants the dispatch does not fix.**  To satisfy
-the replay without a recipe edit, the new module would have to emit a phone file AND its WORD twin
-in lockstep (recovering the word lines by replaying `sample_line_indices` over
-`librispeech-lm-norm.txt.gz`), and hand the twin as `word_corpus` with `n_window_lines = N` and any
-seed (`sample_line_indices(N, N, seed)` is the identity, `text_sample.py:67-75`).  Two sub-variants:
-  * filter the 39.63 M-line phonemised corpus FIRST and sample 10,100,000 lines (seed 1) from the
-    filtered corpus: determinate, fixes Blocker 1, leaves Blocker 2 (train job holds out ~100,000
-    lines of the new sample);
-  * additionally lay the file out so that the stride positions ARE the 10,000 original held lines
-    (choose `held_stride = s` and a total line count `N` with `ceil(N / s) == 10_000`): this fixes
-    Blocker 2 too, but `s`, `N` and the truncation policy for the surplus training lines are
-    undetermined values that change the training data, and the post-exclusion line count is only
-    known at run time.  I did not choose them.
+* **parameters: 25,525,290** -- `n_parameters(build_model(job.config))` on the job's own config
+  (8 layers, width 512, 8 heads, FFN 2048, 512 positions, vocab 42).  Head dim 64, the banked
+  256 / 4.  The same script reproduces 3,312,170 and 10,876,458 for the existing arms.
+* **the sample is a sibling of the window**: `SampleLinesJob(corpus=s1a.TEXT_PHN_SIL,
+  n_out=1_010_000, seed=0)` rebuilt in the load script IS `SampleLinesJob.orN768ARKwlt`, so the
+  corpus pin and the sampling of arm (c)'s text are the banked window's; only `n_out` and `seed`
+  differ.
+* **the read is the banked Step 0b read**: `PriorGapAnalysisJob(**analysis_args(pg.NEURAL_NAME,
+  neural_lm=<banked model>))` IS `PriorGapAnalysisJob.Gct95xZHe0zt`, so arm (c)'s instance differs
+  from the banked one in `name` and `neural_lm` alone (same decode, gold, prior, window, corpus,
+  lexicons, KenLM orders, word LM order, `version=2`).
+* **the v1 config's seven hashes are unchanged** (`2RkbKYl0v1XK`, `Iv6P6YVPNWmB`, `Gct95xZHe0zt`,
+  `xObXEwRpvmzd`, `5wNIQs2lpC5P`, `pBozvj6c3l16`, `pg14aEYJyiva`), asserted in the same process
+  after importing and building the new config.
 
-## Determinate parts, measured
+## Held lines: the benchmark is the same 10,000 lines
 
-* Parameter count of arch (c) 8 / 512 / 8 / 2048, 512 positions, vocab 42:
-  **25,525,290** (`n_parameters(build_model(model_config(...)))`, speech_llm conda env).  The same
-  script reproduces the banked 3,312,170 (4/256/4/1024) and 10,876,458 (6/384/6/1536), matching the
-  rerun report -- so the count is the job's own model, not an estimate.
-* Time, scaled from the banked 41 s/epoch at 3,312,170 parameters over 1,000,000 counted lines:
-  25,525,290 / 3,312,170 = 7.71x parameters, 10.09 M / 1.00 M = 10.09x lines -> about 3,190 s per
-  epoch, 5 epochs = 15,950 s = 4.43 h of training.  With the dispatch's 1.5x margin:
-  `max_seconds = 24_000` (6.7 h, a constructor argument, injectable) and Slurm
-  `time = 8` h (`job.rqmt = {...}` overwritten from the config after construction -- `rqmt` is a
-  plain attribute set at `neural_phone_lm.py:702`, read in `tasks()` and in `run()`, and is not part
-  of the sisyphus hash, so no recipe edit is needed for it).  The 8 h also covers the replay, which
-  runs TWICE over the 39.63 M-line word corpus and writes 10x more lines than the banked run's
-  515.6 s.  Caveat: parameter-proportional scaling is an extrapolation, not a measurement; at 3.3 M
-  the GH200 may have been partly launch-bound, in which case (c) is faster than this.
-* Memory: `encode_lines` stores uint8 ids (`neural_phone_lm.py:148-174`), so 10.09 M lines at ~81
-  tokens is ~0.8 GB flat plus ~1.3 GB of transient per-line arrays -- inside the job's 32 GB.
+`HeldLinesJob` takes `pg.WINDOW_PHN` and writes `window_line_flags(window, n_lines=1_010_000,
+held_stride=101)[1]` -- the same function, the same defaults, that `PriorGapAnalysisJob` calls at
+`prior_gap.py:1536` before replaying its held-line benchmark text -- and asserts there are exactly
+`prior.DEFAULT_HELD_LINES` = 10,000.  Run against the real banked window here (read-only), the split
+gives **counted 1,000,000 / held 10,000**, so the guard matches the live input.
+
+That file is arm (c)'s `held_phn`, so `heldout.txt`, the best-epoch selection and the abort are
+computed on exactly those lines.  Both sides truncate them the same way: `encode_lines` cuts at the
+model's `max_positions` (512) in the train job, `held_line_benchmark` cuts every model's strings at
+`scorer.max_positions` (512) in the analysis job.  The benchmark's cross-check
+`train_job_minus_recomputed_nats` is therefore the same model on the same lines in the same
+convention, as its docstring requires -- which it would NOT have been with a derived held split.
+
+Training text: the 10.1 M-line seed-1 sample minus every line whose content is one of those 10,000
+(about 2,500 expected: each corpus line is drawn with probability 10.1 M / 39.63 M).  No ceiling is
+set on the removal count (the number of duplicate-content matches is not known in advance); the
+count is banked in `stats.json` / `stats.txt` and registered as an output.  The corpus was checked
+for a bare `SIL` token (there is none, 0 of 1,010,000 window lines), so the `<SIL>` -> `SIL`
+respelling cannot create a content collision the exclusion missed; the train job asserts zero
+leakage on the written text anyway.
+
+## Budget
+
+From the banked fit (41 s/epoch at 3,312,170 parameters over 1,000,000 counted lines): 7.71x the
+parameters and 10.09x the lines is about 3,190 s/epoch, about 4.4 h for the 5 epochs.  With the
+dispatch's 1.5x margin: `max_seconds = 24_000` (a constructor argument, hash-relevant) and
+`job.rqmt = {..., "time": 8}` (an attribute, overwritten in the config, so it moves no hash);
+`gpu 1, cpu 4, mem 32` inherited.  The Slurm hours also cover the two decompression passes
+`_texts` makes.  Caveat: parameter-proportional scaling is an extrapolation, not a measurement; if
+the cap is hit, the cosine is mid-schedule and the best epoch is still saved and scored
+(`stopped_reason` says so).  Memory: `encode_lines` keeps uint8 ids, ~0.8 GB flat plus ~1.3 GB of
+transient per-line arrays for 10.09 M lines -- inside the 32 GB.
+
+**Disclosure for the read**: arm (c) differs from arms (a)/(b) in TWO things at once, the text
+(10.09 M lines instead of 1.00 M) and the capacity/schedule (25.5 M parameters, 5 epochs).  Its row
+answers "is a phone LM good enough with more of everything", not "what did the extra text buy".
 
 ## Checks run
 
-* Code reads of `neural_phone_lm.py` (ctor, `_texts`, `run`, `encode_lines`), `prior_gap.py`
-  (`replay_window_texts`, `window_line_flags`, `held_line_benchmark`, `PriorGapAnalysisJob.run`),
-  `text_sample.py` (`SampleLinesJob`, `sample_line_indices`) and `config_sae_4a_prior_gap_v1.py`.
-* The parameter-count script above (speech_llm conda env, recipe on `PYTHONPATH`).
-* No config was written, so no graph load, no hashes, no tests, no commit.
+`pytest test_text_filter.py test_neural_phone_lm_v2.py test_neural_phone_lm.py test_prior_gap.py`
+-> **48 passed in 5.9 s** (11 new + the 13 and 24 that existed).  New:
+
+* `HeldLinesJob` writes exactly `window_line_flags`' held lines of a synthetic window, in order,
+  with an empty line on a stride index held by neither half, and its count guard fires;
+* `_texts` reads the two handed files and never calls `replay_window_texts` (monkeypatched to
+  raise), respells `<SIL>`, banks each file's provenance and line count, and the written text
+  encodes with `encode_lines`;
+* a held line's text inside the training file makes the job refuse to train;
+* the architecture, `epochs`, `max_seconds`, the inherited optimiser constants and the inherited
+  `rqmt` are what the arm asks for, and the built model has 25,525,290 parameters;
+* END TO END: a tiny `NeuralPhoneLmTrainJobV2.run()` on two handed files produces `model.pt`,
+  `train_log.json` and a `heldout.txt` in the banked two-key format, with `heldout_lines` = the
+  handed held lines, zero leakage banked, and the saved model reproducing the reported held-out
+  nats per token through `NeuralPhoneLmScorer` (1e-4);
+* `ExcludeLinesJob` removes every excluded line (including a repeat and a respaced copy), keeps a
+  superstring, drops an empty line, preserves order, reports removed / distinct-hit / written, and
+  both guards plus the empty-exclusion-file check fire.
+
+Plus the graph-load script (config imported and `build()` run from the setup dir): the five ids
+above, the wiring assertions (`train_phn` is the `ExcludeLinesJob` output, `held_phn` and the
+exclusion file are the `HeldLinesJob` output, the filter's input is the 10.1 M sample, `neural_lm`
+is arm (c)'s `model.pt`, both window inputs are the banked `WINDOW_PHN` pin), the two identity
+assertions above and the seven unchanged v1 ids.
+
+Loading and these checks do not prove the GPU fit runs: no job was launched, and the manager on the
+new config has not been started (not my scope).  The real removal count, the fit's step rate and
+its held-out number are unknown until the arm runs.
+
+## Commit
+
+`d1c14cf` on `haotian_modality_matching_jupiter` in `recipe/2025-10-speech-llm`, five files staged
+by explicit path; `config_sae_1g_v1.py`, `config_sae_3e1_d6_swap_cont_v1.py` and
+`blankfree_sampler.py` (other people's live edits) left alone.  Not pushed.  The workspace shim
+`config/sae_4a_phone_lm.py` lives in the setup dir, which that repository does not track.
