@@ -188,6 +188,22 @@ pre-registered reading:
   (optimization); equal prior scores = the trigram prior cannot separate the two labelings
   (identifiability at this order).
 
+Amendments before launch (2026-09-20, after the implementer's wiring run on ctrl_50 ep10, whose
+numbers are not banked and not recorded): (i) the Hungarian one-to-one map has no delete option,
+so a symbol that mostly covers silence stays in and scores as insertions, and its PER can exceed
+the identity PER; a one-to-one-with-drop variant (each symbol may map to "remove", priced as the
+PER prices removal) is reported next to it. (ii) The prior-score comparison of part E is read on
+the HARD relabeling (each symbol to its maximum-a-posteriori phone under the fitted emission
+table, applied to the raw collapsed output string, re-collapsed), not on the Viterbi phone
+sequence, which is prior-optimized by construction. Its trigram score per token and PER are read
+against a null of 20 uniformly random permutations of the 40 output symbols (seed 0, mean / sd /
+max): "a relabeling the prior prefers exists" reads only if the hard relabeling's prior score
+exceeds the null maximum on both halves. EM defaults, disclosed: emission noise 0.1, 3 restarts,
+text bigram for EM = the banked prior's unigram times bigram, trigram rescoring. Jobs:
+`PrivateCodeAnalysisJob` (A-D, ep1/4/10, dev-other and dev-clean) and `SymbolDeciphermentJob`
+(E, ep4 and ep10 dev-other) in `sae/emc/private_code.py`; ep25 is added when its decode lands.
+The banked table is audited from a fresh context before it is written into Results.
+
 ## Gate
 
 **G4a.5** (per arm, dev-other, read at sub-epoch 50, or at the label-free-selected checkpoint if a
