@@ -78,7 +78,9 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    training-free mode-seeking read, no-reverse arm, K=64 reverse arm, GAN+reverse arms, in parallel.
    Attribution closed on its rule (no branch fires). **Budget round (user 2026-09-20), ACTIVE,
    `SAE_4A_budget.md`:** 50 / 100 sub-epochs with LR + tau schedule; control, lattice prior + BT
-   (jointly trained), coverage + LM prior; gate G4a.4.
+   (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), ACTIVE,
+   `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,
+   four arms on one node, paired against ctrl_50; gate G4a.5. Objective derivation: `SAE_4A_objective.md`.
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
