@@ -234,3 +234,78 @@ Pack/arm/read hashes are not final and are deliberately not quoted here: they al
 
 Launch anything; touch `settings.py`; push; edit any project document; edit any shared module,
 including `blankfree_budget_jobs.py` whose guard is one of the two blockers.
+
+---
+
+## Addendum 2026-09-21 — both constants set, shim loader defect fixed
+
+Commit `f184df4` on `recipe/2025-10-speech-llm` / `haotian_modality_matching_jupiter` (one file,
+explicit path, not pushed): `configs/config_sae_4a_prepro_pack_v1.py` only.
+
+**Constants, as the planner decided.** `LR_WARM_FRAC = 0.10` — a TWO-sub-epoch warmup at N = 20
+(`ceil(0.10*20) = 2`), the rest of the schedule unchanged; `blankfree_budget_jobs`'s guard is NOT
+amended. `CTRL_S1_SEED = {"flat_seed": 1, "random_seed": 1}` — both seeds move for `ctrl_20_s1`;
+`ctrl_20` and `prepro_20` keep `flat_seed` 0 and write no `random_seed` key.
+`_schedules()` now asserts `ceil(warm_frac*N) == 2`, `lr[0] < peak`, `lr[1] == peak`,
+`lr[11] == peak`, `lr[12] < peak`, `lr[-1] == lr[0]`, and that the temperature schedule is
+unchanged (`[8.0, 5.04, 3.17, 2.0]` then 2.0 throughout). Resulting schedules:
+
+```
+tau [8.0, 5.04, 3.175, 2.0 x 17]
+lr  [1e-05, 1e-04 x 11, 8.875e-05, 7.75e-05, 6.625e-05, 5.5e-05, 4.375e-05, 3.25e-05, 2.125e-05, 1e-05]
+```
+
+**Arm identities.** The three arms are NOT three jobs — they are three arms of ONE
+`PackedBlankfreeTrainJob`, which is what the pack's hash covers:
+
+```
+pack        speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.YQszIGUOm7Sh
+ctrl_20     <pack>/output/ctrl_20/models      flat FlatRecognizerInitJob.0J9d6wjrkRYH
+ctrl_20_s1  <pack>/output/ctrl_20_s1/models   flat FlatRecognizerInitJob.DMSwTLXT9MWG
+prepro_20   <pack>/output/prepro_20/models    flat FlatRecognizerInitJob.0J9d6wjrkRYH
+```
+
+Written-config diffs, unchanged from the probe: `ctrl_20 -> ctrl_20_s1` **3 lines** (the
+`recognizer_checkpoint_path` and a new `random_seed = 1`); `ctrl_20 -> prepro_20` **48 lines**, all
+HDF path swaps `BlankfreeVadHdfJob.SAjz8y1cT06g -> TrimmedAudioBlankfreeDataJob.qb4o6dlW3urA`.
+
+**Census.** 1545 banked ids (budget + budget_pack) before, 1670 after; **no banked id moved**; the
+added 125 are 3 data + 1 pack + 1 flat + 24 each of forward / greedy-PER / derangement /
+submodule-extract / paired-delta. The three data hashes are **unchanged**:
+`qb4o6dlW3urA` (train) / `hxIx0ItTvx15` (dev-clean) / `0IOLr6hZnYWj` (dev-other).
+`test_blankfree_budget_config` passes (`node_b` `reEI2Nd0S77A`, `node_c` `4QzmftNlbErt`).
+
+**Shim defect (`reports/exec_prepro_devother_launch_2026-09-21.md`).** `ConfigManager.load_config_file`
+splits `config/<name>.py` into module `config.<name>` and function `"py"`, and on AttributeError it
+only WARNS and calls nothing — so `run = py_dev_other` with no `py` registered an empty graph. The
+pack shim was never affected (`from ... import py` binds the name `py`). Final content, both
+outside the git repo:
+
+`config/sae_4a_prepro_pack.py` (unchanged, the repo's convention):
+```python
+from speech_llm.prefix_lm.sis_recipe.exp2025_11_06_speech_llms.librispeech.configs.config_sae_4a_prepro_pack_v1 import py
+
+run = py
+```
+
+`config/sae_4a_prepro_devother.py` (fixed):
+```python
+from speech_llm.prefix_lm.sis_recipe.exp2025_11_06_speech_llms.librispeech.configs.config_sae_4a_prepro_pack_v1 import py_dev_other
+
+
+def py():
+    """ONLY the dev-other trimmed-audio data job -- the pre-funding check (SAE_4A_prepro.md)."""
+    return py_dev_other()
+
+
+run = py
+```
+
+**Verified through the manager's own loader** (`ConfigManager().load_config_file(<shim>)`, not a
+plain import):
+
+* `config/sae_4a_prepro_devother.py` → 2 registered outputs, 3 jobs: exactly
+  `TrimmedAudioBlankfreeDataJob.0IOLr6hZnYWj` plus its two already-finished inputs
+  (`L15FeatureHdfJob.6ChpQYsQh1VI`, `LibriSpeechSplitIdsJob.G6pzdHOHvEFh`). No train job, no arm.
+* `config/sae_4a_prepro_pack.py` → 236 registered outputs, 133 jobs: the 3 data jobs, the pack
+  `YQszIGUOm7Sh`, both flat inits, the prior pair, and 24 each of the five read classes.
