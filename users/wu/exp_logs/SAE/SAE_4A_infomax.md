@@ -157,6 +157,34 @@ Constraint on the code: nodes a, b, c re-import the blank-free modules at their 
 (2026-09-21 about 01:14 / 01:33). Every edit to a module they import must be behavior-neutral at
 the default arguments and import-safe; new logic lives in a new module.
 
+## Private-code analysis (user 2026-09-20: "analyze the output / private code when ready";
+"say if deciphering can be done")
+
+Registered in its own config `config/sae_4a_private_code.py` on frozen decode outputs of ctrl_50
+(ep4, ep10, ep25 when present, dev-other), later on node_d's arms. Parts, each with its
+pre-registered reading:
+- A. Phone identifiability (label-using diagnostic, never selection): PER as scored, PER after the
+  best one-to-one relabeling of the 40 symbols (Hungarian), PER after the best many-to-one
+  relabeling, aligned-pair normalized mutual information. Oracle one-to-one PER well below the
+  band = the content is in the code and only the labeling is wrong; oracle PER still high = the
+  code is not a relabeling of phones.
+- B. Unit code: H(symbol | unit), H(unit | symbol), NMI(symbol, unit) against the same for gold
+  phones. Symbol nearly a function of the reverse unit while the phone is not = the recognizer
+  learned a coarse clustering of the reverse units, the "easy reconstruction" code of
+  `SAE_4A_objective.md` section 5 item 2.
+- C. Nuisance: NMI(symbol histogram, speaker) against NMI(phone histogram, speaker); symbol-usage
+  entropy; run lengths against gold durations.
+- D. Sequence statistics: symbol bigram against text bigram after relabeling.
+- E. Label-free decipherment: an HMM with phones as states under the banked prior and a 40 x 40
+  substitution emission table fitted by EM on the collapsed symbol strings (no gold in the fit;
+  fit on even-indexed utterances, decode both halves), then PER of the deciphered strings.
+  Readings: deciphered PER close to the Hungarian oracle and low = decipherable, and a label-free
+  repair exists (permute the recognizer's output layer by the deciphered map and continue
+  training); prior score per token under the deciphered labeling much better than under the
+  identity labeling = the objective preferred the deciphered labeling and training was stuck
+  (optimization); equal prior scores = the trigram prior cannot separate the two labelings
+  (identifiability at this order).
+
 ## Gate
 
 **G4a.5** (per arm, dev-other, read at sub-epoch 50, or at the label-free-selected checkpoint if a
