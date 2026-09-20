@@ -15,8 +15,10 @@ at submission; `reports/exec_launch_infomax_2026-09-20.md`). Manager `sae_4a_inf
 1230487 (`log/sae_4a_infomax_pack.manager.20260920T175302.log`), watcher
 `bash ~/.claude/skills/sis/sis_watch.sh 1230487 config/sae_4a_infomax_pack.py 600`; the budget
 watcher `bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pack.py 600` is armed
-in the same session (re-arm both first after any session resume). In flight: (a) the checkpoint reads (eval-mode entropy, symbol-usage entropy, chance
-null) for the four arms and ctrl_50, registered into the same config last; (b) the private-code
+in the same session (re-arm both first after any session resume). Checkpoint reads (eval-mode entropy from the registered posterior dump, symbol-usage entropy,
+chance null; dev-other, 5 arms x 5 kept epochs) registered into the same config (commits speech-llm
+de72d86, i6 c8d01d2a3; `reports/impl_infomax_reads_2026-09-20.md`); the running manager holds the
+old graph, so it is being restarted to load them. In flight: (b) the private-code
 analysis job on ctrl_50's kept checkpoints in its own config `config/sae_4a_private_code.py`
 (user 2026-09-20: "analyze the output / private code when ready").
 NEXT: confirm node_d submitted (manager pid, watcher); restart its manager once the reads are
@@ -203,7 +205,11 @@ acts before the anneal has sharpened ctrl_50 (2.71 nats at sub-epoch 4).
 
 Low-inventory FAIL (amendment 5; the S3b-C consistency arms collapsed onto 3-4 symbols,
 `SAE_4A.md:984`): greedy symbol-usage entropy below 3 bits with the rate inside the window reads
-FAIL (inventory collapse) at any kept checkpoint from sub-epoch 10 on.
+FAIL (inventory collapse) at any kept checkpoint from sub-epoch 10 on. Column pinned 2026-09-20
+before any arm's read: the entropy is over the recognizer's 40 output symbols (the `SymbolUsageNullJob`
+"bits(40)" field, `blankfree_infomax_read_jobs.py`); the 39-phone column is reported alongside for
+comparison with the banked gold numbers only. The two straddle 3.0 on ctrl_50 at sub-epoch 1
+(2.82 vs 3.03), which the clause does not read; at sub-epoch 10 ctrl_50 sits at 5.0 bits on both.
 
 Abort rule per arm (the budget round's, plus one): NaN or |trained surrogate| > 100 in any sub-epoch;
 expected phone rate outside [4, 20]/s at the end of any sub-epoch after the fifth; train-mode entropy
