@@ -60,7 +60,7 @@ DLM_DATA_STAGE = "train"
 # ⚠ Arm A is CONTEXT, never the baseline: the original 10,240-piece SPM is uppercase English and
 # cannot write German orthography at all (no Ä Ö Ü), so its WER will be catastrophic by construction.
 # Quoting an A->B gain as the contribution would be inflated by "we added three characters".
-GERMAN_STAGE = "armB,armC"
+GERMAN_STAGE = "armB,armB0,armC"
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -211,7 +211,7 @@ def py():
     )
 
     _german_stages = {s.strip() for s in GERMAN_STAGE.split(",") if s.strip()}
-    assert _german_stages <= {"off", "surgery", "armA", "armB", "armC"}, f"unknown German stage: {_german_stages}"
+    assert _german_stages <= {"off", "surgery", "armA", "armB", "armB0", "armC"}, f"unknown German stage: {_german_stages}"
 
     if _german_stages & {"surgery", "armA", "armB", "armC"}:
         # Widen the winner's output layer to the German vocab (10,240 -> 10,243). Cheap (CPU) and a
@@ -230,6 +230,32 @@ def py():
 
         train_german_arm_b(
             prefix=f"{prefix}/german", winner_model=winner_model, budget=GERMAN_BUDGET, smoke=GERMAN_SMOKE
+        )
+
+    if "armB0" in _german_stages:
+        # Arm B-zero (user call, 2026-09-20): **no paired audio at all** -- the pseudo-encoder alone.
+        #
+        # Why: arm B scored 95.75 WER while demonstrably knowing German words, code-switching into
+        # English on real German audio (`ALLES WAS ICH INSIDE AN IS DASS WHEN UNTER`). With the English
+        # ASR branch present, language is perfectly predictable from FEATURE TYPE -- real audio always
+        # meant English, pseudo-audio always meant German -- and real German audio is a combination the
+        # model never saw. Dropping the audio branch removes that cue entirely, so German is the only
+        # target language in training. The plan called the English branch "the real-audio anchor" and
+        # rejected `ls_audio_subset == 0` without ever running it; this runs it.
+        #
+        # Also carries the §104 tokenizer fix, without which the text branch would again feed German
+        # through the ENGLISH SPM and never emit an umlaut. Two changes at once, deliberately: arm B as
+        # it stands is broken, so reproducing its bug in a new arm would buy nothing.
+        from .german_xling import train_german_arm_b
+
+        train_german_arm_b(
+            prefix=f"{prefix}/german",
+            winner_model=winner_model,
+            budget=GERMAN_BUDGET,
+            smoke=GERMAN_SMOKE,
+            no_audio=True,
+            fix_text_spm=True,
+            german_dev=True,
         )
 
     if "armC" in _german_stages:

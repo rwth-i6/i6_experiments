@@ -24,6 +24,7 @@ with Albert's own arms), so every adaptation reaches in from outside.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from functools import partial
 from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
@@ -509,6 +510,86 @@ def _set_text_branch_corpus(combined: Dict[str, Any], corpus_files) -> Dict[str,
     text["dataset"] = inner
     datasets["text"] = text
     return {**combined, "datasets": datasets}
+
+
+class PatchAddGermanDevToTrain:
+    """
+    Context manager: add an MLS-de **dev** set to the training config's ``eval_datasets``.
+
+    🔴 **Why this is needed.** Arm B's in-training ``dev``/``devtrain`` are **English LibriSpeech**
+    (§96) -- its ASR branch is English, so the task's eval sets are too. Consequence (§104c): arm B
+    ran 11.7 h and produced a `learning_rates` curve that measures **English retention**, while the
+    German side was never observed at all. When it came out at 95.75 WER we could not tell whether it
+    was converging, diverging, or broken -- the question "was training too short?" was unanswerable
+    from anything recorded. Worse, §96: arm B's `dev_loss_ce` (0.186) sits next to arm C's (0.814) in
+    identically-named columns, inviting a 4x "win" that is really two different languages.
+
+    **Added, not substituted.** The English ``dev`` stays and keeps driving `learning_rate_control`
+    (`learning_rate_control_error_measure = "ce"` reads the `dev` score); we only append a `dev_de`
+    key. Replacing `dev` would silently change the LR schedule, which is a different experiment.
+    So the curve gains `dev_de_loss_ce` / `dev_de_loss_fer` and loses nothing.
+
+    ⚠ The German dev is real **audio** while arm B-zero trains text-only. That is fine and is already
+    proven: arm B's existing English dev is also real audio through the same train step, and the
+    single-stream step takes its audio path per batch. The dev provides `data` + `classes` and no
+    `phonemes`, exactly as the English dev does.
+
+    Mechanism and defensive shape are copied verbatim from :class:`PatchTextBranchToGerman` -- patch
+    ``DatasetConfigStatic`` on its defining module, rewrite only the matching dataset, assert exactly
+    one rewrite on exit. Composes with the other patchers by chaining: each captures the previous
+    binding as its own ``real``. A silent zero would leave us blind on the German side again, which is
+    precisely the failure this exists to remove.
+    """
+
+    def __init__(self, *, spm_model, spm_size: int, subset: bool = True):
+        self.spm_model = spm_model
+        self.spm_size = spm_size
+        self.subset = subset
+        self.count = 0
+        self._patch = None
+
+    def __enter__(self):
+        import unittest.mock
+
+        from returnn_common.datasets_old_2022_10 import interface as _iface
+
+        from .winner_plus_tts import _COMBINED_MAIN_NAME
+
+        real = _iface.DatasetConfigStatic
+
+        dev_ds = dict(
+            german_eval_dataset(
+                decoded=DE_DEV_DECODED, main_name="dev", spm_model=self.spm_model, spm_size=self.spm_size
+            ).get_main_dataset()
+        )
+        if self.subset:
+            # Same IN_TRAIN_DEV_SUBSET treatment arm C uses, so the two arms' German dev curves are
+            # measured on the same 500 utterances and are directly comparable.
+            dev_ds["map_func"] = normalize_and_subset_dev_map_func
+
+        def _wrapped(*args, **kwargs):
+            ds = kwargs.get("train_dataset")
+            if (
+                kwargs.get("main_name") == _COMBINED_MAIN_NAME
+                and isinstance(ds, dict)
+                and ds.get("class") == "CombinedDataset"
+            ):
+                kwargs = dict(kwargs, eval_datasets={**(kwargs.get("eval_datasets") or {}), "dev_de": dev_ds})
+                self.count += 1
+            return real(*args, **kwargs)
+
+        self._patch = unittest.mock.patch.object(_iface, "DatasetConfigStatic", _wrapped)
+        self._patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._patch.stop()
+        if exc[0] is None:
+            assert self.count == 1, (
+                f"expected to add the German dev to exactly 1 training config, did {self.count} --"
+                " the arm would again have only an ENGLISH dev curve (backlog 96/104c)"
+            )
+        return False
 
 
 class PatchTextBranchToGerman:
@@ -2011,7 +2092,15 @@ def train_german_arm_c(
 
 
 def train_german_arm_b(
-    *, prefix: str, winner_model, budget: str = "9h", name: Optional[str] = None, smoke: bool = False
+    *,
+    prefix: str,
+    winner_model,
+    budget: str = "9h",
+    name: Optional[str] = None,
+    smoke: bool = False,
+    no_audio: bool = False,
+    fix_text_spm: bool = False,
+    german_dev: bool = False,
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2048,6 +2137,12 @@ def train_german_arm_b(
 
     assert budget in ("1h", "9h"), budget
     name = name or f"german-armB-textinj-{budget}-nEp{ARM_B_NEP}"
+    if no_audio:
+        name += "-noAudio"
+    if fix_text_spm:
+        name += "-deSpm"
+    if german_dev:
+        name += "-deDev"
     de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget)
     tables = german_pseudo_enc_config(budget=budget)
 
@@ -2056,12 +2151,30 @@ def train_german_arm_b(
         PatchGlowTtsToGerman(budget=budget),
         PatchTextBranchToGerman(corpus_files=[get_german_injection_text_filtered(budget=budget)]),
         PatchTaskEvalToGerman(extended_vocab=True, extended_train_vocab=True),
+        # Adds `dev_de` to the training config's eval_datasets so the arm has a GERMAN in-training
+        # curve. Without it the only dev signal is English LibriSpeech (§96/§104c) and a failed arm
+        # cannot be told apart from an undertrained one. `nullcontext` keeps arm B's own hash frozen.
+        (
+            PatchAddGermanDevToTrain(spm_model=DE_SPM_EXTENDED, spm_size=GERMAN_SPM_SIZE)
+            if german_dev
+            else contextlib.nullcontext()
+        ),
         CaptureRegisteredOutputs(match="recog_results") as _cap,
     ):
         _exp = _train_tts_encoder(
             name,
             prefix=prefix,
             with_ctc_lm_recog=False,  # LM-free by design; see docstring
+            # 🔴 no_audio: drop the English ASR branch entirely (`ls_audio_subset == 0`,
+            # exp2026_05_28_tts_encoder_fzj.py:3949-3958) -- the CombinedDataset becomes text-only with an
+            # empty audio stream and the single-stream train step takes its pure-text path.
+            # Why (user call, 2026-09-20): with the English branch in, **language is perfectly predictable
+            # from feature type** -- every REAL-audio example has an English target and every PSEUDO-audio
+            # example a German one. Arm B learned that cue: on real German audio it code-switches
+            # (`ALLES WAS ICH INSIDE AN IS DASS WHEN UNTER`) while emitting German it clearly knows.
+            # The plan called the English branch "the real-audio anchor" and rejected zero-audio without
+            # testing it; this tests it. Emitted conditionally so arm B's own hash does not move.
+            **({"ls_audio_subset": 0} if no_audio else {}),
             text_train_epoch_split=75,
             batch_size_audio_frames=70_000,
             batch_size_phon=6_000,
@@ -2098,6 +2211,22 @@ def train_german_arm_b(
                 # Read by aed_glowtts_model_def_de at JOB-RUN time; without it the model is built with
                 # the English 44-wide pseudo vocab and the German table fails its shape assert.
                 "pseudo_enc_phoneme_vocab_size": tables["pseudo_enc_phoneme_vocab_size"],
+                # 🔴 §104 FIX. `_train_tts_encoder` builds `glow_tts_text_spm_opts` from a module-local
+                # hardcoded `vocab="spm10k"` (exp2026_05_28_tts_encoder_fzj.py:3814 -> :4313-4315), and
+                # `PatchTaskEvalToGerman` only intercepts `get_librispeech_task_raw_v2` -- so the TEXT
+                # branch kept tokenising German with the ENGLISH 10,240 SPM while all four other
+                # tokenizers used the extended one. Measured on the real injection corpus: 25,975 <unk>
+                # (2.710% of target positions, 53.7% of lines) and target ids 10240/10241/10242 NEVER
+                # produced. Arm B consequently emitted 0 umlauts in 126,239 test words -- identical to
+                # arm A, whose rows were never trained at all.
+                # ⚠ Sizing: umlaut-bearing words are only 7.5% of test words, so this bug accounts for at
+                # most ~7.5 of arm B's 95.75 WER. Necessary, not sufficient -- it will not rescue the arm
+                # on its own (§104e).
+                **(
+                    {"glow_tts_text_spm_opts": {"class": "SentencePieces", "model_file": DE_SPM_EXTENDED}}
+                    if fix_text_spm
+                    else {}
+                ),
                 "import_model_train_epoch1": de_ckpt,
                 # ⚠ ALWAYS set this explicitly. `train_v4`'s default is **80 h**
                 # (`train_v4.py:225-234`) while the QOS caps at 12 h, so the default makes the job
