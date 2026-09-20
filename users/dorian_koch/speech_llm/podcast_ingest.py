@@ -1825,7 +1825,7 @@ class PodcastCodesTrainData(Job):
         import json as _json
 
         import numpy as _np
-        from datasets import Dataset, Features, Sequence, Value, load_from_disk
+        from datasets import Dataset, Features, List, Sequence, Value, load_from_disk
 
         feats = Features(
             {
@@ -1836,7 +1836,12 @@ class PodcastCodesTrainData(Job):
                 "frame_rate": Value("float32"),
                 "codes_assistant": Sequence(Value("int16")),
                 "codes_user": Sequence(Value("int16")),
-                "alignments": Sequence(
+                # ⚠ `List`, NOT `Sequence`. A `Sequence` whose inner feature is a dict is
+                # TRANSPOSED by HF datasets into a dict-of-lists, so the rows written here (a list
+                # of per-word dicts) fail to encode at all. This is the same spelling as
+                # `moshi_annotate_inference.ALIGNMENT_FEATURE`, which every other alignments
+                # producer uses -- see its comment for the second reason to match it.
+                "alignments": List(
                     {
                         "text": Value("string"),
                         "start": Value("float32"),

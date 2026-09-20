@@ -57,6 +57,7 @@ from moshi_family.moshi_train_data import (  # noqa: E402
     build_mixed_data_loader,
 )
 from moshi_family.train_data_common import (  # noqa: E402
+    normalize_alignments,
     TEXT_PADDING_ID,
     TEXT_ROW,
     decode_codes_row,
@@ -366,6 +367,76 @@ def main():
     sniff = loader_src.split("def is_codes_table")[1].split("\ndef ")[0]
     assert '"codes_assistant"' in sniff, sniff[:200]
     assert "codes_assistant" in emitted
+    ok += 1
+
+    # ------------------------------- [7] ...and that column set must actually ENCODE
+    # [6] compares NAMES. It was green while the corpus could not be written at all: `alignments`
+    # was declared `Sequence({...})`, and a Sequence whose inner feature is a dict is TRANSPOSED by
+    # HF datasets into a dict-of-lists -- so `Dataset.from_dict` called `.get()` on a list and the
+    # job died on its final line, after doing every expensive thing correctly. `List({...})` is the
+    # spelling that yields a list of structs, and is what `ALIGNMENT_FEATURE` has always used.
+    # The schema is lifted from the job by AST rather than restated here: a restatement is exactly
+    # what would have stayed green.
+    from datasets import Dataset, Features, List, Sequence, Value  # noqa: F401
+
+    run_fn = next(n for n in cls.body if isinstance(n, _ast.FunctionDef) and n.name == "run")
+    feats_assign = next(
+        n for n in run_fn.body if isinstance(n, _ast.Assign) and getattr(n.targets[0], "id", None) == "feats"
+    )
+    feats = eval(compile(_ast.Expression(feats_assign.value), "<feats>", "eval"))
+
+    def _encode(features):
+        """One row in the shape the producer really builds: alignments as a LIST OF DICTS."""
+        return Dataset.from_dict(
+            {
+                "id": ["ep#0@a"],
+                "duration": [26.0],
+                "n_codebooks": [8],
+                "n_frames": [325],
+                "frame_rate": [12.5],
+                "codes_assistant": [[1, 2, 3]],
+                "codes_user": [[4, 5, 6]],
+                "alignments": [
+                    [
+                        {"text": "though.", "start": 0.79, "end": 0.95, "speaker": "assistant"},
+                        # A numeric-looking word. If the column ever degrades to the Json feature,
+                        # this comes back as the int 100 and breaks the interleaver's
+                        # `word.strip()` -- silently, on a fraction of rows.
+                        {"text": "100", "start": 1.57, "end": 1.59, "speaker": "assistant"},
+                    ]
+                ],
+            },
+            features=features,
+        )
+
+    got = _encode(feats)[0]["alignments"]
+    assert isinstance(got, list) and isinstance(got[0], dict), (
+        f"alignments round-tripped as {type(got)} of {type(got[0]) if got else None}; "
+        "decode_codes_row reads a list of per-word dicts"
+    )
+    assert got[0]["text"] == "though.", got[0]
+    assert got[1]["text"] == "100" and isinstance(got[1]["text"], str), (
+        f"numeric-looking word came back as {got[1]['text']!r} ({type(got[1]['text'])})"
+    )
+    # ...and the loader's own normaliser must accept it. The column is only useful if THAT works.
+    norm = normalize_alignments(got)
+    assert [(w, s) for w, _, s in norm] == [
+        ("though.", "assistant"),
+        ("100", "assistant"),
+    ], norm
+    ok += 1
+
+    # Non-vacuous: the spelling that shipped must FAIL this very test, or the check is a no-op.
+    broken = Features({**feats, "alignments": Sequence(feats["alignments"].feature)})
+    try:
+        _encode(broken)
+    except Exception:
+        pass
+    else:
+        raise AssertionError(
+            "Sequence({...}) encoded a list-of-dicts row -- this check can no longer tell the "
+            "broken spelling from the correct one and must be rewritten, not deleted"
+        )
     ok += 1
 
     print(f"check_codes_loader: {ok}/{ok} checks passed")
