@@ -61,8 +61,9 @@ word trigram with a lexicon, the prior the most important factor), with a contex
 
 Inherited from `SAE_4A_budget.md` ctrl_50 for any training arm (priorshuf bed, N = 50, the budget
 round's schedule and gate thresholds). The live prior: interpolated Witten-Bell trigram over the
-39 ARPAbet phones + SIL, held-out perplexity 9.469 (3.243 bits/phone) on 10,000 held lines of the
-LibriSpeech LM text (`reports/estimate_prior_order_2026-09-15.md`); the order-4 KenLM
+39 ARPAbet phones + SIL, held-out perplexity 9.561 on the live fit's own 10,000 held lines
+(`PhoneNgramPriorJob.RtzbESkOedsT` prior.stats.txt; the September 15 estimate's 9.469 was a
+different held set, `reports/estimate_prior_order_2026-09-15.md`); the order-4 KenLM
 (`output/sae/1a/phoneme_lm_o4.{arpa.gz,bin}`) was bracketed at about 8.5 (0.15 bits/phone more)
 on a different held set. The September 15 estimate rejected 4-gram rescoring of a BIGRAM DP as an
 importance-sampling estimator (per-phone gap 0.41-0.51 nats, per-utterance log-weight spread
@@ -142,6 +143,21 @@ the arm's design must say what it loses; if it does not beat the 4-gram, a neura
 the scorer and the exact lexicon must be made batchable (a GPU trie DP) before an arm exists.
 Prediction: the neural LM lands near the lexicon (a phone LM with a receptive field of tens of
 tokens learns word forms; the null strings will score as far below as under the lexicon).
+
+Code review (2026-09-20, `reports/review_neural_phone_lm_2026-09-20.md`, before any number):
+leakage clean (counted and held lines from the one window split, asserted disjoint, the live
+prior's own 1,000,000 / 10,000 split), causal mask and no-EOS convention correct, denominators and
+truncation handling sound. Three points, resolved before the numbers: (i) the built model has
+3.31 M parameters, below the pre-registered 5 to 8 M. Rule fixed now: a PASS of the read rule by
+the 3.3 M model stands (a smaller model clearing the bar is the stronger result); a "partial
+proxy" or "not the scorer" outcome from it does not discharge Step 0b and is re-read after one
+rerun at 6 layers / width 384 (about 10 M parameters), same data, same conventions, before any
+branch is taken. (ii) The benchmark's expected live-trigram perplexity on these exact held lines
+is 9.561 (`PhoneNgramPriorJob.RtzbESkOedsT` prior.stats.txt), not the 9.469 of the September 15
+estimate, which was a different held set; the Bed section is corrected. (iii) Best-epoch
+selection reads the same held lines the benchmark reports, so the neural held-out perplexity is a
+best-of-at-most-3-epochs number on its own report set; the bias is below 1 % in perplexity and
+the number is labelled so, no separate split.
 
 ### Training arm
 
