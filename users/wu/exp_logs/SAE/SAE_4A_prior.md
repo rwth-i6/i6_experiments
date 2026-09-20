@@ -24,12 +24,19 @@ SIL-free and the decode carries SIL, so the job scores both pairings; the like-f
 per the review and kept: trigram anchors reproduce the decipherment's −3.20 / −3.99 / −4.63, BOS
 with no end-of-sentence term in every scorer, identical token denominators, the priorshuf
 uniform window (`SampleLinesJob.orN768ARKwlt`) for every prior.
-Step 0 finished (5 min) and is read in Results; audit dispatched
-(`reports/audit_prior_gap_2026-09-20.md` when it lands); Step 0b (neural phone LM row) is
-pre-registered in Design and its implementer dispatched.
-NEXT: audit verdict on the Step 0 readings and the decision-table amendment; Step 0b job (train
-the phone LM on GPU, rescore in a new PriorGapAnalysisJob instance) launched under the prior_gap
-config's manager; read its rule; then decide between the 4-gram
+Step 0 finished (5 min), read in Results and audited (confirmed). Step 0b is running:
+`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB` (GPU, 4 h cap, Slurm 1918176) then
+`PriorGapAnalysisJob.Gct95xZHe0zt` (the neural row and the held-line perplexity benchmark
+against the trigram / 4-gram / 6-gram, user request), speech-llm commits 739d9ed, e971603,
+`reports/impl_neural_phone_lm_2026-09-20.md`; manager pid 3231512,
+`log/sae_4a_prior_gap.manager.20260920T202826Z.log`; watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 3231512 config/sae_4a_prior_gap.py 600` (re-arm first
+after any resume, with the budget and infomax watchers). Code review of the LM training and
+scorer (leakage, causal mask, convention parity) running in parallel
+(`reports/review_neural_phone_lm_2026-09-20.md`); a BLOCKED verdict reruns under a version bump.
+The code survey for the training arm is banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
+NEXT: review verdict; watcher verdict on Step 0b; read the Step 0b rule and the perplexity
+benchmark; then decide between the 4-gram
 importance-sampled correction and the lexicon score-function term and write that arm's design and
 gate here before any node is funded.
 
