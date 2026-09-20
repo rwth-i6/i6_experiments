@@ -9,9 +9,12 @@ STATUS: DONE. Registered, tested, census-clean, and smoke-run end to end on ctrl
 (the numbers below are that local run of the job's own `run()`, NOT a banked sisyphus result --
 no manager was started).
 
-**Amended 2026-09-20 (second round, before anything is launched):** part A gained the
-one-to-one-WITH-DROP relabelling and part E gained E5, the hard relabelling against a
-random-permutation null.  Both live in the existing job classes; the rows below are re-measured.
+**Amended 2026-09-20 (second round):** part A gained the one-to-one-WITH-DROP relabelling and part
+E gained E5, the hard relabelling against a null.  **Amended again (third round, after
+`audit_private_code_2026-09-20.md` items 2-4, still before anything is launched):** the
+many-to-one and with-drop rows are now RE-COLLAPSED, E5's null is a matched many-to-one null with
+the identity score beside it and a stricter rule, and the E table carries the gold reference with
+SIL-free rows.  Every number below is from a re-run after those fixes.
 
 ## What exists on disk (the inputs question)
 
@@ -85,8 +88,8 @@ smoke run: parts A-D 31 s, part E 508 s per read (rqmt 4 CPU / 32 GB / 4 h and 4
 | PER as scored (identity labelling) | 0.896793 |
 | PER banked (`per.json`) | 0.896793 |
 | PER after best one-to-one relabelling (Hungarian) | 0.918748 |
-| PER after best one-to-one-with-drop relabelling | 0.841179 (12 of 40 symbols dropped) |
-| PER after best many-to-one relabelling (majority) | 0.874376 |
+| PER after best one-to-one-with-drop relabelling (re-collapsed) | 0.840288 (12 of 40 symbols dropped) |
+| PER after best many-to-one relabelling (majority, re-collapsed) | 0.855191 |
 | NMI(symbol, phone), aligned token pairs | 0.0562 |
 | I / H(symbol) / H(phone), bits | 0.2760 / 4.9923 / 4.8271 |
 | symbols with aligned mass (of 40) | 40 |
@@ -94,8 +97,16 @@ smoke run: parts A-D 31 s, part E 508 s per read (rqmt 4 CPU / 32 GB / 4 h and 4
 The plain one-to-one exceeds the identity PER because the square assignment has one DELETE slot
 and spends it on UH, so SIL's 7639 tokens (1513 of them insertions) stay in the hypothesis.  The
 with-drop variant gives every symbol a drop option priced with the insertions the drop removes; it
-drops 12 symbols including SIL, insertions fall 13013 -> 3209 and the PER falls to 0.8412, below
+drops 12 symbols including SIL, insertions fall 13013 -> 3070 and the PER falls to 0.8403, below
 the identity read.  That is the one-to-one number to quote; the old column is kept.
+
+Re-collapse convention (audit item 2): a many-to-one map, and a drop, can make two neighbouring
+labels equal, and the recognizer would emit ONE token there, so those two rows are now re-collapsed
+before scoring, the convention part E always used.  The identity row must NOT be (it has to
+reproduce `per.json`, whose string drops SIL without re-collapsing) and the plain one-to-one row
+keeps that same banked convention, so it stays the deletion-blind reference the with-drop row is
+read against; `recollapsed` in each json row says which.  Both re-collapsed numbers reproduce the
+audit's independent recomputation exactly (0.855191 and 0.840288).
 
 Frame level (MFA on 2864 / 2864 utterances, 261,295 output frames):
 
@@ -174,33 +185,55 @@ across halves; the deciphered labelling buys 0.043 PER over identity and 2.0 nat
 trigram score, while the deciphered and the label-using Hungarian maps agree on only 11 symbols.
 Reading these numbers against the three hypotheses is the orchestrator's call, not mine.
 
-### E5. hard relabelling (no search) against a random-permutation null
+### E5. hard relabelling (no search) against a MATCHED null, with the gold reference
 
 E2's deciphered string is the Viterbi path, prior-optimised by construction, so -2.12 vs -3.98
-cannot separate a stuck optimisation from an unidentifiable code.  E5 applies the fitted cipher's
-argmax phone per symbol (deterministic, many-to-one, the same map E3 scores) to the raw collapsed
-greedy string, collapses adjacent duplicates again, and reports the prior score and the PER against
-20 uniformly random permutations of the 40 symbols (seed 0, the same draws on both halves).
+carries no evidence.  E5 applies the fitted cipher's argmax phone per symbol (deterministic,
+many-to-one, the map E3 scores) to the raw collapsed greedy string, re-collapses, and scores it
+against two nulls of 20 draws each (seed 0, same draws on both halves): the MATCHED null, the
+fitted map's own target vector permuted over the 40 symbols (same image multiset, same collapsing
+power -- the null the rule uses), and the BIJECTION null of the second round, kept and labelled as
+the weaker one.
 
 | read | fit half | held half |
 |---|---|---|
+| trigram log p per token, identity labelling | -3.9783 | -3.9949 |
 | trigram log p per token, hard relabelling | -3.8123 | -3.8373 |
-| trigram log p per token, null (mean / sd / max) | -8.4257 / 0.3918 / -7.8346 | -8.4245 / 0.3908 / -7.8242 |
-| **prior score exceeds the null max** | **True** | **True** |
+| matched many-to-one null (mean / sd / max) | -6.9705 / 0.4916 / -6.1985 | -6.9738 / 0.4890 / -6.2467 |
+| bijection (permutation) null (mean / sd / max) | -8.4257 / 0.3918 / -7.8346 | -8.4245 / 0.3908 / -7.8242 |
+| margin over the matched-null max / over identity | 2.3862 / 0.1659 | 2.4093 / 0.1576 |
+| **PRE-REGISTERED reading (both margins > the matched sd)** | **False** | **False** |
 | PER, hard relabelling | 0.851496 | 0.853045 |
-| PER, null (mean / sd / max) | 0.941122 / 0.008011 / 0.954225 | 0.944596 / 0.008118 / 0.957753 |
+| PER, matched null (mean / sd / max) | 0.868027 / 0.013325 / 0.898546 | 0.870607 / 0.013510 / 0.901829 |
+| PER, bijection null (mean / sd / max) | 0.941122 / 0.008011 / 0.954225 | 0.944596 / 0.008118 / 0.957753 |
 
-The pre-registered rule ("a relabelling the prior prefers exists" reads only if the hard
-relabelling beats the NULL MAX) is in `SymbolDeciphermentJob`'s docstring and is banked as
-`prior_exceeds_null_max`.  For context the hard relabelling's -3.81 sits just above the identity
-labelling's -3.98 and far below the searched Viterbi's -2.12; the null's min PER is 0.9248
-(fit) / 0.9287 (held), so the hard PER is outside the null on both reads.  What that licenses is
-the orchestrator's call.
+The rule now has two parts, banked separately: `exceeds_matched_null_max_by_sd` is **True** on both
+halves (margin 2.39 / 2.41 against sd 0.49), `exceeds_identity_by_sd` is **False** (margin 0.17 /
+0.16).  So at ep10 the hard relabelling beats a shape-matched null comfortably and beats doing
+nothing by far less than the null's own spread; the conjunction, which is what the docstring
+pre-registers, does not read.  About 1.5 nats of the second round's 4.6-nat margin was bought by
+the many-to-one shape alone (matched mean -6.97 vs bijection mean -8.43), as the audit found.
+
+Like-for-like with gold (gold is SIL-free, so these rows drop the SIL tokens; reference only, no
+rule reads them):
+
+| read | fit half | held half |
+|---|---|---|
+| trigram log p per token, GOLD transcripts | -3.1898 | -3.2087 |
+| trigram log p per token, identity, SIL-free | -4.6174 | -4.6402 |
+| trigram log p per token, hard relabelling, SIL-free | -4.5685 | -4.5979 |
+
+Gold and the SIL-free identity row reproduce the audit's numbers exactly (-3.1898 / -3.2087 and
+-4.6174 / -4.6402; whole split -3.1992).  My SIL-free HARD row is -4.5685 / -4.5979 against the
+audit's -4.5447 / -4.5746: the 0.024-nat difference is the order of the two operations.  I
+re-collapse the relabelled string and then drop SIL without re-collapsing, which is the banked
+`greedy_phones` convention and is why the identity row matches; dropping SIL first (or collapsing
+again afterwards) merges neighbours that SIL had separated.
 
 ## Checks run
 
-* `pytest recipe/2025-10-speech-llm/src/speech_llm/sae/emc/test_private_code.py` -- 10 passed, 36 s
-  (8 as before plus the two new fixtures):
+* `pytest recipe/2025-10-speech-llm/src/speech_llm/sae/emc/test_private_code.py` -- 11 passed, 42 s
+  (8 of the first round plus three fixtures):
   part A on a 3-utterance fixture under a known permutation (alignment counts equal
   `eval_jobs.edit_counts`; the Hungarian AND the majority map recover the permutation on every
   occurring symbol; relabelled PER exactly 0; identity PER > 0.5); C's NMI on fixtures (perfect
@@ -215,16 +248,24 @@ the orchestrator's call.
   insertion-heavy SIL analogue (4 matched pairs beat the rival's 2) and drop a useful symbol, while
   the with-drop assignment reverses both and scores PER 4/38 against the plain variant's 32/38; and
   E5 on the cipher fixture, where the label-free hard map beats all 20 null permutations on the
-  prior score (the pre-registered MAX rule) and on the PER (< 0.05, below the null min).
-* Load-only census (`sis ... console --script`): 8 jobs, exactly the 6 + 2 registered here.  The
-  two `SymbolDeciphermentJob` hashes MOVED with the new `null_permutations` / `null_seed`
-  parameters (now `36NfY7XDOL3f` ep4, `FkH0wprbfjaN` ep10); the six `PrivateCodeAnalysisJob`
-  hashes did NOT move (this module stamps no file sha, so a body-only change is hash-neutral).
-  Nothing has been run -- `work/speech_llm/sae/emc/private_code/` is empty -- so no stale output
-  can survive the new column; had any of the six already run, its hash would not have forced the
-  rerun.
-* End-to-end local run of both jobs' own `run()` on ctrl_50 ep10 dev-other, re-done after this
-  amendment (every number above is from that run; A-D 36 s, E 591 s with the null): the
+  prior score and on the PER (< 0.05, below the null min).  THIRD ROUND: the E5 fixture now builds
+  the MATCHED null (asserting each draw has the fitted map's image multiset) and checks the new
+  two-part rule; plus a hand fixture for the re-collapse convention (a map sending two neighbours
+  to one phone: 1 deletion collapsed against 2 insertions uncollapsed) and that the job docstring
+  pre-registers which rows are re-collapsed.
+* Load-only census after the second round (`sis ... console --script`): 8 jobs, exactly the 6 + 2
+  registered here; the two `SymbolDeciphermentJob` hashes MOVED with the new `null_permutations` /
+  `null_seed` parameters (`36NfY7XDOL3f` ep4, `FkH0wprbfjaN` ep10), the six `PrivateCodeAnalysisJob`
+  hashes did NOT (this module stamps no file sha, so a body-only change is hash-neutral).  The
+  third round changes only job bodies, so NO hash moves again -- and that is the trap: nothing has
+  been run (`work/speech_llm/sae/emc/private_code/` is empty), so no stale output survives, but had
+  any of the eight already run, its hash would not have forced the re-run of the corrected read.
+* Cross-check against the audit's independent recomputation (its own code, from `greedy_raw.json`):
+  many-to-one 0.855191 and with-drop 0.840288 reproduce exactly; gold -3.1898 / -3.2087 and the
+  SIL-free identity -4.6174 / -4.6402 reproduce exactly; the SIL-free hard row differs by 0.024
+  nats for the stated convention reason.
+* End-to-end local run of both jobs' own `run()` on ctrl_50 ep10 dev-other, re-done after the
+  third-round fixes (every number above is from that run; A-D 35 s, E 654 s with both nulls): the
   PER reproduction assert and the per-utterance "collapsed argmax == banked greedy string" assert
   passed for all 2864 utterances, and the MFA join lost no utterance.
 
@@ -261,6 +302,19 @@ the orchestrator's call.
   in the json.
 * `spread()` also banks the null's `min` and `n` in the json; the rendered table shows mean / sd /
   max as the brief asks.
+* **The third round's rule wording.**  "Exceeds both the matched-null max AND the identity score by
+  more than the matched-null sd" is implemented with the sd margin on BOTH comparisons (the literal
+  parse, and the strict one).  It decides the verdict at ep10: with the sd margin the reading is
+  False on both halves; without it on the identity side it would be True.  Both components are
+  banked separately (`exceeds_matched_null_max_by_sd`, `exceeds_identity_by_sd`), so the other
+  reading needs no re-run -- but the docstring pre-registers the strict one.
+* **The matched null reuses the bijection null's 20 draws** (the fitted map's target vector
+  permuted by the same 20 permutations, seed 0), which is exactly "permute the fitted map's phone
+  assignments over the 40 symbols, seed 0" and keeps one seed for both rows.
+* **The plain one-to-one row is deliberately NOT re-collapsed** (the brief named the many-to-one
+  and with-drop rows): it is the banked-convention, deletion-blind reference the with-drop row is
+  read against.  Re-collapsing it would move a number already quoted in the phase file; say so if
+  that is wanted instead.
 
 ## When ep25 lands
 
