@@ -150,7 +150,7 @@ G4a.7: not yet defined (see Design, "Training arm"). Step 0 has a read rule, not
 
 ## Results
 
-### Step 0: prior gap on dev-other, ctrl_50 ep10 (2026-09-20; job `PriorGapAnalysisJob.2RkbKYl0v1XK`, audit pending)
+### Step 0: prior gap on dev-other, ctrl_50 ep10 (2026-09-20; job `PriorGapAnalysisJob.2RkbKYl0v1XK`; audited, `reports/audit_prior_gap_2026-09-20.md`, all readings CONFIRMED)
 
 2864 utterances, nats per token, gold-minus-private paired gap; like-for-like pairing (gold and
 the SIL-dropped decode) primary; SIL-kept pairing (the string the prior sees in training)
@@ -170,7 +170,17 @@ Segmentable under the strict lexicon: gold 0.876, private 0.237, gold null 0.024
 0.011. Null strings score 2 to 4 nats per token below their originals under every prior of order
 2 and above.
 
-Readings (pending audit):
+Audit additions (independent re-derivation from the per-utterance dump, every banked aggregate
+reproduced; KenLM re-scoring matches to 4e-6 nats): a modified Kneser-Ney TRIGRAM built from the
+job's own window text gives gap 1.19, so the smoothing change alone lowers the gap by 0.20 and
+the order-4 effect within one estimator is +0.48 (t = 85); the mixed-estimator table understates
+the 4-gram. The 6-minus-4 gap difference is −0.044 with standard error 0.005, a real effect. The
+escape row's fixed prices contribute 0.16 of its gap and lexical routing 2.17; with a free escape
+the gap still exceeds the 4-gram's. The order-only log-weight sd is 12.7 / 17.6 nats per
+utterance (0.18 / 0.25 per token), so the importance-sampling clause fails under either estimator
+when read per utterance, which is the operative reading for a per-utterance weight.
+
+Readings (audited):
 1. The lexicon is where the private code is identified. The lexicon gap is 0.93 nats per token
    above the trigram's, against 0.27 for the 4-gram; three quarters of the private strings have no
    segmentation into vocabulary words at all, against one eighth of gold. Prediction held on the
@@ -189,7 +199,8 @@ clause's "but the 4-gram does not" is unmet, while the 4-gram's own estimability
 Amendment, made after the numbers and recorded as such: the table did not anticipate "4-gram
 discriminates more but is not estimable"; by the table's own logic the 4-gram route is conditioned
 on estimability and is closed, and the lexicon row discriminates more, so the outcome is the
-lexicon score-function term. The amended reading stands only if the audit confirms readings 1-3.
+lexicon score-function term. The audit confirmed readings 1-3 and called the table silent as
+written, with the amended reading a restatement of its own logic; it stands.
 
 Consequence for the training arm: the reward must be a lexicon-level score that can be evaluated
 on sampled strings inside a training step. The exact trie Viterbi costs about 1e5 extensions per
