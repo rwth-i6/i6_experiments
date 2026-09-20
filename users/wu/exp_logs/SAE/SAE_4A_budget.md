@@ -13,16 +13,22 @@ BT port on the blank-free topology; reviews `reports/sae_budget_review2_2026-09-
 PASS_WITH_CONCERNS; design review APPROVE_WITH_AMENDMENTS, amendments applied below).
 **Node A RUNNING** since 2026-09-20 13:43: `PackedBlankfreeTrainJob.ks7CbtlvpcIL`
 (alias `sae/4a/budget_pack/node_a/training`, Slurm 1907749_1, node jpbo-008-46; arms ctrl_50,
-odmprior_50, ctrl_100, odmprior_100), manager `sae_4a_budget_pack` pid 2845279
-(`log/sae_4a_budget_pack.manager.20260920T133932.log`), watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 2845279 config/sae_4a_budget_pack.py 600` (re-arm first
-after any resume). First 11.5 h kill expected 2026-09-21 01:14; the 100-arms resume then (first
-real test of the pack resume path: check log.run.2 for "skipped" on the finished 50-arms and each
-100-arm's start epoch). Do not edit the blank-free modules while the node runs (re-imported on resume).
-Node B (bt_50, odmbt_50, bt_100, odmbt_100) and node C (schedule-free ctrl / odmprior at both N) are
-being wired into the same pack config (implementer); they launch after their census check.
-NEXT: launch nodes B and C (restart the manager to pick up the new pack jobs); read ep1 wall time
-per arm off node A's learning_rates to confirm packed step rate; ep4 / ep10 reads as they land.
+odmprior_50, ctrl_100, odmprior_100). **Node B RUNNING** since ~14:02: `.reEI2Nd0S77A`
+(Slurm 1908003_1, jpbo-015-35; bt_50, odmbt_50, bt_100, odmbt_100). **Node C RUNNING** since
+~14:02: `.4QzmftNlbErt` (Slurm 1908002_1, jpbo-015-24; nosched_ctrl_50/100, nosched_odmprior_50/100
+= constant LR, original 4-sub-epoch anneal held at 2: the schedule-vs-budget control, design review
+item 3). Wiring commit ea487f0 (`reports/sae_budget_wiring_2026-09-20.md`; 12 arms, paired
+PairedPerDeltaJob reads registered per kept epoch: each arm vs ctrl_N, nosched vs its scheduled twin,
+ctrl_N ep4 vs banked priorshuf ep4). One manager `sae_4a_budget_pack` pid 2945974
+(`log/sae_4a_budget_pack.manager.20260920T135909.log`), watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pack.py 600` (re-arm first
+after any session resume). First 11.5 h kills expected 2026-09-21 ~01:14 (A) / ~01:33 (B, C); the
+100-arms resume then (first real test of the pack resume path: check each node's log.run.2 for
+"skipped" on the finished 50-arms and each 100-arm's start epoch). Do not edit the blank-free
+modules while nodes run (re-imported on resume). Job dirs:
+`work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.{ks7CbtlvpcIL,reEI2Nd0S77A,4QzmftNlbErt}`.
+NEXT: read ep1 wall time per arm off each node's learning_rates (packed step rate; bt arms carry an
+extra BT step per EMC step); ep4 / ep10 reads as the eval jobs land; the 11.5 h resume check.
 
 ## Objective
 
