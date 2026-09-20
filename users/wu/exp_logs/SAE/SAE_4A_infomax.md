@@ -248,6 +248,14 @@ amendments 1-8 applied above and in the implementer's brief).
 
 ## Results
 
+### Interim reads (2026-09-20 19:30, node_d at sub-epoch 8; early read is at sub-epoch 10)
+
+dev-other greedy PER as banked: ent_50 0.856 / 0.860, entaug_50 0.873 / 0.850, aug_50 0.849 /
+0.867, aughi_50 0.836 / 0.867 at ep1 / ep4 (ctrl_50 0.855 / 0.869). All in band, as pre-registered
+for the anneal window. Train-mode terms at ep8: consistency KL 0.30-0.38 nats (entaug, aug) and
+0.26 (aughi), i.e. 0.01-0.03 of the loss at the chosen weights; the entropy arms' coverage KL is
+lower than the controls' (0.77-0.78 vs 0.88).
+
 ### Private-code analysis of ctrl_50 (banked 2026-09-20; audit `reports/audit_private_code_2026-09-20.md`, DONE_WITH_CONCERNS)
 
 Jobs: State pointers. dev-other, 2864 utterances; dev-clean tells the same story (audit item 1).

@@ -129,4 +129,37 @@ Levers explicitly NOT in this round (candidates if every arm stays in the band):
 
 ## Results
 
-(none yet)
+### Interim kept-checkpoint reads (2026-09-20 19:30, arms at sub-epoch 30-33; gate reads at the final sub-epoch only)
+
+dev-other greedy PER as banked (`BlankfreeGreedyPerJob` per.json, traced to each arm's checkpoint
+through its forward job; ep1 rows for ctrl_100 / odmprior_N verified against the checkpoint path):
+
+| arm | ep1 | ep4 | ep10 | ep20 | ep25 |
+|---|---|---|---|---|---|
+| ctrl_50 | 0.855 | 0.869 | 0.897 | - | 0.888 |
+| ctrl_100 | 0.855 | 0.866 | 0.843 | 0.907 | 0.897 |
+| odmprior_50 | 0.793 | 0.849 | 0.908 | - | 0.895 |
+| odmprior_100 | 0.793 | 0.840 | 0.842 | 0.895 | 0.880 |
+| bt_50 | 0.855 | 0.903 | 0.896 | - | 0.890 |
+| bt_100 | 0.856 | 0.877 | 0.855 | 0.910 | 0.895 |
+| odmbt_50 | 0.793 | 0.865 | 0.896 | - | 0.893 |
+| odmbt_100 | 0.793 | 0.865 | 0.853 | 0.901 | 0.889 |
+| nosched_ctrl_50 | 0.822 | 0.893 | 0.893 | - | 0.886 |
+| nosched_ctrl_100 | 0.819 | 0.887 | 0.887 | 0.883 | 0.881 |
+| nosched_odmprior_50 | 0.815 | 0.881 | 0.883 | - | 0.877 |
+| nosched_odmprior_100 | 0.818 | 0.874 | 0.871 | 0.875 | 0.861 |
+
+Readings (interim, no gate consequence): every arm is in or above the band from ep4 on; PER
+rises as the temperature anneal ends (the N=100 arms, whose anneal runs to ep20, sit 0.05 below
+their N=50 twins at ep10 and join them at ep20), so PER tracks confidence, not learning (the
+private-code analysis in `SAE_4A_infomax.md` Results says what the confident code encodes). The
+coverage arms' ep1 value (0.793, below the band's lower edge, before the anneal) is a
+diffuse-output read and has no chance null of its own yet; the ctrl_50 ep1 null is 0.851.
+
+Training curves (`work/<arm>/learning_rates` inside each pack job; ctrl_50 read in full): after the
+anneal reaches tau = 2 (ep10 for N=50) every term is on a plateau. ctrl_50 lattice term 1.82 at
+ep12 -> 1.77 at ep33; prior per token -3.44 flat; reverse score per frame -3.26 -> -3.08; expected
+rate 9.0/s flat; the coverage KL (lam_agg 0.1 on the controls) worsens from 0.89 at ep8 to 1.33 at
+ep24 and stays there, so the confident code matches the text 1/2-grams worse than the diffuse
+output did. The learning-rate decay starts at ep30 (N=50); no further movement is expected from
+budget alone. ctrl_100 has the same shape delayed (coverage KL 0.82 at ep16 -> 1.07 at ep33).
