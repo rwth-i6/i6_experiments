@@ -34,14 +34,17 @@ Three things this deliberately does NOT do:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import unittest.mock
 from functools import partial
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
 
 import returnn.frontend as rf
+
+from .resumed_training import PatchTrainingJobToResumed, winner_resume_inputs
 
 
 # The winner's own checkpoint, epoch 38 (the ``recog_results_best`` epoch), reached via Albert's
@@ -276,7 +279,15 @@ def winner_checkpoint(winner_model):
     return ckpt
 
 
-def train_winner_plus_tts(*, prefix: str, winner_model, name: str = "winner-plusTts-nEp10-lr5e-4"):
+def train_winner_plus_tts(
+    *,
+    prefix: str,
+    winner_model,
+    name: Optional[str] = None,
+    resume_from_winner: bool = False,
+    nep: Optional[int] = None,
+    flat_lr: Optional[float] = None,
+):
     """
     The winner's own ``_train_tts_encoder`` call (``_sa == 50``), verbatim except for:
 
@@ -295,7 +306,23 @@ def train_winner_plus_tts(*, prefix: str, winner_model, name: str = "winner-plus
     from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_fzj import _train_tts_encoder
 
     _sa = 50
-    with _PatchAsrBranchWithTts():
+    _nep = nep if nep is not None else NEP
+    if name is None:
+        name = f"winner-plusTts-nEp{_nep}-lr5e-4"
+        if resume_from_winner:
+            name += f"-resumeEp{WINNER_EPOCH}"
+        if flat_lr is not None:
+            name += f"-flatLr{flat_lr:g}"
+
+    # 🔴 Resumed variant: swap ONLY the training job class, so the dataset, model def, schedule
+    # plumbing, recogs and `ModelWithCheckpoints.from_training_job` are byte-identical to the arm
+    # being continued. See resumed_training.py for why `import_model_train_epoch1` cannot do this.
+    _resume = (
+        PatchTrainingJobToResumed(**winner_resume_inputs(winner_model, epoch=WINNER_EPOCH))
+        if resume_from_winner
+        else contextlib.nullcontext()
+    )
+    with _PatchAsrBranchWithTts(), _resume:
         return _train_tts_encoder(
             name,
             prefix=prefix,
@@ -320,7 +347,7 @@ def train_winner_plus_tts(*, prefix: str, winner_model, name: str = "winner-plus
             glow_tts_add_silence_between_words=0.15,
             base_lr=1.0,
             peak_lr=PEAK_LR,
-            nep=NEP,
+            nep=_nep,
             behavior_version=29,  # packed tensors need >= 29
             pseudo_enc_frontend_concat=True,
             extra_config_updates={
@@ -343,7 +370,22 @@ def train_winner_plus_tts(*, prefix: str, winner_model, name: str = "winner-plus
                 # so this is the supported route -- _train_tts_encoder exposes no `init_params=`.
                 # NOTE this restarts epoch counter / optimizer / LR at 1 (returnn/engine/base.py:156-192):
                 # it is "initialise from the winner", not an optimizer-state resume.
-                "import_model_train_epoch1": winner_checkpoint(winner_model),
+                # ⚠ OMITTED when resuming: `ReturnnTrainingResumedJob` asserts against it, because the
+                # import branch forces start_epoch=1 and the optimizer would then never be loaded
+                # (torch/engine.py:258) -- i.e. it would silently be this same arm again.
+                **({} if resume_from_winner else {"import_model_train_epoch1": winner_checkpoint(winner_model)}),
+                # Flat LR over the continued range, replacing the OCLR ramp
+                # `_get_cfg_lrlin_oclr_by_bs_nep_v4` emits. `dyn_lr_piecewise_linear` asserts
+                # `len(steps) + 1 == len(values)`, so one breakpoint with two equal values is constant.
+                # This is what separates "the dip was avoidable" from "the dip bought the gain".
+                **(
+                    {
+                        "learning_rate_piecewise_steps": [_nep],
+                        "learning_rate_piecewise_values": [flat_lr, flat_lr],
+                    }
+                    if flat_lr is not None
+                    else {}
+                ),
             },
             extra_config_deletes=["optimizer.epsilon"],
         )

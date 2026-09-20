@@ -60,7 +60,14 @@ DLM_DATA_STAGE = "train"
 # ⚠ Arm A is CONTEXT, never the baseline: the original 10,240-piece SPM is uppercase English and
 # cannot write German orthography at all (no Ä Ö Ü), so its WER will be catastrophic by construction.
 # Quoting an A->B gain as the contribution would be inflated by "we added three characters".
-GERMAN_STAGE = "armB,armB0,armC"
+# armB0 (zero paired audio) crashed twice with `RuntimeError: max(): ... input.numel() == 0`.
+# Root cause found 2026-09-20 and FIXED in RETURNN: `_packed_backend._torch_relayout_frames:5198`
+# bound-checks `pos_raw.max() <= n_out`, and `.max()` raises on an empty tensor -- reached because
+# `aed_pseudo_enc_frontend_single_stream_train_step:6037` runs feature extraction over the audio
+# stream unconditionally, and under `ls_audio_subset=0` that stream is present but EMPTY.
+# The bound is vacuously true for an empty layout, so the fix short-circuits on the (static) shape.
+# ⚠ That patch is LOCAL to tools/returnn -- see backlog; it must survive a pull or armB0 breaks again.
+GERMAN_STAGE = "armB,armC"  # armB0 blocked on RETURNN defect 3 (backlog 107d)
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -107,8 +114,39 @@ EVAL_FINETUNE_EPOCHS = (1, 10)
 # i.e. both numbers from one 4-GPU job instead of the full 12-bundle DLM data pass.
 FT_HYPS_WER = True
 FT_HYPS_EPOCH = 10
+
+# Continue the winner WITH its optimizer state, instead of importing its weights (user call).
+# Motivation (backlog): the +TTS finetune got WORSE than its own starting point for ~5 epochs before
+# recovering -- dev CE 0.1819 -> 0.1864 at epoch 5, same shape on devtrain, so not overfitting -- and
+# the worst epoch coincides exactly with the LR peak (breakpoints [4.5, 9.0, 10] on [1e-5, 5e-4, ...]).
+# A resumed run removes the cold-optimizer explanation AND, because the text partition is
+# (epoch-1) % 75, advances the LM text to partitions 38-47 instead of re-reading 0-9 a third time.
+# The flat LR is the discriminating half: if GlowTTS-audio WER still improves without a dip, the ramp
+# was waste; if it does not improve, the dip was the price of learning the TTS data.
+WINNER_PLUS_TTS_RESUMED = True
+WINNER_PLUS_TTS_RESUMED_NEP = 48  # winner's 38 + 10 more, so the model scan finds epoch.038
+WINNER_PLUS_TTS_RESUMED_LR = 1e-5
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
+
+def pinned_path(path: str) -> tk.Path:
+    """
+    A creator-less :class:`tk.Path` whose hash is FROZEN to its current location.
+
+    Every raw checkpoint reference below is an absolute path inside ``gs.BASE_DIR`` with no creator
+    job, which sisyphus warns about (`job_path.py:70`) for a real reason: such a path hashes by its
+    **location string** (`:129-136` hashes ``(creator, path)``, and creator is None), so moving or
+    renaming the setup silently re-hashes every job that consumes it -- orphaning finished work and
+    re-running multi-day trainings. Pinning with ``hash_overwrite`` freezes the identity against
+    that.
+
+    ⚠ The overwrite is deliberately the path's OWN current string, which makes this change provably
+    hash-neutral: ``_sis_hash`` builds ``(None, path)`` either way, byte for byte. Pinning to a
+    prettier label (``"our_dlm_ep50"``) would be nicer to read and would re-hash all 2,048 jobs.
+    Verified by graph diff: 0 ids moved.
+    """
+    return tk.Path(path, hash_overwrite=path)
+
 
 # DLMs relayed from our RZ setup (rsync RZ -> FZJ, sha256-verified), by model_dim.
 OUR_DLM_IMPORT_DIR = "/e/project1/spell/koch13/setups/2026-09-16-fzj-dlm/import/dlm"
@@ -175,7 +213,7 @@ def _get_dlm(checkpoint: str, *, model_dim: int):
                 "input_add_eos": True,
             },
         ),
-        checkpoint=PtCheckpoint(tk.Path(checkpoint)),
+        checkpoint=PtCheckpoint(pinned_path(checkpoint)),
     )
 
 
@@ -344,6 +382,21 @@ def py():
 
         train_winner_plus_tts(prefix=f"{prefix}/winner-plus-tts", winner_model=winner_model)
 
+    if WINNER_PLUS_TTS_RESUMED:
+        # Same arm, same data, same model def -- only the training JOB CLASS differs, so the winner's
+        # optimizer moments are loaded instead of being re-estimated from zero. See
+        # resumed_training.py: RETURNN has no "import the optimizer" option because its answer is
+        # resumption, gated on the .opt.pt sibling being present (engine/base.py:101-107).
+        from .winner_plus_tts import train_winner_plus_tts
+
+        train_winner_plus_tts(
+            prefix=f"{prefix}/winner-plus-tts",
+            winner_model=winner_model,
+            resume_from_winner=True,
+            nep=WINNER_PLUS_TTS_RESUMED_NEP,
+            flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
+        )
+
     if FT_HYPS_WER:
         # The measurement the +TTS finetune was actually built to move: hypothesis-pass WER on REAL
         # LS-960 audio and on GlowTTS audio. Reference pair (winner_plus_tts.py:7-9, random 20k seed 0,
@@ -368,7 +421,7 @@ def py():
 
         _ft_hyps_model = _dc.replace(
             ctc_lm_kwargs["ctc_model"],
-            checkpoint=_PtCkpt(tk.Path(f"{_FT_JOB}/output/models/epoch.{FT_HYPS_EPOCH:03d}.pt")),
+            checkpoint=_PtCkpt(pinned_path(f"{_FT_JOB}/output/models/epoch.{FT_HYPS_EPOCH:03d}.pt")),
         )
         _, _ft_hyp_jobs = _get_dlm_task(
             hyps_model=_ft_hyps_model,
@@ -390,7 +443,7 @@ def py():
         from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
         from .winner_plus_tts import FINETUNE_TRAIN_JOB
 
-        _ckpt = tk.Path(f"{FINETUNE_TRAIN_JOB}/output/models/epoch.{_ep:03d}.pt")
+        _ckpt = pinned_path(f"{FINETUNE_TRAIN_JOB}/output/models/epoch.{_ep:03d}.pt")
         _ft_model = dataclasses.replace(ctc_lm_kwargs["ctc_model"], checkpoint=PtCheckpoint(_ckpt))
         _ctc_res = _ctc_only_recog_batched(
             prefix=f"{prefix}/winner-plus-tts/ctc-only-ep{_ep:03d}",
