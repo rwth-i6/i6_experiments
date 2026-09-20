@@ -89,7 +89,19 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    the trigram nearly as well as phones (−3.98 vs −3.20 per token), so weight is not the lever;
    Step 0 is a CPU prior-gap diagnostic (orders 1-8 and the exact lexicalised prior) with a fixed
    decision table between a 4-gram importance-sampled correction and a lexicon score-function
-   term; gate G4a.7 defined after Step 0. Other follow-up candidate: K = 64 reverse units.
+   term. Step 0 read (audited): the lexicon, not order or weight, identifies the private code
+   (gap 2.32 vs trigram 1.39); IS closed; the arm is a score-function term with a strong scorer
+   (G4a.7 defined, design-reviewed, amendments applied). Step 0b (neural phone LM as the
+   scorer): 3.3 M / 3 epochs was a partial proxy (gap 1.71 < 2.01 bar); rerun 30 epochs at
+   3.3 M and 10.9 M running, a 25 M / 10 M-line instance queued. Other follow-up candidate:
+   K = 64 reverse units.
+   **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
+   the sub-epoch count for future arms from the label-free behaviour of the running budget arms
+   (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks
+   features after full-waveform SSL extraction, the paper cuts the waveform with rVAD before
+   extraction (verified, `reports/lit_w2vu2_preprocessing_2026-09-20.md`); one ablation arm with
+   the paper's cut, own phase `SAE_4A_prepro.md`. (3) Train a phone LM that reaches the Step 0b
+   gate and launch the strong-scorer arm (`SAE_4A_prior.md`).
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.
 1. **§1g simple weak initialization — WITH THE USER.** 1g.2's own-minus-donor selector gate fired NEGATIVE
