@@ -16,16 +16,22 @@ speech-llm 739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`,
 The pre-registered rerun (two instances, 30 epochs, 3.3 M and ~10 M) is being built in the same
 config; its manager, Slurm ids and watcher command are recorded here when launched. The earlier
 manager 3231512 has exited; no watcher is live for this phase.
-Training-arm design and G4a.7 are written (Design "Training arm", Gate), under design review
-(`reports/design_review_prior_arm_2026-09-20.md`); the scorer slot is filled by Step 0b's rule.
-Code survey banked (`reports/survey_sampled_prior_term_2026-09-20.md`).
+Training-arm design and G4a.7 are written (Design "Training arm", Gate); the design review
+(`reports/design_review_prior_arm_2026-09-20.md`) returned STOP as written, approvable with A1–A4,
+all applied (reward = strong minus unigram, r(gold) > max_g fraction replaces the dead band,
+straight-through soft arm, path-level Fisher estimator, length / SIL / resume policies, pre-launch
+falsifier). The scorer slot is filled by Step 0b's rule. Code survey banked
+(`reports/survey_sampled_prior_term_2026-09-20.md`). The wav2vec-U 2.0 preprocessing question (does
+2.0 apply rVAD at all; our bed has rVAD AND sil_prob 0.5) is with the literature agent
+(`reports/lit_w2vu2_preprocessing_2026-09-20.md`); its answer goes to `SAE_ref.md`.
 Open user question (SIL vs rVAD): prior text has 13.8 % SIL tokens (sil_prob 0.5, surround;
 the local wav2vec-U pipeline uses 0.25 with rVAD); the gold SIL share on retained frames is being
 computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed change, own arm.
-NEXT: watcher verdict on Step 0b; read the neural row against the Step 0b rule and the perplexity
-benchmark (trigram 9.561 expected); fill the scorer slot; design review of the training arm; then
-implementer (blank-free FFBS, fixed-string marginal, LM loading via hashed model_args, soft-input
-term) before any node is funded.
+NEXT: launch the Step 0b rerun (two instances) when the implementer hands it back, arm its
+watcher; in the same config, the CPU probe (i) of the falsifier and the word-unigram / bigram
+ESCAPE rows (one implementer, after the rerun implementer is done: same files); read the rerun
+against the Step 0b rule, fill the scorer slot; then the blank-free FFBS + probe (ii) implementer;
+fund no node before the falsifier's 95 % rule and the budget pack's resume are read.
 
 ## Objective
 
@@ -222,15 +228,62 @@ the code is still soft (frame NMI jumps between ep4 and ep10 in ctrl_50); if the
 first, `sf_reward_std_within` collapses and the arm reads UNINFORMATIVE. soft_50 is expected to
 move the monitor regardless; whether it moves PER is the open question.
 
+**Design review amendments (2026-09-20, `reports/design_review_prior_arm_2026-09-20.md`, STOP as
+written, approvable with A1–A4; all applied before any job, the text above is kept as the
+original):**
+- A1, reward. The trigram baseline is a sign trap: from the Step 0b per-set table (nats/token)
+  the trigram scores shuffled gold −7.19 against gold −3.20 while the neural LM scores them −5.65
+  / −2.56 and the escape lexicon −4.48 / −2.19, so log p_strong − log p_3 pays a shuffled gold
+  string 0.9 (neural) / 1.7 (lexicon) nats per token MORE than gold and a shuffled private string
+  1.4 / 2.8 more than the private string: on every non-lexical string the term is −log p_3 and
+  weakens the trigram. Amended reward: r(y) = log p_strong(y) − log p_uni(y) with the window's
+  unigram as the order-insensitive baseline (neural − unigram: gold +0.95, private −0.67, nulls
+  −2.2 nats/token; lexicon − unigram: +1.31 / −0.79 / −1.0). Monitor target for `sf_reward_mean`
+  corrected: the decode's value should rise from −0.67 toward +0.95 (neural filling), not "+2.3".
+- A3, dead band replaced. ctrl_50's sampler already draws 494–510 distinct strings of 512 at
+  tau 2 (`SAE_4A_blankfree.md`), so a within-group std floor never fires and a real sampler
+  failure would read FAIL. The UNINFORMATIVE clause is now: the disclosed, label-using fraction of
+  dev-other utterances in which r(gold) exceeds max_g r(y_g) (the samples never reach a string
+  the reward prefers), read in the pre-launch probe and at ep10 / ep25 / ep50, together with the
+  within-group std calibrated by the same probe (not the 1.0 nats/utt guess).
+- A2, soft arm. Straight-through (hard argmax string forward, soft gradient), the same frozen
+  scorer; artefact monitor = scorer(soft) − scorer(hard) per token with a pre-registered ceiling
+  of 0.3 nats/token above which the arm's reads are void; the unigram baseline is linear in the
+  soft vector, so it needs no straight-through and no soft trigram is defined.
+- A4, implementation. No differentiable fixed-string DP: by the Fisher identity the sampled
+  path's own log weight (frame log-q gathers plus segment scores; log Z cancels under centred
+  advantages) is an unbiased estimator of grad log q(y | x), so the term is A_g times that path
+  score. Length policy for the neural filling: a sampled string longer than the scorer's 512
+  positions is masked out of the term and counted (`sf_masked_long`), never truncated silently.
+  SIL: both scorers see the SIL-dropped string (Step 0's primary pairing), because with SIL kept
+  the term pushes SIL out unopposed by the rate term, which counts non-SIL tokens only. Resume:
+  the arm is not funded before the budget pack's 11.5 h resume is seen to work; the fallback read
+  at ep25 (ctrl_50 keeps it) is pre-registered now. Trie filling: Step 0's lexicon row carries a
+  word-trigram state that a batchable GPU trie DP would not; word-unigram and word-bigram ESCAPE
+  rows are banked in the same job (CPU) before any DP is built.
+- Pre-launch falsifier (replaces "measured in the 100-step probe"): (i) CPU neighbourhood probe
+  on the banked ctrl_50 ep4 and ep10 decodes, K = 8 single-token substitutions / deletions per
+  utterance drawn from the frame posterior's second choice, scored under the A1 rewards and the
+  trigram: within-neighbourhood std, correlation of the reward delta with the trigram delta, and
+  the fraction of edits that gain a strict-lexicon word; (ii) once the blank-free FFBS exists,
+  G = 8 draws on 300 dev-other utterances at ctrl_50 ep1 / ep4 / ep10 at the schedule's tau:
+  distinct strings, within-group std, the r(gold) > max_g fraction, and the gradient-norm ratio
+  that fixes lam_sf at ep4 and at ep10 (recorded, ep4 preferred over step 1). Rule: if r(gold)
+  exceeds max_g in more than 95 % of utterances at every checkpoint, sf_50 is not funded and the
+  lattice-internal lexicon design is the next arm.
+
 ## Gate
 
 **G4a.7** (per arm, dev-other, final sub-epoch or the clamp-reached sub-epoch recorded before
 launch; never best-PER over the kept set; same form as G4a.4): greedy PER < 0.50 AND emitted rate
 in [5.80, 14.49]/s; health: speaker-matched derangement gap > 0. Paired reads (PairedPerDeltaJob):
 sf_50 vs ctrl_50, soft_50 vs ctrl_50, sf_50 vs soft_50. Read at the same sub-epoch count as
-ctrl_50 (matched completion, not matched wall time). UNINFORMATIVE clause: the dead band above;
-an UNINFORMATIVE arm licenses "this sampler at this bed does not explore" and a larger G or a
-higher sampling temperature as the next arm, not "the prior lever fails". FAIL (PER >= 0.50 with
+ctrl_50 (matched completion, not matched wall time). UNINFORMATIVE clause (original: the dead
+band; amended by the design review A3 before any job): the r(gold) > max_g fraction and the
+probe-calibrated within-group std, as in the amendments; an UNINFORMATIVE arm licenses "this
+sampler at this bed does not reach the strings the reward prefers" and a larger G or a higher
+sampling temperature as the next arm, not "the prior lever fails". Reward as amended (A1):
+strong minus unigram; the pre-launch falsifier's 95 % rule decides whether sf_50 is funded at all. FAIL (PER >= 0.50 with
 the monitor engaged) licenses not funding the outside-the-DP correction further; a lexicon inside
 a new lattice is then the remaining route. Abort rule as G4a.4. A PASS is audited from a fresh
 context and needs a second seed. Step 0 and 0b have read rules, not gates.
