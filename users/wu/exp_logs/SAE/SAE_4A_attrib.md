@@ -8,10 +8,11 @@ constraint stand). Gold enters evaluation only.
 ## State
 
 Steps 1-3, priorshuf, 5 and 5b DONE, audited, every gate FAIL (Results); their managers exited.
-Live: E4 manager pid 1721166 (`config/sae_4a_attrib_step6_e4.py`, one job
-`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`, SLURM 1902191, booster;
-`reports/sae_attrib_step6_e4_launch2_2026-09-20.md`). Re-arm first on resume if dead:
-`bash ~/.claude/skills/sis/sis_watch.sh 1721166 config/sae_4a_attrib_step6_e4.py 300`.
+Live: reverse-diagnostic manager pid 2048921 (`config/sae_4a_attrib_ganrev_revdiag.py`, one job
+`W2vu2RevDiagJob.oWBYItTBrIT7`, SLURM 1902660, booster;
+`reports/sae_attrib_step4_revdiag_launch_2026-09-20.md`). Re-arm first on resume if dead:
+`bash ~/.claude/skills/sis/sis_watch.sh 2048921 config/sae_4a_attrib_ganrev_revdiag.py 300`.
+E4 and est_perm managers exited after finishing.
 Standing user directions (2026-09-19): continue autonomously, no GAN component in new arms, every
 n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
 
@@ -23,18 +24,15 @@ top-1 unit accuracy under own / deranged / gold-forced-alignment inputs with flo
 (config `config/sae_4a_attrib_ganrev_revdiag.py`, implementer report
 `reports/sae_attrib_step4_revdiag_impl_2026-09-20.md`); review, launch, read.
 
-Step 6 (user-approved plan, pre-registered in Results): item 1 DONE, branch (C), item 3 NOT funded;
-item 4 DONE; both audited (Results). Item 2 (E4 arm `odm3_lam1_perm`,
-`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`) RUNNING since 2026-09-20 09:37 (~45 min) after the
-user cleared the dir of the first, venv-less attempt. In parallel an implementer writes the
-checkpoint-level KL3 read of the perm arm (`config_sae_4a_attrib_step6_est_perm_v1`, same
-`OdmCoverageBatchEvalJob`, permutation applied at eval as in training; report
-`reports/sae_attrib_step6_est_perm_impl_2026-09-20.md`), to be code-reviewed and launched once
-VYBJTM9X2niT ep4 exists.
-NEXT (E4): on the watcher verdict, executor confirms the finish; read KL3 at ep4 and sub-epochs
-2-4 from learning_rates by the item 2 rule (<= 0.55 / >= 1.2 / between); then the checkpoint-level
-KL3 against 0.83 (item 1 showed the EMA read biased low); then the step 6 synthesis.
-Pending user decision: the 16-sub-epoch budget arm (Results, hyperparameter review).
+Step 6 DONE 2026-09-20 (Results "Step 6 synthesis"): item 1 branch (C), item 3 unfunded; item 4
+null-level everywhere; item 2 unresolved on both reads (perm KL3_full 1.27 vs 0.83), audit
+pending (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`, corrections go to the item 2 entry).
+NEXT: read the reverse diagnostic of lam1.0_s0 on the watcher verdict
+(`output/sae/4a/attrib/ganrev/lam1.0_s0/rev_diag.{json,txt}`; read-side caveats in
+`reports/sae_attrib_step4_revdiag_review_2026-09-20.md`: gold is on the feasible subset,
+own/deranged Viterbi scores include log q while gold is phi alone), record under the step 4 result.
+Pending user decisions: the 16-sub-epoch budget arm (Results, hyperparameter review) and the
+next objective (Step 6 synthesis).
 
 ## Question
 
@@ -769,3 +767,51 @@ order-3 coverage term descends on frame-permuted input almost as far as on real 
 eval decodes of this arm are not read (pre-registered: its PER is not interpretable). Primary
 read (checkpoint-level full-pass KL3, amendment rule <= 0.93 / >= 2.2) pending:
 `OdmCoverageBatchEvalJob.v9fR6BnF8mAh`, `output/.../sae_4a_attrib/step6/est_bias_perm/summary.json`.
+
+### Step 6, item 2 (E4) result (2026-09-20 11:00): both reads "between"; the destroyed-structure control reaches KL3_full 1.27 vs 0.83, and part of the gap is already there at order 1
+Primary read `OdmCoverageBatchEvalJob.v9fR6BnF8mAh` (permutation seed 0 applied at eval as in
+training; `output/.../sae_4a_attrib/step6/est_bias_perm/summary.{json,txt}`, SLURM 1902625,
+4 min), same batches, tau, prior and utterance set as item 1's read of odm3_lam1
+(`kIWwqpNqrTGH`). KL = CE minus the text n-gram entropy (order 1 / 2 / 3 floors 3.2852 / 5.9644
+/ 8.2417). Audit pending (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`).
+
+| order | level | odm3_lam1 KL | odm3_lam1_perm KL | perm minus arm |
+|---|---|---|---|---|
+| 1 | full | 0.053 | 0.235 | +0.18 |
+| 2 | full | 0.284 | 0.559 | +0.27 |
+| 3 | batch | 2.016 | 2.322 | +0.31 |
+| 3 | group10 | 1.042 | 1.436 | +0.39 |
+| 3 | group100 | 0.852 | 1.288 | +0.44 |
+| 3 | full | 0.830 | 1.270 | +0.44 |
+| 3 | EMA ep4 (secondary) | 0.450 | 0.644 | +0.19 |
+
+Gate: primary 1.27 is between 0.93 and 2.2, secondary 0.644 between 0.55 and 1.2: UNRESOLVED on
+both, the reads agree. Reading: on frame-permuted input the order-3 coverage term still descends
+to within 1.27 nats of the text trigram entropy (from an ep1 EMA read of 1.80), so most of the
+descent the structured arm shows is reachable without temporal structure; the structured arm
+gets 0.44 nats further at the corpus level. That extra is not all "temporal structure used": the
+permuted arm is also worse at order 1 (+0.18) and order 2 (+0.27), where temporal order is
+irrelevant to the target, which points to a plain optimisation handicap of the conv recognizer
+(kernel 9 over shuffled frames) rather than the term exploiting sequence content; the order-3
+gap net of the order-1 handicap is about 0.26 nats. Together with item 1 (EMA read biased low)
+and step 5b (structured arm's PER 0.907, content-free): the term does use some temporal
+structure, and what it extracts does not become phone content. Coverage is not closed as a
+lever by the pre-registered rule, but the item 3 / more-weight route stays unfunded (item 1
+branch C, pre-registration).
+
+### Step 6 synthesis (2026-09-20)
+Item 1: branch C, EMA reads understate the checkpoint-level coverage fit by ~0.4 nats; every
+coverage number in steps 5/5b is a lower bound on the true KL, and item 3 stays unfunded.
+Item 4: no cold arm's excess correct-phone hits exceed 2.5 % of N over length-and-unigram-matched
+random strings; the ep1 -> ep4 PER rise is the null's own; no banked cold PER movement measures
+content. Item 2: unresolved by rule; the coverage descent is mostly structure-free, with a
+0.44-nat corpus-level residual of which ~0.18 is an order-1 handicap. Hyperparameter review: no
+scalar retune worth funding; the 228-update budget is a claim-scoping defect, budget arm
+(odm3_prior, 16 sub-epochs) proposed, user decision pending. Step 4: the reverse term inside the
+GAN is harmless in every run that stays on the GAN manifold and collapses half the joint-phi
+runs mid-training; not weight-ordered. Net for the phase: no tested component of the cold bed
+(prior, prior window, reverse target, coverage term at any weight, reverse term) moves PER off
+the null, and the two remaining suspects are the objective's descent directions that lower
+content while raising likelihood (steps 1, 2, 5b) and the budget (review). The phase decision
+rule fires on no branch; the next experimental decision is the user's (budget arm, or a new
+objective term inside the cycle).
