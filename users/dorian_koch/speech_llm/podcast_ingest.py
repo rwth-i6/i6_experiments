@@ -1793,6 +1793,7 @@ class PodcastCodesTrainData(Job):
         shard_dirs: list[tk.Path],
         episode_shard_dirs: list[tk.Path] | None = None,
         assistant_channel: str = "a",
+        selection_seed: int = 0,
         min_assistant_words: int = 8,
         rqmt: dict | None = None,
     ):
@@ -1800,12 +1801,18 @@ class PodcastCodesTrainData(Job):
         # episode. Measured feasible on the pilot -- the recurring speaker scores 0.959-0.970 across
         # episodes against <=0.75 for anyone else -- and it needs the EPISODE rows, which carry the
         # centroids; the dialogue rows do not.
-        assert assistant_channel in ("a", "b", "both", "host"), assistant_channel
+        # "random": one row per dialogue, channel picked by a SEEDED hash of the item id --
+        # deterministic and reproducible, never `random.random()`. For a first arm we want a
+        # speaker who talks, host or guest; identity-consistency ("host") is a later concern.
+        assert assistant_channel in ("a", "b", "both", "host", "random"), assistant_channel
         if assistant_channel == "host" and not episode_shard_dirs:
             raise ValueError("assistant_channel='host' needs episode_shard_dirs for the embeddings")
         self.shard_dirs = list(shard_dirs)
         self.episode_shard_dirs = list(episode_shard_dirs or [])
         self.assistant_channel = assistant_channel
+        # Hashed: it decides which speaker each row trains as the assistant, so it is corpus
+        # CONTENT. Changing it must yield a different corpus, not silently reuse this one.
+        self.selection_seed = int(selection_seed)
         self.min_assistant_words = int(min_assistant_words)
         self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
         self.out_dir = self.output_path("dataset", directory=True)
@@ -1814,6 +1821,7 @@ class PodcastCodesTrainData(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        import hashlib as _hashlib
         import json as _json
 
         import numpy as _np
@@ -1885,7 +1893,11 @@ class PodcastCodesTrainData(Job):
                 ds = load_from_disk(p)
                 for r in ds:
                     n_in += 1
-                    if self.assistant_channel == "host":
+                    if self.assistant_channel == "random":
+                        # Seeded per row, so the corpus is reproducible and a re-run is identical.
+                        d8 = _hashlib.sha256(f"{self.selection_seed}:{r['item_id']}".encode()).digest()
+                        want = ["a" if d8[0] % 2 == 0 else "b"]
+                    elif self.assistant_channel == "host":
                         ch_sel = host_by_episode.get(str(r["episode_id"]))
                         if ch_sel is None:
                             n_nohost += 1
