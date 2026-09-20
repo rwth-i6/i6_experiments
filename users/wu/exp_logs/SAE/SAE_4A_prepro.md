@@ -25,11 +25,15 @@ pid 4154973, `log/sae_4a_prepro_devother.manager.20260920T220641Z.log`, Slurm 19
 `bash ~/.claude/skills/sis/sis_watch.sh 4154973 config/sae_4a_prepro_devother.py 600`
 (`reports/exec_prepro_devother_launch_2026-09-21.md`; a first attempt registered nothing because
 the shim lacked `py()`, fixed).
-NEXT: when the dev-other watcher fires, extractor reads the pre-funding statistics
-(OR total == 781,130 else STOP; T'/T; unit agreement overall and by splice distance; distortion;
-T' < 2 count); code review of the pack config with the constants set; if unit agreement is not
-near 1.00, fund the three-arm pack (`config/sae_4a_prepro_pack.py`, after the train and dev-clean
-data jobs) and register the paired reads; record both here.
+Dev-other data job FINISHED and read (Results): funding rule passes (OR total exact, agreement
+0.71, plateau 0.72 far from splices); its manager (4154973) exited cleanly. Code review
+APPROVE_WITH_AMENDMENTS (Design, "Code review amendments"); the implementer is applying them
+(random_seed_offset for ctrl_20_s1; `UntrimmedEncodeAgreementJob` null with shim
+`config/sae_4a_prepro_null.py`; data-only shim `config/sae_4a_prepro_data.py`).
+NEXT: on hand-back, executor launches the data-only shim (train + dev-clean, ~2 h) and the null
+shim, each under its own manager, watchers armed; read the null (near 1.00 expected); then fund
+the pack (`config/sae_4a_prepro_pack.py`, new hash after the seed amendment) and register the
+paired reads; record here.
 
 ## Objective
 
@@ -148,4 +152,30 @@ stripped) for both arms at every kept epoch. Abort rule as G4a.4.
 
 ## Results
 
-(none yet)
+### Pre-funding check: dev-other data job (read 2026-09-21)
+
+`TrimmedAudioBlankfreeDataJob.0IOLr6hZnYWj` (speech-llm d92109b; Slurm 1920278, booster, 1 GPU;
+`output/summary.txt`), 2864 utterances:
+
+| statistic | value | bed / reference |
+|---|---|---|
+| OR mask re-derived from the raw rVAD labels | 781,130 | 781,130 banked (delta 0: no STOP) |
+| original frames (sum orig_length) | 919,980 | 919,980 banked raw |
+| trimmed frames T' | 775,542 | 781,130 OR-retained (−5,588, −0.7 %) |
+| samples kept | 0.8436 of the raw waveform | 6,881 speech segments, 2.40 per utterance |
+| utterances kept whole (no speech) / T' < 2 | 0 / 0 | |
+| unit agreement bed vs new, raw_index-matched, all T' frames | 0.7055 | not near 1.00: the treatment is not empty |
+| by distance to the nearest splice (frames) [0,1) / [1,2) / [2,4) / [4,8) / [8,16) / [16,inf) | 0.22 / 0.40 / 0.50 / 0.64 / 0.75 / 0.72 | n = 8,014 / 7,983 / 15,916 / 31,773 / 62,948 / 648,908 |
+| k-means distortion (PCA-96 squared distance) | 211.59 | 209.69 bed (+0.9 %) |
+| unit unigram entropy (nats; dead units) | 6.011 (17 dead) | 6.034 (11 dead); ln 500 = 6.215 |
+| quantizer path check on a banked utterance | 532 / 532 | |
+
+Reading: the funding rule passes (OR total exact, treatment non-empty). The splice-distance
+profile shows a local seam effect (agreement 0.22 within one frame of a splice, rising over 8
+frames) on top of a 0.72 plateau far from any splice, i.e. 28 % of frames change unit even where
+no seam is near; whether that plateau is the removed silence context acting through the
+transformer's whole-utterance attention or an extraction-path difference is exactly what the
+untrimmed-encode null (`UntrimmedEncodeAgreementJob`, code review amendment) decides: a null near
+1.00 attributes the plateau to the cut. The new states fit the bed's quantizer slightly worse
+(+0.9 % distortion, 6 more dead units), as expected for a quantizer fitted on full-waveform
+states; the same frozen quantizer is used, as pre-registered.
