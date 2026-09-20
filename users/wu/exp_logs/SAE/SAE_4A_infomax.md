@@ -10,8 +10,12 @@ code review (Design, "Amendment after code review"): ent_50, entaug_50, aug_50, 
 2025-10-speech-llm commits 35bcf39 (mechanism, `sae/emc/infomax.py`) and 68549f9 (arm table);
 reviews `reports/review_infomax_2026-09-20.md` (PASS_WITH_CONCERNS, concerns applied),
 `reports/design_review_infomax_2026-09-20.md`. node_d job `PackedBlankfreeTrainJob.YtvrSez8z9Wf`,
-config `config/sae_4a_infomax_pack.py`; launch through the executor in progress (2026-09-20
-evening). In flight: (a) the checkpoint reads (eval-mode entropy, symbol-usage entropy, chance
+config `config/sae_4a_infomax_pack.py`; **submitted 2026-09-20 17:53** as Slurm 1912407 (pending
+at submission; `reports/exec_launch_infomax_2026-09-20.md`). Manager `sae_4a_infomax_pack` pid
+1230487 (`log/sae_4a_infomax_pack.manager.20260920T175302.log`), watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 1230487 config/sae_4a_infomax_pack.py 600`; the budget
+watcher `bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pack.py 600` is armed
+in the same session (re-arm both first after any session resume). In flight: (a) the checkpoint reads (eval-mode entropy, symbol-usage entropy, chance
 null) for the four arms and ctrl_50, registered into the same config last; (b) the private-code
 analysis job on ctrl_50's kept checkpoints in its own config `config/sae_4a_private_code.py`
 (user 2026-09-20: "analyze the output / private code when ready").
