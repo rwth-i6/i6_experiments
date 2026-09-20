@@ -59,6 +59,30 @@ importance-sampling estimator (per-phone gap 0.41-0.51 nats, per-utterance log-w
 any strongly discriminating prior (the lexicon), where a score-function term with a per-utterance
 baseline is the estimator instead.
 
+SIL convention of the bed (user question 2026-09-20, "why SIL if rVAD trims silence; did Meta use
+both?"): the prior text is phonemised with sil_prob 0.5 and surrounding SIL
+(`PhonemizeWithSilJob.DbFgvZOGZQ8F`), which makes 13.8 % of its tokens SIL (0.160 per phone;
+first 200k window lines). wav2vec-U used rVAD AND text-side SIL insertion; the local port runs
+sil_prob 0.25 with `--surround` (`users/enrique/.../wav2vec_u/full_pipeline.py:97`). Gold on
+dev-other after the bed's rVAD (label-using diagnostic, enters nothing;
+`analysis/gold_sil_share_retained.py`, `reports/impl_gold_sil_retained_2026-09-20.md`; the
+retained 50 Hz count 781,130 and the 60 ms output count 261,295 reproduce the banked totals):
+
+| quantity | value |
+| --- | --- |
+| gold SIL frames before VAD | 20.3 % of 919,980 |
+| gold SIL frames after VAD (retained) | 7.9 % of 781,130 |
+| gold SIL runs on retained frames | 5.7 % of 186,083 runs (0.060 per phone run) |
+| gold SIL run length on retained frames | median 100 ms, 28 % are 1–2 frames, 13 % ≥ 200 ms |
+| decode SIL tokens, ctrl_50 ep10 | 4.4 % |
+| prior text SIL tokens | 13.8 % |
+
+Reading: rVAD removes 60 % of gold silence but 7.9 % of retained frames are still silence, so
+the SIL symbol is needed; the prior expects SIL 2.4x more often than gold shows it and the decode
+sits closer to gold than the prior does. A sil_prob 0.25 text (about 7–8 % SIL tokens) would
+match gold's token share; it is a bed change (new prior, new hashes), a candidate arm for this
+phase's queue, not a patch to a running arm, and not ahead of the training arm.
+
 ## Design
 
 ### Step 0: prior-gap diagnostic (pre-registered 2026-09-20, before the job was written)
