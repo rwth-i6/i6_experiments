@@ -8,37 +8,29 @@ constraint stand). Gold enters evaluation only.
 ## State
 
 Steps 1-3, priorshuf, 5 and 5b DONE, audited, every gate FAIL (Results); their managers exited.
-Live: step 4's manager pid 885934 (`config/sae_4a_attrib_ganrev.py`, seven `FairseqW2vu2TrainJob`
-arms at b=16, SLURM 1891050-1891058, each two 11.5 h allocations via checkpoint_last resume;
-`reports/sae_attrib_step4_launch_2026-09-19.md`). Watcher pids 790893/790898; re-arm first on
-resume if dead: `bash ~/.claude/skills/sis/sis_watch.sh 885934 config/sae_4a_attrib_ganrev.py 600`.
-Standing user directions (2026-09-19): continue autonomously, no GAN component in new arms, every
-n-gram from the sampled fit (priorshuf bed), plan changes shown to the user before execution.
-Step 6 (user-approved plan, pre-registered in Results "Step 6 pre-registration"; grounding
-`reports/sae_attrib_failure_pattern_2026-09-19.md`, `reports/sae_attrib_literature_cold_odm_2026-09-19.md`):
-item 1 estimator-bias check (`OdmCoverageBatchEvalJob`, config `config_sae_4a_attrib_step6_est_v1`),
-item 2 E4 arm `odm3_lam1_perm` (config `..._step6_e4_v1`), item 4 E0 null reader
-(`NullAdjustedEditCountsJob`, config `..._step6_null_v1`), item 3 only on item 1 outcome (B); a
-hyperparameter review of the bed (user question 2026-09-19) runs in parallel, report
-`reports/sae_attrib_step6_hparam_audit_2026-09-19.md`. Three implementers and the review were
-dispatched 2026-09-19 (reports `reports/sae_attrib_step6_{est,e4,null}_impl_2026-09-19.md`).
-Status 2026-09-20 00:30: all three items code-reviewed CLEAN_WITH_NOTES (reports
-`sae_attrib_step6_{est,e4,null}_review_2026-09-19.md`). Item 1 DONE, branch (C), item 3 NOT
-funded; item 4 DONE; both audited (Results). Item 2 (E4, `BoundedBlankfreeTrainingJob.VYBJTM9X2niT`,
-config `config/sae_4a_attrib_step6_e4.py`) BLOCKED on a user action: the first manager ran without
-the venv, create_files died (black missing), the error marker was renamed and the job is now
-`interrupted_not_resumable`; the job dir holds only the failed create_files attempt (no run, no
-checkpoint). Clearing it (rm of the job dir, or a `-cio` manager start) is classifier-blocked for
-the orchestrator and the executor. User line: `rm -rf work/speech_llm/sae/emc/blankfree_train_jobs/BoundedBlankfreeTrainingJob.VYBJTM9X2niT`
-from the setup dir, then executor restarts the manager under the venv as in
-`reports/sae_attrib_step6_est_launch_2026-09-20.md`.
-NEXT: after the E4 job runs (~45 min), read KL3 at ep4 and sub-epochs 2-4 from its learning_rates
-by the item 2 rule (<= 0.55 / >= 1.2 / between); given item 1, ALSO read the checkpoint-level KL3
-of the perm arm with `OdmCoverageBatchEvalJob` (same job class, new config on VYBJTM9X2niT ep4)
-and compare 0.83 vs 0.83-matched, since the EMA read is biased low; then the step 6 synthesis.
-Pending user decision: the 16-sub-epoch budget arm (Results, hyperparameter review). Step 4: on
-each watcher verdict dispatch executor; when all seven finish, extractor for the PER table, gate
-read, synthesis.
+No live manager or watcher (step 4's manager 885934 exited after all seven arms finished; its pid
+file is stale). Standing user directions (2026-09-19): continue autonomously, no GAN component in
+new arms, every n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
+
+Step 4 (`config/sae_4a_attrib_ganrev.py`): all seven `FairseqW2vu2TrainJob` arms FINISHED
+2026-09-20 (`reports/sae_attrib_step4_restart_2026-09-20.md`); executor dispatched for the eval
+chain and the PER table (`reports/sae_attrib_step4_extract_2026-09-20.md`), then the gate read
+against the pre-registered predictions (Design), then the synthesis.
+
+Step 6 (user-approved plan, pre-registered in Results): item 1 DONE, branch (C), item 3 NOT funded;
+item 4 DONE; both audited (Results). Item 2 (E4 arm `odm3_lam1_perm`,
+`BoundedBlankfreeTrainingJob.VYBJTM9X2niT`, config `config/sae_4a_attrib_step6_e4.py`) BLOCKED on
+a user action: its first manager ran without the venv, create_files died (black missing), the job
+is `interrupted_not_resumable` with no run and no checkpoint; clearing it is classifier-blocked
+for orchestrator and executor. User line from the setup dir:
+`rm -rf work/speech_llm/sae/emc/blankfree_train_jobs/BoundedBlankfreeTrainingJob.VYBJTM9X2niT`,
+then executor restarts the manager under the venv as in
+`reports/sae_attrib_step6_est_launch_2026-09-20.md` (~45 min run).
+NEXT (E4): read KL3 at ep4 and sub-epochs 2-4 from learning_rates by the item 2 rule (<= 0.55 /
+>= 1.2 / between); ALSO a checkpoint-level KL3 of the perm arm via `OdmCoverageBatchEvalJob` (new
+config on VYBJTM9X2niT ep4) against 0.83, since the EMA read is biased low (item 1); then the
+step 6 synthesis.
+Pending user decision: the 16-sub-epoch budget arm (Results, hyperparameter review).
 
 ## Question
 
