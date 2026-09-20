@@ -24,7 +24,8 @@ Step 6 DONE 2026-09-20 (Results "Step 6 synthesis"): item 1 branch (C), item 3 u
 null-level everywhere; item 2 unresolved on both reads (perm KL3_full 1.27 vs 0.83), audit
 pending (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`, corrections go to the item 2 entry).
 Reverse diagnostic of lam1.0_s0 DONE (Results, "Step 4 diagnostic"). Nothing is running or queued.
-NEXT: none until the user decides. Pending user decisions: the 16-sub-epoch budget arm (Results, hyperparameter review) and the
+NEXT: none in this phase. User decision 2026-09-20: the budget question moves to `SAE_4A_budget.md`
+(50 / 100 sub-epochs, three arms), which supersedes the 16-sub-epoch proposal. Previously pending: the 16-sub-epoch budget arm (Results, hyperparameter review) and the
 next objective (Step 6 synthesis).
 
 ## Question
