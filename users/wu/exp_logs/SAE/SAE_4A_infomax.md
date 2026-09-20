@@ -19,9 +19,12 @@ watcher `bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pac
 in the same session (re-arm both first after any session resume). Checkpoint reads (eval-mode entropy from the registered posterior dump, symbol-usage entropy,
 chance null; dev-other, 5 arms x 5 kept epochs) registered into the same config (commits speech-llm
 de72d86, i6 c8d01d2a3; `reports/impl_infomax_reads_2026-09-20.md`); census 315 jobs / 536 targets,
-node_d hash unmoved; ctrl_50 ep1/4/10 reads submitted 18:11. In flight: (b) the private-code
-analysis job on ctrl_50's kept checkpoints in its own config `config/sae_4a_private_code.py`
-(user 2026-09-20: "analyze the output / private code when ready").
+node_d hash unmoved; ctrl_50 ep1/4/10 reads submitted 18:11. Private-code analysis banked 2026-09-20 19:05 (manager
+`sae_4a_private_code`, exited clean; 8 jobs under `work/speech_llm/sae/emc/private_code/`:
+`PrivateCodeAnalysisJob.{xuCBRVe3CzMR,DMAmCpn0L5mB,VAYV87DbdDwU}` ep1/4/10 dev-other,
+`.{x79av2mvTxo3,eLdlRYU1YtQZ,ssh9wJM8pxjI}` dev-clean, `SymbolDeciphermentJob.{36NfY7XDOL3f,FkH0wprbfjaN}`
+ep4/ep10 dev-other; `reports/exec_launch_private_code_2026-09-20.md`); fresh-context audit
+dispatched before the tables go into Results.
 NEXT: run the private-code config when the implementer reports; read the ctrl_50 ep1/4/10 entropy
 and usage-null reads (banked numbers replace the wiring-check values), then the ctrl_50 ep10
 private-code table, then node_d ep1 / ep4 / ep10.
