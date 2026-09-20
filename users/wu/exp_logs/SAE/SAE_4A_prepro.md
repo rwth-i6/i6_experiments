@@ -74,10 +74,30 @@ Cost: data job about 2 h GPU train (4 shards in parallel: ~30 min) + 15 min dev;
 Label-free monitors as in the budget round; the wav2vec-U 2.0 selection statistic (4-gram
 phone-LM perplexity / vocabulary-seen fraction squared, SIL stripped) computed for both arms at
 every kept epoch from the existing greedy decodes.
-Pre-registered prediction: none directional. If the paper's cut helps, the earliest sign is a
-lower lattice term at matched sub-epoch and a different phone rate; if PER differs by less than
-the seed band, the placement of the cut is not a lever and the masking convention stands as
-equivalent to the paper's.
+Pre-registered prediction (original): none directional. If the paper's cut helps, the earliest
+sign is a lower lattice term at matched sub-epoch and a different phone rate; if PER differs by
+less than the seed band, the placement of the cut is not a lever.
+
+**Design review amendments (2026-09-20, `reports/design_review_prepro_2026-09-20.md`,
+APPROVE_WITH_AMENDMENTS, applied before any job):**
+- Seed band: no seed band exists on the blank-free bed at any N (every cold arm n = 1), so
+  "within the seed band" was undefined. The pack gets a third arm `ctrl_20_s1` (second seed);
+  ctrl_20 vs ctrl_20_s1 IS the band; paired reads prepro_20 vs each ctrl and ctrl vs ctrl_s1.
+- Overclaim struck: a within-band null between two content-free arms licenses only "the cut's
+  placement is not the missing ingredient at N = 20", never "the masking convention is
+  equivalent to the paper's". Expectation, stated now: both arms remove about 85 % of frames
+  with the same 7.9 % gold-silence residue, and the 1.0 ablation contrasts silence-in vs
+  silence-out, so it predicts prepro_20 in band.
+- Fidelity is a feature-level property and is read in the data job, not from two chance
+  decodes: unit agreement bed-vs-new on raw_index-matched frames, overall and by distance to
+  the nearest splice; k-means distortion and unit entropy new vs bed; OR-vs-raw retained delta.
+  A unit agreement near 1.00 is an empty treatment and the pack is not funded.
+- Data-job asserts: the OR-aggregated mask recomputed from the same raw labels must reproduce
+  the banked 781,130 / 831,372 / 15,427,853 exactly; sum(orig_length) equals the banked raw
+  totals (the gate's rate clause reads phone_rate_original_hz); T' >= 2; units from the
+  fp16-rounded states; frame centre 320 t' + 200. PER and gap jobs do not use raw_index.
+- Cheapest check, pre-funding: the dev-other data job alone (~15 min GPU): OR total == 781,130
+  (else STOP), T'/T, unit agreement, distortion, T' < 2 count. The pack is funded only after it.
 
 ## Gate
 
@@ -85,7 +105,7 @@ G4a.8 (pre-registered here before any job; thresholds copy G4a.4, `SAE_4A_budget
 < 0.50 on dev-other at the final sub-epoch, emitted rate in [5.80, 14.49]/s, derangement gap > 0;
 primary read: paired PER delta (PairedPerDeltaJob) prepro_N vs ctrl_N at the same sub-epoch, with
 the within-band rule of the attribution step (a paired delta inside the seed band is not
-content). Reference-fidelity read (label-free): the wav2vec-U 2.0 selection statistic (4-gram
+content; amended: the band is ctrl_20 vs ctrl_20_s1 in the same pack, see Design amendments). Reference-fidelity read (label-free): the wav2vec-U 2.0 selection statistic (4-gram
 phone-LM perplexity of the decode divided by the squared fraction of vocabulary seen, SIL
 stripped) for both arms at every kept epoch. Abort rule as G4a.4.
 
