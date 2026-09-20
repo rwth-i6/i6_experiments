@@ -127,8 +127,11 @@ APPROVE_WITH_AMENDMENTS, applied before any job):**
 APPROVE_WITH_AMENDMENTS; applied before the pack is funded):**
 - Seed band: RETURNN `random_seed` moves theta / phi init and the RNG but not the sequence order
   (laplace ordering is seeded by epoch + `random_seed_offset`, default 0), so ctrl_20_s1 as built
-  was an INIT band only. Amended: ctrl_20_s1 also sets `random_seed_offset` = 1, so the band is the
-  full replicate (init + order + sub-epoch composition).
+  was an INIT band only. Amended: ctrl_20_s1 also sets `random_seed_offset` (written into the
+  seq-order-controlling dataset; verified in RETURNN basic.py that laplace ordering is seeded by
+  full-epoch index + offset), so the band is the full replicate (init + order + sub-epoch
+  composition). Offset 1 was measured to be a one-epoch SHIFT of the same shuffles (s1 sub-epoch k
+  = ctrl sub-epoch k + 4), so the offset is 1000: no full-epoch shuffle is shared.
 - Extraction-path null: the fidelity statistic (unit agreement bed vs new) mixes the cut with any
   encoder / numerics / index-mapping difference. A separate small job
   (`UntrimmedEncodeAgreementJob`, 50 dev-other utterances) encodes the UNTRIMMED waveform through

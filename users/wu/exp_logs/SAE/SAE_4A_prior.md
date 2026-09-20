@@ -544,3 +544,22 @@ gradient never sees a string near the lexical region cannot supply the lexical c
 only re-weight trigram-typicality. The soft (straight-through) arm shares the scorer and the
 same neighbourhood, and is not funded either while the scorer is a partial proxy; it is
 reconsidered only if instance (c) meets the Step 0b bar. Gate G4a.7 stands unread (no arm ran).
+
+Literature for the next arm (`reports/lit_lexicon_in_objective_2026-09-21.md`, read 2026-09-21;
+only findings that constrain the design): the lexicon INSIDE the marginalised objective has
+precedent, Klejch, Wallington, Bell (Interspeech 2022: Baum-Welch on the composed
+acoustic-lexicon-word-LM transducer, 100k-word LM, but a grapheme lexicon, 20 min of speech, and a
+mandatory char-LM curriculum first) and Nuhn and Ney (ACL 2014: exact forward-backward over a
+word LM is intractable above about 200 word types; V = 3,661 with a trigram needs beam
+preselection). wav2vec-U 1.0 / 2.0, EURO, REBORN and Chen 2019 use the lexicon and word LM in
+decoding and self-training only; Yeh 2019 matches phone 5-gram statistics without a lexicon; Ni
+2025's word-level attempt forces a closed vocabulary ≤ 4,096 and fails on rare words. Yang,
+Schlüter, Ney (2026, arXiv 2603.02285) propose exactly the loss −log Σ_c p_LM(c) q(x|c) but only in
+theory and simulation. Failure modes reproduced across groups: frequent-pattern collapse,
+length / deletion exploits (deletion penalty, unnormalised LM sums, length rewards), unbounded
+OOV. Design constraints taken from this: the lexicon term is switched on LATE (after the
+trigram-only warm phase), the trie/word-LM state space is pruned under a declared budget reported
+as a cost / quality curve, per-retained-frame normalisation with an anti-deletion guard, a
+frequency-stratified word-error read, and a shuffled-pronunciation null (same trie topology,
+pronunciations permuted across words) as the destroyed-structure control. Nobody has published the
+trigram-only vs trigram-plus-lexicon ablation in this setting.
