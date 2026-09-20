@@ -253,6 +253,16 @@ again afterwards) merges neighbours that SIL had separated.
   two-part rule; plus a hand fixture for the re-collapse convention (a map sending two neighbours
   to one phone: 1 deletion collapsed against 2 insertions uncollapsed) and that the job docstring
   pre-registers which rows are re-collapsed.
+* **Fourth round (`version` parameter).**  The eight jobs had in fact been LAUNCHED and finished
+  under the second-round code, and the third round moved no hash, so the corrected reads would
+  never have run.  Both classes now take a hash-relevant `version` (default 2, banked in the json);
+  the census shows eight NEW hashes and none of the old eight, and the eight finished dirs are left
+  untouched:
+  `PrivateCodeAnalysisJob` ep1 dev-other `j5ybPkSFOSBq`, ep1 dev-clean `1bNrZdet9JcH`, ep4 dev-other
+  `UPuAcKSAI5oK`, ep4 dev-clean `QY8blUARrLxQ`, ep10 dev-other `cQbcIJtOamLm`, ep10 dev-clean
+  `OIDSbcHXTzsP`; `SymbolDeciphermentJob` ep4 `GpiTxaoRCZXG`, ep10 `m8EsFhL6ysqu`.  The old dirs
+  (`DMAmCpn0L5mB`, `VAYV87DbdDwU`, `eLdlRYU1YtQZ`, `ssh9wJM8pxjI`, `x79av2mvTxo3`, `xuCBRVe3CzMR`,
+  `36NfY7XDOL3f`, `FkH0wprbfjaN`) hold the pre-audit numbers and must not be read.
 * Load-only census after the second round (`sis ... console --script`): 8 jobs, exactly the 6 + 2
   registered here; the two `SymbolDeciphermentJob` hashes MOVED with the new `null_permutations` /
   `null_seed` parameters (`36NfY7XDOL3f` ep4, `FkH0wprbfjaN` ep10), the six `PrivateCodeAnalysisJob`
