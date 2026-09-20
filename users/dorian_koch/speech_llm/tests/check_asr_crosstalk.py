@@ -37,9 +37,7 @@ def find_setup_root(start):
 
 
 SETUP = find_setup_root(HERE)
-ASR_PY = os.path.join(
-    SETUP, "recipe", "speech_llm", "full_duplex", "moshi_family", "podcast_asr.py"
-)
+ASR_PY = os.path.join(SETUP, "recipe", "speech_llm", "full_duplex", "moshi_family", "podcast_asr.py")
 SCORE_PY = os.path.join(SETUP, "analysis", "score_asr.py")
 
 
@@ -118,9 +116,9 @@ def main():
     dirty = [w("", 1.0, 1.2), w("ok", 5.0, 5.001), w("b", 3.0, 3.3), w("a", 1.0, 1.3)]
     cleaned = A.clean_words(dirty)
     assert [x["text"] for x in cleaned] == ["a", "b"], cleaned  # empty dropped, 1 ms word dropped
-    assert all(
-        cleaned[i]["start"] <= cleaned[i + 1]["start"] for i in range(len(cleaned) - 1)
-    ), "must be onset-ordered -- interleave_text places words by onset"
+    assert all(cleaned[i]["start"] <= cleaned[i + 1]["start"] for i in range(len(cleaned) - 1)), (
+        "must be onset-ordered -- interleave_text places words by onset"
+    )
     ok += 1
 
     # ------------------------------------------------- [6] the scorer cannot pass vacuously
@@ -148,6 +146,46 @@ def main():
     d_shift = S.onset_deltas(ref, shifted, ops2)
     assert len(d_shift) == 3, d_shift
     assert all(abs(x - 1.0) < 1e-6 for x in d_shift), f"expected +1.000 frame, got {d_shift}"
+    ok += 1
+
+    # ------------------------------------- [7] the onset estimator must be OUTLIER-ROBUST
+    # This pins a real defect, found 2026-09-19 when the bake-off's own verdict came back wrong.
+    # difflib pairs ~3-5% of words in a 1 h transcript against a repeat elsewhere in the hour, which
+    # lands deltas at hundreds of frames. The RAW MEAN cannot survive that, and the failure is
+    # directional: it rejected the candidate that matched the reference exactly (medium, raw mean
+    # +1.240 vs trimmed -0.018) and flattered the one with a systematic 1.5-frame shift (turbo, raw
+    # mean -0.227 while only 28.7% of its onsets were within a frame). Both real numbers.
+    clean = [0.0] * 194 + [0.25, -0.25, 0.125, -0.125, 0.0, 0.0]  # 200 well-aligned words
+    contaminated = clean + [2626.0, -343.0, 900.0, -500.0]  # 4 mis-pairings, ~2% of the set
+    assert abs(S.trimmed_mean(contaminated)) < 0.25, (
+        "a distribution that is dead-on apart from a ~2% mis-pairing tail must read as ALIGNED; "
+        f"trimmed mean was {S.trimmed_mean(contaminated)}"
+    )
+    import statistics as _st
+
+    assert abs(_st.fmean(contaminated)) >= 0.25, (
+        "non-vacuous: the RAW mean must fail on this same input, or the trim proves nothing"
+    )
+    assert S.frac_within(contaminated, 1.0) >= 0.70, S.frac_within(contaminated, 1.0)
+    ok += 1
+
+    # ...and the complement: a genuine systematic shift must NOT be trimmed away. A trimmed mean
+    # alone could be centred by a late half cancelling an early half, which is noise, not agreement
+    # -- which is why the gate also requires concentration.
+    shifted_all = [-1.5] * 200
+    assert abs(S.trimmed_mean(shifted_all)) >= 0.25, "a uniform shift must survive trimming"
+    assert S.frac_within(shifted_all, 1.0) < 0.70, "a 1.5-frame shift is not 'within 1 frame'"
+    split = [-4.0] * 100 + [4.0] * 100  # mean 0, but nothing is actually aligned
+    assert abs(S.trimmed_mean(split)) < 0.25, "fixture check: this really does centre at zero"
+    assert S.frac_within(split, 1.0) < 0.70, (
+        "the concentration gate is what catches a distribution that averages to zero by cancelling"
+    )
+    ok += 1
+
+    # an empty agreement set must not read as a clean zero through the new estimators either
+    assert S.trimmed_mean([]) != S.trimmed_mean([]), "empty -> nan, never 0.0"
+    assert not (abs(S.trimmed_mean([])) < 0.25), "nan must FAIL the gate comparison, not pass it"
+    assert not (S.frac_within([], 1.0) >= 0.70), "nan must FAIL the concentration gate"
     ok += 1
 
     # WER must count, and rare-word classification must separate content from function words
