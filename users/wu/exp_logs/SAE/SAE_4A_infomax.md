@@ -12,18 +12,19 @@ reviews `reports/review_infomax_2026-09-20.md` (PASS_WITH_CONCERNS, concerns app
 `reports/design_review_infomax_2026-09-20.md`. node_d job `PackedBlankfreeTrainJob.YtvrSez8z9Wf`,
 config `config/sae_4a_infomax_pack.py`; **submitted 2026-09-20 17:53** as Slurm 1912407 (pending
 at submission; `reports/exec_launch_infomax_2026-09-20.md`). Manager `sae_4a_infomax_pack` pid
-1230487 (`log/sae_4a_infomax_pack.manager.20260920T175302.log`), watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 1230487 config/sae_4a_infomax_pack.py 600`; the budget
+1355841 (`log/sae_4a_infomax_pack.manager.20260920T181107.log`, restarted 18:11 to load the reads;
+`reports/exec_restart_infomax_mgr_2026-09-20.md`), watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 1355841 config/sae_4a_infomax_pack.py 600`; the budget
 watcher `bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pack.py 600` is armed
 in the same session (re-arm both first after any session resume). Checkpoint reads (eval-mode entropy from the registered posterior dump, symbol-usage entropy,
 chance null; dev-other, 5 arms x 5 kept epochs) registered into the same config (commits speech-llm
-de72d86, i6 c8d01d2a3; `reports/impl_infomax_reads_2026-09-20.md`); the running manager holds the
-old graph, so it is being restarted to load them. In flight: (b) the private-code
+de72d86, i6 c8d01d2a3; `reports/impl_infomax_reads_2026-09-20.md`); census 315 jobs / 536 targets,
+node_d hash unmoved; ctrl_50 ep1/4/10 reads submitted 18:11. In flight: (b) the private-code
 analysis job on ctrl_50's kept checkpoints in its own config `config/sae_4a_private_code.py`
 (user 2026-09-20: "analyze the output / private code when ready").
-NEXT: confirm node_d submitted (manager pid, watcher); restart its manager once the reads are
-registered; run the private-code config; read ctrl_50 ep10 private-code table first, then node_d
-ep1 / ep4 / ep10.
+NEXT: run the private-code config when the implementer reports; read the ctrl_50 ep1/4/10 entropy
+and usage-null reads (banked numbers replace the wiring-check values), then the ctrl_50 ep10
+private-code table, then node_d ep1 / ep4 / ep10.
 
 ## Objective
 
