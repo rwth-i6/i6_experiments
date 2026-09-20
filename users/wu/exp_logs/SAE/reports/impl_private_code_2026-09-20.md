@@ -9,6 +9,10 @@ STATUS: DONE. Registered, tested, census-clean, and smoke-run end to end on ctrl
 (the numbers below are that local run of the job's own `run()`, NOT a banked sisyphus result --
 no manager was started).
 
+**Amended 2026-09-20 (second round, before anything is launched):** part A gained the
+one-to-one-WITH-DROP relabelling and part E gained E5, the hard relabelling against a
+random-permutation null.  Both live in the existing job classes; the rows below are re-measured.
+
 ## What exists on disk (the inputs question)
 
 | input | present? | pin |
@@ -81,10 +85,17 @@ smoke run: parts A-D 31 s, part E 508 s per read (rqmt 4 CPU / 32 GB / 4 h and 4
 | PER as scored (identity labelling) | 0.896793 |
 | PER banked (`per.json`) | 0.896793 |
 | PER after best one-to-one relabelling (Hungarian) | 0.918748 |
+| PER after best one-to-one-with-drop relabelling | 0.841179 (12 of 40 symbols dropped) |
 | PER after best many-to-one relabelling (majority) | 0.874376 |
 | NMI(symbol, phone), aligned token pairs | 0.0562 |
 | I / H(symbol) / H(phone), bits | 0.2760 / 4.9923 / 4.8271 |
 | symbols with aligned mass (of 40) | 40 |
+
+The plain one-to-one exceeds the identity PER because the square assignment has one DELETE slot
+and spends it on UH, so SIL's 7639 tokens (1513 of them insertions) stay in the hypothesis.  The
+with-drop variant gives every symbol a drop option priced with the insertions the drop removes; it
+drops 12 symbols including SIL, insertions fall 13013 -> 3209 and the PER falls to 0.8412, below
+the identity read.  That is the one-to-one number to quote; the old column is kept.
 
 Frame level (MFA on 2864 / 2864 utterances, 261,295 output frames):
 
@@ -163,9 +174,33 @@ across halves; the deciphered labelling buys 0.043 PER over identity and 2.0 nat
 trigram score, while the deciphered and the label-using Hungarian maps agree on only 11 symbols.
 Reading these numbers against the three hypotheses is the orchestrator's call, not mine.
 
+### E5. hard relabelling (no search) against a random-permutation null
+
+E2's deciphered string is the Viterbi path, prior-optimised by construction, so -2.12 vs -3.98
+cannot separate a stuck optimisation from an unidentifiable code.  E5 applies the fitted cipher's
+argmax phone per symbol (deterministic, many-to-one, the same map E3 scores) to the raw collapsed
+greedy string, collapses adjacent duplicates again, and reports the prior score and the PER against
+20 uniformly random permutations of the 40 symbols (seed 0, the same draws on both halves).
+
+| read | fit half | held half |
+|---|---|---|
+| trigram log p per token, hard relabelling | -3.8123 | -3.8373 |
+| trigram log p per token, null (mean / sd / max) | -8.4257 / 0.3918 / -7.8346 | -8.4245 / 0.3908 / -7.8242 |
+| **prior score exceeds the null max** | **True** | **True** |
+| PER, hard relabelling | 0.851496 | 0.853045 |
+| PER, null (mean / sd / max) | 0.941122 / 0.008011 / 0.954225 | 0.944596 / 0.008118 / 0.957753 |
+
+The pre-registered rule ("a relabelling the prior prefers exists" reads only if the hard
+relabelling beats the NULL MAX) is in `SymbolDeciphermentJob`'s docstring and is banked as
+`prior_exceeds_null_max`.  For context the hard relabelling's -3.81 sits just above the identity
+labelling's -3.98 and far below the searched Viterbi's -2.12; the null's min PER is 0.9248
+(fit) / 0.9287 (held), so the hard PER is outside the null on both reads.  What that licenses is
+the orchestrator's call.
+
 ## Checks run
 
-* `pytest recipe/2025-10-speech-llm/src/speech_llm/sae/emc/test_private_code.py` -- 8 passed, 17 s:
+* `pytest recipe/2025-10-speech-llm/src/speech_llm/sae/emc/test_private_code.py` -- 10 passed, 36 s
+  (8 as before plus the two new fixtures):
   part A on a 3-utterance fixture under a known permutation (alignment counts equal
   `eval_jobs.edit_counts`; the Hungarian AND the majority map recover the permutation on every
   occurring symbol; relabelled PER exactly 0; identity PER > 0.5); C's NMI on fixtures (perfect
@@ -175,9 +210,21 @@ Reading these numbers against the three hypotheses is the orchestrator's call, n
   40 / 40 symbols recovered by the label-free EM in 18 iterations and deciphered PER 0.0
   (bars: >= 35 and < 0.05);
   a deterministic-cipher Viterbi check (bigram, trigram and a length-1 string) and the prior-score
-  convention against `PhoneNgramPrior.log_prob`; and that the no-labels rule is in the job docstring.
-* Load-only census (`sis ... console --script`): 8 jobs, exactly the 6 + 2 registered here.
-* End-to-end local run of both jobs' own `run()` on ctrl_50 ep10 dev-other (the table above): the
+  convention against `PhoneNgramPrior.log_prob`; and that the no-labels rule is in the job
+  docstring.  NEW: a 4-symbol / 3-phone fixture in which the plain Hungarian must keep an
+  insertion-heavy SIL analogue (4 matched pairs beat the rival's 2) and drop a useful symbol, while
+  the with-drop assignment reverses both and scores PER 4/38 against the plain variant's 32/38; and
+  E5 on the cipher fixture, where the label-free hard map beats all 20 null permutations on the
+  prior score (the pre-registered MAX rule) and on the PER (< 0.05, below the null min).
+* Load-only census (`sis ... console --script`): 8 jobs, exactly the 6 + 2 registered here.  The
+  two `SymbolDeciphermentJob` hashes MOVED with the new `null_permutations` / `null_seed`
+  parameters (now `36NfY7XDOL3f` ep4, `FkH0wprbfjaN` ep10); the six `PrivateCodeAnalysisJob`
+  hashes did NOT move (this module stamps no file sha, so a body-only change is hash-neutral).
+  Nothing has been run -- `work/speech_llm/sae/emc/private_code/` is empty -- so no stale output
+  can survive the new column; had any of the six already run, its hash would not have forced the
+  rerun.
+* End-to-end local run of both jobs' own `run()` on ctrl_50 ep10 dev-other, re-done after this
+  amendment (every number above is from that run; A-D 36 s, E 591 s with the null): the
   PER reproduction assert and the per-utterance "collapsed argmax == banked greedy string" assert
   passed for all 2864 utterances, and the MFA join lost no utterance.
 
@@ -199,6 +246,21 @@ Reading these numbers against the three hypotheses is the orchestrator's call, n
 * C's "NMI(symbol, speaker) via per-utterance symbol histograms" is the joint of (token, speaker of
   its utterance), i.e. the per-utterance histograms summed per speaker; the gold row is built the
   same way.
+* **The drop option's price (second round).**  The brief says "cost = that symbol's token count,
+  i.e. its tokens are removed from the hypothesis before scoring".  Charged literally -- drop costs
+  `n_tok(s)` while keeping at phone `c` costs `n_tok(s) - conf[s, c]` -- the drop is never worth
+  taking and the variant is a no-op identical to the existing one-to-one.  I priced it the way the
+  recomputed PER prices the removal, which is what the parenthetical describes: removing the
+  symbol's tokens turns its `aligned(s)` tokens into deletions and makes its `ins(s)` insertions
+  disappear, so drop costs `aligned(s)` and the assignment maximises `conf[s, c]` for a kept symbol
+  and `ins(s)` for a dropped one.  This is the one place where I read the wording rather than
+  followed it literally; the derivation is in `hungarian_drop_labelling`'s docstring.
+* **E5's "argmax phone under the fitted emission table"** is read as the map E3 already reports,
+  `argmax_p p(symbol | p) p_uni(p)` (the MAP phone), not the bare `argmax_p p(symbol | p)`, so that
+  the E3 agreement number and the E5 rows describe the same mapping.  The full emission table stays
+  in the json.
+* `spread()` also banks the null's `min` and `n` in the json; the rendered table shows mean / sd /
+  max as the brief asks.
 
 ## When ep25 lands
 
