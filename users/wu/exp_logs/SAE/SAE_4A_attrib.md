@@ -17,7 +17,11 @@ n-gram from the sampled fit (priorshuf bed), plan changes shown before execution
 
 Step 4 DONE 2026-09-20, audited: H1 and H2 both FAIL, residual weight-dependent clause; three of
 six joint-phi arms collapsed mid-training, the rest sit at control (Results, "Step 4 result").
-The phase decision rule fires on neither branch; nothing further is funded for step 4.
+The phase decision rule fires on neither branch. One diagnostic funded on the user's question
+(2026-09-20): `W2vu2RevDiagJob` on lam1.0_s0's selected checkpoint, reverse-model log-lik and
+top-1 unit accuracy under own / deranged / gold-forced-alignment inputs with floors
+(config `config/sae_4a_attrib_ganrev_revdiag.py`, implementer report
+`reports/sae_attrib_step4_revdiag_impl_2026-09-20.md`); review, launch, read.
 
 Step 6 (user-approved plan, pre-registered in Results): item 1 DONE, branch (C), item 3 NOT funded;
 item 4 DONE; both audited (Results). Item 2 (E4 arm `odm3_lam1_perm`,
@@ -747,3 +751,21 @@ predicted" needs H1; "collapsing at every weight" needs 6/6). Reading with steps
 cold bed's failure is not the reverse term per se (it is harmless in three GAN runs and its
 removal hurts in the cold bed), which leaves the alignment-sum-times-prior objective and the
 budget as the remaining suspects, in line with the step 6 pre-registration.
+
+### Step 6, item 2 (E4) partial result (2026-09-20 10:40): EMA read lands in the unresolved band, 0.19 nats above odm3_lam1; checkpoint-level read pending
+`BoundedBlankfreeTrainingJob.VYBJTM9X2niT` (odm3_lam1 + `permute_frames_seed` 0), 4 sub-epochs,
+finished 2026-09-20 10:22 (SLURM 1902191, 43 min; `reports/sae_attrib_step6_e4_launch2_2026-09-20.md`).
+Secondary (EMA) read from `output/learning_rates`, KL3 = `train_loss_agg_ce_tri` minus the text
+entropy 8.2417 (same floor as items 1 and 5b):
+
+| arm | KL3 ep1 | ep2 | ep3 | ep4 | JSD3 ep4 |
+|---|---|---|---|---|---|
+| odm3_lam1 `rtSciqxHBgXC` (banked) | 1.649 | 0.849 | 0.582 | 0.450 | 0.117 |
+| odm3_lam1_perm `VYBJTM9X2niT` | 1.801 | 1.026 | 0.772 | 0.644 | 0.162 |
+
+By the original item 2 rule (<= 0.55 / >= 1.2 / between) the EMA read is "between": unresolved,
+but at the low end, monotone over sub-epochs and 0.19 nats above the structured arm, i.e. the
+order-3 coverage term descends on frame-permuted input almost as far as on real input. The
+eval decodes of this arm are not read (pre-registered: its PER is not interpretable). Primary
+read (checkpoint-level full-pass KL3, amendment rule <= 0.93 / >= 2.2) pending:
+`OdmCoverageBatchEvalJob.v9fR6BnF8mAh`, `output/.../sae_4a_attrib/step6/est_bias_perm/summary.json`.
