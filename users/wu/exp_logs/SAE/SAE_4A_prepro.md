@@ -35,6 +35,50 @@ cut change the cold blank-free bed's outcome at the same budget?
   decisions (same version and threshold), so the retained-speech set is the bed's; only the
   placement of the cut moves.
 
+## Design (pre-registered 2026-09-20, from `reports/survey_audio_pipeline_2026-09-20.md`, before any job)
+
+Today's chain: full-waveform wav2vec2-large-lv60 layer-15 states (`AvStatesJob`, 50 Hz, 1024-d)
+-> rVADfast 0.4 on 10 ms frames, ORed to 50 Hz (`vad_port.py`, subframes 2) -> non-speech frames
+dropped from features and units (`BlankfreeVadHdfJob.SAjz8y1cT06g`: feats / units / raw_index /
+orig_length HDFs) -> blank-free training reads those streams. The §1c reproduction did the same
+in feature space; no trimmed audio or fairseq `.vads` exists on disk.
+
+The paper's chain, reproduced as ONE new data job (GPU, per-utterance loop, sharded like
+`AvStatesJob`) that emits the SAME four streams so every downstream job is reused unchanged:
+1. decode the utterance at 16 kHz (the HF ogg dataset the bed uses);
+2. rVADfast, threshold 0.4, the bed's own installation, taking its RAW 10 ms labels;
+3. fairseq cut rule (`vads.py:80-92`, `remove_silence.py:44-51`): segments start at the first
+   speech frame x 160 samples and end at the first non-speech frame x 160, an open tail ends at
+   the last sample, no margin, no minimum length, no merging; the speech segments are concatenated
+   into one trimmed waveform; an utterance with no speech segment is kept whole;
+4. wav2vec2-large-lv60 (the same HF weights, front-end waveform normalisation on the TRIMMED
+   waveform, as the paper's fairseq extractor does), hidden_states[15] -> [T', 1024] fp16;
+5. units: the bed's frozen quantizer (`QuantizeStatesJob.FWpGhC941JMi`: PCA 96 + k-means 500),
+   applied per frame to the new states exactly as `AssignUnitsJob` does, no refit;
+6. raw_index: each trimmed frame t' maps through the segment sample offsets to the original
+   sample of its centre (320 t' + 160) and to original frame // 320; orig_length = the original
+   50 Hz frame count. Both approximate after splices (the encoder's receptive field crosses
+   them); used by PER / rate / gold diagnostics only, never by training.
+Disclosed differences from the paper's scripts: rVADfast (pip) vs fairseq's `speechproc` rVAD
+(same algorithm and constants, not bit-identical), HF weights vs the fairseq checkpoint of the
+same model, in-memory concatenation vs a re-saved wav. Expected retained frame counts: close to
+but not equal to 15,427,853 / 831,372 / 781,130 (the 50 Hz OR-aggregation is gone); the job
+prints both totals and the per-split difference.
+
+Arms (one pack, N = 20, budget-round schedule at N = 20, kept 1 / 4 / 10 / 20, registered PER /
+rate / derangement-gap evaluations at every kept epoch, PairedPerDeltaJob prepro_20 vs ctrl_20):
+- `ctrl_20`: the bed's streams (`SAE_4A_budget.md` ctrl arm at N = 20);
+- `prepro_20`: the new streams, everything else identical (same segments split, same prior,
+  same reverse quantizer, same seed).
+Cost: data job about 2 h GPU train (4 shards in parallel: ~30 min) + 15 min dev; the pack 6.7 h.
+Label-free monitors as in the budget round; the wav2vec-U 2.0 selection statistic (4-gram
+phone-LM perplexity / vocabulary-seen fraction squared, SIL stripped) computed for both arms at
+every kept epoch from the existing greedy decodes.
+Pre-registered prediction: none directional. If the paper's cut helps, the earliest sign is a
+lower lattice term at matched sub-epoch and a different phone rate; if PER differs by less than
+the seed band, the placement of the cut is not a lever and the masking convention stands as
+equivalent to the paper's.
+
 ## Gate
 
 G4a.8 (pre-registered here before any job; thresholds copy G4a.4, `SAE_4A_budget.md`): greedy PER
