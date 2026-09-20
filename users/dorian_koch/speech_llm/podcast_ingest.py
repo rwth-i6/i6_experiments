@@ -1681,3 +1681,151 @@ def podcast_duplex_codes(
         tk.register_output(f"podcast_codes/{tag}/work_index", index.out_dir)
         tk.register_output(f"podcast_codes/{tag}/codes_index", codes_index.out_dir)
     return codes_index.out_dir, index.out_dir, shard_dirs
+
+
+class PodcastCodesTrainData(Job):
+    """Dialogue code rows -> the canonical codes-training schema the loader reads.
+
+    This is a pure column mapping: CPU only, no GPU, no audio. It exists as its own job precisely
+    because it is cheap -- the expensive separation/ASR pass stays untouched while the one genuinely
+    editorial decision in it, *which speaker is the assistant*, becomes a hashed knob that can be
+    re-decided for the price of a few CPU minutes.
+
+    ⚠ Normalising HERE rather than teaching the loader the podcast's internal `codes_a`/`words_a`
+    schema is deliberate: the loader should know ONE codes schema, not one per producer.
+
+    Output columns are exactly what `train_data_common.decode_codes_row` reads:
+    ``codes_assistant``, ``codes_user``, ``n_codebooks``, ``n_frames``, ``frame_rate``,
+    ``alignments`` -- plus ``id``/``duration`` for the manifest.
+
+    🔴 **Only the assistant's words become `alignments`.** The text row is Moshi's inner monologue,
+    i.e. what the model itself says; putting the other speaker's words there trains it to speak its
+    interlocutor's lines. `interleave_text` places every alignment it is given and IGNORES the
+    speaker field, so this selection is the only thing preventing that.
+    """
+
+    __sis_hash_exclude__ = {"rqmt": None}
+
+    def __init__(
+        self,
+        *,
+        shard_dirs: list[tk.Path],
+        assistant_channel: str = "a",
+        min_assistant_words: int = 8,
+        rqmt: dict | None = None,
+    ):
+        assert assistant_channel in ("a", "b", "both"), assistant_channel
+        self.shard_dirs = list(shard_dirs)
+        self.assistant_channel = assistant_channel
+        self.min_assistant_words = int(min_assistant_words)
+        self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import json as _json
+
+        import numpy as _np
+        from datasets import Dataset, Features, Sequence, Value, load_from_disk
+
+        feats = Features(
+            {
+                "id": Value("string"),
+                "duration": Value("float32"),
+                "n_codebooks": Value("int32"),
+                "n_frames": Value("int32"),
+                "frame_rate": Value("float32"),
+                "codes_assistant": Sequence(Value("int16")),
+                "codes_user": Sequence(Value("int16")),
+                "alignments": Sequence(
+                    {
+                        "text": Value("string"),
+                        "start": Value("float32"),
+                        "end": Value("float32"),
+                        "speaker": Value("string"),
+                    }
+                ),
+            }
+        )
+
+        want = ["a", "b"] if self.assistant_channel == "both" else [self.assistant_channel]
+        cols = {k: [] for k in feats}
+        n_in = n_out = n_nowords = n_short = 0
+
+        for d in self.shard_dirs:
+            root = d.get_path()
+            parts = sorted(
+                os.path.join(root, "parts", n)
+                for n in os.listdir(os.path.join(root, "parts"))
+                if not n.endswith(".tmp")
+            )
+            for p in parts:
+                ds = load_from_disk(p)
+                for r in ds:
+                    n_in += 1
+                    for ch in want:
+                        wjson = r.get(f"words_{ch}")
+                        if not wjson:
+                            n_nowords += 1
+                            continue
+                        words = _json.loads(wjson)
+                        if len(words) < self.min_assistant_words:
+                            # A row whose assistant barely speaks is a row whose text stream is
+                            # almost entirely PAD -- it teaches silence, which is the failure this
+                            # corpus exists to fix. Drop it rather than dilute with it.
+                            n_short += 1
+                            continue
+                        other = "b" if ch == "a" else "a"
+                        cols["id"].append(f"{r['item_id']}@{ch}")
+                        cols["duration"].append(float(r["duration_sec"]))
+                        cols["n_codebooks"].append(int(r["n_codebooks"]))
+                        cols["n_frames"].append(int(r["n_frames"]))
+                        cols["frame_rate"].append(float(r["frame_rate"]))
+                        # Flat `k * n_frames + f`, copied as-is -- both sides use the same layout,
+                        # so this is a rename, never a reshape.
+                        cols["codes_assistant"].append(_np.asarray(r[f"codes_{ch}"], dtype=_np.int16))
+                        cols["codes_user"].append(_np.asarray(r[f"codes_{other}"], dtype=_np.int16))
+                        cols["alignments"].append(
+                            [
+                                {
+                                    "text": w["text"],
+                                    "start": float(w["start"]),
+                                    "end": float(w["end"]),
+                                    # Rebound to the role vocabulary the loader uses. The diarized
+                                    # label is kept in the dialogue row, not here.
+                                    "speaker": "assistant",
+                                }
+                                for w in words
+                            ]
+                        )
+                        n_out += 1
+
+        if not n_out:
+            raise RuntimeError(
+                f"produced ZERO training rows from {n_in} dialogue rows "
+                f"({n_nowords} had no words_*, {n_short} had < {self.min_assistant_words} words). "
+                "An empty corpus trains a model to never speak instead of failing."
+            )
+        print(
+            f"[train_data] {n_in} dialogue rows -> {n_out} training rows "
+            f"(assistant={self.assistant_channel}; dropped {n_nowords} wordless, {n_short} short)",
+            flush=True,
+        )
+        Dataset.from_dict(cols, features=feats).save_to_disk(self.out_dir.get_path())
+
+
+def podcast_train_data(
+    *,
+    tag: str,
+    shard_dirs: list[tk.Path],
+    assistant_channel: str = "a",
+    register: bool = True,
+    **kwargs,
+):
+    """Wire the converter. Returns the dataset path."""
+    job = PodcastCodesTrainData(shard_dirs=shard_dirs, assistant_channel=assistant_channel, **kwargs)
+    if register:
+        tk.register_output(f"podcast_train/{tag}", job.out_dir)
+    return job.out_dir

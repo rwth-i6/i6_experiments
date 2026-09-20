@@ -152,9 +152,7 @@ def main():
     right = flat.reshape(K, F)[:, f0 : f0 + W]
     wrong = flat[f0 * K : (f0 + W) * K].reshape(K, W)
     assert right.shape == wrong.shape, "the trap is only dangerous because the shapes agree"
-    assert not np.array_equal(right, wrong), (
-        "fixture cannot distinguish a codebook-band slice from a time slice"
-    )
+    assert not np.array_equal(right, wrong), "fixture cannot distinguish a codebook-band slice from a time slice"
     ok += 1
 
     # wrong declared size must raise rather than silently reshape
@@ -230,9 +228,7 @@ def main():
     ok += 1
 
     # a row no longer than the window is returned untouched (identity, not a copy-with-same-values)
-    sa2, su2, al2 = slice_random_window_codes(
-        ca, cu, FR, words, window_sec=1000.0, rng=np.random.default_rng(0)
-    )
+    sa2, su2, al2 = slice_random_window_codes(ca, cu, FR, words, window_sec=1000.0, rng=np.random.default_rng(0))
     assert sa2 is ca and su2 is cu and al2 is words, "short rows must pass straight through"
     ok += 1
 
@@ -336,6 +332,41 @@ def main():
             assert "consecutive" in str(e), str(e)
         assert MAX_CONSECUTIVE_ROW_SKIPS < 100000, "the breaker must actually bound the loop"
         ok += 1
+
+    # ------------------------------- [6] the PRODUCER emits exactly what the loader reads
+    # `decode_codes_row` and `is_codes_table` read a fixed column set; `PodcastCodesTrainData`
+    # writes it. They live in different files and different venvs and nothing else connects them,
+    # so a rename on either side yields a corpus the loader silently refuses -- and the loader's
+    # per-row `except ... continue` turns that into an endless skip loop, not an error. (That is
+    # the circuit breaker in section [5]; this check is the other half.)
+    import ast as _ast
+
+    prod_src = open(os.path.join(SETUP, "recipe/i6_experiments/users/dorian_koch/speech_llm/podcast_ingest.py")).read()
+    tree = _ast.parse(prod_src)
+    cls = next(
+        (n for n in _ast.walk(tree) if isinstance(n, _ast.ClassDef) and n.name == "PodcastCodesTrainData"),
+        None,
+    )
+    assert cls is not None, "PodcastCodesTrainData is gone -- the codes corpus has no producer"
+    emitted = {n.value for n in _ast.walk(cls) if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
+    loader_src = open(os.path.join(SETUP, "recipe/speech_llm/full_duplex/moshi_family/train_data_common.py")).read()
+    dec = loader_src.split("def decode_codes_row")[1].split("\ndef ")[0]
+    required = {"codes_assistant", "codes_user", "n_codebooks", "n_frames", "frame_rate", "alignments"}
+    missing_in_loader = {c for c in required if f'"{c}"' not in dec}
+    assert not missing_in_loader, f"fixture wrong: loader does not read {missing_in_loader}"
+    missing = required - emitted
+    assert not missing, (
+        f"PodcastCodesTrainData does not emit {missing}, which decode_codes_row reads. "
+        "A corpus written without them loads as a WAV corpus and every row fails to decode."
+    )
+    ok += 1
+
+    # ...and the loader's own table sniffer keys on one of them, so that column in particular
+    # cannot be renamed on the producer side alone.
+    sniff = loader_src.split("def is_codes_table")[1].split("\ndef ")[0]
+    assert '"codes_assistant"' in sniff, sniff[:200]
+    assert "codes_assistant" in emitted
+    ok += 1
 
     print(f"check_codes_loader: {ok}/{ok} checks passed")
     return 0
