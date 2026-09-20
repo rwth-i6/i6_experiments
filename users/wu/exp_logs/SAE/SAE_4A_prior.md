@@ -50,8 +50,13 @@ deltas track the trigram (+0.65); the funding rule is read on (ii). Its manager 
 cleanly (note the venv is `/e/project1/spell/wu24/env/sis_env`).
 The word-UNIGRAM row is deferred: KenLM has no order 1, it needs an edit inside prior_gap.py, which
 stays frozen while the rerun's analysis jobs are pending; it is not on the launch path. Blank-free
-FFBS sampler + probe (ii) job still being built in new modules (`config/sae_4a_sf_probe.py`,
-`reports/impl_blankfree_sampler_2026-09-20.md`).
+FFBS sampler + probe (ii) built (speech-llm 2ae6cc5, new modules only, brute-force checked against
+full enumeration, reproduces the banked greedy decode; `reports/impl_blankfree_sampler_2026-09-20.md`)
+and running: `SampledRewardProbeJob.d1NoUQJ2EXN5` (ep1, tau 8) / `.Y81PrZ6fWWKu` (ep4, tau 5.04) /
+`.HVHIlaUkIkVi` (ep10, tau 2), 300 dev-other utterances, G = 8; manager pid 4178489,
+`log/sae_4a_sf_probe.manager.20260920T221014Z.log`, watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 4178489 config/sae_4a_sf_probe.py 600`. The sf term's
+normalisation is pinned per retained frame (A5, Design amendments).
 NEXT: read the rerun and (c) against the Step 0b rule as their watchers fire (executor confirms
 the finish, extractor reads the gap rows); read probes (i) and (ii) (95 % rule,
 lam_sf calibration); then the train-step wiring of the sf and soft terms (after tonight's
@@ -305,6 +310,15 @@ original):**
   that fixes lam_sf at ep4 and at ep10 (recorded, ep4 preferred over step 1). Rule: if r(gold)
   exceeds max_g in more than 95 % of utterances at every checkpoint, sf_50 is not funded and the
   lattice-internal lexicon design is the next arm.
+- A5 (2026-09-21, pinned before probe (ii) runs; `reports/impl_blankfree_sampler_2026-09-20.md`
+  item 2): the sf term is normalised PER RETAINED FRAME, i.e. each utterance's score-function term
+  is divided by its retained unit count, exactly as the lattice term l_tau = mean_b(−log Z_b /
+  retained_b) is, then averaged over the batch. Rationale: the unit count is constant across the
+  G draws of an utterance, so it cannot pay for length (the lm_prior_norm = "units" sign
+  guarantee), and lam_sf then scales two per-frame quantities. The probe's `utterance_mean`
+  variant is disclosed only; lam_sf is read from the `per_frame` gradient-norm ratio (median over
+  batches, 0.1x preferred, 0.3x the ceiling). The lexicon ESCAPE reward is not in probe (ii) (its
+  word LM is fitted inside the analysis job); its neighbourhood behaviour is read from probe (i).
 
 ## Gate
 

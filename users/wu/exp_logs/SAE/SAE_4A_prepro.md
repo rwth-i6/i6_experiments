@@ -16,9 +16,16 @@ Build handed back 2026-09-21 (speech-llm d92109b, `reports/impl_prepro_2026-09-2
 parity with the bed's shard, no banked hash moved. Two constants were left to the orchestrator and
 are decided: LR warmup 2 sub-epochs at N = 20 (`SAE_4A_budget.md` amendment) and
 ctrl_20_s1 = both seeds moved (flat_seed 1 AND RETURNN random_seed 1: theta init, phi init and
-batch order, the full replicate band). The dev-other data job is being launched alone under its
-own manager (`config/sae_4a_prepro_devother.py`, `reports/exec_prepro_devother_launch_2026-09-21.md`).
-NEXT: arm the dev-other watcher; when it finishes, extractor reads the pre-funding statistics
+batch order, the full replicate band); constants set in speech-llm f184df4 (pack
+`PackedBlankfreeTrainJob.YQszIGUOm7Sh`, three arms of one job; flat init ctrl_20 / prepro_20
+`FlatRecognizerInitJob.0J9d6wjrkRYH`, ctrl_20_s1 `.DMSwTLXT9MWG`), pack under code review
+(`reports/review_prepro_2026-09-21.md`). The dev-other data job runs alone under its own manager:
+pid 4154973, `log/sae_4a_prepro_devother.manager.20260920T220641Z.log`, Slurm 1920278 (booster,
+1 GPU, 4 h rqmt), watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 4154973 config/sae_4a_prepro_devother.py 600`
+(`reports/exec_prepro_devother_launch_2026-09-21.md`; a first attempt registered nothing because
+the shim lacked `py()`, fixed).
+NEXT: when the dev-other watcher fires, extractor reads the pre-funding statistics
 (OR total == 781,130 else STOP; T'/T; unit agreement overall and by splice distance; distortion;
 T' < 2 count); code review of the pack config with the constants set; if unit agreement is not
 near 1.00, fund the three-arm pack (`config/sae_4a_prepro_pack.py`, after the train and dev-clean
