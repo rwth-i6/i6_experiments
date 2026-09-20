@@ -773,7 +773,13 @@ Primary read `OdmCoverageBatchEvalJob.v9fR6BnF8mAh` (permutation seed 0 applied 
 training; `output/.../sae_4a_attrib/step6/est_bias_perm/summary.{json,txt}`, SLURM 1902625,
 4 min), same batches, tau, prior and utterance set as item 1's read of odm3_lam1
 (`kIWwqpNqrTGH`). KL = CE minus the text n-gram entropy (order 1 / 2 / 3 floors 3.2852 / 5.9644
-/ 8.2417). Audit pending (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`).
+/ 8.2417). Audited from a fresh context (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`,
+DONE_WITH_CONCERNS): every KL reproduced from the jsons, the eval permutation, tau, prior,
+batches and utterance set verified identical, the two training configs differ by the one line
+`permute_frames_seed: 0`. Audit notes: the jobs' summary.txt prints the step-5 A/B/C letter, not
+this gate's clause (ignored); no init-level KL3 is on disk, so "fraction of the descent" below
+is relative to the ep1 EMA read, not to the untrained model; dropout was active in both reads
+(module_mode train, unseeded), identical for the two arms.
 
 | order | level | odm3_lam1 KL | odm3_lam1_perm KL | perm minus arm |
 |---|---|---|---|---|
@@ -787,9 +793,10 @@ training; `output/.../sae_4a_attrib/step6/est_bias_perm/summary.{json,txt}`, SLU
 
 Gate: primary 1.27 is between 0.93 and 2.2, secondary 0.644 between 0.55 and 1.2: UNRESOLVED on
 both, the reads agree. Reading: on frame-permuted input the order-3 coverage term still descends
-to within 1.27 nats of the text trigram entropy (from an ep1 EMA read of 1.80), so most of the
-descent the structured arm shows is reachable without temporal structure; the structured arm
-gets 0.44 nats further at the corpus level. That extra is not all "temporal structure used": the
+to within 1.27 nats of the text trigram entropy (the ep1 EMA reads are 1.80 perm / 1.65
+structured), so the descent below the sub-epoch-1 level is largely reachable without temporal
+structure; the structured arm gets 0.44 nats further at the corpus level, a gap that grows with
+aggregation (0.31 batch -> 0.44 full), so it is not estimator bias. That extra is not all "temporal structure used": the
 permuted arm is also worse at order 1 (+0.18) and order 2 (+0.27), where temporal order is
 irrelevant to the target, which points to a plain optimisation handicap of the conv recognizer
 (kernel 9 over shuffled frames) rather than the term exploiting sequence content; the order-3
