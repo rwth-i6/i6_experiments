@@ -13,9 +13,15 @@ denominators, every prior from the priorshuf uniform window (`SampleLinesJob.orN
 Step 0b first pass finished (`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB`, `PriorGapAnalysisJob.Gct95xZHe0zt`,
 speech-llm 739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`,
 `reports/review_neural_phone_lm_2026-09-20.md`): partial proxy, schedule-bound (Results, Step 0b).
-The pre-registered rerun (two instances, 30 epochs, 3.3 M and ~10 M) is being built in the same
-config; its manager, Slurm ids and watcher command are recorded here when launched. The earlier
-manager 3231512 has exited; no watcher is live for this phase.
+The pre-registered rerun (speech-llm bf49fb7, `reports/impl_neural_phone_lm_rerun_2026-09-20.md`)
+is running: `NeuralPhoneLmTrainJob.xObXEwRpvmzd` (3.3 M, 30 epochs, Slurm 1919330) and
+`NeuralPhoneLmTrainJob.pBozvj6c3l16` (10.9 M, 30 epochs, Slurm 1919329), then
+`PriorGapAnalysisJob.5wNIQs2lpC5P` / `.pg14aEYJyiva`. Manager pid 3594890,
+`log/sae_4a_prior_gap.manager.20260920T211253Z.log`; watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 3594890 config/sae_4a_prior_gap.py 600` (re-arm first
+after any resume, with the budget and infomax watchers). The falsifier probe (i) and the
+word-unigram / bigram ESCAPE rows are being built in a separate config
+(`config/sae_4a_prior_probe.py`, `reports/impl_prior_probe_2026-09-20.md`).
 Training-arm design and G4a.7 are written (Design "Training arm", Gate); the design review
 (`reports/design_review_prior_arm_2026-09-20.md`) returned STOP as written, approvable with A1–A4,
 all applied (reward = strong minus unigram, r(gold) > max_g fraction replaces the dead band,
