@@ -1174,7 +1174,14 @@ class PodcastEpisodeIngest(Job):
     ``sec_per_episode_hour``, not from that prediction** -- ``shards_for_hours`` is wired for it.
     """
 
-    __sis_hash_exclude__ = {"rqmt": None, "max_items": 0}
+    # ⚠ `asr_backend`/`asr_model` are excluded ONLY while None, which is the "no ASR" default --
+    # exactly what `__sis_hash_exclude__` means. That is the right mechanism HERE and the wrong one
+    # for `rqmt` (see `hash()` below), and the difference is the direction: a populated `rqmt` must
+    # still be excluded, whereas a populated ASR backend must be HASHED, because it changes the word
+    # alignments in the corpus. Excluding them unconditionally would let an ASR and a no-ASR corpus
+    # hash identically -- and the enabling argument, `asr_venv_python`, is a PATH we must drop, so
+    # these two are the only hashed record that ASR ran at all.
+    __sis_hash_exclude__ = {"rqmt": None, "max_items": 0, "asr_backend": None, "asr_model": None}
 
     def __init__(
         self,
@@ -1196,6 +1203,10 @@ class PodcastEpisodeIngest(Job):
         code_version: int = 1,
         duplexchat_commit: str = DUPLEXCHAT_COMMIT,
         env_ffmpeg_path: tk.Path | None = None,
+        asr_venv_python=None,
+        asr_backend: str | None = None,
+        asr_model: str | None = None,
+        asr_batch_size: int = 16,
         rqmt: dict | None = None,
     ):
         self.duplex_venv_python = duplex_venv_python
@@ -1218,6 +1229,10 @@ class PodcastEpisodeIngest(Job):
         self.code_version = int(code_version)
         self.duplexchat_commit = duplexchat_commit
         self.env_ffmpeg_path = env_ffmpeg_path
+        self.asr_venv_python = asr_venv_python
+        self.asr_backend = asr_backend
+        self.asr_model = asr_model
+        self.asr_batch_size = int(asr_batch_size)
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
         # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
@@ -1236,7 +1251,19 @@ class PodcastEpisodeIngest(Job):
         # orphan an already-completed ~173 GPU-h separation pass. This is precisely the `Compute`
         # post-mortem in CLAUDE.md, and the reason that fix needed a hash-excluded channel rather
         # than `__sis_hash_exclude__`.
-        for k in ("env_ffmpeg_path", "download_workers", "rqmt"):
+        # `asr_venv_python` is WHERE the backend lives, not WHAT it computes -- the same
+        # reasoning as env_ffmpeg_path. `asr_batch_size` is throughput: faster-whisper runs its VAD
+        # and segments the audio BEFORE batching, so the batch size only sets how many of those
+        # segments decode in parallel, not where they start or end.
+        # ⚠ That is an assumption about someone else's library, and it is the kind that is silent
+        # when wrong -- so it is asserted by `check_asr_batch_invariance.py` rather than trusted.
+        for k in (
+            "env_ffmpeg_path",
+            "download_workers",
+            "rqmt",
+            "asr_venv_python",
+            "asr_batch_size",
+        ):
             d.pop(k, None)
         return super().hash(d)
 
@@ -1321,6 +1348,19 @@ class PodcastEpisodeIngest(Job):
             "--drift_tolerance_sec",
             self.drift_tolerance_sec,
         ]
+        if self.asr_venv_python and self.asr_backend:
+            args += [
+                "--asr_python",
+                (self.asr_venv_python.get() if hasattr(self.asr_venv_python, "get") else self.asr_venv_python),
+                "--asr_worker",
+                os.path.join(lib_parent, "moshi_family", "podcast_asr.py"),
+                "--asr_backend",
+                self.asr_backend,
+                "--asr_model",
+                self.asr_model or "medium",
+                "--asr_batch_size",
+                self.asr_batch_size,
+            ]
         if self.max_items:
             args += ["--max_items", self.max_items]
 
