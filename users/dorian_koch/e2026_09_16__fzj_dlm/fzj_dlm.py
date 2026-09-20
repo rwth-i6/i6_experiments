@@ -67,7 +67,11 @@ DLM_DATA_STAGE = "train"
 # stream unconditionally, and under `ls_audio_subset=0` that stream is present but EMPTY.
 # The bound is vacuously true for an empty layout, so the fix short-circuits on the (static) shape.
 # ⚠ That patch is LOCAL to tools/returnn -- see backlog; it must survive a pull or armB0 breaks again.
-GERMAN_STAGE = "armB,armC"  # armB0 blocked on RETURNN defect 3 (backlog 107d)
+# armB0 DROPPED (user call, 2026-09-20): it needs three RETURNN fixes in three files and the third
+# (device propagation through the empty source) is of unknown depth. armBC answers the same question
+# -- does the pseudo-encoder carry German once the English-audio language cue is gone -- with zero
+# framework work, and is the better system besides. armB2 is arm B re-run with the German SPM (§104).
+GERMAN_STAGE = "armB,armB2,armBC,armC"
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -114,6 +118,9 @@ EVAL_FINETUNE_EPOCHS = (1, 10)
 # i.e. both numbers from one 4-GPU job instead of the full 12-bundle DLM data pass.
 FT_HYPS_WER = True
 FT_HYPS_EPOCH = 10
+# Bundle whose GlowTTS text is DISJOINT from the finetune's training audio (parts 1-100).
+# Bundle 03 = parts 143-222, read off its seq-list jobs' `info` files. See backlog 112.
+FT_HYPS_CLEAN_BUNDLE = 3
 
 # Continue the winner WITH its optimizer state, instead of importing its weights (user call).
 # Motivation (backlog): the +TTS finetune got WORSE than its own starting point for ~5 epochs before
@@ -259,7 +266,9 @@ def py():
     )
 
     _german_stages = {s.strip() for s in GERMAN_STAGE.split(",") if s.strip()}
-    assert _german_stages <= {"off", "surgery", "armA", "armB", "armB0", "armC"}, f"unknown German stage: {_german_stages}"
+    assert _german_stages <= {"off", "surgery", "armA", "armB", "armB2", "armB0", "armBC", "armC"}, (
+        f"unknown German stage: {_german_stages}"
+    )
 
     if _german_stages & {"surgery", "armA", "armB", "armC"}:
         # Widen the winner's output layer to the German vocab (10,240 -> 10,243). Cheap (CPU) and a
@@ -278,6 +287,54 @@ def py():
 
         train_german_arm_b(
             prefix=f"{prefix}/german", winner_model=winner_model, budget=GERMAN_BUDGET, smoke=GERMAN_SMOKE
+        )
+
+    if "armB2" in _german_stages:
+        # 🔴 Arm B, RE-RUN CORRECTLY (backlog 104). Arm B as first run is INVALID: its
+        # `glow_tts_text_spm_opts` pointed at the ENGLISH 10,240 SPM while its four other tokenizers
+        # used the German 10,243, so the injection text went through a tokenizer that cannot encode
+        # an umlaut -- 25,975 `<unk>` (2.710% of target positions, 53.7% of lines) and the umlaut ids
+        # were NEVER produced. It emitted 0 umlauts in 126,239 test words, identical to untrained
+        # arm A. This is the arm the paper's claim rests on, so it has to be re-run, not patched up.
+        #
+        # ⚠ The tokenizer bug is NOT the whole 95.75 WER -- umlaut words are only 7.5% of test words,
+        # so it explains at most ~7.5 points (§104d retracts my first over-claim here). The rest is
+        # the code-switching that armB0/armB+C address. This arm isolates the tokenizer fix alone.
+        from .german_xling import train_german_arm_b
+
+        train_german_arm_b(
+            prefix=f"{prefix}/german",
+            winner_model=winner_model,
+            budget=GERMAN_BUDGET,
+            smoke=GERMAN_SMOKE,
+            fix_text_spm=True,
+            german_dev=True,
+        )
+
+    if "armBC" in _german_stages:
+        # 🔴 Arm B+C (user call, 2026-09-20) -- the replacement for armB0, and the plan's optional
+        # 4th arm: German paired audio AND German text injection, from the surgered checkpoint.
+        #
+        # It answers armB0's question without touching RETURNN. armB0 wanted to delete the English
+        # audio branch because language was perfectly predictable from feature type (real audio =>
+        # English, pseudo audio => German), which is the cue arm B learned and code-switches on. Arm
+        # B+C removes that cue just as completely -- no English audio remains -- while keeping the
+        # tensors non-degenerate, so none of the three empty-stream defects can fire.
+        #
+        # It is also the better system and the natural "does injection add anything on top of the
+        # audio we already have" ablation against arm C.
+        #
+        # ⚠ Carries the §104 SPM fix, like armB2 -- an arm that cannot emit an umlaut answers nothing.
+        from .german_xling import train_german_arm_b
+
+        train_german_arm_b(
+            prefix=f"{prefix}/german",
+            winner_model=winner_model,
+            budget=GERMAN_BUDGET,
+            smoke=GERMAN_SMOKE,
+            german_audio=True,
+            fix_text_spm=True,
+            german_dev=True,
         )
 
     if "armB0" in _german_stages:
@@ -456,6 +513,19 @@ def py():
             extra_config=ctc_lm_kwargs.get("extra_config"),
             alias_prefix=f"{prefix}/dlm-data-ft",
         )
+        # 🔴 The UNCONTAMINATED re-measurement (backlog 112). Bundle 01's six GlowTTS shards are
+        # parts 3-62, and the finetune trained on the audio of parts 1-100 -- so its 7.42% GlowTTS
+        # number was measured on text it had already heard spoken, while the winner (which saw no
+        # TTS audio at all) was not. The confound runs in the direction that flatters our arm.
+        # Bundle 03 is parts 143-222: disjoint from 1-100, so this pair is clean. The WINNER's
+        # bundle 03 already exists on disk (`dlm-data/hyps-batched-03`), so only the finetune side
+        # costs a job. ⚠ Bundle 02 is parts 63-142 and straddles the boundary -- do not use it.
+        for _key, _outs in _ft_hyp_jobs[FT_HYPS_CLEAN_BUNDLE].out_files.items():
+            for _fn, _path in _outs.items():
+                tk.register_output(
+                    f"{prefix}/dlm-data-ft/hyps-batched-{FT_HYPS_CLEAN_BUNDLE:02d}/{_key}/{_fn}", _path
+                )
+
         for _key, _outs in _ft_hyp_jobs[1].out_files.items():
             for _fn, _path in _outs.items():
                 tk.register_output(f"{prefix}/dlm-data-ft/hyps-batched-01/{_key}/{_fn}", _path)

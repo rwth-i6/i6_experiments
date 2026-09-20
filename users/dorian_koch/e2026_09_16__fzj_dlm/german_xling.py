@@ -652,6 +652,124 @@ class PatchTextBranchToGerman:
         return False
 
 
+class PatchAsrBranchToGerman:
+    """
+    Context manager: replace the CombinedDataset's ``asr`` branch with **German** paired audio.
+
+    This is arm **B+C** -- German audio *and* German text injection -- the plan's optional 4th arm,
+    and (user call, 2026-09-20) the replacement for armB0 after that hit a third RETURNN defect in
+    the empty-stream path.
+
+    🔴 **What it buys over arm B.** In arm B the ASR branch is English LS-960, so **language is
+    perfectly predictable from feature type**: every real-audio row has an English target, every
+    pseudo-audio row a German one. Arm B learned exactly that cue and code-switches on real German
+    audio (``ALLES WAS ICH INSIDE AN IS DASS WHEN UNTER``) while clearly knowing German words.
+    Swapping the branch to German removes the cue **completely** -- there is no English audio left --
+    which is what armB0 was trying to achieve by deleting the branch, without the degenerate
+    zero-length tensors that RETURNN's packed path mishandles.
+
+    ⚠ **The repeat factor is RECOMPUTED, never inherited, and that is the whole difficulty here.**
+    The German 9 h split is 2,194 utterances against LS-960's 281,241 -- **128x smaller**. With
+    ``seq_ordering="interleave"`` CombinedDataset draws proportionally to sub-dataset length, so the
+    German audio would be ~0.8% of the stream and contribute essentially nothing, while the arm's
+    name promised paired audio. Two defensible calibrations exist and they are NOT equivalent:
+
+    * match arm B's **audio:text draw ratio** -> ``repeat_epoch = 128``. One-factor comparison
+      against arm B, but 1,280 passes over 9 h of speech: heavy overfitting risk.
+    * match arm C's **audio exposure** -> ``repeat_epoch = 4`` (arm B's ``nep=10`` x 4 = 40 passes,
+      exactly ``ARM_C_NEP``). The audio is dosed like the baseline that demonstrably works (43.03%
+      WER at ep5), so it is neither starved nor overfit relative to a known-good reference.
+
+    **We take the second**, because arm C is our own measured baseline and LS-960's scale is an
+    accident of the borrowed recipe -- the CLAUDE.md rule that a borrowed baseline's corpus-scaled
+    quantities must be recomputed. The factor is a named parameter so the other calibration is one
+    argument away.
+
+    ``repeat_epoch`` is RETURNN's documented lever for exactly this: *"To upscale a dataset, rather
+    than downscaling the others via 'partition_epoch', use the 'repeat_epoch' option"*
+    (``datasets/meta.py``, CombinedDataset docstring). ``sampling_sizes`` cannot be used -- it
+    asserts ``partition_epoch in [None, 1]`` and the text branch runs ``partition_epoch=75``.
+
+    Same mechanism and same defensive shape as :class:`PatchTextBranchToGerman` and
+    ``winner_plus_tts._PatchAsrBranchWithTts``: patch ``DatasetConfigStatic`` on its defining module,
+    rewrite only the matching dataset, assert **exactly one** rewrite on exit. A silent zero would
+    train on **English** audio under a German-audio name -- i.e. arm B again, which converges
+    perfectly well and answers nothing.
+    """
+
+    def __init__(self, *, budget: str = "9h", repeat_epoch: int = 4):
+        assert budget in ("1h", "9h"), budget
+        assert repeat_epoch >= 1, repeat_epoch
+        self.budget = budget
+        self.repeat_epoch = repeat_epoch
+        self.count = 0
+        self._patch = None
+
+    def __enter__(self):
+        import unittest.mock
+
+        from returnn_common.datasets_old_2022_10 import interface as _iface
+
+        from .winner_plus_tts import _COMBINED_MAIN_NAME
+
+        real = _iface.DatasetConfigStatic
+        ogg = german_train_oggzip(budget=self.budget)
+
+        def _rewrite(combined):
+            datasets = dict(combined["datasets"])
+            asr = dict(datasets["asr"])
+            # `_train_tts_encoder` wraps the OggZip in MultiProcDataset (:4438). Rewrite the INNER
+            # dataset and keep the wrapper, so the ogg decode + speed-pert stay in worker procs.
+            if asr["class"] == "MultiProcDataset":
+                inner = dict(asr["dataset"])
+                outer = asr
+            else:
+                inner, outer = asr, None
+            assert inner["class"] == "OggZipDataset", f"unexpected asr sub-dataset {inner['class']!r}"
+            # tk.Path OBJECT, not .get_path() -- a string creates no dependency edge and the training
+            # would be runnable before the zip exists (the §66a fix; same reason as german_train_dataset).
+            inner["path"] = [ogg]
+            inner["repeat_epoch"] = self.repeat_epoch
+            # The German zip has no `use_cache_manager` story on FZJ and it only ever logs
+            # "Cache manager: Error occurred, using local file" here -- drop it as tts_data does.
+            inner.pop("use_cache_manager", None)
+            if outer is not None:
+                outer = dict(outer)
+                outer["dataset"] = inner
+                datasets["asr"] = outer
+            else:
+                datasets["asr"] = inner
+            out = dict(combined)
+            out["datasets"] = datasets
+            return out
+
+        def _wrapped(*args, **kwargs):
+            ds = kwargs.get("train_dataset")
+            if (
+                kwargs.get("main_name") == _COMBINED_MAIN_NAME
+                and isinstance(ds, dict)
+                and ds.get("class") == "CombinedDataset"
+                and "asr" in ds.get("datasets", {})
+            ):
+                kwargs = dict(kwargs, train_dataset=_rewrite(ds))
+                self.count += 1
+            return real(*args, **kwargs)
+
+        self._patch = unittest.mock.patch.object(_iface, "DatasetConfigStatic", _wrapped)
+        self._patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._patch.stop()
+        if exc[0] is None:
+            assert self.count == 1, (
+                f"expected to rewrite exactly 1 asr branch, rewrote {self.count} --"
+                " the arm would have trained on ENGLISH audio under a German-audio name,"
+                " i.e. arm B under a new name"
+            )
+        return False
+
+
 # The three orthographic symbols German needs on top of the English SPM. Measured: after uppercasing
 # and hyphen->space these are the ONLY characters the English SPM cannot encode (see
 # get_german_injection_text), and adding them takes residual UNK to exactly 0.
@@ -2101,6 +2219,8 @@ def train_german_arm_b(
     no_audio: bool = False,
     fix_text_spm: bool = False,
     german_dev: bool = False,
+    german_audio: bool = False,
+    german_audio_repeat: int = 4,
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2143,6 +2263,10 @@ def train_german_arm_b(
         name += "-deSpm"
     if german_dev:
         name += "-deDev"
+    if german_audio:
+        # The repeat factor is in the NAME: it is the one knob with no obviously-right value
+        # (see PatchAsrBranchToGerman), so two calibrations must not collide on one job.
+        name += f"-deAudio{german_audio_repeat}"
     de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget)
     tables = german_pseudo_enc_config(budget=budget)
 
@@ -2157,6 +2281,14 @@ def train_german_arm_b(
         (
             PatchAddGermanDevToTrain(spm_model=DE_SPM_EXTENDED, spm_size=GERMAN_SPM_SIZE)
             if german_dev
+            else contextlib.nullcontext()
+        ),
+        # Arm B+C: swap the ENGLISH LS-960 asr branch for German paired audio, which removes the
+        # feature-type -> language cue that made arm B code-switch. `nullcontext` keeps arm B's and
+        # armB2's hashes frozen.
+        (
+            PatchAsrBranchToGerman(budget=budget, repeat_epoch=german_audio_repeat)
+            if german_audio
             else contextlib.nullcontext()
         ),
         CaptureRegisteredOutputs(match="recog_results") as _cap,
