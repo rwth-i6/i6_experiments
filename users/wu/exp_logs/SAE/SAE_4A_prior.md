@@ -5,11 +5,17 @@
 Phase opened 2026-09-20 on the user's approval ("go ahead. approved."), replacing the
 context-dependent reverse model (`SAE_4A_cdrev.md`, deferred without limit by the user the same
 day, nothing built). Step 0 is a CPU diagnostic, no node: the gold-minus-private-code prior gap as
-a function of prior order and of lexicalisation, on dev-other. Nothing built or launched.
-NEXT: implementer (prior-gap analysis job, new module, config `config/sae_4a_prior_gap.py`);
-executor launch under its own manager; read the pre-registered table (Design, "Step 0"); then
-decide between the 4-gram importance-sampled correction and the lexicon score-function term and
-write that arm's design and gate here before any node is funded.
+a function of prior order and of lexicalisation, on dev-other. Job built (`sae/emc/prior_gap.py`,
+`PriorGapAnalysisJob.l0p0srBryKrs`, config `config/sae_4a_prior_gap.py`, speech-llm commit
+1431dbf; `reports/impl_prior_gap_2026-09-20.md`), executor launching it under its own manager;
+code review of the scorer conventions running in parallel (its verdict decides whether the numbers
+are trusted or the job reruns under a version bump). Convention fixed before the numbers: the gold
+reference is SIL-free and the decode carries SIL, so the job scores both pairings; the
+like-for-like pairing (SIL dropped from the decode) is primary and the SIL-kept pairing is
+disclosed beside it.
+NEXT: watcher verdict on the prior-gap job and the code-review verdict; read the pre-registered
+table (Design, "Step 0"); then decide between the 4-gram importance-sampled correction and the
+lexicon score-function term and write that arm's design and gate here before any node is funded.
 
 ## Objective
 
