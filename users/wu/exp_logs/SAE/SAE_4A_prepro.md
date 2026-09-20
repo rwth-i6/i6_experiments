@@ -27,13 +27,21 @@ pid 4154973, `log/sae_4a_prepro_devother.manager.20260920T220641Z.log`, Slurm 19
 the shim lacked `py()`, fixed).
 Dev-other data job FINISHED and read (Results): funding rule passes (OR total exact, agreement
 0.71, plateau 0.72 far from splices); its manager (4154973) exited cleanly. Code review
-APPROVE_WITH_AMENDMENTS (Design, "Code review amendments"); the implementer is applying them
-(random_seed_offset for ctrl_20_s1; `UntrimmedEncodeAgreementJob` null with shim
-`config/sae_4a_prepro_null.py`; data-only shim `config/sae_4a_prepro_data.py`).
-NEXT: on hand-back, executor launches the data-only shim (train + dev-clean, ~2 h) and the null
-shim, each under its own manager, watchers armed; read the null (near 1.00 expected); then fund
-the pack (`config/sae_4a_prepro_pack.py`, new hash after the seed amendment) and register the
-paired reads; record here.
+APPROVE_WITH_AMENDMENTS, amendments applied (speech-llm 1b25144 + dbfe6fb): ctrl_20_s1 has
+random_seed 1 and random_seed_offset 1000 (sub-epoch-1 overlap with ctrl_20 0.26, chance 0.25);
+final pack `PackedBlankfreeTrainJob.5EIGJJ1MkcO9` (ctrl_20 vs ctrl_20_s1 diff 8 lines, vs
+prepro_20 60 lines, all HDF paths); null `UntrimmedEncodeAgreementJob.WnGSatwxUEYY`. The train +
+dev-clean data jobs (`config/sae_4a_prepro_data.py`) and the null (`config/sae_4a_prepro_null.py`)
+run under their own managers (executor hand-back 2026-09-21; no report file was written): data manager
+pid 127865, `log/sae_4a_prepro_data.manager.20260920T223130Z.log`, Slurm 1920622 (train, 4 shards)
+and 1920623 (dev-clean), watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 127865 config/sae_4a_prepro_data.py 600`; null manager
+pid 129170, `log/sae_4a_prepro_null.manager.20260920T223143Z.log`, Slurm 1920624, watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 129170 config/sae_4a_prepro_null.py 600`.
+NEXT: read the null (near 1.00 expected: then the 0.72 plateau is the cut's
+effect; a null far below 1.00 means an extraction-path difference and the pack waits for a fix);
+when the data jobs finish, fund the pack (`config/sae_4a_prepro_pack.py`, 5EIGJJ1MkcO9, ~10 h on
+one node) and register the paired reads; record here.
 
 ## Objective
 
