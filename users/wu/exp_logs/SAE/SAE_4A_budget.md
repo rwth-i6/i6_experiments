@@ -163,3 +163,32 @@ rate 9.0/s flat; the coverage KL (lam_agg 0.1 on the controls) worsens from 0.89
 ep24 and stays there, so the confident code matches the text 1/2-grams worse than the diffuse
 output did. The learning-rate decay starts at ep30 (N=50); no further movement is expected from
 budget alone. ctrl_100 has the same shape delayed (coverage KL 0.82 at ep16 -> 1.07 at ep33).
+
+### Sub-epoch count for future arms: N = 20 (user item 1, decided 2026-09-20 from label-free curves only)
+
+Evidence: `reports/extract_budget_curves_2026-09-20.md` (all six N=50 arms complete, 585–744 s per
+sub-epoch; per-sub-epoch loss aggregate, lattice term, rate term, expected phone rate, learning
+rate, temperature; no PER or paired delta was read for this decision). Rule applied by the
+extractor: the sub-epoch after which the statistic moves less than 1 % of its sub-epoch-5 value
+over the next five sub-epochs.
+
+| arm | anneal ends | loss aggregate flat from | lattice term flat from | phone rate flat from |
+| --- | --- | --- | --- | --- |
+| ctrl_50 | 10 | 23 (dev 22) | 14 (dev 25) | 8 |
+| odmprior_50 | 10 | 14 (dev 20) | 22 (dev 25) | 9 |
+| bt_50 | 10 | 16 (dev 16) | 18 (dev 25) | 11 |
+| odmbt_50 | 10 | 14 (dev 11) | 18 (dev 35) | 8 |
+| nosched_ctrl_50 | 4 | 13 (dev 12) | 14 (dev 7) | 7 |
+| nosched_odmprior_50 | 4 | 13 (dev 5) | 12 (dev 7) | 5 |
+
+Reading: the phone rate stalls within a few sub-epochs of the anneal's end in every arm (8–11
+with the 10-sub-epoch anneal, 5–7 with the 4-sub-epoch one) and the losses within about ten;
+ctrl_50's lattice term moves 1.85 -> 1.73 over sub-epochs 10–50 with the phone rate flat at
+8.7–8.9/s. The stall follows the anneal, not the update count. Decision: N = 20 for every new
+arm, with the schedule's existing proportional form (anneal ceil(0.2 N) = 4 sub-epochs 8 -> 2,
+warmup 1, hold to 12, linear decay to 20; kept checkpoints 1, 4, 10, 20), 3.3 h per arm at the
+measured step rate, so a pack of three arms fits one 11.5 h node without the resume path. The
+N=50 / N=100 arms already running finish as funded and remain the reference for G4a.4; every
+new arm (prepro, sf, soft) reads against a fresh ctrl_20 in its own pack, never against ctrl_50 at
+sub-epoch 20 (different LR phase). Amendment to the pending arms' cost lines in `SAE_4A_prior.md`
+and `SAE_4A_prepro.md`: N = 20 replaces N = 50 there.

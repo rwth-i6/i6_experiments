@@ -11,6 +11,10 @@ trigram joint training with this new topology. The supervised branch is disclose
 it supplies no parameters or labels to the cold branch.
 The user explicitly chooses separate initialization only for the supervised branch, with no
 100 h joint adaptation after those fits.
+**Training budget for new arms (user item 1, 2026-09-20): N = 20 sub-epochs** with the budget
+round's proportional schedule (anneal 4 sub-epochs 8 -> 2, LR hold to 12, decay to 20, kept
+checkpoints 1, 4, 10, 20); decided from label-free curves only, evidence and table in
+`SAE_4A_budget.md` "Sub-epoch count for future arms". Each new pack carries its own ctrl_20.
 **Reference preprocessing verified from the paper's full text (2026-09-20,
 `SAE/reports/lit_w2vu2_preprocessing_2026-09-20.md`):** wav2vec-U 2.0 (arXiv 2204.02492v2 §4.1)
 removes audio silence with rVAD before extracting layer-15 wav2vec 2.0 Large features and
