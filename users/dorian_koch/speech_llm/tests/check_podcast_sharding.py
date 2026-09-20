@@ -104,7 +104,9 @@ check("stereo_passthrough is NOT rejected (dual-channel sources)", "stereo_passt
 print("[5b] the WHOLE-EPISODE mode is priced separately from the dialogue mode")
 whole = audio_hours_per_shard("dialogue_sidon_whole", 4.0)
 check("dialogue_sidon_whole == episode_hours_per_shard", whole == episode_hours_per_shard(4.0))
-check("dialogue_sidon_whole ~147 input-h/shard", 138.0 < whole < 156.0, f"got {whole:.1f}")
+# Re-priced 2026-09-20: 97.88 -> 130.2 s/episode-hour, adding per-channel ASR (+22.3, measured)
+# and the speaker-embedding channel scorer (+~10, GPU allowance over a 59.5 s/ep-h CPU measurement).
+check("dialogue_sidon_whole ~111 input-h/shard", 104.0 < whole < 118.0, f"got {whole:.1f}")
 # Non-vacuous, and the whole reason the mode exists: separation runs on 100% of the episode here
 # rather than the ~33% that survives filtering, so reusing the dialogue constant under-shards.
 #
@@ -127,7 +129,18 @@ n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
 # (113.1 -> 44). Pinned rather than derived, so re-pricing the constant has to be a deliberate edit
 # here too: the shard count decides the fan-out of a ~165 GPU-h corpus run, and a constant that
 # drifts silently is how a 4 h-target shard quietly becomes a 6 h one that the partition kills.
-check("JRE whole-episode == 51 shards", n_whole == 51, f"got {n_whole}")
+# 67 = 7,386 measured episode-hours / 110.6 per shard at the 4 h default. Was 51 before ASR and
+# the embedding scorer were added, 44 before the cost was measured, 42 when the corpus size was a
+# guess. Pinned rather than derived so re-pricing either input stays a deliberate edit here too.
+# ⚠ The RECIPE targets 6 h, not this 4 h default -- build_podcast passes target_runtime_hours=6.0
+# against a 12 h rqmt, giving 45 shards with 2x headroom, so a +-50% cost error found in the first
+# shards' own summary.json does not force a num_shards change (which would re-pack every episode).
+check("JRE whole-episode == 67 shards", n_whole == 67, f"got {n_whole}")
+check(
+    "...and the recipe's 6 h target gives 45",
+    shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole", target_runtime_hours=6.0) == 45,
+    f"got {shards_for_hours(JRE_H, channel_mode='dialogue_sidon_whole', target_runtime_hours=6.0)}",
+)
 whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0
 check("...landing within 5% of the 4 h target", whole_h <= 4.0 * 1.05, f"{whole_h:.2f} h")
 check(

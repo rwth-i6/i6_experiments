@@ -760,7 +760,17 @@ DUPLEX_RETENTION = 0.427
 #: EPISODE-HOUR, so the scaling should hold -- but the shard target is 4 h against an 8 h walltime,
 #: i.e. 2x headroom, which is what absorbs the error. Each shard writes its own `summary.json`;
 #: re-read them after the first few of the full fan-out rather than trusting this to the decimal.
-EPISODE_SEC_PER_EPISODE_HOUR = 97.88
+#: ✅ UPDATED 2026-09-20 for the two stages added since: per-channel ASR and the speaker-embedding
+#: channel scorer.
+#:     97.9  separation + diarization + decode + encode (measured, pilot shard 4263279)
+#:   + 22.3  ASR, faster-whisper/medium on both channels (measured: 265 and 415 audio-h/GPU-h)
+#:   + ~10   speaker embeddings, 6 s windows at a 12 s hop, both channels. Measured 59.5 s/ep-h on
+#:           CPU at 4 threads; this runs on the worker's GPU, so ~10 is a conservative allowance.
+#:   ------
+#:    130.2
+#: ⚠ Each shard still writes its realised `sec_per_episode_hour`; re-read the first few of the
+#: fan-out rather than trusting this to the decimal. The 2x rqmt headroom is what absorbs the error.
+EPISODE_SEC_PER_EPISODE_HOUR = 130.2
 
 
 def episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
@@ -1181,7 +1191,13 @@ class PodcastEpisodeIngest(Job):
     # alignments in the corpus. Excluding them unconditionally would let an ASR and a no-ASR corpus
     # hash identically -- and the enabling argument, `asr_venv_python`, is a PATH we must drop, so
     # these two are the only hashed record that ASR ran at all.
-    __sis_hash_exclude__ = {"rqmt": None, "max_items": 0, "asr_backend": None, "asr_model": None}
+    __sis_hash_exclude__ = {
+        "rqmt": None,
+        "max_items": 0,
+        "asr_backend": None,
+        "asr_model": None,
+        "perm_scorer": "energy",
+    }
 
     def __init__(
         self,
@@ -1207,6 +1223,7 @@ class PodcastEpisodeIngest(Job):
         asr_backend: str | None = None,
         asr_model: str | None = None,
         asr_batch_size: int = 16,
+        perm_scorer: str = "energy",
         rqmt: dict | None = None,
     ):
         self.duplex_venv_python = duplex_venv_python
@@ -1244,6 +1261,10 @@ class PodcastEpisodeIngest(Job):
         self.asr_backend = asr_backend
         self.asr_model = asr_model
         self.asr_batch_size = int(asr_batch_size)
+        # HASHED -- it changes which speaker each channel carries, i.e. the corpus content. Excluded
+        # only at "energy" (the old behaviour) so existing shards keep their hash.
+        assert perm_scorer in ("energy", "embedding"), perm_scorer
+        self.perm_scorer = perm_scorer
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
         # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
@@ -1375,6 +1396,8 @@ class PodcastEpisodeIngest(Job):
                 "--asr_batch_size",
                 self.asr_batch_size,
             ]
+        if self.perm_scorer != "energy":
+            args += ["--perm_scorer", self.perm_scorer]
         if self.max_items:
             args += ["--max_items", self.max_items]
 
@@ -1405,6 +1428,7 @@ def podcast_episode_codes(
     register: bool = True,
     require_all_shards: bool = True,
     exclude_audio_urls: list[str] | None = None,
+    shard_indices: list[int] | None = None,
     **ingest_kwargs,
 ):
     """Wire work-index -> N sharded WHOLE-EPISODE separating ingests -> codes index.
@@ -1436,7 +1460,10 @@ def podcast_episode_codes(
         exclude_audio_urls=(SMOKE_AUDIO_URLS if exclude_audio_urls is None else exclude_audio_urls),
     )
     shard_dirs = []
-    for k in range(num_shards):
+    # Build a SUBSET without changing `num_shards`. Shard->episode assignment is a global
+    # bin-packing hashed on num_shards, so running "4 now, N later" as two different counts reuses
+    # NOTHING: freeze the count at its final value and run only some of them.
+    for k in shard_indices if shard_indices is not None else range(num_shards):
         job = PodcastEpisodeIngest(
             duplex_venv_python=duplex_venv_python,
             mimi_venv_python=mimi_venv_python,
