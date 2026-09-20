@@ -1683,6 +1683,87 @@ def podcast_duplex_codes(
     return codes_index.out_dir, index.out_dir, shard_dirs
 
 
+#: Cosine above which two episode centroids are taken to be the same person. MEASURED on the pilot,
+#: not guessed: the recurring host scores **0.959-0.970** across episode pairs while different
+#: speakers sit at -0.03..+0.75, and the SAME episode through two independent ingest runs scores
+#: 1.000 (pyannote's embeddings are deterministic). 0.85 sits in the empty band between those.
+HOST_MATCH_COSINE = 0.85
+#: A speaker needs this much speech in an episode to be a host candidate; below it the label is
+#: usually a diarization artefact.
+HOST_MIN_SPEECH_SEC = 300.0
+
+
+def _episode_speakers(row):
+    """(labels, unit-norm centroids, seconds-per-label, channel->label) for one episode row."""
+    import json as _json
+
+    import numpy as _np
+
+    labels = _json.loads(row["speaker_labels_json"])
+    dim = int(row["speaker_embedding_dim"] or 0)
+    emb = _np.asarray(row["speaker_embeddings"] or [], dtype=_np.float64)
+    if not dim or emb.size != len(labels) * dim:
+        return None
+    E = emb.reshape(len(labels), dim)
+    E = E / (_np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
+    sec = {}
+    for t in _json.loads(row["diar_turns_json"] or "[]"):
+        k = str(t["speaker"])
+        sec[k] = sec.get(k, 0.0) + float(t["end"]) - float(t["start"])
+    chan = _json.loads(row["channel_speakers_json"]) if row.get("channel_speakers_json") else None
+    return labels, E, sec, chan
+
+
+def find_host(episodes):
+    """The identity present in the most episodes, as a unit-norm centroid.
+
+    On an interview podcast that is the host -- and choosing the assistant by IDENTITY rather than
+    by position is what gives the corpus ONE assistant voice across thousands of hours instead of a
+    different person per episode. A positional rule ("channel 0", i.e. whoever spoke most) picks the
+    guest whenever the guest dominates, which on JRE is common.
+
+    Returns ``(centroid, n_episodes_supporting)`` or ``(None, 0)``.
+    """
+    import numpy as _np
+
+    cands = []  # (episode_index, centroid)
+    for ei, ep in enumerate(episodes):
+        labels, E, sec, _ = ep
+        for i, lab in enumerate(labels):
+            if sec.get(lab, 0.0) >= HOST_MIN_SPEECH_SEC:
+                cands.append((ei, E[i]))
+    if not cands:
+        return None, 0
+    best, best_n = None, 0
+    for ei, v in cands:
+        # Count DISTINCT other episodes containing this identity. Counting candidates instead would
+        # let one episode with several matching labels outvote genuine recurrence.
+        hits = {ej for ej, w in cands if ej != ei and float(v @ w) >= HOST_MATCH_COSINE}
+        if len(hits) > best_n:
+            best, best_n = v, len(hits)
+    if best is None or best_n == 0:
+        return None, 0
+    # Refine: average every centroid that matches, so the reference is not one episode's noise.
+    members = [w for _, w in cands if float(best @ w) >= HOST_MATCH_COSINE]
+    c = _np.mean(members, axis=0)
+    return c / (_np.linalg.norm(c) + 1e-9), best_n
+
+
+def host_channel(ep, host_centroid):
+    """Which channel ('a'/'b') carries the host in this episode, or None."""
+    labels, E, _sec, chan = ep
+    if host_centroid is None or not chan or len(chan) < 2:
+        return None
+    idx = {lab: i for i, lab in enumerate(labels)}
+    sims = []
+    for ci, lab in enumerate(chan[:2]):
+        i = idx.get(str(lab))
+        sims.append(float(E[i] @ host_centroid) if i is not None else -1.0)
+    if max(sims) < HOST_MATCH_COSINE:
+        return None  # the host is not in this episode at all
+    return "a" if sims[0] >= sims[1] else "b"
+
+
 class PodcastCodesTrainData(Job):
     """Dialogue code rows -> the canonical codes-training schema the loader reads.
 
@@ -1710,12 +1791,20 @@ class PodcastCodesTrainData(Job):
         self,
         *,
         shard_dirs: list[tk.Path],
+        episode_shard_dirs: list[tk.Path] | None = None,
         assistant_channel: str = "a",
         min_assistant_words: int = 8,
         rqmt: dict | None = None,
     ):
-        assert assistant_channel in ("a", "b", "both"), assistant_channel
+        # "host": choose by speaker IDENTITY, so the assistant is the same person in every
+        # episode. Measured feasible on the pilot -- the recurring speaker scores 0.959-0.970 across
+        # episodes against <=0.75 for anyone else -- and it needs the EPISODE rows, which carry the
+        # centroids; the dialogue rows do not.
+        assert assistant_channel in ("a", "b", "both", "host"), assistant_channel
+        if assistant_channel == "host" and not episode_shard_dirs:
+            raise ValueError("assistant_channel='host' needs episode_shard_dirs for the embeddings")
         self.shard_dirs = list(shard_dirs)
+        self.episode_shard_dirs = list(episode_shard_dirs or [])
         self.assistant_channel = assistant_channel
         self.min_assistant_words = int(min_assistant_words)
         self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
@@ -1750,21 +1839,58 @@ class PodcastCodesTrainData(Job):
             }
         )
 
-        want = ["a", "b"] if self.assistant_channel == "both" else [self.assistant_channel]
-        cols = {k: [] for k in feats}
-        n_in = n_out = n_nowords = n_short = 0
-
-        for d in self.shard_dirs:
+        def _parts(d):
             root = d.get_path()
-            parts = sorted(
+            return sorted(
                 os.path.join(root, "parts", n)
                 for n in os.listdir(os.path.join(root, "parts"))
                 if not n.endswith(".tmp")
             )
-            for p in parts:
+
+        # ---- identity, if asked for ---------------------------------------------------------
+        host_by_episode = {}
+        if self.assistant_channel == "host":
+            eps, keys = [], []
+            for d in self.episode_shard_dirs:
+                for p in _parts(d):
+                    for r in load_from_disk(p):
+                        info = _episode_speakers(r)
+                        if info is not None:
+                            eps.append(info)
+                            keys.append(str(r["item_id"]))
+            centroid, n_sup = find_host(eps)
+            if centroid is None:
+                raise RuntimeError(
+                    f"assistant_channel='host' but no recurring speaker was found across "
+                    f"{len(eps)} episodes. Refusing to silently fall back to a positional rule: "
+                    "that would give a corpus whose assistant is a different person per episode, "
+                    "which is the opposite of what this mode is for."
+                )
+            for k, ep in zip(keys, eps):
+                ch = host_channel(ep, centroid)
+                if ch:
+                    host_by_episode[k] = ch
+            print(
+                f"[train_data] host identified in {len(host_by_episode)}/{len(eps)} episodes "
+                f"(supported by {n_sup} episodes at cos >= {HOST_MATCH_COSINE})",
+                flush=True,
+            )
+
+        want = ["a", "b"] if self.assistant_channel == "both" else [self.assistant_channel]
+        cols = {k: [] for k in feats}
+        n_in = n_out = n_nowords = n_short = n_nohost = 0
+
+        for d in self.shard_dirs:
+            for p in _parts(d):
                 ds = load_from_disk(p)
                 for r in ds:
                     n_in += 1
+                    if self.assistant_channel == "host":
+                        ch_sel = host_by_episode.get(str(r["episode_id"]))
+                        if ch_sel is None:
+                            n_nohost += 1
+                            continue
+                        want = [ch_sel]
                     for ch in want:
                         wjson = r.get(f"words_{ch}")
                         if not wjson:
@@ -1810,7 +1936,8 @@ class PodcastCodesTrainData(Job):
             )
         print(
             f"[train_data] {n_in} dialogue rows -> {n_out} training rows "
-            f"(assistant={self.assistant_channel}; dropped {n_nowords} wordless, {n_short} short)",
+            f"(assistant={self.assistant_channel}; dropped {n_nowords} wordless, "
+            f"{n_short} short, {n_nohost} no-host)",
             flush=True,
         )
         Dataset.from_dict(cols, features=feats).save_to_disk(self.out_dir.get_path())
