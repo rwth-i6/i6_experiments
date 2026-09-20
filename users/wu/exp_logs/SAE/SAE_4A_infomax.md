@@ -62,6 +62,31 @@ Not run, with the reason: invariance alone (theory: its gradient is zero at an i
 recognizer, so it cannot break the point; S3b-C's own caveat says the same); a lambda sweep (the
 user asked for a modest lambda; 0.1 is sized below).
 
+**Amendment after code review, before launch (2026-09-20 evening; original table above kept).**
+The review (`reports/review_infomax_2026-09-20.md`) measured ctrl_50's own eval-mode dev-other
+entropy per output frame at 3.25 / 2.71 / 0.30 / 0.19 nats at sub-epochs 1 / 4 / 10 / 21, while
+the arm stays in the band. The tau 8 -> 2 anneal alone makes the recognizer confident; the band is
+therefore a confident, input-dependent, content-free partition (a theta-phi private code), not the
+diffuse stationary point of the Objective. Consequences: the entropy penalty has nothing to bind
+on after sub-epoch 10, so the held-penalty arm answers nothing; invariance alone, dropped above
+because it has no gradient at a diffuse recognizer, has gradient at a confident one and is now the
+live test of "the confident partition tracks a nuisance". The review also measured lam_cons 1.0 at
+6.4x the gradient norm of the whole objective (cons 0.85 nats per output frame at ep10: specaug
+1.41, statswap 0.29; the term is normalized per output frame, three times the lattice's unit-frame
+normalization), so 1.0 is replaced. Launched arm set:
+
+| arm | lambda_ent | lam_cons (specaug + statswap) | question |
+|---|---|---|---|
+| ent_50 | 0.1 held 1..10, geometric to 0.001 over 11..20, 0 after | 0 | does sharpening before the anneal completes land in a different partition than the anneal's own (path dependence) |
+| entaug_50 | as ent_50 | 0.03 | the user's InfoMax + invariance combination |
+| aug_50 | 0 | 0.03 (about 20 % of the objective's gradient norm at ep10) | invariance alone, modest |
+| aughi_50 | 0 | 0.1 (about 60 %) | invariance alone, strong enough to move the partition if it can |
+
+Paired reads: each arm vs ctrl_50 at matched sub-epochs; entaug_50 vs ent_50 and entaug_50 vs aug_50
+(each factor given the other); aughi_50 vs aug_50 (weight). The Objective section's stationary-point
+framing stands as the account of the first sub-epochs (entropy 3.25 at sub-epoch 1) and is
+superseded from sub-epoch 10 by the private-code reading; `SAE_4A_objective.md` section 6 notes it.
+
 The entropy term: on the clean recognizer log posterior the lattice already ran on, per output
 frame `H_t = -sum_k q_t(k) log q_t(k)` over the 40 outputs in nats (no division by log 40), summed
 over the valid output frames of an utterance and divided by that utterance's retained unit-frame
@@ -126,13 +151,14 @@ selector exists; never best-PER over the kept set): the budget round's G4a.4 thr
 < 0.50 AND greedy emitted rate in [5.80, 14.49]/s, health clause derangement gap > 0. Read against
 ctrl_50 at the same sub-epoch through the paired job.
 
-Pre-registered early read at sub-epoch 10 (not a gate): symmetry breaking is declared when the
-EVAL-MODE entropy per output frame is below 1.0 nat while ctrl_50's at the same checkpoint is not
-(the tau anneal alone sharpens q, so the arm's number is read against ctrl_50's, amendment 1) AND
-the arm's dev-other PER is below its own length-and-unigram-matched chance null by more than 0.05
-(amendment 7; the null sits at 0.84-0.87 for a length-faithful string, `SAE_4A.md:984`, so a PER
-of 0.80 alone is a screening number, not band exit). Entropy below 1.0 with PER inside the null's
-spread reads "confident but content-free" and is the case the invariance arms exist for.
+Pre-registered early read at sub-epoch 10 (not a gate), as amended after the code review: the
+entropy clause is descriptive only (ctrl_50 itself is at 0.30 nats by sub-epoch 10, so "below 1.0
+while ctrl_50 is not" can never fire; the eval-mode entropy of every arm is still banked at each
+kept checkpoint). Band exit is declared when the arm's dev-other PER is below its own
+length-and-unigram-matched chance null by more than 0.05 (amendment 7; the null sits at 0.84-0.87
+for a length-faithful string, `SAE_4A.md:984`, so a PER of 0.80 alone is a screening number, not
+band exit). The sub-epoch 4 checkpoint is read the same way for the ent arms, where the penalty
+acts before the anneal has sharpened ctrl_50 (2.71 nats at sub-epoch 4).
 
 Low-inventory FAIL (amendment 5; the S3b-C consistency arms collapsed onto 3-4 symbols,
 `SAE_4A.md:984`): greedy symbol-usage entropy below 3 bits with the rate inside the window reads

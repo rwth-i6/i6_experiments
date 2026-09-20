@@ -148,6 +148,16 @@ EXACTLY x-independent recognizer its gradient is the same for every frame and po
 constant output, which the marginal terms resist). It is a deliberate mode-seeking departure from
 (B), the opposite sign of item 3 in section 5, and a cold-start device to be withdrawn.
 
+Measured after writing this (code review of the InfoMax arms, `SAE_4A_infomax.md` Design
+amendment): the budget control's eval-mode entropy falls from 3.25 nats per output frame at
+sub-epoch 1 to 0.30 at sub-epoch 10 and 0.19 at 21 while its PER stays in the band. The
+stationary point above describes only the first sub-epochs; from about sub-epoch 10 the recognizer
+sits in a confident, input-dependent, content-free partition, a theta-phi private code that the
+tau = 2 posterior matching reaches on its own. The binding problem is therefore identifiability of
+the code against the text prior (which partition the joint optimum selects), not the entropy of
+the recognizer. Section 5 item 2 (reverse-model slack: the recognizer prefers whatever phi
+reconstructs easily) is the mechanism that produces such a code.
+
 ## 7. Open
 
 - The Bhattacharyya form (tau = 2) and the KL form (B) share a fixed point but not a gradient
