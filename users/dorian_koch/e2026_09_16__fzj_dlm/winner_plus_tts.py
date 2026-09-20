@@ -287,6 +287,7 @@ def train_winner_plus_tts(
     resume_from_winner: bool = False,
     nep: Optional[int] = None,
     flat_lr: Optional[float] = None,
+    with_tts: bool = True,
 ):
     """
     The winner's own ``_train_tts_encoder`` call (``_sa == 50``), verbatim except for:
@@ -308,7 +309,7 @@ def train_winner_plus_tts(
     _sa = 50
     _nep = nep if nep is not None else NEP
     if name is None:
-        name = f"winner-plusTts-nEp{_nep}-lr5e-4"
+        name = f"winner-{'plusTts' if with_tts else 'contNoTts'}-nEp{_nep}-lr5e-4"
         if resume_from_winner:
             name += f"-resumeEp{WINNER_EPOCH}"
         if flat_lr is not None:
@@ -322,7 +323,14 @@ def train_winner_plus_tts(
         if resume_from_winner
         else contextlib.nullcontext()
     )
-    with _PatchAsrBranchWithTts(), _resume:
+    # 🔴 `with_tts=False` is the ABLATION the +TTS arm is worthless without: continue the winner on
+    # its OWN data, same schedule, same number of extra epochs. Without it, any gain the +TTS arm
+    # shows is confounded with simply having trained 10 sub-epochs longer -- and the winner's LR had
+    # decayed to 1e-6 by epoch 38, so "more training at 1e-5" is a real and separate intervention,
+    # not a no-op. The two arms then differ in exactly one thing: whether the `asr` branch carries
+    # Rossenbach's TTS zips alongside LS-960.
+    _tts = _PatchAsrBranchWithTts() if with_tts else contextlib.nullcontext()
+    with _tts, _resume:
         return _train_tts_encoder(
             name,
             prefix=prefix,

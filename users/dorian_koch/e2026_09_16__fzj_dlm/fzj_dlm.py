@@ -126,6 +126,16 @@ FT_HYPS_EPOCH = 10
 WINNER_PLUS_TTS_RESUMED = True
 WINNER_PLUS_TTS_RESUMED_NEP = 48  # winner's 38 + 10 more, so the model scan finds epoch.038
 WINNER_PLUS_TTS_RESUMED_LR = 1e-5
+
+# 🔴 The ABLATION that makes the resumed +TTS arm interpretable (user call, 2026-09-20): continue the
+# winner on its OWN data -- no TTS zips -- with the identical resume, identical flat LR and identical
+# epoch range. Without it "+TTS is better" is confounded with "trained 10 sub-epochs longer", and that
+# confound is NOT small here: the winner's OCLR had decayed to ~1e-6 by epoch 38, so resuming at a
+# flat 1e-5 is a 10x LR increase that would move the model on its own. This arm holds everything
+# fixed except the presence of Rossenbach's TTS audio in the `asr` branch.
+# ⚠ Its text branch still advances to LM partitions 38-47 exactly as the +TTS arm does, so the two
+# see the SAME injected text -- the only difference is the audio.
+WINNER_CONT_NO_TTS = True
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
 
@@ -395,6 +405,21 @@ def py():
             resume_from_winner=True,
             nep=WINNER_PLUS_TTS_RESUMED_NEP,
             flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
+        )
+
+    if WINNER_CONT_NO_TTS:
+        # The ablation: byte-identical to the resumed +TTS arm above except `with_tts=False`, which
+        # skips `_PatchAsrBranchWithTts` and leaves the `asr` branch as the winner's own LS-960
+        # OggZip. Same resume donor, same nep, same flat LR, so the pair differs in one factor.
+        from .winner_plus_tts import train_winner_plus_tts
+
+        train_winner_plus_tts(
+            prefix=f"{prefix}/winner-plus-tts",
+            winner_model=winner_model,
+            resume_from_winner=True,
+            nep=WINNER_PLUS_TTS_RESUMED_NEP,
+            flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
+            with_tts=False,
         )
 
     if FT_HYPS_WER:
