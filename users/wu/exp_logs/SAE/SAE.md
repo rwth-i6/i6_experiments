@@ -92,8 +92,14 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    term. Step 0 read (audited): the lexicon, not order or weight, identifies the private code
    (gap 2.32 vs trigram 1.39); IS closed; the arm is a score-function term with a strong scorer
    (G4a.7 defined, design-reviewed, amendments applied). Step 0b (neural phone LM as the
-   scorer): 3.3 M / 3 epochs was a partial proxy (gap 1.71 < 2.01 bar); rerun 30 epochs at
-   3.3 M and 10.9 M running, a 25 M / 10 M-line instance queued. Other follow-up candidate:
+   scorer): 3.3 M / 3 epochs was a partial proxy (gap 1.71 < 2.01 bar); the 30-epoch rerun at
+   3.3 M and 10.9 M plateaus at gap 1.85 (no-improvement abort: the 1 M-line window is the
+   ceiling); the 25 M / 10 M-line instance (c) is running as the last phone-LM test. Pre-launch
+   falsifiers read 2026-09-21: the amended reward clears the sign trap, but gold beats every
+   sampled string in 100 / 100 / 97 % of utterances at ep1 / ep4 / ep10, so under the
+   pre-registered rule the score-function arm is NOT funded (audit pending); next arm is the
+   lexicon inside the marginalised lattice (GPU trie DP; survey banked, literature pending),
+   unless (c) meets the bar and the soft arm is reconsidered. Other follow-up candidate:
    K = 64 reverse units.
    **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
    the sub-epoch count for future arms from the label-free behaviour of the running budget arms
