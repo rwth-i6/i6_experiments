@@ -1255,8 +1255,11 @@ class PodcastEpisodeIngest(Job):
         # reasoning as env_ffmpeg_path. `asr_batch_size` is throughput: faster-whisper runs its VAD
         # and segments the audio BEFORE batching, so the batch size only sets how many of those
         # segments decode in parallel, not where they start or end.
-        # ⚠ That is an assumption about someone else's library, and it is the kind that is silent
-        # when wrong -- so it is asserted by `check_asr_batch_invariance.py` rather than trusted.
+        # ⚠ That is an assumption about someone else's library, and the kind that is silent when
+        # wrong: the knob would change corpus content while every hash stayed put. So it was
+        # MEASURED (2026-09-20, /hpcwork/tt201262/asr_bakeoff/batch_inv.py, 90 s of real separated
+        # podcast audio at batch 4 vs 16): 229 words, 0 text mismatches, max onset delta 0.000
+        # frames. Re-run it if the backend is ever changed.
         for k in (
             "env_ffmpeg_path",
             "download_workers",
