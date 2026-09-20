@@ -119,6 +119,23 @@ APPROVE_WITH_AMENDMENTS, applied before any job):**
 - Cheapest check, pre-funding: the dev-other data job alone (~15 min GPU): OR total == 781,130
   (else STOP), T'/T, unit agreement, distortion, T' < 2 count. The pack is funded only after it.
 
+**Code review amendments (2026-09-21, `reports/review_prepro_2026-09-21.md`,
+APPROVE_WITH_AMENDMENTS; applied before the pack is funded):**
+- Seed band: RETURNN `random_seed` moves theta / phi init and the RNG but not the sequence order
+  (laplace ordering is seeded by epoch + `random_seed_offset`, default 0), so ctrl_20_s1 as built
+  was an INIT band only. Amended: ctrl_20_s1 also sets `random_seed_offset` = 1, so the band is the
+  full replicate (init + order + sub-epoch composition).
+- Extraction-path null: the fidelity statistic (unit agreement bed vs new) mixes the cut with any
+  encoder / numerics / index-mapping difference. A separate small job
+  (`UntrimmedEncodeAgreementJob`, 50 dev-other utterances) encodes the UNTRIMMED waveform through
+  the identical path and reports agreement with the banked units; expected near 1.00, and the
+  cut's own effect is read as the data job's agreement against this null. Convention: the data
+  job's denominator is all T' trimmed frames, including frames the bed's OR mask dropped.
+- Sound per the review: ctrl_20 is the budget bed at N = 20 (sub-epoch = partition 4 of the
+  corpus, independent of N; 601 s per sub-epoch carries over), lr / tau lists match the intended
+  shape, prepro_20 differs in the four HDF paths only, every read uses the arm's own streams, the
+  rate clause divides by the identical orig_length, no labels reach training or selection.
+
 ## Gate
 
 G4a.8 (pre-registered here before any job; thresholds copy G4a.4, `SAE_4A_budget.md`): greedy PER
