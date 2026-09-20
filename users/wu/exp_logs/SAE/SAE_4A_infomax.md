@@ -258,12 +258,19 @@ lower than the controls' (0.77-0.78 vs 0.88).
 
 ### Private-code analysis of ctrl_50 (banked 2026-09-20; audit `reports/audit_private_code_2026-09-20.md`, DONE_WITH_CONCERNS)
 
-Jobs: State pointers. dev-other, 2864 utterances; dev-clean tells the same story (audit item 1).
-Audit corrections applied to the numbers below: the part A many-to-one row omitted run collapse
-(banked 0.874 at ep10; recomputed 0.855, code fix pending re-bank); the with-drop oracle is an
-upper bound under the fixed alignment and has no null; the E5 permutation null is bijections
-against a many-to-one statistic and the identity labeling itself clears it, so the E5 rule as
-pre-registered decides nothing (fix pending: matched many-to-one null plus the identity row).
+Jobs (version 2, re-banked 2026-09-20 19:55 after the audit; the version-1 dirs hold pre-audit
+numbers and are not read): `PrivateCodeAnalysisJob.{j5ybPkSFOSBq,UPuAcKSAI5oK,cQbcIJtOamLm}` ep1/4/10
+dev-other, `.{1bNrZdet9JcH,QY8blUARrLxQ,OIDSbcHXTzsP}` dev-clean, `SymbolDeciphermentJob.{GpiTxaoRCZXG,m8EsFhL6ysqu}`
+ep4/ep10 dev-other, under `work/speech_llm/sae/emc/private_code/`. dev-other, 2864 utterances;
+dev-clean tells the same story (audit item 1). Audit corrections in the version-2 code: the
+many-to-one and with-drop strings are re-collapsed (ep10 many-to-one 0.874 -> 0.855, with-drop
+0.841 -> 0.840); the E5 null is a matched many-to-one null (the fitted map's targets permuted over
+the symbols) with the identity row and the gold reference beside it. E5 at ep10, fit / held: hard
+relabeling -3.81 / -3.84 nats per token; identity -3.98 / -3.99; matched null max -6.20 / -6.25
+(sd 0.49); the pre-registered rule reads FALSE (hard beats identity by 0.17 / 0.16 < sd). PER:
+hard 0.851 / 0.853; matched-null mean 0.868 / 0.871 (sd 0.013); so a random many-to-one map with
+the same target multiset already sits at 0.87, and every oracle or deciphered relabeling gains
+0.01-0.03 over it.
 
 | ctrl_50 dev-other | ep1 | ep4 | ep10 |
 |---|---|---|---|
@@ -295,6 +302,8 @@ Readings, against the pre-registered ones:
   units" as written fails.
 - Withdrawn (audit items 3 and 6): the reading "the labeling is already near the prior-best, so
   the prior is satisfied by a non-phone sequence (identifiability, not stuck optimization)". What
-  the table shows is only that the identity labeling's prior score rose from -7.43 to -3.98
-  between ep4 and ep10 (gold -3.20, like-for-like SIL-free identity -4.62); whether a labeling the
-  prior prefers exists is undecided until the matched null is banked.
+  the version-2 table shows: the identity labeling's prior score rose from -7.43 to -3.98 between
+  ep4 and ep10 (gold -3.20; like-for-like SIL-free identity -4.62), far above any matched random
+  relabeling (-6.2 max), and the EM's relabeling does not beat identity by the pre-registered
+  margin. No search over relabelings was run, so "no better labeling exists" is not shown; what is
+  shown is that the label-free decipherment finds none.

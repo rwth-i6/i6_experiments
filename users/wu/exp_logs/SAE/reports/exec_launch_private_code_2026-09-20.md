@@ -27,3 +27,31 @@ Status: DONE
 - No anomalies.
 
 Full report path: recipe/i6_experiments/users/wu/exp_logs/SAE/reports/exec_launch_private_code_2026-09-20.md
+
+## Re-run v2
+
+Status: DONE
+
+- Activated sis_env; no prior manager for config/sae_4a_private_code.py running; other managers
+  untouched (2945974 sae_4a_budget_pack, 1355841 sae_4a_infomax_pack, confirmed alive throughout).
+- Started manager plainly (no -co/-cio):
+  `nohup .../sis_env/bin/python tools/sisyphus/sis --log_level 30 m -r config/sae_4a_private_code.py`.
+  Manager pid: 2103202. Log: log/sae_4a_private_code.manager.20260920T194359.log
+  (log/sae_4a_private_code.manager.log symlink repointed to it).
+- Census at graph load (console -s -c, skip_finished): exactly the 8 expected NEW jobs, all
+  queued/CPU, all under work/speech_llm/sae/emc/private_code/ -- no training/forward/PER job:
+  PrivateCodeAnalysisJob j5ybPkSFOSBq, 1bNrZdet9JcH, UPuAcKSAI5oK, QY8blUARrLxQ, cQbcIJtOamLm,
+  OIDSbcHXTzsP; SymbolDeciphermentJob GpiTxaoRCZXG, m8EsFhL6ysqu. Matches the dispatch exactly.
+  Nothing to escalate as BLOCKED.
+- Foreground checks (per-dir finished/error marker, sleep 60 loop): all 6 PrivateCodeAnalysisJob
+  dirs finished within the first check window; both SymbolDeciphermentJob dirs finished by
+  iteration 10 of the follow-up 10x60s loop (~10-11 min), matching the ~11 min estimate. Zero
+  errors observed on any of the 8 job dirs throughout.
+- Verified output artifacts on disk: all 6 PrivateCodeAnalysisJob dirs have
+  output/private_code.json + private_code.md; both SymbolDeciphermentJob dirs have
+  output/decipher.json + decipher.md.
+- Manager 2103202 exited cleanly after all 8 jobs finished (confirmed absent from ps). Other
+  managers (2945974, 1355841) confirmed still alive and untouched.
+- No anomalies.
+
+Full report path: recipe/i6_experiments/users/wu/exp_logs/SAE/reports/exec_launch_private_code_2026-09-20.md
