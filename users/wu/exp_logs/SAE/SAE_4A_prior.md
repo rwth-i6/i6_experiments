@@ -43,10 +43,11 @@ manager: pid 4004154, `log/sae_4a_phone_lm.manager.20260920T214940Z.log`, watche
 (`reports/exec_phone_lm_v2_launch_2026-09-20.md`; text jobs Slurm 1920042/1920043 first, then the
 GPU fit, ~2 h estimated). Falsifier probe (i) built (speech-llm d22d81d:
 `NeighbourhoodProbeJob.ZhYOeCltF4wW` ep4 / `.6JZvwE7T1UmA` ep10, word-BIGRAM row
-`PriorGapAnalysisJob.m6lUxAO65f6A`; `reports/impl_prior_probe_2026-09-20.md`) is running under
-its own manager: pid 3849944, `log/sae_4a_prior_probe.manager.20260920T214015Z.log`, watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 3849944 config/sae_4a_prior_probe.py 600`
-(`reports/exec_prior_probe_launch_2026-09-20.md`; note the venv is `/e/project1/spell/wu24/env/sis_env`).
+`PriorGapAnalysisJob.m6lUxAO65f6A`; `reports/impl_prior_probe_2026-09-20.md`) is FINISHED and read
+(Results, "Pre-launch falsifier (i)"): A1 removes the sign trap, but gold beats the whole
+single-token neighbourhood in > 99 % of utterances at ep4 and ep10 and the neural reward's local
+deltas track the trigram (+0.65); the funding rule is read on (ii). Its manager (3849944) exited
+cleanly (note the venv is `/e/project1/spell/wu24/env/sis_env`).
 The word-UNIGRAM row is deferred: KenLM has no order 1, it needs an edit inside prior_gap.py, which
 stays frozen while the rerun's analysis jobs are pending; it is not on the launch path. Blank-free
 FFBS sampler + probe (ii) job still being built in new modules (`config/sae_4a_sf_probe.py`,
@@ -446,3 +447,45 @@ window. Instance (c) (10 M lines, 25.5 M params, running) is the last phone-LM t
 axis; if it also lands below 2.01 or off the strict track, the pre-registered fallback holds and
 the GPU trie lexicon DP is the scorer (survey of the lexicon scoring path started now so that the
 fallback is specifiable the moment (c) reads).
+
+### Pre-launch falsifier (i): neighbourhood probe on the ctrl_50 decodes (read 2026-09-21)
+
+`NeighbourhoodProbeJob.ZhYOeCltF4wW` (ep4) / `.6JZvwE7T1UmA` (ep10), speech-llm d22d81d, 2864
+dev-other utterances, K = 8 single-token edits per utterance (second-choice substitutions and
+deletions on the frame sequence, collapsed, SIL dropped), conventions in the module docstring
+(`reports/impl_prior_probe_2026-09-20.md`, `reports/extract_prior_probe_2026-09-21.md`). Rewards
+in nats per utterance; "gold above max" = fraction of utterances with r(gold) > max over
+{decode} U edits (disclosed, label-using, enters nothing).
+
+| reward | ckpt | std over neighbourhood (median) | corr of reward delta with trigram delta (Pearson) | gold above max | mean edit delta | decode / gold nats per utt |
+|---|---|---|---|---|---|---|
+| A1 neural − unigram | ep4 | 4.00 | +0.65 | 0.9993 | +1.64 | −95.1 / +58.7 |
+| A1 neural − unigram | ep10 | 4.23 | +0.68 | 0.9920 | −1.32 | −39.0 / +58.7 |
+| A1 lexicon ESCAPE − unigram | ep4 | 0.50 | +0.42 | 0.9997 | +0.46 | −42.6 / +81.0 |
+| A1 lexicon ESCAPE − unigram | ep10 | 2.41 | +0.36 | 0.9972 | −0.33 | −46.4 / +81.0 |
+| original neural − trigram | ep4 | 5.03 | −0.73 | 0.0552 | −1.36 | +85.9 / +39.9 |
+| original neural − trigram | ep10 | 5.01 | −0.75 | 0.6390 | +1.81 | +17.2 / +39.9 |
+
+Lexical content: the decode segments under the strict lexicon in 5.2 % (ep4) / 23.7 % (ep10) of
+utterances against 87.6 % for gold; single-token edits raise the strict word count in 1.5 % /
+4.2 % of edits and the escape-row real-word count in 3.2 % / 10.1 %.
+
+Reading (probe (i) only; the funding rule is read on (ii), the FFBS draws):
+- The sign trap is real and A1 removes it: the original reward (neural minus trigram) scores the
+  decode ABOVE gold at ep4 and its local deltas anti-correlate with the trigram (−0.73); both A1
+  rewards put gold far above the decode and correlate positively with the trigram locally.
+- Under A1 the neighbourhood is not a dead band (std 4 nats per utterance for the neural reward),
+  but gold exceeds every string of the neighbourhood in > 99 % of utterances at both checkpoints,
+  above the 95 % line at the single-token scale. The local signal of the neural reward tracks the
+  trigram (+0.65 / +0.68): at the edit scale the strong scorer mostly restates the prior already in
+  the DP. The lexicon reward is nearly flat around the ep4 decode (std 0.5) because almost no
+  single edit creates a dictionary word; it only wakes up at ep10 where a quarter of the decodes
+  segment.
+- Expectation for (ii): at ep10 (tau 2) the FFBS draws are local edits and will reproduce these
+  numbers; at ep1 / ep4 (tau 8 / 5) the draws are diverse and the r(gold) > max_g fraction is the
+  open measurement. If it also exceeds 95 % at every checkpoint, the rule stands: sf is not funded
+  and the lattice-internal lexicon design is the next arm, which coincides with the Step 0b
+  fallback (GPU trie lexicon DP, `reports/survey_lexicon_scorer_2026-09-20.md`).
+- Word-bigram ESCAPE row (`PriorGapAnalysisJob.m6lUxAO65f6A`): gap 2.287 against the trigram
+  row's 2.321, strict 2.512 vs 2.506; the word-LM order above bigram buys 0.03 nats per token, the
+  lexicon itself carries the discrimination. The word-unigram row stays deferred (KenLM order 1).
