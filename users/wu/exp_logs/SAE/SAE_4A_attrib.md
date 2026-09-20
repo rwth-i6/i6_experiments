@@ -8,11 +8,7 @@ constraint stand). Gold enters evaluation only.
 ## State
 
 Steps 1-3, priorshuf, 5 and 5b DONE, audited, every gate FAIL (Results); their managers exited.
-Live: reverse-diagnostic manager pid 2048921 (`config/sae_4a_attrib_ganrev_revdiag.py`, one job
-`W2vu2RevDiagJob.oWBYItTBrIT7`, SLURM 1902660, booster;
-`reports/sae_attrib_step4_revdiag_launch_2026-09-20.md`). Re-arm first on resume if dead:
-`bash ~/.claude/skills/sis/sis_watch.sh 2048921 config/sae_4a_attrib_ganrev_revdiag.py 300`.
-E4 and est_perm managers exited after finishing.
+No live manager or watcher (E4, est_perm and reverse-diagnostic managers exited after finishing).
 Standing user directions (2026-09-19): continue autonomously, no GAN component in new arms, every
 n-gram from the sampled fit (priorshuf bed), plan changes shown before execution.
 
@@ -27,11 +23,8 @@ top-1 unit accuracy under own / deranged / gold-forced-alignment inputs with flo
 Step 6 DONE 2026-09-20 (Results "Step 6 synthesis"): item 1 branch (C), item 3 unfunded; item 4
 null-level everywhere; item 2 unresolved on both reads (perm KL3_full 1.27 vs 0.83), audit
 pending (`reports/sae_attrib_step6_e4_audit_2026-09-20.md`, corrections go to the item 2 entry).
-NEXT: read the reverse diagnostic of lam1.0_s0 on the watcher verdict
-(`output/sae/4a/attrib/ganrev/lam1.0_s0/rev_diag.{json,txt}`; read-side caveats in
-`reports/sae_attrib_step4_revdiag_review_2026-09-20.md`: gold is on the feasible subset,
-own/deranged Viterbi scores include log q while gold is phi alone), record under the step 4 result.
-Pending user decisions: the 16-sub-epoch budget arm (Results, hyperparameter review) and the
+Reverse diagnostic of lam1.0_s0 DONE (Results, "Step 4 diagnostic"). Nothing is running or queued.
+NEXT: none until the user decides. Pending user decisions: the 16-sub-epoch budget arm (Results, hyperparameter review) and the
 next objective (Step 6 synthesis).
 
 ## Question
@@ -822,3 +815,31 @@ the null, and the two remaining suspects are the objective's descent directions 
 content while raising likelihood (steps 1, 2, 5b) and the budget (review). The phase decision
 rule fires on no branch; the next experimental decision is the user's (budget arm, or a new
 objective term inside the cycle).
+
+### Step 4 diagnostic (2026-09-20 11:02): lam1.0_s0's reverse model is converged, non-degenerate, and its unit fit rides on the recognizer's sequence, not on its per-frame argmax
+`W2vu2RevDiagJob.oWBYItTBrIT7` (`output/sae/4a/attrib/ganrev/lam1.0_s0/rev_diag.{json,txt}`,
+13 min; conventions in the worker docstring and `reports/sae_attrib_step4_revdiag_review_2026-09-20.md`;
+funded on the user's question, not audited). Checkpoint = the arm's selected 103k-update
+checkpoint; tau 1, beta 0, d_min 2, K = 500 units, all dev utterances; the own logZ reproduces
+`rev_dev.json` to 0.0. Train-side convergence: `rev_logz_per_frame` -3.66 (10k) -> -3.15 (67k)
+-> -3.13 (150k), flat from 67k, the selected checkpoint sits on the plateau.
+
+| dev-other, per retained frame | log-lik | top-1 unit acc (lattice max path) | top-1 (greedy phone path) |
+|---|---|---|---|
+| own posterior (logZ) | -3.354 | 0.217 | 0.060 |
+| deranged posterior (logZ) | -4.909 | 0.226 | 0.004 |
+| gold phones, forced alignment under phi alone (Viterbi / forward) | -4.833 / -4.810 | 0.146 | - |
+| floors: majority unit / in-sample unigram / uniform | - / -6.034 / -6.215 | 0.015 / - / 0.002 | |
+
+dev-clean is the same picture (own -3.221 / 0.230; deranged -4.882 / 0.239; gold -4.495 / 0.160).
+Phone states used on the max path 40 of 40; top-10 predicted-unit share 0.16 vs 0.07 observed,
+so the emission table is not collapsed. Reading: (i) the own-minus-deranged logZ gap is 1.55
+nats (the cold bed's best was 0.75), so phi's fit depends on the recognizer's actual sequence;
+(ii) the max-path accuracy is unchanged under derangement while the greedy-path accuracy falls
+from 0.06 to 0.004, so the 22 % accuracy is phi acting as a decoder over a freely chosen state
+path (min-duration lattice), not a read of the recognizer's per-frame argmax; the log-likelihood,
+not the accuracy, measures the coupling; (iii) the gold-phone oracle is worse than the own
+posterior in both numbers, but it is not the same currency: the own/deranged scores include
+(1/tau) log q along the path, the gold string has no SIL so silence frames must be absorbed by
+phone states, and the alignment is phi's own; it does say phi's table is not a clean
+gold-phone-to-unit map. No arm decision follows.
