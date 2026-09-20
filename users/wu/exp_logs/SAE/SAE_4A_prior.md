@@ -7,8 +7,11 @@ context-dependent reverse model (`SAE_4A_cdrev.md`, deferred without limit by th
 day, nothing built). Step 0 is a CPU diagnostic, no node: the gold-minus-private-code prior gap as
 a function of prior order and of lexicalisation, on dev-other. Job built (`sae/emc/prior_gap.py`,
 `PriorGapAnalysisJob.l0p0srBryKrs`, config `config/sae_4a_prior_gap.py`, speech-llm commit
-1431dbf; `reports/impl_prior_gap_2026-09-20.md`), executor launching it under its own manager;
-code review of the scorer conventions running in parallel (its verdict decides whether the numbers
+1431dbf; `reports/impl_prior_gap_2026-09-20.md`), launched under its own manager (pid 2571413,
+`log/sae_4a_prior_gap.manager.20260920T185700Z.log`, Slurm 1916086; watcher
+`bash ~/.claude/skills/sis/sis_watch.sh 2571413 config/sae_4a_prior_gap.py 300`, re-arm first
+after any session resume, together with the budget and infomax watchers named in their phase
+files); code review of the scorer conventions running in parallel (its verdict decides whether the numbers
 are trusted or the job reruns under a version bump). Convention fixed before the numbers: the gold
 reference is SIL-free and the decode carries SIL, so the job scores both pairings; the
 like-for-like pairing (SIL dropped from the decode) is primary and the SIL-kept pairing is
