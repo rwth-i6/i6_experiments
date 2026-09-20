@@ -309,3 +309,146 @@ plain import):
   (`L15FeatureHdfJob.6ChpQYsQh1VI`, `LibriSpeechSplitIdsJob.G6pzdHOHvEFh`). No train job, no arm.
 * `config/sae_4a_prepro_pack.py` → 236 registered outputs, 133 jobs: the 3 data jobs, the pack
   `YQszIGUOm7Sh`, both flat inits, the prior pair, and 24 each of the five read classes.
+
+---
+
+## Code-review amendments, 2026-09-21 (commit `1b25144`, speech-llm `haotian_modality_matching_jupiter`)
+
+Three items: the two amendments of `reports/review_prepro_2026-09-21.md` plus the coordinator's
+split-off of the train/dev-clean data jobs. `TrimmedAudioBlankfreeDataJob` and its config instances
+were NOT touched (the dev-other job `0IOLr6hZnYWj` is running under manager 4154973).
+
+### 1. `ctrl_20_s1` now actually gets a different sequence order
+
+The review is right: RETURNN's top-level `random_seed` does not move the order. Chain, read in
+`recipe/returnn` (which is what `RETURNN_ROOT` resolves to — `returnn` is a symlink to it):
+
+* `datasets/basic.py:616-630` — the `laplace` branch of `get_seq_order_for_epoch` draws its
+  permutation from `RandomState(self._get_random_seed_for_epoch(epoch, num_epochs_fixed=nth))`
+  and from nothing else, then `_apply_partition_epoch_and_sharding` slices it.
+* `datasets/basic.py:723-732` — `_get_random_seed_for_epoch` returns
+  `(epoch - 1) // partition_epoch + 1 + self.random_seed_offset`.
+* `datasets/basic.py:252-290` — `random_seed_offset` is a **Dataset constructor kwarg**;
+  `_get_default_random_seed_offset()` is 0 outside horovod / torch_distributed /
+  `RETURNN_RANDOM_SEED_OFFSET`, and `kwargs_update_from_config` (`:45-69`) never sets it. A
+  top-level config key of that name is read by nothing.
+* `torch/engine.py:309-314` — what `random_seed` *does* do:
+  `torch.random.manual_seed(merge_random_seeds([epoch, global_train_step, random_seed]))`.
+* `datasets/meta.py:398-435` — `MetaDataset` with `seq_order_control_dataset` delegates the order
+  to that named sub-dataset, so the kwarg must land there.
+
+The arm's train stream is `MultiProcDataset(MetaDataset(..., seq_order_control_dataset="feats"))`,
+so `_set_seq_order_offset` walks to the `"feats"` `HDFDataset` dict and writes
+`random_seed_offset: 1` there, asserting on the way that the ordering really is `laplace` and that
+the key is not already set. `CTRL_S1_SEED = {"flat_seed": 1, "random_seed": 1,
+"random_seed_offset": 1}`; `_seed()`'s key whitelist widened to match. `ctrl_20` and `prepro_20`
+are untouched (no `random_seed`, no offset).
+
+**Does `partition_epoch = 4` now give `s1` different sub-epoch contents? YES.** Measured by
+instantiating both arms' actual `"feats"` dicts through `returnn.datasets.init_dataset` and
+reading `get_current_seq_order()` (28,254 kept train seqs):
+
+| | sub-ep 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| `ctrl_20` size | 7066 | 7076 | 7059 | 7053 |
+| `ctrl_20_s1` size | 7051 | 7063 | 7073 | 7067 |
+| shared utterances | 1799 | 1744 | 1748 | 1763 |
+
+Overlap ≈ 1/4 of each sub-epoch, i.e. exactly what a re-drawn permutation gives by chance; the
+union over any full epoch is the identical 28,254-sequence set, so nothing is dropped or doubled.
+
+**Caveat worth recording.** The offset shifts the seed *sequence*, it does not draw an independent
+one: `s1`'s sub-epoch *k* is byte-for-byte `ctrl_20`'s sub-epoch *k + 4*, verified for *k* = 1..20.
+Over the run's 5 full epochs `ctrl_20` uses order-seeds 1..5 and `s1` uses 2..6 — four permutations
+in common, each landing at a different sub-epoch index and therefore a different LR/temperature
+point and a different epoch 1/4/10/20 checkpoint. An offset of, say, 100 (seeds 101..105) would
+share none. The review named 1, so 1 is what is set; the property is documented at `CTRL_S1_SEED`.
+
+**New hashes.** Pack `PackedBlankfreeTrainJob.YQszIGUOm7Sh` → **`4TheuktgNpkQ`**. Written-config
+diff `ctrl_20` vs `ctrl_20_s1` = **8 lines** (`diff | wc -l` on the black-formatted configs; was 3
+before this amendment): the flat-init checkpoint path, `random_seed = 1`, and
+`"random_seed_offset": 1` inside `train.dataset.datasets.feats`. `ctrl_20` vs `prepro_20` = 60
+lines by the same convention (the "48" in the earlier section was counted differently; `ctrl_20`
+and `prepro_20` are both unchanged by this amendment).
+
+### 2. Extraction-path null — `UntrimmedEncodeAgreementJob`
+
+New module `src/speech_llm/sae/emc/trimmed_audio_null.py` (377 lines). The data job changes two
+things at once — it trims *and* it re-runs the whole extraction path months after the bed was
+dumped — so its unit agreement is evidence about trimming only once the path's own reproduction is
+known. This job is that second term and nothing else: the identical encoder path (batch 1, HF
+front-end normalisation, `hidden_states[15]`, fp16 rounding, frozen PCA+k-means) on the
+**untrimmed** waveform of the first 50 `dev-other` utterances in banked order (the `seqTags` order
+of `L15FeatureHdfJob.6ChpQYsQh1VI`, which is the order the data job itself iterates). It is a
+null, not a gate — it licenses the read of the data job's number, it funds nothing.
+
+Reported:
+
+* `units_all_original` — vs the per-original-frame units on disk, i.e. `PackUnitsJob.I0uzRMfUrKWC`'s
+  `units_store`, over all *T* frames. (`AvStatesJob` dumps *states*; the units derived from them
+  are that store, and it is the same array the data job's `bed_units` reads.)
+* `units_bed_retained` — vs `BlankfreeVadHdfJob.SAjz8y1cT06g`'s `units`/`raw_index` for `dev-other`,
+  `mine[raw_index[j]] == bed_units[j]`, restricted to the bed's retained frames. The job asserts
+  `store[raw_index] == bed_units` first, so the pair differs **only** in the denominator.
+* `states` — fraction of frames whose max-abs difference against the banked fp16 L15 features
+  exceeds 1e-2, plus the overall max and the mean per-frame max-abs. This separates "the encoder
+  moved" from "the k-means boundary was close".
+
+**Denominator convention of the data job's own statistic**, printed by the job into
+`summary.txt`: `TrimmedAudioBlankfreeDataJob` accumulates `agreement_total += t_new`, i.e. **all
+T′ trimmed frames**, each matched against the per-original-frame unit store at `raw_index` — it is
+**not** restricted to the bed's retained frames. The comparable read is therefore
+`units_all_original`; `units_bed_retained` is the stricter retained-only read. On the 50
+utterances the two denominators are 15,544 (all original) and 13,087 (bed-retained, 0.8419 of *T*).
+
+Job `UntrimmedEncodeAgreementJob.WnGSatwxUEYY`, `rqmt = {gpu 1, gpu_mem 24, cpu 2, mem 32, time
+0.5}` (30 min), outputs `null.json` + `summary.txt` under
+`.../sae_4a_prepro/null/untrimmed_dev-other/`. Registered as `py_null()` in
+`config_sae_4a_prepro_pack_v1.py`; shim `config/sae_4a_prepro_null.py` with `def py()`.
+
+### 3. `py_data` — the train and dev-clean data jobs alone
+
+So the ~2 h `train` instance starts while the pack's seed still moves. `py_data()` registers
+`data(splits=("train", "dev-clean"))`; together with `py_dev_other()` it covers `DATA_SPLITS`
+exactly once. Shim `config/sae_4a_prepro_data.py` with `def py()`.
+
+### Shims (outside git)
+
+All three follow the working convention: `from ...config_sae_4a_prepro_pack_v1 import <fn>`, then
+`def py(): return <fn>()`, then `run = py`.
+
+```python
+# config/sae_4a_prepro_data.py
+from speech_llm.prefix_lm.sis_recipe.exp2025_11_06_speech_llms.librispeech.configs.config_sae_4a_prepro_pack_v1 import (
+    py_data,
+)
+
+
+def py():
+    """ONLY the train and dev-clean trimmed-audio data jobs (SAE_4A_prepro.md)."""
+    return py_data()
+
+
+run = py
+```
+
+`config/sae_4a_prepro_null.py` is identical with `py_null`.
+
+### Checks run
+
+| check | result |
+|---|---|
+| `ConfigManager().load_config_file("config/sae_4a_prepro_data.py")` | 5 jobs / 4 outputs — `TrimmedAudioBlankfreeDataJob.qb4o6dlW3urA` (train) + `.hxIx0ItTvx15` (dev-clean) plus their three already-`finished` inputs `L15FeatureHdfJob.e2athsQ218Og`, `L15FeatureHdfJob.6ChpQYsQh1VI`, `LibriSpeechSplitIdsJob.G6pzdHOHvEFh`. No dev-other job, no arm. |
+| `...("config/sae_4a_prepro_null.py")` | 5 jobs / 2 outputs — `UntrimmedEncodeAgreementJob.WnGSatwxUEYY` plus `BlankfreeVadHdfJob.SAjz8y1cT06g` and the same three finished inputs. |
+| `...("config/sae_4a_prepro_devother.py")` | unchanged: 3 jobs / 2 outputs, `TrimmedAudioBlankfreeDataJob.0IOLr6hZnYWj`. |
+| census, HEAD `build()` vs new `build()` + `null()` | 133 → 134 jobs; on-disk jobs 9 → 9; **banked hashes lost: 0**. 121 removed / 122 added, all of them the pack's own downstream (the pack hash moved, so every `ReturnnForwardJobV2` / `ExtractSubmoduleCheckpointJob` / `PairedPerDeltaJob` below it moves); none of those is on disk. Net +1 = the null job. |
+| the three data-job hashes | `qb4o6dlW3urA` / `hxIx0ItTvx15` / `0IOLr6hZnYWj` — unchanged. |
+| `test_trimmed_audio_null` (new, CPU) | 4/4: `unit_agreement` over all frames, `unit_agreement` indexing into the per-original array (the wrong position-by-position implementation would score 1/3 where the right one scores 2/3), `state_mismatch` (strict `>`, per-frame max over the feature dim), `_read_hdf` round-trip against the real 2,864-seq / 781,130-frame bed dump. |
+| CPU dry-run of the null's non-GPU half on the real artifacts | the `store[raw_index] == bed_units` assertion holds for all 50 utterances; denominators 15,544 / 13,087. |
+| `test_blankfree_budget_config` | pass (unchanged: pack `reEI2Nd0S77A` / `4QzmftNlbErt`, 134 `PairedPerDeltaJob`). |
+| `test_blankfree_pack` | pass. |
+| `test_trimmed_audio_data --no-smoke` | pass (module untouched). |
+
+Not verified: that the null job *runs* — it needs a GPU and the w2v2 checkpoint. Its encoder,
+quantizer and unit-store calls are copied verbatim from `TrimmedAudioBlankfreeDataJob.run`, which
+is executing successfully on dev-other right now, but that is an argument, not a result.
