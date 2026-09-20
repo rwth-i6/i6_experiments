@@ -25,6 +25,8 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 
 from moshi_family.perm_repair import (  # noqa: E402
     FRAME_RATE,
+    HOP_FRAMES,
+    WINDOW_FRAMES,
     activity_tracks,
     channel_envelopes,
     flip_spans,
@@ -249,6 +251,78 @@ try:
     check("mono input raises", False, "accepted (2,T)-only input")
 except ValueError:
     check("mono input raises", True)
+
+# --------------------------------------------------- externally supplied scores (`scores=`)
+# The speaker-embedding scorer lives in the worker, because perm_repair is deliberately pure numpy
+# -- no torch, no GPU, no I/O -- which is what lets both the worker and this guard import it. So the
+# contract to protect is the handover: scores in, same Viterbi and span machinery out.
+n_frames_t = int(round(clean.shape[1] * FRAME_RATE / SR))
+starts_t = np.arange(0, n_frames_t - WINDOW_FRAMES, HOP_FRAMES, dtype=np.int64)
+# a decisive "swapped" verdict over the middle third, "direct" elsewhere
+marg_t = np.full(len(starts_t), 2.0)
+lo, hi = len(starts_t) // 3, 2 * len(starts_t) // 3
+marg_t[lo:hi] = -2.0
+out_s, rep_s = repair_permutation(clean, SR, turns, scores=(starts_t, marg_t))
+check("external scores are used", rep_s.get("scoring") == "external", rep_s.get("scoring"))
+check("...and they produce a flip", len(rep_s["flipped_spans_frames"]) == 1, rep_s["flipped_spans_frames"])
+if rep_s["flipped_spans_frames"]:
+    a, b = rep_s["flipped_spans_frames"][0]
+    # Coverage, not exact edges: a window's decision is attributed to its CENTRE, so the span sits
+    # half a window later than the first marked window's start. That is flip_spans' convention and
+    # is tested on its own above; asserting edges here would pin the convention in two places.
+    want = (int(starts_t[lo]), int(starts_t[hi]))
+    ov = max(0, min(b, want[1]) - max(a, want[0]))
+    check(
+        "...covering the span the scores marked",
+        ov >= 0.8 * (want[1] - want[0]) and (b - a) <= 1.5 * (want[1] - want[0]),
+        f"{(a, b)} vs {want}, overlap {ov}",
+    )
+check("...and the audio really changed", not np.array_equal(out_s, clean))
+
+# The default path must still say which scorer ran -- a number whose provenance is unrecorded is
+# exactly how two corpora built with different scorers become indistinguishable later.
+_, rep_e = repair_permutation(clean, SR, turns)
+check("default path is labelled", rep_e.get("scoring") == "energy_vs_turn_activity", rep_e.get("scoring"))
+
+# Non-vacuity: the SAME audio with all-direct scores must NOT flip, or the check above would pass
+# on any input at all.
+_, rep_d = repair_permutation(clean, SR, turns, scores=(starts_t, np.full(len(starts_t), 2.0)))
+check("all-direct scores flip nothing", not rep_d["flipped_spans_frames"], rep_d["flipped_spans_frames"])
+
+try:
+    repair_permutation(clean, SR, turns, scores=(starts_t, marg_t[:-3]))
+    check("mismatched scores raise", False, "accepted ragged (starts, margins)")
+except ValueError:
+    check("mismatched scores raise", True)
+
+# --------------------------------------------------- != 2 speakers
+# The separator emits exactly two tracks, so assignment is a binary flip and the Viterbi has two
+# states. Fewer than two speakers must be SKIPPED and SAID so -- silently returning unrepaired audio
+# is how a permutation error becomes invisible. More than two is fine: the two longest-speaking are
+# anchored, which is what the pilot episode (7 diarized labels) already does.
+one = [t for t in turns if str(t["speaker"]) == str(turns[0]["speaker"])]
+out1, rep1 = repair_permutation(clean, SR, one)
+check(
+    "one speaker -> skipped, not silently repaired",
+    rep1.get("skipped") == "fewer_than_two_speakers",
+    rep1.get("skipped"),
+)
+check("...and the audio is untouched", np.array_equal(out1, clean))
+many = list(turns) + [
+    {"speaker": "SPEAKER_X", "start": 1.0, "end": 2.0},
+    {"speaker": "SPEAKER_Y", "start": 3.0, "end": 4.0},
+]
+_, repm = repair_permutation(clean, SR, many)
+check(
+    "4 speakers -> still anchors exactly two",
+    repm.get("anchor_speakers") is not None and len(repm["anchor_speakers"]) == 2,
+    repm.get("anchor_speakers"),
+)
+check(
+    "...and the two it picks are the long ones",
+    repm["anchor_speakers"] == rep_e["anchor_speakers"],
+    f"{repm.get('anchor_speakers')} vs {rep_e.get('anchor_speakers')}",
+)
 
 print()
 if fails:
