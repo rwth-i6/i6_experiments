@@ -14,14 +14,11 @@ Step 0b first pass finished (`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB`, `PriorGapAnal
 speech-llm 739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`,
 `reports/review_neural_phone_lm_2026-09-20.md`): partial proxy, schedule-bound (Results, Step 0b).
 The pre-registered rerun (speech-llm bf49fb7, `reports/impl_neural_phone_lm_rerun_2026-09-20.md`)
-is running: `NeuralPhoneLmTrainJob.xObXEwRpvmzd` (3.3 M, 30 epochs, Slurm 1919330) and
-`NeuralPhoneLmTrainJob.pBozvj6c3l16` (10.9 M, 30 epochs, Slurm 1919329), then
-`PriorGapAnalysisJob.5wNIQs2lpC5P` / `.pg14aEYJyiva`. Manager pid 3594890,
-`log/sae_4a_prior_gap.manager.20260920T211253Z.log`; watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 3594890 config/sae_4a_prior_gap.py 600` (re-arm first
-after any resume, with the budget and infomax watchers). The falsifier probe (i) and the
-word-unigram / bigram ESCAPE rows are being built in a separate config
-(`config/sae_4a_prior_probe.py`, `reports/impl_prior_probe_2026-09-20.md`).
+is FINISHED and read (Results, "Rerun result"): (a) 3.3 M gap 1.861, (b) 10.9 M gap 1.849, both
+partial proxies, both ended by the no-improvement abort at epoch 11, so the 1 M-line window is the
+ceiling; the manager (3594890) exited cleanly, its graph is complete. The survey for the
+pre-registered fallback (GPU trie lexicon DP) runs in parallel with instance (c)
+(`reports/survey_lexicon_scorer_2026-09-20.md`); no fallback code before (c) reads.
 Training-arm design and G4a.7 are written (Design "Training arm", Gate); the design review
 (`reports/design_review_prior_arm_2026-09-20.md`) returned STOP as written, approvable with A1–A4,
 all applied (reward = strong minus unigram, r(gold) > max_g fraction replaces the dead band,
@@ -428,3 +425,24 @@ everything reach the bar", never what the extra text alone bought; the benchmark
 remain fitted on the 1 M-line window, so neural-vs-n-gram is not like-for-like in training data;
 the bar (2.01) and the strict reference (2.51) come from the trigram / lexicon rows and are
 unchanged. Reported held perplexity is the min over epochs on the same held set, as for (a)/(b).
+
+**Rerun result (instances (a) and (b), read 2026-09-20 from
+`output/.../sae_4a_prior_gap/ctrl_50_ep10/dev-other_neural_e30/prior_gap.md` =
+`PriorGapAnalysisJob.5wNIQs2lpC5P` and `.../dev-other_neural_l6w384_e30/prior_gap.md` =
+`.pg14aEYJyiva`; manager exited cleanly, `reports/exec_prior_gap_restart_2026-09-20.md`):**
+
+| instance | params | epochs run / selected | held ppl (10,000 lines) | gap like-for-like | strict subset (609) vs 2.5057 | 4-gram gap | verdict |
+|---|---|---|---|---|---|---|---|
+| (a) 4L / w256, 30 ep | 3.3 M | 11 / 10 (no-improvement abort) | 5.091 | 1.861 | 1.646 (distance 0.86) | 1.666 | partial proxy |
+| (b) 6L / w384, 30 ep | 10.9 M | 11 / 10 (no-improvement abort) | 4.603 | 1.849 | 1.663 (distance 0.84) | 1.666 | partial proxy |
+| first pass, 3 ep | 3.3 M | 3 / 3 | 5.774 | 1.71 | 1.52 | 1.666 | partial proxy |
+
+Bar recomputed from the run's own rows: 2.012 (pre-registered 2.01). Neither instance meets it;
+neither tracks the lexicon on the strict subset (tolerance 0.30). Reading against the pre-registered
+expectation: both now beat the 6-gram in perplexity (5.42) and the 6-gram in gap (1.62), but the gap
+plateaus at 1.85 for a 3.3x parameter increase and a 0.5 nat perplexity gain, and both fits ended
+by the no-improvement abort, so the model is no longer schedule-bound: the ceiling is the 1 M-line
+window. Instance (c) (10 M lines, 25.5 M params, running) is the last phone-LM test of the data
+axis; if it also lands below 2.01 or off the strict track, the pre-registered fallback holds and
+the GPU trie lexicon DP is the scorer (survey of the lexicon scoring path started now so that the
+fallback is specifiable the moment (c) reads).
