@@ -898,29 +898,29 @@ def py():
     # audio/phoneme, so the old 25k default text batches would OOM (the RZ lesson).
     # The full-match dual-stream base (waveform + log-mel + the 4 knobs).
     # {"dev-clean": 2.06, "dev-other": 4.92, "test-clean": 2.17, "test-other": 5.18}
-    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
-    # _train_tts_encoder(
-    #     "tts-enc-logmel-refcfg-muon-nep38",
-    #     prefix=prefix,
-    #     text_train_epoch_split=75,
-    #     batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
-    #     batch_size_phon=4_000,
-    #     max_phon_len=300,
-    #     tts_waveform=True,
-    #     asr_logmel=True,
-    #     tts_waveform_peak_norm=True,
-    #     glow_tts_noise_scale_range=(0.7, 0.7),
-    #     glow_tts_length_scale_range=(1.0, 1.0),
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    #     enc_aux_logits_share_weights=True,
-    #     enc_aux_logits_with_bias=False,
-    #     pad_audio_rnd=100,
-    #     base_lr=1.0,
-    #     peak_lr=5e-3,
-    #     nep=38,
-    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-    #     extra_config_deletes=["optimizer.epsilon"],
-    # )
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38; kept registered for the ls-mixing table
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+        batch_size_phon=4_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
 
     # refcfg + single-stream: audio + text mixed in ONE batch, one loss set.
     # 90k/4k, not 120k/5k: merged batches stack audio AND text in one step.
@@ -1849,6 +1849,34 @@ def py():
         # P300 = a quarter of the winner's text per step (AZ, 2026-09-19: the audio ladder's other
         # direction, full audio with less text)
         (f"{_abl_prefix}-textP300", {"text_train_epoch_split": 300}),
+        # batch mixing (AZ, 2026-09-20): one batch with a FIXED audio/text ratio (deterministic interleave)
+        # instead of the Gumbel-randomized union order; the separate-batches variant (dual stream) only
+        # exists on the TTS path (old implementation), see the ls-mixing table
+        (f"{_abl_prefix}-nogumbel", {"interleave_gumbel_scale": None}),
+        # separate batches (alternate batching, dual-stream train step), same caps; untested with packed
+        # tensors + CUDA graphs (AZ, 2026-09-20: try it, drop it if it does not run)
+        (
+            f"{_abl_prefix}-dualstream",
+            {
+                "single_stream": False,
+                "interleave_gumbel_scale": None,
+                # alternate batching sizes its batches from batch_size (the packed regime sets None),
+                # so it gets the packed caps as batch_size: the same per-batch totals as the winner
+                "extra_config_updates": {
+                    "optimizer.class": rf.build_dict(Muon)["class"],
+                    "packed_tensors": True,
+                    "torch_distributed": {"reduce_type": "grad_explicit"},
+                    "batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                    "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                    "batching": "random",
+                    # no torch_cuda_graph: the dual-stream step reads the audio sizes on the host to branch
+                    # (pure audio or pure text batch), a sync that graph capture forbids
+                    "optimizer.weight_decay": 0.027,
+                    "specaugment_num_spatial_mask_factor": 50,
+                    "specaugment_steps": (1850, 5550, 9250),
+                },
+            },
+        ),
         # Amount of distinct text at the fixed ~1:1 text-to-audio ratio of P75 (AZ, 2026-09-16):
         # a random 50 / 25 / 10% of the 40.4M LM lines with the partition scaled alike (P38 / 19 / 8),
         # so every subepoch sees the same amount of text and the subset is passed ~4 / 8 / 19 times
@@ -3055,9 +3083,15 @@ def _build_tables(prefix: str):
             _ls(base76, method="no text, \\\\ twice the epochs"),
             _old_impl(_ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS \\\\ (frozen GlowTTS)")),
             _old_impl(_ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, \\\\ trained emb., layer 4")),
+            _old_impl(
+                _ls(
+                    "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-single-gumbel-muon-nep38",
+                    method="frozen table (ours), \\\\ MFA alignment, \\\\ same setup as TTS row",
+                )
+            ),
             _ls(f"{win}-trainemb", method="pseudo encoder, \\\\ trained emb., front-end"),
-            _ls(win, method="frozen MFA table (ours)"),
-            _ls(f"{win}-gausshmmtables-pronvar", method="frozen HMM table \\\\ (ours, no MFA)"),
+            _ls(win, method="frozen table (ours), \\\\ MFA alignment"),
+            _ls(f"{win}-gausshmmtables-pronvar", method="frozen table (ours), \\\\ own aligner"),
         ],
     )
     # The duration model of the pseudo encoder: d = round(median * scale * exp(jitter * N(0,1))),
@@ -3093,9 +3127,12 @@ def _build_tables(prefix: str):
         "ls-representation",
         ["acoustics", "units", "durations", *ls_wer_other],
         [
-            _ls(win, acoustics="MFA \\\\ log-mel table", units="phonemes", durations="log-normal \\\\ per phone"),
+            _ls(win, acoustics="frozen \\\\ log-mel table", units="phonemes", durations="log-normal \\\\ per phone"),
             _ls(
-                f"{win}-unidur", acoustics="MFA \\\\ log-mel table", units="phonemes", durations="uniform \\\\ 5 to 10"
+                f"{win}-unidur",
+                acoustics="frozen \\\\ log-mel table",
+                units="phonemes",
+                durations="uniform \\\\ 5 to 10",
             ),
             _ls(
                 f"{win}-trainemb",
@@ -3131,14 +3168,14 @@ def _build_tables(prefix: str):
         ],
     )
     # Where the tables come from: MFA vs our single-Gaussian HMM aligner, phones vs HMM states.
-    _ghmm = "single-Gauss. \\\\ HMM (ours)"
+    _ghmm = "monophone \\\\ single-Gauss. \\\\ HMM (ours)"
     _table(
         "ls-table-source",
         ["aligner", "pronvar", "table", "unit", *ls_wer],
         [
             _ls(
                 win,
-                aligner="MFA \\\\ (GMM-HMM)",
+                aligner="triphone \\\\ GM-HMM \\\\ (via MFA)",
                 pronvar="all",
                 table="frame \\\\ mean",
                 unit="phone",
@@ -3257,6 +3294,32 @@ def _build_tables(prefix: str):
             ),
         ],
     )
+    # How audio and text are mixed into batches: separate batches (alternate batching, dual stream),
+    # one batch with a fixed ratio (deterministic interleave), one batch in random order (Gumbel).
+    _table(
+        "ls-mixing",
+        ["injection", "mixing", "steps", *ls_wer_other],
+        [
+            _old_impl(
+                _ls("tts-enc-logmel-refcfg-muon-nep38", injection="TTS", mixing="separate batches \\\\ (audio or text)")
+            ),
+            _old_impl(
+                _ls(
+                    "tts-enc-logmel-refcfg-single-muon-nep38", injection="TTS", mixing="mixed batches, \\\\ fixed ratio"
+                )
+            ),
+            _old_impl(
+                _ls(
+                    "tts-enc-logmel-refcfg-single-gumbel-muon-nep38",
+                    injection="TTS",
+                    mixing="mixed batches, \\\\ random order",
+                )
+            ),
+            _ls(f"{win}-dualstream", injection="frozen table", mixing="separate batches \\\\ (audio or text)"),
+            _ls(f"{win}-nogumbel", injection="frozen table", mixing="mixed batches, \\\\ fixed ratio"),
+            _ls(win, injection="frozen table", mixing="mixed batches, \\\\ random order"),
+        ],
+    )
     # LM combinations on LS.
     ls_recogs = [
         ("aed+ctc-batched", "AED+CTC"),
@@ -3270,12 +3333,12 @@ def _build_tables(prefix: str):
             _ls(name, recog, model=label, search=rlabel)
             for name, label in [
                 (base, "no text"),
-                (win, "frozen MFA table"),
-                (f"{win}-nolerp", "frozen MFA table, \\\\ no interpolation"),
+                (win, "frozen table, \\\\ MFA alignment"),
+                (f"{win}-nolerp", "frozen table, \\\\ no interpolation"),
                 (f"{win}-trainemb", "trained embedding"),
                 (_textogram, "textogram"),
-                (f"{win}-gausshmmtables-pronvar", "frozen HMM table"),
-                (f"{win}-encL24-decL8", "frozen MFA table, \\\\ EncL24-DecL8"),
+                (f"{win}-gausshmmtables-pronvar", "frozen table, \\\\ own aligner"),
+                (f"{win}-encL24-decL8", "frozen table, \\\\ EncL24-DecL8"),
             ]
             for recog, rlabel in ls_recogs
         ],
@@ -3367,9 +3430,9 @@ def _build_tables(prefix: str):
         ["representation", "alpha", *loq_keys],
         [
             _loq(_base_med, representation="no text", alpha="-"),
-            _loq(f"{med}-txtSrcExp0", representation="LibriSpeech \\\\ MFA table", alpha="0"),
-            _loq(f"{med}-loqtables", representation="Loquacious \\\\ MFA table", alpha="1"),
-            _loq(f"{med}-loqtables-txtSrcExp0", representation="Loquacious \\\\ MFA table", alpha="0"),
+            _loq(f"{med}-txtSrcExp0", representation="frozen table, \\\\ LS alignment", alpha="0"),
+            _loq(f"{med}-loqtables", representation="frozen table, \\\\ Loq. alignment", alpha="1"),
+            _loq(f"{med}-loqtables-txtSrcExp0", representation="frozen table, \\\\ Loq. alignment", alpha="0"),
             _loq(
                 "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
                 representation="one-hot ch., \\\\ uniform dur.",
