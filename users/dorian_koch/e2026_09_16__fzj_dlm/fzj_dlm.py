@@ -143,6 +143,8 @@ WINNER_PLUS_TTS_RESUMED_LR = 1e-5
 # ⚠ Its text branch still advances to LM partitions 38-47 exactly as the +TTS arm does, so the two
 # see the SAME injected text -- the only difference is the audio.
 WINNER_CONT_NO_TTS = True
+# The winner on the Loquacious eval subsets (out-of-domain), with and without our LS DLMs.
+LOQ_EVAL_WINNER = True
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
 
@@ -652,6 +654,65 @@ def py():
                     nep=WINNER_PLUS_TTS_RESUMED_NEP,
                     flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
                     with_tts=_tag == "plusTts",
+                )
+
+    if LOQ_EVAL_WINNER:
+        _loq_eval_winner(prefix=f"{prefix}/loq-eval", ctc_lm_kwargs=ctc_lm_kwargs)
+
+
+def _loq_eval_winner(*, prefix: str, ctc_lm_kwargs: Dict[str, Any]):
+    """The winner (an LS model) on the four Loquacious eval subsets: plain CTC, CTC+LS-LM, and DLM-sum with
+    the imported and with our DLM. Out-of-domain, exactly the protocol of Albert's
+    ``denoising_lm_2024/sis_recipe/ood_exps.py`` (same ``get_loquacious_eval_task_raw``, LS spm10k vocab,
+    LS LM, LS labelwise prior; scales tuned per subset on its own dev split), so the numbers sit next to
+    his RZ table for the old CTC models (e.g. voxpopuli CTC+LM 15.75/15.2 vs LS-DLM-sum 15.9/15.62).
+
+    ⚠ Our LS DLMs are vocab-compatible ONLY with LS-spm10k ASR models. Albert's Loquacious ASR models use
+    the Loquacious SPM (``TrainSentencePieceJob.SZcvHsG1gYNM``) -- they need a Loquacious DLM instead.
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import EvalSubSplits
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+        ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
+        ctc_dlm_sum_recog_auto_scale_batched,
+        aed_ctc_dlm_sum_recog_auto_scale_batched,
+    )
+    from denoising_lm_2024.sis_recipe.ood_exps import get_loquacious_eval_task_raw
+
+    _common = dict(
+        aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
+        num_shards=ctc_lm_kwargs["num_shards"],
+        extra_config=ctc_lm_kwargs.get("extra_config"),
+    )
+    _dlms = {
+        "dlm-n1280": lambda: _get_dlm(DLM_N1280, model_dim=1280),
+        f"dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}": lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280),
+    }
+    for subset in EvalSubSplits:
+        task = get_loquacious_eval_task_raw(eval_set_name=subset)
+        p = f"{prefix}/{subset}"
+        _ctc_only_recog_batched(prefix=f"{p}/ctc-only-batched", task=task, ctc_model=ctc_lm_kwargs["ctc_model"], **_common)
+        ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+            prefix=f"{p}/ctc+lm-batched",
+            task=task,
+            ctc_model=ctc_lm_kwargs["ctc_model"],
+            lm=ctc_lm_kwargs["lm"],
+            labelwise_prior=ctc_lm_kwargs["labelwise_prior"],
+            **_common,
+        )
+        for dlm_name, get_dlm in _dlms.items():
+            for fn, name in (
+                (ctc_dlm_sum_recog_auto_scale_batched, "ctc+dlm-sum-batched"),
+                (aed_ctc_dlm_sum_recog_auto_scale_batched, "ctc+aed+dlm-sum-batched"),
+            ):
+                fn(
+                    prefix=f"{p}/{dlm_name}/{name}",
+                    task=task,
+                    asr_model=ctc_lm_kwargs["ctc_model"],
+                    dlm=get_dlm(),
+                    labelwise_prior=ctc_lm_kwargs["labelwise_prior"],
+                    **_common,
                 )
 
 
