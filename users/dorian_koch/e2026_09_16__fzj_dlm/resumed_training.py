@@ -152,7 +152,10 @@ class ReturnnTrainingResumedJob(ReturnnTrainingJob):
         ]
         if own:
             print(f"ReturnnTrainingResumedJob: own checkpoints {sorted(own)} exist -> ++start_epoch auto")
-            cmd = cmd + ["++start_epoch", "auto"]
+            # ⚠ Quoted: RETURNN eval()s a `++` value against the typed original (an int here), so a bare
+            # `auto` is a NameError (hit 2026-09-21). Verified with EngineBase.get_train_start_epoch on
+            # both real model dirs: resumes at 49 (ablation, done) and 46 (+TTS).
+            cmd = cmd + ["++start_epoch", "'auto'"]
         return cmd
 
 
