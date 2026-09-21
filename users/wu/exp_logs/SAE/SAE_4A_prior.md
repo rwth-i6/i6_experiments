@@ -25,10 +25,16 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   pruning budget, per-frame normalisation + anti-deletion guard, frequency-stratified read,
   shuffled-pronunciation null). User directive 2026-09-20 (`SAE.md`) item 3 is met in its negative
   branch: the phone LM was trained to the data-and-capacity limit and does not reach the gate.
-NEXT: pre-register the lattice-internal lexicon arm (GPU trie DP inside the marginalised lattice)
-in its own phase file `SAE_4A_lexlat.md` (objective, design from the survey + literature
-constraints, gate before any number), then design review before its first job. Nothing else runs
-in this phase.
+- REOPENED 2026-09-21 by user ruling (section "Training arm, reopened by user ruling"): the 3.3 M
+  neural phone LM, instance (a), is the approved scorer; the soft (straight-through) arm is funded
+  at N = 20 (four arms: soft_20, soft_20_s1, soft_20_r03, softshuf_20 against the frozen prepro
+  ctrl_20 / ctrl_20_s1). The lexlat successor is PAUSED by the user after its E1 cost failure
+  (`SAE_4A_lexlat.md`). Build round 1 in progress (implementer; report
+  `reports/impl_soft_arm_r1_2026-09-21.md`). No job of the reopened arm has run.
+NEXT: code review of round 1; launch `SoftLamProbeJob` (3 batches at ctrl_20 ep4, minutes) and
+record lam_soft for 0.1× / 0.3× in the pack spec; fill the pack constants, launch the four-arm
+pack with its own manager + watcher, check sec per sub-epoch at ep1 against 2.00 × 601 s; reads
+at kept epochs 1 / 4 / 10 / 20 against G4a.7 with the paired margin rule.
 
 ## Objective
 
@@ -542,3 +548,53 @@ as a cost / quality curve, per-retained-frame normalisation with an anti-deletio
 frequency-stratified word-error read, and a shuffled-pronunciation null (same trie topology,
 pronunciations permuted across words) as the destroyed-structure control. Nobody has published the
 trigram-only vs trigram-plus-lexicon ablation in this setting.
+
+## Training arm, reopened by user ruling (2026-09-21)
+
+User ruling 2026-09-21 (verbatim intent): "I approve the previous 3.3M transformer LM scoring,
+chance still much better than 3gram." Read as: the 3.3 M neural phone LM is approved as the
+scorer p_strong for the training arm although it missed the Step 0b bar (gap 1.861 against the
+bar 2.01; the trigram in the DP prices the private code 1.39 below gold). Step 0b's third clause
+is overturned for funding purposes by the user; the phase's other rules stand. Falsifier (ii)'s
+rule is about the sampler, not the scorer (a stronger scorer raises r(gold) further), so the
+score-function arm stays unfunded; the funded arm is the **soft (straight-through) arm** of the
+pre-registered design (A2, A4, A5), which is also the user's own mechanism (2026-09-20).
+
+Pack spec, fixed before the build (amendments to "Training arm"; original text kept above):
+- Schedule N = 20 (user item 1, `SAE_4A_prepro.md`), kept epochs 1 / 4 / 10 / 20; controls are
+  the frozen ctrl_20 / ctrl_20_s1 of the prepro pack (checkpoints and dev-other decodes), never
+  retrained. Term active from sub-epoch 1 as pre-registered, constant lam_soft.
+- Scorer: instance (a) 4L / w256, selected epoch 10, held ppl 5.091 (the `dev-other_neural_e30`
+  row, `NeuralPhoneLmTrainJobV2`), frozen, consumed as a path. Reward per utterance
+  r(y) = log p_strong(y) − log p_uni(y) (A1; unigram of the 1 M-line window), SIL dropped on both
+  sides (A4), strings beyond the scorer's 512 positions masked out and counted (`soft_masked_long`).
+- Straight-through (A2): segmentation and symbols from the max-plus (Viterbi) path of the
+  blank-free lattice; per segment the soft vector is the lattice's conditional posterior over the
+  40 symbols with the neighbouring Viterbi symbols held fixed (its argmax is the Viterbi symbol,
+  since the joint maximum is a conditional maximum); forward on the hard string, gradient through
+  y_soft = onehot + (p − stop_grad(p)) into the scorer's embedding; the segmentation itself gets
+  no gradient (disclosed). Term = −lam_soft × mean_b[ r(ŷ_b) / retained_b ] (A5, per retained
+  frame; minus because the loss is minimised).
+- lam_soft from the pre-registered gradient-norm rule: probe of 3 batches at ctrl_20 ep4 (seed 0),
+  median ratio of the soft term's gradient norm to l_tau's; arms take 0.1× (preferred) and 0.3×
+  (ceiling). Recorded before the pack launches.
+- Arms, one exclusive 4-GPU node: `soft_20` (0.1×, seed 0), `soft_20_s1` (0.1×, seed 1),
+  `soft_20_r03` (0.3×, seed 0), `softshuf_20` (0.1×, seed 0, destroyed-structure null: the
+  scorer sees the 39 non-SIL symbols through a fixed recorded derangement, so the reward keeps its
+  statistics but not the phone identities). Pairings: soft_20 − ctrl_20, soft_20_s1 − ctrl_20_s1,
+  soft_20_r03 − ctrl_20, softshuf_20 − ctrl_20, and soft_20 − softshuf_20; seed band
+  ctrl_20_s1 − ctrl_20 (banked, −0.001 [−0.004, +0.001] at ep20).
+- Monitors per sub-epoch (label-free): `soft_reward_mean` per token on the hard string (target:
+  rise from about −0.67 toward +0.95), artefact gap scorer(soft) − scorer(hard) per token with the
+  0.3 nats/token ceiling above which the arm's reads are void, `soft_masked_long`, expected rate,
+  the rate FD check. Disclosed label-using read at ep10 and ep20: the Step 0 prior-gap table on
+  the arm's decode (like-for-like pairing).
+- Gate: G4a.7 as written, read at ep20 (matched completion): greedy PER < 0.50, rate in
+  [5.80, 14.49]/s, derangement gap > 0; paired deltas against the frozen controls with the margin
+  rule of `SAE_4A_lexlat.md` G4a.9 (delta ≤ −M, M = max(|seed band|, |null delta|, 0.010)); the
+  null arm must not beat its control by more than the seed band or the read is void. Abort rule as
+  G4a.4. Efficiency: sec per sub-epoch at ep1 read off the pack log; the pack is stopped if it
+  exceeds 2.00 × 601 s (the scorer forward on ≤ 128 strings × ≤ 512 positions should cost well
+  under 1 s per step).
+- Cost: one exclusive node for about 3.4 h (13.6 GPU-h charged) plus reads (about 10 GPU-h) plus
+  the lam probe (minutes).

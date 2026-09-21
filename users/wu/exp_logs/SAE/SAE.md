@@ -77,8 +77,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    Blankfree cold ep4 0.865 FAILS G4a.3. **Attribution 2x2 (user 2026-09-19), `SAE_4A_attrib.md`:**
    training-free mode-seeking read, no-reverse arm, K=64 reverse arm, GAN+reverse arms, in parallel.
    Attribution closed on its rule (no branch fires). **Budget round (user 2026-09-20), N = 50 arms READ 2026-09-21 (FAIL, all six at PER
-   0.89–0.91, no treatment or schedule effect beyond 0.016), N = 100 arms resuming,
-   `SAE_4A_budget.md`:** 50 / 100 sub-epochs with LR + tau schedule; control, lattice prior + BT
+   0.89–0.91, no treatment or schedule effect beyond 0.016), N = 100 arms KILLED by the user
+   2026-09-21 at epoch 65–67 (phase CLOSED), `SAE_4A_budget.md`:** 50 / 100 sub-epochs with LR + tau schedule; control, lattice prior + BT
    (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), CLOSED 2026-09-21 FAIL,
    `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,
    four arms on one node, paired against ctrl_50; gate G4a.5 read at sub-epoch 50: PER 0.89–0.92
@@ -104,8 +104,17 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    sampled string in 100 / 100 / 97 % of utterances at ep1 / ep4 / ep10, so under the
    pre-registered rule the score-function arm is NOT funded (audited CONFIRMED). The phase's
    successor is the lexicon inside the marginalised lattice (GPU trie DP; survey and literature
-   banked), own phase `SAE_4A_lexlat.md`, pre-registration + design review before its first job.
-   Other follow-up candidate: K = 64 reverse units.
+   banked), own phase `SAE_4A_lexlat.md`: E-1 PASS, E0 read (C = 4096), **E1 FAIL on both cost
+   clauses (C = 4096 OOM at 95 GiB against the 80 GiB bar; C = 1024 at 802–912 s per step, about
+   41× the 1202 s per sub-epoch bar), PAUSED by the user 2026-09-21**, pack not funded, fallback
+   audit owed on resume. **User ruling 2026-09-21: the 3.3 M transformer phone LM is approved as
+   the scorer despite the Step 0b bar**, so the prior phase's soft (straight-through) arm is
+   funded at N = 20 with four arms (two seeds, a 0.3× strength point, a permuted-identity null),
+   spec in `SAE_4A_prior.md` "Training arm, reopened by user ruling"; build in progress.
+   Other follow-up candidates: K = 64 reverse units; an explicit end-of-word symbol in the phone
+   set (user idea 2026-09-21; SIL already marks word boundaries with p = 0.5 in the prior text, and
+   a hard EOW the audio never realises is a free symbol for the private code, so it is a training
+   arm read by the derangement gap and the prior-gap table, not a CPU screen).
    **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
    the sub-epoch count for future arms from the label-free behaviour of the running budget arms
    (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks

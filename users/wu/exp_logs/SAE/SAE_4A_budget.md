@@ -44,10 +44,16 @@ maintenance wait, not progress. Watcher re-armed on 2945974 (same command as abo
 **The six N = 50 arms are READ (Results, "G4a.4 read of the six N = 50 arms"): FAIL for all,
 PER 0.889–0.905 at ep50, no treatment or schedule effect beyond 0.016.** Open: the six N = 100 arms
 (pending resume behind the maintenance reservation), read at ep100 as pre-registered.
-NEXT: when the watcher fires, executor confirms each node's resume (50-arms skipped, 100-arms
-resume at epoch 067-ish with optimizer state loaded, first step line) or diagnoses; then the ep100
-reads of the six N = 100 arms against G4a.4 with their paired deltas; ep1 wall time per arm off each
-node's learning_rates is still owed (bt arms carry an extra BT step per EMC step).
+**KILLED by the user 2026-09-21** ("Kill the 100ep trainings, they are not progressing";
+`reports/exec_pause_lexlat_kill_budget_2026-09-21.md`): the three pending resubmits were cancelled
+(node A `PackedBlankfreeTrainJob.ks7CbtlvpcIL` Slurm 1921418, ctrl_100 / odmprior_100 at epoch
+067; node B `.reEI2Nd0S77A` Slurm 1921334, bt_100 at 066 / odmbt_100 at 065; node C `.4QzmftNlbErt`
+Slurm 1921332, nosched_ctrl_100 / nosched_odmprior_100 at 067) and manager 2945974 stopped; job
+dirs and checkpoints kept. The N = 100 arms are never read at ep100; the phase's result is the
+N = 50 read (FAIL, all six arms) plus the N = 20 decision recorded in `SAE_4A_prepro.md`. Nothing
+of this phase is live. CLOSED.
+NEXT: nothing. The owed ep1 wall time per arm can be read off the kept learning_rates files if a
+cost comparison is ever needed.
 
 ## Objective
 
