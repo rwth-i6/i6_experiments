@@ -31,10 +31,30 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   ctrl_20 / ctrl_20_s1). The lexlat successor is PAUSED by the user after its E1 cost failure
   (`SAE_4A_lexlat.md`). Build round 1 in progress (implementer; report
   `reports/impl_soft_arm_r1_2026-09-21.md`). No job of the reopened arm has run.
-NEXT: code review of round 1; launch `SoftLamProbeJob` (3 batches at ctrl_20 ep4, minutes) and
-record lam_soft for 0.1× / 0.3× in the pack spec; fill the pack constants, launch the four-arm
-pack with its own manager + watcher, check sec per sub-epoch at ep1 against 2.00 × 601 s; reads
-at kept epochs 1 / 4 / 10 / 20 against G4a.7 with the paired margin rule.
+  Round 1 built (speech-llm f99f9f6: `sae/emc/soft_scorer.py`, `soft_scorer_jobs.py`
+  (`SoftLamProbeJob.wAJQ26T7iZzX`), default-off `soft_*` block in the model definition and train
+  step, `configs/config_sae_4a_soft_pack_v1.py` + shims `config/sae_4a_soft_{probe,pack}.py`,
+  22 tests; census unchanged; the pack hash does not exist until LAM_01 / LAM_03 are filled from
+  the probe). Scorer resolved on disk to `NeuralPhoneLmTrainJob.xObXEwRpvmzd` selected epoch 10
+  (ppl 5.0906, 3.31 M params), the checkpoint `PriorGapAnalysisJob.5wNIQs2lpC5P` scored; the
+  spec's "V2" class name above was wrong (that job is the 25.5 M instance (c)). Code review
+  PASS_WITH_CONCERNS (`reports/review_soft_arm_r1_2026-09-21.md`): scorer, reward conventions
+  (unigram = the bed's own prior file, SIL dropped, > 512 masked, BOS/no-EOS as prior_gap),
+  straight-through gradient path, sign, default-off plumbing, four arms and pairings, labels all
+  confirmed; two reading notes adopted here: (i) the null arm permutes BOTH halves of the reward
+  (scorer and unigram), so r_null(y) = r(sigma^-1 y) keeps the reward's statistics, and
+  softshuf_20's `soft_reward_mean` is a different statistic from the real arms' and is never read
+  in the same column; (ii) the "−0.67 → +0.95" band is the dev-other greedy statistic of Step 0b,
+  while the monitor is on the tempered max-plus TRAIN string: direction only, the like-for-like
+  read is the prior-gap rerun. **Probe launch FAILED**: `SoftLamProbeJob.wAJQ26T7iZzX` (Slurm
+  1925281, manager 3986319 exited) died in the term's backward asking for 224.61 GiB
+  (`reports/exec_soft_probe_launch_2026-09-21.md`); an autograd blow-up in the new code, debugger
+  dispatched (`reports/debug_soft_probe_oom_2026-09-21.md`). Nothing of this arm is live.
+NEXT: debugger names the tensor; implementer applies the value-identical fix (the Viterbi pass
+under no_grad, segment scores by scatter of the frame log-probs, memory O(B × T × O)); rerun the
+probe at its new hash; record lam_soft for 0.1× / 0.3×; fill the pack constants, launch the
+four-arm pack with its own manager + watcher, check sec per sub-epoch at ep1 against 2.00 × 601 s;
+reads at kept epochs 1 / 4 / 10 / 20 against G4a.7 with the paired margin rule.
 
 ## Objective
 
