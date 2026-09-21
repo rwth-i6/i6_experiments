@@ -143,6 +143,10 @@ WINNER_PLUS_TTS_RESUMED_LR = 1e-5
 # ⚠ Its text branch still advances to LM partitions 38-47 exactly as the +TTS arm does, so the two
 # see the SAME injected text -- the only difference is the audio.
 WINNER_CONT_NO_TTS = True
+# The cold-start ablation (user, 2026-09-21): the ORIGINAL +TTS finetune's exact call (fresh optimizer via
+# import_model_train_epoch1, nEp10, peak LR 5e-4 schedule) with `with_tts=False`. Completes the 2x2:
+# {TTS, no TTS} x {cold optimizer, resumed optimizer}.
+WINNER_COLD_NO_TTS = True
 # The winner on the Loquacious eval subsets (out-of-domain), with and without our LS DLMs.
 LOQ_EVAL_WINNER = True
 # Albert's best Loquacious ASR (AED 5.75 dev / 6.47 test) with Albert's Loquacious DLM (RZ
@@ -494,9 +498,20 @@ def py():
             with_tts=False,
         )
 
+    # The cold-start no-TTS ablation, see WINNER_COLD_NO_TTS. Same call as the WINNER_PLUS_TTS block above.
+    # Collected with the resumed arms for the follow-up evals below (plain CTC, hyps pass); our-DLM recogs
+    # are added in the dlm-ours block.
+    _final_exps = dict(_resumed_exps)
+    if WINNER_COLD_NO_TTS:
+        from .winner_plus_tts import train_winner_plus_tts
+
+        _final_exps["coldNoTts"] = train_winner_plus_tts(
+            prefix=f"{prefix}/winner-plus-tts", winner_model=winner_model, with_tts=False
+        )
+
     # Plain CTC for the two resumed arms at their final epoch -- the one row of the LS paper table that
     # train_winner_plus_tts does not produce (same call as the winner's / the cold start's ctc-only row).
-    for _tag, _exp in _resumed_exps.items():
+    for _tag, _exp in _final_exps.items():
         import dataclasses as _dcx
 
         _ctc_only_recog_batched(
@@ -563,7 +578,7 @@ def py():
         # their LS recogs use), so "+TTS resumed" vs "keep training, no TTS" is compared on the metric
         # the TTS arm exists to move -- their LS dev/test tables cannot answer that. Winner reference:
         # `dlm-data/hyps-batched-03`, same seeded sample via analysis/tts_hyps_wer.py.
-        for _tag, _exp in _resumed_exps.items():
+        for _tag, _exp in _final_exps.items():
             _m = _dc.replace(ctc_lm_kwargs["ctc_model"], checkpoint=_exp.get_last_fixed_epoch().checkpoint)
             _, _jobs = _get_dlm_task(
                 hyps_model=_m,
@@ -669,6 +684,12 @@ def py():
         with unittest.mock.patch.object(
             _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
         ):
+            if WINNER_COLD_NO_TTS:
+                train_winner_plus_tts(
+                    prefix=f"{prefix}/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}/winner-plus-tts",
+                    winner_model=winner_model,
+                    with_tts=False,
+                )
             if WINNER_PLUS_TTS:
                 # The cold-start +TTS finetune (EXsiZj08AB1C), so the paper table has our DLM in every
                 # column. Only its DLM-sum recogs are new.
