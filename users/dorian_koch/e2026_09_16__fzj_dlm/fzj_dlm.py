@@ -145,6 +145,11 @@ WINNER_PLUS_TTS_RESUMED_LR = 1e-5
 WINNER_CONT_NO_TTS = True
 # The winner on the Loquacious eval subsets (out-of-domain), with and without our LS DLMs.
 LOQ_EVAL_WINNER = True
+# Albert's best Loquacious ASR (AED 5.75 dev / 6.47 test) with Albert's Loquacious DLM (RZ
+# base-puttingItTogether(low)-nEp200, qOO1vlKjNpTW ep200; relayed to import/dlm/, sha256 c277a759... checked
+# equal on RZ and FZJ 2026-09-21). Same architecture as our DLMs at model_dim 1024, Loquacious SPM.
+LOQ_EVAL_ALBERT_ASR = True
+LOQ_BEST_ASR_NAME = "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s"
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
 
@@ -188,6 +193,10 @@ OUR_TRAINED_DLM = (
     "/e/home/jusers/koch13/jupiter/setups/2026-09-16-fzj-dlm"
     "/work/i6_core/returnn/training/ReturnnTrainingJob.pMb0YjIfsID0"
     f"/output/models/epoch.{OUR_TRAINED_DLM_EPOCH:03d}.pt"
+)
+# Albert's Loquacious DLM (see LOQ_EVAL_ALBERT_ASR). Loquacious SPM -- only for Loquacious-vocab ASR models.
+LOQ_DLM = OUR_DLM_IMPORT_DIR + (
+    "/base-puttingItTogether-low-nEp200.ReturnnTrainingJob.qOO1vlKjNpTW/output/models/epoch.200.pt"
 )
 # Set False to drop the eval of our own DLM (e.g. if its recogs crowd the queue).
 EVAL_OUR_TRAINED_DLM = True
@@ -658,6 +667,66 @@ def py():
 
     if LOQ_EVAL_WINNER:
         _loq_eval_winner(prefix=f"{prefix}/loq-eval", ctc_lm_kwargs=ctc_lm_kwargs)
+
+    if LOQ_EVAL_ALBERT_ASR:
+        _loq_eval_albert_asr(prefix=f"{prefix}/loq-eval-albert")
+
+
+def _loq_eval_albert_asr(*, prefix: str):
+    """Albert's best Loquacious ASR (`LOQ_BEST_ASR_NAME`, ReturnnTrainingJob.BiRxyzqSYEig ep142) with the
+    Loquacious DLM: AED+CTC (his headline), CTC+Loq-LM, CTC+AED+Loq-LM label-sync, and CTC(+AED)+DLM-sum.
+
+    The task / model / aux CTC layer are taken verbatim from his builder
+    (``exp2026_05_28_tts_encoder_fzj._train_loquacious_baselines``) by recording the kwargs of its AED+CTC
+    recog call, so nothing is re-derived. ⚠ ``tk.register_output`` is stubbed during that call: the builder
+    defines ~20 Loquacious trainings, and registering their outputs would put them all into our graph as
+    unfinished jobs. Only what the recogs below depend on enters the graph; those are Albert's finished
+    jobs, linked via ``import_albert_jobs("symlink")``.
+    """
+    import unittest.mock
+    from sisyphus import tk as _tk
+    from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+    from i6_experiments.users.zeyer.experiments import exp2026_05_28_tts_encoder_fzj as _fzj
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext import aed_ctc_batched as _aed_ctc
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_lm_batched import (
+        ctc_recog_recomb_labelwise_prior_auto_scale_batched,
+        ctc_aed_lm_label_sync_recog_auto_scale_batched,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.dlm_sum_batched import (
+        ctc_dlm_sum_recog_auto_scale_batched,
+        aed_ctc_dlm_sum_recog_auto_scale_batched,
+    )
+
+    recorded: Dict[str, Dict[str, Any]] = {}
+    real_aed_ctc = _aed_ctc.aed_ctc_timesync_recog_recomb_auto_scale_batched
+
+    def _record(**kwargs):
+        recorded[kwargs["prefix"]] = kwargs
+
+    with (
+        unittest.mock.patch.object(_aed_ctc, "aed_ctc_timesync_recog_recomb_auto_scale_batched", _record),
+        unittest.mock.patch.object(_tk, "register_output", lambda *_a, **_k: None),
+    ):
+        _fzj._train_loquacious_baselines(prefix=get_setup_prefix_for_module(_fzj.__name__))
+    (kw,) = [v for k, v in recorded.items() if k.endswith(f"/loq/aed/{LOQ_BEST_ASR_NAME}/aed+ctc-batched")]
+    task, asr_model, aux_ctc_layer = kw["task"], kw["aed_ctc_model"], kw["aux_ctc_layer"]
+    loq_prior = _fzj._get_loq_transcription_labelwise_prior("spm10k", task)
+    loq_dlm = _get_dlm(LOQ_DLM, model_dim=1024)
+    p = f"{prefix}/{LOQ_BEST_ASR_NAME}"
+    _common = dict(task=task, aux_ctc_layer=aux_ctc_layer, num_shards=8)
+
+    real_aed_ctc(prefix=f"{p}/aed+ctc-batched", aed_ctc_model=asr_model, **_common)
+    ctc_recog_recomb_labelwise_prior_auto_scale_batched(
+        prefix=f"{p}/ctc+lm-batched", ctc_model=asr_model, lm=_fzj._get_loq_lm(), labelwise_prior=loq_prior, **_common
+    )
+    ctc_aed_lm_label_sync_recog_auto_scale_batched(
+        prefix=f"{p}/ctc+aed+lm-labelsync-batched", aed_ctc_model=asr_model, lm=_fzj._get_loq_lm(), **_common
+    )
+    for fn, name in (
+        (ctc_dlm_sum_recog_auto_scale_batched, "ctc+dlm-sum-batched"),
+        (aed_ctc_dlm_sum_recog_auto_scale_batched, "ctc+aed+dlm-sum-batched"),
+    ):
+        fn(prefix=f"{p}/loq-dlm/{name}", asr_model=asr_model, dlm=loq_dlm, labelwise_prior=loq_prior, **_common)
 
 
 def _loq_eval_winner(*, prefix: str, ctc_lm_kwargs: Dict[str, Any]):
