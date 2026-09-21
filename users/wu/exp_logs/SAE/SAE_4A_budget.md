@@ -48,8 +48,12 @@ PER 0.889–0.905 at ep50, no treatment or schedule effect beyond 0.016.** Open:
 `reports/exec_pause_lexlat_kill_budget_2026-09-21.md`): the three pending resubmits were cancelled
 (node A `PackedBlankfreeTrainJob.ks7CbtlvpcIL` Slurm 1921418, ctrl_100 / odmprior_100 at epoch
 067; node B `.reEI2Nd0S77A` Slurm 1921334, bt_100 at 066 / odmbt_100 at 065; node C `.4QzmftNlbErt`
-Slurm 1921332, nosched_ctrl_100 / nosched_odmprior_100 at 067) and manager 2945974 stopped; job
-dirs and checkpoints kept. The N = 100 arms are never read at ep100; the phase's result is the
+Slurm 1921332, nosched_ctrl_100 / nosched_odmprior_100 at 067) and manager 2945974 stopped. On
+the user's second order the six *_100 arm subtrees (work/ and output/ inside the three packed job
+dirs) were deleted (`reports/exec_delete_budget_n100_2026-09-21.md`, about 0.46 GB); the six *_50
+arm subtrees are kept intact (epochs 1 / 4 / 10 / 25 / 50; ctrl_50 ep1 / 4 / 10 are frozen inputs of
+the prior-phase probes and the lexlat census), no setup-level output symlink pointed into the
+deleted trees. The N = 100 arms are never read at ep100; the phase's result is the
 N = 50 read (FAIL, all six arms) plus the N = 20 decision recorded in `SAE_4A_prepro.md`. Nothing
 of this phase is live. CLOSED.
 NEXT: nothing. The owed ep1 wall time per arm can be read off the kept learning_rates files if a
