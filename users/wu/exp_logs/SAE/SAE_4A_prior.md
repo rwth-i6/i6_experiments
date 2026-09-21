@@ -618,3 +618,21 @@ Pack spec, fixed before the build (amendments to "Training arm"; original text k
   under 1 s per step).
 - Cost: one exclusive node for about 3.4 h (13.6 GPU-h charged) plus reads (about 10 GPU-h) plus
   the lam probe (minutes).
+
+**User override 2026-09-21 ("do it, try 8 samples as well"):** the score-function arm is funded
+after all, as a hedge against the one-best basin concern the user raised, in the slot of the 0.3×
+strength point. Falsifier (ii)'s rule stands as a prediction, not a block: the arm's UNINFORMATIVE
+clause (A3) is what it is read against. Pack becomes: `soft_20` (0.1×, seed 0), `soft_20_s1`
+(0.1×, seed 1), `sf_20` (G = 8 exact FFBS draws from the blank-free lattice posterior at the
+schedule's tau, reward r(y) = log p_strong(y) − log p_uni(y) with the SAME approved 3.3 M scorer,
+SIL dropped, > 512 masked and counted, centred advantages over G, Fisher-identity path score
+(A4), per-retained-frame normalisation (A5), lam_sf at 0.1× of the l_tau gradient norm measured by
+its own probe at ctrl_20 ep4 with THIS scorer, not the first-pass ratio of falsifier (ii)),
+`softshuf_20` (0.1×, seed 0, null). `soft_20_r03` is dropped. Added pairings: sf_20 − ctrl_20,
+sf_20 − soft_20. sf monitors per sub-epoch: `sf_reward_mean` (hard decode and sample mean),
+`sf_reward_std_within` (median over utterances), `sf_unique_strings`, `sf_masked_long`; disclosed
+label-using read at ep10 / ep20: the r(gold) > max_g fraction on the 300 falsifier utterances
+(UNINFORMATIVE if ≥ 0.95 at both, as A3) and the prior-gap rerun. Gate G4a.7 unchanged. Cost
+per step: one extra DP pass (the checkpointed backward recomputation carries the G draws), read
+at ep1 against the same 2.00 × 601 s stop rule as the soft arms; if sf_20 alone exceeds it, the
+pack runs without it rather than delaying the three soft arms.
