@@ -67,9 +67,18 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   slot, pairings sf_20 − ctrl_20 and sf_20 − soft_20, the disclosed read via SampledRewardProbeJob
   with this scorer at ep10 / ep20; monitor `sf_reward_mean` is the decode string's value and
   `sf_reward_mean_sample` the draws' mean. The pack hash exists only once LAM_SF_01 is filled.
-  Code review of round 2 in flight (`reports/review_sf_arm_r2_2026-09-21.md`).
-NEXT: sf code review → sf lam probe (`SfLamProbeJob.OHrcN9pEuXni`, own manager + watcher) →
-LAM_SF_01; fill it, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
+  Code review of round 2 DONE_WITH_CONCERNS (`reports/review_sf_arm_r2_2026-09-21.md`): sampler
+  is the banked `sample_blankfree_paths` at the step's own tau, seeded per (epoch, step); path
+  score equals the banked `path_score` with both gathers on un-expanded tables; reward detached,
+  advantages centred per utterance, per-frame divisor the same `retained` l_tau uses, sign
+  correct; reward primitives imported unedited and applied to the sampled strings; hashes
+  structurally unmovable (model files enter via `Import`); pairing orientation correct; probe
+  mirrors the soft probe. Adopted reading rule: `sf_reward_mean` scores the greedy-argmax collapse
+  while `soft_reward_mean` scores the max-plus string, so the two monitor columns are never read
+  side by side for the sf_20 − soft_20 contrast (the gate reads PER). Not checked by the review:
+  census counts re-derived, tests executed, GPU memory / time of the extra sampler pass (the
+  probe reads it). sf lam probe LAUNCHING (executor, `reports/exec_sf_probe_launch_2026-09-21.md`).
+NEXT: sf lam probe (`SfLamProbeJob.OHrcN9pEuXni`) → LAM_SF_01; fill it, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
 + watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
