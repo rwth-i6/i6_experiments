@@ -111,7 +111,10 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks
    features after full-waveform SSL extraction, the paper cuts the waveform with rVAD before
    extraction (verified, `reports/lit_w2vu2_preprocessing_2026-09-20.md`); one ablation arm with
-   the paper's cut, own phase `SAE_4A_prepro.md`. (3) Train a phone LM that reaches the Step 0b
+   the paper's cut, own phase `SAE_4A_prepro.md` -- READ 2026-09-21, G4a.8 FAIL: all three
+   N = 20 arms at PER 0.875–0.889, the cut +0.014 worse than the masked control at ep20, outside
+   the seed band (−0.001); the silence convention is not the stall's cause; bed stays masked
+   (orchestrator ruling, user may overturn). (3) Train a phone LM that reaches the Step 0b
    gate and launch the strong-scorer arm (`SAE_4A_prior.md`).
    **§4b weighted-L1 follow-up COMPLETE, audited:** sparsity and phone statistics reported;
    improvement over dense and BatchTopK not met. No further arm queued. `SAE_4B.md`.

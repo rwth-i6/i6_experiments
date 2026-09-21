@@ -17,18 +17,18 @@ train qb4o6dlW3urA / dev-clean hxIx0ItTvx15 / dev-other 0IOLr6hZnYWj (OR totals 
 agreement 0.74 / 0.73 / 0.71, plateau 0.72–0.75 far from splices); extraction-path null
 `UntrimmedEncodeAgreementJob.WnGSatwxUEYY` exact (1.0000), so the plateau is the cut's effect.
 Their managers (4154973, 127865, 129170) exited cleanly.
-ACTIVE: the pack `PackedBlankfreeTrainJob.5EIGJJ1MkcO9` (arms ctrl_20 / ctrl_20_s1 / prepro_20,
-flat inits `FlatRecognizerInitJob.0J9d6wjrkRYH` / `.DMSwTLXT9MWG`) funded 2026-09-21 ~01:10 UTC:
-work dir `work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.5EIGJJ1MkcO9`,
-Slurm 1921103 (booster, node jpbo-021-06, 4 GPU, 11.5 h rqmt), all three arms at sub-epoch 1 step 2;
-manager pid 347372, `log/sae_4a_prepro_pack.manager.20260920T230546Z.log`, watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 347372 config/sae_4a_prepro_pack.py 600`.
-Downstream read jobs (PER, rate, gap, paired delta at kept epochs 1 / 4 / 10 / 20) wait on the
-checkpoints under the same manager.
-NEXT: when the pack watcher fires, executor confirms the finish (or diagnoses the failure), then
-extractor reads the kept-epoch rows; read against G4a.8 with the paired delta prepro_20 − ctrl_20
-inside the band ctrl_20 − ctrl_20_s1, plus the wav2vec-U selection statistic per kept epoch;
-record here. Interim ep-1/ep-4 reads only if the watcher wakes early.
+CLOSED 2026-09-21, G4a.8 FAIL (Results, "G4a.8 read of the pack"): the pack
+`PackedBlankfreeTrainJob.5EIGJJ1MkcO9` (arms ctrl_20 / ctrl_20_s1 / prepro_20, flat inits
+`FlatRecognizerInitJob.0J9d6wjrkRYH` / `.DMSwTLXT9MWG`, Slurm 1921103, 3 h 27 wall,
+`reports/exec_prepro_pack_check_2026-09-21.md`) finished all arms at sub-epoch 20 with greedy PER
+0.875–0.889 on dev-other, far above the 0.50 clause; the paper's cut is +0.014 PER worse than the
+masked control at ep20, outside the seed band (−0.001), and worse at every kept epoch from 4 on.
+The silence-handling convention is not what stalls the bed (directive item 2, negative branch).
+Manager 347372 exited cleanly; no manager or watcher of this phase is live.
+Pending experimental decision (orchestrator ruling, user may overturn): future arms keep the
+banked masked-feature bed, because its paired controls exist (ctrl_20 / ctrl_20_s1 of this pack)
+and the cut measured no better; the trimmed streams (data jobs above) stay banked for a swap.
+NEXT: none in this phase; successor work is `SAE_4A_lexlat.md`.
 
 ## Objective
 
@@ -211,3 +211,43 @@ Reading: the three splits show the same picture (seam effect within about 8 fram
 plateau far from any splice, distortion within 1 % of the bed, no dead-unit collapse); the
 training split fits the frozen quantizer no worse than the bed. With the extraction-path null
 exact, the funding rule holds on every split and the pack is funded.
+
+### G4a.8 read of the pack (dev-other, greedy, read 2026-09-21)
+
+Source: `PackedBlankfreeTrainJob.5EIGJJ1MkcO9`, outputs
+`output/exp2025_11_06_speech_llms/librispeech/sae_4a_prepro/{arm}/ep{1,4,10,20}/dev-other/`
+(`per.json`, `decode_stats.json`, `derangement_gap.json`) and `.../paired/{pair}/ep*/dev-other/summary.txt`
+(PairedPerDeltaJob, 95 % speaker-clustered bootstrap, 2000 resamples);
+extract `reports/extract_prepro_pack_2026-09-21.md`.
+
+| arm | PER ep1 | ep4 | ep10 | ep20 | rate/s ep1 | ep4 | ep10 | ep20 | gap ep1 | ep4 | ep10 | ep20 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ctrl_20 | 0.855 | 0.875 | 0.869 | 0.875 | 3.30 | 9.17 | 9.16 | 9.16 | −0.007 | 2.84 | 4.15 | 4.27 |
+| ctrl_20_s1 | 0.852 | 0.873 | 0.880 | 0.876 | 3.65 | 9.15 | 9.15 | 9.03 | −0.008 | 3.06 | 4.33 | 4.60 |
+| prepro_20 | 0.851 | 0.881 | 0.891 | 0.889 | 3.45 | 9.14 | 9.26 | 9.18 | −0.007 | 2.72 | 3.85 | 4.23 |
+
+| paired delta (PER, dev-other) | ep1 | ep4 | ep10 | ep20 |
+|---|---|---|---|---|
+| prepro_20 − ctrl_20 (primary) | −0.004 [−0.007, −0.001] | +0.006 [+0.003, +0.009] | +0.022 [+0.019, +0.024] | +0.014 [+0.011, +0.017] |
+| ctrl_20 − ctrl_20_s1 (seed band) | +0.004 [+0.001, +0.006] | +0.002 [+0.000, +0.004] | −0.011 [−0.014, −0.008] | −0.001 [−0.004, +0.001] |
+| prepro_20 − ctrl_20_s1 | (not read) | +0.008 [+0.005, +0.011] | +0.010 [+0.007, +0.013] | +0.013 [+0.010, +0.016] |
+
+Verdict: **FAIL** on the absolute clause (no arm below PER 0.50 at the final sub-epoch; all three
+0.875–0.889). The rate clause holds from sub-epoch 4 on (9.03–9.26/s; sub-epoch 1 is under LR
+warmup at 3.3–3.6/s) and the derangement gap is positive from sub-epoch 4 on (2.7–4.6 nats per
+frame; sub-epoch 1 is at −0.007 for every arm, i.e. before any learning). Primary read: the
+paper's cut is worse than the masked control by 0.014 PER at sub-epoch 20, with a confidence
+interval that excludes the seed band (−0.001 [−0.004, +0.001]), and worse at every kept epoch from
+4 on against both controls; the only point in its favour is sub-epoch 1 (−0.004), before the gap
+opens. Reading: the pack sits in the same 0.85–0.91 PER band as the six N = 50 budget arms
+(`SAE_4A_budget.md`, 0.889–0.905) and the InfoMax arms (`SAE_4A_infomax.md`, 0.89–0.92); the
+waveform-cut-versus-feature-mask convention is not what stalls the bed, and the ablation answers
+directive item 2 in the negative branch. The three-way agreement of the controls with the earlier
+packs also bounds the seed spread of this bed at about 0.01 PER at N = 20.
+
+Not produced: the wav2vec-U 2.0 selection statistic (4-gram perplexity over squared vocabulary
+fraction) named in Design and Gate. The pack config registers no reader for it (its docstring:
+"computed from the registered greedy decodes and is not a job of this config"), and an ad-hoc
+computation is not admissible as a project number. With the gate failed on the absolute clause no
+decision turns on it, so it is dropped here with disclosure; any future use needs a registered job.
+No audit (FAIL, routine read).
