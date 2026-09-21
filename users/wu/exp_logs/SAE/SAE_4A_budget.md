@@ -246,3 +246,16 @@ N=50 / N=100 arms already running finish as funded and remain the reference for 
 new arm (prepro, sf, soft) reads against a fresh ctrl_20 in its own pack, never against ctrl_50 at
 sub-epoch 20 (different LR phase). Amendment to the pending arms' cost lines in `SAE_4A_prior.md`
 and `SAE_4A_prepro.md`: N = 20 replaces N = 50 there.
+
+### Training objective of the six N = 100 arms past sub-epoch 50 (read 2026-09-21 after the kill; `reports/extract_budget_n100_loss_2026-09-21.md`, key `train_loss_agg` from each arm's learning_rates file; label-free)
+
+| arm | ep40 | ep50 | ep60 | last (ep) |
+|---|---|---|---|---|
+| ctrl_100 | 1.0813 | 1.0795 | 1.0784 | 1.0756 (67) |
+| bt_100 | 1.0061 | 1.0017 | 0.9980 | 0.9889 (66) |
+| nosched_ctrl_100 | 1.4301 | 1.4258 | 1.4095 | 1.3939 (67) |
+| odmprior_100 | −2.9655 | −2.9917 | −2.9873 | −2.9799 (67) |
+| odmbt_100 | −2.9813 | −2.9791 | −2.9746 | −2.9906 (65) |
+| nosched_odmprior_100 | −2.9397 | −2.9757 | −2.9950 | −2.9836 (67) |
+
+Read: the objective was still drifting down in the three non-odm arms after ep50 (ctrl 0.4 %, bt 1.3 %, nosched_ctrl 2.2 % over 15–17 sub-epochs, the unscheduled arm moving most because its LR never decays) and was flat to noisy in the three odm arms (odmprior_100 rose from −2.992 to −2.980). The same drift between ep20 and ep50 bought no PER (0.875 → 0.89–0.905 in the N = 50 read), so the drift is not evidence of progress on the code; the kill loses nothing readable.
