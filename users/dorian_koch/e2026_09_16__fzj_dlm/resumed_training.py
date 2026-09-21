@@ -129,6 +129,33 @@ class ReturnnTrainingResumedJob(ReturnnTrainingJob):
             shutil.copyfile(tk.uncached_path(donor["learning_rates"]), lrf)
 
 
+    def _get_run_cmd(self):
+        """Drop the ``start_epoch`` guard once this job has written its OWN checkpoints.
+
+        🔴 Hit 2026-09-21: both resumed arms died on their first resubmission with ``KeyError: 38``.
+        ``start_epoch = donor + 1`` sits in the (hashed) config, so on EVERY run RETURNN indexes
+        ``existing_models[start_epoch - 1]`` (`engine/base.py:211`) -- but ``cleanup_old_models``
+        (keep_last_n) had already deleted the seeded ``epoch.038`` link. Re-seeding the link would be
+        worse: RETURNN would then restart at the donor and overwrite epochs 39+.
+        The guard only exists for the FIRST run (a seeding that silently failed must not restart at
+        epoch 1). Once an epoch past the donor exists, ``++start_epoch auto`` hands resumption back to
+        RETURNN's normal scan (newest checkpoint with an ``.opt.pt``). A command-line override, so
+        neither the hashed config nor the written returnn.config changes.
+        """
+        cmd = super()._get_run_cmd()
+        donor_epoch = int(self._resume_donor()["epoch"])
+        models_dir = self.out_model_dir.get_path()
+        own = [
+            fn
+            for fn in (os.listdir(models_dir) if os.path.isdir(models_dir) else [])
+            if fn.startswith("epoch.") and fn.endswith(".opt.pt") and int(fn.split(".")[1]) > donor_epoch
+        ]
+        if own:
+            print(f"ReturnnTrainingResumedJob: own checkpoints {sorted(own)} exist -> ++start_epoch auto")
+            cmd = cmd + ["++start_epoch", "auto"]
+        return cmd
+
+
 class PatchTrainingJobToResumed:
     """
     Context manager: while active, ``train_v4`` builds a :class:`ReturnnTrainingResumedJob`.
