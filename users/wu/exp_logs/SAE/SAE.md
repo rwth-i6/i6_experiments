@@ -78,9 +78,11 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    training-free mode-seeking read, no-reverse arm, K=64 reverse arm, GAN+reverse arms, in parallel.
    Attribution closed on its rule (no branch fires). **Budget round (user 2026-09-20), ACTIVE,
    `SAE_4A_budget.md`:** 50 / 100 sub-epochs with LR + tau schedule; control, lattice prior + BT
-   (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), ACTIVE,
+   (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), CLOSED 2026-09-21 FAIL,
    `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,
-   four arms on one node, paired against ctrl_50; gate G4a.5. Objective derivation: `SAE_4A_objective.md`.
+   four arms on one node, paired against ctrl_50; gate G4a.5 read at sub-epoch 50: PER 0.89–0.92
+   in every arm, no band exit (max 0.021 below own chance null), ent_50 0.019 worse than ctrl_50;
+   confidence and consistency do not move the cold bed out of the content-free band. Objective derivation: `SAE_4A_objective.md`.
    **Context-dependent reverse model (user 2026-09-20), DEFERRED without limit by the user the same
    day, `SAE_4A_cdrev.md`:** emission `p_phi(x_seg | k, previous phone)`; gate G4a.6; design reviewed
    (approve with amendments, applied), nothing built. Literature is against it

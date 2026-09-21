@@ -25,9 +25,12 @@ node_d hash unmoved; ctrl_50 ep1/4/10 reads submitted 18:11. Private-code analys
 `.{x79av2mvTxo3,eLdlRYU1YtQZ,ssh9wJM8pxjI}` dev-clean, `SymbolDeciphermentJob.{36NfY7XDOL3f,FkH0wprbfjaN}`
 ep4/ep10 dev-other; `reports/exec_launch_private_code_2026-09-20.md`); fresh-context audit
 dispatched before the tables go into Results.
-NEXT: run the private-code config when the implementer reports; read the ctrl_50 ep1/4/10 entropy
-and usage-null reads (banked numbers replace the wiring-check values), then the ctrl_50 ep10
-private-code table, then node_d ep1 / ep4 / ep10.
+**CLOSED 2026-09-21: G4a.5 read at sub-epoch 50, FAIL for all four arms** (Results, "G4a.5 read"):
+node_d finished (Slurm 1912407, 8 h 40), every registered read finished, the manager exited on
+"All output calculated" and is not restarted (`reports/exec_infomax_manager_restart_2026-09-21.md`;
+its watcher is retired). PER 0.89–0.92 at ep50 in every arm, no band exit, no collapse, ent_50
+0.019 worse than ctrl_50. No InfoMax arm is queued; the private-code analysis stays banked as a
+description of the band. NEXT: nothing in this phase.
 
 ## Objective
 
@@ -258,6 +261,49 @@ amendments 1-8 applied above and in the implementer's brief).
 
 These replace the code-review wiring values (3.25 / 2.71 / 0.30 / 0.19) quoted in Design; same
 picture. The control never leaves its chance null by more than 0.012 at any kept checkpoint.
+
+### G4a.5 read at sub-epoch 50 (2026-09-21; node_d `PackedBlankfreeTrainJob.YtvrSez8z9Wf` finished after 8 h 40, Slurm 1912407; all registered reads finished, manager exited on "All output calculated"; numbers with hashes in `reports/extract_infomax_reads_2026-09-21.md`)
+
+**Verdict: FAIL for all four arms (no take-off).** Greedy PER at sub-epoch 50 sits at 0.89–0.92
+against the 0.50 bar with rates inside the window and no collapse, i.e. the same content-free band
+as the control; no arm leaves its own chance null by more than 0.021 at any kept checkpoint (band
+exit needs 0.05). Not audited: a FAIL by 0.39 PER is not a claim that needs a fresh reading; the
+PASS-audit rule does not apply.
+
+dev-other greedy PER, as banked (ctrl_50 from the budget node):
+
+| arm | ep1 | ep4 | ep10 | ep25 | ep50 | ep50 rate /s | ep50 gap | ep50 bits(40) | ep50 PER − own null |
+|---|---|---|---|---|---|---|---|---|---|
+| ctrl_50 | 0.855 | 0.869 | 0.897 | 0.888 | 0.897 | 9.16 | (budget file) | 4.99 (ep25) | −0.012 |
+| ent_50 | 0.856 | 0.860 | 0.913 | 0.903 | 0.916 | 9.39 | 4.59 | 5.04 | −0.006 |
+| entaug_50 | 0.873 | 0.850 | 0.888 | 0.881 | 0.891 | in window | 4.54 | > 3 | −0.018 |
+| aug_50 | 0.849 | 0.867 | 0.898 | 0.893 | 0.898 | in window | 4.46 | > 3 | −0.014 |
+| aughi_50 | 0.836 | 0.867 | 0.890 | 0.879 | 0.891 | in window | 4.57 | > 3 | −0.015 |
+
+Paired PER delta arm − ctrl_50 (`PairedPerDeltaJob`, dev-other; * = 95 % CI excludes 0):
+
+| arm | ep1 | ep4 | ep10 | ep25 | ep50 |
+|---|---|---|---|---|---|
+| ent_50 | +0.001 | −0.009* | +0.016* | +0.016* | +0.019* |
+| entaug_50 | +0.018* | −0.019* | −0.009* | −0.006* | −0.006* |
+| aug_50 | −0.006* | −0.002 | +0.001 | +0.005* | +0.002 |
+| aughi_50 | −0.020* | −0.002 | −0.007* | −0.008* | −0.006* |
+
+Reading against the pre-registered predictions. (1) The held entropy penalty does what it says to
+the statistic it penalises: ent_50's eval-mode entropy is below ctrl_50's from the first checkpoint
+(1.21 vs 3.04 nats at ep1, 1.93 vs 2.41 at ep4, 0.25 vs 0.38 at ep10) and below 1 nat by ep10, but
+ctrl_50 reaches the same floor on its own by ep10 (0.38) and both drift back to about 0.5 nats by
+ep50; sharpening the posterior does not change which partition it sharpens onto, and ent_50 ends
+0.019 WORSE than the control (CI excludes 0). (2) The invariance arms are not better than their
+non-invariance twins in any way that survives the band: entaug and aughi sit 0.006 below ctrl_50 at
+ep50, a paired difference that is significant per utterance but one third of the 0.02 the control
+itself moves between kept checkpoints and far inside its own chance null; the confident partition
+without invariance does not track a nuisance that invariance removes. (3) No low-inventory
+failure: symbol usage stays at 5.0 bits of 40 from ep10 in every arm. (4) No abort fired (every arm
+ran to sub-epoch 50 with its rate in the window). Conclusion: on this bed neither conditional-entropy
+minimisation nor augmentation invariance, alone or together, moves the cold blank-free recogniser
+out of the content-free band; the stationary point argued in `SAE_4A_objective.md` sections 3 and 5
+is not escaped by making the posterior confident or consistent. No further InfoMax arm is queued.
 
 ### Interim reads (2026-09-20 19:30, node_d at sub-epoch 8; early read is at sub-epoch 10)
 
