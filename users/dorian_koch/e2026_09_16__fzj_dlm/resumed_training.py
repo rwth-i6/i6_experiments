@@ -211,9 +211,34 @@ class PatchTrainingJobToResumed:
         assert _t4.ReturnnTrainingJob is ReturnnTrainingJob, "already patched (nested?)"
         self._patch = unittest.mock.patch.object(_t4, "ReturnnTrainingJob", _wrapped)
         self._patch.start()
+
+        # 🔴 The per-epoch recog would ask for epochs the resumed job never writes. ``fixed_epochs``
+        # comes from ``default_returnn_keep_epochs(num_epochs)`` (5, 10, 20, ...), but this job starts
+        # at donor+1, so ``epoch.005.pt`` etc. never exist and that recog fails its input check
+        # forever ("Job isn't runnable", hit 2026-09-21 on BatchedReturnnForwardJob.LSsqPhS3J6fK).
+        # Drop the impossible epochs from the ModelWithCheckpoints only -- the training job and its
+        # hash are untouched, and the last fixed epoch (what every headline recog uses) is unchanged.
+        import dataclasses as _dc
+
+        from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoints
+
+        orig_from_job = ModelWithCheckpoints.from_training_job
+        donor_epoch = self.donor["epoch"]
+
+        def _from_job(definition, training_job, **kw):
+            res = orig_from_job(definition=definition, training_job=training_job, **kw)
+            if isinstance(training_job, ReturnnTrainingResumedJob):
+                kept = {e for e in res.fixed_epochs if e > donor_epoch}
+                assert kept, f"no fixed epoch after the donor epoch {donor_epoch}: {sorted(res.fixed_epochs)}"
+                res = _dc.replace(res, fixed_epochs=kept)
+            return res
+
+        self._patch_mwc = unittest.mock.patch.object(ModelWithCheckpoints, "from_training_job", staticmethod(_from_job))
+        self._patch_mwc.start()
         return self
 
     def __exit__(self, *exc):
+        self._patch_mwc.stop()
         self._patch.stop()
         if exc[0] is None:
             assert self.count == 1, (
