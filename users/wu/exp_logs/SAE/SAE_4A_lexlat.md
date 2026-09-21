@@ -4,7 +4,7 @@
 
 LIVE managers (pid, config shim, background id), watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-- k2 probe: 408590, `config/sae_4a_lexlat_k2.py`, bx1ityqa8
+- k2 probe manager 408590 EXITED: `LexlatK2ProbeJob.Tkl94t85j4pV` (Slurm 1929753) interrupted_not_resumable at the 2 h limit with NO cell completed (no partial.json; k2 stack trace at cancel); debugger diagnosing (`reports/debug_k2_probe_timeout_2026-09-21.md`); rerun needs the marker and submit_log cleared and a fresh manager with the venv on PATH.
 - soft-pack (another phase's watcher, held in this session): 409858, `config/sae_4a_soft_pack.py`, bnwu2pxtf
 - official-LM: 857002, `config/sae_4a_lexlat_k2_official.py`, bxveinvva
 
