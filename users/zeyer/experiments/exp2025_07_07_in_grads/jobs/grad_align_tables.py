@@ -1140,11 +1140,11 @@ def _compare_table(with_hyp=False):
                     ),
                 ),
                 (
-                    # Gradients at the OPTIMAL encoder depth (encoder 3/4 = layer 24; the best of the
-                    # encoder-depth sweep, tab:encoder-depth), which beats the cross-attention DTW.
+                    # Gradients at the encoder depth selected on TIMIT dev (encoder output; the Buckeye
+                    # sweep in tab:encoder-depth peaks at 3/4), which beats the cross-attention DTW.
                     "Gradients*",
-                    f"align/whisper-large-v3-charlev-spc-encL24-encdepth-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
-                    f"align/whisper-large-v3-charlev-spc-encL24-encdepth-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/whisper-large-v3-charlev-spc-encout-encdepth-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/whisper-large-v3-charlev-spc-encout-encdepth-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 (
                     "Cross-att.",

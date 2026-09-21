@@ -6198,36 +6198,95 @@ def py():
     # TIMIT-test L24 encoder-depth extract, so the per-model "Gradients*" (opt encoder depth) row can
     # also fill its TIMIT column (the sweep above is Buckeye-segA only). Same recipe as the segA encL24
     # cell: whisper-large-v3 char, L2 per-token grad w.r.t. encoder layer 24, en0.5-sil2.0 word-topo DP.
+    # Also the encoder output: the depth that selection on TIMIT dev picks (sweep below).
+    # bb=False on the L24 job keeps its finished hash; the new one uses the batched backward.
     _t_ed_ao = {"apply_softmax_over_time": True, "blank_score": -5}
-    _t_ed_ex = ExtractInGradsPerTokenJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="test",
-        model_config=rf.build_dict(
-            Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" ", grad_wrt="enc_L24"
-        ),
-        mult_grad_by_inputs=False,
-        attr_reduction="L2",
-        batched_backward=False,
-    )
-    _t_ed_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    _t_ed_ex.rqmt = {**_t_ed_ex.rqmt, "time": 24}
-    _t_ed_name = "whisper-large-v3-charlev-spc-encL24-encdepth-timit-test-L2_grad-pertoken"
-    _t_ed_ex.add_alias(_t_ed_name)
-    reg(f"{_t_ed_name}.hdf", _t_ed_ex.out_hdf)
-    _t_ed_al = WordAlignFromPerTokenGradsJob(
-        grad_score_hdf=_t_ed_ex.out_hdf,
-        grad_score_key="data",
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="test",
-        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-        align_opts=_t_ed_ao,
-        audio_energy_pow=0.5,
-        blank_silence_energy_scale=2.0,
-        word_topology=True,
-    )
-    _t_ed_nm = f"align/{_t_ed_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
-    _t_ed_al.add_alias(_t_ed_nm)
-    reg(f"{_t_ed_nm}-wbe.txt", _t_ed_al.out_wbe)
+    for _t_ed_tag, _t_ed_gw, _t_ed_bb in [("encL24", "enc_L24", False), ("encout", "enc_out", True)]:
+        _t_ed_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            model_config=rf.build_dict(
+                Whisper,
+                model_dir=dl_whisper_l3.out_hub_cache_dir,
+                char_level=True,
+                char_level_sep=" ",
+                grad_wrt=_t_ed_gw,
+            ),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=_t_ed_bb,
+        )
+        _t_ed_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _t_ed_ex.rqmt = {**_t_ed_ex.rqmt, "time": 24}
+        _t_ed_name = f"whisper-large-v3-charlev-spc-{_t_ed_tag}-encdepth-timit-test-L2_grad-pertoken"
+        _t_ed_ex.add_alias(_t_ed_name)
+        reg(f"{_t_ed_name}.hdf", _t_ed_ex.out_hdf)
+        _t_ed_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_t_ed_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_t_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _t_ed_nm = f"align/{_t_ed_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _t_ed_al.add_alias(_t_ed_nm)
+        reg(f"{_t_ed_nm}-wbe.txt", _t_ed_al.out_wbe)
+
+    # TIMIT-val (dev) encoder-depth sweep, whisper-large-v3 char: does dev selection also pick L24?
+    # (The sweep above chose the depth on Buckeye, which is also evaluated.) Same DP as the sweep.
+    # The log-mel row reuses the finished scale extract; the depth extracts are new.
+    _d_ed_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    for _d_ed_tag, _d_ed_gw in [
+        ("logmel", None),
+        ("encin", "enc_in"),
+        ("encL8", "enc_L8"),
+        ("encL16", "enc_L16"),
+        ("encL24", "enc_L24"),
+        ("encout", "enc_out"),
+    ]:
+        _d_ed_name = f"whisper-large-v3-charlev-spc-{_d_ed_tag}-encdepth-timit-val-L2_grad-pertoken"
+        if _d_ed_gw is None:
+            _d_ed_hdf = _table_results["whisper-large-v3-logmel-timit-val-L2_grad-pertoken-charlev-spc.hdf"]
+        else:
+            _d_ed_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=rf.build_dict(
+                    Whisper,
+                    model_dir=dl_whisper_l3.out_hub_cache_dir,
+                    char_level=True,
+                    char_level_sep=" ",
+                    grad_wrt=_d_ed_gw,
+                ),
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+                batched_backward=True,
+            )
+            _d_ed_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _d_ed_ex.rqmt = {**_d_ed_ex.rqmt, "time": 24}
+            _d_ed_ex.add_alias(_d_ed_name)
+            reg(f"{_d_ed_name}.hdf", _d_ed_ex.out_hdf)
+            _d_ed_hdf = _d_ed_ex.out_hdf
+        _d_ed_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_d_ed_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_d_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _d_ed_nm = f"align/{_d_ed_name}-{_name_for_dict(_d_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _d_ed_al.add_alias(_d_ed_nm)
+        reg(f"{_d_ed_nm}-wbe.txt", _d_ed_al.out_wbe)
+        # the shared metric (what the paper tables report), so the row is comparable to tab:encoder-depth
+        reg(f"{_d_ed_nm}-shared-wbe.txt", _metric_job_for_align(_d_ed_al).out_wbe)
 
     # Log-mel gradient recovery probe (encoder-depth follow-up): log-mel vs enc-in WBE is 53 vs 44 ms
     # at the SAME signed offset (-10 vs -9, tab:encoder-depth) -> the gap is scatter, not a shift.
