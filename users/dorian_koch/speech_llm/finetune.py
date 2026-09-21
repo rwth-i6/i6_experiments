@@ -469,6 +469,69 @@ PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
 )
 
 
+def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+    """Render a PersonaPlex LoRA config (``moshi_family.personaplex.finetune_launcher``, train_scope=lora).
+
+    Unlike :func:`_render_personaplex_config` (which predates per-arm knobs and hardcodes everything),
+    every training knob here comes from ``job.hparams``, with defaults equal to the base-Moshi A-arms
+    so a PersonaPlex arm and its Moshi counterpart differ only where declared. Emits ONLY keys the
+    launcher reads -- ``report_unread_config`` fails the run on anything else. The text-stream keys
+    (``emit_epad``, ``onset_floor``, ``text_lead_frames``) render as ``null`` when unset, so the
+    launcher falls back to ``interleave_text``'s defaults.
+
+    ``system_prompt_key`` / ``voice_codes_key`` name the per-row prompt columns
+    (``AttachPersonaPrompts`` writes ``context`` and ``voice_codes``)."""
+    hp = getattr(job, "hparams", None) or {}
+    _lr = hp.get("lr", 1e-6)
+
+    def _opt_bool(k):
+        return "null" if hp.get(k) is None else str(bool(hp[k])).lower()
+
+    _tlf = "null" if hp.get("text_lead_frames") is None else int(hp["text_lead_frames"])
+    return f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
+hf_repo_id: "{hf_repo_id}"
+{_train_data_yaml(job, supports_mix=False)}
+out_dir: "{job.out_rundir.get()}"
+max_steps: {max_steps}
+duration_sec: {job.duration_sec}
+train_scope: "lora"
+lora_rank: {job.lora_rank}
+lora_scaling: 2.0
+gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
+per_gpu_batch: {hp.get("per_gpu_batch", 1)}
+grad_accum: {hp.get("grad_accum", 4)}
+lr_temporal: {_yaml_float(hp.get("temporal_lr", _lr))}
+lr_depformer: {_yaml_float(hp.get("depth_lr", 2 * _lr))}
+warmup_steps: {hp.get("warmup_steps", 500)}
+grad_clip: {_yaml_float(hp.get("grad_clip", 1.0))}
+save_every: {hp.get("save_every", 100)}
+log_every: 10
+seed: {getattr(job, "seed", 0)}
+system_prompt_key: "{hp.get("system_prompt_key", "context")}"
+voice_codes_key: "{hp.get("voice_codes_key") or ""}"
+silence_frames: {int(hp.get("silence_frames", 6))}
+emit_epad: {_opt_bool("emit_epad")}
+onset_floor: {_opt_bool("onset_floor")}
+text_lead_frames: {_tlf}
+"""
+
+
+# PersonaPlex LoRA on the owned lib: the SAME uniform LoRA as base Moshi (moshi_family.build.apply_lora_to)
+# and the base-Moshi checkpoint layout, so ResolveOverlayCheckpoint(overlay_kind="lora") resolves it and
+# `personaplex_family_backend_spec(lora_rank=R)` re-wraps the layers at inference. New ``name`` -> the
+# existing heads-only arms keep their hashes.
+PERSONAPLEX_LIB_LORA_ADAPTER = FinetuneAdapter(
+    name="personaplex_lib_lora",
+    batch_size=32,
+    overlay_kind="lora",
+    base_model="nvidia/personaplex-7b-v1",
+    weights_name="lora.safetensors",
+    render_config=partial(_render_personaplex_lora_config, hf_repo_id="nvidia/personaplex-7b-v1"),
+    launcher_module="moshi_family.personaplex.finetune_launcher",
+    pythonpath_package="moshi_family",
+)
+
+
 def _single_train_data_path(job: "SpeechFinetune") -> str:
     """The one training corpus path, asserting there is exactly one.
 

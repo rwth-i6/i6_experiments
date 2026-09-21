@@ -54,6 +54,12 @@ PAIRS = {
     RECIPES / "personaplex_finetune_launcher.py": ("finetune.py", "_render_personaplex_config"),
 }
 
+#: Launchers fed by MORE than one renderer (one adapter per train_scope): each extra renderer's keys
+#: must be read by the same launcher, under the same rules.
+EXTRA_RENDERERS = [
+    (LIB / "moshi_family/personaplex/finetune_launcher.py", "finetune.py", "_render_personaplex_lora_config"),
+]
+
 #: Launchers that must read their whole config before branching. Every launcher whose recipe calls
 #: ``report_unread_config`` belongs here -- the strict guard makes a branch-local read fatal.
 UNCONDITIONAL = {p for p in PAIRS if "full_duplex" in str(p)}
@@ -162,7 +168,7 @@ def config_key(node) -> str | None:
 
 
 failures = []
-for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
+for launcher, recipe_file, fn_name in sorted([(k, *v) for k, v in PAIRS.items()] + EXTRA_RENDERERS):
     emitted = rendered_keys(recipe_file, fn_name)
     read, conditional, late = read_keys(launcher)
     name = launcher.name if launcher.parent.name == "speech_llm" else f"{launcher.parent.name}/{launcher.name}"

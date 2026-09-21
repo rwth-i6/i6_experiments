@@ -31,6 +31,7 @@ from i6_experiments.users.dorian_koch.speech_llm.finetune import (  # noqa: E402
     MOSHIRAG_LIB_ADAPTER,
     PERSONAPLEX_ADAPTER,
     PERSONAPLEX_LIB_ADAPTER,
+    PERSONAPLEX_LIB_LORA_ADAPTER,
     _yaml_float,
     train_data_specs,
 )
@@ -41,6 +42,7 @@ ADAPTERS = {
     "moshi_lib_full": MOSHI_LIB_FULL_ADAPTER,
     "personaplex (fork)": PERSONAPLEX_ADAPTER,
     "personaplex_lib": PERSONAPLEX_LIB_ADAPTER,
+    "personaplex_lib_lora": PERSONAPLEX_LIB_LORA_ADAPTER,
     "moshirag_lib": MOSHIRAG_LIB_ADAPTER,
 }
 # Only the base-Moshi lib launcher reads `train_data_mix`; the rest do cfg["train_data"]. The

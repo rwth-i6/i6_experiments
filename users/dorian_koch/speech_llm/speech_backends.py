@@ -241,7 +241,7 @@ def audex_duplex_backend_spec() -> BackendSpec:
     )
 
 
-def personaplex_family_backend_spec() -> BackendSpec:
+def personaplex_family_backend_spec(lora_rank: int | None = None, lora_scaling: float = 2.0) -> BackendSpec:
     """PersonaPlex via the local ``moshi_family.personaplex`` sub-package (latest torch, owned code).
 
     Runs ``python -m moshi_family.personaplex.offline_inference`` through the same ``offline_module``
@@ -258,10 +258,15 @@ def personaplex_family_backend_spec() -> BackendSpec:
 
         return moshi_family_venv()
 
+    # A LoRA finetune (PERSONAPLEX_LIB_LORA_ADAPTER) passes its rank so the driver wraps the linears
+    # before loading the --overlay adapter. None (the default) = heads overlay or the released model;
+    # the name and args are then exactly what they always were, so no existing eval re-hashes.
+    extra = ("--lora_rank", str(lora_rank), "--lora_scaling", str(lora_scaling)) if lora_rank is not None else ()
     return BackendSpec(
-        name="personaplex_family",
+        name="personaplex_family" if lora_rank is None else f"personaplex_family_lora{lora_rank}",
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.personaplex.offline_inference",
+        offline_extra_args=extra,
         inference_venv=_venv,
     )
 

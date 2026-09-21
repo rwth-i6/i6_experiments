@@ -1,0 +1,618 @@
+"""Persona (system) prompts + voice prompts for PersonaPlex training on podcast windows.
+
+PersonaPlex conditions on a HYBRID system prompt: a voice sample and a role text. For the released
+model, NVIDIA annotated 1,217 h of Fisher with GPT-OSS-120B prompts "at varying detail levels ... to
+balance generalization capability with instruction-following precision" (arXiv 2602.06053 v1,
+Appendix A). The paper publishes only three example OUTPUTS -- the annotation instruction is not
+public -- all shaped "You enjoy having a good conversation." + optional topic sentence + optional
+second-person persona facts. This module copies that shape and that model, with our own instruction
+(``PROMPT_SPECS``, reproduced verbatim in projects/2026-01-speech-llm/paper_recipes.md).
+
+Four jobs, each keyed on the training row ``id`` written by ``PodcastCodesTrainData``
+(``<item_id>@<channel>#w<k>``):
+
+  PodcastWindowContext   CPU. Rebuilds every training window's transcript and speaker identity.
+  PersonaPromptGen       GPU (vLLM). Writes the prompts, LONG format: one row per (id, level).
+  VoicePromptCodes       CPU. Voice-prompt mimi codes per (episode, diarized speaker).
+  AttachPersonaPrompts   CPU. Training rows + ``context`` + ``voice_codes`` (the loader's columns).
+
+Storage is long format on purpose: a new level, spec, LLM or input view is new ROWS in a new job's
+output, never a schema change, and prompt sets from any number of jobs simply concatenate.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+
+from sisyphus import Job, Task, tk
+
+from .common import vllm_server, write_progress
+from .podcast_ingest import WINDOW_SELECT_KEYS, _moshi_pythonpath, select_windows
+
+#: The paper's Minimal level, verbatim, and the opener every LLM level starts with.
+PERSONA_MINIMAL = "You enjoy having a good conversation."
+
+#: A copied phrase of this many words or more between a prompt and the transcript it describes fails
+#: the row (retried, then counted). The prompts are meant to say WHAT is talked about, not the words.
+MAX_SHARED_NGRAM = 5
+
+_VIEW_DESCRIPTIONS = {
+    "assistant": (
+        "the transcript of everything THE ASSISTANT says in one excerpt of a real two-person "
+        "conversation. The other person's words are not shown."
+    ),
+    "dialogue": (
+        "a transcript of one excerpt of a real two-person conversation. Lines starting with "
+        "'Assistant:' are THE ASSISTANT; lines starting with 'Other:' are the other person."
+    ),
+}
+
+#: Versioned prompt specs. The spec's CONTENT is hashed into every job that uses it (see
+#: ``spec_digest``), so editing an instruction yields new jobs instead of silently reusing old output.
+PROMPT_SPECS = {
+    "persona_v1": {
+        "levels": ["minimal", "general", "topic", "detailed"],
+        "llm_levels": ["general", "topic", "detailed"],
+        "instruction": """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below is {view_description}
+
+Write three prompts that tell the assistant what to talk about in this conversation, at three levels of detail. Each prompt is appended to the fixed opening sentence "You enjoy having a good conversation." -- do NOT repeat that sentence.
+
+- general: ONE short sentence naming only the broad theme, in a few words. Example: "Talk about comedy and life on the road."
+- topic: ONE sentence of the form "Have a <tone> conversation about <concrete topics>." naming the tone and the concrete topics the assistant discusses. Example: "Have a casual discussion about eating at home versus dining out."
+- detailed: TWO to FOUR sentences: the tone and topics, the specific points or opinions the assistant brings up, and second-person facts about the assistant that the conversation reveals (background, work, experiences, likes and dislikes). Example: "Have a reflective conversation about career changes and feeling of home. You have lived in California for 21 years and consider San Francisco your home. You work as a teacher and have traveled a lot. You dislike meetings."
+
+Rules for all three:
+- Write in the second person ("You ...") and describe ONLY the assistant.
+- Describe WHAT is talked about, never HOW it is worded. Do not quote. Do not copy any phrase of four or more consecutive words from the transcript.
+- Do not mention a podcast, a show, a host, a transcript, an excerpt, or these instructions.
+- Never name the assistant. Name another real person only if the assistant talks about them.
+- State only what the transcript supports.
+
+Answer with JSON: {{"general": "...", "topic": "...", "detailed": "..."}}
+
+TRANSCRIPT:
+{transcript}""",
+    },
+}
+
+_PROMPT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "general": {"type": "string", "minLength": 1},
+        "topic": {"type": "string", "minLength": 1},
+        "detailed": {"type": "string", "minLength": 1},
+    },
+    "required": ["general", "topic", "detailed"],
+    "additionalProperties": False,
+}
+
+
+def spec_digest(name: str) -> str:
+    """Content hash of a prompt spec: hashed into every job using it, so an edited spec re-runs."""
+    return hashlib.sha256(json.dumps(PROMPT_SPECS[name], sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _words(text: str) -> list[str]:
+    return ["".join(c for c in w.lower() if c.isalnum()) for w in text.split()]
+
+
+def max_shared_ngram(prompt: str, transcript: str, cap: int = 16) -> int:
+    """Length of the longest run of consecutive words the prompt shares with the transcript.
+
+    Word-level, case- and punctuation-insensitive. Capped at ``cap`` (anything that long is a copy).
+    """
+    p = [w for w in _words(prompt) if w]
+    t = [w for w in _words(transcript) if w]
+    best = 0
+    for n in range(1, min(cap, len(p)) + 1):
+        grams = {tuple(t[i : i + n]) for i in range(len(t) - n + 1)}
+        if any(tuple(p[i : i + n]) in grams for i in range(len(p) - n + 1)):
+            best = n
+        else:
+            break
+    return best
+
+
+def _seeded_unit(seed: int, key: str) -> float:
+    """Deterministic value in [0, 1) from (seed, key). Never ``random``: re-runs must be identical."""
+    d = hashlib.sha256(f"{seed}:{key}".encode()).digest()
+    return int.from_bytes(d[:8], "big") / 2**64
+
+
+def choose_level(level_weights: dict, seed: int, row_id: str) -> str:
+    """Pick one level for a row by seeded hash, proportional to ``level_weights`` (sorted by name)."""
+    items = sorted((k, float(v)) for k, v in level_weights.items() if float(v) > 0)
+    assert items, f"no positive level weight in {level_weights}"
+    u = _seeded_unit(seed, row_id) * sum(v for _, v in items)
+    acc = 0.0
+    for k, v in items:
+        acc += v
+        if u < acc:
+            return k
+    return items[-1][0]
+
+
+def _parts(d) -> list[str]:
+    root = d.get_path() if hasattr(d, "get_path") else str(d)
+    pd = os.path.join(root, "parts")
+    return sorted(os.path.join(pd, n) for n in os.listdir(pd) if not n.endswith(".tmp"))
+
+
+# ---------------------------------------------------------------------------------------------
+# 1a. window context
+# ---------------------------------------------------------------------------------------------
+class PodcastWindowContext(Job):
+    """Per training window: its transcript (both views) and the diarized label of its assistant.
+
+    Recomputes each window EXACTLY as ``PodcastCodesTrainData`` did -- the same ``select_windows``
+    rule, the same seeded channel choice, the same frame-aligned bounds and onset-based word
+    selection -- and keeps the ids present in the training corpus. Every training id must be
+    reproduced; one that is not means this job and the converter disagree, and a prompt would be
+    attached to the wrong audio, so that is an error, not a count.
+
+    ``assistant_label``: the words' own ``speaker`` field is the channel's EPISODE-level anchor and is
+    wrong for about a quarter of dialogue rows (audio_datasets.md, "Label trap"), so the label is
+    taken from the turns instead: the diarized speaker whose turns contain most of the assistant's
+    word onsets in this window.
+    """
+
+    def __init__(
+        self,
+        *,
+        train_data: tk.Path,
+        dialogue_shard_dirs: list[tk.Path],
+        window_select: dict,
+        assistant_channel: str = "random",
+        selection_seed: int = 0,
+    ):
+        assert assistant_channel in ("a", "b", "random"), assistant_channel
+        assert set(window_select) <= set(WINDOW_SELECT_KEYS), window_select
+        self.train_data = train_data
+        self.dialogue_shard_dirs = list(dialogue_shard_dirs)
+        self.window_select = {k: window_select[k] for k in WINDOW_SELECT_KEYS if k in window_select}
+        self.assistant_channel = assistant_channel
+        self.selection_seed = int(selection_seed)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 2})
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+
+        want_ids = set(load_from_disk(self.train_data.get_path()).select_columns(["id"])["id"])
+        print(f"[context] {len(want_ids)} training ids to reproduce", flush=True)
+        cols = [
+            "item_id",
+            "episode_id",
+            "duration_sec",
+            "frame_rate",
+            "n_frames",
+            "words_a",
+            "words_b",
+            "turns_json",
+            "meta",
+        ]
+        rows = []
+        for d in self.dialogue_shard_dirs:
+            for p in _parts(d):
+                for r in load_from_disk(p).select_columns(cols):
+                    if self.assistant_channel == "random":
+                        d8 = hashlib.sha256(f"{self.selection_seed}:{r['item_id']}".encode()).digest()
+                        ch = "a" if d8[0] % 2 == 0 else "b"
+                    else:
+                        ch = self.assistant_channel
+                    other = "b" if ch == "a" else "a"
+                    turns = json.loads(r["turns_json"])
+                    wins = select_windows(turns, float(r["duration_sec"]), **self.window_select)
+                    if not wins:
+                        continue
+                    fr, n_fr = float(r["frame_rate"]), int(r["n_frames"])
+                    words = {c: json.loads(r[f"words_{c}"] or "[]") for c in ("a", "b")}
+                    title = (json.loads(r["meta"] or "{}").get("title") or "")[:120]
+                    for wi, (a, b) in enumerate(wins):
+                        rid = f"{r['item_id']}@{ch}#w{wi}"
+                        if rid not in want_ids:
+                            continue
+                        f0 = int(np.floor(a * fr))
+                        f1 = min(n_fr, int(np.ceil(b * fr)))
+                        t0, t1 = f0 / fr, f1 / fr
+
+                        def sel(ws):
+                            return [w for w in ws if (w["start"] >= t0 or f0 == 0) and w["start"] < t1]
+
+                        wa, wu = sel(words[ch]), sel(words[other])
+                        rows.append(
+                            {
+                                "id": rid,
+                                "item_id": r["item_id"],
+                                "episode_id": r["episode_id"],
+                                "title": title,
+                                "channel": ch,
+                                "t0": t0,
+                                "t1": t1,
+                                "assistant_text": " ".join(w["text"] for w in wa),
+                                "user_text": " ".join(w["text"] for w in wu),
+                                "dialogue_text": _dialogue_text(wa, wu),
+                                "assistant_label": _label_for(wa, turns),
+                                "n_assistant_words": len(wa),
+                            }
+                        )
+        got = {r["id"] for r in rows}
+        missing = want_ids - got
+        if missing:
+            raise RuntimeError(
+                f"{len(missing)} of {len(want_ids)} training ids were not reproduced (e.g. "
+                f"{sorted(missing)[:3]}): this job's window/channel rule differs from the converter's, "
+                "so prompts would be attached to the wrong windows."
+            )
+        n_nolabel = sum(r["assistant_label"] is None for r in rows)
+        print(f"[context] {len(rows)} windows; {n_nolabel} without an assistant label", flush=True)
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+
+
+def _dialogue_text(wa: list[dict], wu: list[dict], gap: float = 1.5) -> str:
+    """Both channels as labelled utterances (one channel's words < ``gap`` s apart), ordered by onset."""
+    utts = []
+    for who, ws in (("Assistant", wa), ("Other", wu)):
+        cur = None
+        for w in sorted(ws, key=lambda w: w["start"]):
+            if cur and w["start"] - cur["end"] < gap:
+                cur["words"].append(w["text"])
+                cur["end"] = w["end"]
+            else:
+                cur = {"who": who, "start": w["start"], "end": w["end"], "words": [w["text"]]}
+                utts.append(cur)
+    utts.sort(key=lambda u: u["start"])
+    return "\n".join(f"{u['who']}: {' '.join(u['words'])}" for u in utts)
+
+
+def _label_for(words: list[dict], turns: list[dict]) -> str | None:
+    """The diarized speaker whose turns contain most of these word onsets (None if none do)."""
+    counts = {}
+    for w in words:
+        for t in turns:
+            if t["start"] <= w["start"] <= t["end"]:
+                counts[t["speaker"]] = counts.get(t["speaker"], 0) + 1
+    return max(sorted(counts), key=lambda s: counts[s]) if counts else None
+
+
+# ---------------------------------------------------------------------------------------------
+# 1b. LLM prompt generation
+# ---------------------------------------------------------------------------------------------
+class PersonaPromptGen(Job):
+    """Persona prompts for training windows at several detail levels, by an LLM served with vLLM.
+
+    Modelled on ``HfToDialogue`` (vLLM server, ``datasets.map`` concurrency, md5-seeded per-row
+    sampling, retries, >1 % failures is fatal) with two differences that matter:
+
+      * the spec's CONTENT is hashed (``spec_digest``), so editing an instruction re-runs;
+      * a VERBATIM guard: a prompt sharing a run of ``MAX_SHARED_NGRAM`` or more words with the
+        transcript it describes is retried and, if it persists, fails the row.
+
+    ``input_view``: ``assistant`` (only the assistant's words) or ``dialogue`` (both channels,
+    labelled). ``sample_n``: a seeded subset for review before a full run (None = every window).
+
+    Output (long format, one row per (id, level)): ``id, prompt_set, level, text, llm_name,
+    input_view, spec, max_ngram_overlap``, with ``prompt_set = f"{spec}|{llm_name}|{input_view}"``.
+    The ``minimal`` level is the constant ``PERSONA_MINIMAL`` and is written too, so a set is complete.
+    """
+
+    def __init__(
+        self,
+        *,
+        context_data: tk.Path,
+        input_view: str,
+        spec: str = "persona_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        sample_n: int | None = None,
+        sample_seed: int = 0,
+        shard: int | None = None,
+        num_shards: int | None = None,
+        guided_json: bool = True,
+        temperature: float = 0.6,
+    ):
+        assert input_view in _VIEW_DESCRIPTIONS, input_view
+        assert spec in PROMPT_SPECS, spec
+        self.context_data = context_data
+        self.input_view = input_view
+        self.spec = spec
+        self.spec_digest = spec_digest(spec)  # hashed: an edited spec is a different job
+        self.llm_name = llm_name
+        self.sample_n = sample_n
+        self.sample_seed = int(sample_seed)
+        self.shard = shard
+        self.num_shards = num_shards
+        self.guided_json = bool(guided_json)
+        self.temperature = float(temperature)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 80}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    @property
+    def prompt_set(self) -> str:
+        return f"{self.spec}|{self.llm_name}|{self.input_view}"
+
+    def completed_fraction(self):
+        import glob
+
+        from sisyphus import global_settings as gs
+
+        files = glob.glob(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_*.json"))
+        done, total = 0, None
+        for f in files:
+            try:
+                d = json.load(open(f))
+                done += d.get("done", 0)
+                total = total or d.get("total")
+            except (OSError, ValueError):
+                pass
+        return min(done / total, 1.0) if total else None
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+        from openai import OpenAI
+
+        ds = load_from_disk(self.context_data.get_path())
+        if self.sample_n is not None and self.sample_n < len(ds):
+            idx = np.sort(np.random.default_rng(self.sample_seed).choice(len(ds), self.sample_n, replace=False))
+            ds = ds.select(idx.tolist())
+        if self.shard is not None and self.num_shards is not None:
+            ds = ds.shard(num_shards=self.num_shards, index=self.shard)
+        spec = PROMPT_SPECS[self.spec]
+        total = len(ds)
+        work_dir = os.getcwd()
+        view, llm_name, guided, temp = self.input_view, self.llm_name, self.guided_json, self.temperature
+        print(f"[prompts] {total} windows, set={self.prompt_set!r}, guided_json={guided}", flush=True)
+
+        with vllm_server(llm_name) as url:
+            done = [0]
+
+            def gen(row):
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+                transcript = row["assistant_text"] if view == "assistant" else row["dialogue_text"]
+                msg = spec["instruction"].format(view_description=_VIEW_DESCRIPTIONS[view], transcript=transcript)
+                seed = int(hashlib.md5(row["id"].encode()).hexdigest(), 16) % (2**31)
+                out, err = None, ""
+                for attempt in range(5):
+                    try:
+                        kw = {"extra_body": {"guided_json": _PROMPT_JSON_SCHEMA}} if guided else {}
+                        resp = client.chat.completions.create(
+                            model=llm_name,
+                            messages=[{"role": "user", "content": msg}],
+                            seed=(seed + attempt) % (2**31),
+                            temperature=temp,
+                            max_tokens=4096,  # GPT-OSS spends tokens on reasoning before the answer
+                            **kw,
+                        )
+                        raw = (resp.choices[0].message.content or "").strip()
+                        if raw.startswith("```"):
+                            raw = raw.strip("`").split("\n", 1)[-1]
+                        parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+                        cand = {k: " ".join(str(parsed[k]).split()) for k in spec["llm_levels"]}
+                    except Exception as e:  # API error, empty or unparsable reply: retry
+                        err = f"{type(e).__name__}: {e}"[:200]
+                        continue
+                    overlaps = {k: max_shared_ngram(v, transcript) for k, v in cand.items()}
+                    if max(overlaps.values()) >= MAX_SHARED_NGRAM:
+                        err = f"verbatim overlap {overlaps}"
+                        continue
+                    out = (cand, overlaps)
+                    break
+                done[0] += 1
+                if done[0] % 10 == 0:
+                    try:
+                        write_progress(done[0], total, os.path.join(work_dir, f"progress_{os.getpid()}.json"))
+                    except Exception:
+                        pass
+                if out is None:
+                    return {"texts": None, "overlaps": None, "error": err}
+                return {"texts": json.dumps(out[0]), "overlaps": json.dumps(out[1]), "error": ""}
+
+            res = ds.map(gen, num_proc=32)
+
+        failed = [r for r in res if r["texts"] is None]
+        print(f"[prompts] {len(failed)}/{total} rows failed", flush=True)
+        for r in failed[:5]:
+            print(f"  FAILED {r['id']}: {r['error']}", flush=True)
+        if len(failed) > 0.01 * total:
+            raise RuntimeError(f"prompt generation failed on {len(failed)}/{total} rows (> 1%); see the log")
+
+        out = {
+            k: [] for k in ("id", "prompt_set", "level", "text", "llm_name", "input_view", "spec", "max_ngram_overlap")
+        }
+
+        def add(rid, level, text, ov):
+            for k, v in (
+                ("id", rid),
+                ("prompt_set", self.prompt_set),
+                ("level", level),
+                ("text", text),
+                ("llm_name", llm_name),
+                ("input_view", view),
+                ("spec", self.spec),
+                ("max_ngram_overlap", ov),
+            ):
+                out[k].append(v)
+
+        lens = {k: [] for k in spec["llm_levels"]}
+        for r in res:
+            if r["texts"] is None:
+                continue
+            texts, ovs = json.loads(r["texts"]), json.loads(r["overlaps"])
+            add(r["id"], "minimal", PERSONA_MINIMAL, 0)
+            for k in spec["llm_levels"]:
+                add(r["id"], k, f"{PERSONA_MINIMAL} {texts[k]}", int(ovs[k]))
+                lens[k].append(len(texts[k].split()))
+        Dataset.from_dict(out).save_to_disk(self.out_dir.get_path())
+        summary = {
+            "prompt_set": self.prompt_set,
+            "spec_digest": self.spec_digest,
+            "rows": total,
+            "failed": len(failed),
+            "words_per_level_median": {k: float(np.median(v)) if v else None for k, v in lens.items()},
+        }
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(f"[prompts] {summary}", flush=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1c. voice-prompt codes
+# ---------------------------------------------------------------------------------------------
+class VoicePromptCodes(Job):
+    """Voice-prompt mimi codes per (episode, diarized speaker) from the stored ``speaker_ref_audio``.
+
+    Runs ``moshi_family.persona_voice_codes`` in the moshi_family venv, which rebuilds each prompt
+    with PersonaPlex's OWN inference functions (resample, -24 LUFS, frame iteration, streaming mimi
+    encode), trimmed to ``voice_sec`` (4.0 s = the length of the voices PersonaPlex ships).
+    """
+
+    def __init__(self, *, episode_shard_dirs: list[tk.Path], venv_python_path: tk.Path, voice_sec: float = 4.0):
+        self.episode_shard_dirs = list(episode_shard_dirs)
+        self.venv_python_path = venv_python_path
+        self.voice_sec = float(voice_sec)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 8, "mem": 32, "time": 4})
+
+    def run(self):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        parts_dirs = [os.path.join(d.get_path(), "parts") for d in self.episode_shard_dirs]
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.persona_voice_codes",
+            "--out",
+            self.out_dir.get_path(),
+            "--voice_sec",
+            str(self.voice_sec),
+        ] + parts_dirs
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1d. attach prompts + voices to the training rows
+# ---------------------------------------------------------------------------------------------
+class AttachPersonaPrompts(Job):
+    """Training rows + ``context`` (persona text) + ``voice_codes``: what the PersonaPlex loader reads.
+
+    Per row, ONE level is chosen by seeded hash of the row id, proportional to ``level_weights``.
+    ``minimal`` needs no prompt set (it is the constant ``PERSONA_MINIMAL``), so an all-minimal corpus
+    does not wait on an LLM job. The voice is the row's assistant speaker's clip from
+    ``VoicePromptCodes`` (matched on episode + diarized label from ``PodcastWindowContext``).
+
+    Rows with no prompt (for a non-minimal level) or no voice clip are dropped and COUNTED; more than
+    ``max_drop_frac`` of either is an error rather than a quietly smaller corpus.
+
+    Extra columns for analysis: ``context_level``, ``context_set``, ``voice_label``, ``voice_n_frames``.
+    """
+
+    def __init__(
+        self,
+        *,
+        train_data: tk.Path,
+        context_data: tk.Path,
+        voice_codes: tk.Path,
+        level_weights: dict,
+        prompt_data: list[tk.Path] | None = None,
+        prompt_set: str | None = None,
+        seed: int = 0,
+        max_drop_frac: float = 0.05,
+    ):
+        levels = {k for k, v in level_weights.items() if float(v) > 0}
+        assert levels, level_weights
+        if levels != {"minimal"}:
+            assert prompt_data and prompt_set, "non-minimal levels need prompt_data + prompt_set"
+        self.train_data = train_data
+        self.context_data = context_data
+        self.voice_codes = voice_codes
+        self.level_weights = {k: float(v) for k, v in sorted(level_weights.items())}
+        self.prompt_data = list(prompt_data or [])
+        self.prompt_set = prompt_set
+        self.seed = int(seed)
+        self.max_drop_frac = float(max_drop_frac)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 4, "mem": 24, "time": 2})
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, Sequence, Value, load_from_disk
+
+        ctx = {
+            r["id"]: r
+            for r in load_from_disk(self.context_data.get_path()).select_columns(
+                ["id", "episode_id", "assistant_label"]
+            )
+        }
+        voices = {}
+        for r in load_from_disk(self.voice_codes.get_path()):
+            voices[(r["episode_id"], r["label"])] = (np.asarray(r["codes"], dtype=np.int16), int(r["n_frames"]))
+        prompts = {}
+        for p in self.prompt_data:
+            for r in load_from_disk(p.get_path()):
+                if r["prompt_set"] == self.prompt_set:
+                    prompts.setdefault(r["id"], {})[r["level"]] = r["text"]
+        train = load_from_disk(self.train_data.get_path())
+        print(
+            f"[attach] {len(train)} rows, {len(voices)} voice clips, {len(prompts)} prompted ids, "
+            f"levels={self.level_weights}",
+            flush=True,
+        )
+
+        n = {"in": 0, "out": 0, "noprompt": 0, "novoice": 0}
+        levels_used = {}
+        feats = train.features.copy()
+        feats["context"] = Value("string")
+        feats["context_level"] = Value("string")
+        feats["context_set"] = Value("string")
+        feats["voice_codes"] = Sequence(Value("int16"))
+        feats["voice_n_frames"] = Value("int32")
+        feats["voice_label"] = Value("string")
+
+        def rows():
+            for r in train:
+                n["in"] += 1
+                c = ctx[r["id"]]  # KeyError = the context job does not cover this corpus: a wiring bug
+                level = choose_level(self.level_weights, self.seed, r["id"])
+                if level == "minimal":
+                    text, pset = PERSONA_MINIMAL, "builtin"
+                else:
+                    text, pset = prompts.get(r["id"], {}).get(level), self.prompt_set
+                    if text is None:
+                        n["noprompt"] += 1
+                        continue
+                v = voices.get((c["episode_id"], c["assistant_label"]))
+                if v is None:
+                    n["novoice"] += 1
+                    continue
+                levels_used[level] = levels_used.get(level, 0) + 1
+                n["out"] += 1
+                yield {
+                    **r,
+                    "context": text,
+                    "context_level": level,
+                    "context_set": pset,
+                    "voice_codes": v[0],
+                    "voice_n_frames": v[1],
+                    "voice_label": c["assistant_label"],
+                }
+
+        out = Dataset.from_generator(rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
+        print(f"[attach] {n}; levels used {levels_used}", flush=True)
+        for k in ("noprompt", "novoice"):
+            if n[k] > self.max_drop_frac * n["in"]:
+                raise RuntimeError(f"{n[k]}/{n['in']} rows dropped for {k} (> {self.max_drop_frac:.0%}): {n}")
+        out.save_to_disk(self.out_dir.get_path())
