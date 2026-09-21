@@ -229,3 +229,119 @@ or what they cost. That is what the jobs are for.
 `config_sae_3e1_d6_swap_cont_v1.py`, `config_sae_1g_v1.py` -- which was NOT staged). Not pushed.
 The workspace shim `config/sae_4a_lexlat_k2_official.py` and `scripts/sae_4a_lexlat_k2_census.py`
 live in the setup dir, which is not a git repository, as the live k2 shim does.
+
+---
+
+# Fix round, after `reports/review_k2_official_lm_2026-09-21.md` (DONE_WITH_CONCERNS)
+
+All four findings fixed, tests and both censuses re-run, nothing launched. Status: **DONE**.
+
+## 1. The order >= 4 back-off hole (`lexlat_k2_official.py`)
+
+The review's own diagnosis was right and its first repair was not enough. Assigning the state
+block from the unfiltered mask (so a state whose n-gram arc was filtered out still carries its
+back-off weight and target) removes the 2.07-nat error on a walk that ENTERS a holed context
+through a 4-gram, but it still disagrees with KenLM by **0.46 nats** on `A B C` from the begin
+state: KenLM CREATES the missing context `A B`, so its `p(C | A B)` is the listed 3-gram, while
+the arc-dropping reader answered `p(C | B)`. Measured, not argued (`kenlm.Model` on the fixture
+ARPA: -2.3 vs -2.5 log10).
+
+So the second repair the review offered is the one implemented: `parse_arpa_lm` now runs KenLM's
+**blank-context insertion**. Top down for k = order .. 3, every listed k-gram whose (k-1)-prefix
+the ARPA does not list gets that context created; a created context has back-off weight 0 and
+backs off to its own longest listed suffix, and the arc entering it carries the BACKED-OFF
+`p(w | shorter context)` read off the levels already built (`_lookup` with `levels = o`, whose
+first probe is always a miss by construction). `n_{o}gram_blank` and `n_blank` are reported in
+`lm.json` / `build.json`. On an ARPA with no hole -- every `lmplz` output, the banked trigram
+included -- nothing is created and the tables do not move, which is what keeps
+`test_order3_reader_is_the_banked_one` bit-for-bit.
+
+Two new tests, both on a hand-written order-4 ARPA with exactly the hole (`A B` unlisted under
+`A B C` / `A B D`, and `B D` unlisted under `A B D` so one back-off target is two levels down):
+`test_order4_backoff_hole_is_filled_the_way_kenlm_fills_it` asserts the structure (one blank,
+back-off 0, `p(B|A) = backoff(A) + p(B)`, the 3-grams now reachable) and
+`test_order4_backoff_hole_matches_kenlm` asserts 11 walks against `kenlm` to 1e-4 nats.
+
+## 2. Compaction (`compact_lm_tables`)
+
+New in `lexlat_k2_official.py`, called at EVERY rung including theta = 0: forward reachability
+from the begin state over `arc_next` and `backoff_state`, unreachable states dropped, monotone
+renumbering (so state 0 stays the null context, which `g_fsa`'s begin-state swap needs), per-order
+counts recomputed. `build.json` gets a `compact` block with states and n-gram arcs before and
+after and `g_arcs_before` / `g_arcs_after` = `n-gram arcs + 2 * states - 1`, and `summary.txt`
+prints one line per rung tried. The `PRUNE_LADDER_4G` docstring is rewritten in G-FSA terms; the
+claims "scale of the banked trigram" and "failed for a reason other than size" are gone.
+
+Tests: `test_compact_lm_tables_cannot_move_a_score` (every walk keeps its exact value at
+theta = 0 / 0.5 / 2 / 5, sortedness, state 0, monotone shrinkage),
+`test_compact_lm_tables_is_idempotent_and_keeps_the_hole`, and
+`test_g_arcs_before_and_after_are_what_g_fsa_emits`, which pins the formula to `g_fsa`'s own arc
+count -- and showed it is an UPPER BOUND by the arcs of the words L can never emit (`<s>`,
+`</s>`), now said so in the docstring. The guard itself prices the COMPILED `G`, not the formula.
+
+## 3. The pre-compose size guard
+
+`predict_hlg_cost(g_arcs)` extrapolates linearly from the reference build
+(`LexlatHLGBuildJob.rtX44PBJFNy1/output/build.json`: 20,578,578 G arcs, 143,874,554 HLG arcs,
+26.0406 GiB peak -> 6.99 HLG arcs per G arc, 194 bytes per HLG arc). `build_official_hlg` takes
+`mem_guard_gib`, prices `G` after compaction, and returns `(None, record)` without composing when
+the prediction is over budget; the CLI writes `build.json` anyway and exits **3**
+(`EXIT_SIZE_GUARD`), which the ladder reads as "declined" rather than "crashed" and continues to
+the next rung. The budget is `MEM_GUARD_FRACTION (0.8) * mem_rqmt`, from the review.
+`PRUNE_LADDER_4G` is now `(0.0, 0.5, 2.0, 5.0, 8.0, 12.0, 16.0)`; the guard admits a rung up to
+about 126 M G arcs after compaction at 200 GB.
+
+Tests: `test_predict_hlg_cost_reproduces_the_reference_build`,
+`test_size_guard_skips_the_rung_without_composing` (no `hlg` / `stages` in the record, and the
+same call with a large guard builds the identical graph), and
+`test_build_hlg_exits_with_the_size_guard_code` (a real subprocess: exit code 3, no `HLG.pt`
+written, the skip in `build.json`). The job smoke script gained a rung-declined case: a build with
+an unusable allocation declines all three rungs and raises with the three attempt records instead
+of crashing.
+
+## 4. The ladder's budget clock
+
+`LexlatOfficialHLGBuildJob.run()` starts the ladder's clock AFTER the ARPA parse and gives it
+`time_rqmt * 3600 * 0.95 - parse_seconds`; `parse_seconds`, `ladder_budget_seconds` and
+`ladder_seconds` are recorded separately in `build.json` and printed in `summary.txt`. The parse
+is charged against the same allocation (it must be, or Slurm kills the job mid-rung); what the
+fix removes is a rung's attempt budget being charged for it.
+
+`BUILD_BUDGET` in the config gives `off4g` `attempt_hours = 1.0` and `time_rqmt = 8.0 h`
+(`ATTEMPT_HOURS_4G` / `TIME_HOURS_4G`), a disclosed deviation from the live config's 4 h / 6 h,
+which the two pruned 3-grams keep. Seven rungs at 4 h could never have fitted in 6 h.
+
+## Checks re-run
+
+* `test_lexlat_k2_official.py` **21 passed** (13 before, 8 new), `test_lexlat_k2.py` **26 passed,
+  1 skipped, 1 xfailed** (unchanged), all three modules together **101 passed, 2 skipped,
+  1 xfailed**, in `/e/scratch/spell/wu24/envs/sae_k2`.
+* The in-process job smoke (both `run()` bodies at fixture scale) passes, including the new
+  size-guard case; `summary.txt` renders the compaction, guard, per-rung and parse/ladder lines.
+* `scripts/sae_4a_lexlat_k2_census.py live` still diffs to nothing against the pre-round file
+  (13 lines, 10 jobs): `LexlatHLGBuildJob.rtX44PBJFNy1` and `LexlatK2ProbeJob.Tkl94t85j4pV` have
+  not moved.
+
+None of this is evidence that a production graph compiles or what it costs.
+
+## Hashes after the fix round
+
+Only `off4g` moved (new constructor values: ladder, `attempt_hours`, `time_rqmt`):
+
+```
+off4g      hlg   LexlatOfficialHLGBuildJob.NrghE6fnf5hc   (was UMLMzgsG4aF4)
+off4g      probe LexlatK2ProbeJob.DtWYToXTPh6w            (was zeXxiYy0VBnD)
+```
+
+`off3g_1e7` (`GxCkDk90bQpT` / `5dP7W2NMFq4T`), `off3g_3e7` (`YJsdBTcEQJz9` / `R7QzD6vYBLD3`), the
+perplexity job (`ddxHefQ0vl2D`) and the two downloads are unchanged. No job directory exists on
+disk for any of these ids, so the 3-gram builds keeping their hash while changing behaviour
+(blank contexts, compaction, guard) cannot reuse anything stale; `__sis_version__` stays 1.
+
+## Open, after the fix round
+
+* Item 1 of the first round's Open list is resolved for the 4-gram: its allocation is now 8 h with
+  the parse charged separately. `PARSE_HOURS = 2.0` still bounds the parse alone, and the blank
+  pass adds two `np.unique` / `np.isin` passes over the 4-gram's n-gram table inside it.
+* The size guard is a ONE-POINT linear fit. It decides only which rungs are ATTEMPTED; it is not a
+  measurement and nothing downstream reads it.
