@@ -1860,14 +1860,16 @@ def py():
             {
                 "single_stream": False,
                 "interleave_gumbel_scale": None,
-                # alternate batching sizes its batches from batch_size (the packed regime sets None),
-                # so it gets the packed caps as batch_size: the same per-batch totals as the winner
+                # alternate batching honours the packed caps (summed lengths, as the winner); one pair
+                # (audio batch, text batch) per update via grad accumulation, so the updates match
+                # the winner's mixed batches in count and content (AZ, 2026-09-21)
                 "extra_config_updates": {
                     "optimizer.class": rf.build_dict(Muon)["class"],
                     "packed_tensors": True,
                     "torch_distributed": {"reduce_type": "grad_explicit"},
-                    "batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                    "batch_size": None,
                     "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                    "accum_grad_multiple_step": 2,
                     "batching": "random",
                     # no torch_cuda_graph: the dual-stream step reads the audio sizes on the host to branch
                     # (pure audio or pure text batch), a sync that graph capture forbids
@@ -2017,6 +2019,9 @@ def py():
         # 4-frame duration per character: the original paper's units and duration model (AZ);
         # 4 frames x 5.3 chars per word = the winner's ~22 frames per word (5.9 x 3.8 phones).
         # ~1.4x the labels per sentence of the phoneme stream, so the label caps are scaled alike.
+        # First run (fFDD59U6PjU2): the feature batch norm (real audio only under channel concat) saw a
+        # batch without any audio row, its running stats went NaN in subepoch 3 (train fine, dev NaN);
+        # rerun with the batch norm guarded against empty batches (RETURNN fix, AZ 2026-09-21).
         (
             "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {
@@ -2031,6 +2036,7 @@ def py():
                 "max_phon_len": 420,
                 "batch_size_phon": 8_400,
                 "extra_config_updates": {
+                    "_meta_hash_trigger": "bn-empty-batch-guard",
                     "optimizer.class": rf.build_dict(Muon)["class"],
                     "packed_tensors": True,
                     "torch_distributed": {"reduce_type": "grad_explicit"},
@@ -3358,6 +3364,12 @@ def _build_tables(prefix: str):
                 model="no text",
             ),
             _loq(
+                "base-small-nFullEp400-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="small",
+                audio_h="250",
+                model="no text, \\\\ twice the epochs",
+            ),
+            _loq(
                 f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
                 subset="small",
                 audio_h="250",
@@ -3370,6 +3382,12 @@ def _build_tables(prefix: str):
                 model="no text",
             ),
             _loq(
+                "base-medium1k-nFullEp325-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="medium1k",
+                audio_h="1000",
+                model="no text, \\\\ twice the epochs",
+            ),
+            _loq(
                 f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
                 subset="medium1k",
                 audio_h="1000",
@@ -3380,6 +3398,12 @@ def _build_tables(prefix: str):
                 subset="medium",
                 audio_h="2500",
                 model="no text",
+            ),
+            _loq(
+                "base-medium-nFullEp130-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                subset="medium",
+                audio_h="2500",
+                model="no text, \\\\ twice the epochs",
             ),
             _loq(
                 f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
@@ -4174,6 +4198,30 @@ def _train_loquacious_baselines(*, prefix: str):
             {**_bs16_8m_len40s, **_len40s, **_medium1k_opts},
             (929, 2786, 4643),
             162.5,
+        ),
+        # Twice-the-epochs controls of the small / medium1k / medium injection rows (AZ, 2026-09-21), as
+        # the large nFullEp5_6 one: the injection sees ~1:1 text:audio words per update, so twice the
+        # audio passes match its words seen and updates, all from audio.
+        (
+            "base-small-nFullEp400-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "small",
+            {**_bs24m_len40s, **_len40s},
+            (650, 1950, 3250),
+            100,
+        ),
+        (
+            "base-medium1k-nFullEp325-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs24m_len40s, **_len40s, **_medium1k_opts},
+            (650, 1950, 3250),
+            325,
+        ),
+        (
+            "base-medium-nFullEp130-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+            "medium",
+            {**_bs24m_len40s, **_len40s},
+            (650, 1950, 3250),
+            325,
         ),
     ]:
         # Config assembly replicated from the committed train() in Robin's loquacious_aed_packed

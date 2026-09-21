@@ -32,10 +32,21 @@ def alternate_batching(
     config = get_global_config()
     batch_size = config.typed_value("batch_size", -1)
     batch_size = config.typed_value(f"batch_size_{'train' if train else 'dev'}", batch_size)
-    assert batch_size != -1, f"batch_size or batch_size_{'train' if train else 'dev'} not defined in config"
+    # packed_batch_size: sum-of-lengths caps (no padding), as in the default BatchingIterDataPipe
+    packed_batch_size = config.typed_value("packed_batch_size", None)
+    packed_batch_size = config.typed_value(f"packed_batch_size_{'train' if train else 'dev'}", packed_batch_size)
+    assert batch_size != -1 or packed_batch_size is not None, (
+        f"batch_size or batch_size_{'train' if train else 'dev'} or packed_batch_size not defined in config"
+    )
+    if batch_size == -1:
+        batch_size = None
     max_seqs = config.typed_value("max_seqs", -1)
 
     if not train:
-        return BatchingIterDataPipe(dataset, batch_size=batch_size, max_seqs=max_seqs)
+        return BatchingIterDataPipe(
+            dataset, batch_size=batch_size, max_seqs=max_seqs, packed_batch_size=packed_batch_size
+        )
 
-    return AlternateBatchingIterDataPipe(dataset, batch_size=batch_size, max_seqs=max_seqs, asr_key=asr_key)
+    return AlternateBatchingIterDataPipe(
+        dataset, batch_size=batch_size, max_seqs=max_seqs, packed_batch_size=packed_batch_size, asr_key=asr_key
+    )
