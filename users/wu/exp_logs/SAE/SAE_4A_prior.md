@@ -733,3 +733,17 @@ Not a gate read (G4a.7 reads the final sub-epoch); recorded because it answers w
 | softshuf_20 (shuffled-pronunciation null) | 1.066 | 1.541 | 2.269 | +0.0710 / +0.0007 / +0.0121 | −2.025 |
 
 Reading: at ep10 the gap between decoded and gold is of the Step 0 magnitude (trigram 1.39, lexicon 2.32 at ctrl_50 ep10; the matched ctrl_20 prior-gap rows are not registered, so this is against the pre-training number), and no arm is better than its control on paired PER at any kept epoch; the scorer separates the real arms from the shuffled null by 1.5 nats of reward, so it sees structure that the arms have not converted into a smaller gap. Decision table: no row fires for any arm. Final read at ep20 under G4a.7.
+
+**n-gram JSD of the decoded private code against the text (user request 2026-09-21; `NgramModeSeekingJob` w4NlQzcoXIfd / E4gg11FZ1itE / EKkpTHPdLKGD per epoch, pooled KmbcDX5k6aaS; `config/sae_4a_soft_ngram.py`, `output/sae/4a/soft/ep{1,4,10}/summary_ngram.md`; conventions of the 2026-09-19 priorshuf read: unbiased window `orN768ARKwlt`, trigram `RtzbESkOedsT`, SIL stripped, rows subsampled to the epoch's smallest row, 1000 utterance-block resamples; descriptive, no gate).** Dev-other greedy decodes; JSD in bits against the text n-gram distribution, mean SIL-free trigram log-prob per phone in nats.
+
+| row | ep4: log P3 / JSD1 / JSD4 | ep10: log P3 / JSD1 / JSD2 / JSD3 / JSD4 |
+|---|---|---|
+| sf_20 | −3.628 / 0.078 / 0.798 | −3.708 / 0.047 / 0.298 / 0.555 / 0.789 |
+| soft_20 | −3.679 / 0.046 / 0.746 | −3.814 / 0.032 / 0.272 / 0.531 / 0.772 |
+| soft_20_s1 | −3.470 / 0.028 / 0.741 | −3.639 / 0.027 / 0.249 / 0.498 / 0.748 |
+| softshuf_20 (null) | −3.555 / 0.054 / 0.723 | −3.641 / 0.037 / 0.252 / 0.498 / 0.746 |
+| ctrl_20 | −3.459 / 0.068 / 0.771 | −3.524 / 0.025 / 0.250 / 0.500 / 0.739 |
+| ctrl_20_s1 | −3.478 / 0.041 / 0.739 | −3.721 / 0.032 / 0.253 / 0.501 / 0.748 |
+| gold | −2.534 / 0.002 / 0.229 | −2.534 / 0.001 / 0.016 / 0.068 / 0.230 |
+
+Reading: at ep10 no scorer-trained arm is closer to the text than its control at any order; soft_20 and sf_20 are slightly farther (JSD4 +0.033 and +0.050 against ctrl_20, CIs exclude zero) and their decoded strings are LESS likely under the text trigram (−3.81 / −3.71 against −3.52 nats per phone), while the shuffled-pronunciation null sits at the control's level. At ep4 soft_20 had been marginally closer than ctrl_20 (JSD4 −0.025); the direction reverses by ep10. All rows stay near 0.75 bits at n = 4 against gold's 0.23, the same sequence-structure gap the attribution phase measured on the earlier bed (0.71). So the transformer scorer, which prices the real arms 1.5 nats above the null, does not move the decoded n-gram distribution toward the text; the scorer's preference and the text's n-gram structure are being satisfied on different axes. Final read at ep20 (a second registration when the ep20 decodes exist).
