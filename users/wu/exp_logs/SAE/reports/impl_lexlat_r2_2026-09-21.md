@@ -423,3 +423,52 @@ the timed region and that is disclosed in the report; the DP's values do not dep
 * Note for the plan, not acted on: Design 7's first declared E1 fallback is C = 512, which E0's own
   funding rule now excludes (its gap would exceed 1024's 0.0512). If E1 fails at C = 4096 the
   remaining declared fallbacks are the word bigram CSR and stop.
+
+## 10. `LexlatWordCountsJob` paired the wrong window sample (fix, commit `154fc5d`)
+
+`LexlatWordCountsJob.X2YnVYfqN7aV` died at `lexlat_train_jobs.py:570` ->
+`prior_gap.replay_window_texts` (`prior_gap.py:919`) on that function's own consistency check, at
+window line 1: the phone line `['<SIL>','AH','<SIL>','AH','F','R','EH','N','D','AH','K','AY']`
+against the word line `['AH','AH','HH','AO','N','T','AH','D','HH','AW','S']`.
+
+**Which two inputs the job pairs.** The frozen files were already right: the job takes
+`probes.WORD_CORPUS` (the word corpus), `probes.WINDOW_PHN` (the phone window), `BLISS_LEXICON` and
+`G2P_LEXICON` -- the same four `tk.Path`s the FINISHED `LexiconTrieBuildJob.rlMsnTBSZXsB` takes
+(`config_sae_4a_lexlat_probes_v1.py:108-115`). What was wrong were the **replay constants**.
+`replay_window_texts` does not read a stored index; it REPLAYS the sampling job that produced the
+window, `text_sample.sample_line_indices(n_kept, n_window_lines, sample_seed)`, and walks the word
+corpus's kept lines in step with the window file. My defaults were `n_window_lines = 500_000` and
+`held_stride = 50`, invented at the call site. The banked window is `SampleLinesJob.orN768ARKwlt`
+with `n_out = DEFAULT_COUNT_LINES + DEFAULT_HELD_LINES = 1,010,000`, and a uniform sample of
+500,000 lines is not the head of a sample of 1,010,000, so window line *j* was paired with a
+different corpus line -- the mismatch above. `held_stride` was likewise wrong (50 against
+`prior.HELD_STRIDE = 101`), which would have counted a subset that is not the trigram's.
+
+**The banked jobs that pair them correctly** are `lexlat_jobs.LexiconTrieBuildJob.__init__`
+(lines 123-143) and `prior_gap.PriorGapAnalysisJob.__init__` (lines 1409-1436): both take
+`Optional[int] = None` and resolve from `prior`'s constants. The fix makes this job resolve them the
+same way (and says so in the docstring); the config keeps omitting them, so no call site invents a
+value. This is the standing "n-grams always from the unbiased window" rule applied to a count read.
+
+**Test** (`test_lexlat_train.py::test_word_count_job_replays_the_window_with_the_banked_sampling_constants`):
+(a) the job's resolved `n_window_lines` / `held_stride` / `sample_seed` equal
+`LexiconTrieBuildJob`'s and equal 1,010,000 / 101 / 0; (b) a synthetic corpus plus the window built
+from it through the **real** `sample_line_indices` replays through the **real**
+`replay_window_texts`, and the first three written lines are the sampled corpus lines and phonemize
+consistently; (c) a replay with a deliberately wrong `n_window_lines` (the smallest whose sample
+starts at a different corpus line, found by scanning, so the mispairing is on line 0) raises the
+same "does not phonemize to its word line" assertion.
+
+**Checks.** 62 passed + 1 skipped in `test_lexlat_train.py` + `test_lexlat.py`; 27 passed in
+`test_prior_gap.py` + `test_text_sample.py`. Census (one process per entry point, diffed against the
+section 9 census): prepro 133, budget 775, probes 3, `py_e1_c4096` 9 job ids **byte-identical**;
+`py_e1` still 10 jobs and the pack still 202, with exactly three ids moved in the pack graph and one
+in `py_e1` -- `LexlatWordCountsJob.X2YnVYfqN7aV` -> **`1ZJy5dFbOAHD`** and the two
+`LexlatFreqStratPerJob`s that consume its `out_deciles`
+(`DCkFkyFxf5jX` -> `96Jl9MdOfCft`, `Rqn0ReKyNnfL` -> `wkGNg7CuPdPU`). `LexlatEfficiencyProbeJob`
+`r4Iaa72mU27T` / `eHrOFiwUqKAf`, `PackedBlankfreeTrainJob.DPiivOfTWAdM` and
+`LexlatSelectionStatJob.DLhM5v5w9wbi` are unchanged. Per the dispatch, neither the E1 job nor
+`lexlat.py` was touched in this commit.
+
+**For the executor, not acted on here:** the failed `X2YnVYfqN7aV` job dir is now orphaned (the read
+reruns at `1ZJy5dFbOAHD`); its error marker is a leftover, not a live failure.
