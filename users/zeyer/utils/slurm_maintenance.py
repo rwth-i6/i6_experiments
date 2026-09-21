@@ -18,26 +18,38 @@ import datetime
 import functools
 import subprocess
 import time
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 
-def get_next_maintenance_start(partition: str, *, min_coverage: float = 0.5) -> Optional[datetime.datetime]:
+def get_next_maintenance_start(
+    partition: str,
+    *,
+    min_coverage: float = 0.5,
+    announced: Sequence[Tuple[datetime.datetime, datetime.datetime]] = (),
+) -> Optional[datetime.datetime]:
     """
     :param partition: SLURM partition the jobs go to (e.g. "booster")
     :param min_coverage: fraction of the partition's nodes a reservation must cover to count
-    :return: start time of the next covering reservation, or None (none upcoming, or query failed)
+    :param announced: (start, end) windows known from an announcement (MOTD, mail) that SLURM does not
+        (yet) expose as a reservation, e.g. the JUPITER acceptance tests, which appear as a hidden
+        reservation only when they start; a window that has started is skipped like a past reservation
+    :return: start time of the next covering reservation or announced window,
+        or None (none upcoming, or query failed and nothing announced)
     """
     # hour-granular cache key: a long-running manager refreshes, but we don't run scontrol per job
-    return _next_maintenance_start_cached(partition, min_coverage, int(time.time() // 3600))
+    detected = _next_maintenance_start_cached(partition, min_coverage, int(time.time() // 3600))
+    now = datetime.datetime.now()
+    starts = [start for start, _ in announced if start > now]
+    if detected is not None:
+        starts.append(detected)
+    return min(starts) if starts else None
 
 
 # bounded: the hour-bucket cache key changes forever, old buckets must get evicted.
 # 1 suffices for the single (partition, coverage) call pattern; alternating queries
 # for several partitions within one hour would thrash it and want a bigger size.
 @functools.lru_cache(maxsize=1)
-def _next_maintenance_start_cached(
-    partition: str, min_coverage: float, cache_key: int
-) -> Optional[datetime.datetime]:
+def _next_maintenance_start_cached(partition: str, min_coverage: float, cache_key: int) -> Optional[datetime.datetime]:
     del cache_key  # only for the hourly cache granularity
     try:
         res_out = subprocess.run(
