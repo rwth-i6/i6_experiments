@@ -98,3 +98,38 @@ refusing another stride or topology; the three over-count columns and the adjace
    bar, and what it actually costs is the settling probe's number, read before launch.
    `overcount_strings` takes an optional `phone2id` (default `prior.PHONE2ID`) so the toy tests can
    pass their own map.
+
+## Code-review round 2 (`reports/review_k2_arm_backend_2026-09-21.md`), 2026-09-21
+
+All five items applied.
+
+1. **The allocation assert no longer prices the arm.** `PROBE_SEC_PER_SUBEPOCH` is a THIRD unfilled
+   constant -- the settling probe's MEASURED seconds per sub-epoch for the lexicon leg at the rung
+   `MAX_ACTIVE` names -- and `py()` refuses to build without it. `build()` now checks
+   `PROBE_SEC_PER_SUBEPOCH <= _e1_bar_sec()` FIRST, where the bar is
+   `LexlatEfficiencyProbeJob.TIME_FACTOR_BAR * .SEC_PER_SUBEPOCH` read off the class (2.00 x 601 =
+   1202.0 s, E1's own bar, imported and not retyped). The DP-side factor clause is kept below it,
+   documented as the weaker one that guards the Slurm clock and passes at any k2 cost.
+2. **`HLG_PATH` / `HLG_STATS_PATH` filled** with `LexlatHLGBuildJob.rtX44PBJFNy1/output/{HLG.pt,
+   build.json}` -- the finished banked-trigram build (ladder rung 0, ESCAPE, seed-0 pronunciations)
+   the live settling probe prices -- as frozen content-carrying pins. The docstring states that an
+   official-LM graph is a different objective, not another rung: taking that route REPLACES these
+   two constants and re-runs both the over-count read and the settling cells. `MAX_ACTIVE` and
+   `PROBE_SEC_PER_SUBEPOCH` stay unfilled.
+3. **NEW setup shim `config/sae_4a_lexlat_k2_overcount.py`** exporting `py_overcount` as `py`.
+   Loaded: the graph holds ONE job, `LexlatK2OvercountJob.f5Ljn6twbc4b`, and nothing of the pack.
+4. **`config_sae_4a_lexlat_pack_v1.py` `_STEP0_PHONE_LM_SOURCES`** gains the surviving
+   `PriorGapAnalysisJob.l0p0srBryKrs` copy (the content pin makes which copy is read hash-neutral).
+   That config builds again: 202 jobs, and its pack is `PackedBlankfreeTrainJob.DPiivOfTWAdM`, the
+   hash the review names -- unchanged. My config now imports that list instead of re-typing it, so
+   the two routes score under one fit by construction.
+5. **The monitor docstring** now states that the escape word IS a word of `G`, so
+   `lexlat_k2_expected_words` INCLUDES the `<unk>` transitions `lexlat_k2_expected_escape_words`
+   counts (the two are not disjoint and must never be added), and that the Gate read is the RATIO
+   escape / words, at 1.0 meaning the lexicon is inactive.
+
+Re-checks: `test_lexlat_k2_train` + `test_lexlat_k2` + `test_lexlat_train` + `test_lexlat` = 118
+passed, 2 skipped, 1 xfailed (k2 env). Census `config_sae_4a_prepro_pack_v1` (133 ids) and
+`config_sae_4a_lexlat_k2_v1` (10 ids) byte-identical to the pre-edit run. New pack config: refuses
+on `MAX_ACTIVE`, then on `PROBE_SEC_PER_SUBEPOCH`, then FAILS the bar at a test value of 1300 s and
+builds at 900 s -- 201 jobs, `PackedBlankfreeTrainJob.WbNATSBGkXjG` unchanged by the fills.
