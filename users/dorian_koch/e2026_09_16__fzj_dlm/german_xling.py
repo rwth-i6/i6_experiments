@@ -531,8 +531,8 @@ class PatchAddGermanDevToTrain:
 
     ⚠ The German dev is real **audio** while arm B-zero trains text-only. That is fine and is already
     proven: arm B's existing English dev is also real audio through the same train step, and the
-    single-stream step takes its audio path per batch. The dev provides `data` + `classes` and no
-    `phonemes`, exactly as the English dev does.
+    single-stream step takes its audio path per batch. Like the English dev it is wrapped to emit an
+    EMPTY `phonemes` stream -- the extern_data contract requires the key even though it is unused.
 
     Mechanism and defensive shape are copied verbatim from :class:`PatchTextBranchToGerman` -- patch
     ``DatasetConfigStatic`` on its defining module, rewrite only the matching dataset, assert exactly
@@ -574,7 +574,22 @@ class PatchAddGermanDevToTrain:
                 and isinstance(ds, dict)
                 and ds.get("class") == "CombinedDataset"
             ):
-                kwargs = dict(kwargs, eval_datasets={**(kwargs.get("eval_datasets") or {}), "dev_de": dev_ds})
+                # 🔴 Must go through the SAME empty-phonemes wrapper the English eval sets get
+                # (`_train_tts_encoder`, `_wrap_eval_with_empty_phonemes`). A bare HuggingFaceDataset
+                # has no `phonemes` key, and eval_model raises `KeyError: 'phonemes'` after the whole
+                # first sub-epoch has trained (both armB2 and armBC died that way, 2026-09-21).
+                from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_fzj import (
+                    PHONEMES_DATA_KEY,
+                    _wrap_eval_with_empty_phonemes,
+                )
+
+                ext = kwargs["extern_data"]
+                wrapped = _wrap_eval_with_empty_phonemes(
+                    dev_ds,
+                    base_extern={k: v for k, v in ext.items() if k != PHONEMES_DATA_KEY},
+                    phon_extern=ext[PHONEMES_DATA_KEY],
+                )
+                kwargs = dict(kwargs, eval_datasets={**(kwargs.get("eval_datasets") or {}), "dev_de": wrapped})
                 self.count += 1
             return real(*args, **kwargs)
 
