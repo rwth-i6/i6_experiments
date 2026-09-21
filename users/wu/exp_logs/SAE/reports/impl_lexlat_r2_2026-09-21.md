@@ -355,3 +355,71 @@ re-register Step 0's LMs as outputs.
   none of them has a job directory on disk, so nothing banked is re-funded.
 * Noted, not changed: `lexlat_neg_inf` is a normalised batch count in the sub-epoch column; since
   `6cbb3f9` any NEG_INF utterance after the on-set raises, so the column is read as "nonzero".
+
+---
+
+## 9. C re-declared at 4096 after E0 (speech-llm `373eb78`, 2026-09-21)
+
+E0's curve (`output/exp2025_11_06_speech_llms/librispeech/sae_4a_lexlat/e0_census/summary.txt`) puts
+C = 1024 at a log Z gap of **0.0512** nats per retained frame against C = 4096, over the funding
+rule's 0.05 (C = 256: 0.0913). Design 6: "If C = 1024 misses the rule, C is re-declared at the
+smallest measured value meeting it, the change recorded before launch, and E1 measured at that C."
+C = 4096 is the only measured value meeting the rule (pruned median 0.0000 at every lam_lex, zero
+NEG_INF, about 4,032 live contexts per frame against 1,009 at C = 1024).
+
+### What changed
+
+* `MAX_CONTEXTS = 4096` in `config_sae_4a_lexlat_pack_v1`, with E0's numbers in the constant's
+  comment. All four pack arms carry it (verified by resolving each arm's `get_model`
+  `hashed_arguments`: C 4096, C_esc 64, lam_lex 1.0, order 3, on-sets 8 / 8 / 5 / 8, `lexlat_20_s1`
+  still `random_seed` 1 with offset 1000, batch `{'features': 88000}` / `max_seqs` 128).
+* **C_esc stays 64.** Design 2 writes "an ESCAPE sub-budget of C_esc = 64 of the C slots is
+  reserved" -- an absolute slot count, not a fraction of C -- so nothing in Design 2 scales it with
+  C and it is left where it is.
+* **`max_candidates` needs no edit**: `lexlat_max_candidates` is never written by the config, so the
+  model derives it from C and the batch (`lexlat_train.derive_max_candidates` =
+  `1.25 * C * (2K + 1) * (2 + wmax) * B`), i.e. the arc guard scales linearly with the new C by
+  itself.
+* C is threaded through `_model_args_delta` / `_arm_train_config` / `efficiency_probe`, so the two
+  E1 registrations differ **in C alone**: same arm, same pinned checkpoint (`epoch.010.pt`), same
+  sub-epoch 10, same recorded seed and seed offset, same batch plan, same job `name`. `py_e1` is
+  frozen at `E1_CONTEXTS_LOWER = 1024` and still rebuilds the RUNNING
+  `LexlatEfficiencyProbeJob.r4Iaa72mU27T` at its own hash; the new `py_e1_c4096` registers the
+  4096 probe under its own alias and its own `e1_efficiency_c4096` output prefix, so the two jobs
+  can never repoint each other's output symlink.
+* New workspace shim **`/e/project1/spell/wu24/2026-07-13_unsupervised/config/sae_4a_lexlat_e1_c4096.py`**,
+  defining `py` (the workspace `config/` tree is not a git repository, so it is not in the commit).
+  `config/sae_4a_lexlat_e1.py` and the running job are untouched.
+
+### The destination block in the E1 output (review item 3 of this round)
+
+The width of the expansion's destination block is a MEASURED quantity at a given C and B, not
+something the config states, so the probe now measures it: it wraps `lexlat._dest_block` for the
+timed walk (the banked path never calls it, so every record belongs to a lexicalised step) and
+reports, per step in `measurements[i]["dest_block"]` and over the walk in `dest_block`: the number
+of frames, the width range, the width histogram, the busiest frame's `m_max` with its `n_new`, B,
+O, the chosen width and the GiB that block actually took, and the widest block of the walk. The
+`dest_block_convention` field and the class docstring carry the formula and the arithmetic at the
+pack's shape: with `DEST_BLOCK_BYTES = 8 GiB`, three copies, B = 128, O = 51 and float64 one
+destination costs `3 x 128 x 51 x m_max x 8 = 156,672 x m_max` bytes, so the width is about
+`54,827 // m_max`, capped at `DEST_BLOCK = 1024` -- e.g. 145 at m_max 376, 9 at 6,014, 2 at 25,511,
+and the block stays at or under 8 GiB at every C. The spy costs one python call per frame inside
+the timed region and that is disclosed in the report; the DP's values do not depend on the width
+(bit-identical blocking, `test_lexlat`), so this is a memory reading and never a result.
+
+### Checks
+
+* Tests: **72 passed, 1 skipped** (`test_lexlat.py`, `test_lexlat_train.py`,
+  `test_blankfree_pack.py`, `test_blankfree_lattice.py`, `test_blankfree_attrib.py`), including the
+  new `test_destination_block_stats_report_the_widest_block_of_the_walk`.
+* Census, one process per config: `config_sae_4a_prepro_pack_v1` **133**,
+  `config_sae_4a_budget_pack_v1` **775**, `config_sae_4a_lexlat_probes_v1` **3** and `py_e1`'s
+  **10** job ids -- all byte-identical to the previous census, so the running C = 1024 probe keeps
+  `LexlatEfficiencyProbeJob.r4Iaa72mU27T`.
+* New hashes: **`LexlatEfficiencyProbeJob.eHrOFiwUqKAf`** (`py_e1_c4096`, a 9-job graph, confirmed
+  through the loader's own lookup on the new shim) and **`PackedBlankfreeTrainJob.DPiivOfTWAdM`**
+  (the pack, still 202 jobs: the training job and everything below it re-hash with C, the 14 shared
+  upstream jobs do not).
+* Note for the plan, not acted on: Design 7's first declared E1 fallback is C = 512, which E0's own
+  funding rule now excludes (its gap would exceed 1024's 0.0512). If E1 fails at C = 4096 the
+  remaining declared fallbacks are the word bigram CSR and stop.
