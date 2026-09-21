@@ -76,7 +76,8 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    training and separate supervised 10 h fits (no adaptation); sampled-group diagnostic is complete/audited.
    Blankfree cold ep4 0.865 FAILS G4a.3. **Attribution 2x2 (user 2026-09-19), `SAE_4A_attrib.md`:**
    training-free mode-seeking read, no-reverse arm, K=64 reverse arm, GAN+reverse arms, in parallel.
-   Attribution closed on its rule (no branch fires). **Budget round (user 2026-09-20), ACTIVE,
+   Attribution closed on its rule (no branch fires). **Budget round (user 2026-09-20), N = 50 arms READ 2026-09-21 (FAIL, all six at PER
+   0.89–0.91, no treatment or schedule effect beyond 0.016), N = 100 arms resuming,
    `SAE_4A_budget.md`:** 50 / 100 sub-epochs with LR + tau schedule; control, lattice prior + BT
    (jointly trained), coverage + LM prior; gate G4a.4. **InfoMax round (user 2026-09-20), CLOSED 2026-09-21 FAIL,
    `SAE_4A_infomax.md`:** conditional-entropy penalty (decayed / held) x augmentation invariance,

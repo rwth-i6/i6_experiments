@@ -41,10 +41,13 @@ Node A's error marker + submit_log cleared; the manager resubmitted it as Slurm 
 PENDING "ReqNodeNotAvail, Reserved for maintenance"; the 50-arms (ctrl_50, odmprior_50 on A; B/C
 unknown until their logs) are finished on disk and their reads can run. The 100-arms lose the
 maintenance wait, not progress. Watcher re-armed on 2945974 (same command as above).
+**The six N = 50 arms are READ (Results, "G4a.4 read of the six N = 50 arms"): FAIL for all,
+PER 0.889–0.905 at ep50, no treatment or schedule effect beyond 0.016.** Open: the six N = 100 arms
+(pending resume behind the maintenance reservation), read at ep100 as pre-registered.
 NEXT: when the watcher fires, executor confirms each node's resume (50-arms skipped, 100-arms
-resume at epoch 067-ish with optimizer state loaded, first step line) or diagnoses; then read ep1
-wall time per arm off each node's learning_rates (packed step rate; bt arms carry an extra BT step
-per EMC step); ep4 / ep10 / ep50 reads as the eval jobs land.
+resume at epoch 067-ish with optimizer state loaded, first step line) or diagnoses; then the ep100
+reads of the six N = 100 arms against G4a.4 with their paired deltas; ep1 wall time per arm off each
+node's learning_rates is still owed (bt arms carry an extra BT step per EMC step).
 
 ## Objective
 
@@ -144,6 +147,33 @@ Levers explicitly NOT in this round (candidates if every arm stays in the band):
   before it takes a slot; deferred until odmprior_N's KL3 trajectory is read.
 
 ## Results
+
+### G4a.4 read of the six N = 50 arms at sub-epoch 50 (2026-09-21; `reports/extract_budget_50arms_2026-09-21.md`, hashes there)
+
+**Verdict: FAIL for all six 50-sub-epoch arms** (PER 0.889–0.905 against the 0.50 bar; rates
+10.7–10.9 /s inside the window; derangement gap 4.24–4.63 > 0, so the health clause holds and the
+arms are readable). dev-other greedy PER at ep50, paired delta vs ctrl_50 at ep50
+(`PairedPerDeltaJob`):
+
+| arm | ep50 PER | rate /s | gap | paired delta at ep50 |
+|---|---|---|---|---|
+| ctrl_50 | 0.897 | 10.79 | 4.63 | — |
+| odmprior_50 | 0.905 | 10.86 | 4.54 | +0.008 |
+| bt_50 | 0.893 | 10.74 | 4.44 | −0.003 |
+| odmbt_50 | 0.893 | 10.69 | 4.26 | −0.004 |
+| nosched_ctrl_50 | 0.895 | 10.90 | 4.43 | −0.001 (vs ctrl_50) |
+| nosched_odmprior_50 | 0.889 | 10.76 | 4.24 | −0.016 (vs odmprior_50) |
+
+Reading. (1) Budget: fifty sub-epochs with the LR + temperature schedule end where ten did (ctrl_50
+0.897 at ep10, 0.888 at ep25, 0.897 at ep50): the content-free band is stationary under this
+objective, as the private-code analysis (`SAE_4A_infomax.md`) and the InfoMax arms (G4a.5 FAIL) also
+show. (2) Treatments: neither the coverage + LM prior (odmprior) nor the jointly trained BT term
+moves PER by more than 0.008 in either direction. (3) Schedule-vs-budget control: the constant-LR
+twins equal the scheduled arms (−0.001 for the control pair, −0.016 for the odmprior pair), so the
+schedule is not what holds the arms in the band and the design-review item 3 question is answered:
+nothing here is schedule-bound. The N = 100 arms (resuming after the maintenance window, Design)
+remain pre-registered and are read at ep100 as written; their ep25 rows (interim table below)
+already sit in the same band. Not audited (FAIL by a wide margin; the PASS-audit rule does not apply).
 
 ### Interim kept-checkpoint reads (2026-09-20 19:30, arms at sub-epoch 30-33; gate reads at the final sub-epoch only)
 
