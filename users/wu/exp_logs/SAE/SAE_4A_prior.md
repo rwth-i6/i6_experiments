@@ -53,12 +53,13 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   OOM diagnosed (`reports/debug_soft_probe_oom_2026-09-21.md`: a gather over an expanded view of
   the per-segment table, whose backward allocates the expanded [B, U_max, K·d_cap·(S+1)] float64
   shape) and fixed value-identically in speech-llm 0474d7f (23 tests; backward peak 1.14× the
-  table on the GH200 against 65× before; probe hash unchanged); probe rerun in progress (executor,
-  `reports/exec_soft_probe_rerun_2026-09-21.md`). User override (section end, 2026-09-21): sf_20
+  table on the GH200 against 65× before; probe hash unchanged); probe rerun FINISHED (Slurm 1925609,
+  77 s; Results "Soft-arm lam probe"): median gradient ratio 0.306148, **LAM_01 = 0.326639** fixed,
+  artefact gap 0.0138 nats/token (ceiling 0.3). User override (section end, 2026-09-21): sf_20
   with G = 8 takes the fourth slot instead of soft_20_r03; implementer building round 2
   (`sae/emc/sf_scorer.py`, `SfLamProbeJob`, pack config update; `reports/impl_sf_arm_r2_2026-09-21.md`).
-NEXT: soft probe read → LAM_01; sf round 2 → code review → sf lam probe → LAM_SF_01; fill both
-constants, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
+NEXT: sf round 2 (implementer also fills LAM_01 = 0.326639) → code review → sf lam probe →
+LAM_SF_01; fill it, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
 + watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
