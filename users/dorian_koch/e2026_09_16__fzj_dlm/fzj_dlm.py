@@ -494,6 +494,20 @@ def py():
             with_tts=False,
         )
 
+    # Plain CTC for the two resumed arms at their final epoch -- the one row of the LS paper table that
+    # train_winner_plus_tts does not produce (same call as the winner's / the cold start's ctc-only row).
+    for _tag, _exp in _resumed_exps.items():
+        import dataclasses as _dcx
+
+        _ctc_only_recog_batched(
+            prefix=f"{prefix}/winner-plus-tts/ctc-only-{_tag}-final",
+            task=ctc_lm_kwargs["task"],
+            ctc_model=_dcx.replace(ctc_lm_kwargs["ctc_model"], checkpoint=_exp.get_last_fixed_epoch().checkpoint),
+            aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
+            num_shards=ctc_lm_kwargs["num_shards"],
+            extra_config=ctc_lm_kwargs.get("extra_config"),
+        )
+
     if FT_HYPS_WER:
         # The measurement the +TTS finetune was actually built to move: hypothesis-pass WER on REAL
         # LS-960 audio and on GlowTTS audio. Reference pair (winner_plus_tts.py:7-9, random 20k seed 0,
@@ -655,6 +669,12 @@ def py():
         with unittest.mock.patch.object(
             _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
         ):
+            if WINNER_PLUS_TTS:
+                # The cold-start +TTS finetune (EXsiZj08AB1C), so the paper table has our DLM in every
+                # column. Only its DLM-sum recogs are new.
+                train_winner_plus_tts(
+                    prefix=f"{prefix}/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}/winner-plus-tts", winner_model=winner_model
+                )
             for _tag in _resumed_exps:
                 train_winner_plus_tts(
                     prefix=f"{prefix}/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}/winner-plus-tts",
