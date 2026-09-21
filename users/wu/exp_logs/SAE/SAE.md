@@ -94,13 +94,15 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    (G4a.7 defined, design-reviewed, amendments applied). Step 0b (neural phone LM as the
    scorer): 3.3 M / 3 epochs was a partial proxy (gap 1.71 < 2.01 bar); the 30-epoch rerun at
    3.3 M and 10.9 M plateaus at gap 1.85 (no-improvement abort: the 1 M-line window is the
-   ceiling); the 25 M / 10 M-line instance (c) is running as the last phone-LM test. Pre-launch
+   ceiling); the 25 M / 10 M-line instance (c) reaches held ppl 3.96 but gap 1.81, so Step 0b
+   CLOSED 2026-09-21: no phone LM trained on this text reaches the bar (fluent-but-wrong decodes
+   are rewarded by any phone-sequence model; only the word constraint discriminates). Pre-launch
    falsifiers read 2026-09-21: the amended reward clears the sign trap, but gold beats every
    sampled string in 100 / 100 / 97 % of utterances at ep1 / ep4 / ep10, so under the
-   pre-registered rule the score-function arm is NOT funded (audit pending); next arm is the
-   lexicon inside the marginalised lattice (GPU trie DP; survey banked, literature pending),
-   unless (c) meets the bar and the soft arm is reconsidered. Other follow-up candidate:
-   K = 64 reverse units.
+   pre-registered rule the score-function arm is NOT funded (audited CONFIRMED). The phase's
+   successor is the lexicon inside the marginalised lattice (GPU trie DP; survey and literature
+   banked), own phase `SAE_4A_lexlat.md`, pre-registration + design review before its first job.
+   Other follow-up candidate: K = 64 reverse units.
    **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
    the sub-epoch count for future arms from the label-free behaviour of the running budget arms
    (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks

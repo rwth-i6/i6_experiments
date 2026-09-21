@@ -3,69 +3,32 @@
 ## State
 
 Phase opened 2026-09-20 on the user's approval, replacing the context-dependent reverse model
-(`SAE_4A_cdrev.md`, deferred without limit by the user the same day, nothing built).
-Step 0 (CPU prior-gap diagnostic, `PriorGapAnalysisJob.2RkbKYl0v1XK`, speech-llm 291dab1,
-`reports/impl_prior_gap_2026-09-20.md`, `reports/review_prior_gap_2026-09-20.md`) is finished,
-read in Results and audited (CONFIRMED). Its v1 (`.l0p0srBryKrs`, 1431dbf) failed on the KenLM
-order cap and is superseded. Conventions fixed before the numbers stand: like-for-like pairing
-(SIL dropped from the decode) primary, SIL-kept disclosed; BOS, no end-of-sentence term, identical
-denominators, every prior from the priorshuf uniform window (`SampleLinesJob.orN768ARKwlt`).
-Step 0b first pass finished (`NeuralPhoneLmTrainJob.Iv6P6YVPNWmB`, `PriorGapAnalysisJob.Gct95xZHe0zt`,
-speech-llm 739d9ed, e971603, `reports/impl_neural_phone_lm_2026-09-20.md`,
-`reports/review_neural_phone_lm_2026-09-20.md`): partial proxy, schedule-bound (Results, Step 0b).
-The pre-registered rerun (speech-llm bf49fb7, `reports/impl_neural_phone_lm_rerun_2026-09-20.md`)
-is FINISHED and read (Results, "Rerun result"): (a) 3.3 M gap 1.861, (b) 10.9 M gap 1.849, both
-partial proxies, both ended by the no-improvement abort at epoch 11, so the 1 M-line window is the
-ceiling; the manager (3594890) exited cleanly, its graph is complete. The survey for the
-pre-registered fallback (GPU trie lexicon DP) runs in parallel with instance (c)
-(`reports/survey_lexicon_scorer_2026-09-20.md`); no fallback code before (c) reads.
-Training-arm design and G4a.7 are written (Design "Training arm", Gate); the design review
-(`reports/design_review_prior_arm_2026-09-20.md`) returned STOP as written, approvable with A1–A4,
-all applied (reward = strong minus unigram, r(gold) > max_g fraction replaces the dead band,
-straight-through soft arm, path-level Fisher estimator, length / SIL / resume policies, pre-launch
-falsifier). The scorer slot is filled by Step 0b's rule. Code survey banked
-(`reports/survey_sampled_prior_term_2026-09-20.md`). The wav2vec-U 2.0 preprocessing question (does
-2.0 apply rVAD at all; our bed has rVAD AND sil_prob 0.5) is with the literature agent
-(`reports/lit_w2vu2_preprocessing_2026-09-20.md`); its answer goes to `SAE_ref.md`.
-Open user question (SIL vs rVAD): prior text has 13.8 % SIL tokens (sil_prob 0.5, surround;
-the local wav2vec-U pipeline uses 0.25 with rVAD); the gold SIL share on retained frames is being
-computed (`reports/extract_sil_rate_2026-09-20.md`); a sil_prob arm is a bed change, own arm.
-User directive 2026-09-20 (`SAE.md`): reach the Step 0b gate and launch the strong-scorer arm,
-autonomously. N = 20 sub-epochs for the arm (`SAE_4A_budget.md` "Sub-epoch count"; replaces the
-N = 50 cost line above: 3.3 h per arm, no resume path needed, ctrl_20 in the same pack). In
-flight: instance (c) of the phone LM built (speech-llm d1c14cf: 25.5 M params, 10.1 M-line sample
-seed 1, the original 10,000 held lines removed by content and used as the fit's held-out set;
-`NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`,
-`config/sae_4a_phone_lm.py`, `reports/impl_phone_lm_v2_2026-09-20.md`), reviewed
-(`reports/review_phone_lm_v2_2026-09-20.md`, disclosures in Design) and running under its own
-manager: pid 4004154, `log/sae_4a_phone_lm.manager.20260920T214940Z.log`, watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 4004154 config/sae_4a_phone_lm.py 600`
-(`reports/exec_phone_lm_v2_launch_2026-09-20.md`; text jobs Slurm 1920042/1920043 first, then the
-GPU fit, ~2 h estimated). Falsifier probe (i) built (speech-llm d22d81d:
-`NeighbourhoodProbeJob.ZhYOeCltF4wW` ep4 / `.6JZvwE7T1UmA` ep10, word-BIGRAM row
-`PriorGapAnalysisJob.m6lUxAO65f6A`; `reports/impl_prior_probe_2026-09-20.md`) is FINISHED and read
-(Results, "Pre-launch falsifier (i)"): A1 removes the sign trap, but gold beats the whole
-single-token neighbourhood in > 99 % of utterances at ep4 and ep10 and the neural reward's local
-deltas track the trigram (+0.65); the funding rule is read on (ii). Its manager (3849944) exited
-cleanly (note the venv is `/e/project1/spell/wu24/env/sis_env`).
-The word-UNIGRAM row is deferred: KenLM has no order 1, it needs an edit inside prior_gap.py, which
-stays frozen while the rerun's analysis jobs are pending; it is not on the launch path. Blank-free
-FFBS sampler + probe (ii) built (speech-llm 2ae6cc5, new modules only, brute-force checked against
-full enumeration, reproduces the banked greedy decode; `reports/impl_blankfree_sampler_2026-09-20.md`)
-and running: `SampledRewardProbeJob.d1NoUQJ2EXN5` (ep1, tau 8) / `.Y81PrZ6fWWKu` (ep4, tau 5.04) /
-`.HVHIlaUkIkVi` (ep10, tau 2), 300 dev-other utterances, G = 8; FINISHED and read (Results,
-"Pre-launch falsifier (ii)"): r(gold) > max_g in 100 / 100 / 97 % at ep1 / ep4 / ep10, above 95 %
-at every checkpoint, so under the pre-registered rule the sf arm is NOT funded; the soft arm is
-not funded either while the scorer is a partial proxy. The manager (4178489) exited cleanly. The sf
-term's normalisation was pinned per retained frame (A5) before the read. Audit of the reading
-dispatched (`reports/audit_sf_probe_2026-09-21.md`); literature check for the lexicon-in-the-
-objective design dispatched (`reports/lit_lexicon_in_objective_2026-09-21.md`).
-NEXT: read the audit; read instance (c) when its watcher fires (bar 2.01 + strict tracking): if
-(c) is adequate, reconsider the soft arm with (c) as scorer (design amendment, review); otherwise
-Step 0b closes on "no phone LM reaches the bar from this text" and the next arm is the
-lattice-internal lexicon (GPU trie DP; survey banked, literature pending), which needs its own
-pre-registered design, a design review before its first job, and probably its own phase file.
-No training arm of this phase runs before that.
+(`SAE_4A_cdrev.md`, deferred without limit). Every job of this phase is FINISHED and read; no
+manager or watcher of this phase is live. No training arm of this phase ran.
+- Step 0 (prior-gap diagnostic, `PriorGapAnalysisJob.2RkbKYl0v1XK`): read and audited CONFIRMED
+  (Results, Step 0; conventions in Design). Word-UNIGRAM row deferred (needs a prior_gap.py edit;
+  not on any path).
+- Step 0b (does a neural phone LM learn the lexicon?): CLOSED 2026-09-21 on its third clause.
+  First pass, rerun (a) 3.3 M / (b) 10.9 M on the 1 M-line window, and instance (c) 25.5 M on
+  10.09 M lines (`NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`) all
+  land between the 4-gram (1.666) and the bar (2.01): gaps 1.71 / 1.861 / 1.849 / 1.809, none
+  tracks the lexicon on the strict subset (Results, "Rerun result"). No phone LM trained on this
+  text is the scorer; the exact lexicon must be made batchable.
+- Training arm (Design "Training arm", G4a.7, design review A1–A5 applied): score-function arm NOT
+  funded by falsifier (ii) (r(gold) > max_g in 100 / 100 / 97 % at ep1 / 4 / 10, rule >= 95 %;
+  audited CONFIRMED, `reports/audit_sf_probe_2026-09-21.md`); soft arm not funded (scorer is a
+  partial proxy, Step 0b closed). G4a.7 unread.
+- Banked for the successor: lexicon-scorer survey (`reports/survey_lexicon_scorer_2026-09-20.md`:
+  exact Viterbi, 23–38 live states/position, trie 151,731 words, ~0.1 s/utt pure Python) and
+  literature (`reports/lit_lexicon_in_objective_2026-09-21.md`: precedent only at grapheme level with
+  curriculum, exact FB intractable above ~200 word types; constraints: lexicon on late, declared
+  pruning budget, per-frame normalisation + anti-deletion guard, frequency-stratified read,
+  shuffled-pronunciation null). User directive 2026-09-20 (`SAE.md`) item 3 is met in its negative
+  branch: the phone LM was trained to the data-and-capacity limit and does not reach the gate.
+NEXT: pre-register the lattice-internal lexicon arm (GPU trie DP inside the marginalised lattice)
+in its own phase file `SAE_4A_lexlat.md` (objective, design from the survey + literature
+constraints, gate before any number), then design review before its first job. Nothing else runs
+in this phase.
 
 ## Objective
 
@@ -455,6 +418,22 @@ unchanged. Reported held perplexity is the min over epochs on the same held set,
 | (a) 4L / w256, 30 ep | 3.3 M | 11 / 10 (no-improvement abort) | 5.091 | 1.861 | 1.646 (distance 0.86) | 1.666 | partial proxy |
 | (b) 6L / w384, 30 ep | 10.9 M | 11 / 10 (no-improvement abort) | 4.603 | 1.849 | 1.663 (distance 0.84) | 1.666 | partial proxy |
 | first pass, 3 ep | 3.3 M | 3 / 3 | 5.774 | 1.71 | 1.52 | 1.666 | partial proxy |
+| (c) 8L / w512, 5 ep, 10.09 M lines | 25.5 M | 5 / 5 (no abort; held ppl still falling 4.321 -> 3.963) | 3.963 | 1.809 (bootstrap 1.801–1.816) | 1.693 (distance 0.81) | 1.666 | partial proxy |
+
+Instance (c) read 2026-09-21 (`NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`,
+`output/.../sae_4a_phone_lm_v2/ctrl_50_ep10/dev-other_neural_10m_l8w512/prior_gap.md`; manager
+exited cleanly, `reports/exec_phone_lm_c_finish_2026-09-21.md`). Ten times the text and 2.3x the
+parameters of (b) lower the held perplexity from 4.60 to 3.96 and LOWER the gap from 1.849 to 1.809:
+the stronger phone LM scores gold better (−2.40 vs −2.57 nats/token for the 6-gram) but scores the
+decode better still (−4.22 vs −4.26), i.e. the decode's errors are phonotactically fluent and a
+phone-sequence model, however strong, rewards that fluency; the lexicon's excess discrimination
+(escape row 2.32, strict 2.51) comes from the word constraint, which no n-gram or neural phone LM in
+this family approaches (all between 1.62 and 1.86). **Step 0b closes on its pre-registered third
+clause in its data-and-capacity limit: no phone LM trained on this text reaches the bar, and the
+exact lexicon must be made batchable (GPU trie DP) before a strong-scorer arm exists.** The soft arm
+with a phone-LM scorer is therefore not reconsidered; the score-function arm stays unfunded
+(falsifier (ii)). Not audited: the read is a mechanical comparison against a pre-registered
+threshold on a registered job's output; the direction it selects was pre-registered as the fallback.
 
 Bar recomputed from the run's own rows: 2.012 (pre-registered 2.01). Neither instance meets it;
 neither tracks the lexicon on the strict subset (tolerance 0.30). Reading against the pre-registered
