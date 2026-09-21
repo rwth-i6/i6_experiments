@@ -58,7 +58,17 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   artefact gap 0.0138 nats/token (ceiling 0.3). User override (section end, 2026-09-21): sf_20
   with G = 8 takes the fourth slot instead of soft_20_r03; implementer building round 2
   (`sae/emc/sf_scorer.py`, `SfLamProbeJob`, pack config update; `reports/impl_sf_arm_r2_2026-09-21.md`).
-NEXT: sf round 2 (implementer also fills LAM_01 = 0.326639) → code review → sf lam probe →
+  sf round 2 BUILT (speech-llm ff4f005, DONE_WITH_CONCERNS): `sf_scorer.py` (G = 8 FFBS draws,
+  A1 reward via the soft-arm primitives, centred advantages, A4 Fisher path score on un-expanded
+  tables, A5 per frame), `SfLamProbeJob.OHrcN9pEuXni` (shim `config/sae_4a_sf_lam_probe.py`; the
+  older `sae_4a_sf_probe.py` is the finished falsifier graph), default-off `sf_*` block (soft / sf
+  mutually exclusive), 34 tests; census unchanged, `SoftLamProbeJob.wAJQ26T7iZzX` unmoved. Pack
+  config now carries LAM_01 = 0.326639 (LAM_03 = 0.979918 recorded, no arm), sf_20 in the fourth
+  slot, pairings sf_20 − ctrl_20 and sf_20 − soft_20, the disclosed read via SampledRewardProbeJob
+  with this scorer at ep10 / ep20; monitor `sf_reward_mean` is the decode string's value and
+  `sf_reward_mean_sample` the draws' mean. The pack hash exists only once LAM_SF_01 is filled.
+  Code review of round 2 in flight (`reports/review_sf_arm_r2_2026-09-21.md`).
+NEXT: sf code review → sf lam probe (`SfLamProbeJob.OHrcN9pEuXni`, own manager + watcher) →
 LAM_SF_01; fill it, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
 + watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
