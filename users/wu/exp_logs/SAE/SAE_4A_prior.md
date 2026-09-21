@@ -81,9 +81,16 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   "Sampled-arm lam probe"): median gradient ratio 2.20294, **LAM_SF_01 = 0.0453938** fixed; the
   sampler explores at ep4 (8 / 8 distinct strings, within-group reward spread 9.7 nats against the
   1.0 dead band), peak 23.6 GiB. Implementer filling the constant and reporting the pack hash
-  (`reports/impl_soft_pack_fill_2026-09-21.md`); nothing of the pack is live.
-NEXT: pack hash from the fill → executor launches the four-arm pack (soft_20, soft_20_s1, sf_20,
-softshuf_20) via `config/sae_4a_soft_pack.py` with its own manager + watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
+  (`reports/impl_soft_pack_fill_2026-09-21.md`). Constant filled in speech-llm ecf846c; pack hash
+  **`PackedBlankfreeTrainJob.MXKoywbfon8O`** (196 jobs; slots sorted alphabetically sf_20 / soft_20
+  / soft_20_s1 / softshuf_20, GPU assignment only; census unchanged, both probes unmoved).
+  LIVE (`reports/exec_soft_pack_launch_2026-09-21.md`): pack manager pid 409858
+  (`log/sae_4a_soft_pack.manager.20260921T092744Z.log`, must stay alive for the 196-job graph),
+  Slurm 1926421 PENDING on a maintenance reservation, scheduled start 2026-09-21 17:00 UTC
+  (jpbo-078-23, exclusive 4 GPU, 11.5 h); watcher `bash ~/.claude/skills/sis/sis_watch.sh 409858
+  config/sae_4a_soft_pack.py 600` (background id bjy96wghu; re-arm first after any resume). No
+  training step has run.
+NEXT: when the pack starts: executor reads step-1 loss per arm and sec per sub-epoch at ep1, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
 
