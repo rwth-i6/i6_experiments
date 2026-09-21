@@ -177,4 +177,15 @@ The second seed sits in the fourth slot (ruling 4), so a PASS needs no second ro
 
 ## Results
 
-(empty; nothing has run)
+### Resource constants (LexiconTrieBuildJob, first run 2026-09-21, `output/.../sae_4a_lexlat/resource/summary.txt`; the job reruns at a new hash after the review fixes, the constants are deterministic)
+
+| constant | value | reference |
+|---|---|---|
+| words in the trie / distinct pronunciations / max length | 151,731 / 132,049 / 33 | survey s1, all matched |
+| trie nodes | 291,476 (151,731 word ends) | new |
+| mean pronunciation length, token-weighted (type-weighted) | 3.579 phones (6.486) | new; fixes the Design 4 monitor band `lexlat_expected_phones_per_word` in [2.505, 5.010] |
+| word trigram | 151,734 unigrams, 3,393,577 bigrams, 10,419,405 trigrams, 3,545,312 CSR states, 274,266,991-byte binary | survey s4 (binary size matched) |
+| distinct bigram types | 3,302,936 in-line (banked; with BOS 3,335,328, with BOS+EOS 3,393,577) | survey s4, matched by the in-line convention |
+| shuffled-pronunciation null (seed 0, single-cycle derangement) | 0 fixed points; 1 word of 151,731 keeps a homophone of its own pronunciation; trie arrays bit-identical | Design 6 |
+
+The monitor band is now a number written before any arm runs, as Design 4 requires.
