@@ -1890,48 +1890,51 @@ class PodcastCodesTrainData(Job):
             )
 
         want = ["a", "b"] if self.assistant_channel == "both" else [self.assistant_channel]
-        cols = {k: [] for k in feats}
-        n_in = n_out = n_nowords = n_short = n_nohost = 0
+        n = {"in": 0, "out": 0, "nowords": 0, "short": 0, "nohost": 0}
 
-        for d in self.shard_dirs:
-            for p in _parts(d):
-                ds = load_from_disk(p)
-                for r in ds:
-                    n_in += 1
-                    if self.assistant_channel == "random":
-                        # Seeded per row, so the corpus is reproducible and a re-run is identical.
-                        d8 = _hashlib.sha256(f"{self.selection_seed}:{r['item_id']}".encode()).digest()
-                        want = ["a" if d8[0] % 2 == 0 else "b"]
-                    elif self.assistant_channel == "host":
-                        ch_sel = host_by_episode.get(str(r["episode_id"]))
-                        if ch_sel is None:
-                            n_nohost += 1
-                            continue
-                        want = [ch_sel]
-                    for ch in want:
-                        wjson = r.get(f"words_{ch}")
-                        if not wjson:
-                            n_nowords += 1
-                            continue
-                        words = _json.loads(wjson)
-                        if len(words) < self.min_assistant_words:
-                            # A row whose assistant barely speaks is a row whose text stream is
-                            # almost entirely PAD -- it teaches silence, which is the failure this
-                            # corpus exists to fix. Drop it rather than dilute with it.
-                            n_short += 1
-                            continue
-                        other = "b" if ch == "a" else "a"
-                        cols["id"].append(f"{r['item_id']}@{ch}")
-                        cols["duration"].append(float(r["duration_sec"]))
-                        cols["n_codebooks"].append(int(r["n_codebooks"]))
-                        cols["n_frames"].append(int(r["n_frames"]))
-                        cols["frame_rate"].append(float(r["frame_rate"]))
-                        # Flat `k * n_frames + f`, copied as-is -- both sides use the same layout,
-                        # so this is a rename, never a reshape.
-                        cols["codes_assistant"].append(_np.asarray(r[f"codes_{ch}"], dtype=_np.int16))
-                        cols["codes_user"].append(_np.asarray(r[f"codes_{other}"], dtype=_np.int16))
-                        cols["alignments"].append(
-                            [
+        # STREAMED through a generator, never collected into lists first: `from_dict` held the
+        # whole corpus in Python memory (8.4 GB RSS for 4 of 45 shards, so ~95 GB at the full
+        # fan-out against a 16 GB rqmt). The Arrow writer flushes as it goes; same rows, same order.
+        def _rows():
+            for d in self.shard_dirs:
+                for p in _parts(d):
+                    ds = load_from_disk(p)
+                    for r in ds:
+                        n["in"] += 1
+                        if self.assistant_channel == "random":
+                            # Seeded per row, so the corpus is reproducible and a re-run is identical.
+                            d8 = _hashlib.sha256(f"{self.selection_seed}:{r['item_id']}".encode()).digest()
+                            want[:] = ["a" if d8[0] % 2 == 0 else "b"]
+                        elif self.assistant_channel == "host":
+                            ch_sel = host_by_episode.get(str(r["episode_id"]))
+                            if ch_sel is None:
+                                n["nohost"] += 1
+                                continue
+                            want[:] = [ch_sel]
+                        for ch in want:
+                            wjson = r.get(f"words_{ch}")
+                            if not wjson:
+                                n["nowords"] += 1
+                                continue
+                            words = _json.loads(wjson)
+                            if len(words) < self.min_assistant_words:
+                                # A row whose assistant barely speaks is a row whose text stream is
+                                # almost entirely PAD -- it teaches silence, which is the failure this
+                                # corpus exists to fix. Drop it rather than dilute with it.
+                                n["short"] += 1
+                                continue
+                            other = "b" if ch == "a" else "a"
+                            row = {}
+                            row["id"] = f"{r['item_id']}@{ch}"
+                            row["duration"] = float(r["duration_sec"])
+                            row["n_codebooks"] = int(r["n_codebooks"])
+                            row["n_frames"] = int(r["n_frames"])
+                            row["frame_rate"] = float(r["frame_rate"])
+                            # Flat `k * n_frames + f`, copied as-is -- both sides use the same layout,
+                            # so this is a rename, never a reshape.
+                            row["codes_assistant"] = _np.asarray(r[f"codes_{ch}"], dtype=_np.int16)
+                            row["codes_user"] = _np.asarray(r[f"codes_{other}"], dtype=_np.int16)
+                            row["alignments"] = [
                                 {
                                     "text": w["text"],
                                     "start": float(w["start"]),
@@ -1942,22 +1945,23 @@ class PodcastCodesTrainData(Job):
                                 }
                                 for w in words
                             ]
-                        )
-                        n_out += 1
+                            n["out"] += 1
+                            yield row
 
-        if not n_out:
+        ds_out = Dataset.from_generator(_rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
+        if not n["out"]:
             raise RuntimeError(
-                f"produced ZERO training rows from {n_in} dialogue rows "
-                f"({n_nowords} had no words_*, {n_short} had < {self.min_assistant_words} words). "
+                f"produced ZERO training rows from {n['in']} dialogue rows "
+                f"({n['nowords']} had no words_*, {n['short']} had < {self.min_assistant_words} words). "
                 "An empty corpus trains a model to never speak instead of failing."
             )
         print(
-            f"[train_data] {n_in} dialogue rows -> {n_out} training rows "
-            f"(assistant={self.assistant_channel}; dropped {n_nowords} wordless, "
-            f"{n_short} short, {n_nohost} no-host)",
+            f"[train_data] {n['in']} dialogue rows -> {n['out']} training rows "
+            f"(assistant={self.assistant_channel}; dropped {n['nowords']} wordless, "
+            f"{n['short']} short, {n['nohost']} no-host)",
             flush=True,
         )
-        Dataset.from_dict(cols, features=feats).save_to_disk(self.out_dir.get_path())
+        ds_out.save_to_disk(self.out_dir.get_path())
 
 
 def podcast_train_data(
