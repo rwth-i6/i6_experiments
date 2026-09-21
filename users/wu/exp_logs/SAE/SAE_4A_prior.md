@@ -77,9 +77,13 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   while `soft_reward_mean` scores the max-plus string, so the two monitor columns are never read
   side by side for the sf_20 − soft_20 contrast (the gate reads PER). Not checked by the review:
   census counts re-derived, tests executed, GPU memory / time of the extra sampler pass (the
-  probe reads it). sf lam probe LAUNCHING (executor, `reports/exec_sf_probe_launch_2026-09-21.md`).
-NEXT: sf lam probe (`SfLamProbeJob.OHrcN9pEuXni`) → LAM_SF_01; fill it, launch the four-arm pack (soft_20, soft_20_s1, sf_20, softshuf_20) with its own manager
-+ watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
+  probe reads it). sf lam probe FINISHED (Slurm 1926336, manager 295756 exited; Results
+  "Sampled-arm lam probe"): median gradient ratio 2.20294, **LAM_SF_01 = 0.0453938** fixed; the
+  sampler explores at ep4 (8 / 8 distinct strings, within-group reward spread 9.7 nats against the
+  1.0 dead band), peak 23.6 GiB. Implementer filling the constant and reporting the pack hash
+  (`reports/impl_soft_pack_fill_2026-09-21.md`); nothing of the pack is live.
+NEXT: pack hash from the fill → executor launches the four-arm pack (soft_20, soft_20_s1, sf_20,
+softshuf_20) via `config/sae_4a_soft_pack.py` with its own manager + watcher, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
 
