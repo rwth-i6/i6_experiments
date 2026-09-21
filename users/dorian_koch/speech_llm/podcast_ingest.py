@@ -1764,6 +1764,75 @@ def host_channel(ep, host_centroid):
     return "a" if sims[0] >= sims[1] else "b"
 
 
+WINDOW_SELECT_KEYS = ("min_sec", "max_sec", "min_turns", "max_stretch_sec", "turn_min_sec")
+
+
+def select_windows(
+    turns: list[dict],
+    duration: float,
+    *,
+    min_sec: float,
+    max_sec: float,
+    min_turns: int,
+    max_stretch_sec: float,
+    turn_min_sec: float = 1.0,
+) -> list[tuple[float, float]]:
+    """Cut one dialogue row into non-overlapping training windows. Pure function of the turns.
+
+    A window is VALID when it lasts min_sec..max_sec, holds >= `min_turns` turns, and no
+    single-speaker stretch inside it exceeds `max_stretch_sec`, where
+
+      * a turn is a SUBSTANTIVE run -- diarized turns >= `turn_min_sec`, same-speaker neighbours
+        merged -- and counts when >= `turn_min_sec` of it lies inside the window;
+      * a stretch is a run of ALL turns, same-speaker neighbours merged, clipped to the window.
+
+    Greedy tiling: from each cut point take the LONGEST valid window that ends on a cut point, emit
+    it, continue from its end; if there is none, move to the next cut point. Cut points are run
+    starts plus the row's start and end, so a window never starts mid-turn. Deterministic.
+    `analysis/window_select.py` (PRECUT) measures exactly this on the corpus.
+    """
+    import numpy as np
+
+    if duration < min_sec:
+        return []
+    ts = sorted(((str(t["speaker"]), float(t["start"]), float(t["end"])) for t in turns), key=lambda t: t[1])
+
+    def _merge(xs):
+        runs = []
+        for t in xs:
+            if runs and runs[-1][0] == t[0]:
+                runs[-1][2] = max(runs[-1][2], t[2])
+            else:
+                runs.append(list(t))
+        return runs
+
+    runs = _merge(ts)
+    sub = _merge([t for t in ts if t[2] - t[1] >= turn_min_sec])
+    if not runs or len(sub) < min_turns:
+        return []
+    rb, re_ = np.array([x[1] for x in runs]), np.array([x[2] for x in runs])
+    sb, se = np.array([x[1] for x in sub]), np.array([x[2] for x in sub])
+
+    def _ok(a, b):
+        stretch = np.clip(np.minimum(re_, b) - np.maximum(rb, a), 0, None).max()
+        nturn = int((np.clip(np.minimum(se, b) - np.maximum(sb, a), 0, None) >= turn_min_sec).sum())
+        return stretch <= max_stretch_sec and nturn >= min_turns
+
+    cuts = np.unique(np.concatenate([[0.0], rb[rb > 0], [float(duration)]]))
+    out, i = [], 0
+    while i < len(cuts) - 1:
+        a = float(cuts[i])
+        ends = [float(b) for b in cuts if a + min_sec <= b <= a + max_sec]
+        good = [b for b in ends if _ok(a, b)]
+        if good:
+            b = max(good)
+            out.append((a, b))
+            i = int(np.searchsorted(cuts, b))
+        else:
+            i += 1
+    return out
+
+
 class PodcastCodesTrainData(Job):
     """Dialogue code rows -> the canonical codes-training schema the loader reads.
 
@@ -1785,7 +1854,8 @@ class PodcastCodesTrainData(Job):
     speaker field, so this selection is the only thing preventing that.
     """
 
-    __sis_hash_exclude__ = {"rqmt": None}
+    # `window_select=None` is excluded so that adding the knob moved no existing corpus's hash.
+    __sis_hash_exclude__ = {"rqmt": None, "window_select": None}
 
     def __init__(
         self,
@@ -1795,6 +1865,7 @@ class PodcastCodesTrainData(Job):
         assistant_channel: str = "a",
         selection_seed: int = 0,
         min_assistant_words: int = 8,
+        window_select: dict | None = None,
         rqmt: dict | None = None,
     ):
         # "host": choose by speaker IDENTITY, so the assistant is the same person in every
@@ -1814,6 +1885,15 @@ class PodcastCodesTrainData(Job):
         # CONTENT. Changing it must yield a different corpus, not silently reuse this one.
         self.selection_seed = int(selection_seed)
         self.min_assistant_words = int(min_assistant_words)
+        # None: one training row per dialogue row (the loader windows it). A dict: cut each dialogue
+        # into the non-overlapping windows `select_windows` returns, one training row per window;
+        # `min_assistant_words` then applies per window. Keys: WINDOW_SELECT_KEYS.
+        if window_select is not None:
+            unknown = set(window_select) - set(WINDOW_SELECT_KEYS)
+            if unknown:
+                raise ValueError(f"window_select: unknown keys {sorted(unknown)}; allowed {WINDOW_SELECT_KEYS}")
+            window_select = {k: window_select[k] for k in WINDOW_SELECT_KEYS if k in window_select}
+        self.window_select = window_select
         self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
         self.out_dir = self.output_path("dataset", directory=True)
 
@@ -1890,7 +1970,8 @@ class PodcastCodesTrainData(Job):
             )
 
         want = ["a", "b"] if self.assistant_channel == "both" else [self.assistant_channel]
-        n = {"in": 0, "out": 0, "nowords": 0, "short": 0, "nohost": 0}
+        n = {"in": 0, "out": 0, "nowords": 0, "short": 0, "nohost": 0, "nowindow": 0}
+        ws = self.window_select
 
         # STREAMED through a generator, never collected into lists first: `from_dict` held the
         # whole corpus in Python memory (8.4 GB RSS for 4 of 45 shards, so ~95 GB at the full
@@ -1924,6 +2005,9 @@ class PodcastCodesTrainData(Job):
                                 n["short"] += 1
                                 continue
                             other = "b" if ch == "a" else "a"
+                            if ws is not None:
+                                yield from _windowed(r, ch, other, words)
+                                continue
                             row = {}
                             row["id"] = f"{r['item_id']}@{ch}"
                             row["duration"] = float(r["duration_sec"])
@@ -1948,6 +2032,49 @@ class PodcastCodesTrainData(Job):
                             n["out"] += 1
                             yield row
 
+        def _windowed(r, ch, other, words):
+            wins = select_windows(_json.loads(r["turns_json"]), float(r["duration_sec"]), **ws)
+            if not wins:
+                n["nowindow"] += 1
+                return
+            k_cb, n_fr, fr = int(r["n_codebooks"]), int(r["n_frames"]), float(r["frame_rate"])
+            # Codebook-MAJOR (`k * n_frames + f`): a window is a slice of the FRAME axis after the
+            # reshape. Slicing the flat array would take a band of codebooks instead -- right dtype,
+            # plausible length, and it trains quietly into noise.
+            ca = _np.asarray(r[f"codes_{ch}"], dtype=_np.int16).reshape(k_cb, n_fr)
+            cu = _np.asarray(r[f"codes_{other}"], dtype=_np.int16).reshape(k_cb, n_fr)
+            for wi, (a, b) in enumerate(wins):
+                f0 = int(_np.floor(a * fr))
+                f1 = min(n_fr, int(_np.ceil(b * fr)))
+                t0, t1 = f0 / fr, f1 / fr
+                # Words by ONSET (Whisper ends stretch over pauses). A pre-roll word (start < 0) is
+                # kept in a window that begins at frame 0, as the unwindowed row keeps it.
+                ww = [w for w in words if (w["start"] >= t0 or f0 == 0) and w["start"] < t1]
+                if len(ww) < self.min_assistant_words:
+                    n["short"] += 1
+                    continue
+                n["out"] += 1
+                yield {
+                    "id": f"{r['item_id']}@{ch}#w{wi}",
+                    "duration": (f1 - f0) / fr,
+                    "n_codebooks": k_cb,
+                    "n_frames": f1 - f0,
+                    "frame_rate": fr,
+                    "codes_assistant": ca[:, f0:f1].reshape(-1),
+                    "codes_user": cu[:, f0:f1].reshape(-1),
+                    # Re-based to the WINDOW start, which is frame-aligned (t0 = f0 / fr), so every
+                    # word keeps its exact frame against the sliced codes.
+                    "alignments": [
+                        {
+                            "text": w["text"],
+                            "start": float(w["start"]) - t0,
+                            "end": min(float(w["end"]), t1) - t0,
+                            "speaker": "assistant",
+                        }
+                        for w in ww
+                    ],
+                }
+
         ds_out = Dataset.from_generator(_rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
         if not n["out"]:
             raise RuntimeError(
@@ -1957,8 +2084,8 @@ class PodcastCodesTrainData(Job):
             )
         print(
             f"[train_data] {n['in']} dialogue rows -> {n['out']} training rows "
-            f"(assistant={self.assistant_channel}; dropped {n['nowords']} wordless, "
-            f"{n['short']} short, {n['nohost']} no-host)",
+            f"(assistant={self.assistant_channel}; window_select={ws}; dropped {n['nowords']} wordless, "
+            f"{n['short']} short, {n['nohost']} no-host, {n['nowindow']} with no valid window)",
             flush=True,
         )
         ds_out.save_to_disk(self.out_dir.get_path())
