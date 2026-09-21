@@ -6,6 +6,16 @@ DEFERRED without limit by the user on 2026-09-20 ("deferred unlimited"), after t
 and before any code was written; the node goes to the prior-strength lever (`SAE_4A_prior.md`).
 Nothing built or launched; the pre-registered design, amendments and falsifier below stand as
 written should the phase be reopened. The remainder of this State is as it stood at deferral.
+Follow-up candidates recorded 2026-09-21 (user: revisit only after a success wants an ablation or
+after every other route has failed): (i) the reverse model's width is not a lever, since with
+inputs (type, 2 duration buckets, 3 position buckets, eta) it is a 240 x 500 table that the
+0.37 M-parameter MLP already over-parameterises (`reverse.py:58-75`); "larger" means a richer
+conditioning set, and any such variant runs through the pre-launch falsifier first; (ii) a
+transducer-style reverse model is exact only with finite-state phone context (bigram = this
+design, trigram = 41^2 states, no more) and arbitrary causal context over the observed units (a
+prediction network, up to the ~11 M ceiling of `reverse.py:67-72`); a full-context phone encoder
+forces sampled y, the route the prior phase's falsifier (ii) closed. Chorowski risk rises with
+unit-side depth; a context limit or unit-history dropout goes into any such arm.
 
 Phase opened 2026-09-20 on the user's approval ("Context-dependent Reverse Model"), after the
 private-code analysis (`SAE_4A_infomax.md` Results) showed the budget control settling into a
