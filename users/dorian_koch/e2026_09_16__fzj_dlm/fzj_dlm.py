@@ -449,6 +449,10 @@ def py():
 
         train_winner_plus_tts(prefix=f"{prefix}/winner-plus-tts", winner_model=winner_model)
 
+    # The two resumed arms' ModelWithCheckpoints, for the follow-up evals below (hyps pass, our DLM).
+    # Capturing a return value cannot re-hash anything.
+    _resumed_exps = {}
+
     if WINNER_PLUS_TTS_RESUMED:
         # Same arm, same data, same model def -- only the training JOB CLASS differs, so the winner's
         # optimizer moments are loaded instead of being re-estimated from zero. See
@@ -456,7 +460,7 @@ def py():
         # resumption, gated on the .opt.pt sibling being present (engine/base.py:101-107).
         from .winner_plus_tts import train_winner_plus_tts
 
-        train_winner_plus_tts(
+        _resumed_exps["plusTts"] = train_winner_plus_tts(
             prefix=f"{prefix}/winner-plus-tts",
             winner_model=winner_model,
             resume_from_winner=True,
@@ -470,7 +474,7 @@ def py():
         # OggZip. Same resume donor, same nep, same flat LR, so the pair differs in one factor.
         from .winner_plus_tts import train_winner_plus_tts
 
-        train_winner_plus_tts(
+        _resumed_exps["contNoTts"] = train_winner_plus_tts(
             prefix=f"{prefix}/winner-plus-tts",
             winner_model=winner_model,
             resume_from_winner=True,
@@ -529,6 +533,23 @@ def py():
         for _key, _outs in _ft_hyp_jobs[1].out_files.items():
             for _fn, _path in _outs.items():
                 tk.register_output(f"{prefix}/dlm-data-ft/hyps-batched-01/{_key}/{_fn}", _path)
+
+        # The same clean bundle-03 pass for the two RESUMED arms at their final epoch (the checkpoint
+        # their LS recogs use), so "+TTS resumed" vs "keep training, no TTS" is compared on the metric
+        # the TTS arm exists to move -- their LS dev/test tables cannot answer that. Winner reference:
+        # `dlm-data/hyps-batched-03`, same seeded sample via analysis/tts_hyps_wer.py.
+        for _tag, _exp in _resumed_exps.items():
+            _m = _dc.replace(ctc_lm_kwargs["ctc_model"], checkpoint=_exp.get_last_fixed_epoch().checkpoint)
+            _, _jobs = _get_dlm_task(
+                hyps_model=_m,
+                extra_config=ctc_lm_kwargs.get("extra_config"),
+                alias_prefix=f"{prefix}/dlm-data-ft-{_tag}",
+            )
+            for _key, _outs in _jobs[FT_HYPS_CLEAN_BUNDLE].out_files.items():
+                for _fn, _path in _outs.items():
+                    tk.register_output(
+                        f"{prefix}/dlm-data-ft-{_tag}/hyps-batched-{FT_HYPS_CLEAN_BUNDLE:02d}/{_key}/{_fn}", _path
+                    )
 
     for _ep in EVAL_FINETUNE_EPOCHS:
         # Same plain-CTC recog as the winner's `ctc-only-batched` row, on the finetune's epoch-N
@@ -614,6 +635,24 @@ def py():
             _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
         ):
             _train_winner(prefix + f"/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}")
+
+        # The same swap for the two resumed arms, so the DLM-sum rows of "+TTS resumed" and "keep
+        # training, no TTS" use OUR DLM like the winner's row above. Only the DLM-sum recogs are new;
+        # the trainings and non-DLM recogs resolve to the identical jobs of the calls above.
+        from .winner_plus_tts import train_winner_plus_tts
+
+        with unittest.mock.patch.object(
+            _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
+        ):
+            for _tag in _resumed_exps:
+                train_winner_plus_tts(
+                    prefix=f"{prefix}/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}/winner-plus-tts",
+                    winner_model=winner_model,
+                    resume_from_winner=True,
+                    nep=WINNER_PLUS_TTS_RESUMED_NEP,
+                    flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
+                    with_tts=_tag == "plusTts",
+                )
 
 
 def _ctc_only_recog_batched(
