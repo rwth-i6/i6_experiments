@@ -472,3 +472,80 @@ in `py_e1` -- `LexlatWordCountsJob.X2YnVYfqN7aV` -> **`1ZJy5dFbOAHD`** and the t
 
 **For the executor, not acted on here:** the failed `X2YnVYfqN7aV` job dir is now orphaned (the read
 reruns at `1ZJy5dFbOAHD`); its error marker is a leftover, not a live failure.
+
+## 11. The E1 OOM remedy: the DP blocked over the BATCH axis (commit `d2f6a5e`)
+
+Answering the debugger's reading (`reports/debug_lexlat_e1_oom_2026-09-21.md`): the OOM is in the
+MANUAL BACKWARD of `lexlat_forward_backward`, whose per-frame arc section holds five
+`[B, K, m_max, O]` float64 tensors at once -- 64 GiB at B = 114, m_max = 7416 -- after the forward,
+which `_dest_block` already bounds, had succeeded.
+
+**What was changed (`lexlat.py`, one place per leg).** The backward's arc section and the forward's
+band reduction (`_band_reduce`, the forward leg's twin allocation, `[B * K, m_max, O]`) are cut into
+blocks of batch ROWS:
+
+```
+b_c = max(1, min(BATCH_BLOCK, B, BATCH_BLOCK_BYTES // (copies * K * m_max * O * itemsize)))
+```
+
+with `BATCH_BLOCK_BYTES = 8 GiB` (`DEST_BLOCK_BYTES`' twin), `copies = 5` in the backward and 3 in
+the band reduction. At the measured shape that is **14 rows**, i.e. 5 x 14 x 39 x 7416 x 51 x 8 B =
+**7.9 GiB in place of 64 GiB**; the rest of the step (the checkpoint store, the replay cache, the
+slot columns, the model and the optimizer) is untouched, so this is a reduction of the term the
+diagnosis names and not a reading of the new peak.
+
+**Why it is bit-identical rather than equal to a tolerance.** Every width the blocks pad to -- the
+live-arc count `m_n`, the band group's `m_max`, the context counts -- is computed on the WHOLE batch
+BEFORE the loop and handed to every block, so a row's padded rectangle, its reduction set, its order
+and `_logmm`'s per-row max-shift along the contracted axis are exactly the un-blocked ones; only the
+rows are processed in groups. (Recomputing the widths per block would NOT be: a group of rows has a
+smaller `m_max`, and a destination whose arcs are all NEG_INF reduces to `NEG_INF + log(width)`.)
+
+**Placement, and the one deviation from the dispatch's wording.** The dispatch's own sizing formula
+contains `m_max`, which is a PER-FRAME runtime quantity: it does not exist before the frame runs, so
+the chunking is applied inside the frame (where the coordinator's formula is evaluable with the
+actual `m_max`) rather than by slicing the whole call into sub-batches and concatenating. Slicing
+the call would additionally have changed every padded width per sub-batch, which is the one thing
+that can move a value. The per-row results are written back into the full-batch outputs, which is
+the "concatenation" the dispatch asks for.
+
+**Tests** (`test_lexlat.py`): `test_batch_blocking_is_bit_identical` builds a padded batch of six
+toy utterances and asserts, for forced blocks of 1 / 2 / 4 rows, with and without the escape, that
+log Z, `post_q`, `seg_post`, every `expected_*` readout, the pruning monitors and the autograd
+gradient of `lexlat_log_z` (both `d log Z / d log_q` and `d log Z / d seg`) are `torch.equal` to the
+un-blocked run; `test_batch_blocking_leaves_the_manual_backward_equal_to_autograd` re-checks
+`post_q = tau * d log Z / d log_q` on the blocked path (the B = 1 gradient tests never enter the
+loop); `test_batch_block_width` pins the byte rule at the OOM's own shape.
+
+**E1 (`LexlatEfficiencyProbeJob`), the three instrumentation items.** (a) One line per batch PER LEG,
+printed and flushed the moment the leg finishes: index, padded T, B, the `m_max` seen, seconds,
+`max_memory_allocated` and `max_memory_reserved`; plus `partial.json`, rewritten after every timed
+batch, so a kill leaves every completed measurement on disk (`efficiency.json` is written only by a
+completed run). (b) A new HASHED kwarg `max_timed_batches`: the timed set becomes the largest-T
+batch plus the first `k = (max_timed_batches - 1) // n_points` batches of each window, never larger
+than the cap; the set is then a sample, so the sub-epoch number is the MEAN full-step time times
+`n_total`, the rule already written for a sampled set. (c) `STEP_ABORT_SEC = 1200.0` (the
+coordinator's value): a lexicalised step above it ends the lexicalised leg, the banked leg still
+runs on the planned batches, and the job writes `verdict = FAIL` with the seconds marked a LOWER
+BOUND and exits 0.
+
+**Registrations and hashes.** Both probes carry `E1_MAX_TIMED_BATCHES = 9` (k = 2) and
+`E1_TIME_RQMT_HOURS = 4.0`, and nothing else moved (same checkpoint `epoch.010.pt`, epoch 10, name
+`lexlat_20/ctrl_50_ep10`, C_esc 64; C alone differs). Both therefore re-hash:
+
+| entry point | C | before | after |
+| --- | --- | --- | --- |
+| `py_e1` | 1024 | `r4Iaa72mU27T` | **`x3LaY6KlB6I4`** |
+| `py_e1_c4096` | 4096 | `eHrOFiwUqKAf` | **`fY18YN7LVdAe`** |
+
+Census (one process per entry point, diffed against section 9/10's): prepro **133**, budget **775**,
+probes **3** and the pack graph (**202** jobs, `PackedBlankfreeTrainJob.DPiivOfTWAdM`,
+`LexlatWordCountsJob.1ZJy5dFbOAHD`) byte-identical; in `py_e1` / `py_e1_c4096` the only changed id is
+the probe's own. `lexlat.py` is imported at run time and is not hashed, so the blocking itself moves
+nothing.
+
+**Checks.** 85 passed + 1 skipped over `test_lexlat`, `test_lexlat_train`, `test_blankfree_lattice`,
+`test_blankfree_attrib`, `test_blankfree_pack`. All of it is CPU: bit-identity is asserted at the
+toy shape in float64 on CPU, and the memory claim above is arithmetic on the diagnosis's measured
+`m_max`, not a GPU reading. Whether the blocked backward actually fits 80 GiB at the run shape is
+E1's own measurement.
