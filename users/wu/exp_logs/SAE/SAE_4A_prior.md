@@ -678,3 +678,27 @@ ctrl_20 ep4 seed 0 (`PackedBlankfreeTrainJob.5EIGJJ1MkcO9/output/ctrl_20/models/
 | strings scored per batch / tokens per string | 121.3 / 134.6 |
 
 Read: the term's raw gradient is about 0.3 of l_tau's, so the 0.1× arm runs at lam 0.327; the straight-through artefact is 20× under its ceiling at the start. The first (OOM) attempt is recorded in State; the rerun is the same hash after a value-identical fix.
+
+### Sampled-arm lam probe (`SfLamProbeJob.OHrcN9pEuXni`, FINISHED 2026-09-21, Slurm 1926336, 2 min 40 s; `output/summary.txt`; `reports/exec_sf_probe_launch_2026-09-21.md`)
+
+Same protocol as the soft probe: ctrl_20 ep4, tau = 2, 3 batches at 88,000 padded frames / max_seqs 128, G = 8 FFBS draws, A5 per-frame convention, two real backwards per batch.
+
+| quantity | value |
+|---|---|
+| ratio |grad sf| / |grad l_tau| per batch | 2.368, 2.186, 2.203 (median 2.20294) |
+| **lam_sf for 0.1× (LAM_SF_01, the pack constant)** | **0.0453938** |
+| lam_sf for 0.3× (recorded, no arm) | 0.136181 |
+| peak GPU memory per batch | 19.6 / 23.6 / 23.1 GiB |
+| probe time per batch (two backwards) | 19.3 / 14.9 / 14.2 s |
+| sf_reward_mean (greedy string, per token) | −0.535 |
+| sf_reward_std_within (nats per utterance, median) | 9.68 (dead band 1.0) |
+| sf_unique_strings (of 8) | 8.0 |
+| sf_masked_long | 0 |
+| sf_adv_absmean | 8.35 |
+
+Read: the score-function term's raw gradient is 7× that of the soft term at the same target
+(2.20 against 0.31 of l_tau), as expected for a sampled estimator; the constant is set so the pack
+arms run at the same 0.1× target. The sampler explores at ep4: eight distinct strings per
+utterance and a within-group reward spread of 9.7 nats, far above the dead band, so the
+"sampler does not explore" UNINFORMATIVE clause is not triggered at the start. Memory 23.6 GiB
+against the 96 GiB device; step time in the pack is read at ep1 against the 2.00 × 601 s clause.
