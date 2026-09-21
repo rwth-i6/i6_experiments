@@ -720,3 +720,16 @@ arms run at the same 0.1× target. The sampler explores at ep4: eight distinct s
 utterance and a within-group reward spread of 9.7 nats, far above the dead band, so the
 "sampler does not explore" UNINFORMATIVE clause is not triggered at the start. Memory 23.6 GiB
 against the 96 GiB device; step time in the pack is read at ep1 against the 2.00 × 601 s clause.
+
+### Soft pack, interim read at kept epoch 10 of 20 (`PackedBlankfreeTrainJob.MXKoywbfon8O`, RUNNING, sub-epoch 12–14 at 2026-09-21 18:25 UTC; `reports/extract_soft_pack_gaps_2026-09-21.md`, every file traced to this pack by its checkpoint chain)
+
+Not a gate read (G4a.7 reads the final sub-epoch); recorded because it answers whether the scorer term moves the decoded strings toward the text.
+
+| arm | trigram gap gold − decoded, nats per token (dev-other, ep10) | 6-gram gap | lexicon-escape gap | paired PER delta vs its control, dev-other, ep1 / ep4 / ep10 (negative = arm better) | dev reward_mean, latest |
+|---|---|---|---|---|---|
+| sf_20 | 1.147 | 1.491 | 2.237 | +0.0075 / +0.0351 / +0.0306 | −0.515 |
+| soft_20 | 1.295 | 1.600 | 2.313 | +0.0206 / −0.0004 / +0.0101 | −0.590 |
+| soft_20_s1 | 1.055 | 1.537 | 2.294 | +0.0209 / +0.0099 / +0.0099 | −0.498 |
+| softshuf_20 (shuffled-pronunciation null) | 1.066 | 1.541 | 2.269 | +0.0710 / +0.0007 / +0.0121 | −2.025 |
+
+Reading: at ep10 the gap between decoded and gold is of the Step 0 magnitude (trigram 1.39, lexicon 2.32 at ctrl_50 ep10; the matched ctrl_20 prior-gap rows are not registered, so this is against the pre-training number), and no arm is better than its control on paired PER at any kept epoch; the scorer separates the real arms from the shuffled null by 1.5 nats of reward, so it sees structure that the arms have not converted into a smaller gap. Decision table: no row fires for any arm. Final read at ep20 under G4a.7.

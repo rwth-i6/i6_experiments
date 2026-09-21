@@ -5,8 +5,8 @@
 LIVE managers (pid, config shim, background id), watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
 - k2 probe manager 408590 EXITED: `LexlatK2ProbeJob.Tkl94t85j4pV` (Slurm 1929753) interrupted_not_resumable at the 2 h limit with NO cell completed (no partial.json; k2 stack trace at cancel); debugger diagnosing (`reports/debug_k2_probe_timeout_2026-09-21.md`); rerun needs the marker and submit_log cleared and a fresh manager with the venv on PATH.
-- soft-pack (another phase's watcher, held in this session): 409858, `config/sae_4a_soft_pack.py`, bnwu2pxtf
-- official-LM: 857002, `config/sae_4a_lexlat_k2_official.py`, bxveinvva
+- soft-pack (another phase's watcher, held in this session): 409858, `config/sae_4a_soft_pack.py`, bvmw5umpb
+- official-LM: 857002, `config/sae_4a_lexlat_k2_official.py`, bsho6tsen
 
 Over-count read FINISHED (manager 734896 exited): FAIL as registered (median 0.287 / 0.162 nats per token against 0.05), AUDITED (Results "Over-count read"): FAIL confirmed against the exact CSR log-sum too (+0.274 / +0.117), and 80 % of it is the `#0` back-off self-loops placed on every L state (positional multiplicity), a construction choice. Two implementers running: `word_boundary` loop placement as a new HLG build option plus a rebuilt-graph over-count job and probe registration (`reports/impl_k2_hlg_loops_2026-09-21.md`), and the exact log-sum reference column as a new job module (`reports/impl_k2_overcount_exact_2026-09-21.md`); then code review, build the new HLG, rerun the over-count read on it; amendment 9 undecided until that read.
 
