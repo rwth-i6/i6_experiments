@@ -238,3 +238,120 @@ what the monitor follows.
 
 Tests after 2b: **65 passed, 1 skipped**. Census re-run after the train-step edit: prepro_pack 133,
 budget_pack 775, lexlat_probes 3 -- every job id still identical.
+
+---
+
+## 8. Round-2 review fixes (speech-llm `b39ce3c`, 2026-09-21)
+
+The four findings of `review_lexlat_r2_2026-09-21.md`, in one commit (explicit paths, not pushed).
+
+### Fix 1 (BLOCKING) -- the E1 shim exported no `py`
+
+`config/sae_4a_lexlat_e1.py` defined only `py_e1` and `run`; `tools/sisyphus/sisyphus/loader.py`
+looks up the attribute literally named `py` and only WARNS when it is missing, so `sis m
+config/sae_4a_lexlat_e1.py` would have loaded an empty graph and reported nothing to run. The shim
+now defines `def py(): return py_e1()` (and keeps `run = py`). The workspace `config/` tree is not
+a git repository, so this file is not in the commit.
+
+VERIFIED by replaying the loader's own lookup (`scratchpad/shimcheck.py`: chdir to the setup,
+`importlib.import_module("config.sae_4a_lexlat_e1")`, `getattr(mod, "py")()`, list
+`tk.sis_graph.jobs()`): **10 jobs, including `LexlatEfficiencyProbeJob.r4Iaa72mU27T`** -- byte-equal
+to the job-id list `py_e1()` produced before the fixes.
+
+### Fix 2 (BLOCKING) -- the destination block is chosen from a BYTE budget
+
+`lexlat._dest_block` took `max_candidates // (B * m_max)`, and `max_candidates` itself scales with
+B (`lexlat_train.derive_max_candidates` = arc bound x batch), so the width was B-independent and
+the `DEST_BLOCK = 1024` cap bound at the training shape: one block is
+`3 x [128, 51, 1024 x 376]` float64, about 60 GiB before the slot columns.
+
+The width now comes from a byte budget: `n_blk = max(1, min(DEST_BLOCK, n_new, DEST_BLOCK_BYTES //
+(_EXPANSION_COPIES * B * o_n * m_max * itemsize)))`, with `DEST_BLOCK_BYTES = 8 << 30` and
+`_EXPANSION_COPIES = 3` as module constants. The single-destination assert stays and now prints B,
+o_n, m_max, the itemsize and the resulting GiB. No kwarg, no `__sis_version__`: values stay
+bit-identical (`test_adaptive_destination_block_is_bit_identical_at_width_one` forces width 1 with a
+spy on `_dest_block` and compares the full DP output).
+
+`test_adaptive_destination_block_width` now asserts the budget at the TRAINING shape (B = 128,
+o_n = 51, m_max = 376: the chosen width keeps the block under 8 GiB and one more destination would
+exceed it), at the E0 census frames (m_max 25,511 / 6,014 / 376 at B = 1), that a small `n_new` is
+never padded up, that a huge `n_new` is capped at `DEST_BLOCK`, and that a single destination over
+budget raises.
+
+### Fix 3 -- E1's PASS statistic and the banked-path ratio
+
+`LexlatEfficiencyProbeJob.run` now measures each planned batch TWICE from the same cold parameters:
+once with the lexicon and once with `model.lexlat = None`, which is exactly the banked `lattice.py`
+path the train step falls back to. Both numbers are the COMPLETE update (h2d, forward, loss and
+manual backward, optimizer step); the loader wait is outside the timed region on both sides and is
+reported separately as excluded.
+
+The extrapolation is no longer `median x n_total`: when the four windows cover the whole sub-epoch
+(`len(measured) == n_total`, the bed's ~55 batches -- the actual case) the number IS the SUM of the
+measured full-step times over every batch; otherwise it is the MEAN x the batch count. The basis is
+printed with the number (`seconds_per_subepoch_basis`, `windows_cover_the_sub_epoch`). The json and
+`summary.txt` add `seconds_per_subepoch_banked` and `ratio_over_banked`. The class docstring states
+that **the bar is read on the ABSOLUTE seconds per sub-epoch (<= 1202 s) and the ratio is disclosed,
+never gating**, and that loader wait is excluded on both sides.
+
+### Fix 4 -- the two pre-registered Gate reads are registered
+
+**(a) Step 0 prior-gap rerun.** `_register_prior_gap` builds one `prior_gap.PriorGapAnalysisJob` per
+arm and epoch with the arm's own `greedy_raw.json` / `greedy_phones.json` as the private-code input
+and EVERY other argument read from `config_sae_4a_prior_gap_v1` (the same `_pin` objects for the
+window, word corpus and two lexicons, the same `kenlm_binaries()`, `KENLM_ORDERS = (4, 6)`,
+`WORD_LM_ORDER = 3`, `VERSION = 2`) and `config_sae_4a_private_code_v1.prior_npz()` (the frozen
+`PhoneNgramPriorJob.RtzbESkOedsT` file -- the same file this pack's own prior job produces). No
+Step 0 job is reconstructed: `PriorGapAnalysisJob.2RkbKYl0v1XK` is NOT in the graph.
+
+SCOPE, and a deviation to rule on: the review says "at each kept epoch"; the phase file heads BOTH
+disclosed label-using reads with "Disclosed label-using reads at kept epochs 10 and 20", so
+`PRIOR_GAP_EPOCHS = FREQ_STRAT_EPOCHS` = (10, 20) and `= KEEP_EPOCHS` is the one-line widening. Each
+instance is a 4 CPU / 16 GB / 4 h job that replays the window texts (about 325 MB) and refits its
+own KenLM models (about 490 MB) in its work directory, so all four kept epochs would be 24 such
+jobs instead of 12. `PRIOR_GAP_ARMS` is the four lexicalised arms AND `ctrl_20` / `ctrl_20_s1`
+(frozen decodes), so the Gate's "like-for-like pairing" has its baseline under the same read at the
+same N -- the banked 2.32 / 0.237 are `ctrl_50` ep10 numbers.
+
+**(b) The wav2vec-U 2.0 selection statistic.** New `LexlatSelectionStatJob` in `lexlat_train_jobs`
+(hand-bumped `__sis_version__ = 1`, so no banked job in that file re-hashes). ONE instance holds
+every arm at every kept epoch on `dev-other`, so its ranking is over arms AND checkpoints. The
+convention is in the docstring and printed into both outputs: corpus perplexity
+`exp(-sum_u log p(u) / sum_u len(u))` of the SIL-stripped decode under the banked 4-gram phone
+KenLM, `<s>`-conditioned per-token `BaseScore` with no `</s>` in nats (`prior_gap.kenlm_utt_log_prob`,
+the campaign's convention), divided by the SQUARE of `|phone types seen| / 39` over
+`prior.ARPABET_39`; lower is better; LABEL-FREE and reference only. A SIL token in the string and an
+LM of the wrong order both raise.
+
+**CONCERN, needs a ruling -- the banked 4-gram LM is not a durable frozen path.**
+`PriorGapAnalysisJob` builds its KenLM models in its WORK directory and registers none of them as an
+output, and the Step 0 v2 instance's work directory has already been auto-cleaned
+(`PriorGapAnalysisJob.2RkbKYl0v1XK` keeps a 9.8 kB `finished.tar.gz` and nothing else). The file is
+therefore taken from a later Step 0b instance that still holds it; the three surviving copies
+(`pg14aEYJyiva`, `OO0iAEVLKgOO`, `m6lUxAO65f6A`) are byte-identical, md5
+`61eae5635495b66cec12ef638bafa6d4`, so the fit is deterministic given the pinned window.
+`_step0_phone_lm_4gram` pins the first surviving copy by a sha of the FILE'S CONTENT, not of its
+path, so repointing it at another copy does not move the read's hash. Those work directories are
+cleanup-eligible: if all three go, the config RAISES at graph-build time (it never refits an LM to
+stay loadable). A durable fix is outside this dispatch -- either copy the file somewhere stable, or
+re-register Step 0's LMs as outputs.
+
+### Checks
+
+* `test_lexlat.py` + `test_lexlat_train.py`: **60 passed, 1 skipped** (the count differs from round
+  2's 65 because the pruned-autograd and block tests were re-parametrised in fixes 2 and 3; one new
+  test, `test_selection_statistic_is_perplexity_over_the_squared_vocabulary_fraction`, stubs KenLM
+  and checks the arithmetic, the empty-utterance rule, the ranking order and both guards).
+* `test_blankfree_pack.py`, `test_blankfree_lattice.py`, `test_blankfree_attrib.py`: 11 passed.
+* Census, one process per config: `config_sae_4a_prepro_pack_v1` **133**,
+  `config_sae_4a_budget_pack_v1` **775**, `config_sae_4a_lexlat_probes_v1` **3** -- every job id
+  byte-identical to the round-2 census. `py_e1` still 10 jobs, identical list, E1 still
+  `LexlatEfficiencyProbeJob.r4Iaa72mU27T`.
+* The pack graph goes 189 -> **202 jobs**: exactly 13 additions and no id moved, so
+  `PackedBlankfreeTrainJob.XaDOVLQZkzgh` is unchanged. The new ids are
+  `LexlatSelectionStatJob.3HXluQmd65EE` and twelve `PriorGapAnalysisJob`
+  (`64uK3sqCde8h`, `BM7uzYpbAse4`, `Bnkr92723Noo`, `DvaNhMgGvweN`, `LaDsQFRa7KDK`, `U7Q2OEFBJR3j`,
+  `aSYfGWGD7rJO`, `bTTQ9WGBOWqz`, `d8amOzlVfwGR`, `gQzZOfc7PHCp`, `vTOEg1CwN2Pb`, `x51tSxaPXuoR`);
+  none of them has a job directory on disk, so nothing banked is re-funded.
+* Noted, not changed: `lexlat_neg_inf` is a normalised batch count in the sub-epoch column; since
+  `6cbb3f9` any NEG_INF utterance after the on-set raises, so the column is read as "nonzero".
