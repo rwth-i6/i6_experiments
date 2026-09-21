@@ -643,3 +643,18 @@ label-using read at ep10 / ep20: the r(gold) > max_g fraction on the 300 falsifi
 per step: one extra DP pass (the checkpointed backward recomputation carries the G draws), read
 at ep1 against the same 2.00 × 601 s stop rule as the soft arms; if sf_20 alone exceeds it, the
 pack runs without it rather than delaying the three soft arms.
+
+### Soft-arm lam probe (`SoftLamProbeJob.wAJQ26T7iZzX`, FINISHED 2026-09-21, Slurm 1925609, 77 s; `output/summary.txt`, `probe.json`; `reports/exec_soft_probe_rerun_2026-09-21.md`)
+
+ctrl_20 ep4 seed 0 (`PackedBlankfreeTrainJob.5EIGJJ1MkcO9/output/ctrl_20/models/epoch.004.pt`), 3 batches at 88,000 padded frames / max_seqs 128, A5 per-frame convention.
+
+| quantity | value |
+|---|---|
+| ratio |grad soft| / |grad l_tau| per batch | 0.298, 0.306, 0.335 (median 0.306148) |
+| **lam_soft for 0.1× (LAM_01, the pack constant)** | **0.326639** |
+| lam_soft for 0.3× (ceiling, no arm) | 0.979918 |
+| artefact gap scorer(soft) − scorer(hard), nats per token | 0.0138 (ceiling 0.3) |
+| soft_reward_mean per token on the train max-plus string | −0.236 (direction read only; dev greedy band −0.67 → +0.95) |
+| strings scored per batch / tokens per string | 121.3 / 134.6 |
+
+Read: the term's raw gradient is about 0.3 of l_tau's, so the 0.1× arm runs at lam 0.327; the straight-through artefact is 20× under its ceiling at the start. The first (OOM) attempt is recorded in State; the rerun is the same hash after a value-identical fix.
