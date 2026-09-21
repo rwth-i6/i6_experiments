@@ -88,8 +88,15 @@ manager or watcher of this phase is live. No training arm of this phase ran.
   (`log/sae_4a_soft_pack.manager.20260921T092744Z.log`, must stay alive for the 196-job graph),
   Slurm 1926421 PENDING on a maintenance reservation, scheduled start 2026-09-21 17:00 UTC
   (jpbo-078-23, exclusive 4 GPU, 11.5 h); watcher `bash ~/.claude/skills/sis/sis_watch.sh 409858
-  config/sae_4a_soft_pack.py 600` (background id bjy96wghu; re-arm first after any resume). No
-  training step has run.
+  config/sae_4a_soft_pack.py 600` (re-armed 2026-09-21 as background id b5adkh067; re-arm first
+  after any resume). Pack RUNNING since 2026-09-21 15:06 UTC (`reports/extract_soft_pack_ep1_2026-09-21.md`):
+  all four arms past sub-epoch 4 by 16:08 UTC; wall seconds per sub-epoch sf_20 717 / soft_20 849 /
+  soft_20_s1 852 / softshuf_20 849 (1.19–1.42 x 601 s, all under the 2.00 bar, so sf_20 stays in
+  the pack); ep1 dev loss sf 1.517 / soft 1.430 / soft_s1 1.435 / softshuf 1.520; ep4 dev
+  reward_mean sf −0.510 / soft −0.451 / soft_s1 −0.408 / softshuf −1.799 (the shuffled null prices
+  its own strings far below the structured arms, as a destroyed-structure control should), retained
+  rate 10.2–10.9 Hz, tau 2.0, lam soft 0.327 / sf 0.0454; peak RSS 52 GB. ep1 posteriors dumped,
+  PER summaries not yet produced (decode / scoring jobs follow the forward).
 NEXT: when the pack starts: executor reads step-1 loss per arm and sec per sub-epoch at ep1, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
