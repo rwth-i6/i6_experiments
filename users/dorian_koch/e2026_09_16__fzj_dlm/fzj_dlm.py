@@ -78,7 +78,7 @@ DLM_DATA_STAGE = "train"
 # (device propagation through the empty source) is of unknown depth. deText+deAudio answers the same question
 # -- does the pseudo-encoder carry German once the English-audio language cue is gone -- with zero
 # framework work, and is the better system besides. deText+enAudio is arm B re-run with the German SPM (§104).
-GERMAN_STAGE = "deText+enAudio-enSpm,deText+enAudio,deText+deAudio,deText+deAudio-long,deAudio"
+GERMAN_STAGE = "deText+enAudio-enSpm,deText+enAudio,deText+deAudio,deText+deAudio-long,enarpa,deAudio"
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -298,6 +298,7 @@ def py():
         "deText-only",
         "deText+deAudio",
         "deText+deAudio-long",
+        "enarpa",
         "deAudio",
     }, f"unknown German stage: {_german_stages}"
 
@@ -388,6 +389,27 @@ def py():
                 german_dev=True,
                 nep=40,
             )
+
+    if "enarpa" in _german_stages:
+        # German phone prior from the english_us_arpa aligner (german_xling `_DE_TABLES`, user 2026-09-22):
+        # one procedure for both budgets, no audio beyond the pipeline's. Adds runs; the "selftrained"
+        # arms stay for comparison. 1 h arms use the same recipes as 9 h (deText+deAudio repeat 4 =
+        # deAudio's 40 passes, the PatchAsrBranchToGerman rule). deAudio 9 h is not re-run: it never
+        # reads the pseudo table (the table only initialises the unused pseudo_enc rows).
+        from .german_xling import train_german_arm_b, train_german_arm_c
+
+        for _b in ("1h", "9h"):
+            train_german_arm_b(
+                prefix=f"{prefix}/german",
+                winner_model=winner_model,
+                budget=_b,
+                smoke=GERMAN_SMOKE,
+                german_audio=True,
+                fix_text_spm=True,
+                german_dev=True,
+                prior="enarpa",
+            )
+        train_german_arm_c(prefix=f"{prefix}/german", winner_model=winner_model, budget="1h", prior="enarpa")
 
     if "deText-only" in _german_stages:
         # Arm B-zero (user call, 2026-09-20): **no paired audio at all** -- the pseudo-encoder alone.

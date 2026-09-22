@@ -60,6 +60,27 @@ DE_TABLE_9H = tk.Path(f"{_STAGE}/de_9h_table.npz", hash_overwrite="dorian/de/tab
 DE_DURATIONS_1H = tk.Path(f"{_STAGE}/de_1h_table_durations.npz", hash_overwrite="dorian/de/dur/1h/v1")
 DE_DURATIONS_9H = tk.Path(f"{_STAGE}/de_9h_table_durations.npz", hash_overwrite="dorian/de/dur/9h/v1")
 
+# 🟢 "enarpa" phone prior (backlog, 2026-09-22): the SAME procedure for both budgets and no audio beyond
+# the pipeline's own. German words -> IPA (MFA german dict + G2P, text-only) -> ARPAbet by an AUTOMATIC
+# PanPhon feature-distance map (phone_tables/map_arpa.py) -> aligned with MFA `english_us_arpa`, which is
+# trained on LibriSpeech only (the English ASR's own corpus) -> German labels restored by position ->
+# per-German-phone means/durations from our own 1 h / 9 h audio (build_de_table_fzj.py). Fixes the 1 h
+# floor collapse of the self-trained aligner: 1 h-vs-9 h median spectral distance 2.375 -> 1.302.
+# The old "selftrained" tables stay the default so every existing arm keeps its hash.
+_TABLES_ENARPA = f"{_STAGE}/tables_2026-09-22"
+_DE_TABLES = {
+    ("1h", "selftrained"): (DE_TABLE_1H, DE_DURATIONS_1H),
+    ("9h", "selftrained"): (DE_TABLE_9H, DE_DURATIONS_9H),
+    ("1h", "enarpa"): (
+        tk.Path(f"{_TABLES_ENARPA}/de_1h_arpa1h.npz", hash_overwrite="dorian/de/table/1h/enarpa-v1"),
+        tk.Path(f"{_TABLES_ENARPA}/de_1h_arpa1h_durations.npz", hash_overwrite="dorian/de/dur/1h/enarpa-v1"),
+    ),
+    ("9h", "enarpa"): (
+        tk.Path(f"{_TABLES_ENARPA}/de_9h_arpa9h.npz", hash_overwrite="dorian/de/table/9h/enarpa-v1"),
+        tk.Path(f"{_TABLES_ENARPA}/de_9h_arpa9h_durations.npz", hash_overwrite="dorian/de/dur/9h/enarpa-v1"),
+    ),
+}
+
 # label -> index, 57 entries, generated FROM the table's own label list so the two cannot diverge.
 DE_PHONEME_VOCAB = tk.Path(f"{_STAGE}/de_phoneme_vocab.pkl", hash_overwrite="dorian/de/phonvocab/v1")
 
@@ -192,7 +213,7 @@ def _mirror_model_def_attribs(fn):
     return fn
 
 
-def german_pseudo_enc_config(*, budget: str) -> Dict[str, Any]:
+def german_pseudo_enc_config(*, budget: str, prior: str = "selftrained") -> Dict[str, Any]:
     """
     The config keys that switch the pseudo-encoder over to German, for ``extra_config_updates``.
 
@@ -203,8 +224,7 @@ def german_pseudo_enc_config(*, budget: str) -> Dict[str, Any]:
     the low point of the resource curve, but it is not an equal-quality prior.
     """
     assert budget in ("1h", "9h"), f"unknown German audio budget {budget!r}"
-    table = DE_TABLE_1H if budget == "1h" else DE_TABLE_9H
-    durations = DE_DURATIONS_1H if budget == "1h" else DE_DURATIONS_9H
+    table, durations = _DE_TABLES[(budget, prior)]
     return {
         "pseudo_enc_phoneme_vocab_size": GERMAN_PHONEME_VOCAB_SIZE,
         "pseudo_enc_frozen_table": table,
@@ -1567,14 +1587,14 @@ class PatchTaskEvalToGerman:
         return False
 
 
-def get_surgered_winner_checkpoint(winner_checkpoint, *, budget: str = "9h") -> tk.Path:
+def get_surgered_winner_checkpoint(winner_checkpoint, *, budget: str = "9h", prior: str = "selftrained") -> tk.Path:
     """The winner's checkpoint widened to the German output vocabulary (10,240 -> 10,243).
 
     This is what arms B and C start from via ``import_model_train_epoch1``. The first 10,240 output
     rows are preserved bit-exactly and Ä/Ö/Ü are appended, matching `DE_SPM_EXTENDED` where the same
     three pieces were appended at 10240-10242 (§34) -- so row *i* still means piece *i*.
     """
-    table = DE_TABLE_1H if budget == "1h" else DE_TABLE_9H
+    table = _DE_TABLES[(budget, prior)][0]
     # `winner_checkpoint()` returns an i6_core PtCheckpoint; unwrap so the job's hashed input is the
     # tk.Path itself (PtCheckpoint hashes via the same path, so this does not change the hash meaning).
     ckpt = getattr(winner_checkpoint, "path", winner_checkpoint)
@@ -2092,6 +2112,7 @@ def train_german_arm_c(
     keep_epochs: Optional[Sequence[int]] = None,
     enc_lr_mult: Optional[float] = None,
     no_recog: bool = False,
+    prior: str = "selftrained",
 ):
     """
     **Arm C — the baseline.** MLS-de **paired audio** (1 h or 9 h), no text injection, starting from
@@ -2151,7 +2172,9 @@ def train_german_arm_c(
             name += "-keepall"
         if enc_lr_mult is not None:
             name += f"-encLr{enc_lr_mult:g}"
-    de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget)
+        if prior != "selftrained":
+            name += f"-{prior}"
+    de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget, prior=prior)
 
     with (
         PatchTaskAllToGerman(budget=budget, extended_vocab=True),
@@ -2237,6 +2260,7 @@ def train_german_arm_b(
     german_audio: bool = False,
     german_audio_repeat: int = 4,
     nep: Optional[int] = None,
+    prior: str = "selftrained",
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2290,8 +2314,10 @@ def train_german_arm_b(
             name += "-enSpm"  # the invalid first run (§104): injection text through the English SPM
         if not german_dev:
             name += "-noDeDev"
-    de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget)
-    tables = german_pseudo_enc_config(budget=budget)
+        if prior != "selftrained":
+            name += f"-{prior}"
+    de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget, prior=prior)
+    tables = german_pseudo_enc_config(budget=budget, prior=prior)
 
     with (
         PatchModelDefToGerman(),
