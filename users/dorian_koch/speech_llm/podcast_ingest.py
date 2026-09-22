@@ -1224,6 +1224,7 @@ class PodcastEpisodeIngest(Job):
         asr_model: str | None = None,
         asr_batch_size: int = 16,
         perm_scorer: str = "energy",
+        loudness_target_lufs: float | None = None,
         rqmt: dict | None = None,
     ):
         self.duplex_venv_python = duplex_venv_python
@@ -1265,6 +1266,11 @@ class PodcastEpisodeIngest(Job):
         # only at "energy" (the old behaviour) so existing shards keep their hash.
         assert perm_scorer in ("energy", "embedding"), perm_scorer
         self.perm_scorer = perm_scorer
+        # HASHED when set -- it changes the audio every code is computed from. None (default) = the
+        # separated audio is encoded at whatever level the separator produced, as every corpus built
+        # before 2026-09-22 was; excluded at None so those shards keep their hash. See
+        # podcast_mimi_encode.normalize_channel and audio_datasets.md ("Loudness").
+        self.loudness_target_lufs = None if loudness_target_lufs is None else float(loudness_target_lufs)
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
         # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
@@ -1300,6 +1306,8 @@ class PodcastEpisodeIngest(Job):
             "asr_batch_size",
         ):
             d.pop(k, None)
+        if d.get("loudness_target_lufs") is None:
+            d.pop("loudness_target_lufs", None)
         return super().hash(d)
 
     def tasks(self):
@@ -1400,6 +1408,9 @@ class PodcastEpisodeIngest(Job):
             args += ["--perm_scorer", self.perm_scorer]
         if self.max_items:
             args += ["--max_items", self.max_items]
+        # getattr: shards pickled before the parameter existed.
+        if getattr(self, "loudness_target_lufs", None) is not None:
+            args += ["--loudness_target_lufs", self.loudness_target_lufs]
 
         run_worker_script(
             self.duplex_venv_python.get(),
