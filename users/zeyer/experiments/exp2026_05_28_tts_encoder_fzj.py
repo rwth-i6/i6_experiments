@@ -2007,6 +2007,17 @@ def py():
                 "with_ctc_lm_recog": True,
             },
         ),
+        # One-hot channels with the winner's alignment durations (per-phone log-normal, scale 0.7,
+        # jitter 0.45; hard repeats kept): the missing cell of the representation x durations grid
+        # (AZ 2026-09-22; launched after the deadline, for the camera-ready).
+        (
+            "pseudo-enc-textogram-onehotchan-realdur2-dur07-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {
+                "pseudo_enc_channel_concat": True,
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_lerp": False,
+            },
+        ),
         # The textogram cell with a fixed 6 frames per phone (the dur07 mean), the phoneme counterpart
         # of the character textogram below (AZ).
         (
@@ -3130,8 +3141,8 @@ def _build_tables(prefix: str):
         "ls-main",
         ["model", "method", "steps", "hours", "aed", "lm", *ls_wer],
         [
-            *_ls_rows(base, "no text", _all_searches),
-            *_ls_rows(base76, "no text, \\\\ twice the epochs"),
+            *_ls_rows(base, "none", _all_searches),
+            *_ls_rows(base76, "none"),  # twice the epochs: the updates column
             # the earlier paper's GlowTTS injection, numbers as published there (EncL16-DecL6, CTC+AED, single
             # GPU, earlier training regime; AZ 2026-09-22). Not its baseline or layer-4 rows: next to ours they
             # read as a verdict on that regime. Our 4-GPU reruns in the earlier implementation, GlowTTS
@@ -3139,7 +3150,7 @@ def _build_tables(prefix: str):
             # text (the speed pair); no train time / updates for the cited row
             {
                 "model": _m16,
-                "method": "GlowTTS \\cite{Zeyer2026TextUtilPseudoSpeechEnc}",
+                "method": "TTS \\cite{Zeyer2026TextUtilPseudoSpeechEnc}",
                 "aed": _chk,
                 "lm": _xmk,
                 **dict(zip(ls_wer, ("1.57", "3.53", "1.73", "3.64"))),
@@ -3149,9 +3160,9 @@ def _build_tables(prefix: str):
             # the frozen table in the $^*$ setup (3.66 / 3.86, 130 h vs GlowTTS 235 h) is NOT a row: the
             # earlier settings may simply be suboptimal for the table, so the pair would suggest a WER
             # ranking we cannot support (AZ, 2026-09-22); the speed pair is stated in the text instead
-            *_ls_rows(win, "mean log-mel, \\\\ MFA alignment", _all_searches),
-            *_ls_rows(f"{base}-encL24-decL8", "no text", model=_m24),
-            *_ls_rows(f"{win}-encL24-decL8", "mean log-mel, \\\\ MFA alignment", _all_searches, model=_m24),
+            *_ls_rows(win, "mean \\\\ log-mel", _all_searches),
+            *_ls_rows(f"{base}-encL24-decL8", "none", model=_m24),
+            *_ls_rows(f"{win}-encL24-decL8", "mean \\\\ log-mel", _all_searches, model=_m24),
         ],
     )
     # The duration model of the pseudo encoder: d = round(median * scale * exp(jitter * N(0,1))),
@@ -3208,27 +3219,20 @@ def _build_tables(prefix: str):
                 units="phonemes",
                 durations="uniform \\\\ 5 to 10",
             ),
-            _ls(_textogram, acoustics="one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"),
+            # the one-hot + alignment-durations run (launched 2026-09-22 22:10, ~Thu evening) is a
+            # camera-ready row (icassp2027/TODO-camera-ready.md): no placeholder rows in the submission (AZ)
+            _ls(_textogram, acoustics="extra one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"),
             _ls(
                 "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
-                acoustics="one-hot \\\\ channels",
+                acoustics="extra one-hot \\\\ channels",
                 units="phonemes",
                 durations="fixed 6",
             ),
-            _ls(_textogram_chars, acoustics="one-hot \\\\ channels", units="characters", durations="fixed 4"),
+            _ls(_textogram_chars, acoustics="extra one-hot \\\\ channels", units="characters", durations="fixed 4"),
         ],
     )
-    # The remaining ablations of the winning recipe, one ingredient flipped each.
-    _table(
-        "ls-ablations",
-        ["variant", *ls_wer_other],
-        [
-            _ls(win, variant="none"),
-            _ls(f"{win}-nolerp", variant="no interpolation"),
-            _ls(f"{win}-sil0", variant="no silence between words"),
-            _ls(f"{win}-silbound", variant="silence at the utterance bounds"),
-        ],
-    )
+    # The remaining ablations (nolerp, sil0, silbound) are one sentence in the paper (AZ 2026-09-22):
+    # at most 0.04 dev-other apart from the recipe; no table.
     # Where the tables come from: MFA vs our single-Gaussian HMM aligner, phones vs HMM states.
     _ghmm = "monophone \\\\ single-Gauss. \\\\ HMM (ours)"
     _table(
@@ -3272,37 +3276,40 @@ def _build_tables(prefix: str):
             ),
         ],
     )
-    # The seen text-to-audio ratio at full data (all of train-960, all of the LM text): the text per
-    # subepoch (partition P) from none to 2x the recipe; updates grow with the text.
+    # The text axis at full audio (all of train-960, 38 subepochs): the seen text-to-audio ratio
+    # (text per subepoch, partition P, from none to 2x the recipe; updates grow with the text) and,
+    # nested in the 1:1 block, the amount of distinct LM text (subset + partition scaled alike, so
+    # the seen ratio stays 1:1 and only the diversity changes). One table, rows by seen ratio
+    # (AZ 2026-09-22, merged from ls-text-ratio + ls-text-amount).
     _table(
-        "ls-text-ratio",
-        ["text_ratio", "text_passes", "steps", *ls_wer_other],
+        "ls-text",
+        ["text_ratio", "text", "used_ratio", "text_passes", "steps", *ls_wer_other],
         [
-            _ls(base76, text_ratio="0:1", text_passes=0),
-            _ls(f"{win}-textP300", text_ratio="1:4", text_passes=0.5),
-            _ls(f"{win}-textP150", text_ratio="1:2", text_passes=1),
-            _ls(win, text_ratio="1:1", text_passes=2),
-            _ls(f"{win}-textP37", text_ratio="2:1", text_passes=4),
-        ],
-    )
-    # Amount of distinct text at the recipe's seen ratio (subset + partition scaled alike).
-    _table(
-        "ls-text-amount",
-        ["text", "used_ratio", "text_passes", "steps", *ls_wer_other],
-        [
-            _ls(win, text="100\\%", used_ratio="86:1", text_passes=2),
-            _ls(f"{win}-lmsub50-textP38", text="50\\%", used_ratio="44:1", text_passes=4),
-            _ls(f"{win}-lmsub25-textP19", text="25\\%", used_ratio="22:1", text_passes=8),
-            _ls(f"{win}-lmsub10-textP8", text="10\\%", used_ratio="9.5:1", text_passes=19),
-            _ls(f"{win}-lmsub0_65-textP1", text="0.65\\%", used_ratio="1.6:1", text_passes=152),
+            _ls(base76, text_ratio="0:1", text="-", used_ratio="-", text_passes="0"),
+            _ls(f"{win}-textP300", text_ratio="1:4", text="100\\%", used_ratio="86:1", text_passes="0.5"),
+            _ls(f"{win}-textP150", text_ratio="1:2", text="100\\%", used_ratio="86:1", text_passes="1"),
+            _ls(win, text_ratio="1:1", text="100\\%", used_ratio="86:1", text_passes="2"),
+            _ls(f"{win}-lmsub50-textP38", text_ratio="1:1", text="50\\%", used_ratio="44:1", text_passes="4"),
+            _ls(f"{win}-lmsub25-textP19", text_ratio="1:1", text="25\\%", used_ratio="22:1", text_passes="8"),
+            _ls(f"{win}-lmsub10-textP8", text_ratio="1:1", text="10\\%", used_ratio="9.5:1", text_passes="19"),
+            _ls(f"{win}-lmsub0_65-textP1", text_ratio="1:1", text="0.65\\%", used_ratio="1.6:1", text_passes="152"),
+            _ls(f"{win}-textP37", text_ratio="2:1", text="100\\%", used_ratio="86:1", text_passes="4"),
         ],
     )
     # Amount of paired audio: random subsets of train-960, the text filling the freed budget.
     _table(
         "ls-audio-amount",
-        ["audio_h", "audio_passes", "used_ratio", "text_ratio", "text_passes", "steps", *ls_wer_other],
+        ["audio_h", "audio_passes", "text_ratio", "used_ratio", "text_passes", "steps", *ls_wer_other],
         [
             _ls(win, audio_h="960", audio_passes=152, used_ratio="86:1", text_ratio="1:1", text_passes=2),
+            _ls(
+                f"{win}-audioP4-textP43",
+                audio_h="960",
+                audio_passes=38,
+                used_ratio="86:1",
+                text_ratio="7:1",
+                text_passes=3.5,
+            ),
             _ls(
                 f"{win}-audio50-textP50",
                 audio_h="480",
@@ -3326,14 +3333,6 @@ def _build_tables(prefix: str):
                 used_ratio="350:1",
                 text_ratio="4:1",
                 text_passes=1.9,
-            ),
-            _ls(
-                f"{win}-audioP4-textP43",
-                audio_h="960",
-                audio_passes=38,
-                used_ratio="86:1",
-                text_ratio="7:1",
-                text_passes=3.5,
             ),
             _ls(
                 f"{win}-audio10-textP39",
@@ -3503,7 +3502,7 @@ def _build_tables(prefix: str):
             _loq(f"{med}-loqtables-txtSrcExp0", representation="Loq. table"),
             _loq(
                 "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                representation="one-hot ch.",
+                representation="extra one-hot ch.",
             ),
             _loq(
                 "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
@@ -3511,30 +3510,8 @@ def _build_tables(prefix: str):
             ),
         ],
     )
-    # LM combinations on Loquacious.
-    _table(
-        "loq-lm",
-        ["model", "aed", "lm", *loq_wer],
-        [
-            _loq(
-                name,
-                recog,
-                model=label,
-                aed=_chk if "AED" in rlabel else _xmk,
-                lm=_chk if "LM" in rlabel else _xmk,
-            )
-            for name, label in [
-                ("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "medium, no text"),
-                (f"{med}-txtSrcExp0_5", "medium, injection, alpha 0.5"),
-                (f"{med}-txtSrcExp0", "medium, injection, uniform"),
-                (
-                    "base-large-srcExp0_5-nFullEp5_7-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                    "large, no text, alpha 0.5",
-                ),
-            ]
-            for recog, rlabel in ls_recogs
-        ],
-    )
+    # The Loquacious LM recogs are one sentence in the paper (AZ 2026-09-22: no loq-lm table):
+    # medium no text 6.17 / 6.97 vs uniform injection 5.83 / 6.73 with CTC+AED+LM.
 
 
 @functools.cache
