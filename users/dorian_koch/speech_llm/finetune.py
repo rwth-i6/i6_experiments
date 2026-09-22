@@ -516,7 +516,7 @@ emit_epad: {_opt_bool("emit_epad")}
 onset_floor: {_opt_bool("onset_floor")}
 text_lead_frames: {_tlf}
 word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_overlap"] + chr(34)}
-loss_norm: "{hp.get("loss_norm", "count")}"
+loss_norm: "{hp.get("loss_norm", "weight")}"
 """
 
 
@@ -629,6 +629,7 @@ pack_gap_max_sec: {float(hp.get("pack_gap_max_sec", 3.0))}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
 full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
+fp32_master_weights: {"true" if hp.get("fp32_master_weights") else "false"}
 per_gpu_batch: {hp.get("per_gpu_batch", 1)}
 grad_accum: {hp.get("grad_accum", 16)}
 gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
