@@ -365,6 +365,11 @@ def register_packed_graphc_benchmarks(faithful, fast, *, prefix: str, num_steps:
         # while faithful == padded_eager bit-identically; these two localize it (packed layout vs compile).
         ("fast-packed_eager", fast, "packed_eager"),
         ("fast-packed_compiled", fast, "packed_compiled"),
+        # packed_eager == padded_eager, packed_compiled == packed_graphc != padded: the compile path is at fault.
+        # These three split it: bound buffers untraced / traced graph with eager kernels / Inductor without fusion.
+        ("fast-packed_eager_bound", fast, "packed_eager_bound"),
+        ("fast-packed_aot_eager", fast, "packed_aot_eager"),
+        ("fast-packed_compiled_nofuse", fast, "packed_compiled_nofuse"),
     ]:
         job = TrainStepBenchmarkJob(
             returnn_config=model.model_dir.creator.returnn_config,
