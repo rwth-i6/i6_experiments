@@ -50,6 +50,11 @@ class DecodeRecogResult:
     fer: tk.Variable | None = None
     frame_confusion_pairs: tk.Path | None = None
     fwd_job: ReturnnForwardJobV2 | None = None
+    # GMM-alignment reference scoring (set when decode_and_score receives gmm_segment_ref)
+    per_gmm: tk.Variable | None = None
+    deletion_gmm: tk.Variable | None = None
+    insertion_gmm: tk.Variable | None = None
+    substitution_gmm: tk.Variable | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {
@@ -263,6 +268,7 @@ def decode_and_score(
     device: str = "gpu",
     corpus_key: str | None = None,
     alias_prefix: str | None = None,
+    gmm_segment_ref: tk.Path | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
     effective_key = corpus_key if corpus_key is not None else corpus_name
@@ -300,10 +306,9 @@ def decode_and_score(
         decode_res.fwd_job.add_alias(f"{alias_prefix}/{exp_name}")
 
     score_job = JiwerScoringJob(ref_file, decode_res.hyp)
-
     score_res = ScoreResult.from_job(score_job)
 
-    return DecodeRecogResult(
+    result = DecodeRecogResult(
         exp_name,
         corpus_name,
         score_res.wer,
@@ -314,3 +319,12 @@ def decode_and_score(
         confusion_pairs=score_job.out_confusion_pairs,
         fwd_job=decode_res.fwd_job
     )
+
+    if gmm_segment_ref is not None:
+        gmm_score_job = JiwerScoringJob(gmm_segment_ref, decode_res.hyp)
+        result.per_gmm = gmm_score_job.out_wer
+        result.deletion_gmm = gmm_score_job.out_deletions
+        result.insertion_gmm = gmm_score_job.out_insertions
+        result.substitution_gmm = gmm_score_job.out_substitutions
+
+    return result

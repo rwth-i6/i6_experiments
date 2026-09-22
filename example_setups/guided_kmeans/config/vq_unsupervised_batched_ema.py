@@ -21,13 +21,14 @@ longer run.
 from sisyphus import tk
 
 from i6_experiments.example_setups.guided_kmeans.setup.constants import (
-    GMM_ALIGNMENT_CV,
     COLLEAGUE_CENTROIDS_K512,
     PHONEME_LM_ZIJIAN_3GRAM,
+    GMM_SEGMENT_PHONEMES_LS960,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import (
     create_lexicon,
     create_recog_rasr_config,
+    phonetic_lm_dict,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.statistics_jobs import (
     MixtureDiagnosticsJob,
@@ -46,7 +47,9 @@ from i6_experiments.example_setups.guided_kmeans.setup.latex_report import (
     clustering_statistics_per_epoch,
 )
 from i6_experiments.example_setups.guided_kmeans import tools
-from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
+from i6_experiments.example_setups.guided_kmeans.setup.score import (
+    GmmSegmentPhonemesReferenceJob,
+)
 from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
     NormalTableJob,
     chunked_clustering,
@@ -71,12 +74,17 @@ from i6_experiments.example_setups.guided_kmeans.config.vq_unsupervised import (
 exp_dir = "vq_unsupervised_batched_ema"
 version = 1
 
-#: (lm_name, lm_path, sigma, seed) - mirrors the vq_unsupervised matrix
+# 5-gram beam pruning: same rationale as vq_unsupervised_long (40^4 = 2.56M states).
+BEAM_SIZE_5GRAM = 1000
+
+#: (lm_name, lm_path, sigma, seed, max_beam_size)
 EXPERIMENTS = [
-    ("ours-3gram",   None,                    0.1, 42),
-    ("ours-3gram",   None,                    0.1, 43),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 43),
+    ("ours-3gram",   None,                    0.1, 42, BEAM_SIZE),
+    ("ours-3gram",   None,                    0.1, 43, BEAM_SIZE),
+    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42, BEAM_SIZE),
+    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 43, BEAM_SIZE),
+    ("ours-5gram",   phonetic_lm_dict[5],     0.1, 42, BEAM_SIZE_5GRAM),
+    ("ours-5gram",   phonetic_lm_dict[5],     0.1, 43, BEAM_SIZE_5GRAM),
 ]
 
 NUM_EPOCHS = 20
@@ -94,7 +102,7 @@ NUM_WORKERS = 10
 # frames * 512-D float64 that is ~1 GB; 16 GB leaves comfortable headroom.
 EPOCH_RQMT = {"mem": 16}
 
-decode_epochs = [0, 5, 10, 20]
+decode_epochs = [0, 5, 10, 15, 20]
 
 
 def build_vq_training_batched_ema(
@@ -108,6 +116,7 @@ def build_vq_training_batched_ema(
     alias_prefix,
     num_workers=NUM_WORKERS,
     rqmt=None,
+    max_beam_size=BEAM_SIZE,
 ):
     """One unsupervised VQ run using within-epoch EMA updates."""
     recognition_config = create_recog_rasr_config(
@@ -119,7 +128,7 @@ def build_vq_training_batched_ema(
         use_forward_backward_search=USE_FORWARD_BACKWARD,
         lm_order=LM_ORDER,
         use_eow_phonemes=False,
-        max_beam_size=BEAM_SIZE,
+        max_beam_size=max_beam_size,
         lm_path=lm_path,
     )
     flavor = vq_flavor(
@@ -164,6 +173,12 @@ def run():
     cv_features = silence_free_cv_features()
     cv_features.add_alias(f"guided_kmeans/{exp_dir}/features_cv_nosil")
 
+    gmm_ref_job = GmmSegmentPhonemesReferenceJob(
+        gmm_hdf_files=GMM_SEGMENT_PHONEMES_LS960,
+        features_hdf=cv_features.out_features,
+        lexicon=lexicon,
+    )
+
     decode_lm_scale = 1.0
     decode_loop_prob = 0.0
 
@@ -176,7 +191,8 @@ def run():
     latex_report = LatexTableReport(
         columns=[
             "lm", "sigma", "seed", "epoch",
-            "mi", "per", "del", "ins", "sub", "fer",
+            "mi", "per", "del", "ins", "sub",
+            "per_gmm", "del_gmm", "ins_gmm", "sub_gmm",
             "log_likelihood", "posterior_entropy", "dead_clusters",
         ],
         sort_by=["sigma", "lm", "seed"],
@@ -193,7 +209,7 @@ def run():
     )
     recog_results = []
 
-    for lm_name, lm_path, sigma, seed in EXPERIMENTS:
+    for lm_name, lm_path, sigma, seed, max_beam_size in EXPERIMENTS:
         exp_name = f"ls100-nosil_{lm_name}_sigma-{sigma}_seed-{seed}"
         _, exp_result = build_vq_training_batched_ema(
             features=ls100_features.out_features,
@@ -205,6 +221,7 @@ def run():
             alias_prefix=f"guided_kmeans/{exp_dir}/{exp_name}",
             num_workers=NUM_WORKERS,
             rqmt=EPOCH_RQMT,
+            max_beam_size=max_beam_size,
         )
 
         tk.register_output(
@@ -228,7 +245,7 @@ def run():
             )
 
         recognition_config_decode = build_decode_config(
-            lm_path, decode_lm_scale, decode_loop_prob
+            lm_path, decode_lm_scale, decode_loop_prob, max_beam_size=max_beam_size, forbid_blank=True
         )
         for recog_epoch in decode_epochs:
             decode_config = DecodeConfig(
@@ -247,15 +264,13 @@ def run():
                 rasr_path=tools.RASR_PATH,
                 device="cpu",
                 corpus_key="train-other-960",
+                gmm_segment_ref=gmm_ref_job.out_ref,
             )
-            if res.frame_labels is not None:
-                res.fer = FrameErrorRateJob(
-                    res.frame_labels, GMM_ALIGNMENT_CV, lexicon
-                ).out_fer
-                tk.register_output(
-                    f"guided_kmeans/{exp_dir}/eval/{decode_name}_fer", res.fer
-                )
             tk.register_output(f"guided_kmeans/{exp_dir}/per/{decode_name}_per", res.per)
+            if res.per_gmm is not None:
+                tk.register_output(
+                    f"guided_kmeans/{exp_dir}/per_gmm/{decode_name}_per", res.per_gmm
+                )
             recog_results.append(res)
             latex_report.add_row(
                 result=res,
@@ -263,9 +278,7 @@ def run():
                 epoch=recog_epoch,
                 statistics=statistics,
                 values={
-                    k: v
-                    for k, v in (("mi", diagnostics[recog_epoch].out_mi), ("fer", res.fer))
-                    if v is not None
+                    "mi": diagnostics[recog_epoch].out_mi,
                 },
             )
 

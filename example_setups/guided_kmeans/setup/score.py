@@ -1,4 +1,4 @@
-__all__ = ["JiwerScoringJob", "TaggedCorpusToTxtJob", "FrameErrorRateJob"]
+__all__ = ["JiwerScoringJob", "TaggedCorpusToTxtJob", "FrameErrorRateJob", "GmmSegmentPhonemesReferenceJob"]
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -227,6 +227,74 @@ class FrameErrorRateJob(Job):
             fp.write("ref\thyp\tcount\n")
             for (r, h), count in sorted(confusion.items(), key=lambda x: -x[1]):
                 fp.write(f"{r}\t{h}\t{count}\n")
+
+
+class GmmSegmentPhonemesReferenceJob(Job):
+    """Build a tagged reference file from GMM segment-level phoneme labels.
+
+    Reads the 20 segment-phoneme HDF shards produced by zyang's GMM oracle
+    segmentation, looks up the tags that appear in ``features_hdf``, and writes
+    a ``tag<TAB>phoneme_sequence`` reference in the same format as
+    ``TaggedCorpusToTxtJob``. This reference can then be passed as the second
+    argument to ``JiwerScoringJob`` to obtain PER measured against the GMM
+    alignment rather than the text transcription.
+
+    The integer-to-phoneme mapping is read from the project lexicon's phoneme
+    inventory (index 0 = [SILENCE], 1 = AA, …, 39 = ZH). Silence entries are
+    absent from the shard inputs (already stripped by the upstream job).
+    """
+
+    def __init__(
+        self,
+        gmm_hdf_files: list,
+        features_hdf: "tk.Path",
+        lexicon: "tk.Path",
+    ):
+        self.gmm_hdf_files = gmm_hdf_files
+        self.features_hdf = features_hdf
+        self.lexicon = lexicon
+        self.out_ref = self.output_path("ref.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1})
+
+    def run(self):
+        import gzip, h5py, json, numpy as np
+        from xml.etree import ElementTree as ET
+
+        lexicon_path = self.lexicon.get_path()
+        open_fn = gzip.open if lexicon_path.endswith(".gz") else open
+        with open_fn(lexicon_path, "rb") as f:
+            root = ET.parse(f).getroot()
+        phonemes = [e.findtext("symbol") for e in root.findall(".//phoneme-inventory/phoneme")]
+
+        with h5py.File(self.features_hdf.get_path(), "r") as f:
+            target_tags = {
+                t.decode() if isinstance(t, bytes) else str(t)
+                for t in f["seqTags"][:]
+            }
+
+        found = {}
+        for hdf_path in self.gmm_hdf_files:
+            if len(found) == len(target_tags):
+                break
+            with h5py.File(hdf_path.get_path(), "r") as f:
+                tags = [t.decode() if isinstance(t, bytes) else str(t) for t in f["seqTags"][:]]
+                lengths = f["seqLengths"][:, 0]
+                offsets = np.concatenate([[0], np.cumsum(lengths)])
+                inputs_all = f["inputs"][:, 0]
+                for i, tag in enumerate(tags):
+                    if tag in target_tags:
+                        indices = inputs_all[offsets[i]:offsets[i + 1]]
+                        found[tag] = " ".join(phonemes[idx] for idx in indices)
+
+        missing = target_tags - set(found)
+        if missing:
+            print(f"WARNING: {len(missing)} target tags not found in any GMM shard")
+
+        with open(self.out_ref.get_path(), "w") as out:
+            for tag in sorted(found):
+                out.write(f"{tag}\t{found[tag]}\n")
 
 
 @dataclass
