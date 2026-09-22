@@ -239,7 +239,7 @@ def describe_bundles(jobs: List[Any]) -> None:
 DLM_NAME = "base-scalingLaws-enc24-dec8-n1280-nEp200"
 
 
-def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu"):
+def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu", model_dim: int = 1280):
     """
     The paper-best DLM (``dlm_scaling_laws.get_dlm_scaling_stats``, entry (24, 8, 1280), nEp 200) on ``task``,
     as 4-GPU DDP on one JUPITER node with the same optimization as the single-GPU RZ run:
@@ -250,6 +250,9 @@ def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu"):
       (Albert's FZJ convention, see exp2026_05_28_tts_encoder_fzj.py), ~919k steps either way,
     - LR schedule ``_get_cfg_lrlin_oclr_by_bs_nep_v4`` is by epoch fraction, so it scales with nEp.
     No per-epoch recog here (train_exp's would be single-GPU jobs); evaluate with the batched DLM-sum instead.
+
+    :param model_dim: 1280 = the paper-best entry (name and hash unchanged). Any other value changes ONLY the
+        width, e.g. 1024 (~466M params) for a DLM near the size of the n32-d1024 LM (~422M) it is compared to.
     """
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
@@ -267,10 +270,11 @@ def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu"):
         train_base_cfg,
     )
 
-    num_enc, num_dec, model_dim, n_epochs, num_gpus = 24, 8, 1280, 200, 4
+    num_enc, num_dec, n_epochs, num_gpus = 24, 8, 200, 4
     additional_opts = {"model_dim": model_dim}
+    name = DLM_NAME if model_dim == 1280 else DLM_NAME.replace("-n1280-", f"-n{model_dim}-")
     return train_exp(
-        DLM_NAME + name_suffix,
+        name + name_suffix,
         task,
         model_def=ModelDefWithCfg(
             aed_model_def,

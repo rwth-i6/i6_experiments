@@ -516,6 +516,8 @@ def py():
             from .dlm_on_winner import train_paper_best_dlm_4gpu
 
             train_paper_best_dlm_4gpu(_dlm_task)
+            # Size-matched to the LM baseline (n32-d1024, ~422M): n1024 ~466M vs n1280 ~729M (user request 2026-09-22).
+            train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024)
 
     # Continue training the winner with TTS audio added (user request, 2026-09-17). Independent of the DLM
     # line above: it only adds jobs, and it touches none of tts_data's module state, so the hypothesis
