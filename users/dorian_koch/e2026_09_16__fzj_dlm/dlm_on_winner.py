@@ -251,6 +251,8 @@ PACKED_GRAPHC_UPDATES = {
     "behavior_version": 29,
     "rf_module_output_keep_dtype": False,
     "rf_scatter_use_fixed_masking": False,
+    # the capture's zero-length filler seqs become [EOS] -> [EOS] seqs after the BOS/EOS pads (see aed_training)
+    "dlm_ignore_empty_seqs": True,
     "packed_tensors": True,
     "packed_batch_size": {"hyps": 5_000, "real": 5_000},
     "torch_distributed": {"reduce_type": "grad_explicit"},
@@ -361,15 +363,9 @@ def register_packed_graphc_benchmarks(faithful, fast, *, prefix: str, num_steps:
         ("faithful-as_is", faithful, "as_is"),
         ("fast-padded_eager", fast, "padded_eager"),
         ("fast-packed_graphc", fast, "packed_graphc"),
-        # 2026-09-22: packed_graphc diverged from padded_eager at step 0 (ce 9.343 vs 9.307, grad norm 7.65 vs 4.01)
-        # while faithful == padded_eager bit-identically; these two localize it (packed layout vs compile).
-        ("fast-packed_eager", fast, "packed_eager"),
-        ("fast-packed_compiled", fast, "packed_compiled"),
-        # packed_eager == padded_eager, packed_compiled == packed_graphc != padded: the compile path is at fault.
-        # These three split it: bound buffers untraced / traced graph with eager kernels / Inductor without fusion.
-        ("fast-packed_eager_bound", fast, "packed_eager_bound"),
-        ("fast-packed_aot_eager", fast, "packed_aot_eager"),
-        ("fast-packed_compiled_nofuse", fast, "packed_compiled_nofuse"),
+        # 2026-09-22 localization (before dlm_ignore_empty_seqs): packed_graphc diverged from padded_eager at step 0;
+        # packed_eager matched, packed_compiled / packed_eager_bound / packed_compiled_nofuse diverged identically
+        # (packed_aot_eager crashes on torch 2.12): the bound regime's zero-length filler seqs, see aed_training.
     ]:
         job = TrainStepBenchmarkJob(
             returnn_config=model.model_dir.creator.returnn_config,
