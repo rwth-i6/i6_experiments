@@ -117,7 +117,10 @@ class SelfPlayTranscribe(Job):
     backend and model (faster_whisper/medium) and the same word cleaning that produced the JRE
     corpus's ``words_a``/``words_b``. So turn-taking statistics computed on this output and on the
     real windows come from the same ASR, not two. Output: the self-play dataset plus ``words_a`` /
-    ``words_b`` (JSON lists of ``{text, start, end, ...}``, seconds from the recording start).
+    ``words_b`` (JSON lists of ``{text, start, end, ...}``, seconds from the recording start) and
+    ``energy_a`` / ``energy_b`` (JSON: ``selfplay_decode.channel_energy`` of the decoded audio --
+    active-frame share above -45 dBFS, integrated LUFS, RMS, peak), so few ASR words can be told
+    apart from silence (2026-09-22; run-side, outputs before it lack the two columns).
     """
 
     def __init__(
@@ -202,10 +205,34 @@ class SelfPlayTranscribe(Job):
             proc.wait()
         out = ds.add_column("words_a", [json.dumps(words[(i, "a")]) for i in range(len(ds))])
         out = out.add_column("words_b", [json.dumps(words[(i, "b")]) for i in range(len(ds))])
+        energy = energy_columns(wav_dir, len(ds))
+        for side in ("a", "b"):
+            out = out.add_column(f"energy_{side}", [json.dumps(e) for e in energy[side]])
         out.save_to_disk(self.out_dir.get_path())
         n_words = sum(len(v) for v in words.values())
-        print(f"[selfplay-asr] {len(ds)} conversations, {n_words} words", flush=True)
+        act = [e["active_frac"] for side in ("a", "b") for e in energy[side]]
+        print(
+            f"[selfplay-asr] {len(ds)} conversations, {n_words} words; median active-frame share "
+            f"{sorted(act)[len(act) // 2]:.2f} (> -45 dBFS)",
+            flush=True,
+        )
         shutil.rmtree(wav_dir)  # scratch audio; the dataset keeps the codes
+
+
+def energy_columns(wav_dir: str, n_rows: int) -> dict:
+    """``{"a": [..], "b": [..]}``: per row the ``energy.jsonl`` entry ``selfplay_decode`` wrote for
+    that channel (without its ``i``/``side`` keys). A missing entry is an error, not an empty level."""
+    import json
+
+    got = {}
+    with open(os.path.join(wav_dir, "energy.jsonl")) as f:
+        for line in f:
+            e = json.loads(line)
+            got[(int(e.pop("i")), e.pop("side"))] = e
+    missing = [(i, s) for i in range(n_rows) for s in ("a", "b") if (i, s) not in got]
+    if missing:
+        raise RuntimeError(f"energy.jsonl lacks {len(missing)} channels, e.g. {missing[:3]}")
+    return {s: [got[(i, s)] for i in range(n_rows)] for s in ("a", "b")}
 
 
 class CustomSelfPlayPrompts(Job):
