@@ -38,6 +38,7 @@ class PersonaSelfPlay(Job):
         label_a: str = "a",
         label_b: str = "b",
         hf_repo: str = "nvidia/personaplex-7b-v1",
+        batch_size: int = 16,
     ):
         assert (overlay_a is None) == (lora_rank_a is None) and (overlay_b is None) == (lora_rank_b is None)
         self.data = data
@@ -50,9 +51,11 @@ class PersonaSelfPlay(Job):
         self.lora_rank_a, self.lora_rank_b = lora_rank_a, lora_rank_b
         self.label_a, self.label_b = label_a, label_b
         self.hf_repo = hf_repo
+        self.batch_size = int(batch_size)
         self.out_dir = self.output_path("dataset", directory=True)
-        # Two 7B models in bf16 (~16 GB each) plus four mimi on one card.
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 80}
+        # Two 7B models in bf16 (~16 GB each) plus four mimi, and a full-context (3000-frame) KV cache
+        # per conversation: measured 82.7 GiB peak at batch 16 (2026-09-22), over an 80 GB card.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 94 if self.batch_size > 8 else 80}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -93,6 +96,8 @@ class PersonaSelfPlay(Job):
             self.label_a,
             "--label_b",
             self.label_b,
+            "--batch_size",
+            str(self.batch_size),
         ]
         for s, ov, rank in (("a", self.overlay_a, self.lora_rank_a), ("b", self.overlay_b, self.lora_rank_b)):
             if ov is not None:
