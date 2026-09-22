@@ -7,14 +7,13 @@ Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **r
 LIVE managers, 2026-09-23 00:15 (every other manager named in this phase is dead):
 
 - 1771856 `config/sae_4a_lexlat_k2_ext.py` (E60, NEXT 0): `PackedBlankfreeContinueJob.xsWAIaMMsWOw`, Slurm 1957557, started 2026-09-22 18:50, wall ends about 06:20. At 00:13 the arms stood at sub-epoch 51 / 45 / 45 / 40 (ctrl / k2lat_20 / ma3000 / k2shuf ma3000); the null binds at about 948 s per sub-epoch, projected finish about 05:30.
-- 3255470 `config/sae_4a_supervised_goldphi.py` (D10e, NEXT 0b): refit `BlankfreeSupervisedReverseInitJob.16v7R6ztSq1u` (Slurm 1961287); precondition `tD8bSgyBTQB8` and pack `PackedBlankfreeTrainJob.WEmvqF2yBFG8` wait on it (`reports/exec_d10_goldphi_launch_2026-09-22.md`).
 
 Standing: USER RULING 2026-09-21, this phase is the main line; a gate PASS runs the arm, a FAIL continues the cost work, no bar is moved to make it pass. G4a.9 reads CANNOT_TELL as written with PASS unreachable, audited (Results "VERDICT G4a.9"). Everything below NEXT that is done lives in its own section (Results, Diagnosis, D10, D11, D12, Extension E60).
 
 NEXT (in order):
 
 0. E60 (section "Extension E60"): continuity clause PASS in all four arms ("E60 continuity read"). At the pack's finish read, in this order: the plateau clause (paired ep60 - ep50 per arm), the form re-read on `k2lat_20_ma3000_x60` with G4a.9's PASS conditions verbatim, then the registered paired rows at 30 / 40 / 50 / 60. A wall kill costs one sub-epoch plus a resubmission.
-0b. D10e (section "D10"): at the refit's finish confirm its gate line and that precondition and pack are submitted; read the precondition, then the pack at ep1 and ep8 per the D10e bands and k2 clauses.
+0b. D10e READ and audited ("D10e read"): the untrained reverse model drove the collapse; on the both-gold start the k2 control reads CONFIRMED (k2lat minus k2shuf -0.186 at ep8). Pending: the "D10e addendum" rows (supphi arms minus the p0 init, ep1 / 4 / 8), implementer then executor on `config/sae_4a_supervised_goldphi.py`; read the REFINES / PRESERVES / DEGRADES line for `supphi_k2lat` ep8, then put the D10e finding to the user with the fork in (1).
 0d. USER FORK, D12 = ROOM, audited ("D12 read"; margin 1.42 nats, not borderline): the drafted word-aggregate arm test waits on the user's go and on the user confirming that a unigram word aggregate beside the trigram G satisfies the trigram-or-better rule. If go: first the ep20 posterior-histogram K read added in "D12 read" (no pack if at or below the bound), then code per the drafted test; its warm start (k2lat_20 ep20) is revisited against E60's ep60 checkpoints.
 1. USER FORK after E60's read: the delivered write-up (`reports/diag_k2_why_2026-09-22.md`) recommends choosing between the random-pronunciation null (Design 6 follow-up; decides whether the 0.03-0.06 gain of any word graph needs a lexicon at all) and closing the k2 form at this bed. Escape-price / lam_lex arms and rung 10000 are weaker candidates: on the main line and the positive control the treatment sits within 0.01 of its derangement. Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs").
 
@@ -611,6 +610,57 @@ Amendment before any job (USER RULING 2026-09-22: "start a separately supervised
 - D10b (500 dev-other utterances, speaker-clustered 95% intervals): sup_plain ep1 gold minus decoded -5.1 [-10.0, -0.3], gold minus deranged gold -5.5 [-8.4, -3.0]; ep8 -1077.8 [-1175.8, -991.6] (decode preferred on 500/500), +18.5 [9.5, 30.0]. sup_k2lat ep1 +0.9 [-4.2, 5.8] / -5.1 [-8.1, -2.7]; ep8 -767.8 [-835.4, -708.7] (500/500), +79.2 [67.6, 95.6]. At ep1 the reverse model cannot tell an utterance's gold from another speaker-matched utterance's gold (it is still the random init); by ep8 it prefers the recognizer's own decode over gold by the main line's ep20 magnitude (-800 to -1190) while separating right from wrong gold by only 18-79 nats: a contract on the decode, not on phones.
 - D10c (sup_plain): dev reverse per frame -6.64 (ep1) to -5.17, -4.08, ..., -3.54 (ep8) while dev prior-matching loss worsens 1.11 to 2.00 and the retained phone rate stays 10.2-10.5 Hz.
 - Reading: the collapse happens in sub-epoch 1 against a still-random reverse model, before any private code exists; the code (unit-tracking symbols, decode-preferring reverse model) is built afterwards on the collapsed start. This is consistent with the user's hypothesis that the untrained reverse model's gradient wrecks the supervised recognizer, but it does not separate that gradient from the prior-matching and rate terms acting in the same steps; D10e (supphi_plain against supphi_frz) is the test.
+
+**D10e read (2026-09-23; pack `PackedBlankfreeTrainJob.WEmvqF2yBFG8` FINISHED, gold phi = refit `BlankfreeSupervisedReverseInitJob.16v7R6ztSq1u` epoch.008.pt, cost gate passed; numbers `reports/extract_d10e_pack_2026-09-23.md`; audit CONFIRMED_WITH_CAVEATS `reports/audit_d10e_pack_2026-09-23.md`).** The auditor traced all 16 PER values and the paired rows to their arm and epoch. Each arm differs from its comparison only by its registered delta, and the batches are bit-identical to the diagnostic pack's. Every arm loaded the refit checkpoint the precondition scored. In `supphi_frz` phi stays bit-identical and is left out of the optimizer.
+- Precondition PASS (`BlankfreeDecodeGapJob.tD8bSgyBTQB8`, 500 utterances): under the gold phi at p0, gold minus same-speaker deranged gold is +1000.4 [+922.8, +1090.2] nats per utterance (+16.9 per gold token). Gold minus the p0 decode is +11.4 [-11.1, +27.5]: the decode is preferred on 154 of 500 utterances.
+- Dev-other greedy PER at ep1 / 2 / 4 / 8, init p = p0 = 0.1894 (`BlankfreeGreedyPerJob.kL6MFqeFIfCy`). HOLD <= 0.2894, COLLAPSE >= 0.70.
+
+| arm | ep1 | ep2 | ep4 | ep8 | band at ep1 / ep8 |
+|---|---|---|---|---|---|
+| `supphi_plain` | 0.1931 | 0.2641 | 0.2936 | 0.2561 | HOLD / HOLD |
+| `supphi_frz` | 0.1868 | 0.2493 | 0.2663 | 0.2169 | HOLD / HOLD |
+| `supphi_k2lat` | 0.1757 | 0.1881 | 0.2010 | 0.1797 | HOLD / HOLD |
+| `supphi_k2shuf` | 0.2217 | 0.2870 | 0.3723 | 0.3656 | HOLD / PARTIAL |
+
+Against the random-phi pack on the same recognizer and batches: `sup_plain` 0.846 / 0.891, `sup_k2lat` 0.691 / 0.814 ("D10a-d read").
+- Paired rows (`PairedPerDeltaJob`, dev-other, negative = first arm better), ep4 / ep8:
+  - frz minus plain: -0.027 [-0.031, -0.024] / -0.039 [-0.043, -0.034].
+  - k2lat minus plain: -0.093 [-0.097, -0.088] / -0.076 [-0.080, -0.073].
+  - k2lat minus k2shuf: -0.171 [-0.176, -0.166] / -0.186 [-0.191, -0.180].
+  - k2shuf minus plain: +0.079 [+0.071, +0.086] / +0.110 [+0.103, +0.116].
+- D10a at ep8, PER / one-to-one-with-drop / many-to-one / NMI(symbol, phone) / NMI(symbol, unit):
+  - plain 0.256 / 0.256 / 0.294 / 0.797 / 0.404.
+  - frz 0.217 / 0.217 / 0.253 / 0.835 / 0.387.
+  - k2lat 0.180 / 0.180 / 0.232 / 0.859 / 0.366.
+  - k2shuf 0.366 / 0.366 / 0.389 / 0.736 / 0.215.
+  - For comparison, p0 reads 0.906 on NMI(symbol, phone).
+- D10b at ep8, 500 utterances, gold minus decoded per frame:
+  - plain -0.455 [-0.575, -0.370], decode preferred on 450 of 500.
+  - frz -0.011 [-0.094, +0.049], 208 of 500.
+  - k2lat -0.353 [-0.456, -0.275], 424 of 500.
+  - k2shuf +0.448 [+0.324, +0.549], 103 of 500.
+  - Gold minus deranged gold stays at +3.9 to +4.4 per frame in every arm.
+- D10c: the dev lexicon term falls 0.290 to 0.247 in k2lat and 0.457 to 0.394 in k2shuf. Retained rate is 10.9-11.6 Hz in every arm.
+
+**Readings by the registered branches.**
+- **Collapse cause.** `supphi_plain` HOLD at ep1 and ep8 means the untrained reverse model drove the diagnostic pack's collapse. The same recognizer with the same batches reads 0.193 against 0.846 after sub-epoch 1.
+- **Co-adaptation.** Both `supphi_plain` and `supphi_frz` HOLD, so co-adaptation is not a collapse driver. Descriptively, a trainable phi still costs 0.039 by ep8, and its preference already turns toward the recognizer's own decode: 450 of 500 against 208 for the frozen phi. This is the private-code loop starting from gold, slowly.
+- **k2 control.** On the both-gold start, k2lat is at least 0.010 better than both plain and k2shuf at ep4 and ep8. The k2 control of "Implementation controls" (ii) reads implementation and direction CONFIRMED here, where on the random-phi start it read CONTROL_FAIL_9_7.
+- **Added weight.** "The added weight, not the lexicon, protects" is refuted: the deranged-lexicon term makes the recognizer worse (+0.110 at ep8). The gain is the lexicon's content.
+- **k2lat against its init.** `supphi_k2lat` ends 0.0097 below its init PER at ep8. This is unpaired; no row against the init is registered.
+
+**Audit caveats.**
+- The phi is a refit of the blank-free reverse class by the S2g recipe, not the S2g checkpoint; the reason is recorded only in the code.
+- plain's ep8 HOLD is 0.033 inside the bound on one seed, and its ep4 read 0.294, just over it.
+- About half of the k2lat-minus-k2shuf gap is the null getting worse through deletions. The null's term runs about 1.6x the treatment's.
+- The whole result holds on a gold start only.
+
+**Interpretation, for the user's fork (not a gate; D10e enters no gate and initialises no main-line arm).** The k2 lexicon term carries lexicon-specific signal when the recognizer's symbols are phones: NMI(symbol, phone) 0.86 here, against 0.07 on the cold line's unit code (D10a). On the main line, where the symbols are a unit code, the treatment sat within 0.01 of its derangement. The term preserves, and perhaps refines, a phone-like start. It does not create one.
+
+**D10e addendum, paired rows against the init (orchestrator 2026-09-23, registered before any number; descriptive, no gate).** `PairedPerDeltaJob` rows for every supphi arm minus the p0 init decode (`BlankfreeGreedyPerJob.kL6MFqeFIfCy`) at ep1 / 4 / 8, dev-other, the pack's conventions (speaker-clustered bootstrap, 2000 resamples). Reading for `supphi_k2lat` at ep8:
+- REFINES: delta <= -0.010 with the interval below zero. The lexicon term improves a phone-like start beyond its init on this seed.
+- PRESERVES: the interval contains zero, or the delta is between -0.010 and 0.
+- DEGRADES: the interval lies above zero.
 
 ## Extension E60, training length (user ruling 2026-09-22, pre-registered before any job)
 
