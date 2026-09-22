@@ -212,6 +212,8 @@ LOQ_DLM = OUR_DLM_IMPORT_DIR + (
 )
 # Set False to drop the eval of our own DLM (e.g. if its recogs crowd the queue).
 EVAL_OUR_TRAINED_DLM = True
+# Our DLM on Albert's larger injection ASR (EncL24-DecL8, 2026-09-22): see albert_big_asr.py.
+EVAL_ALBERT_BIG_ASR = True
 
 
 def _get_dlm(checkpoint: str, *, model_dim: int):
@@ -758,6 +760,20 @@ def py():
                     flat_lr=WINNER_PLUS_TTS_RESUMED_LR,
                     with_tts=_tag == "plusTts",
                 )
+
+    if EVAL_ALBERT_BIG_ASR:
+        # Albert's EncL24-DecL8 injection ASR (his ep38) with OUR DLM and the matched baselines.
+        # Same SPM as ours, so no vocab work; his checkpoint is a pinned raw path with no creator,
+        # i.e. his training never enters our graph. See albert_big_asr.py for the full rationale.
+        from .albert_big_asr import eval_albert_big_asr, ALBERT_BIG_ASR_CKPT
+
+        eval_albert_big_asr(
+            prefix=f"{prefix}/albert-big-asr",
+            ctc_lm_kwargs=ctc_lm_kwargs,
+            dlm=_get_dlm(OUR_TRAINED_DLM, model_dim=1280),
+            dlm_tag=f"dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}",
+            ckpt_path=pinned_path(ALBERT_BIG_ASR_CKPT),
+        )
 
     if LOQ_EVAL_WINNER:
         _loq_eval_winner(prefix=f"{prefix}/loq-eval", ctc_lm_kwargs=ctc_lm_kwargs)
