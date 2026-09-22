@@ -354,11 +354,17 @@ def register_packed_graphc_benchmarks(faithful, fast, *, prefix: str, num_steps:
     from sisyphus import tk
     from i6_experiments.users.zeyer.experiments.exp2026_05_23_returnn import TrainStepBenchmarkJob
 
-    overrides = {"torch_distributed": None, "input_swapout_range": None}
+    # single process: the 4-GPU config also carries use_horovod=True (set for num_processes > 1),
+    # which RETURNN takes as the TF-Horovod path once torch_distributed is gone
+    overrides = {"torch_distributed": None, "use_horovod": False, "input_swapout_range": None}
     for tag, model, mode in [
         ("faithful-as_is", faithful, "as_is"),
         ("fast-padded_eager", fast, "padded_eager"),
         ("fast-packed_graphc", fast, "packed_graphc"),
+        # 2026-09-22: packed_graphc diverged from padded_eager at step 0 (ce 9.343 vs 9.307, grad norm 7.65 vs 4.01)
+        # while faithful == padded_eager bit-identically; these two localize it (packed layout vs compile).
+        ("fast-packed_eager", fast, "packed_eager"),
+        ("fast-packed_compiled", fast, "packed_compiled"),
     ]:
         job = TrainStepBenchmarkJob(
             returnn_config=model.model_dir.creator.returnn_config,

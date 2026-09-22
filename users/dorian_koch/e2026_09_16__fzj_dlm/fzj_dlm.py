@@ -522,7 +522,12 @@ def py():
             # validated against the faithful run's curves and by the 1-GPU TrainStepBenchmarkJob parity/speed check.
             from .dlm_on_winner import register_packed_graphc_benchmarks
 
-            _dlm_n1024_fast = train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024, packed_graphc=True)
+            # Training ON HOLD (yOloeo4x5ajL cancelled 2026-09-22): packed_graphc is not numerically faithful yet
+            # (bench: diverges from padded_eager at step 0, learns faster), so only the benchmarks stay in the graph.
+            from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+            with disable_register_output():  # config source for the benchmarks only, the training is not requested
+                _dlm_n1024_fast = train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024, packed_graphc=True)
             register_packed_graphc_benchmarks(_dlm_n1024, _dlm_n1024_fast, prefix=f"{prefix}/dlm-n1024-speed")
 
     # Continue training the winner with TTS audio added (user request, 2026-09-17). Independent of the DLM
