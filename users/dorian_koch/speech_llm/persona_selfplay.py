@@ -206,3 +206,59 @@ class SelfPlayTranscribe(Job):
         n_words = sum(len(v) for v in words.values())
         print(f"[selfplay-asr] {len(ds)} conversations, {n_words} words", flush=True)
         shutil.rmtree(wav_dir)  # scratch audio; the dataset keeps the codes
+
+
+class CustomSelfPlayPrompts(Job):
+    """A self-play input dataset from hand-written prompt PAIRS instead of LLM-described windows.
+
+    ``pairs``: ``[(name, prompt_a, prompt_b), ...]`` -- one prompt per side (the paper's Minimal line
+    is prepended). Each pair is used ``voice_pairs`` times, each time with the two speakers of a
+    different seeded JRE window from ``voice_data`` (an ``AttachPersonaPrompts(with_other_side=True)``
+    output), so a pair is heard in more than one voice combination. Rows carry the columns
+    ``moshi_family.personaplex.selfplay`` reads, with the single level ``custom``.
+    """
+
+    def __init__(self, *, pairs: list, voice_data: tk.Path, voice_pairs: int = 2, seed: int = 0):
+        self.pairs = [tuple(p) for p in pairs]
+        assert len({p[0] for p in self.pairs}) == len(self.pairs), "pair names must be unique"
+        self.voice_data = voice_data
+        self.voice_pairs = int(voice_pairs)
+        self.seed = int(seed)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+
+        from .persona_prompts import PERSONA_MINIMAL
+
+        src = load_from_disk(self.voice_data.get_path())
+        ok = [i for i, v in enumerate(src["other_ok"]) if v]
+        rng = np.random.default_rng(self.seed)
+        pick = rng.choice(ok, size=len(self.pairs) * self.voice_pairs, replace=False).tolist()
+        cols = ["id", "voice_codes", "voice_codes_other", "voice_label", "voice_label_other"]
+        rows = []
+        for n, (name, pa, pb) in enumerate(self.pairs):
+            for k in range(self.voice_pairs):
+                v = src.select_columns(cols)[int(pick[n * self.voice_pairs + k])]
+                rows.append(
+                    {
+                        "id": f"custom:{name}#{k}",
+                        "voice_window": v["id"],
+                        "other_ok": True,
+                        "context_level": ["custom"],
+                        "context": [f"{PERSONA_MINIMAL} {pa}"],
+                        "context_other": [f"{PERSONA_MINIMAL} {pb}"],
+                        "voice_codes": v["voice_codes"],
+                        "voice_codes_other": v["voice_codes_other"],
+                        "voice_label": v["voice_label"],
+                        "voice_label_other": v["voice_label_other"],
+                    }
+                )
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+        print(
+            f"[custom-prompts] {len(self.pairs)} pairs x {self.voice_pairs} voice pairs = {len(rows)} rows", flush=True
+        )
