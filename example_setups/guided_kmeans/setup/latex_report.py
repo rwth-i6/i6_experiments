@@ -450,6 +450,54 @@ def param(name: str, header: str | Sequence[str] | None = None, **kwargs) -> Col
     return Column(key=name, header=header, value=_from_param(name), **kwargs)
 
 
+def loop_probability(
+    param_name: str = "lambda",
+    transition_scale: float = 1.0,
+    header: str | Sequence[str] | None = None,
+    **kwargs,
+) -> Column:
+    """
+    A column restating a per-phoneme penalty as the loop probability behind it.
+
+    The transition model reaches the search only through its product
+    ``lambda = transition_scale * logit(p)`` (derived and verified against RASR in
+    :mod:`...config.vq_unsupervised_frames`), so sweeping lambda is the honest
+    axis - a grid over loop probability x transition scale would re-run the same
+    lambda at most of its points. A reader, though, sets the two numbers the
+    config file actually contains, so a table is easier to use in those units.
+    This inverts the relation, ``p = sigmoid(lambda / transition_scale)``, at one
+    scale per column; two such columns show the same experiment as the two
+    settings that would reproduce it.
+
+    :param param_name: the key holding the penalty, e.g. ``"lambda"`` for the
+        training setting or ``"decode_lambda"`` for the one decoded at
+    :param transition_scale: the scale the probability is quoted at; the pair
+        ``(p, transition_scale)`` reproduces the row's lambda
+    """
+    if transition_scale <= 0.0:
+        raise ValueError(f"transition_scale must be positive, got {transition_scale}")
+    if header is None:
+        header = ("Loop prob.", f"ts = {transition_scale:g}")
+
+    def source(row: Row):
+        lam = row.params.get(param_name)
+        if isinstance(lam, bool) or not isinstance(lam, (int, float)):
+            return None
+        # sigmoid, written so that a large penalty cannot overflow the exp
+        z = math.exp(-abs(lam) / transition_scale)
+        return 1.0 / (1.0 + z) if lam >= 0 else z / (1.0 + z)
+
+    kwargs.setdefault("fmt", "{:.3f}")
+    kwargs.setdefault("span", True)
+    kwargs.setdefault("block", "param")
+    return Column(
+        key=f"{param_name}_loop_ts{transition_scale:g}",
+        header=header,
+        value=source,
+        **kwargs,
+    )
+
+
 def score(attribute: str, header: str | Sequence[str], **kwargs) -> Column:
     """A column reading ``attribute`` off the row's ``DecodeRecogResult``."""
     kwargs.setdefault("block", "score")

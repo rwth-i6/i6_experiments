@@ -289,6 +289,22 @@ class Accumulator(Protocol):
 
     def merge(self, other: "Accumulator") -> "Accumulator": ...
 
+    def scale(self, factor: float) -> "Accumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        Optional, and implemented by every accumulator whose state is a plain
+        sum over frames. Together with ``merge`` it expresses the
+        statistics-level EMA of :mod:`.ema` - ``a*S + (1-a)*N`` is a scale and
+        an add - so batched updating needs no accumulator-specific arithmetic.
+
+        An accumulator built on a running estimate rather than raw sums
+        (:class:`.accumulators.GaussianAccumulator`, whose Welford state
+        couples a count to a mean) does not implement it; :func:`.ema.
+        ema_statistics` reports that rather than scaling the wrong field.
+        """
+        ...
+
     def finalize(self, previous: ScoreModel) -> ScoreModel:
         """
         Build the next epoch's model. ``previous`` supplies the fallback for

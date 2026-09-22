@@ -194,7 +194,7 @@ def run():
                 decode_config_seg = DecodeConfig(
                     centroids=exp_result.out_centroids[recog_epoch],
                     recog_rasr_config=recognition_config_decode_seg,
-                    distance_scale=decode_distance_scale,
+                    distance_scale=1.0,
                     subsampling=subsampling,
                     covs=exp_result.out_covs[recog_epoch],
                 )

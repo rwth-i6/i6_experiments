@@ -76,21 +76,20 @@ from i6_experiments.example_setups.guided_kmeans.config.vq_unsupervised import (
     silence_free_ls100_features,
 )
 
-exp_dir = "vq_unsupervised_long"
+exp_dir = "vq_unsupervised_longer"
 version = 1
 
 #: (lm_name, lm_path, sigma, seed). Seed 42 for the sigma=0.1 Zijian arm because
 #: it was the better of the two at epoch 10 (82.16 against 82.77) - a thin
 #: margin, so treat it as a tie broken arbitrarily rather than as a result.
 EXPERIMENTS = [
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 1.0, 42),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 1.0, 43),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42),
+    # ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42),
     ("ours-3gram", None, 0.1, 42),
     ("ours-3gram", None, 0.1, 43),
+    ("ours-3gram", None, 0.1, 44),
 ]
 
-NUM_EPOCHS = 100
+NUM_EPOCHS = 150
 
 # --- scheduling, sized against this cluster's measured behaviour -------------
 # None of these change a job hash (see build_vq_training), so the 10 epochs
@@ -134,7 +133,7 @@ def run():
     # Sparse on purpose: 100 epochs x 5 runs would otherwise be 500 decodes, and
     # the per-epoch statistics already say whether a run is still moving. Epoch
     # 10 is kept so every curve has a point directly comparable to the short run.
-    decode_epochs = [0, 10, 25, 50, 75, 100]
+    decode_epochs = [0, 10, 25, 50, 75, 100, 125, 150]
 
     cv_dataset = DatasetConfig(
         audio_hdf_path=cv_features.out_features,
@@ -255,7 +254,6 @@ def run():
         "per", "del", "ins", "sub",
         "log_likelihood", "l1"
     ]).register(f"guided_kmeans/{exp_dir}/tex/report_{version}.reduced.tex")
-
 
 def py():
     run()

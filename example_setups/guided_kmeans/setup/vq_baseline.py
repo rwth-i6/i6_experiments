@@ -170,7 +170,24 @@ class SegmentedFeaturesFromAlignmentJob(Job):
         :func:`_load_alignment`
     :param exclude_labels: label indices whose segments are dropped. Defaults to
         silence, which is what a codebook trained on silence-free speech needs.
-    :param pooling: ``"mean"`` (what the existing files use) or ``"max"``
+    :param pooling: ``"mean"`` (what the existing files use), ``"max"``, or
+        ``"none"`` for **unsegmented** output - every frame of a kept run is
+        written as-is, so the alignment is used only to *remove* frames, never
+        to collapse them. That is the intermediate setting between the cheating
+        segmentation and none at all: silence is still removed with oracle
+        knowledge, but phoneme boundaries have to be found by the search.
+
+        With ``"none"`` the ``labels`` output is one label per frame, i.e. the
+        silence-free frame alignment. That is the reference a frame error rate
+        needs: ``FrameErrorRateJob`` compares hypothesis and reference position
+        by position, so scoring silence-free frames against the *full*
+        alignment would misalign every frame after the first removed pause.
+
+        Note the one modelling consequence of dropping frames rather than
+        segments here: speech on either side of a removed pause becomes
+        adjacent, so two realizations of the same phoneme separated by silence
+        (``AA SIL AA``) arrive as one uninterrupted run of ``AA`` frames. A
+        search that collapses repeated labels will read that as one phoneme.
     :param min_segment_frames: drop segments shorter than this before pooling
     """
 
@@ -185,8 +202,8 @@ class SegmentedFeaturesFromAlignmentJob(Job):
         min_segment_frames: int = 1,
         rqmt: Optional[Dict[str, Any]] = None,
     ):
-        if pooling not in ("mean", "max"):
-            raise ValueError(f"pooling must be 'mean' or 'max', got {pooling!r}")
+        if pooling not in ("mean", "max", "none"):
+            raise ValueError(f"pooling must be 'mean', 'max' or 'none', got {pooling!r}")
         self.features_hdf = features_hdf
         self.alignment = list(alignment) if isinstance(alignment, (list, tuple)) else alignment
         self.exclude_labels = tuple(sorted(set(int(x) for x in exclude_labels)))
@@ -261,8 +278,15 @@ class SegmentedFeaturesFromAlignmentJob(Job):
                     if label in excluded or (end - begin) < self.min_segment_frames:
                         continue
                     block = features[begin:end]
-                    pooled.append(block.mean(0) if self.pooling == "mean" else block.max(0))
-                    kept_labels.append(label)
+                    if self.pooling == "none":
+                        # Unsegmented: every frame of the run survives on its own
+                        # and keeps the run's label, so the output is the input
+                        # minus the excluded frames and labels stay one-per-frame.
+                        pooled.extend(block)
+                        kept_labels.extend([label] * (end - begin))
+                    else:
+                        pooled.append(block.mean(0) if self.pooling == "mean" else block.max(0))
+                        kept_labels.append(label)
 
                 if not pooled:
                     continue

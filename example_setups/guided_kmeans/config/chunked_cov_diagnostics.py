@@ -39,6 +39,7 @@ why the recognition scores come in a ``_last`` and a ``_sum`` form, and why the
 
 from sisyphus import tk
 
+from i6_experiments.example_setups.guided_kmeans.setup.constants import RASR_PATH_LIBRASR as rasr_path
 from i6_experiments.example_setups.guided_kmeans.setup.diagnostics import clustering_diagnostics
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import (
     create_recog_rasr_config,
@@ -67,8 +68,6 @@ input_data = {
         "/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/covs.npy"
     ),
 }
-
-rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard")
 
 
 def run():

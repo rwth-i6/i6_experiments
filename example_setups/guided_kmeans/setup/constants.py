@@ -1,5 +1,7 @@
 from sisyphus import tk
 
+from i6_experiments.example_setups.guided_kmeans.tools import moved_from_asr3
+
 PHONEME_UNIGRAM_PRIORS = tk.Path(
     "/work/asr4/lkleppel/experiments/20260520_unsupervised_asr/work/i6_core/corpus/stats/CountCorpusWordFrequenciesJob.VGJUeKIZGWLa/output/counts"
 )
@@ -46,8 +48,8 @@ PHONEME_FREQUENCIES_LS100H = tk.Path(
 )
 
 # --- RASR binary path for librasr (used in cheated clustering configs) ---
-RASR_PATH_LIBRASR = tk.Path(
-    "/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard"
+RASR_PATH_LIBRASR = moved_from_asr3(
+    "/work/asr4/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard"
 )
 
 # --- Cross-setup inputs from a colleague's vector-quantized HMM work ---------

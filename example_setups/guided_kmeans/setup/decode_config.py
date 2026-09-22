@@ -49,6 +49,7 @@ class DecodeRecogResult:
     confusion_pairs: tk.Path | None = None
     fer: tk.Variable | None = None
     frame_confusion_pairs: tk.Path | None = None
+    fwd_job: ReturnnForwardJobV2 | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {
@@ -261,6 +262,7 @@ def decode_and_score(
     returnn_root: tk.Path | None = None,
     device: str = "gpu",
     corpus_key: str | None = None,
+    alias_prefix: str | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
     effective_key = corpus_key if corpus_key is not None else corpus_name
@@ -294,6 +296,8 @@ def decode_and_score(
         precomputed=dataset_config.precomputed,
         device=device,
     )
+    if alias_prefix:
+        decode_res.fwd_job.add_alias(f"{alias_prefix}/{exp_name}")
 
     score_job = JiwerScoringJob(ref_file, decode_res.hyp)
 
@@ -308,4 +312,5 @@ def decode_and_score(
         score_res.substitutions,
         frame_labels=decode_res.frame_labels,
         confusion_pairs=score_job.out_confusion_pairs,
+        fwd_job=decode_res.fwd_job
     )

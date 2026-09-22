@@ -146,7 +146,24 @@ class ArtifactModel:
         """Small JSON-serializable extras recorded in the manifest."""
         return {}
 
-    def save(self, directory: str) -> None:
+    def save(self, directory: str, sources: Optional[Mapping[str, str]] = None) -> None:
+        """
+        Write every artifact as ``<name>.npy``, plus the manifest.
+
+        :param sources: artifact name -> the ``.npy`` this model's value of it
+            was loaded from; in the pipeline, the input model spec's paths (see
+            ``chunked_clustering._artifact_sources``). An artifact still equal
+            to its source is hardlinked to it instead of written again. That is
+            what a parameter a run holds frozen amounts to - the VQ codebook, or
+            a mixture's covariances, which at ``[512, 512, 512]`` float64 used
+            to be 1.07 GB copied into every epoch's directory while carrying no
+            information at all. The directory stays complete, so every reader
+            that opens ``covs.npy`` sees exactly what it saw before; the copies
+            just share one inode. :func:`_link_if_unchanged` says when a link is
+            declined and the array written after all.
+
+            A method argument, not a job argument, so it moves no hash.
+        """
         os.makedirs(directory, exist_ok=True)
         arrays = self.artifacts()
         if self.ARTIFACT_NAMES and set(arrays) != set(self.ARTIFACT_NAMES):
@@ -156,6 +173,7 @@ class ArtifactModel:
                 f"builds each epoch's model spec from the declaration, so the two "
                 f"disagreeing would break run continuation"
             )
+        linked: Dict[str, str] = {}
         for name, array in arrays.items():
             # np.save happily turns a None or a ragged list into a 0-d object
             # array, which then needs allow_pickle to read back and fails far
@@ -166,7 +184,12 @@ class ArtifactModel:
                     f"{type(self).__name__} artifact {name!r} is not a numeric array "
                     f"(got {type(arrays[name]).__name__})"
                 )
-            np.save(os.path.join(directory, f"{name}.npy"), array)
+            target = os.path.join(directory, f"{name}.npy")
+            source = (sources or {}).get(name)
+            if source is not None and _link_if_unchanged(array, source, target):
+                linked[name] = source
+            else:
+                _save_array_atomically(target, array)
         manifest = {
             "class": type(self).__name__,
             "artifacts": sorted(arrays),
@@ -174,6 +197,10 @@ class ArtifactModel:
             "dim": int(self.dim),
             "meta": self.meta(),
         }
+        # Only when something was linked, so a model with nothing frozen writes
+        # byte for byte the manifest it always did.
+        if linked:
+            manifest["linked"] = linked
         with open(os.path.join(directory, MANIFEST_NAME), "w") as fp:
             json.dump(manifest, fp, indent=2)
 
@@ -190,6 +217,70 @@ class ArtifactModel:
 def read_manifest(directory: str) -> Dict[str, Any]:
     with open(os.path.join(directory, MANIFEST_NAME)) as fp:
         return json.load(fp)
+
+
+def _save_array_atomically(path: str, array: np.ndarray) -> None:
+    """
+    ``np.save`` to a temporary name, then rename it over ``path``.
+
+    Never write ``path`` in place: it may be a hardlink shared with other jobs'
+    artifacts, and ``np.save(path)`` opens with ``"wb"``, which truncates the
+    *inode* - every other name for it included. Measured: after
+    ``os.link("a.npy", "b.npy")``, ``np.save("b.npy", np.zeros(3))`` leaves
+    ``a.npy`` holding the three zeros. A rename rebinds only this one name.
+    """
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "wb") as fp:  # a file object: given a name, np.save appends ".npy"
+        np.save(fp, array)
+    os.replace(tmp, path)
+
+
+def _link_if_unchanged(array: np.ndarray, source: str, target: str) -> bool:
+    """
+    Hardlink ``source`` to ``target`` if it holds exactly ``array``, and report
+    whether it did. Declined - leaving the caller to write the array - when:
+
+    * dtype, shape or any value differ. NaN compares unequal to itself, which
+      only ever errs towards writing;
+    * ``source`` is not ours. A hardlink to a colleague's file pins its inode
+      against *their* quota even after they delete it, and several inputs here
+      live in other users' trees (the k512 codebook, the shared LibriSpeech
+      jobs). ``fs.protected_hardlinks = 1`` would refuse most of these anyway,
+      but not a group-writable one;
+    * ``os.link`` fails, e.g. across filesystems - the same fallback
+      ``i6_core``'s ``ReturnnTrainingJob`` takes for imported checkpoints.
+
+    Compared block by block against a memory map, so an artifact that did change
+    is usually rejected on the first block, and one that did not costs a single
+    sequential read of the source.
+    """
+    try:
+        real = os.path.realpath(source)
+        if os.stat(real).st_uid != os.getuid():
+            return False
+        reference = np.load(real, mmap_mode="r")
+    except (OSError, ValueError):
+        return False
+    if reference.dtype != array.dtype or reference.shape != array.shape:
+        return False
+    if array.ndim == 0:
+        if not np.array_equal(reference, array):
+            return False
+    else:
+        step = max(1, (64 << 20) // max(1, array[:1].nbytes))  # ~64 MB per block
+        for start in range(0, len(array), step):
+            if not np.array_equal(reference[start:start + step], array[start:start + step]):
+                return False
+    del reference
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        os.link(real, tmp)
+    except OSError:
+        return False
+    os.replace(tmp, target)
+    return True
 
 
 class EuclideanModel(ArtifactModel):

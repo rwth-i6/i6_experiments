@@ -17,6 +17,7 @@ from __future__ import annotations
 
 __all__ = [
     "ClusteringFlavor",
+    "EMAConfig",
     "GuidedClusteringEpochJob",
     "BatchedEMAEpochJob",
     "IdentityCovsJob",
@@ -24,6 +25,7 @@ __all__ = [
     "MergeEpochStatisticsJob",
     "RandomCentroidsJob",
     "DuplicateCovsJob",
+    "ScaleCovsJob",
     "GlobalCovarianceJob",
     "ClusterCovarianceJob",
     "RandomMixturesJob",
@@ -34,6 +36,8 @@ __all__ = [
     "UniformMixturesJob",
     "ChunkedClusteringExpResult",
     "chunked_clustering",
+    "batch_segment_files",
+    "KEEP_VALUE_BATCH_INTERMEDIATE",
     "euclidean_flavor",
     "gaussian_flavor",
     "mixture_flavor",
@@ -41,12 +45,15 @@ __all__ = [
     "unguided_flavor",
     "vq_flavor",
     "prepare_worker_sys_path",
+    "parent_thread_budget",
 ]
 
 import gzip
 import json
 import os
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -63,15 +70,22 @@ from .score import JiwerScoringJob, ScoreResult
 from ..lib.guided_kmeans.util import DEFAULT_EXCLUDED_LEMMATA, ProgressLogger, traceback_to_text
 from ..lib.guided_kmeans.chunked import (
     ClusteringFlavor,
+    EMA_MODES,
     EuclideanModel,
     GaussianModel,
     HDFFeatureSource,
     per_label_mixture_flavor,
     Spec,
+    blend_parameters,
     default_stats_hooks,
+    effective_window,
+    ema_statistics,
     euclidean_flavor,
     gaussian_flavor,
+    load_state,
+    merge_chunks,
     mixture_flavor,
+    save_state,
     unguided_flavor,
     vq_flavor,
     reduce_chunks,
@@ -80,6 +94,45 @@ from ..lib.guided_kmeans.chunked import (
 )
 
 _CHUNK_FILE = "chunk.{num_chunks}.{index}.pkl"
+
+#: keep_value for the batch steps of a batched run that no output is keyed to.
+#: A run at ``batches_per_epoch = B`` builds B epoch jobs per pass, of which
+#: only two are ever read again: batch ``B - 1`` becomes ``out_models[epoch]``
+#: (and so every ``out_artifacts[...][epoch]``), and batch ``0`` carries the
+#: hypotheses and statistics an epoch's report row is built from. The B - 2 in
+#: between exist only to hand their model to the next step, and are dead the
+#: moment that step finishes.
+#:
+#: Below ``gs.JOB_DEFAULT_KEEP_VALUE`` (50), which is what a job without an
+#: explicit value counts as, so::
+#:
+#:     tk.cleaner.cleanup_keep_value(min_keep_value=30)
+#:
+#: sweeps exactly these and nothing else. Sisyphus additionally refuses to
+#: remove any job an unfinished job still needs, so running it mid-run cannot
+#: cut the chain it is walking - see scripts/RECLAIM.md.
+#:
+#: NOT hashed: keep_value is job metadata (``_sis_keep_value``), not a
+#: constructor argument, so setting it leaves every existing job's hash - and
+#: therefore its work directory - exactly where it was.
+KEEP_VALUE_BATCH_INTERMEDIATE = 20
+
+
+def _artifact_sources(model: Spec) -> Dict[str, str]:
+    """
+    ``{artifact: path}`` for the artifacts ``model`` is built from files - the
+    ``sources`` that let :meth:`.ArtifactModel.save` hardlink a parameter a step
+    left unchanged instead of writing one more copy of it.
+
+    Read off the spec rather than the built model, because a model holds arrays,
+    not paths. Only ``tk.Path`` values qualify: an artifact given inline has no
+    file to link to, and ``save`` writes it exactly as before.
+    """
+    return {
+        name: value.get_path()
+        for name, value in model.kwargs.items()
+        if isinstance(value, tk.Path)
+    }
 
 
 def prepare_worker_sys_path(rasr_path: Optional[tk.Path] = None) -> None:
@@ -109,6 +162,96 @@ def prepare_worker_sys_path(rasr_path: Optional[tk.Path] = None) -> None:
             sys.path.insert(0, path)
 
 
+@contextmanager
+def parent_thread_budget(num_threads: int, num_workers: Optional[int] = None):
+    """
+    Run the block with this process's BLAS/OpenMP/torch pools at
+    ``num_threads``, and report how much of that it used.
+
+    A recognize task splits its CPUs between two kinds of work: the
+    recognizer's ``num_workers`` search processes, one thread each, and this
+    process, which reads features, scores them (a torch Mahalanobis pass for
+    the Gaussian models) and accumulates statistics (numpy). The worker
+    processes are already at one thread - settings.py's worker_wrapper starts
+    every task with OMP_NUM_THREADS=1, and a spawned worker inherits that - so
+    only this process is changed here. It read that same 1 at startup, which is
+    why raising it has to happen at runtime: threadpoolctl resizes the pools of
+    libraries already loaded, and numpy and torch both are by the time a task
+    runs, since this module imports them.
+
+    The report is the tuning signal, together with the recognizer's own
+    ``concurrency=`` line printed when it drains: a parent using close to all
+    ``num_threads`` while the workers' concurrency sits well below
+    ``num_workers`` means the workers wait on the parent - move a CPU from
+    workers to threads - and the reverse means move one back.
+    """
+    from threadpoolctl import threadpool_limits
+    import torch
+
+    torch_threads = torch.get_num_threads()
+    wall_start, cpu_start = time.perf_counter(), time.process_time()
+    try:
+        with threadpool_limits(limits=num_threads):
+            torch.set_num_threads(num_threads)
+            yield
+    finally:
+        torch.set_num_threads(torch_threads)
+        wall = time.perf_counter() - wall_start
+        # process_time counts every thread of this process and none of its
+        # children, so the worker processes' search does not inflate it.
+        cores = (time.process_time() - cpu_start) / wall if wall > 0 else float("nan")
+        print(
+            f"[THREADS] parent process used {cores:.2f} cores on average over {wall:.0f}s "
+            f"with parent_threads={num_threads}"
+            + (f", alongside num_workers={num_workers} recognizer workers" if num_workers else ""),
+            flush=True,
+        )
+
+
+@dataclass(frozen=True)
+class EMAConfig:
+    """
+    Damping applied between the batches of an epoch.
+
+    A run that re-estimates B times per pass over the corpus takes each M-step
+    from 1/B of the data, which is too noisy to accept whole; this says how it
+    is mixed with what came before. Which of the two rules is used is a real
+    modelling choice, not an implementation detail - see
+    :mod:`...lib.guided_kmeans.chunked.ema` for what each one does and why they
+    differ.
+
+    :param alpha: weight kept on the previous state, in ``[0, 1)``. Note that
+        ``alpha`` and the batch size are one knob, not two: the effective
+        averaging window is ``batch_size / (1 - alpha)`` sequences, so halving
+        the batch size without halving ``1 - alpha`` changes the experiment
+        rather than just its schedule. Each epoch job records the window it
+        actually used in its statistics.
+    :param mode: ``"statistics"`` damps the sufficient statistics
+        (``S <- a*S + (1-a)*N``, online EM - for a VQ run, an EMA on the
+        counts); ``"parameters"`` damps the re-estimated model
+        (``theta <- a*theta + (1-a)*M(N)`` - an EMA on the normalized table).
+        ``"statistics"`` weights each batch by the evidence it carried and is
+        the better-founded rule, at the cost of carrying the running statistic
+        from one job to the next; ``"parameters"`` needs no state at all.
+    """
+
+    alpha: float
+    mode: str = "statistics"
+
+    def __post_init__(self):
+        if not 0.0 <= self.alpha < 1.0:
+            raise ValueError(f"ema alpha must be in [0, 1), got {self.alpha}")
+        if self.mode not in EMA_MODES:
+            raise ValueError(
+                f"ema mode must be one of {list(EMA_MODES)}, got {self.mode!r}"
+            )
+
+    @property
+    def carries_state(self) -> bool:
+        """Whether this rule needs the previous step's statistics as an input."""
+        return self.mode == "statistics"
+
+
 class GuidedClusteringEpochJob(Job):
     """
     One guided k-means epoch: recognize the corpus with the current model,
@@ -134,9 +277,28 @@ class GuidedClusteringEpochJob(Job):
         adding this parameter left every existing job's hash untouched - but
         that only holds for the default *tuple*: passing the equivalent list
         changes the hash.
+    :param ema: damping against the previous step, for a run that updates more
+        than once per pass over the corpus. ``None`` is the whole-epoch update:
+        re-estimate from this job's statistics and nothing else. Hashed, since
+        it changes what the job computes, but hash-excluded at ``None`` so
+        every existing epoch job keeps its identity.
+    :param prior_state: the previous step's running statistics, for
+        ``ema.mode == "statistics"``. ``None`` at the first step of a run,
+        where there is nothing to damp against yet and the batch is taken
+        whole. Unused - and rejected - for any other mode.
+    :param parent_threads: threads for the task's own process (feature
+        reading, scoring, accumulation), next to the recognizer's
+        ``num_workers`` single-threaded search processes. UNHASHED - a
+        scheduling knob, like ``num_chunks``. ``rqmt["cpu"]`` should be
+        ``num_workers + parent_threads``, which :func:`chunked_clustering` sets;
+        see :func:`parent_thread_budget` for how to tell which side to grow.
     """
 
-    __sis_hash_exclude__ = {"exclude_lemmata": DEFAULT_EXCLUDED_LEMMATA}
+    __sis_hash_exclude__ = {
+        "exclude_lemmata": DEFAULT_EXCLUDED_LEMMATA,
+        "ema": None,
+        "prior_state": None,
+    }
 
     def __init__(
         self,
@@ -151,9 +313,19 @@ class GuidedClusteringEpochJob(Job):
         num_chunks: int = 30,
         statistics: Optional[Spec] = None,
         exclude_lemmata: Sequence[str] = DEFAULT_EXCLUDED_LEMMATA,
+        ema: Optional[EMAConfig] = None,
+        prior_state: Optional[tk.Path] = None,
         verbosity: int = 1,
         rqmt: Optional[Dict[str, Any]] = None,
+        parent_threads: int = 1,
     ):
+        if prior_state is not None and (ema is None or not ema.carries_state):
+            raise TypeError(
+                "prior_state is only meaningful for ema mode 'statistics'; a "
+                f"job with ema={ema!r} has nothing to do with it"
+            )
+        if parent_threads < 1:
+            raise ValueError(f"parent_threads must be >= 1, got {parent_threads}")
         self.features = features
         self.model = model
         self.recognizer = recognizer
@@ -164,7 +336,10 @@ class GuidedClusteringEpochJob(Job):
         self.num_chunks = num_chunks
         self.statistics = statistics
         self.exclude_lemmata = tuple(exclude_lemmata)
+        self.ema = ema
+        self.prior_state = prior_state
         self.verbosity = verbosity
+        self.parent_threads = parent_threads
 
         self.rqmt = {"cpu": 9, "mem": 16, "time": 4}
         if rqmt:
@@ -188,6 +363,16 @@ class GuidedClusteringEpochJob(Job):
         # NB these hypotheses come from recognizing with the model this epoch
         # *started* from, i.e. from `model`, not from the model it produces.
         self.out_hypotheses = self.output_path("hyp.txt.gz")
+        # The damped running statistic this step hands to the next one. Declared
+        # only for the mode that produces it, following JiwerScoringJob's
+        # out_alignment: sisyphus marks a job finished when its tasks are, not
+        # when its declared outputs exist, so an output that never gets written
+        # would leave a consumer chasing a missing file rather than failing here.
+        self.out_accumulator_state = (
+            self.output_path("accumulator_state.pkl")
+            if ema is not None and ema.carries_state
+            else None
+        )
 
     @classmethod
     def hash(cls, kwargs):
@@ -198,7 +383,7 @@ class GuidedClusteringEpochJob(Job):
         the hash. Specs additionally drop their own unhashed arguments (worker
         counts, timeouts).
         """
-        unhashed = {"num_chunks", "statistics", "verbosity", "rqmt"}
+        unhashed = {"num_chunks", "statistics", "verbosity", "rqmt", "parent_threads"}
         return super().hash(
             {
                 k: (v.hashed() if isinstance(v, Spec) else v)
@@ -262,16 +447,74 @@ class GuidedClusteringEpochJob(Job):
         self._prepare_worker_sys_path()
 
         model = self.model.build()
-        result = run_chunk(
-            features=self.features.build(chunk=index, num_chunks=self.num_chunks),
-            model=model,
-            recognizer=self.recognizer.build(),
-            accumulator=self._build_accumulator(),
-            counter=self._build_statistics(),
-            transcribe=partial(traceback_to_text, exclude_lemmata=self.exclude_lemmata),
-            verbosity=self.verbosity,
-        )
+        # getattr: a job pickled before parent_threads existed runs its
+        # remaining tasks with this code too.
+        with parent_thread_budget(
+            getattr(self, "parent_threads", 1), self.recognizer.unhashed_kwargs.get("num_workers")
+        ):
+            result = run_chunk(
+                features=self.features.build(chunk=index, num_chunks=self.num_chunks),
+                model=model,
+                recognizer=self.recognizer.build(),
+                accumulator=self._build_accumulator(),
+                counter=self._build_statistics(),
+                transcribe=partial(traceback_to_text, exclude_lemmata=self.exclude_lemmata),
+                verbosity=self.verbosity,
+            )
         save_chunk(result, self._chunk_path(index))
+
+    def _update(self, accumulator, previous_model, totals: Dict[str, int]):
+        """
+        Turn this step's merged statistics into the next model.
+
+        Without an ``ema`` this is the plain M-step ``reduce_chunks`` does. With
+        one, the damping goes either before or after it, and which of the two it
+        is *is* the choice between the modes:
+
+        * ``"statistics"`` damps first - ``S <- a*S + (1-a)*N``, then
+          ``finalize(S)``. The running statistic is written out for the next
+          step, and it is the only thing that has to travel.
+        * ``"parameters"`` damps after - ``finalize(N)``, then interpolate with
+          the model this step recognized with. Nothing travels: the previous
+          model is already an input.
+
+        Note what ``previous_model`` means in the second case. It is the model
+        this step *recognized with*, which for a batched run is the model the
+        step before produced - so the interpolation is against the immediately
+        preceding step, as intended, and not against the last full epoch.
+        """
+        if self.ema is not None and self.ema.carries_state:
+            prior = None
+            if self.prior_state is not None:
+                prior = self._build_accumulator().load_state_dict(
+                    load_state(self.prior_state.get_path())
+                )
+            accumulator = ema_statistics(prior, accumulator, self.ema.alpha)
+            # Before finalize, so a run whose M-step fails still leaves the
+            # statistic that produced the failure on disk to be inspected.
+            save_state(accumulator, self.out_accumulator_state.get_path())
+            print(
+                f"EMA on statistics: alpha={self.ema.alpha}, "
+                f"{'damped against the previous step' if prior is not None else 'first step, taken whole'}",
+                flush=True,
+            )
+
+        model = accumulator.finalize(previous_model)
+
+        if self.ema is not None and not self.ema.carries_state:
+            model = blend_parameters(previous_model, model, self.ema.alpha)
+            print(f"EMA on parameters: alpha={self.ema.alpha}", flush=True)
+
+        if self.ema is not None:
+            # Recorded rather than left to be recomputed from the config: the
+            # window is what the two knobs jointly mean, and a run's batches are
+            # only nominally equal in size.
+            totals["ema_alpha"] = self.ema.alpha
+            totals["ema_mode"] = self.ema.mode
+            totals["ema_effective_window_seqs"] = effective_window(
+                totals["num_seqs"], self.ema.alpha
+            )
+        return model
 
     def reduce(self):
         chunk_paths = [self._chunk_path(i) for i in range(self.num_chunks)]
@@ -283,15 +526,23 @@ class GuidedClusteringEpochJob(Job):
                 f"{os.getcwd()} (the job's work/ directory) and rerun."
             )
 
-        model, statistics, totals, hypotheses = reduce_chunks(
-            chunk_paths=chunk_paths,
-            accumulator_factory=self._build_accumulator,
-            previous_model=self.model.build(),
+        previous_model = self.model.build()
+        merged = merge_chunks(
+            chunk_paths=chunk_paths, accumulator_factory=self._build_accumulator
+        )
+        model = self._update(merged.accumulator, previous_model, merged.totals)
+        statistics, totals, hypotheses = (
+            merged.statistics,
+            merged.totals,
+            merged.hypotheses,
         )
 
         # save() writes the manifest and verifies every artifact it lists was
         # actually written, so there is nothing model-specific to check here.
-        model.save(self.out_model.get_path())
+        # Handing it the input spec's paths is what keeps a frozen parameter -
+        # vq_gmm_tau's covariances, any VQ codebook - from being copied into
+        # every epoch: unchanged artifacts become hardlinks to their source.
+        model.save(self.out_model.get_path(), sources=_artifact_sources(self.model))
 
         # Sorted by tag, so the file is a function of the epoch alone: chunk
         # order would otherwise leak num_chunks, an unhashed knob, into the
@@ -348,7 +599,10 @@ class BatchedEMAEpochJob(Job):
         statistics: Optional[Spec] = None,
         verbosity: int = 1,
         rqmt: Optional[Dict[str, Any]] = None,
+        parent_threads: int = 1,
     ):
+        if parent_threads < 1:
+            raise ValueError(f"parent_threads must be >= 1, got {parent_threads}")
         self.features = features
         self.model = model
         self.recognizer = recognizer
@@ -360,6 +614,7 @@ class BatchedEMAEpochJob(Job):
         self.rasr_path = rasr_path
         self.statistics = statistics
         self.verbosity = verbosity
+        self.parent_threads = parent_threads
 
         self.rqmt = {"cpu": 9, "mem": 16, "time": 168}
         if rqmt:
@@ -374,7 +629,7 @@ class BatchedEMAEpochJob(Job):
 
     @classmethod
     def hash(cls, kwargs):
-        unhashed = {"statistics", "verbosity", "rqmt"}
+        unhashed = {"statistics", "verbosity", "rqmt", "parent_threads"}
         return super().hash(
             {
                 k: (v.hashed() if isinstance(v, Spec) else v)
@@ -402,19 +657,23 @@ class BatchedEMAEpochJob(Job):
         totals = {"num_seqs": 0, "num_frames": 0, "num_recognized": 0}
         num_updates = 0
 
-        batch: list = []
-        for item in source:
-            batch.append(item)
-            if len(batch) >= self.ema_minibatch_size:
+        # getattr: see GuidedClusteringEpochJob.recognize.
+        with parent_thread_budget(
+            getattr(self, "parent_threads", 1), self.recognizer.unhashed_kwargs.get("num_workers")
+        ):
+            batch: list = []
+            for item in source:
+                batch.append(item)
+                if len(batch) >= self.ema_minibatch_size:
+                    current_model = self._run_and_ema(batch, current_model, totals)
+                    num_updates += 1
+                    batch = []
+
+            if batch:  # trailing partial mini-batch
                 current_model = self._run_and_ema(batch, current_model, totals)
                 num_updates += 1
-                batch = []
 
-        if batch:  # trailing partial mini-batch
-            current_model = self._run_and_ema(batch, current_model, totals)
-            num_updates += 1
-
-        current_model.save(self.out_model.get_path())
+        current_model.save(self.out_model.get_path(), sources=_artifact_sources(self.model))
 
         with gzip.open(self.out_hypotheses.get_path(), "wt") as fp:
             pass
@@ -512,7 +771,7 @@ class MaterializeModelJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        self.model.build().save(self.out_model.get_path())
+        self.model.build().save(self.out_model.get_path(), sources=_artifact_sources(self.model))
 
 
 class RandomCentroidsJob(ArrayJob):
@@ -1012,6 +1271,78 @@ class ClusterCovarianceJob(Job):
             json.dump(diagnostics, fp, indent=4)
 
 
+class ScaleCovsJob(ArrayJob):
+    """Multiply a covariance stack by a scalar - the softness knob of a mixture.
+
+    ``[K, D, D] -> [K, D, D]``, every entry times ``factor``. Trivial
+    arithmetic; the reason it exists is not.
+
+    For a shared codebook, the covariance *scale* is what decides whether the
+    model behaves like a discrete VQ table or like a genuine mixture. Writing
+    ``Sigma_c = tau * Sigma_0``, the label score is
+
+        score_l(x) = -log sum_c w_lc N(x; mu_c, tau*Sigma_0)
+
+    and as ``tau -> 0`` this becomes ``-log w_{l,c*} + C(x, tau)`` where ``c*``
+    is the nearest density and ``C`` depends on the frame but not the label. A
+    label-independent per-frame term cancels in both searches - Viterbi because
+    every path consumes every frame, forward-backward because it divides out of
+    the per-frame posterior - so **a mixture at small tau is exactly a VQ table**,
+    and measurably so: on a trained model the best density beat the second by a
+    median 16.9 nats and the VQ approximation reproduced the mixture's own label
+    ranking on 97.7% of frames.
+
+    That makes ``tau`` the only knob that buys anything a discrete model does not
+    already have, and it trades two things against each other. Measured on this
+    setup's features with a colleague's k512 codebook and table:
+
+        tau    label-dependence of the        label contrast seen
+               centroid update (mean TV)      by the search (nats)
+        0.25            0.045                   14.75  (97% of VQ)
+        1.0             0.167                   13.06  (86%)
+        2.0               -                     11.56  (76%)
+        4.0             0.483                    8.22  (54%)
+        8.0               -                      4.35  (29%)
+        16.0            0.894                    1.98  (13%)
+
+    The left column is why a mixture can fine-tune centroids where a VQ model
+    cannot: the density responsibility that drives the mean update is
+    ``sum_l gamma_tl p(c | l, x)``, and when one density dominates ``p(c*|l,x) = 1``
+    for *every* label, so the update collapses to plain k-means and never sees
+    the labels. At the corpus covariance it is ~83% label-blind. The right
+    column is the price: as ``tau`` grows, ``score_l -> -log sum_c w_lc = 0``
+    and the acoustic model stops discriminating at all.
+
+    So the useful window is roughly ``tau`` in [2, 8], and a sweep over it wants
+    ``distance_scale`` compensated by the contrast ratio above - otherwise it
+    measures the AM/LM balance drifting rather than the softness changing.
+
+    Pair with ``update_covariances=False``: re-estimating the covariance pulls
+    the scale straight back to the data's own within an epoch, so ``tau`` is
+    only a stable hyperparameter while the shapes are frozen.
+    """
+
+    OUTPUTS = ("covs",)
+
+    def __init__(self, covs: tk.Path, factor: float):
+        self.covs = covs
+        self.factor = factor
+        super().__init__()
+
+    def compute(self):
+        if self.factor <= 0:
+            raise ValueError(f"factor must be > 0, got {self.factor}")
+        covs = self.load(self.covs, ndim=3, name="covariances")
+        scaled = covs * self.factor
+        print(
+            f"scaled {covs.shape} covariances by {self.factor}: "
+            f"mean variance {np.trace(covs, axis1=1, axis2=2).mean() / covs.shape[-1]:.4g} "
+            f"-> {np.trace(scaled, axis1=1, axis2=2).mean() / scaled.shape[-1]:.4g}",
+            flush=True,
+        )
+        return scaled
+
+
 class SelectCovJob(ArrayJob):
     """Pick one matrix out of a stack of covariances.
 
@@ -1408,6 +1739,19 @@ class ChunkedClusteringExpResult:
     #: the decode configs take directly; a model with other parameters (mixture
     #: weights, say) is reached through here without adding a field per model.
     out_artifacts: Optional[Dict[str, Dict[int, tk.Path]]] = None
+    #: Updates per pass over the corpus; 1 for a whole-epoch run. Everything
+    #: keyed by epoch above means the same thing at any value of it - see the
+    #: comment in :func:`chunked_clustering`'s loop for which batch each of
+    #: those outputs comes from and why.
+    batches_per_epoch: int = 1
+    #: ``{(epoch, batch): model dir}``, the within-epoch trajectory a batched
+    #: run produces and the reason for running one. None unless batched; for the
+    #: per-epoch view use ``out_models``, which is ``(epoch, B - 1)``.
+    out_batch_models: Optional[Dict[Any, tk.Path]] = None
+    #: ``{epoch: running statistics}`` for a ``mode="statistics"`` run, the
+    #: input a continuation needs alongside the artifacts - the model on its own
+    #: does not determine the next step there.
+    out_accumulator_states: Optional[Dict[int, tk.Path]] = None
 
     def guided_score_row(self, epoch: int) -> Dict[str, Any]:
         """
@@ -1479,6 +1823,49 @@ def _flavor_from_flags(
     return euclidean_flavor(centroids=initial_centroids, **common)
 
 
+def batch_segment_files(
+    segments: tk.Path, num_batches: int, shuffle_seed: int = 0x3C5EA3E47D4E0077
+) -> List[tk.Path]:
+    """
+    Split a corpus segment list into ``num_batches`` equal, shuffled parts.
+
+    One part is one update step's share of the corpus. Shuffled rather than
+    taken in corpus order, because the parts have to be interchangeable samples:
+    LibriSpeech segment order is by speaker, so a contiguous split would hand
+    each step a different set of speakers and turn the batch index into a
+    confound.
+
+    The partition is fixed for the whole run - step ``b`` of every epoch sees
+    the same sequences. That is cyclic online EM, and it is what keeps a run
+    reproducible and its jobs shared between a run and its continuation; a
+    fresh permutation per epoch would make every epoch's jobs depend on the
+    epoch number and defeat both.
+
+    Uses i6_core's ``ShuffleAndSplitSegmentsJob`` rather than a local job. Note
+    that it assigns the splits in ``sorted(split)`` order, hence the zero-padded
+    keys: with ``part_10`` sorting before ``part_2`` the parts would be
+    correctly sized but misnamed, which nothing downstream would notice.
+    """
+    from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
+
+    if num_batches < 1:
+        raise ValueError(f"num_batches must be >= 1, got {num_batches}")
+    width = len(str(num_batches - 1))
+    keys = [f"part_{i:0{width}d}" for i in range(num_batches)]
+    job = ShuffleAndSplitSegmentsJob(
+        segment_file=segments,
+        split={key: 1.0 / num_batches for key in keys},
+        shuffle=True,
+        shuffle_seed=shuffle_seed,
+    )
+    return [job.out_segments[key] for key in keys]
+
+
+def _with_segments(features: Spec, segments: tk.Path) -> Spec:
+    """This step's share of the corpus, as a feature source spec."""
+    return Spec(features.cls, {**features.kwargs, "segments": segments}, features.unhashed_kwargs)
+
+
 def chunked_clustering(
     *,
     num_epochs: int,
@@ -1499,9 +1886,14 @@ def chunked_clustering(
     rasr_path: Optional[tk.Path] = None,
     num_chunks: int = 30,
     num_workers: int = 8,
+    parent_threads: int = 1,
     task_timeout: Optional[float] = 1800.0,
     rqmt: Optional[Dict[str, Any]] = None,
     alias_prefix: str = "guided_kmeans/chunked",
+    batches_per_epoch: int = 1,
+    ema: Optional[EMAConfig] = None,
+    initial_accumulator_state: Optional[tk.Path] = None,
+    batch_shuffle_seed: int = 0x3C5EA3E47D4E0077,
     ema_alpha: float = 0.0,
     ema_minibatch_size: int = 2000,
 ) -> ChunkedClusteringExpResult:
@@ -1556,9 +1948,72 @@ def chunked_clustering(
         stays out of the expensive job's inputs and hash, and re-scoring - with
         different lemma exclusions, or with a metric not invented yet - never
         re-runs a RASR search.
+    :param num_workers: recognizer worker processes per task. Given a
+        ``flavor``, this only sizes the CPU request - the recognizer runs with
+        the count its own spec carries - so pass the flavor the same value.
+    :param parent_threads: threads for each task's own process, which scores
+        the features and accumulates statistics while the ``num_workers``
+        processes search; each task requests ``num_workers + parent_threads``
+        CPUs. Both are unhashed, so the split can be retuned mid-run without
+        recomputing anything. The default 1 suits a cheap model (Euclidean,
+        VQ); a covariance model's Mahalanobis pass is heavy enough to leave
+        the workers waiting at 1. To tune, read the task log: the
+        ``[THREADS] parent process used X cores`` line against the
+        recognizer's ``concurrency=Yx`` line (see
+        :func:`parent_thread_budget`). Keep the sum even - Slurm rounds an odd
+        request up, and the extra CPU goes unused.
+    :param batches_per_epoch: how many times the model is re-estimated per pass
+        over the corpus. The default 1 is the whole-epoch update and builds
+        exactly the graph it always did. Above 1, each epoch becomes B jobs,
+        each seeing its own 1/B of the corpus (see :func:`batch_segment_files`,
+        which is why ``segments`` becomes required), and each re-estimating from
+        it.
+
+        **What this buys and what it costs.** Recognition cost per sequence is
+        unchanged, so B updates per epoch cost the same compute as one - but the
+        B steps are strictly sequential, and each pays a job transition
+        (~2 minutes of sisyphus polling and cluster queueing) that a single
+        epoch pays once. Parallelism therefore has to come from within a batch:
+        ``num_chunks`` is per *batch* here, so a run that kept the whole-epoch
+        value would end up with chunks too small to amortize their own startup.
+        Budget it the other way round - pick the chunk size that keeps a task
+        worth scheduling, then let B follow.
+    :param ema: how a batch's estimate is damped against the previous step's.
+        Leaving it None with ``batches_per_epoch > 1`` means no damping at all,
+        i.e. every 1/B of the corpus replaces the model outright; that is a
+        legitimate but rarely wanted experiment, and ``EMAConfig(alpha=0.0)``
+        says it deliberately.
+    :param initial_accumulator_state: running statistics to start from, for
+        continuing an ``ema.mode == "statistics"`` run. Needed alongside the
+        previous run's final artifacts for a continuation to be equivalent to an
+        uninterrupted run - the model alone does not determine the next step
+        there, the statistic behind it does.
+    :param ema_alpha: **the older, single-task batched EMA** - routes every
+        epoch to :class:`BatchedEMAEpochJob`, which streams the corpus in
+        mini-batches inside one job instead of splitting it across jobs. Kept
+        for the configs built on it. Mutually exclusive with ``ema`` /
+        ``batches_per_epoch``, which are the chunked route to the same idea.
     """
     if num_epochs < 1:
         raise ValueError(f"num_epochs must be >= 1, got {num_epochs}")
+    if batches_per_epoch < 1:
+        raise ValueError(f"batches_per_epoch must be >= 1, got {batches_per_epoch}")
+    if ema_alpha > 0.0 and (ema is not None or batches_per_epoch > 1):
+        raise TypeError(
+            "ema_alpha drives the single-task BatchedEMAEpochJob and ema/"
+            "batches_per_epoch drive the chunked one; pick a route, not both"
+        )
+    if batches_per_epoch > 1 and segments is None:
+        raise TypeError(
+            "batches_per_epoch > 1 needs a segments file to split into batches - "
+            "pass the corpus segment list the features were built with "
+            "(e.g. SegmentedFeaturesFromAlignmentJob.out_segments)"
+        )
+    if initial_accumulator_state is not None and (ema is None or not ema.carries_state):
+        raise TypeError(
+            "initial_accumulator_state only continues a run whose ema mode is "
+            f"'statistics'; got ema={ema!r}"
+        )
 
     files = list(features_hdf) if isinstance(features_hdf, (list, tuple)) else [features_hdf]
 
@@ -1604,7 +2059,7 @@ def chunked_clustering(
     statistics_spec = flavor.statistics
     model_spec = flavor.model
 
-    job_rqmt = {"cpu": num_workers + 1, "mem": 16, "time": 168}
+    job_rqmt = {"cpu": num_workers + parent_threads, "mem": 16, "time": 168}
     if rqmt:
         job_rqmt.update(rqmt)
 
@@ -1625,63 +2080,115 @@ def chunked_clustering(
     out_models[0] = initial_model_job.out_model
     out_hypotheses: Dict[int, tk.Path] = {}
     out_guided_scores: Dict[int, ScoreResult] = {}
+    out_batch_models: Dict[Any, tk.Path] = {}
+    out_accumulator_states: Dict[int, tk.Path] = {}
+
+    # One features spec per batch, or the single whole-corpus one. Built once
+    # rather than per epoch: the partition is fixed for the run, so every epoch
+    # reuses the same B specs and the same split job.
+    batch_features = (
+        [_with_segments(features_spec, part)
+         for part in batch_segment_files(segments, batches_per_epoch, batch_shuffle_seed)]
+        if batches_per_epoch > 1
+        else [features_spec]
+    )
+    prior_state = initial_accumulator_state
 
     for epoch in range(1, num_epochs + 1):
-        if ema_alpha > 0.0:
-            job = BatchedEMAEpochJob(
-                features=features_spec,
-                model=model_spec,
-                recognizer=recognizer_spec,
-                accumulator=accumulator_spec,
-                num_clusters=num_clusters,
-                ema_alpha=ema_alpha,
-                ema_minibatch_size=ema_minibatch_size,
-                lexicon=lexicon,
-                rasr_path=rasr_path,
-                statistics=statistics_spec,
-                rqmt=job_rqmt,
+        for batch in range(batches_per_epoch):
+            if ema_alpha > 0.0:
+                job = BatchedEMAEpochJob(
+                    features=features_spec,
+                    model=model_spec,
+                    recognizer=recognizer_spec,
+                    accumulator=accumulator_spec,
+                    num_clusters=num_clusters,
+                    ema_alpha=ema_alpha,
+                    ema_minibatch_size=ema_minibatch_size,
+                    lexicon=lexicon,
+                    rasr_path=rasr_path,
+                    statistics=statistics_spec,
+                    rqmt=job_rqmt,
+                    parent_threads=parent_threads,
+                )
+            else:
+                job = GuidedClusteringEpochJob(
+                    features=batch_features[batch],
+                    model=model_spec,
+                    recognizer=recognizer_spec,
+                    accumulator=accumulator_spec,
+                    num_clusters=num_clusters,
+                    lexicon=lexicon,
+                    rasr_path=rasr_path,
+                    num_chunks=num_chunks,
+                    statistics=statistics_spec,
+                    ema=ema,
+                    prior_state=prior_state,
+                    rqmt=job_rqmt,
+                    parent_threads=parent_threads,
+                )
+            # The unbatched alias is left exactly as it was, so an existing run's
+            # alias tree does not move under it.
+            job.add_alias(
+                f"{alias_prefix}/epoch_{epoch:03d}"
+                if batches_per_epoch == 1
+                else f"{alias_prefix}/epoch_{epoch:03d}/batch_{batch:02d}"
             )
-        else:
-            job = GuidedClusteringEpochJob(
-                features=features_spec,
-                model=model_spec,
-                recognizer=recognizer_spec,
-                accumulator=accumulator_spec,
-                num_clusters=num_clusters,
-                lexicon=lexicon,
-                rasr_path=rasr_path,
-                num_chunks=num_chunks,
-                statistics=statistics_spec,
-                rqmt=job_rqmt,
+            # Mark the steps nothing is keyed to, so a cleanup pass can find
+            # them without having to re-derive the (epoch, batch) bookkeeping
+            # below. Both ends of the epoch are load-bearing - see the comment
+            # on the two `if batch ==` branches - so only the interior is
+            # marked, and an unbatched run marks nothing at all.
+            if 0 < batch < batches_per_epoch - 1:
+                job.set_keep_value(KEEP_VALUE_BATCH_INTERMEDIATE)
+            jobs.append(job)
+            out_batch_models[(epoch, batch)] = job.out_model
+            if ema is not None and ema.carries_state:
+                prior_state = job.out_accumulator_state
+
+            # Everything keyed by epoch keeps meaning what it meant for an
+            # unbatched run, which is why the two halves come from different
+            # batches. A *model* numbered `epoch` is what the epoch ended with,
+            # so it comes from the last batch. A *recognition* numbered
+            # `epoch - 1` is one performed with the model of epoch - 1, and only
+            # the first batch of the epoch still holds that model - by the second
+            # it has already been updated. So a batched run's per-epoch
+            # hypotheses and statistics describe the same model they always did,
+            # measured on the 1/B of the corpus that batch saw rather than on all
+            # of it. JiwerScoringJob scores the tags the two files share, so a
+            # partial hypothesis file scores as the subset it is.
+            if batch == 0:
+                statistics[epoch] = job.out_statistics
+                out_hypotheses[epoch - 1] = job.out_hypotheses
+                if score_reference is not None:
+                    score_job = JiwerScoringJob(
+                        score_reference,
+                        job.out_hypotheses,
+                        # Full corpus: the per-sentence visualization would be
+                        # hundreds of megabytes per epoch, and the counts no
+                        # longer come from it.
+                        write_alignment=False,
+                    )
+                    score_job.add_alias(f"{alias_prefix}/guided_score/epoch_{epoch - 1:03d}")
+                    out_guided_scores[epoch - 1] = ScoreResult.from_job(score_job)
+            if batch == batches_per_epoch - 1:
+                out_models[epoch] = job.out_model
+                for name in artifact_names:
+                    out_artifacts[name][epoch] = job.artifact(name)
+                # getattr, not an attribute access: BatchedEMAEpochJob is a
+                # different class on this same loop and has no state to hand on.
+                state = getattr(job, "out_accumulator_state", None)
+                if state is not None:
+                    out_accumulator_states[epoch] = state
+
+            # Structurally identical to the initial spec above - same class, same
+            # artifact names, only the paths now point into this step's model
+            # directory. That sameness is what keeps a continued run hash-identical
+            # to an uninterrupted one, and building it through the flavor is what
+            # stops a model from being able to break it.
+            model_spec = flavor.next_model(
+                {name: job.artifact(name) for name in artifact_names}
             )
-        job.add_alias(f"{alias_prefix}/epoch_{epoch:03d}")
-        jobs.append(job)
-
-        out_models[epoch] = job.out_model
-        statistics[epoch] = job.out_statistics
-        for name in artifact_names:
-            out_artifacts[name][epoch] = job.artifact(name)
-
-        # Filed under the model that produced them: this job recognized with
-        # the model of epoch-1, so its hypotheses describe out_centroids[epoch-1].
-        out_hypotheses[epoch - 1] = job.out_hypotheses
-        if score_reference is not None:
-            score_job = JiwerScoringJob(
-                score_reference,
-                job.out_hypotheses,
-                # Full corpus: the per-sentence visualization would be hundreds
-                # of megabytes per epoch, and the counts no longer come from it.
-                write_alignment=False,
-            )
-            score_job.add_alias(f"{alias_prefix}/guided_score/epoch_{epoch - 1:03d}")
-            out_guided_scores[epoch - 1] = ScoreResult.from_job(score_job)
-
-        # Structurally identical to the initial spec above - same class, same
-        # artifact names, only the paths now point into this epoch's model
-        # directory. That sameness is what keeps a continued run hash-identical
-        # to an uninterrupted one, and building it through the flavor is what
-        # stops a model from being able to break it.
-        model_spec = flavor.next_model({name: job.artifact(name) for name in artifact_names})
 
     merge_job = MergeEpochStatisticsJob(statistics)
 
@@ -1695,4 +2202,7 @@ def chunked_clustering(
         out_guided_scores=out_guided_scores or None,
         out_epoch_statistics=statistics,
         out_artifacts=out_artifacts,
+        batches_per_epoch=batches_per_epoch,
+        out_batch_models=out_batch_models if batches_per_epoch > 1 else None,
+        out_accumulator_states=out_accumulator_states or None,
     )

@@ -55,7 +55,14 @@ from .models import (
     neg_log_matmul,
     read_manifest,
 )
-from .runner import reduce_chunks, run_chunk, save_chunk
+from .ema import (
+    blend_parameters,
+    effective_window,
+    ema_statistics,
+    load_state,
+    save_state,
+)
+from .runner import merge_chunks, reduce_chunks, run_chunk, save_chunk
 from .spec import Spec
 from ..running_update import RunningAverageUpdater
 from ..util import traceback_to_text
@@ -935,6 +942,50 @@ def main() -> int:
         and np.abs(shuffled_model.centroids - ref_model.centroids).max() < 1e-9,
     )
 
+    # Means-only never allocates the second moment, so merging two chunks of one
+    # used to add None to None. Only this mode reaches that line: a weights-only
+    # run never observes into the Gaussian accumulator, so its merge returns
+    # early. Single-chunk runs finalize fine, which is why it surfaced in reduce.
+    means_only_ref = _mix_acc(update_covariances=False)
+    for f, g in zip(mix_seqs, mix_gammas):
+        means_only_ref.observe(f, g)
+    means_only_model = means_only_ref.finalize(gmm)
+    means_only_merged = None
+    for part in plan_chunks(mix_lengths, 3):
+        a = _mix_acc(update_covariances=False)
+        for i in part:
+            a.observe(mix_seqs[i], mix_gammas[i])
+        state = pickle.loads(pickle.dumps(a.state_dict()))
+        a = MixtureGaussianAccumulator(num_labels).load_state_dict(state)
+        means_only_merged = a if means_only_merged is None else means_only_merged.merge(a)
+    means_only_chunked = means_only_merged.finalize(gmm)
+    _check(
+        "means-only merges over chunks, moving means and keeping covariances",
+        np.abs(means_only_chunked.centroids - means_only_model.centroids).max() < 1e-9
+        and np.abs(means_only_chunked.centroids - ref_model.centroids).max() < 1e-9
+        and np.allclose(means_only_chunked.covs, gmm.covs),
+    )
+
+    full_chunk = _mix_acc()
+    full_chunk.observe(mix_seqs[0], mix_gammas[0])
+    means_only_chunk = _mix_acc(update_covariances=False)
+    means_only_chunk.observe(mix_seqs[1], mix_gammas[1])
+    try:
+        full_chunk.merge(means_only_chunk)
+        raised = False
+    except ValueError:
+        raised = True
+    _check("merging chunks that disagree on update_covariances is refused", raised)
+
+    try:
+        MixtureGaussianAccumulator(
+            num_labels, pool_covariances=True, update_covariances=False
+        )
+        raised = False
+    except ValueError:
+        raised = True
+    _check("pool_covariances without update_covariances is refused", raised)
+
     # One density per label with weight 1 is the degenerate mixture, and the
     # E-step then has nothing to do: the accumulator must reduce exactly to the
     # single-density one it delegates to. This is the tie between the new path
@@ -1017,6 +1068,77 @@ def main() -> int:
         except ValueError:
             caught = True
         _check("save() rejects an ARTIFACT_NAMES that disagrees with artifacts()", caught)
+
+        # Frozen parameters are hardlinked to the file they were loaded from
+        # instead of copied into every epoch - see ArtifactModel.save.
+        src_dir = os.path.join(tmp, "src")
+        ref_model.save(src_dir)
+        srcs = {n: os.path.join(src_dir, f"{n}.npy") for n in ("centroids", "covs", "mixtures")}
+        moved = ref_model.mixtures + 1.0
+        moved /= moved.sum(-1, keepdims=True)
+        frozen = GaussianMixtureModel(centroids=srcs["centroids"], covs=srcs["covs"], mixtures=moved)
+        linked_dir = os.path.join(tmp, "linked")
+        frozen.save(linked_dir, sources=srcs)
+
+        def _ino(path):
+            return os.stat(path).st_ino
+
+        _check(
+            "save() hardlinks artifacts unchanged from their source",
+            _ino(os.path.join(linked_dir, "covs.npy")) == _ino(srcs["covs"])
+            and _ino(os.path.join(linked_dir, "centroids.npy")) == _ino(srcs["centroids"]),
+        )
+        _check(
+            "save() writes an artifact that changed instead of linking it",
+            _ino(os.path.join(linked_dir, "mixtures.npy")) != _ino(srcs["mixtures"])
+            and np.array_equal(np.load(os.path.join(linked_dir, "mixtures.npy")), moved),
+        )
+        _check(
+            "the manifest records what was linked, and only then",
+            sorted(read_manifest(linked_dir).get("linked", {})) == ["centroids", "covs"]
+            and "linked" not in read_manifest(src_dir),
+        )
+        reloaded = load_model(linked_dir)
+        _check(
+            "a model with linked artifacts loads back identical",
+            np.array_equal(reloaded.covs, frozen.covs)
+            and np.array_equal(reloaded.mixtures, frozen.mixtures),
+        )
+
+        # The hazard the atomic write is for: np.save(path) truncates the inode
+        # in place, so overwriting a linked name with different values would
+        # have rewritten the source, and every other epoch sharing it.
+        covs_before = np.load(srcs["covs"]).copy()
+        GaussianMixtureModel(
+            centroids=ref_model.centroids, covs=ref_model.covs * 2.0, mixtures=moved
+        ).save(linked_dir)
+        _check(
+            "rewriting a directory of links leaves their sources untouched",
+            np.array_equal(np.load(srcs["covs"]), covs_before)
+            and np.array_equal(np.load(os.path.join(linked_dir, "covs.npy")), ref_model.covs * 2.0),
+        )
+
+        real_link = os.link
+
+        def _refuse_link(*args, **kwargs):
+            raise OSError(18, "Invalid cross-device link")
+
+        os.link = _refuse_link
+        try:
+            fallback_dir = os.path.join(tmp, "fallback")
+            frozen.save(fallback_dir, sources=srcs)
+        finally:
+            os.link = real_link
+        _check(
+            "a refused link falls back to writing the array",
+            _ino(os.path.join(fallback_dir, "covs.npy")) != _ino(srcs["covs"])
+            and np.array_equal(np.load(os.path.join(fallback_dir, "covs.npy")), frozen.covs)
+            and "linked" not in read_manifest(fallback_dir),
+        )
+        _check(
+            "no temporary files are left behind",
+            not [f for d in (linked_dir, fallback_dir) for f in os.listdir(d) if f.endswith(".tmp")],
+        )
 
     print("PerLabelMixtureModel")
     per_n = 3
@@ -1370,6 +1492,55 @@ def main() -> int:
         sorted(scored.out_guided_scores) == [0, 1]
         and sorted(scored.out_hypotheses) == [0, 1]
         and scored.guided_score_row(2) == {},
+    )
+
+    # How a task splits its CPUs between the parent and the workers is retuned
+    # mid-run, so it must never move a job - and it is what the request is sized
+    # from.
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        parent_thread_budget,
+    )
+
+    threaded = chunked_clustering(
+        num_epochs=2,
+        initial_centroids=tk.Path("/init/c.npy"),
+        num_workers=6,
+        parent_threads=4,
+        **common,
+    )
+    _check(
+        "the thread split does not touch the epoch jobs",
+        [j._sis_id() for j in threaded.jobs] == ids_ten[:2],
+    )
+    # A job whose hash already exists in the graph is that same object, built
+    # with the first caller's arguments - so the request is checked on jobs no
+    # earlier call has created.
+    fresh = chunked_clustering(
+        num_epochs=1,
+        initial_centroids=tk.Path("/init/threads.npy"),
+        num_workers=6,
+        parent_threads=4,
+        **common,
+    )
+    _check(
+        "a task requests num_workers + parent_threads CPUs",
+        [(j.rqmt["cpu"], j.parent_threads) for j in fresh.jobs] == [(10, 4)]
+        and all(j.rqmt["cpu"] == 8 + 1 for j in ten.jobs),
+    )
+    import torch
+    from threadpoolctl import threadpool_info
+
+    def _blas_threads():
+        return {i["num_threads"] for i in threadpool_info() if i["user_api"] == "blas"}
+
+    torch_before, blas_before = torch.get_num_threads(), _blas_threads()
+    with parent_thread_budget(3, num_workers=7):
+        torch_inside, blas_inside = torch.get_num_threads(), _blas_threads()
+    _check(
+        "parent_thread_budget sizes torch and BLAS for the block, then restores them",
+        torch_inside == 3 and blas_inside == {3}
+        and torch.get_num_threads() == torch_before and _blas_threads() == blas_before,
+        f"inside torch={torch_inside} blas={blas_inside}",
     )
 
     print("flavors")
@@ -2338,6 +2509,32 @@ def main() -> int:
         )
 
 
+        # Unsegmented: the alignment removes silence frames but collapses nothing.
+        _, labels_fr, feats_fr, lens_fr = _run_features(exclude_labels=(0,), pooling="none")
+        _keep_a = np.array([0, 1, 4, 5, 6])          # rec/a minus its two silence frames
+        _keep_b = np.array([7, 8, 9])                # rec/b minus its trailing silence frame
+        _check(
+            "pooling='none' writes exactly the non-silence frames, unchanged",
+            lens_fr == [5, 3]
+            and np.allclose(feats_fr, vq_feats[np.concatenate([_keep_a, _keep_b])]),
+        )
+        _check(
+            "its labels are one per frame - the silence-free frame alignment",
+            labels_fr["corpus/rec/a"].tolist() == [1, 1, 1, 2, 2]
+            and labels_fr["corpus/rec/b"].tolist() == [2, 3, 3],
+        )
+        # The documented consequence of dropping frames: AA SIL AA arrives as one
+        # uninterrupted run, which a label-collapsing search reads as one phoneme.
+        _check(
+            "a phoneme split by a removed pause becomes one contiguous run of frames",
+            labels_fr["corpus/rec/a"][:3].tolist() == [1, 1, 1],
+        )
+        _check(
+            "an unknown pooling mode is refused",
+            _raises(lambda: SegmentedFeaturesFromAlignmentJob(
+                tk.Path(vq_hdf), tk.Path(vq_ali), pooling="median"), ValueError),
+        )
+
         # --- alignments arrive in two storage forms and must agree
         from i6_experiments.example_setups.guided_kmeans.setup.vq_baseline import (
             _load_alignment,
@@ -2582,6 +2779,134 @@ def main() -> int:
         abs(_wide.max() - _wide.min()) < 0.5 * _wide.mean(),
     )
 
+    print("MixtureGaussianAccumulator — means-only updates")
+    # The mode the tau sweep needs: densities move to where the labels put them,
+    # but their shape stays an input. Both reasons are load-bearing - a full
+    # covariance at D=512 gets 0.05 vectors per free parameter here, and
+    # re-estimating it would pull the softness scale back to the data's own
+    # within one epoch, so tau would not survive as a hyperparameter.
+    mo_rng = np.random.RandomState(90210)
+    mo_l, mo_c, mo_d = 3, 5, 6
+    mo_prev = GaussianMixtureModel(
+        mo_rng.randn(mo_c, mo_d),
+        np.stack([np.eye(mo_d) * 2.0 for _ in range(mo_c)]),
+        mo_rng.dirichlet(np.ones(mo_c), size=mo_l),
+    )
+    mo_x = mo_rng.randn(150, mo_d)
+    mo_g = mo_rng.rand(150, mo_l)
+    mo_g /= mo_g.sum(1, keepdims=True)
+
+    def _mo_acc(**kwargs):
+        acc = MixtureGaussianAccumulator(num_clusters=mo_l, **kwargs)
+        acc.bind_model(mo_prev)
+        acc.observe(mo_x, mo_g)
+        return acc
+
+    mo_both = _mo_acc()
+    mo_means = _mo_acc(update_covariances=False)
+    mo_frozen = _mo_acc(update_densities=False)
+    m_both, m_means, m_frozen = (a.finalize(mo_prev) for a in (mo_both, mo_means, mo_frozen))
+    _check(
+        "means-only moves the centroids and leaves the covariances alone",
+        not np.allclose(m_means.centroids, mo_prev.centroids)
+        and np.array_equal(m_means.covs, mo_prev.covs),
+    )
+    _check(
+        "its means are identical to the full update - only the shapes differ",
+        np.allclose(m_means.centroids, m_both.centroids),
+    )
+    _check(
+        "the two neighbouring modes still behave: both moves, frozen moves nothing",
+        not np.allclose(m_both.covs, mo_prev.covs)
+        and np.array_equal(m_frozen.centroids, mo_prev.centroids)
+        and np.array_equal(m_frozen.covs, mo_prev.covs),
+    )
+    # The point of the mode is that the O(D^2) statistic is never formed, not
+    # that it is discarded at finalize.
+    _check(
+        "no second moment is allocated at all in means-only mode",
+        mo_means.gaussian_accumulator.weighted_sq is None
+        and mo_both.gaussian_accumulator.weighted_sq is not None,
+    )
+    _reloaded = MixtureGaussianAccumulator(
+        num_clusters=mo_l, update_covariances=False
+    ).load_state_dict(mo_means.state_dict())
+    _check(
+        "the flag survives the reduce step's state round-trip",
+        _reloaded.update_covariances is False
+        and np.allclose(_reloaded.finalize(mo_prev).centroids, m_means.centroids),
+    )
+    _check(
+        "estimating covariances about means this run is not estimating is refused",
+        _raises(
+            lambda: MixtureGaussianAccumulator(
+                num_clusters=mo_l, update_densities=False, update_covariances=True
+            ),
+            ValueError,
+        ),
+    )
+    _mo_common = dict(
+        recognition_config=tk.Path("/x/r.config"), lexicon=tk.Path("/x/lex.xml"),
+        num_clusters=mo_l, centroids=tk.Path("/x/c.npy"),
+        covs=tk.Path("/x/v.npy"), mixtures=tk.Path("/x/m.npy"),
+    )
+    _check(
+        "update_covariances=None is absent from the spec, so existing hashes are untouched",
+        "update_covariances" not in mixture_flavor(**_mo_common).accumulator.kwargs
+        and sis_hash_helper(mixture_flavor(**_mo_common).accumulator.hashed())
+        == sis_hash_helper(
+            mixture_flavor(**_mo_common, update_covariances=None).accumulator.hashed()
+        ),
+    )
+    _check(
+        "means-only hashes differently - it is a different experiment",
+        sis_hash_helper(mixture_flavor(**_mo_common).accumulator.hashed())
+        != sis_hash_helper(
+            mixture_flavor(**_mo_common, update_covariances=False).accumulator.hashed()
+        ),
+    )
+
+    print("ScaleCovsJob")
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        ScaleCovsJob,
+    )
+
+    with tempfile.TemporaryDirectory() as sc_tmp:
+        sc_path = os.path.join(sc_tmp, "covs.npy")
+        sc_covs = np.stack([np.eye(4) * (i + 1.0) for i in range(3)])
+        np.save(sc_path, sc_covs)
+        _check(
+            "scaling multiplies every covariance, which is the tau of the mixture",
+            np.allclose(ScaleCovsJob(tk.Path(sc_path), 4.0).compute(), sc_covs * 4.0),
+        )
+        _check(
+            "a factor of 1 is the identity, so tau=1 is the untouched covariance",
+            np.array_equal(ScaleCovsJob(tk.Path(sc_path), 1.0).compute(), sc_covs),
+        )
+        _check(
+            "a non-positive factor is refused - it is not a covariance any more",
+            _raises(lambda: ScaleCovsJob(tk.Path(sc_path), 0.0).compute(), ValueError)
+            and _raises(lambda: ScaleCovsJob(tk.Path(sc_path), -1.0).compute(), ValueError),
+        )
+        # tau is a scale on the *distance*, so it divides the Mahalanobis term:
+        # this is what makes the density assignment softer rather than just
+        # relabelling the scores.
+        sc_model_1 = GaussianMixtureModel(
+            mo_prev.centroids, mo_prev.covs, mo_prev.mixtures
+        )
+        sc_model_t = GaussianMixtureModel(
+            mo_prev.centroids, mo_prev.covs * 8.0, mo_prev.mixtures
+        )
+        sc_d1 = sc_model_1.scores_gaussian(mo_x)
+        sc_dt = sc_model_t.scores_gaussian(mo_x)
+        gap1 = np.sort(sc_d1, 1)[:, 1] - np.sort(sc_d1, 1)[:, 0]
+        gapt = np.sort(sc_dt, 1)[:, 1] - np.sort(sc_dt, 1)[:, 0]
+        _check(
+            "raising tau shrinks the density gap, which is what softens assignment",
+            np.median(gapt) < np.median(gap1),
+            f"median gap {np.median(gap1):.2f} -> {np.median(gapt):.2f} nats at tau=8",
+        )
+
     print("epoch statistics — Viterbi and forward-backward counter sets")
     # The bug this guards: EpochStatisticsJob computes the prior distance
     # eagerly, so a counter set it did not recognize failed the whole job -
@@ -2633,6 +2958,316 @@ def main() -> int:
             - abs(0.2 / 0.9 - 0.5) * 2
         )
         < 1e-12,
+    )
+
+    print("ema")
+    # The batched update: B re-estimations per pass over the corpus, each damped
+    # against what came before. The two modes are different algorithms (see
+    # lib.guided_kmeans.chunked.ema), so they are checked against their own
+    # closed forms rather than against each other.
+    em_C = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]])
+    em_T = np.array([[0.5, 0.3, 0.2], [0.2, 0.3, 0.5]])
+    em_model = VectorQuantizedModel(em_C, em_T)
+
+    def _acc(counts):
+        """A VQ accumulator holding exactly these counts."""
+        return VectorQuantizedAccumulator(num_clusters=2).load_state_dict(
+            {"num_clusters": 2, "num_codewords": 3, "counts": np.asarray(counts, float),
+             "table_floor": 0.0}
+        )
+
+    em_N = [
+        np.array([[6.0, 2.0, 0.0], [1.0, 4.0, 3.0]]),
+        np.array([[1.0, 5.0, 2.0], [0.0, 1.0, 9.0]]),
+        np.array([[3.0, 3.0, 3.0], [2.0, 2.0, 2.0]]),
+    ]
+    em_a = 0.75
+
+    _check(
+        "scale multiplies the sufficient statistic",
+        np.allclose(_acc(em_N[0]).scale(0.25).counts, 0.25 * em_N[0]),
+    )
+    _check(
+        "a negative decay is refused rather than flipping the statistic's sign",
+        _raises(lambda: _acc(em_N[0]).scale(-0.5), ValueError),
+    )
+    _check(
+        "the first step has nothing to damp against and is taken whole",
+        np.allclose(ema_statistics(None, _acc(em_N[0]), em_a).counts, em_N[0]),
+    )
+
+    # S_t = a * S_{t-1} + (1 - a) * N_t, written out.
+    em_expected = em_N[0]
+    for n in em_N[1:]:
+        em_expected = em_a * em_expected + (1.0 - em_a) * n
+    em_running = None
+    for n in em_N:
+        em_running = ema_statistics(em_running, _acc(n), em_a)
+    _check(
+        "statistics mode is exactly S <- a*S + (1-a)*N",
+        np.allclose(em_running.counts, em_expected),
+    )
+    _check(
+        "alpha=0 keeps only the batch, i.e. no damping at all",
+        np.allclose(ema_statistics(_acc(em_N[0]), _acc(em_N[1]), 0.0).counts, em_N[1]),
+    )
+    _check(
+        "alpha=1 would never update and is refused",
+        _raises(lambda: ema_statistics(_acc(em_N[0]), _acc(em_N[1]), 1.0), ValueError),
+    )
+
+    # The load-bearing property for GuidedClusteringEpochJob.hash: damping is
+    # applied to the *merged* statistic, so how a batch was partitioned across
+    # chunks still cannot change the result, and num_chunks stays unhashed.
+    em_half = _acc(em_N[1] * 0.5)
+    em_chunked = em_half.merge(_acc(em_N[1] * 0.5))
+    _check(
+        "chunking a batch commutes with damping it",
+        np.allclose(
+            ema_statistics(_acc(em_N[0]), em_chunked, em_a).counts,
+            ema_statistics(_acc(em_N[0]), _acc(em_N[1]), em_a).counts,
+        ),
+    )
+    # Statistics-level damping keeps the statistic a count, so a label's row
+    # moves in proportion to the evidence that label actually got - the
+    # difference from parameter-level damping, and the reason for having both.
+    em_thin = np.array([[100.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    em_stat_table = ema_statistics(_acc(em_N[0]), _acc(em_thin), 0.5).finalize(em_model).table
+    em_param_table = blend_parameters(
+        _acc(em_N[0]).finalize(em_model), _acc(em_thin).finalize(em_model), 0.5
+    ).table
+    _check(
+        "a barely-seen label moves less under statistics damping than under parameter damping",
+        abs(em_stat_table[1, 2] - em_N[0][1, 2] / em_N[0][1].sum())
+        < abs(em_param_table[1, 2] - em_N[0][1, 2] / em_N[0][1].sum()),
+    )
+
+    em_prev = _acc(em_N[0]).finalize(em_model)
+    em_new = _acc(em_N[1]).finalize(em_model)
+    em_blend = blend_parameters(em_prev, em_new, em_a)
+    _check(
+        "parameters mode is exactly a*theta_prev + (1-a)*theta_new",
+        np.allclose(em_blend.table, em_a * em_prev.table + (1.0 - em_a) * em_new.table)
+        and np.allclose(em_blend.centroids, em_C),
+    )
+    _check(
+        "a blend of two normalized tables is a valid model",
+        type(em_blend) is VectorQuantizedModel and np.allclose(em_blend.table.sum(1), 1.0),
+    )
+    _check(
+        "blending is refused across model classes",
+        _raises(lambda: blend_parameters(em_prev, EuclideanModel(em_C), 0.5), TypeError),
+    )
+    _check(
+        "the window is batch_size / (1 - alpha), the two knobs' joint meaning",
+        np.isclose(effective_window(2000, 0.8), 10000.0)
+        and np.isclose(effective_window(500, 0.95), 10000.0),
+    )
+
+    import os as _os
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as em_dir:
+        em_path = _os.path.join(em_dir, "state.pkl")
+        save_state(em_running, em_path)
+        em_back = VectorQuantizedAccumulator(num_clusters=2).load_state_dict(
+            load_state(em_path)
+        )
+        _check(
+            "the running statistic survives the trip between two jobs",
+            np.allclose(em_back.counts, em_running.counts),
+        )
+
+    print("batched clustering")
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        EMAConfig,
+        GuidedClusteringEpochJob,
+    )
+    from .flavors import vq_flavor
+
+    _check(
+        "an out-of-range alpha or an unknown mode is caught at graph time",
+        _raises(lambda: EMAConfig(alpha=1.0), ValueError)
+        and _raises(lambda: EMAConfig(alpha=0.5, mode="counts"), ValueError),
+    )
+
+    def _batched(**kwargs):
+        params = dict(
+            num_epochs=2,
+            batches_per_epoch=3,
+            segments=tk.Path("/segments.txt"),
+            flavor=vq_flavor(
+                centroids=tk.Path("/cb.npy"),
+                table=tk.Path("/t.npy"),
+                recognition_config=common["recognition_config"],
+                lexicon=common["lexicon"],
+                num_clusters=40,
+            ),
+            **common,
+        )
+        params.update(kwargs)
+        return chunked_clustering(**params)
+
+    em_stats_run = _batched(ema=EMAConfig(alpha=0.8, mode="statistics"))
+    em_param_run = _batched(ema=EMAConfig(alpha=0.8, mode="parameters"))
+    _check(
+        "an epoch becomes B jobs",
+        len(em_stats_run.jobs) == 6 and len(em_stats_run.out_batch_models) == 6,
+    )
+    _check(
+        "every key that meant an epoch still means an epoch",
+        sorted(em_stats_run.out_models) == [0, 1, 2]
+        and sorted(em_stats_run.out_epoch_statistics) == [1, 2]
+        and sorted(em_stats_run.out_hypotheses) == [0, 1],
+    )
+    _check(
+        "a model numbered e is what epoch e ended with, a recognition what it started with",
+        em_stats_run.out_models[1] == em_stats_run.jobs[2].out_model
+        and em_stats_run.out_epoch_statistics[1] == em_stats_run.jobs[0].out_statistics,
+    )
+    _check(
+        "the batches partition the corpus and repeat every epoch",
+        [j.features.kwargs["segments"] for j in em_stats_run.jobs[:3]]
+        == [j.features.kwargs["segments"] for j in em_stats_run.jobs[3:]]
+        and len({j.features.kwargs["segments"].get_path() for j in em_stats_run.jobs}) == 3,
+    )
+    _check(
+        "statistics mode chains a running statistic, parameters mode carries nothing",
+        em_stats_run.jobs[0].prior_state is None
+        and em_stats_run.jobs[1].prior_state == em_stats_run.jobs[0].out_accumulator_state
+        and all(j.prior_state is None for j in em_param_run.jobs)
+        and all(j.out_accumulator_state is None for j in em_param_run.jobs),
+    )
+    _check(
+        "the two modes are different jobs",
+        [j._sis_id() for j in em_stats_run.jobs] != [j._sis_id() for j in em_param_run.jobs],
+    )
+    _check(
+        "a prior state without the mode that consumes it is refused",
+        _raises(
+            lambda: GuidedClusteringEpochJob(
+                features=Spec(EuclideanModel, {}),
+                model=Spec(EuclideanModel, {"centroids": tk.Path("/c.npy")}),
+                recognizer=Spec(ArgmaxRecognizer, {}),
+                accumulator=Spec(MeanAccumulator, {}),
+                num_clusters=4,
+                ema=EMAConfig(alpha=0.5, mode="parameters"),
+                prior_state=tk.Path("/state.pkl"),
+            ),
+            TypeError,
+        ),
+    )
+    # The job's own reduce path, not just the functions under it: both branches
+    # write a model that a cluster job would otherwise only prove wrong after
+    # its recognition has already run.
+    def _epoch_job(mode, prior_state=None):
+        return GuidedClusteringEpochJob(
+            features=Spec(EuclideanModel, {}),
+            model=Spec(VectorQuantizedModel, {"centroids": tk.Path("/cb.npy"),
+                                              "table": tk.Path("/t.npy")}),
+            recognizer=Spec(ArgmaxRecognizer, {}),
+            accumulator=Spec(VectorQuantizedAccumulator, {}),
+            num_clusters=2,
+            ema=EMAConfig(alpha=em_a, mode=mode),
+            prior_state=prior_state,
+        )
+
+    with _tempfile.TemporaryDirectory() as em_dir:
+        em_prior_path = _os.path.join(em_dir, "prior.pkl")
+        save_state(_acc(em_N[0]), em_prior_path)
+
+        em_job = _epoch_job("statistics", tk.Path(em_prior_path))
+        em_job.out_accumulator_state = tk.Path(_os.path.join(em_dir, "out.pkl"))
+        em_totals = {"num_seqs": 100}
+        em_job_model = em_job._update(_acc(em_N[1]), em_model, em_totals)
+        _check(
+            "the job's statistics branch is the recursion the tests above pin down",
+            np.allclose(
+                em_job_model.table,
+                ema_statistics(_acc(em_N[0]), _acc(em_N[1]), em_a).finalize(em_model).table,
+            ),
+        )
+        _check(
+            "it hands the damped statistic on rather than the raw batch",
+            np.allclose(
+                load_state(em_job.out_accumulator_state.get_path())["counts"],
+                em_a * em_N[0] + (1.0 - em_a) * em_N[1],
+            ),
+        )
+        _check(
+            "the run records the window it actually averaged over",
+            em_totals["ema_mode"] == "statistics"
+            and em_totals["ema_alpha"] == em_a
+            and np.isclose(em_totals["ema_effective_window_seqs"], 100 / (1 - em_a)),
+        )
+
+    em_pjob = _epoch_job("parameters")
+    em_ptotals = {"num_seqs": 100}
+    _check(
+        "the job's parameters branch damps after the M-step, against what it recognized with",
+        np.allclose(
+            em_pjob._update(_acc(em_N[1]), em_model, em_ptotals).table,
+            blend_parameters(em_model, _acc(em_N[1]).finalize(em_model), em_a).table,
+        )
+        and em_pjob.out_accumulator_state is None,
+    )
+    em_plain = GuidedClusteringEpochJob(
+        features=Spec(EuclideanModel, {}),
+        model=Spec(VectorQuantizedModel, {"centroids": tk.Path("/cb.npy"),
+                                          "table": tk.Path("/t.npy")}),
+        recognizer=Spec(ArgmaxRecognizer, {}),
+        accumulator=Spec(VectorQuantizedAccumulator, {}),
+        num_clusters=2,
+    )
+    em_plain_totals = {"num_seqs": 100}
+    _check(
+        "without an ema the job is the plain M-step and records no ema fields",
+        np.allclose(
+            em_plain._update(_acc(em_N[1]), em_model, em_plain_totals).table,
+            _acc(em_N[1]).finalize(em_model).table,
+        )
+        and em_plain_totals == {"num_seqs": 100},
+    )
+
+    _check(
+        "batching without a segment list to split is refused",
+        _raises(lambda: chunked_clustering(
+            num_epochs=1, batches_per_epoch=2,
+            initial_centroids=tk.Path("/init/c.npy"), **common), TypeError),
+    )
+    _check(
+        "the two batched-EMA routes cannot be combined",
+        _raises(lambda: _batched(ema_alpha=0.8), TypeError),
+    )
+
+    # The same continuation property as an unbatched run, which for statistics
+    # mode holds only if the running statistic is carried over too - the model
+    # alone does not determine the next step there.
+    em_whole = _batched(num_epochs=2, ema=EMAConfig(alpha=0.8, mode="statistics"))
+    em_head = _batched(num_epochs=1, ema=EMAConfig(alpha=0.8, mode="statistics"))
+    em_tail = _batched(
+        num_epochs=1,
+        ema=EMAConfig(alpha=0.8, mode="statistics"),
+        flavor=vq_flavor(
+            centroids=em_head.out_artifacts["centroids"][1],
+            table=em_head.out_artifacts["table"][1],
+            recognition_config=common["recognition_config"],
+            lexicon=common["lexicon"],
+            num_clusters=40,
+        ),
+        initial_accumulator_state=em_head.out_accumulator_states[1],
+    )
+    _check(
+        "1+1 continued == 2 in one call, statistics carried",
+        [j._sis_id() for j in em_whole.jobs]
+        == [j._sis_id() for j in em_head.jobs + em_tail.jobs],
+    )
+    _check(
+        "continuing without the statistic is refused rather than silently restarting it",
+        _raises(
+            lambda: _batched(num_epochs=1, initial_accumulator_state=tk.Path("/s.pkl")),
+            TypeError,
+        ),
     )
 
     print("spec")

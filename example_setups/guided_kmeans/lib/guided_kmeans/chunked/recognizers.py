@@ -18,6 +18,7 @@ __all__ = [
     "RasrViterbiRecognizer",
     "SerialRasrRecognizer",
     "RasrFBRecognizer",
+    "BackoffFBRecognizer",
 ]
 
 from collections import UserDict
@@ -329,3 +330,227 @@ class SerialRasrRecognizer:
 
     def shutdown(self) -> None:
         self._search = None
+
+
+class BackoffFBRecognizer:
+    """
+    Forward-backward on the GPU, via the ``backoff_fb`` CUDA op.
+
+    Computes the same quantity as :class:`RasrFBRecognizer` -- per-frame label
+    posteriors under an HMM whose transitions are a backoff n-gram phoneme LM --
+    without a RASR worker pool and without pruning: the op is exact over the
+    whole graph, so there is no beam to tune and no variational gap.
+
+    Three differences from the RASR path are worth stating, because each is a
+    place a mismatch could hide:
+
+    * **Sign.** ``ScoreModel.scores`` yields costs; the op takes emission
+      log-likelihoods. The conversion is ``o = -distance_scale * scores``,
+      applied here on the GPU.
+    * **Batching.** RASR handles one sequence per worker call; the op is
+      batched, so submissions are buffered and length-bucketed before a call.
+      This changes throughput, never a result -- E5 in the op's suite asserts
+      each utterance equals its own B = 1 run bitwise.
+    * **No pruning.** RASR runs a beam (``max_beam_size``); this is exact. If
+      the two disagree, the beam is the first thing to suspect, not the kernel.
+
+    :param backoff_fb_root: where the op is checked out; pass
+        ``tools.BACKOFF_FB``. Must be a path the job container binds --
+        /work/asr4 is, /u/mann is not.
+    :param arpa_path: the phoneme LM, plain or gzipped ARPA
+    :param lexicon_path: the *forward-backward* lexicon, which fixes the score
+        column order (see :mod:`..backoff_fb_graph`)
+    :param num_clusters: label inventory size; must match the lexicon's
+    :param distance_scale: AM weight applied to the costs before the search,
+        as :class:`RasrFBRecognizer` does in ``submit``
+    :param emission_scale: the second AM weight, which RASR applies inside its
+        label scorer on top of ``distance_scale``. The effective weight is the
+        product, so it is folded in here rather than ignored -- at the default
+        of 1.0 nothing changes, but a config that sets it would otherwise train
+        at a silently different AM/LM balance from the RASR path.
+    :param lm_scale: baked into the compiled graph
+    :param loop_probability: HMM self-loop probability; 0 for segment-pooled
+        features, where one observation is one phoneme
+    :param apply_sentence_end: whether a path pays ``ln P(</s> | g)`` to
+        terminate. True is the correct model; False reproduces RASR, which
+        omits it (see :mod:`..backoff_fb_graph`)
+    :param batch_size: sequences per op call (unhashed: throughput only)
+    :param max_frames: cap on ``B * T_max`` per call, which is what bounds
+        memory (unhashed)
+    :param checkpoint_interval: ``-1`` picks the spec-8.1 optimum per batch,
+        ``0`` stores every frame, ``K > 0`` fixes it (unhashed: K changes peak
+        memory and nothing else -- the op's K1 test asserts the result is
+        bitwise identical either way)
+    """
+
+    def __init__(
+        self,
+        backoff_fb_root: str,
+        arpa_path: str,
+        lexicon_path: str,
+        num_clusters: int,
+        distance_scale: float = 1.0,
+        emission_scale: float = 1.0,
+        lm_scale: float = 1.0,
+        loop_probability: float = 0.0,
+        silence_loop_probability: Optional[float] = None,
+        transition_scale: float = 1.0,
+        apply_sentence_end: bool = True,
+        batch_size: int = 16,
+        max_frames: int = 0,
+        checkpoint_interval: int = -1,
+        storage_dtype: str = "float32",
+        device: str = "cuda",
+    ):
+        self.backoff_fb_root = backoff_fb_root
+        self.arpa_path = arpa_path
+        self.lexicon_path = lexicon_path
+        self.num_clusters = num_clusters
+        self.distance_scale = distance_scale
+        self.emission_scale = emission_scale
+        self.lm_scale = lm_scale
+        self.loop_probability = loop_probability
+        self.silence_loop_probability = silence_loop_probability
+        self.transition_scale = transition_scale
+        self.apply_sentence_end = apply_sentence_end
+        self.batch_size = batch_size
+        self.max_frames = max_frames
+        self.checkpoint_interval = checkpoint_interval
+        self.storage_dtype = storage_dtype
+        self.device = device
+
+        self._graph = None
+        self._batcher = None
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
+        self._n_dead = 0
+        self._n_seqs = 0
+
+    @property
+    def num_labels(self) -> int:
+        return self.num_clusters
+
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
+        import time
+
+        import torch
+
+        from ..backoff_fb_graph import GraphSpec, build_graph, ensure_importable
+
+        ensure_importable(self.backoff_fb_root)
+        from backoff_fb.batching import SequenceBatcher
+
+        if self.device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "BackoffFBRecognizer needs a GPU, and torch.cuda.is_available() "
+                "is False. The chunk job must request one: pass "
+                "rqmt={'gpu': 1} to chunked_clustering (settings.py adds --nv "
+                "to the container call when it sees a GPU in the rqmt).")
+
+        self._on_result = on_result
+        t0 = time.perf_counter()
+        self._graph = build_graph(
+            GraphSpec(
+                backoff_fb_root=str(self.backoff_fb_root),
+                arpa_path=str(self.arpa_path),
+                lexicon_path=str(self.lexicon_path),
+                lm_scale=self.lm_scale,
+                loop_probability=self.loop_probability,
+                silence_loop_probability=self.silence_loop_probability,
+                transition_scale=self.transition_scale,
+                apply_sentence_end=self.apply_sentence_end,
+            ),
+            device=self.device,
+        )
+        if self._graph.F != self.num_clusters:
+            raise ValueError(
+                f"the lexicon gives {self._graph.F} labels but num_clusters is "
+                f"{self.num_clusters}; the score matrix and the graph disagree")
+        print(
+            f"[TIMING] BackoffFBRecognizer: graph ready in "
+            f"{time.perf_counter() - t0:.1f}s -- {self._graph}",
+            flush=True,
+        )
+        self._batcher = SequenceBatcher(
+            self._run_batch, batch_size=self.batch_size, max_frames=self.max_frames
+        )
+        self._n_dead = 0
+        self._n_seqs = 0
+
+    def _resolved_k(self, T: int) -> int:
+        if self.checkpoint_interval >= 0:
+            return min(self.checkpoint_interval, T)
+        # The spec 8.1 optimum: minimize ceil(T/K) + K.
+        return min(range(1, T + 1), key=lambda k: (T + k - 1) // k + k)
+
+    def _run_batch(self, tags: List[str], arrays: List[np.ndarray]) -> None:
+        import torch
+
+        from ..backoff_fb_graph import ensure_importable
+
+        ensure_importable(self.backoff_fb_root)
+        from backoff_fb import _C
+        from backoff_fb.batching import pad_batch
+
+        assert self._on_result is not None and self._graph is not None
+        storage = getattr(torch, self.storage_dtype)
+        costs, seq_lens = pad_batch(arrays, dtype=torch.float64)
+        T = int(seq_lens.max())
+
+        with torch.no_grad():
+            # Costs to log-likelihoods. Gradients are never needed here -- the
+            # pipeline consumes Gamma itself, not d logZ / d scores -- so this
+            # goes straight to the component entry point rather than through
+            # the autograd Function.
+            am_scale = self.distance_scale * self.emission_scale
+            log_probs = (costs * -am_scale).to(self.device, storage)
+            logz, gamma, _ = _C.forward_backward(
+                self._graph.handle, log_probs, seq_lens.to(self.device),
+                storage, self._resolved_k(T),
+            )
+            logz = logz.double().cpu().numpy()
+            gamma = gamma.double().cpu().numpy()
+
+        for i, tag in enumerate(tags):
+            length = int(seq_lens[i])
+            self._n_seqs += 1
+            g = gamma[i, :length, : self.num_clusters]
+            if not np.isfinite(logz[i]):
+                # No path survives (spec 4.4): Gamma is already all-zero. Pass
+                # it through so run_chunk's own checks see it rather than
+                # silently training on zeros.
+                self._n_dead += 1
+                self._on_result(
+                    RecognitionResult(seq_tag=tag, posteriors=g,
+                                      sequence_score=float(logz[i]))
+                )
+                continue
+            # The op normalizes already (its E3 test asserts sum_k Gamma = 1
+            # per frame); this is the same guard the RASR path applies and
+            # costs one pass over a small array.
+            row_sums = g.sum(axis=1, keepdims=True)
+            g = np.where(row_sums > 1e-30, g / np.maximum(row_sums, 1e-300),
+                         np.zeros_like(g))
+            self._on_result(
+                RecognitionResult(seq_tag=tag, posteriors=g,
+                                  sequence_score=float(logz[i]))
+            )
+
+    def submit(self, seq_tag: str, scores: np.ndarray) -> None:
+        assert self._batcher is not None, "call start() first"
+        self._batcher.submit(seq_tag, scores)
+
+    def drain(self) -> None:
+        assert self._batcher is not None, "call start() first"
+        self._batcher.drain()
+        if self._n_dead:
+            print(
+                f"[WARNING] BackoffFBRecognizer: {self._n_dead}/{self._n_seqs} "
+                f"sequences had log Z = -inf (no path through the graph) and "
+                f"contributed zero posteriors.",
+                flush=True,
+            )
+
+    def shutdown(self) -> None:
+        self._batcher = None
+        # The graph stays in the module-level cache: another epoch in the same
+        # task reuses it instead of paying the compile again.

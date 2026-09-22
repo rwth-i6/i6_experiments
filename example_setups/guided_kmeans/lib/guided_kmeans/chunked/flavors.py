@@ -25,6 +25,7 @@ and inspected in a test without constructing a job graph.
 from __future__ import annotations
 
 __all__ = [
+    "BackoffFBSearch",
     "ClusteringFlavor",
     "euclidean_flavor",
     "unguided_flavor",
@@ -53,8 +54,57 @@ from .models import (
     PerLabelMixtureModel,
     VectorQuantizedModel,
 )
-from .recognizers import ArgmaxRecognizer, RasrFBRecognizer, RasrViterbiRecognizer
+from .recognizers import (
+    ArgmaxRecognizer,
+    BackoffFBRecognizer,
+    RasrFBRecognizer,
+    RasrViterbiRecognizer,
+)
 from .spec import Spec
+
+
+@dataclass(frozen=True)
+class BackoffFBSearch:
+    """Run the training search on the GPU with the ``backoff_fb`` CUDA op
+    instead of the RASR worker pool.
+
+    Passed to a flavor in place of nothing; when present it replaces the
+    recognizer and the RASR config is then only used by the decode side. The
+    search parameters are named separately rather than read back out of the
+    ``RasrConfig`` because they have to reach the graph compiler as numbers,
+    and because stating them here makes the two paths comparable by
+    inspection.
+
+    ``apply_sentence_end=False`` drops ``ln P(</s> | g)`` from the final
+    weight, which is what makes the op agree with RASR's forward-backward; True
+    is the correct model. Changing it changes the job hash, as it must.
+
+    ``backoff_fb_root`` is where the op is checked out: pass
+    ``tools.BACKOFF_FB``. It is hashed, so a different checkout is a different
+    tool, the same bargain the RASR paths make.
+
+    ``lexicon`` must be the *forward-backward* lexicon
+    (:func:`...setup.librasr_recognition.create_fb_lexicon`), which is what
+    fixes the score column order.
+
+    :param batch_size, max_frames, checkpoint_interval: throughput and memory
+        knobs, unhashed. ``checkpoint_interval`` is provably result-neutral -
+        the op's K1 test asserts bitwise identity against storing every frame.
+    """
+
+    backoff_fb_root: Any
+    arpa_path: Any
+    lexicon: Any
+    lm_scale: float = 1.0
+    emission_scale: float = 1.0
+    loop_probability: float = 0.0
+    silence_loop_probability: Optional[float] = None
+    transition_scale: float = 1.0
+    apply_sentence_end: bool = True
+    batch_size: int = 16
+    max_frames: int = 0
+    checkpoint_interval: int = -1
+    storage_dtype: str = "float32"
 
 
 @dataclass(frozen=True)
@@ -125,10 +175,38 @@ def _recognizer_spec(
     use_forward_backward: bool,
     num_workers: int,
     task_timeout: Optional[float],
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> Spec:
     # num_workers/task_timeout are per-task scheduling knobs, like num_chunks:
     # they change how fast a chunk runs, never its result.
     unhashed = {"num_workers": num_workers, "task_timeout": task_timeout}
+    if backoff_fb is not None:
+        if not use_forward_backward:
+            raise ValueError(
+                "BackoffFBSearch is a forward-backward search; pass "
+                "use_forward_backward=True alongside it")
+        return Spec(
+            BackoffFBRecognizer,
+            {
+                "backoff_fb_root": backoff_fb.backoff_fb_root,
+                "arpa_path": backoff_fb.arpa_path,
+                "lexicon_path": backoff_fb.lexicon,
+                "num_clusters": num_clusters,
+                "distance_scale": distance_scale,
+                "emission_scale": backoff_fb.emission_scale,
+                "lm_scale": backoff_fb.lm_scale,
+                "loop_probability": backoff_fb.loop_probability,
+                "silence_loop_probability": backoff_fb.silence_loop_probability,
+                "transition_scale": backoff_fb.transition_scale,
+                "apply_sentence_end": backoff_fb.apply_sentence_end,
+            },
+            {
+                "batch_size": backoff_fb.batch_size,
+                "max_frames": backoff_fb.max_frames,
+                "checkpoint_interval": backoff_fb.checkpoint_interval,
+                "storage_dtype": backoff_fb.storage_dtype,
+            },
+        )
     if use_forward_backward:
         return Spec(
             RasrFBRecognizer,
@@ -168,6 +246,7 @@ def euclidean_flavor(
     use_forward_backward: bool = False,
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     """Plain k-means: squared Euclidean scoring, centroids from frame means."""
     return ClusteringFlavor(
@@ -181,6 +260,7 @@ def euclidean_flavor(
             use_forward_backward=use_forward_backward,
             num_workers=num_workers,
             task_timeout=task_timeout,
+            backoff_fb=backoff_fb,
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward),
     )
@@ -250,6 +330,7 @@ def gaussian_flavor(
     use_forward_backward: bool = False,
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     """
     One full-covariance Gaussian per label.
@@ -272,6 +353,7 @@ def gaussian_flavor(
             use_forward_backward=use_forward_backward,
             num_workers=num_workers,
             task_timeout=task_timeout,
+            backoff_fb=backoff_fb,
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward),
     )
@@ -292,8 +374,10 @@ def _mixture_flavor(
     mixture_floor: float,
     pool_covariances: bool,
     update_densities: bool,
+    update_covariances,
     num_workers: int,
     task_timeout: Optional[float],
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     # Both mixture layouts wire up identically - same artifacts, same
     # accumulator, same search - and differ only in the model class, because
@@ -311,6 +395,8 @@ def _mixture_flavor(
         accumulator_args["pool_covariances"] = True
     if not update_densities:
         accumulator_args["update_densities"] = False
+    if update_covariances is not None:
+        accumulator_args["update_covariances"] = update_covariances
     return ClusteringFlavor(
         model=Spec(model_cls, {"centroids": centroids, "covs": covs, "mixtures": mixtures}),
         accumulator=Spec(MixtureGaussianAccumulator, accumulator_args),
@@ -322,6 +408,7 @@ def _mixture_flavor(
             use_forward_backward=use_forward_backward,
             num_workers=num_workers,
             task_timeout=task_timeout,
+            backoff_fb=backoff_fb,
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward),
     )
@@ -341,8 +428,10 @@ def mixture_flavor(
     mixture_floor: float = 0.0,
     pool_covariances: bool = False,
     update_densities: bool = True,
+    update_covariances: Optional[bool] = None,
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     """
     A shared codebook of densities, with per-label weights over all of them
@@ -381,8 +470,10 @@ def mixture_flavor(
         mixture_floor=mixture_floor,
         pool_covariances=pool_covariances,
         update_densities=update_densities,
+        update_covariances=update_covariances,
         num_workers=num_workers,
         task_timeout=task_timeout,
+        backoff_fb=backoff_fb,
     )
 
 
@@ -400,8 +491,10 @@ def per_label_mixture_flavor(
     mixture_floor: float = 0.0,
     pool_covariances: bool = False,
     update_densities: bool = True,
+    update_covariances: Optional[bool] = None,
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     """
     ``n`` densities per label, owned by that label
@@ -429,8 +522,10 @@ def per_label_mixture_flavor(
         mixture_floor=mixture_floor,
         pool_covariances=pool_covariances,
         update_densities=update_densities,
+        update_covariances=update_covariances,
         num_workers=num_workers,
         task_timeout=task_timeout,
+        backoff_fb=backoff_fb,
     )
 
 
@@ -447,6 +542,7 @@ def vq_flavor(
     min_mass: float = 0.0,
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
 ) -> ClusteringFlavor:
     """
     A discrete-density HMM over a frozen codebook
@@ -487,6 +583,7 @@ def vq_flavor(
             use_forward_backward=use_forward_backward,
             num_workers=num_workers,
             task_timeout=task_timeout,
+            backoff_fb=backoff_fb,
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward),
     )

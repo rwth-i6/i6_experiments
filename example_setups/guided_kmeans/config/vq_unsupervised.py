@@ -133,14 +133,25 @@ def build_vq_training(
     *,
     features,
     lm_path,
-    sigma,
-    seed,
     num_epochs,
+    sigma=None,
+    seed=None,
     num_chunks,
     lexicon,
     alias_prefix,
     num_workers=NUM_WORKERS,
     rqmt=None,
+    lm_order=None,
+    beam_size=None,
+    lm_scale=None,
+    transition_scale=None,
+    loop_prob=None,
+    silence_loop_prob=None,
+    distance_scale=None,
+    segments=None,
+    batches_per_epoch=1,
+    ema=None,
+    table=None,
 ):
     """One unsupervised VQ run, as (recognition_config, ChunkedClusteringExpResult).
 
@@ -181,26 +192,61 @@ def build_vq_training(
         ``num_workers + 1`` CPUs, so this also sets the scheduling granularity;
         larger values amortize that ``+1`` better but make each task chunkier.
     :param rqmt: overrides for the epoch job's requirements, e.g. ``{"mem": 8}``
+    :param lm_order, beam_size, lm_scale, transition_scale, loop_prob,
+        silence_loop_prob, distance_scale: search-side overrides. Each ``None``
+        means the module constant, and the derived defaults reproduce the
+        original argument list exactly - ``transition_scale`` follows
+        ``lm_scale`` and ``silence_loop_prob`` follows ``loop_prob``, as they
+        always did here - so the configs built before these existed keep
+        their job hashes. These *are* hashed, unlike the scheduling knobs
+        above: they change what the search computes.
+    :param segments: the corpus segment list the features were built with.
+        Needed only by ``batches_per_epoch > 1``, which splits it into the
+        batches; it reaches the features spec, so a run that passes one gets a
+        different hash and the runs built before this keep theirs.
+    :param batches_per_epoch, ema: re-estimations per pass over the corpus and
+        the damping between them (:class:`...chunked_clustering.EMAConfig`).
+        These two change the experiment rather than its schedule: B updates per
+        pass cost the same compute as one, but are B separate steps.
+    :param table: initial ``p(codeword | label)``, overriding the ``sigma``
+        draw. Any ``[L, C]`` ``.npy`` will do - the run only ever sees a path -
+        which is how
+        :func:`...setup.positional_unigram.positional_unigram_table` gets to
+        substitute the analytic first M-step for a random initialization
+        without anything else in the pipeline changing. ``sigma`` and ``seed``
+        are then unused; leave them at their defaults so the name of the run
+        does not claim a draw it did not make.
     """
+    lm_order = LM_ORDER if lm_order is None else lm_order
+    beam_size = BEAM_SIZE if beam_size is None else beam_size
+    lm_scale = LM_SCALE if lm_scale is None else lm_scale
+    transition_scale = lm_scale if transition_scale is None else transition_scale
+    loop_prob = LOOP_PROB if loop_prob is None else loop_prob
+    silence_loop_prob = loop_prob if silence_loop_prob is None else silence_loop_prob
+    distance_scale = DISTANCE_SCALE if distance_scale is None else distance_scale
     recognition_config = create_recog_rasr_config(
-        lm_scale=LM_SCALE,
+        lm_scale=lm_scale,
         emission_scale=1.0,
-        transition_scale=LM_SCALE,
-        loop_probability=LOOP_PROB,
-        silence_loop_probability=LOOP_PROB,
+        transition_scale=transition_scale,
+        loop_probability=loop_prob,
+        silence_loop_probability=silence_loop_prob,
         use_forward_backward_search=USE_FORWARD_BACKWARD,
-        lm_order=LM_ORDER,
+        lm_order=lm_order,
         use_eow_phonemes=USE_EOW_PHONEMES,
-        max_beam_size=BEAM_SIZE,
+        max_beam_size=beam_size,
         lm_path=lm_path,
     )
+    if table is None:
+        table = NormalTableJob(
+            NUM_LABELS, NUM_CODEWORDS, sigma=sigma, seed=seed
+        ).out_table
     flavor = vq_flavor(
         centroids=COLLEAGUE_CENTROIDS_K512,
-        table=NormalTableJob(NUM_LABELS, NUM_CODEWORDS, sigma=sigma, seed=seed).out_table,
+        table=table,
         recognition_config=recognition_config,
         lexicon=lexicon,
         num_clusters=NUM_LABELS,
-        distance_scale=DISTANCE_SCALE,
+        distance_scale=distance_scale,
         use_forward_backward=USE_FORWARD_BACKWARD,
         table_floor=TABLE_FLOOR,
         num_workers=num_workers,
@@ -213,7 +259,7 @@ def build_vq_training(
         num_clusters=NUM_LABELS,
         flavor=flavor,
         subsampling=SUBSAMPLING,
-        distance_scale=DISTANCE_SCALE,
+        distance_scale=distance_scale,
         use_forward_backward=USE_FORWARD_BACKWARD,
         rasr_path=(
             tools.RASR_PATH_FORWARD_BACKWARD if USE_FORWARD_BACKWARD else tools.RASR_PATH
@@ -222,21 +268,30 @@ def build_vq_training(
         num_workers=num_workers,
         rqmt=rqmt,
         alias_prefix=alias_prefix,
+        segments=segments,
+        batches_per_epoch=batches_per_epoch,
+        ema=ema,
     )
     return recognition_config, exp_result
 
 
-def build_decode_config(lm_path, decode_lm_scale, decode_loop_prob):
-    """The decode-side RASR config, shared for the same reason."""
+def build_decode_config(
+    lm_path, decode_lm_scale, decode_loop_prob, *,
+    lm_order=None, beam_size=None, transition_scale=None,
+):
+    """The decode-side RASR config, shared for the same reason.
+
+    ``transition_scale=None`` keeps the RASR default of following the LM scale.
+    """
     return create_recog_rasr_config(
         lm_scale=decode_lm_scale,
         emission_scale=1.0,
-        transition_scale=None,
+        transition_scale=transition_scale,
         loop_probability=decode_loop_prob,
         silence_loop_probability=decode_loop_prob,
-        lm_order=LM_ORDER,
+        lm_order=LM_ORDER if lm_order is None else lm_order,
         use_eow_phonemes=USE_EOW_PHONEMES,
-        max_beam_size=BEAM_SIZE,
+        max_beam_size=BEAM_SIZE if beam_size is None else beam_size,
         lm_path=lm_path,
     )
 

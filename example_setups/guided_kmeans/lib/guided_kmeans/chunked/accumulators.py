@@ -246,6 +246,24 @@ class MeanAccumulator:
         self.sums += other.sums
         return self
 
+    def scale(self, factor: float) -> "MeanAccumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        The decay half of the statistics-level EMA ``S <- a*S + (1-a)*N``;
+        :meth:`merge` is the addition half, so that recursion needs no
+        arithmetic of its own (see :mod:`.ema`). Every statistic here is a sum
+        over frames, so scaling it is the stochastic-approximation step of
+        online EM: the result is still a (fractional) count and ``finalize``
+        normalizes it exactly as it does a plain epoch's.
+        """
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        self.counts = self.counts * factor
+        if self.sums is not None:
+            self.sums = self.sums * factor
+        return self
+
     def finalize(self, previous: ScoreModel) -> EuclideanModel:
         if self.sums is None:
             raise RuntimeError("nothing accumulated; cannot finalize")
@@ -365,6 +383,24 @@ class FixedCovarianceAccumulator:
         self.sums += other.sums
         return self
 
+    def scale(self, factor: float) -> "FixedCovarianceAccumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        The decay half of the statistics-level EMA ``S <- a*S + (1-a)*N``;
+        :meth:`merge` is the addition half, so that recursion needs no
+        arithmetic of its own (see :mod:`.ema`). Every statistic here is a sum
+        over frames, so scaling it is the stochastic-approximation step of
+        online EM: the result is still a (fractional) count and ``finalize``
+        normalizes it exactly as it does a plain epoch's.
+        """
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        self.counts = self.counts * factor
+        if self.sums is not None:
+            self.sums = self.sums * factor
+        return self
+
     def finalize(self, previous: ScoreModel) -> ScoreModel:
         if self.sums is None:
             raise RuntimeError("nothing accumulated; cannot finalize")
@@ -479,12 +515,20 @@ class SoftGaussianAccumulator:
         min_mass: float = 1.0,
         pooling_groups: Optional[np.ndarray] = None,
         shrinkage: float = 0.0,
+        accumulate_second_moment: bool = True,
         **runtime_args,
     ):
         self.num_clusters = num_clusters
         self.dim = dim
         self.min_mass = min_mass
         self.shrinkage = shrinkage
+        # The second moment is the only O(D^2) statistic here - 1.07 GB at 512
+        # densities and D=512 - and it exists solely to estimate covariances. A
+        # run that moves means under a *fixed* covariance has no use for it, so
+        # it can be switched off; finalize_arrays then carries the previous
+        # model's covariances through untouched. See MixtureGaussianAccumulator's
+        # update_covariances for why such a run is worth having.
+        self.accumulate_second_moment = accumulate_second_moment
         self.counts = np.zeros(num_clusters, dtype=np.float64)
         self.weighted_sums = None
         self.weighted_sq = None
@@ -532,7 +576,8 @@ class SoftGaussianAccumulator:
         if self.weighted_sums is None:
             self.dim = dim
             self.weighted_sums = np.zeros((self.num_clusters, dim), dtype=np.float64)
-            self.weighted_sq = np.zeros((self.num_groups, dim, dim), dtype=np.float64)
+            if self.accumulate_second_moment:
+                self.weighted_sq = np.zeros((self.num_groups, dim, dim), dtype=np.float64)
         elif self.dim != dim:
             raise ValueError(f"feature dim changed: {self.dim} -> {dim}")
 
@@ -573,6 +618,8 @@ class SoftGaussianAccumulator:
         # cluster itself unless clusters are pooled into groups.
         # Loop over G to keep the per-call memory footprint at O(T·D) rather
         # than O(T·G·D); at G=40 the loop overhead is negligible.
+        if not self.accumulate_second_moment:
+            return
         group_gammas = self._group_weights(gammas)
         for g in range(self.num_groups):
             wf = features * group_gammas[:, g : g + 1]  # [T, D], broadcast weight
@@ -588,12 +635,22 @@ class SoftGaussianAccumulator:
             other.pooling_groups if other.pooling_groups is not None else np.empty(0),
         ):
             raise ValueError("cannot merge accumulators with different covariance pooling")
+        if self.accumulate_second_moment != other.accumulate_second_moment:
+            raise ValueError(
+                "cannot merge accumulators that disagree on accumulate_second_moment: "
+                f"{self.accumulate_second_moment} vs {other.accumulate_second_moment}"
+            )
         if other.weighted_sums is None:
             return self
         self._ensure(other.dim)
         self.counts += other.counts
         self.weighted_sums += other.weighted_sums
-        self.weighted_sq += other.weighted_sq
+        # A means-only run never allocates the second moment (see observe), so
+        # both sides hold None and there is nothing to add - the chunk merge of
+        # such a run reaches here with weighted_sums set, unlike a run that never
+        # observed at all, which the early return above already handled.
+        if self.accumulate_second_moment:
+            self.weighted_sq += other.weighted_sq
         return self
 
     def _finalize_pooled(self, previous: ScoreModel, means: np.ndarray, alive: np.ndarray):
@@ -647,6 +704,26 @@ class SoftGaussianAccumulator:
             {"centroids": ~alive, "covs": ~group_alive[groups]},
         )
 
+    def scale(self, factor: float) -> "SoftGaussianAccumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        The decay half of the statistics-level EMA ``S <- a*S + (1-a)*N``;
+        :meth:`merge` is the addition half, so that recursion needs no
+        arithmetic of its own (see :mod:`.ema`). Every statistic here is a sum
+        over frames, so scaling it is the stochastic-approximation step of
+        online EM: the result is still a (fractional) count and ``finalize``
+        normalizes it exactly as it does a plain epoch's.
+        """
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        self.counts = self.counts * factor
+        if self.weighted_sums is not None:
+            self.weighted_sums = self.weighted_sums * factor
+        if self.weighted_sq is not None:
+            self.weighted_sq = self.weighted_sq * factor
+        return self
+
     def finalize_arrays(self, previous: ScoreModel) -> dict[str, np.ndarray]:
         if self.weighted_sums is None:
             raise RuntimeError("nothing accumulated; cannot finalize")
@@ -667,6 +744,18 @@ class SoftGaussianAccumulator:
 
         if self.pooling_groups is not None:
             return self._finalize_pooled(previous, means, alive)
+
+        if not self.accumulate_second_moment:
+            # Means-only: the covariance is an input to this run, not an
+            # estimate from it, so it comes through untouched. The dead-cluster
+            # rule still applies to the means, and passing the previous
+            # covariances through it is a no-op that keeps the artifact sets
+            # matching - the same shape FixedCovarianceAccumulator uses.
+            return keep_previous_where_dead(
+                {"centroids": means, "covs": previous.artifacts()["covs"]},
+                previous,
+                ~alive,
+            )
 
         # Σ_k = E[x x^T | k] - µ_k µ_k^T.
         # Raw moments rather than the Welford form used in pca.py: measured on
@@ -747,6 +836,7 @@ class SoftGaussianAccumulator:
             "counts": self.counts,
             "weighted_sums": self.weighted_sums,
             "weighted_sq": self.weighted_sq,
+            "accumulate_second_moment": self.accumulate_second_moment,
             "pooling_groups": self.pooling_groups,
             "shrinkage": self.shrinkage,
         }
@@ -758,6 +848,9 @@ class SoftGaussianAccumulator:
             )
         self.dim = state["dim"]
         self.shrinkage = float(state.get("shrinkage", self.shrinkage))
+        self.accumulate_second_moment = bool(
+            state.get("accumulate_second_moment", self.accumulate_second_moment)
+        )
         # Before the arrays: it decides how many groups the second moment has.
         self.set_pooling_groups(state.get("pooling_groups"))
         self.counts = np.asarray(state["counts"], dtype=np.float64)
@@ -843,6 +936,23 @@ class MixtureGaussianAccumulator:
         each epoch, so the label posteriors change from epoch to epoch and the
         weights keep moving. What is fixed is the codebook the weights are
         defined over.
+    :param update_covariances: whether the density *shapes* are re-estimated too.
+        None follows ``update_densities``, which is every existing run.
+        ``update_densities=True, update_covariances=False`` is the means-only
+        mode: densities move to where the labels put them, but their shape stays
+        an input to the run.
+
+        Worth having for two reasons that are independent of each other. The
+        statistical one: at D=512 a full covariance has 131,328 free parameters,
+        and 512 densities over ls-100h leaves ~6,800 vectors each - 0.05 vectors
+        per parameter, which is the regime that produced an acoustic model
+        scoring below chance. The mechanical one: with a shared codebook the
+        covariance *scale* sets how soft the density assignment is, and softness
+        is what lets label information reach the means at all - measured, a
+        centroid update at the corpus covariance is ~83% label-blind and
+        degenerates to k-means. Re-estimating the covariance would pull that
+        scale straight back to the data's own within an epoch, so the softness
+        one deliberately dials in is only stable while the shapes are frozen.
     :param mixture_floor: weight handed to every density of a label before
         renormalizing. Zero - the default - is textbook EM and is what keeps
         this reproducible against any other EM implementation, but note that
@@ -862,6 +972,7 @@ class MixtureGaussianAccumulator:
         mixture_floor: float = 0.0,
         pool_covariances: bool = False,
         update_densities: bool = True,
+        update_covariances: Optional[bool] = None,
         **runtime_args,
     ):
         self.num_clusters = num_clusters
@@ -871,16 +982,34 @@ class MixtureGaussianAccumulator:
         self.mixture_floor = mixture_floor
         self.pool_covariances = pool_covariances
         self.update_densities = update_densities
+        # None means "whatever update_densities says", which is what keeps every
+        # existing run's behaviour and job hash unchanged. Setting it False with
+        # update_densities True is the means-only mode: the densities move to
+        # where the labels put them, but their shape is an input to the run.
+        self.update_covariances = (
+            update_densities if update_covariances is None else update_covariances
+        )
+        if self.update_covariances and not update_densities:
+            raise ValueError(
+                "update_covariances=True with update_densities=False is ill-posed: a "
+                "covariance is estimated about a mean this run is not estimating"
+            )
         if pool_covariances and not update_densities:
             raise ValueError(
                 "pool_covariances ties covariances while they are being re-estimated, "
                 "but update_densities=False means they are not re-estimated at all; "
                 "pass only one of the two"
             )
+        if pool_covariances and not self.update_covariances:
+            raise ValueError(
+                "pool_covariances has nothing to tie when update_covariances=False: "
+                "the covariances come through from the previous model untouched"
+            )
         self.model: Optional[MixtureModelBase] = None
         self.weighted_c = None
         self.gaussian_accumulator = SoftGaussianAccumulator(
-            num_densities or 0, dim, min_mass=min_mass
+            num_densities or 0, dim, min_mass=min_mass,
+            accumulate_second_moment=self.update_covariances,
         )
         if num_densities is not None:
             # Without a model to ask, assume the shared-codebook layout - the
@@ -910,7 +1039,8 @@ class MixtureGaussianAccumulator:
         self.weighted_c = np.zeros(tuple(mixture_shape), dtype=np.float64)
         groups = self.gaussian_accumulator.pooling_groups if self.gaussian_accumulator else None
         self.gaussian_accumulator = SoftGaussianAccumulator(
-            num_densities, self.dim, min_mass=self.min_mass, pooling_groups=groups
+            num_densities, self.dim, min_mass=self.min_mass, pooling_groups=groups,
+            accumulate_second_moment=self.update_covariances,
         )
 
     def bind_model(self, model: ScoreModel) -> None:
@@ -983,6 +1113,27 @@ class MixtureGaussianAccumulator:
         self.gaussian_accumulator.merge(other.gaussian_accumulator)
         return self
 
+    def scale(self, factor: float) -> "MixtureGaussianAccumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        The decay half of the statistics-level EMA ``S <- a*S + (1-a)*N``;
+        :meth:`merge` is the addition half, so that recursion needs no
+        arithmetic of its own (see :mod:`.ema`). Every statistic here is a sum
+        over frames, so scaling it is the stochastic-approximation step of
+        online EM: the result is still a (fractional) count and ``finalize``
+        normalizes it exactly as it does a plain epoch's.
+        """
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        if self.weighted_c is not None:
+            self.weighted_c = self.weighted_c * factor
+        # The density moments live in the nested accumulator, which owns its own
+        # counts; scaling only weighted_c here would decay the mixture weights
+        # while leaving the densities on an undecayed statistic.
+        self.gaussian_accumulator.scale(factor)
+        return self
+
     def finalize(self, previous: ScoreModel) -> MixtureModelBase:
         if self.weighted_c is None:
             raise RuntimeError("nothing accumulated; cannot finalize")
@@ -1050,6 +1201,7 @@ class MixtureGaussianAccumulator:
             "weighted_c": self.weighted_c,
             "pool_covariances": self.pool_covariances,
             "update_densities": self.update_densities,
+            "update_covariances": self.update_covariances,
             "gaussian": self.gaussian_accumulator.state_dict(),
         }
 
@@ -1071,6 +1223,9 @@ class MixtureGaussianAccumulator:
         self.dim = state["dim"]
         self.pool_covariances = bool(state.get("pool_covariances", self.pool_covariances))
         self.update_densities = bool(state.get("update_densities", self.update_densities))
+        self.update_covariances = bool(
+            state.get("update_covariances", self.update_covariances)
+        )
         self.weighted_c = (
             None if state["weighted_c"] is None
             else np.asarray(state["weighted_c"], dtype=np.float64)
@@ -1204,6 +1359,23 @@ class VectorQuantizedAccumulator:
         if self.counts is None:
             self._allocate(other.num_codewords)
         self.counts += other.counts
+        return self
+
+    def scale(self, factor: float) -> "VectorQuantizedAccumulator":
+        """
+        Multiply the accumulated statistics by ``factor``, in place.
+
+        The decay half of the statistics-level EMA ``S <- a*S + (1-a)*N``;
+        :meth:`merge` is the addition half, so that recursion needs no
+        arithmetic of its own (see :mod:`.ema`). Every statistic here is a sum
+        over frames, so scaling it is the stochastic-approximation step of
+        online EM: the result is still a (fractional) count and ``finalize``
+        normalizes it exactly as it does a plain epoch's.
+        """
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        if self.counts is not None:
+            self.counts = self.counts * factor
         return self
 
     def finalize(self, previous: ScoreModel) -> ScoreModel:

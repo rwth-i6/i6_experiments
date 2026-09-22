@@ -17,7 +17,15 @@ Two differences to the single-process callback, both deliberate:
 
 from __future__ import annotations
 
-__all__ = ["ChunkResult", "run_chunk", "reduce_chunks", "save_chunk", "load_chunk"]
+__all__ = [
+    "ChunkResult",
+    "MergedChunks",
+    "run_chunk",
+    "merge_chunks",
+    "reduce_chunks",
+    "save_chunk",
+    "load_chunk",
+]
 
 import pickle
 import time
@@ -209,20 +217,35 @@ def load_chunk(path: str) -> ChunkResult:
         return pickle.load(fp)
 
 
-def reduce_chunks(
+@dataclass
+class MergedChunks:
+    """Everything an epoch's chunks add up to, before the model is re-estimated."""
+
+    #: The chunks' statistics summed into one accumulator, ready to finalize.
+    accumulator: Accumulator
+    statistics: Dict[str, Any]
+    totals: Dict[str, int]
+    #: ``{seq_tag: hypothesis}`` over all chunks; empty unless the chunks were
+    #: run with a ``transcribe``.
+    hypotheses: Dict[str, str]
+
+
+def merge_chunks(
     *,
     chunk_paths: Sequence[str],
     accumulator_factory: Callable[[], Accumulator],
-    previous_model: ScoreModel,
-) -> tuple:
+) -> MergedChunks:
     """
-    Merge every chunk's sufficient statistics and finalize the next model.
+    Sum every chunk's sufficient statistics, without re-estimating anything.
+
+    Split out of :func:`reduce_chunks` so that an update rule can sit between
+    the sum and the M-step: batched runs damp the merged statistics against the
+    previous step's before finalizing (see :mod:`.ema`). Everything up to that
+    point - loading, merging, counting, checking the chunks really partitioned
+    the corpus - is identical either way, and there is only one copy of it.
 
     :param accumulator_factory: builds a fresh, empty accumulator to load each
         chunk's state into - the same spec the chunk tasks were built from
-    :return: ``(model, statistics_dict, totals_dict, hypotheses)``, the last
-        being ``{seq_tag: hypothesis}`` over all chunks and empty unless the
-        chunks were run with a ``transcribe``
     """
     if not chunk_paths:
         raise ValueError("no chunk results to reduce")
@@ -244,7 +267,6 @@ def reduce_chunks(
             hypotheses.update(result.hypotheses)
 
     assert merged is not None
-    model = merged.finalize(previous_model)
 
     if hypotheses and len(hypotheses) != totals["num_recognized"]:
         # Chunks partition the corpus, so tags cannot repeat across them; if
@@ -257,4 +279,35 @@ def reduce_chunks(
 
     counter = merge_counters(counters)
     statistics = counter.finalize() if counter is not None else {}
-    return model, statistics, totals, hypotheses
+    return MergedChunks(
+        accumulator=merged,
+        statistics=statistics,
+        totals=totals,
+        hypotheses=hypotheses,
+    )
+
+
+def reduce_chunks(
+    *,
+    chunk_paths: Sequence[str],
+    accumulator_factory: Callable[[], Accumulator],
+    previous_model: ScoreModel,
+) -> tuple:
+    """
+    Merge every chunk's sufficient statistics and finalize the next model.
+
+    The whole-epoch update: :func:`merge_chunks` followed immediately by the
+    M-step. A run that updates more than once per epoch calls the two halves
+    separately so it can damp the statistics in between.
+
+    :param accumulator_factory: builds a fresh, empty accumulator to load each
+        chunk's state into - the same spec the chunk tasks were built from
+    :return: ``(model, statistics_dict, totals_dict, hypotheses)``, the last
+        being ``{seq_tag: hypothesis}`` over all chunks and empty unless the
+        chunks were run with a ``transcribe``
+    """
+    merged = merge_chunks(
+        chunk_paths=chunk_paths, accumulator_factory=accumulator_factory
+    )
+    model = merged.accumulator.finalize(previous_model)
+    return model, merged.statistics, merged.totals, merged.hypotheses

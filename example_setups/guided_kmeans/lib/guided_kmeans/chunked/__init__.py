@@ -15,6 +15,10 @@ Injection points, all supplied as :class:`.spec.Spec` objects:
 * :mod:`.recognizers`  - how scores become per-frame labels
 * :mod:`.accumulators` - how labelled frames update the model
 * :mod:`.diagnostics`  - what a pass records about itself, changing nothing
+
+:mod:`.ema` is the one piece that spans steps rather than sitting inside one:
+the damping applied between an epoch's batches when a run updates more than
+once per pass over the corpus.
 """
 
 from .spec import Spec, resolve
@@ -72,7 +76,23 @@ from .flavors import (
     per_label_mixture_flavor,
     vq_flavor,
 )
-from .runner import ChunkResult, load_chunk, reduce_chunks, run_chunk, save_chunk
+from .ema import (
+    EMA_MODES,
+    blend_parameters,
+    effective_window,
+    ema_statistics,
+    load_state,
+    save_state,
+)
+from .runner import (
+    ChunkResult,
+    MergedChunks,
+    load_chunk,
+    merge_chunks,
+    reduce_chunks,
+    run_chunk,
+    save_chunk,
+)
 from .stats import default_stats_hooks, fb_stats_hooks, merge_counters
 from .diagnostics import Diagnostics, FrameDiagnostics, load_diagnostics
 
@@ -126,8 +146,16 @@ __all__ = [
     "mixture_flavor",
     "per_label_mixture_flavor",
     "vq_flavor",
+    "EMA_MODES",
+    "blend_parameters",
+    "effective_window",
+    "ema_statistics",
+    "load_state",
+    "save_state",
     "ChunkResult",
+    "MergedChunks",
     "load_chunk",
+    "merge_chunks",
     "reduce_chunks",
     "run_chunk",
     "save_chunk",
