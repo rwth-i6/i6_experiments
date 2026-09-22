@@ -2318,11 +2318,17 @@ def train_german_arm_b(
             name += f"-{prior}"
     de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget, prior=prior)
     tables = german_pseudo_enc_config(budget=budget, prior=prior)
+    # The TEXT side is not part of the audio budget: its lexicon is text-derived (MFA dict + G2P over
+    # words), so every budget injects the same filtered text through the same lexicon. The per-budget
+    # dicts differ only by G2P entries for that split's transcript words; the 1 h one lacks entries
+    # the injection text needs (10.3% of lines dropped vs 0.88%, 2026-09-22). "selftrained" arms keep
+    # the per-budget lexicon, so their hashes do not move.
+    text_budget = budget if prior == "selftrained" else "9h"
 
     with (
         PatchModelDefToGerman(),
-        PatchGlowTtsToGerman(budget=budget),
-        PatchTextBranchToGerman(corpus_files=[get_german_injection_text_filtered(budget=budget)]),
+        PatchGlowTtsToGerman(budget=text_budget),
+        PatchTextBranchToGerman(corpus_files=[get_german_injection_text_filtered(budget=text_budget)]),
         PatchTaskEvalToGerman(extended_vocab=True, extended_train_vocab=True),
         # Adds `dev_de` to the training config's eval_datasets so the arm has a GERMAN in-training
         # curve. Without it the only dev signal is English LibriSpeech (§96/§104c) and a failed arm
