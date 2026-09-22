@@ -135,7 +135,11 @@ def _fused_search_rescore_forward_step(*, model, extern_data, **_kwargs_unused):
     )
     label_spatial_dim = Dim(label_lens_t, name="aed_label_spatial")
     label_hyps = rf.convert_to_tensor(
-        labels_arr, dims=[batch_dim, beam_dim, label_spatial_dim], dtype="int32", sparse_dim=model.target_dim, device=dev
+        labels_arr,
+        dims=[batch_dim, beam_dim, label_spatial_dim],
+        dtype="int32",
+        sparse_dim=model.target_dim,
+        device=dev,
     )
 
     # AED rescore on the collapsed label hyps (re-encodes data; same model/decoder).
@@ -341,6 +345,49 @@ def aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix, task=task, model=first_pass_model, config=recog_config, num_shards=num_shards
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", score.output)
+    return score
+
+
+def ctc_greedy_recog_batched(
+    *,
+    prefix: str,
+    task,
+    aed_ctc_model,
+    aux_ctc_layer: Optional[int],
+    num_shards: int,
+    extra_config: Optional[Dict[str, Any]] = None,
+):
+    """
+    Greedy CTC recog (per-frame argmax on the model's CTC output, no AED, no prior, no LM)
+    over all ``task.eval_datasets``, sharded across the node: the CTC-alone row next to the
+    CTC+AED / CTC+LM rows of the same model.
+
+    :return: :class:`ScoreResultCollection` (WERs on the eval sets)
+    """
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+        model_recog_ctc_greedy,
+    )
+
+    config: Dict[str, Any] = {
+        "behavior_version": 24,
+        "__env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        "aux_loss_layers": [aux_ctc_layer] if aux_ctc_layer is not None else [],
+        # no beam: the batch can hold what a beam-64 search would spread over its beam
+        "batch_size": int(20_000 * aed_ctc_model.definition.batch_size_factor),
+    }
+    if extra_config:
+        from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+
+        config = dict_update_deep(config, extra_config)
+    score = _combined_recog_batched(
+        prefix=prefix,
+        task=task,
+        model=aed_ctc_model,
+        config=config,
+        num_shards=num_shards,
+        recog_def=model_recog_ctc_greedy,
+    )
+    tk.register_output(f"{prefix}/ctc-greedy-res.txt", score.output)
     return score
 
 

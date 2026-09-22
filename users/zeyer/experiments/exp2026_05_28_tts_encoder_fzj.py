@@ -1853,26 +1853,32 @@ def py():
         # instead of the Gumbel-randomized union order; the separate-batches variant (dual stream) only
         # exists on the TTS path (old implementation), see the ls-mixing table
         (f"{_abl_prefix}-nogumbel", {"interleave_gumbel_scale": None}),
-        # separate batches (alternate batching, dual-stream train step), same caps; untested with packed
-        # tensors + CUDA graphs (AZ, 2026-09-20: try it, drop it if it does not run)
+        # separate batches (alternate batching, pure audio / pure text batches) with the winner's
+        # branch-free single-stream step and CUDA graph (AZ, 2026-09-21). No grad accumulation: every
+        # batch is one update. Per-key caps at twice the winner's actual batch content (7.75 M samples,
+        # 5.9k phonemes per mixed batch), so a pure batch carries what two mixed halves carry and the
+        # update count per subepoch matches the winner's; the combined (audio + pseudo) packed content
+        # bound is declared at the mixed case's derived value (11.2 M / 160 + 500 slack + 6000 x 10),
+        # so the encoder's captured buffers are the same size as the winner's: same speed per update.
         (
             f"{_abl_prefix}-dualstream",
             {
-                "single_stream": False,
+                "separate_batches": True,
                 "interleave_gumbel_scale": None,
-                # alternate batching honours the packed caps (summed lengths, as the winner); one pair
-                # (audio batch, text batch) per update via grad accumulation, so the updates match
-                # the winner's mixed batches in count and content (AZ, 2026-09-21)
                 "extra_config_updates": {
                     "optimizer.class": rf.build_dict(Muon)["class"],
                     "packed_tensors": True,
                     "torch_distributed": {"reduce_type": "grad_explicit"},
                     "batch_size": None,
-                    "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
-                    "accum_grad_multiple_step": 2,
+                    "packed_batch_size": {"data": 15_500_000, "classes": 5_000, "phonemes": 12_000},
+                    "pseudo_enc_frontend_packed_content_bound": 130_500,
                     "batching": "random",
-                    # no torch_cuda_graph: the dual-stream step reads the audio sizes on the host to branch
-                    # (pure audio or pure text batch), a sync that graph capture forbids
+                    "torch_cuda_graph": {
+                        "batch_size_bound": 500,
+                        "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                        "warmup_steps": 0,
+                        "compile": True,
+                    },
                     "optimizer.weight_decay": 0.027,
                     "specaugment_num_spatial_mask_factor": 50,
                     "specaugment_steps": (1850, 5550, 9250),
@@ -3080,24 +3086,72 @@ def _build_tables(prefix: str):
             row["hours"] = DelayedFormat("{:.0f}$^*$", row["hours"])
         return row
 
-    # LS headline: the injection methods against the audio-only baselines, with the training cost.
+    # LS headline: the injection methods against the audio-only baselines, with and without the external
+    # LM in search (the former ls-lm table, merged in by AZ 2026-09-22), with the training cost.
+    # All four searches only for the audio-only baseline, the winner and the larger model;
+    # the +LM row alone for the other injection variants; CTC+AED alone for the rest.
+    ls_recogs = [
+        ("ctc-greedy-batched", "CTC"),
+        ("aed+ctc-batched", "CTC+AED"),
+        ("ctc+lm-batched", "CTC+LM"),
+        ("ctc+aed+lm-labelsync-batched", "CTC+AED+LM"),
+    ]
+    _all_searches = [rlabel for _, rlabel in ls_recogs]
+    _lm_searches = ["CTC+AED", "CTC+AED+LM"]
+
+    # pifont marks as in the earlier paper (\cmark / \xmark macros in the paper preamble);
+    # a mark instead of an empty cell where a search component is not used (AZ)
+    _chk = "\\cmark"
+    _xmk = "\\xmark"
+
+    # the model size as a rotated two-line literal cell (its own first column, merged over the model's
+    # rows; one line is taller than the 5-row EncL24-DecL8 block)
+    _m16 = "\\rotatebox{90}{\\footnotesize\\makecell{EncL16 \\\\ DecL6}}"
+    _m24 = "\\rotatebox{90}{\\footnotesize\\makecell{EncL24 \\\\ DecL8}}"
+
+    def _ls_rows(name: str, method: str, searches=("CTC+AED",), old_impl: bool = False, model: str = _m16):
+        """one ls-main row per selected search of the model; the search as CTC+ (AED, LM) checkmarks"""
+        rows = []
+        for recog, rlabel in ls_recogs:
+            if rlabel not in searches:
+                continue
+            row = _ls(
+                name,
+                recog,
+                model=model,
+                method=method,
+                aed=_chk if "AED" in rlabel else _xmk,
+                lm=_chk if "LM" in rlabel else _xmk,
+            )
+            rows.append(_old_impl(row) if old_impl else row)
+        return rows
+
     _table(
         "ls-main",
-        ["method", *ls_wer, "steps", "hours"],
+        ["model", "method", "steps", "hours", "aed", "lm", *ls_wer],
         [
-            _ls(base, method="no text"),
-            _ls(base76, method="no text, \\\\ twice the epochs"),
-            _old_impl(_ls("tts-enc-logmel-refcfg-single-gumbel-muon-nep38", method="online TTS \\\\ (frozen GlowTTS)")),
-            _old_impl(_ls("pseudo-enc-layer4-noblank-muon-nep38", method="pseudo encoder, \\\\ trained emb., layer 4")),
-            _old_impl(
-                _ls(
-                    "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-single-gumbel-muon-nep38",
-                    method="frozen table (ours), \\\\ MFA alignment, \\\\ same setup as TTS row",
-                )
-            ),
-            _ls(f"{win}-trainemb", method="pseudo encoder, \\\\ trained emb., front-end"),
-            _ls(win, method="frozen table (ours), \\\\ MFA alignment"),
-            _ls(f"{win}-gausshmmtables-pronvar", method="frozen table (ours), \\\\ own aligner"),
+            *_ls_rows(base, "no text", _all_searches),
+            *_ls_rows(base76, "no text, \\\\ twice the epochs"),
+            # the earlier paper's GlowTTS injection, numbers as published there (EncL16-DecL6, CTC+AED, single
+            # GPU, earlier training regime; AZ 2026-09-22). Not its baseline or layer-4 rows: next to ours they
+            # read as a verdict on that regime. Our 4-GPU reruns in the earlier implementation, GlowTTS
+            # (1.59 / 3.56 / 1.69 / 3.76, 235 h) and layer 4 (1.66 / 3.70 / 1.89 / 4.08, 102 h), stay in the
+            # text (the speed pair); no train time / updates for the cited row
+            {
+                "model": _m16,
+                "method": "GlowTTS \\cite{Zeyer2026TextUtilPseudoSpeechEnc}",
+                "aed": _chk,
+                "lm": _xmk,
+                **dict(zip(ls_wer, ("1.57", "3.53", "1.73", "3.64"))),
+                "steps": "-",
+                "hours": "-",
+            },
+            # the frozen table in the $^*$ setup (3.66 / 3.86, 130 h vs GlowTTS 235 h) is NOT a row: the
+            # earlier settings may simply be suboptimal for the table, so the pair would suggest a WER
+            # ranking we cannot support (AZ, 2026-09-22); the speed pair is stated in the text instead
+            *_ls_rows(win, "mean log-mel, \\\\ MFA alignment", _all_searches),
+            *_ls_rows(f"{base}-encL24-decL8", "no text", model=_m24),
+            *_ls_rows(f"{win}-encL24-decL8", "mean log-mel, \\\\ MFA alignment", _all_searches, model=_m24),
         ],
     )
     # The duration model of the pseudo encoder: d = round(median * scale * exp(jitter * N(0,1))),
@@ -3106,20 +3160,22 @@ def _build_tables(prefix: str):
     _textogram_chars = (
         "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     )
-    _lognormal = "log-normal, \\\\ per-phone median"
+    _lognormal = "log-normal, \\\\ per-phoneme median"
     _table(
         "ls-durations",
-        ["distribution", "jitter", "scale", *ls_wer_other],
+        ["distribution", "scale", "jitter", *ls_wer_other],
         [
-            _ls(win, distribution=_lognormal, jitter="0.45", scale="0.7"),
-            _ls(f"{win}-dursig0", distribution=_lognormal, jitter="0", scale="0.7"),
-            _ls(f"{win}-dursig02", distribution=_lognormal, jitter="0.2", scale="0.7"),
-            _ls(f"{win}-dursig07", distribution=_lognormal, jitter="0.7", scale="0.7"),
+            # ordered by scale, then jitter: the jitter ladder sits inside the scale-0.7 block
+            # (the winner is 0.7 / 0.45)
             _ls(win.replace("dur07", "dur05"), distribution=_lognormal, jitter="0.45", scale="0.5"),
+            _ls(f"{win}-dursig0", distribution=_lognormal, jitter="0.00", scale="0.7"),
+            _ls(f"{win}-dursig02", distribution=_lognormal, jitter="0.20", scale="0.7"),
+            _ls(win, distribution=_lognormal, jitter="0.45", scale="0.7"),
+            _ls(f"{win}-dursig07", distribution=_lognormal, jitter="0.70", scale="0.7"),
             _ls(win.replace("dur07", "dur10"), distribution=_lognormal, jitter="0.45", scale="1.0"),
             _ls(
                 f"{win}-dursilonly",
-                distribution="log-normal, \\\\ one median for all phones",
+                distribution="log-normal, \\\\ one median for all phonemes",
                 jitter="0.45",
                 scale="0.7",
             ),
@@ -3133,22 +3189,22 @@ def _build_tables(prefix: str):
         "ls-representation",
         ["acoustics", "units", "durations", *ls_wer_other],
         [
-            _ls(win, acoustics="frozen \\\\ log-mel table", units="phonemes", durations="log-normal \\\\ per phone"),
+            _ls(win, acoustics="mean \\\\ log-mel", units="phonemes", durations="log-normal \\\\ per phoneme"),
             _ls(
                 f"{win}-unidur",
-                acoustics="frozen \\\\ log-mel table",
+                acoustics="mean \\\\ log-mel",
                 units="phonemes",
                 durations="uniform \\\\ 5 to 10",
             ),
             _ls(
                 f"{win}-trainemb",
-                acoustics="trained \\\\ embedding",
+                acoustics="trainable \\\\ log-mel",
                 units="phonemes",
-                durations="log-normal \\\\ per phone",
+                durations="log-normal \\\\ per phoneme",
             ),
             _ls(
                 f"{win}-trainemb-unidur",
-                acoustics="trained \\\\ embedding",
+                acoustics="trainable \\\\ log-mel",
                 units="phonemes",
                 durations="uniform \\\\ 5 to 10",
             ),
@@ -3184,28 +3240,28 @@ def _build_tables(prefix: str):
                 aligner="triphone \\\\ GM-HMM \\\\ (via MFA)",
                 pronvar="all",
                 table="frame \\\\ mean",
-                unit="phone",
+                unit="phoneme",
             ),
             _ls(
                 f"{win}-gausshmmtables",
                 aligner=_ghmm,
                 pronvar="sampled",
                 table="Gauss. \\\\ means",
-                unit="phone",
+                unit="phoneme",
             ),
             _ls(
                 f"{win}-gausshmmtables-pronvar",
                 aligner=_ghmm,
                 pronvar="all",
                 table="Gauss. \\\\ means",
-                unit="phone",
+                unit="phoneme",
             ),
             _ls(
                 f"{win}-gausshmmframemean-pronvar",
                 aligner=_ghmm,
                 pronvar="all",
                 table="frame \\\\ mean",
-                unit="phone",
+                unit="phoneme",
             ),
             _ls(
                 f"{win}-gausshmmstates-pronvar",
@@ -3295,9 +3351,19 @@ def _build_tables(prefix: str):
                 text_ratio="11:1",
                 text_passes=2.0,
             ),
-            _ls(
-                f"{win}-audio0-textP38", audio_h="0", audio_passes=0, used_ratio="1:0", text_ratio="1:0", text_passes=4
-            ),
+            {
+                **_ls(
+                    f"{win}-audio0-textP38",
+                    audio_h="0",
+                    audio_passes=0,
+                    used_ratio="1:0",
+                    text_ratio="1:0",
+                    text_passes=4,
+                ),
+                # text only: no usable model (124 / 124), shown as one merged ">100" cell
+                "dev_other": "$>$100",
+                "test_other": "$>$100",
+            },
         ],
     )
     # How audio and text are mixed into batches: separate batches (alternate batching, dual stream),
@@ -3321,35 +3387,12 @@ def _build_tables(prefix: str):
                     mixing="mixed batches, \\\\ random order",
                 )
             ),
-            _ls(f"{win}-dualstream", injection="frozen table", mixing="separate batches \\\\ (audio or text)"),
-            _ls(f"{win}-nogumbel", injection="frozen table", mixing="mixed batches, \\\\ fixed ratio"),
-            _ls(win, injection="frozen table", mixing="mixed batches, \\\\ random order"),
+            _ls(f"{win}-dualstream", injection="mean log-mel", mixing="separate batches \\\\ (audio or text)"),
+            _ls(f"{win}-nogumbel", injection="mean log-mel", mixing="mixed batches, \\\\ fixed ratio"),
+            _ls(win, injection="mean log-mel", mixing="mixed batches, \\\\ random order"),
         ],
     )
     # LM combinations on LS.
-    ls_recogs = [
-        ("aed+ctc-batched", "AED+CTC"),
-        ("ctc+lm-batched", "CTC+LM"),
-        ("ctc+aed+lm-labelsync-batched", "AED+CTC+LM"),
-    ]
-    _table(
-        "ls-lm",
-        ["model", "search", *ls_wer],
-        [
-            _ls(name, recog, model=label, search=rlabel)
-            for name, label in [
-                (base, "no text"),
-                (win, "frozen table, \\\\ MFA alignment"),
-                (f"{win}-nolerp", "frozen table, \\\\ no interpolation"),
-                (f"{win}-trainemb", "trained embedding"),
-                (_textogram, "textogram"),
-                (f"{win}-gausshmmtables-pronvar", "frozen table, \\\\ own aligner"),
-                (f"{win}-encL24-decL8", "frozen table, \\\\ EncL24-DecL8"),
-            ]
-            for recog, rlabel in ls_recogs
-        ],
-    )
-
     # Loquacious: the scale axis, control vs injection per subset.
     inj = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon"
     loq_wer = ["dev", "test"]
@@ -3451,30 +3494,35 @@ def _build_tables(prefix: str):
     # Loquacious medium: the text representation (which tables, textogram cells), per-source dev WERs.
     _table(
         "loq-representation",
-        ["representation", "alpha", *loq_keys],
+        ["representation", *loq_keys],
         [
-            _loq(_base_med, representation="no text", alpha="-"),
-            _loq(f"{med}-txtSrcExp0", representation="frozen table, \\\\ LS alignment", alpha="0"),
-            _loq(f"{med}-loqtables", representation="frozen table, \\\\ Loq. alignment", alpha="1"),
-            _loq(f"{med}-loqtables-txtSrcExp0", representation="frozen table, \\\\ Loq. alignment", alpha="0"),
+            # all at the uniform source weighting (alpha 0; the alpha-1 Loq. table row was dropped, AZ 2026-09-22);
+            # short cell texts (the table is wide): the durations of the textogram-style cells are in the caption
+            _loq(_base_med, representation="no text"),
+            _loq(f"{med}-txtSrcExp0", representation="LS table"),
+            _loq(f"{med}-loqtables-txtSrcExp0", representation="Loq. table"),
             _loq(
                 "pseudo-enc-textogram-onehotchan-unidur-nolerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                representation="one-hot ch., \\\\ uniform dur.",
-                alpha="0",
+                representation="one-hot ch.",
             ),
             _loq(
                 "pseudo-enc-logmel-trainemb-unidur-lerp-packed-single-gumbel-muon-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                representation="trained emb., \\\\ uniform dur.",
-                alpha="0",
+                representation="trainable log-mel",
             ),
         ],
     )
     # LM combinations on Loquacious.
     _table(
         "loq-lm",
-        ["model", "search", *loq_wer],
+        ["model", "aed", "lm", *loq_wer],
         [
-            _loq(name, recog, model=label, search=rlabel)
+            _loq(
+                name,
+                recog,
+                model=label,
+                aed=_chk if "AED" in rlabel else _xmk,
+                lm=_chk if "LM" in rlabel else _xmk,
+            )
             for name, label in [
                 ("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "medium, no text"),
                 (f"{med}-txtSrcExp0_5", "medium, injection, alpha 0.5"),
@@ -3848,7 +3896,18 @@ def _train_asr_base_multigpu(
             ctc_aed_lm_label_sync_recog_auto_scale_batched,
         )
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import _get_lm_model, _lms
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+            ctc_greedy_recog_batched,
+        )
 
+        # greedy CTC alone, the CTC row of the LM table
+        _table_results[prefix + "/aed/" + name + "/ctc-greedy-batched"] = ctc_greedy_recog_batched(
+            prefix=prefix + "/aed/" + name + "/ctc-greedy-batched",
+            task=task,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=enc_num_layers,
+            num_shards=8,
+        )
         _table_results[prefix + "/aed/" + name + "/ctc+lm-batched"] = (
             ctc_recog_recomb_labelwise_prior_auto_scale_batched(
                 prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
@@ -3895,6 +3954,17 @@ def _train_asr_base_multigpu(
             labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
             aux_ctc_layer=enc_num_layers,
             num_shards=8,
+        )
+        # + the AED decoder also scores the DLM output (AZ 2026-09-22: the final score must have the AED).
+        aed_ctc_dlm_sum_recog_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/ctc+aed+dlm-sum-aedout-batched",
+            task=task,
+            asr_model=exp.get_last_fixed_epoch(),
+            dlm=_get_imported_dlm(),
+            labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+            aux_ctc_layer=enc_num_layers,
+            num_shards=8,
+            aed_final_score_scale=1.0,
         )
     return exp
 
@@ -4320,6 +4390,18 @@ def _train_loquacious_baselines(*, prefix: str):
                 ctc_aed_lm_label_sync_recog_auto_scale_batched,
             )
 
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+                ctc_greedy_recog_batched,
+            )
+
+            # greedy CTC alone, the CTC row of the LM table
+            _table_results[f"{prefix}/loq/aed/{name}/ctc-greedy-batched"] = ctc_greedy_recog_batched(
+                prefix=f"{prefix}/loq/aed/{name}/ctc-greedy-batched",
+                task=task,
+                aed_ctc_model=exp.get_last_fixed_epoch(),
+                aux_ctc_layer=aux_ctc_layer,
+                num_shards=8,
+            )
             _table_results[f"{prefix}/loq/aed/{name}/ctc+lm-batched"] = (
                 ctc_recog_recomb_labelwise_prior_auto_scale_batched(
                     prefix=f"{prefix}/loq/aed/{name}/ctc+lm-batched",
@@ -4381,6 +4463,10 @@ def _train_tts_encoder(
     enc_aux_logits_with_bias: bool = True,
     pad_audio_rnd: Optional[int] = None,
     single_stream: bool = False,
+    # alternate batching (pure audio / pure text batches) with the single-stream train step:
+    # that step runs both branches over the full batch with the other rows empty, so a pure batch
+    # is a special case of it, branch-free, and stays CUDA-graph capturable (unlike the dual-stream step)
+    separate_batches: bool = False,
     pseudo_enc_single_stream_version: int = 1,
     interleave_gumbel_scale: Union[None, float, str] = None,
     specaugment_length_scaled: bool = False,
@@ -4854,7 +4940,11 @@ def _train_tts_encoder(
             "optimizer.weight_decay": 1e-2,
             # single_stream: default torch batching mixes audio + text seqs in ONE batch
             # (offline-reference style); otherwise alternate_batching (pure audio / pure text batches).
-            **({} if single_stream else {"torch_batching": functools.partial(alternate_batching, asr_key=in_key)}),
+            **(
+                {"torch_batching": functools.partial(alternate_batching, asr_key=in_key)}
+                if (separate_batches or not single_stream)
+                else {}
+            ),
             # custom step; no TrainDef needed
             "train_step": (
                 (
@@ -5079,12 +5169,25 @@ def _train_tts_encoder(
                 _lms,
             )
 
+            from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+                ctc_greedy_recog_batched,
+            )
+
             if loq_subset is not None:
                 lm = _get_loq_lm()
                 labelwise_prior = _get_loq_transcription_labelwise_prior(vocab, task)
             else:
                 lm = _get_lm_model(_lms["n32-d1024-claix2023"])
                 labelwise_prior = _get_ls_transcription_labelwise_prior(vocab, task)
+            # greedy CTC alone, the CTC row of the LM table
+            _table_results[prefix + "/aed/" + name + "/ctc-greedy-batched"] = ctc_greedy_recog_batched(
+                prefix=prefix + "/aed/" + name + "/ctc-greedy-batched",
+                task=task,
+                aed_ctc_model=exp.get_last_fixed_epoch(),
+                aux_ctc_layer=enc_num_layers,
+                num_shards=8,
+                extra_config=recog_model_cfg,
+            )
             _table_results[prefix + "/aed/" + name + "/ctc+lm-batched"] = (
                 ctc_recog_recomb_labelwise_prior_auto_scale_batched(
                     prefix=prefix + "/aed/" + name + "/ctc+lm-batched",
@@ -5135,6 +5238,18 @@ def _train_tts_encoder(
                 labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
                 aux_ctc_layer=enc_num_layers,
                 num_shards=8,
+                extra_config=recog_model_cfg,
+            )
+            # + the AED decoder also scores the DLM output (AZ 2026-09-22: the final score must have the AED).
+            aed_ctc_dlm_sum_recog_auto_scale_batched(
+                prefix=prefix + "/aed/" + name + "/ctc+aed+dlm-sum-aedout-batched",
+                task=task,
+                asr_model=exp.get_last_fixed_epoch(),
+                dlm=_get_imported_dlm(),
+                labelwise_prior=_get_ls_transcription_labelwise_prior(vocab, task),
+                aux_ctc_layer=enc_num_layers,
+                num_shards=8,
+                aed_final_score_scale=1.0,
                 extra_config=recog_model_cfg,
             )
     else:
@@ -6745,6 +6860,20 @@ def aed_pseudo_enc_frontend_single_stream_train_step(*, model: Model, extern_dat
     _t_cap = _dim_capacity(text_spatial_dim)
     if _a_cap and _t_cap:
         feats_spatial_dim.capacity = max(_a_cap, _t_cap)
+    # The packed TOTAL of the concat is bounded by the sum of both branches' bounds, and every
+    # encoder buffer follows it. Under alternate batching a batch fills only one branch, so the
+    # per-key caps can be about twice the mixed case's while the combined content stays within
+    # the mixed case's bound: declare that bound here, so the encoder runs at the same size.
+    packed_content_bound = config.int("pseudo_enc_frontend_packed_content_bound", None)
+    # only under the static (capture) regime: eval steps run at exact sizes without a bound
+    if packed_content_bound is not None and rf.is_packed(feats) and rf.is_static_traceable():
+        if config.bool("debug_print_packed_content_bound", True):
+            print(
+                f"pseudo-enc front-end: concat packed content bound {feats.raw_tensor.content_bound}"
+                f" -> declared {packed_content_bound}"
+            )
+        feats = rf.packed_regap(feats, feats.raw_tensor.gap, content_bound=packed_content_bound)
+        feats.feature_dim = model.in_dim
 
     if config.bool("use_eos_postfix", False):
         ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(

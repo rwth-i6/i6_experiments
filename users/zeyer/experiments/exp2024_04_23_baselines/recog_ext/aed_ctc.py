@@ -1001,6 +1001,41 @@ model_recog_with_recomb.output_blank_label = _aed_model_def_blank_label
 model_recog_with_recomb.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
+def model_recog_ctc_greedy(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Greedy CTC search on the model's CTC output: the per-frame argmax (the best path).
+    Blank removal and repetition collapsing happen in the recog post-processing,
+    as for the other CTC recog defs here. No AED, no prior, no LM.
+
+    Function is run within RETURNN.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    ctc_label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    best = rf.reduce_argmax(ctc_label_log_prob, axis=model.wb_target_dim)  # Batch, Spatial -> VocabWB
+    seq_log_prob = rf.reduce_sum(
+        rf.reduce_max(ctc_label_log_prob, axis=model.wb_target_dim), axis=enc_spatial_dim
+    )  # Batch
+    beam_dim = Dim(1, name="beam")
+    return rf.expand_dim(best, dim=beam_dim), rf.expand_dim(seq_log_prob, dim=beam_dim), enc_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_ctc_greedy: RecogDef[Model]
+model_recog_ctc_greedy.output_with_beam = True
+model_recog_ctc_greedy.output_blank_label = _aed_model_def_blank_label
+model_recog_ctc_greedy.batch_size_dependent = True  # as the other recog defs here
+
+
 def model_recog_with_recomb_while_loop(
     *,
     model: Model,

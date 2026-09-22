@@ -301,6 +301,24 @@ def _fused_dlm_sum_tune_forward_step(*, model, extern_data, **_kwargs_unused):
         targets_beam_dim=beam_dim,
         targets_spatial_dim=hyps_spatial_dim,
     )
+    aed_final_score_scale = config.float("aed_final_score_scale", 0.0)
+    if aed_final_score_scale != 0:
+        # The first pass adds the AED score with this fixed scale relative to the CTC score,
+        # so the tuning sees the same combined "am" term.
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import aed_rescore_def
+
+        # The search output is one frame longer than its max dyn size (the EOS step);
+        # the rescore pads by dyn size, so trim first (ctc_model_rescore slices per beam alike).
+        hyps_trimmed, hyps_trimmed_spatial_dim = rf.slice(hyps, axis=hyps_spatial_dim, size=hyps_spatial_dim)
+        aed_scores = aed_rescore_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=hyps_trimmed,
+            targets_beam_dim=beam_dim,
+            targets_spatial_dim=hyps_trimmed_spatial_dim,
+        )
+        am_scores = am_scores + aed_scores * aed_final_score_scale
 
     run_ctx = rf.get_run_ctx()
     run_ctx.mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, hyps_spatial_dim])
@@ -325,6 +343,7 @@ def aed_ctc_dlm_sum_recog_auto_scale_batched(
     aux_ctc_layer: Optional[int] = None,
     num_shards: int,
     aed_scale: float = 1.0,
+    aed_final_score_scale: float = 0.0,
     extra_config: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
@@ -332,10 +351,13 @@ def aed_ctc_dlm_sum_recog_auto_scale_batched(
     Like :func:`ctc_dlm_sum_recog_auto_scale_batched`, but the initial search producing
     the DLM input hypotheses is label-synchronous CTC+AED
     (:func:`denoising_lm_2024.recog.dlm_sum_aed.aed_ctc_model_with_dlm_sum_recog`).
-    The DLM-sum stage itself is unchanged.
+    The DLM-sum stage itself is unchanged, unless ``aed_final_score_scale`` is set.
 
     :param aed_scale: AED scale relative to the CTC prefix scores in the initial search
         (only shapes the hypothesis set; the hyp weights are renormalized anyway)
+    :param aed_final_score_scale: the AED decoder also scores the DLM output, step-wise in the
+        DLM-sum search and in the scale tuning, with this scale relative to the CTC prefix score
+        (0 = off, the old behavior and hashes)
     """
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
@@ -349,6 +371,7 @@ def aed_ctc_dlm_sum_recog_auto_scale_batched(
             "ctc_beam_size": 32,
             "ctc_soft_collapse_threshold": 0.9,
             "aed_scale": aed_scale,
+            **({"aed_final_score_scale": aed_final_score_scale} if aed_final_score_scale else {}),
         },
         extra_config,
     )
