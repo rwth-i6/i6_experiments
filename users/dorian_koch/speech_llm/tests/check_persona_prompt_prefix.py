@@ -15,6 +15,13 @@ finetuned under a prompt it never sees at inference. Nothing in a loss curve sho
      codes path (``MoshiTokenizer.build_codes_stored``) builds from the same row with the same
      text-stream knobs -- one text-row convention, not two.
 
+  5. ASCII PROMPTS (2026-09-22). A persona prompt with typographic characters (U+2011, curly quotes,
+     em dash, NBSP, ...) gets the SAME ids on the training path (``system_prompt_text_tokens``) and
+     the engine path (``SystemPrompt.configure_generation``) as its ASCII spelling, with no
+     sentencepiece byte-fallback pieces; the raw pre-fix encode produces byte pieces (so the check
+     can fail). No module under ``moshi_family/personaplex`` encodes a system prompt any other way
+     than ``components.encode_system_prompt`` (self-play's main and ``offline.main`` included).
+
 Runs in moshi_family_venv (sphn/sentencepiece), CPU, ~1 min (loads the mimi + spm from the HF cache):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_prompt_prefix.py'
@@ -245,4 +252,54 @@ assert 0.38 < n_sw / 200 < 0.62, f"swap rate {n_sw}/200 is not ~1/2"
 assert count_swaps(True, False, 40) == 0, "swap_channels=False swapped"
 assert count_swaps(False, True, 40) == 0, "a row with other_ok=False was swapped"
 print(f"[4] swap_channels: {n_sw}/200 reads used the other side (prompt, voice, codes, alignments); never when off or other_ok=False")
+
+# ---- 5. persona text is ASCII-normalised on every path that tokenizes it ------------------------
+import glob  # noqa: E402
+import re  # noqa: E402
+
+from moshi_family.personaplex import components  # noqa: E402
+from moshi_family.personaplex.offline import wrap_with_system_tags  # noqa: E402
+
+for ch, rep in components.PROMPT_ASCII_MAP.items():
+    assert components.normalize_prompt_text(f"a{ch}b") == f"a{rep}b", repr(ch)
+    assert rep.isascii(), repr(rep)
+fancy = (
+    "You enjoy having a good conversation. Have a laid\u2011back chat about \u201clow\u2011tech\u201d "
+    "farming\u2014and why it\u2019s worth it\u2026 You\u2019re 45\u201350\u00a0years old."
+)
+plain = "You enjoy having a good conversation. Have a laid-back chat about \"low-tech\" farming - and why it's worth it... You're 45-50 years old."
+assert components.normalize_prompt_text(fancy) == plain, components.normalize_prompt_text(fancy)
+assert components.normalize_prompt_text(plain) == plain, "ASCII text must pass through unchanged"
+spm = tok.text_tok
+
+
+def byte_pieces(ids):
+    return [spm.id_to_piece(i) for i in ids if re.fullmatch(r"<0x[0-9A-F]{2}>", spm.id_to_piece(i))]
+
+
+want_ids = list(spm.encode(wrap_with_system_tags(plain)))
+train_ids = tok.system_prompt_text_tokens(fancy)
+eng = types.SimpleNamespace(text_prompt_tokens="unset")
+components.SystemPrompt(fancy).configure_generation(eng, tokenizer=spm)
+assert train_ids == want_ids, "training path does not normalise the persona text"
+assert eng.text_prompt_tokens == want_ids, "engine SystemPrompt path does not normalise the persona text"
+assert not byte_pieces(train_ids), byte_pieces(train_ids)
+old_ids = list(spm.encode(wrap_with_system_tags(fancy)))  # the pre-fix encode
+assert byte_pieces(old_ids), "guard is vacuous: the raw encode produced no byte-fallback pieces"
+# Every other caller must go through the helper: no raw `encode(wrap_with_system_tags(` left.
+pkg = os.path.dirname(components.__file__)
+raw = [
+    f"{os.path.basename(f)}:{i + 1}"
+    for f in sorted(glob.glob(os.path.join(pkg, "*.py")))
+    for i, line in enumerate(open(f))
+    if re.search(r"encode\(\s*wrap_with_system_tags\((?!normalize_prompt_text\()", line)
+]
+assert not raw, f"system prompt encoded without normalisation at {raw}"
+users = [os.path.basename(f) for f in glob.glob(os.path.join(pkg, "*.py")) if "encode_system_prompt(" in open(f).read()]
+assert {"selfplay.py", "offline.py", "train_data.py", "components.py"} <= set(users), users
+print(
+    f"[5] persona text: {len(components.PROMPT_ASCII_MAP)} characters mapped to ASCII; training == engine == ASCII ids "
+    f"({len(want_ids)} tokens, 0 byte pieces; the raw encode had {len(byte_pieces(old_ids))}); every caller uses "
+    f"encode_system_prompt ({sorted(users)})"
+)
 print("OK")
