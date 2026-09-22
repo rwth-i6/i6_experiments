@@ -1225,6 +1225,7 @@ class PodcastEpisodeIngest(Job):
         asr_batch_size: int = 16,
         perm_scorer: str = "energy",
         loudness_norm: dict | None = None,
+        mimi_encode_mode: str = "chunked",
         rqmt: dict | None = None,
     ):
         self.duplex_venv_python = duplex_venv_python
@@ -1279,6 +1280,11 @@ class PodcastEpisodeIngest(Job):
             }, loudness_norm
             loudness_norm = {k: float(v) for k, v in sorted(loudness_norm.items())}
         self.loudness_norm = loudness_norm
+        # HASHED when not "chunked": it decides every code in the corpus. "chunked" = the historical
+        # streaming 30 s encode, which is NOT exact (see podcast_ingest_main.encode_pair); excluded at
+        # that default so existing shards keep their hash. "offline" = the reference encoding.
+        assert mimi_encode_mode in ("chunked", "offline"), mimi_encode_mode
+        self.mimi_encode_mode = mimi_encode_mode
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
         # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
@@ -1316,6 +1322,8 @@ class PodcastEpisodeIngest(Job):
             d.pop(k, None)
         if d.get("loudness_norm") is None:
             d.pop("loudness_norm", None)
+        if d.get("mimi_encode_mode", "chunked") == "chunked":
+            d.pop("mimi_encode_mode", None)
         return super().hash(d)
 
     def tasks(self):
@@ -1417,6 +1425,8 @@ class PodcastEpisodeIngest(Job):
         if self.max_items:
             args += ["--max_items", self.max_items]
         # getattr: shards pickled before the parameter existed.
+        if getattr(self, "mimi_encode_mode", "chunked") != "chunked":
+            args += ["--encode_mode", self.mimi_encode_mode]
         if getattr(self, "loudness_norm", None) is not None:
             args += ["--loudness_norm", json.dumps(self.loudness_norm, sort_keys=True)]
 
