@@ -58,6 +58,7 @@ from sisyphus import Job, Task, tk
 
 from i6_experiments.users.dorian_koch.speech_llm.common import (
     job_progress_fraction,
+    moshi_family_lib_parent,
     run_worker_script,
 )
 from i6_experiments.users.dorian_koch.speech_llm.tts import InstallFFmpeg
@@ -144,22 +145,6 @@ def _moshi_pythonpath() -> str:
         parts.append(lib_parent)
     parts.append(root)
     return os.pathsep.join(parts)
-
-
-def _moshi_family_lib_parent() -> str:
-    """Absolute dir to put on PYTHONPATH so ``import moshi_family...`` resolves in a job venv.
-
-    Walks up from this file to the recipe root rather than resolving symlinks: ``recipe/...`` paths
-    are symlinks into the source repos, and resolving them lands outside the tree the worker expects.
-    This is the same unresolved walk ``finetune.py`` uses; getting it wrong is a
-    ``ModuleNotFoundError`` five seconds into a job that has already been allocated a GPU.
-    """
-    from pathlib import Path
-
-    root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
-    if not root:
-        raise RuntimeError("could not locate the recipe root from podcast_ingest.py")
-    return os.path.join(root, "speech_llm", "full_duplex")
 
 
 class PodcastWorkIndex(Job):
@@ -500,7 +485,7 @@ class PodcastMimiIngest(Job):
             return None
 
     def run(self):
-        lib_parent = _moshi_family_lib_parent()
+        lib_parent = moshi_family_lib_parent()
         script = os.path.join(lib_parent, "moshi_family", "podcast_ingest_main.py")
         shard = os.path.join(self.index_dir.get(), f"shard_{self.shard_idx:05d}.jsonl")
         if not os.path.exists(shard):
@@ -1045,7 +1030,7 @@ class PodcastDuplexIngest(Job):
             return None
 
     def run(self):
-        lib_parent = _moshi_family_lib_parent()
+        lib_parent = moshi_family_lib_parent()
         script = os.path.join(lib_parent, "moshi_family", "podcast_duplex_main.py")
         encoder = os.path.join(lib_parent, "moshi_family", "podcast_mimi_encode.py")
         shard = os.path.join(self.index_dir.get(), f"shard_{self.shard_idx:05d}.jsonl")
@@ -1366,7 +1351,7 @@ class PodcastEpisodeIngest(Job):
             return None
 
     def run(self):
-        lib_parent = _moshi_family_lib_parent()
+        lib_parent = moshi_family_lib_parent()
         script = os.path.join(lib_parent, "moshi_family", "podcast_episode_main.py")
         encoder = os.path.join(lib_parent, "moshi_family", "podcast_mimi_encode.py")
         shard = os.path.join(self.index_dir.get(), f"shard_{self.shard_idx:05d}.jsonl")
@@ -1634,7 +1619,7 @@ class PodcastDialogueSlice(Job):
             return None
 
     def run(self):
-        lib_parent = _moshi_family_lib_parent()
+        lib_parent = moshi_family_lib_parent()
         script = os.path.join(lib_parent, "moshi_family", "podcast_slice_main.py")
         run_worker_script(
             self.mimi_venv_python.get(),

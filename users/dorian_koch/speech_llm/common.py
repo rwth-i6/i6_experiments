@@ -356,6 +356,24 @@ def add_venv_python_lib_to_env(venv_python_path, env: dict) -> None:
     env["LD_LIBRARY_PATH"] = lib + ":" + env.get("LD_LIBRARY_PATH", "")
 
 
+def moshi_family_lib_parent() -> str:
+    """Absolute dir to put on PYTHONPATH so ``import moshi_family...`` resolves in a job venv.
+
+    Walks up from this file to the recipe root rather than resolving symlinks: ``recipe/...`` paths
+    are symlinks into the source repos, and resolving them lands outside the tree the worker expects.
+    This is the same unresolved walk ``finetune.py`` uses; getting it wrong is a
+    ``ModuleNotFoundError`` five seconds into a job that has already been allocated a GPU. Lives here
+    rather than in a job module so that any job's ``run()`` can call it: importing ``podcast_ingest``
+    at run time pulls in ``i6_core``, which job environments do not have.
+    """
+    from pathlib import Path
+
+    root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
+    if not root:
+        raise RuntimeError("could not locate the recipe root from common.py")
+    return os.path.join(root, "speech_llm", "full_duplex")
+
+
 def run_worker_script(
     python_exe,
     script_path,

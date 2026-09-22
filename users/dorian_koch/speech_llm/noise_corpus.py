@@ -14,7 +14,7 @@ import os
 
 from sisyphus import Job, Task, tk
 
-from i6_experiments.users.dorian_koch.speech_llm.common import run_worker_script
+from i6_experiments.users.dorian_koch.speech_llm.common import moshi_family_lib_parent, run_worker_script
 
 DNS5_BASE_URL = "https://dnschallengepublic.blob.core.windows.net/dns5archive/V5_training_dataset"
 DNS5_NOISE_FILES = (
@@ -72,11 +72,9 @@ class DnsNoisePool(Job):
             return f"{self._n_staged()}/{len(self.files)} tarballs staged"
 
     def run(self):
-        from i6_experiments.users.dorian_koch.speech_llm.podcast_ingest import _moshi_family_lib_parent
-
         run_worker_script(
             self.mimi_venv_python.get(),
-            os.path.join(_moshi_family_lib_parent(), "moshi_family", "dns_noise_main.py"),
+            os.path.join(moshi_family_lib_parent(), "moshi_family", "dns_noise_main.py"),
             [
                 "--out_dir",
                 self.out_dir.get(),
