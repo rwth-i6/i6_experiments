@@ -8,7 +8,8 @@ drawn per read in the loaders (``train_data_common.draw_stored_user_stream``). C
      variant records at least one effect and differs from the clean codes, and the record carries the
      clean probability; all probabilities 1 -> every variant has all three effects and the variants
      differ from each other; the same seed reproduces the same variants; all probabilities 0 raises.
-  2. SLICING. ``slice_codes`` on [V, K, F] == slicing each variant on its own (frames stay aligned).
+  2. SLICING. ``slice_codes`` on [V, K, F] == slicing each variant on its own (frames stay aligned), and the
+     real ``podcast_slice_main`` run on a one-episode part carries every variant and the draw record.
   3. DRAW. Clean at the recorded clean probability, else uniform over V; ``side`` picks the right
      column; a row without variants raises.
   4. PERSONAPLEX LOADER, with channel swapping: every read's user stream is the clean codes or a variant
@@ -19,8 +20,10 @@ moshi_family venv, CPU, ~3 min:
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_variants.py'
 """
 
+import glob
 import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -30,11 +33,11 @@ sys.path.insert(0, os.path.join(os.getcwd(), "recipe"))
 import numpy as np  # noqa: E402
 import pyarrow as pa  # noqa: E402
 import torch  # noqa: E402
-from datasets import Dataset, load_from_disk  # noqa: E402
+from datasets import Dataset, Sequence, load_from_disk  # noqa: E402
 
 from moshi.models import loaders as ml  # noqa: E402
 from moshi_family.podcast_ingest_main import encode_pair  # noqa: E402
-from moshi_family.podcast_mimi_encode import user_stream_variants  # noqa: E402
+from moshi_family.podcast_mimi_encode import part_features, user_stream_variants  # noqa: E402
 from moshi_family.personaplex.train_data import (  # noqa: E402
     PersonaPlexDataConfig,
     PersonaPlexTokenizer,
@@ -120,7 +123,36 @@ f0, f1 = 40, 180
 cut = slice_codes(va1.reshape(-1), k, f, f0, f1).reshape(3, k, f1 - f0)
 assert all(np.array_equal(cut[v], slice_codes(va1[v].reshape(-1), k, f, f0, f1).reshape(k, f1 - f0)) for v in range(3))
 assert np.array_equal(cut[0], va1[0][:, f0:f1])
-print("[2] slice_codes keeps variant frames aligned with the clean frames")
+
+# The real slicer on a one-episode part in the ingest schema. Its rows arrive as numpy arrays
+# (`with_format("numpy")`), which is what broke the pilot: `row.get("codes_a_aug") or []`.
+_defaults = {"string": "", "binary": b"", "float32": 0.0, "int32": 0, "int64": 0, "int16": 0}
+feats = part_features("episode")
+ep = {n: ([] if isinstance(t, Sequence) else _defaults[t.dtype]) for n, t in feats.items()}
+turns = [("A", 2.3, 7.0), ("B", 7.0, 12.0), ("A", 12.0, 17.0)]  # one dialogue, 2.3 s .. 17 s
+ep.update(
+    item_id="ep#0", episode_id="ep", source="rss", feed="feed", span_start_sec=0.0, duration_sec=f / 12.5,
+    n_codebooks=k, n_frames=f, frame_rate=12.5, sample_rate=24000, asr_json=None,
+    codes_a=clean[0].reshape(-1), codes_b=clean[1].reshape(-1), codes_a_aug=va1.reshape(-1), codes_b_aug=vb1.reshape(-1),
+    n_user_aug=3, user_aug_json=json.dumps(meta1),
+    diar_turns_json=json.dumps([{"speaker": s, "start": t0, "end": t1} for s, t0, t1 in turns]),
+)
+ep_dir, dlg_dir = os.path.join(tmp, "episodes"), os.path.join(tmp, "dialogues")
+Dataset.from_dict({n: [v] for n, v in ep.items()}, features=feats).save_to_disk(os.path.join(ep_dir, "parts", "part_00000"))
+(duplexchat,) = glob.glob("work/i6_core/tools/git/CloneGitRepositoryJob.*/output/DuplexChat/src")[:1]
+subprocess.run(
+    [sys.executable, os.path.abspath("recipe/speech_llm/full_duplex/moshi_family/podcast_slice_main.py"),
+     "--in_dir", ep_dir, "--out_dir", dlg_dir, "--repo_src", os.path.abspath(duplexchat), "--min_dialogues_per_episode", "0"],
+    check=True, cwd=tmp, env={**os.environ, "PYTHONPATH": os.path.abspath("recipe/speech_llm/full_duplex")},
+)
+(dlg,) = load_from_disk(os.path.join(dlg_dir, "parts", "part_00000"))
+d0, d1 = int(np.floor(2.3 * 12.5)), int(np.ceil(17.0 * 12.5))
+assert (int(dlg["n_frames"]), int(dlg["n_user_aug"])) == (d1 - d0, 3), (dlg["n_frames"], dlg["n_user_aug"])
+for s, vv in (("a", va1), ("b", vb1)):
+    got = np.asarray(dlg[f"codes_{s}_aug"], np.int16).reshape(3, k, d1 - d0)
+    assert np.array_equal(got, vv[:, :, d0:d1]), f"slicer: channel {s} variants misaligned"
+assert dlg["user_aug_json"] == json.dumps(meta1), "slicer dropped or changed the draw record"
+print("[2] slice_codes keeps variant frames aligned; the real slicer carries every variant and the draw record")
 
 CLEAN_PROB = meta["clean_prob"]
 row = {
