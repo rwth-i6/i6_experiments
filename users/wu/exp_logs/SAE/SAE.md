@@ -106,8 +106,13 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    successor is the lexicon inside the marginalised lattice (GPU trie DP; survey and literature
    banked), own phase `SAE_4A_lexlat.md`: E-1 PASS, E0 read (C = 4096), **E1 FAIL on both cost
    clauses (C = 4096 OOM at 95 GiB against the 80 GiB bar; C = 1024 at 802–912 s per step, about
-   41× the 1202 s per sub-epoch bar), PAUSED by the user 2026-09-21**, pack not funded, fallback
-   audit owed on resume. **User ruling 2026-09-21: the 3.3 M transformer phone LM is approved as
+   41× the 1202 s per sub-epoch bar)**; user ruling 2026-09-21 made it the main line (cost work
+   until E1 passes, no moved bar); the k2 second-graph form (amendment 9) PASSED E1 and the
+   over-count read, twelve arms ran 20 sub-epochs on three nodes 2026-09-22, gate G4a.9 read
+   CANNOT_TELL with PASS unreachable (every arm PER 0.81-0.86, the deranged null matches the
+   treatment), diagnosis D1-D8 in the phase file; user ruling 2026-09-22: train longer to the PER
+   plateau (`k2lat_20_ma3000` continued to 60 sub-epochs, phase file "Extension E60"), other
+   changes wait for the diagnosis write-up. **User ruling 2026-09-21: the 3.3 M transformer phone LM is approved as
    the scorer despite the Step 0b bar**, so the prior phase's soft (straight-through) arm is
    funded at N = 20 with four arms (two seeds, a 0.3× strength point, a permuted-identity null),
    spec in `SAE_4A_prior.md` "Training arm, reopened by user ruling"; build in progress.
