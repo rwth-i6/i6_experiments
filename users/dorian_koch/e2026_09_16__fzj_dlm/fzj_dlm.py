@@ -48,30 +48,37 @@ WINNER_TRAIN_JOB = "i6_core/returnn/training/ReturnnTrainingJob.8iFbool3x3TU"
 #   "train" -- all bundles + the paper-best DLM trained on them (4-GPU DDP), user decision 2026-09-16 22:20
 DLM_DATA_STAGE = "train"
 
-# German cross-lingual arms (german_xling.py). "off" | "surgery" | "armA" | "armB" | "armC".
-# ⚠ COMMA-SEPARATED, and treated as a SET -- "armB,armC" builds both. This is not cosmetic: the
-# stages are mutually exclusive branches, so flipping a single-valued flag from "armB" to "armC"
+# German arm names say what each trains on, on top of the vocab-surgered English winner (ep38):
+#   zeroshot             -- no German training; winner decoded on MLS-de as-is (context only)
+#   deAudio              -- 9 h German paired audio only (the baseline)
+#   deText+enAudio       -- German text injection + English LS-960 audio (the claim)
+#   deText+deAudio       -- German text injection + 9 h German audio x4, no English audio
+#   deText+enAudio-enSpm -- first deText+enAudio run, INVALID: injection text used the English SPM (§104)
+#   deText-only          -- German text injection, no audio at all (dropped, RETURNN empty-stream bugs)
+# German cross-lingual arms (german_xling.py). "off" | "surgery" | "zeroshot" | "deText+enAudio-enSpm" | "deAudio".
+# ⚠ COMMA-SEPARATED, and treated as a SET -- "deText+enAudio-enSpm,deAudio" builds both. This is not cosmetic: the
+# stages are mutually exclusive branches, so flipping a single-valued flag from "deText+enAudio-enSpm" to "deAudio"
 # REMOVES arm B from the graph, and the manager then stops tracking and resubmitting it. Arm B is a
 # multi-hour training that resumes across walltime boundaries, so dropping it mid-flight would
-# silently strand it. Verified 2026-09-19 by graph diff: under "armC" alone, arm B's training id
+# silently strand it. Verified 2026-09-19 by graph diff: under "deAudio" alone, arm B's training id
 # is absent.
-# "armA" = the winner, UNMODIFIED, decoded on MLS-de test. It needs no training and no graph-build
+# "zeroshot" = the winner, UNMODIFIED, decoded on MLS-de test. It needs no training and no graph-build
 # patch: the recog helpers take `task` as a parameter, so the German task is simply passed in.
 # ⚠ Arm A is CONTEXT, never the baseline: the original 10,240-piece SPM is uppercase English and
 # cannot write German orthography at all (no Ä Ö Ü), so its WER will be catastrophic by construction.
 # Quoting an A->B gain as the contribution would be inflated by "we added three characters".
-# armB0 (zero paired audio) crashed twice with `RuntimeError: max(): ... input.numel() == 0`.
+# deText-only (zero paired audio) crashed twice with `RuntimeError: max(): ... input.numel() == 0`.
 # Root cause found 2026-09-20 and FIXED in RETURNN: `_packed_backend._torch_relayout_frames:5198`
 # bound-checks `pos_raw.max() <= n_out`, and `.max()` raises on an empty tensor -- reached because
 # `aed_pseudo_enc_frontend_single_stream_train_step:6037` runs feature extraction over the audio
 # stream unconditionally, and under `ls_audio_subset=0` that stream is present but EMPTY.
 # The bound is vacuously true for an empty layout, so the fix short-circuits on the (static) shape.
-# ⚠ That patch is LOCAL to tools/returnn -- see backlog; it must survive a pull or armB0 breaks again.
-# armB0 DROPPED (user call, 2026-09-20): it needs three RETURNN fixes in three files and the third
-# (device propagation through the empty source) is of unknown depth. armBC answers the same question
+# ⚠ That patch is LOCAL to tools/returnn -- see backlog; it must survive a pull or deText-only breaks again.
+# deText-only DROPPED (user call, 2026-09-20): it needs three RETURNN fixes in three files and the third
+# (device propagation through the empty source) is of unknown depth. deText+deAudio answers the same question
 # -- does the pseudo-encoder carry German once the English-audio language cue is gone -- with zero
-# framework work, and is the better system besides. armB2 is arm B re-run with the German SPM (§104).
-GERMAN_STAGE = "armB,armB2,armBC,armC"
+# framework work, and is the better system besides. deText+enAudio is arm B re-run with the German SPM (§104).
+GERMAN_STAGE = "deText+enAudio-enSpm,deText+enAudio,deText+deAudio,deAudio"
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -156,6 +163,7 @@ LOQ_EVAL_ALBERT_ASR = True
 LOQ_BEST_ASR_NAME = "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s"
 _dlm_hyp_jobs: List[Any] = []
 _dlm_task_ref: List[Any] = []  # the DLM data task, for console inspection
+
 
 def pinned_path(path: str) -> tk.Path:
     """
@@ -281,11 +289,18 @@ def py():
     )
 
     _german_stages = {s.strip() for s in GERMAN_STAGE.split(",") if s.strip()}
-    assert _german_stages <= {"off", "surgery", "armA", "armB", "armB2", "armB0", "armBC", "armC"}, (
-        f"unknown German stage: {_german_stages}"
-    )
+    assert _german_stages <= {
+        "off",
+        "surgery",
+        "zeroshot",
+        "deText+enAudio-enSpm",
+        "deText+enAudio",
+        "deText-only",
+        "deText+deAudio",
+        "deAudio",
+    }, f"unknown German stage: {_german_stages}"
 
-    if _german_stages & {"surgery", "armA", "armB", "armC"}:
+    if _german_stages & {"surgery", "zeroshot", "deText+enAudio-enSpm", "deAudio"}:
         # Widen the winner's output layer to the German vocab (10,240 -> 10,243). Cheap (CPU) and a
         # prerequisite for arms B/C, so it is built as soon as any German stage is on -- running it
         # early de-risks the arm rather than discovering a broken checkpoint mid-training.
@@ -295,7 +310,7 @@ def py():
         _de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=GERMAN_BUDGET)
         tk.register_output(f"{prefix}/german/winner-vocab-extended.pt", _de_ckpt)
 
-    if "armB" in _german_stages:
+    if "deText+enAudio-enSpm" in _german_stages:
         # Arm B -- THE CLAIM: English LS-960 audio + German text injection, from the surgered
         # checkpoint. See german_xling.train_german_arm_b for what differs from winner_plus_tts.
         from .german_xling import train_german_arm_b
@@ -304,7 +319,7 @@ def py():
             prefix=f"{prefix}/german", winner_model=winner_model, budget=GERMAN_BUDGET, smoke=GERMAN_SMOKE
         )
 
-    if "armB2" in _german_stages:
+    if "deText+enAudio" in _german_stages:
         # 🔴 Arm B, RE-RUN CORRECTLY (backlog 104). Arm B as first run is INVALID: its
         # `glow_tts_text_spm_opts` pointed at the ENGLISH 10,240 SPM while its four other tokenizers
         # used the German 10,243, so the injection text went through a tokenizer that cannot encode
@@ -314,7 +329,7 @@ def py():
         #
         # ⚠ The tokenizer bug is NOT the whole 95.75 WER -- umlaut words are only 7.5% of test words,
         # so it explains at most ~7.5 points (§104d retracts my first over-claim here). The rest is
-        # the code-switching that armB0/armB+C address. This arm isolates the tokenizer fix alone.
+        # the code-switching that deText-only/deText+enAudio-enSpm+C address. This arm isolates the tokenizer fix alone.
         from .german_xling import train_german_arm_b
 
         train_german_arm_b(
@@ -326,11 +341,11 @@ def py():
             german_dev=True,
         )
 
-    if "armBC" in _german_stages:
-        # 🔴 Arm B+C (user call, 2026-09-20) -- the replacement for armB0, and the plan's optional
+    if "deText+deAudio" in _german_stages:
+        # 🔴 Arm B+C (user call, 2026-09-20) -- the replacement for deText-only, and the plan's optional
         # 4th arm: German paired audio AND German text injection, from the surgered checkpoint.
         #
-        # It answers armB0's question without touching RETURNN. armB0 wanted to delete the English
+        # It answers deText-only's question without touching RETURNN. deText-only wanted to delete the English
         # audio branch because language was perfectly predictable from feature type (real audio =>
         # English, pseudo audio => German), which is the cue arm B learned and code-switches on. Arm
         # B+C removes that cue just as completely -- no English audio remains -- while keeping the
@@ -339,7 +354,7 @@ def py():
         # It is also the better system and the natural "does injection add anything on top of the
         # audio we already have" ablation against arm C.
         #
-        # ⚠ Carries the §104 SPM fix, like armB2 -- an arm that cannot emit an umlaut answers nothing.
+        # ⚠ Carries the §104 SPM fix, like deText+enAudio -- an arm that cannot emit an umlaut answers nothing.
         from .german_xling import train_german_arm_b
 
         train_german_arm_b(
@@ -352,7 +367,7 @@ def py():
             german_dev=True,
         )
 
-    if "armB0" in _german_stages:
+    if "deText-only" in _german_stages:
         # Arm B-zero (user call, 2026-09-20): **no paired audio at all** -- the pseudo-encoder alone.
         #
         # Why: arm B scored 95.75 WER while demonstrably knowing German words, code-switching into
@@ -378,7 +393,7 @@ def py():
             german_dev=True,
         )
 
-    if "armC" in _german_stages:
+    if "deAudio" in _german_stages:
         # Arm C -- the BASELINE: MLS-de paired audio at the same budget, no text injection.
         # This is the plan's one controlled comparison (B vs C); see train_german_arm_c for the
         # list of everything held fixed against arm B.
@@ -409,14 +424,14 @@ def py():
                     no_recog=True,
                 )
 
-    if "armA" in _german_stages:
+    if "zeroshot" in _german_stages:
         # Arm A: winner zero-shot on MLS-de test. Same recog helper and the same winner model object
         # as the English table above -- only `task` differs, which is what makes it a clean control.
         from .german_xling import get_mls_de_task
 
         _de_task = get_mls_de_task(extended_vocab=False)
         _de_res = _ctc_only_recog_batched(
-            prefix=f"{prefix}/german/armA-winner-zeroshot-mls-de",
+            prefix=f"{prefix}/german/zeroshot-winner-mls-de",
             task=_de_task,
             ctc_model=ctc_lm_kwargs["ctc_model"],
             aux_ctc_layer=ctc_lm_kwargs["aux_ctc_layer"],
@@ -426,7 +441,7 @@ def py():
         from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
 
         notify_result(
-            "german-armA-winner-zeroshot",
+            "german-zeroshot-winner",
             {"mls_de_test_ctc": _de_res.output},
             note=(
                 "Arm A: English winner, UNMODIFIED vocab, zero-shot on MLS-de test."
@@ -566,9 +581,7 @@ def py():
         # costs a job. ⚠ Bundle 02 is parts 63-142 and straddles the boundary -- do not use it.
         for _key, _outs in _ft_hyp_jobs[FT_HYPS_CLEAN_BUNDLE].out_files.items():
             for _fn, _path in _outs.items():
-                tk.register_output(
-                    f"{prefix}/dlm-data-ft/hyps-batched-{FT_HYPS_CLEAN_BUNDLE:02d}/{_key}/{_fn}", _path
-                )
+                tk.register_output(f"{prefix}/dlm-data-ft/hyps-batched-{FT_HYPS_CLEAN_BUNDLE:02d}/{_key}/{_fn}", _path)
 
         for _key, _outs in _ft_hyp_jobs[1].out_files.items():
             for _fn, _path in _outs.items():
@@ -671,9 +684,7 @@ def py():
     # also makes the two directly comparable: imported n1280 (LfAv45zfWLtF, nEp200) vs ours
     # (pMb0YjIfsID0) on the winner's own hypotheses.
     if EVAL_OUR_TRAINED_DLM:
-        with unittest.mock.patch.object(
-            _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
-        ):
+        with unittest.mock.patch.object(_fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)):
             _train_winner(prefix + f"/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}")
 
         # The same swap for the two resumed arms, so the DLM-sum rows of "+TTS resumed" and "keep
@@ -681,9 +692,7 @@ def py():
         # the trainings and non-DLM recogs resolve to the identical jobs of the calls above.
         from .winner_plus_tts import train_winner_plus_tts
 
-        with unittest.mock.patch.object(
-            _fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)
-        ):
+        with unittest.mock.patch.object(_fzj, "_get_imported_dlm", lambda: _get_dlm(OUR_TRAINED_DLM, model_dim=1280)):
             if WINNER_COLD_NO_TTS:
                 train_winner_plus_tts(
                     prefix=f"{prefix}/dlm-ours-ep{OUR_TRAINED_DLM_EPOCH:03d}/winner-plus-tts",
@@ -802,7 +811,9 @@ def _loq_eval_winner(*, prefix: str, ctc_lm_kwargs: Dict[str, Any]):
     for subset in EvalSubSplits:
         task = get_loquacious_eval_task_raw(eval_set_name=subset)
         p = f"{prefix}/{subset}"
-        _ctc_only_recog_batched(prefix=f"{p}/ctc-only-batched", task=task, ctc_model=ctc_lm_kwargs["ctc_model"], **_common)
+        _ctc_only_recog_batched(
+            prefix=f"{p}/ctc-only-batched", task=task, ctc_model=ctc_lm_kwargs["ctc_model"], **_common
+        )
         ctc_recog_recomb_labelwise_prior_auto_scale_batched(
             prefix=f"{p}/ctc+lm-batched",
             task=task,

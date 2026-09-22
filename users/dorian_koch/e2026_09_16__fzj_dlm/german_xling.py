@@ -577,7 +577,7 @@ class PatchAddGermanDevToTrain:
                 # 🔴 Must go through the SAME empty-phonemes wrapper the English eval sets get
                 # (`_train_tts_encoder`, `_wrap_eval_with_empty_phonemes`). A bare HuggingFaceDataset
                 # has no `phonemes` key, and eval_model raises `KeyError: 'phonemes'` after the whole
-                # first sub-epoch has trained (both armB2 and armBC died that way, 2026-09-21).
+                # first sub-epoch has trained (both deText+enAudio and deText+deAudio died that way, 2026-09-21).
                 from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_fzj import (
                     PHONEMES_DATA_KEY,
                     _wrap_eval_with_empty_phonemes,
@@ -672,7 +672,7 @@ class PatchAsrBranchToGerman:
     Context manager: replace the CombinedDataset's ``asr`` branch with **German** paired audio.
 
     This is arm **B+C** -- German audio *and* German text injection -- the plan's optional 4th arm,
-    and (user call, 2026-09-20) the replacement for armB0 after that hit a third RETURNN defect in
+    and (user call, 2026-09-20) the replacement for deText-only after that hit a third RETURNN defect in
     the empty-stream path.
 
     🔴 **What it buys over arm B.** In arm B the ASR branch is English LS-960, so **language is
@@ -680,7 +680,7 @@ class PatchAsrBranchToGerman:
     pseudo-audio row a German one. Arm B learned exactly that cue and code-switches on real German
     audio (``ALLES WAS ICH INSIDE AN IS DASS WHEN UNTER``) while clearly knowing German words.
     Swapping the branch to German removes the cue **completely** -- there is no English audio left --
-    which is what armB0 was trying to achieve by deleting the branch, without the degenerate
+    which is what deText-only was trying to achieve by deleting the branch, without the degenerate
     zero-length tensors that RETURNN's packed path mishandles.
 
     ⚠ **The repeat factor is RECOMPUTED, never inherited, and that is the whole difficulty here.**
@@ -2144,7 +2144,7 @@ def train_german_arm_c(
     _peak_lr = ARM_C_PEAK_LR if peak_lr is None else peak_lr
     _nep = ARM_C_NEP if nep is None else nep
     if name is None:
-        name = f"german-armC-audio-{budget}-nEp{_nep}"
+        name = f"german-deAudio-{budget}-nEp{_nep}"
         if peak_lr is not None:
             name += f"-lr{_peak_lr:g}"
         if keep_epochs is not None:
@@ -2271,17 +2271,22 @@ def train_german_arm_b(
     from .winner_plus_tts import winner_checkpoint
 
     assert budget in ("1h", "9h"), budget
-    name = name or f"german-armB-textinj-{budget}-nEp{ARM_B_NEP}"
-    if no_audio:
-        name += "-noAudio"
-    if fix_text_spm:
-        name += "-deSpm"
-    if german_dev:
-        name += "-deDev"
-    if german_audio:
-        # The repeat factor is in the NAME: it is the one knob with no obviously-right value
-        # (see PatchAsrBranchToGerman), so two calibrations must not collide on one job.
-        name += f"-deAudio{german_audio_repeat}"
+    if name is None:
+        # The name says what the arm trains on (see the legend in fzj_dlm.py).
+        assert not (no_audio and german_audio), "no_audio and german_audio are exclusive"
+        if no_audio:
+            name = f"german-deText-only-{budget}"
+        elif german_audio:
+            # The repeat factor is in the NAME: it is the one knob with no obviously-right value
+            # (see PatchAsrBranchToGerman), so two calibrations must not collide on one job.
+            name = f"german-deText+deAudio{german_audio_repeat}x-{budget}"
+        else:
+            name = f"german-deText+enAudio-{budget}"
+        name += f"-nEp{ARM_B_NEP}"
+        if not fix_text_spm:
+            name += "-enSpm"  # the invalid first run (§104): injection text through the English SPM
+        if not german_dev:
+            name += "-noDeDev"
     de_ckpt = get_surgered_winner_checkpoint(winner_checkpoint(winner_model), budget=budget)
     tables = german_pseudo_enc_config(budget=budget)
 
@@ -2300,7 +2305,7 @@ def train_german_arm_b(
         ),
         # Arm B+C: swap the ENGLISH LS-960 asr branch for German paired audio, which removes the
         # feature-type -> language cue that made arm B code-switch. `nullcontext` keeps arm B's and
-        # armB2's hashes frozen.
+        # deText+enAudio's hashes frozen.
         (
             PatchAsrBranchToGerman(budget=budget, repeat_epoch=german_audio_repeat)
             if german_audio
