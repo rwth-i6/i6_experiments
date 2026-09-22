@@ -1226,6 +1226,7 @@ class PodcastEpisodeIngest(Job):
         perm_scorer: str = "energy",
         loudness_norm: dict | None = None,
         mimi_encode_mode: str = "chunked",
+        user_augment: dict | None = None,
         rqmt: dict | None = None,
     ):
         self.duplex_venv_python = duplex_venv_python
@@ -1285,6 +1286,12 @@ class PodcastEpisodeIngest(Job):
         # that default so existing shards keep their hash. "offline" = the reference encoding.
         assert mimi_encode_mode in ("chunked", "offline"), mimi_encode_mode
         self.mimi_encode_mode = mimi_encode_mode
+        # HASHED when set: precomputed augmented user-stream variants per channel, stored next to
+        # the clean codes -- {"variants": V, "seed": s, "augment": {UserAugmentCfg fields}}. See
+        # podcast_mimi_encode.user_stream_variants. Excluded at None so existing shards keep their hash.
+        if user_augment is not None:
+            assert int(user_augment["variants"]) > 0 and "augment" in user_augment, user_augment
+        self.user_augment = user_augment
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
         # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
@@ -1324,6 +1331,8 @@ class PodcastEpisodeIngest(Job):
             d.pop("loudness_norm", None)
         if d.get("mimi_encode_mode", "chunked") == "chunked":
             d.pop("mimi_encode_mode", None)
+        if d.get("user_augment") is None:
+            d.pop("user_augment", None)
         return super().hash(d)
 
     def tasks(self):
@@ -1427,6 +1436,8 @@ class PodcastEpisodeIngest(Job):
         # getattr: shards pickled before the parameter existed.
         if getattr(self, "mimi_encode_mode", "chunked") != "chunked":
             args += ["--encode_mode", self.mimi_encode_mode]
+        if getattr(self, "user_augment", None) is not None:
+            args += ["--user_augment", json.dumps(self.user_augment, sort_keys=True)]
         if getattr(self, "loudness_norm", None) is not None:
             args += ["--loudness_norm", json.dumps(self.loudness_norm, sort_keys=True)]
 
@@ -1945,6 +1956,12 @@ class PodcastCodesTrainData(Job):
                 "frame_rate": Value("float32"),
                 "codes_assistant": Sequence(Value("int16")),
                 "codes_user": Sequence(Value("int16")),
+                # Precomputed augmented user-stream variants of BOTH channels, flat [V, K, F] (see
+                # podcast_mimi_encode.user_stream_variants): the user side for plain reads, the
+                # assistant side for reads that swap channels. Empty with n_user_aug = 0 if none.
+                "codes_assistant_aug": Sequence(Value("int16")),
+                "codes_user_aug": Sequence(Value("int16")),
+                "n_user_aug": Value("int32"),
                 # ⚠ `List`, NOT `Sequence`. A `Sequence` whose inner feature is a dict is
                 # TRANSPOSED by HF datasets into a dict-of-lists, so the rows written here (a list
                 # of per-word dicts) fail to encode at all. This is the same spelling as
@@ -2047,6 +2064,9 @@ class PodcastCodesTrainData(Job):
                             # so this is a rename, never a reshape.
                             row["codes_assistant"] = _np.asarray(r[f"codes_{ch}"], dtype=_np.int16)
                             row["codes_user"] = _np.asarray(r[f"codes_{other}"], dtype=_np.int16)
+                            row["codes_assistant_aug"] = _np.asarray(r.get(f"codes_{ch}_aug") or [], dtype=_np.int16)
+                            row["codes_user_aug"] = _np.asarray(r.get(f"codes_{other}_aug") or [], dtype=_np.int16)
+                            row["n_user_aug"] = int(r.get("n_user_aug") or 0)
                             row["alignments"] = [
                                 {
                                     "text": w["text"],
@@ -2072,6 +2092,9 @@ class PodcastCodesTrainData(Job):
             # plausible length, and it trains quietly into noise.
             ca = _np.asarray(r[f"codes_{ch}"], dtype=_np.int16).reshape(k_cb, n_fr)
             cu = _np.asarray(r[f"codes_{other}"], dtype=_np.int16).reshape(k_cb, n_fr)
+            # Variants [V, K, F]; V = 0 when the corpus has none.
+            ca_aug = _np.asarray(r.get(f"codes_{ch}_aug") or [], dtype=_np.int16).reshape(-1, k_cb, n_fr)
+            cu_aug = _np.asarray(r.get(f"codes_{other}_aug") or [], dtype=_np.int16).reshape(-1, k_cb, n_fr)
             for wi, (a, b) in enumerate(wins):
                 f0 = int(_np.floor(a * fr))
                 f1 = min(n_fr, int(_np.ceil(b * fr)))
@@ -2091,6 +2114,9 @@ class PodcastCodesTrainData(Job):
                     "frame_rate": fr,
                     "codes_assistant": ca[:, f0:f1].reshape(-1),
                     "codes_user": cu[:, f0:f1].reshape(-1),
+                    "codes_assistant_aug": ca_aug[:, :, f0:f1].reshape(-1),
+                    "codes_user_aug": cu_aug[:, :, f0:f1].reshape(-1),
+                    "n_user_aug": int(cu_aug.shape[0]),
                     # Re-based to the WINDOW start, which is frame-aligned (t0 = f0 / fr), so every
                     # word keeps its exact frame against the sliced codes.
                     "alignments": [

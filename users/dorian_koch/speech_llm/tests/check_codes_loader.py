@@ -396,6 +396,9 @@ def main():
                 "frame_rate": [12.5],
                 "codes_assistant": [[1, 2, 3]],
                 "codes_user": [[4, 5, 6]],
+                "codes_assistant_aug": [[]],
+                "codes_user_aug": [[]],
+                "n_user_aug": [0],
                 "alignments": [
                     [
                         {"text": "though.", "start": 0.79, "end": 0.95, "speaker": "assistant"},

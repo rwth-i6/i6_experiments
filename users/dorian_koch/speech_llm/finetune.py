@@ -511,6 +511,7 @@ system_prompt_key: "{hp.get("system_prompt_key", "context")}"
 voice_codes_key: "{hp.get("voice_codes_key") or ""}"
 silence_frames: {int(hp.get("silence_frames", 6))}
 swap_channels: {"true" if hp.get("swap_channels") else "false"}
+stored_user_augment: {"true" if hp.get("stored_user_augment") else "false"}
 emit_epad: {_opt_bool("emit_epad")}
 onset_floor: {_opt_bool("onset_floor")}
 text_lead_frames: {_tlf}
@@ -616,6 +617,7 @@ onset_floor: {str(bool(hp.get("onset_floor", False))).lower()}
 text_lead_frames: {int(hp.get("text_lead_frames", 0))}
 word_overlap: "{hp.get("word_overlap", "overwrite")}"
 aug_gain_prob: {float(hp.get("aug_gain_prob", 0.0))}
+stored_user_augment: {"true" if hp.get("stored_user_augment") else "false"}
 aug_noise_prob: {float(hp.get("aug_noise_prob", 0.0))}
 aug_echo_reverb_prob: {float(hp.get("aug_echo_reverb_prob", 0.0))}
 token_corrupt_audio_prob: {float(hp.get("token_corrupt_audio_prob", 0.0))}
