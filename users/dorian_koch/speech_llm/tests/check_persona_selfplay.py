@@ -12,6 +12,9 @@
      once, and every row must equal its own B=1 ``converse`` run token for token -- rows still in
      their prompt are forced, rows past it keep their own output. With the per-row forcing switched
      off the comparison must FAIL.
+  4. SMALL CONTEXT. The same weights built with a context just large enough for the frames stepped
+     give exactly the full-context output (the context sizes only the KV cache and the attention
+     window); a context smaller than that is refused, not silently wrapped.
 
 moshi_family venv, CPU, seconds (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \
@@ -240,4 +243,25 @@ assert not all(np.array_equal(ca2[i], ref[i][0][0][:, :NF]) for i in range(3)), 
 print(
     f"[3] batched == B=1 for 3 rows with prompt lengths {la.tolist()} ({NF} frames each); without per-row forcing it differs"
 )
+# ---- 4 ----
+def make_model_ctx(ctx):
+    kw_c = dict(kw, context=ctx)
+    lm = LMModel(device="cpu", dtype=torch.float64, **kw_c).eval()
+    lm.load_state_dict(base_lm.state_dict())
+    g = LMGen(lm, device="cpu", use_sampling=False, audio_silence_frame_cnt=SIL, sample_rate=24000, frame_rate=12.5)
+    g.streaming_forever(1)
+    return types.SimpleNamespace(lm_gen=g, mimi=Dummy(), other_mimi=Dummy())
+
+
+steps = int(max(la.max(), lb.max())) + NF
+kw_rows = dict(voices_a=[r[0] for r in rows], texts_a=[r[1] for r in rows], voices_b=[r[2] for r in rows],
+               texts_b=[r[3] for r in rows], n_frames=NF, silence_frames=SIL)
+(((cs, _), (cs_b, _)), _) = sp.converse_batched(make_model_ctx(steps), make_model_ctx(steps), **kw_rows)
+assert np.array_equal(cs, ca) and np.array_equal(cs_b, cb), "a just-sufficient context changed the output"
+try:
+    sp.converse_batched(make_model_ctx(steps - 1), make_model_ctx(steps - 1), **kw_rows)
+    raise RuntimeError("a context shorter than the run was accepted")
+except AssertionError as e:
+    assert "exceed the LM context" in str(e), e
+print(f"[4] context {steps} (= frames stepped) == context {kw['context']}; context {steps - 1} is refused")
 print("OK")
