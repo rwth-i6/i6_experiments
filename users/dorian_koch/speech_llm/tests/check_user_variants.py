@@ -4,6 +4,8 @@ WHY. A codes corpus cannot be augmented after the fact (a decode -> re-encode ro
 42% of the codes, E19), so the Moshi paper's user gain / noise / echo+reverb is computed at INGEST from
 the real waveform (``podcast_mimi_encode.user_stream_variants``), stored next to the clean codes, and
 drawn per read in the loaders (``train_data_common.draw_stored_user_stream``). Checked on real mimi codes:
+  0. NOISE TRACK. ``build_noise_track`` plans from the arrow offsets and fetches clips concurrently; it
+     must lay down exactly what the serial fill it replaced did (unequal clip lengths, one empty clip).
   1. ENCODER. At the paper's probabilities, with noise from a pool in ``DnsNoisePool``'s format: every
      variant records at least one effect and differs from the clean codes, and the record carries the
      clean probability; all probabilities 1 -> every variant has all three effects and the variants
@@ -45,7 +47,13 @@ from moshi_family.personaplex.train_data import (  # noqa: E402
     system_prompt_prefix,
 )
 from moshi_family.podcast_slice_main import slice_codes  # noqa: E402
-from moshi_family.train_data_common import draw_stored_user_stream, read_arrow_table  # noqa: E402
+from moshi_family.train_data_common import (  # noqa: E402
+    NoisePool,
+    UserAugmentCfg,
+    build_noise_track,
+    draw_stored_user_stream,
+    read_arrow_table,
+)
 
 K = ml.CheckpointInfo.from_hf_repo("kyutai/moshiko-pytorch-bf16").get_mimi(device="cpu")
 K.set_num_codebooks(8)
@@ -76,11 +84,49 @@ tmp = tempfile.mkdtemp(prefix="check_user_variants_")
 pool_dir = os.path.join(tmp, "noise")
 os.makedirs(pool_dir)
 schema = pa.schema([("name", pa.string()), ("audio", pa.list_(pa.int16()))])
-noise = [(np.random.default_rng(s).standard_normal(24000 * 5) * 3000).astype(np.int16) for s in (1, 2)]
+# Unequal lengths, and one EMPTY clip: clip length decides where the next clip lands, and the empty
+# one takes its own branch -- a pool of identical clips would hide both.
+noise = [(np.random.default_rng(s).standard_normal(24000 * n) * 3000).astype(np.int16) for s, n in ((1, 5), (2, 2))]
+noise.append(np.zeros(0, np.int16))
 with pa.OSFile(os.path.join(pool_dir, "part.arrow"), "wb") as sink, pa.ipc.new_file(sink, schema) as w:
-    w.write_batch(pa.record_batch([pa.array(["n1", "n2"]), pa.array(noise, type=pa.list_(pa.int16()))], schema=schema))
+    w.write_batch(
+        pa.record_batch([pa.array(["n1", "n2", "n3"]), pa.array(noise, type=pa.list_(pa.int16()))], schema=schema)
+    )
 with open(os.path.join(pool_dir, "meta.json"), "w") as fh:
-    json.dump({"sample_rate": 24000, "n_clips": 2}, fh)
+    json.dump({"sample_rate": 24000, "n_clips": 3}, fh)
+
+# The noise track plans from the arrow offsets and fetches the clips concurrently (a cold clip read is
+# ~140 ms of pure filesystem latency). It must lay down exactly what a serial fill did.
+_pool = NoisePool(pool_dir, sample_rate=24000)
+_cfg = UserAugmentCfg()
+assert list(_pool.lengths()) == [24000 * 5, 24000 * 2, 0], list(_pool.lengths())
+
+
+def _serial_track(n_samples, sr, pool, rng, cfg):
+    out = np.zeros(n_samples, dtype=np.float32)
+    pos = 0
+    while pos < n_samples:
+        if rng.random() < cfg.noise_silence_prob:
+            pos += max(int(float(rng.uniform(0.0, cfg.noise_silence_max_sec)) * sr), 1)
+            continue
+        clip = pool[int(rng.integers(0, len(pool)))]
+        if clip.shape[0] == 0:
+            pos += sr
+            continue
+        take = min(clip.shape[0], n_samples - pos)
+        out[pos : pos + take] = clip[:take]
+        pos += take
+    return out
+
+
+for _seed in range(4):
+    _n = 24000 * 120
+    _ref = _serial_track(_n, 24000, _pool, np.random.default_rng(_seed), _cfg)
+    assert _ref.any(), "reference track is silent -- the comparison would be vacuous"
+    assert np.array_equal(_ref, build_noise_track(_n, 24000, _pool, np.random.default_rng(_seed), _cfg)), (
+        f"seed {_seed}: the parallel fetch changed the noise track"
+    )
+print("[0] build_noise_track: concurrent fetch lays down exactly the serial fill, on 4 seeds")
 
 
 def variants(gain, noise, echo_reverb, seed=0):
