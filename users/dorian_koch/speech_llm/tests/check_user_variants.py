@@ -128,6 +128,25 @@ for _seed in range(4):
     )
 print("[0] build_noise_track: concurrent fetch lays down exactly the serial fill, on 4 seeds")
 
+# Staging the arrow files on node-local disk is what makes a clip read cost microseconds instead of a
+# filesystem round trip -- so it must serve exactly the same clips, and must fall back rather than fail.
+_scratch = os.path.join(tmp, "scratch")
+os.makedirs(_scratch)
+_env = dict(os.environ)
+os.environ["TMPDIR"] = _scratch
+try:
+    _staged = NoisePool(pool_dir, sample_rate=24000)
+    _copies = os.listdir(os.path.join(_scratch, "noise_pool_noise"))
+    assert [f for f in _copies if f.endswith(".arrow")], f"nothing staged: {_copies}"
+    assert all(np.array_equal(_pool[i], _staged[i]) for i in range(len(_pool))), "staged pool serves different clips"
+    os.environ["TMPDIR"] = "/nonexistent-scratch"  # no node-local disk -> read in place, never raise
+    _fallback = NoisePool(pool_dir, sample_rate=24000)
+    assert all(np.array_equal(_pool[i], _fallback[i]) for i in range(len(_pool)))
+finally:
+    os.environ.clear()
+    os.environ.update(_env)
+print(f"[0b] node-local staging: {len(_copies)} file(s) copied, same clips; no scratch -> reads in place")
+
 
 def variants(gain, noise, echo_reverb, seed=0):
     cfg = {
