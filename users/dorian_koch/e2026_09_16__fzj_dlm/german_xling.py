@@ -2236,6 +2236,7 @@ def train_german_arm_b(
     german_dev: bool = False,
     german_audio: bool = False,
     german_audio_repeat: int = 4,
+    nep: Optional[int] = None,
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2271,6 +2272,8 @@ def train_german_arm_b(
     from .winner_plus_tts import winner_checkpoint
 
     assert budget in ("1h", "9h"), budget
+    # `nep` stretches the OCLR schedule with it (configs.py); None keeps every existing arm's hash.
+    _nep = ARM_B_NEP if nep is None else nep
     if name is None:
         # The name says what the arm trains on (see the legend in fzj_dlm.py).
         assert not (no_audio and german_audio), "no_audio and german_audio are exclusive"
@@ -2282,7 +2285,7 @@ def train_german_arm_b(
             name = f"german-deText+deAudio{german_audio_repeat}x-{budget}"
         else:
             name = f"german-deText+enAudio-{budget}"
-        name += f"-nEp{ARM_B_NEP}"
+        name += f"-nEp{_nep}"
         if not fix_text_spm:
             name += "-enSpm"  # the invalid first run (§104): injection text through the English SPM
         if not german_dev:
@@ -2347,7 +2350,7 @@ def train_german_arm_b(
             glow_tts_add_silence_between_words=0.15,
             base_lr=1.0,
             peak_lr=ARM_B_PEAK_LR,
-            nep=ARM_B_NEP,
+            nep=_nep,
             behavior_version=29,
             pseudo_enc_frontend_concat=True,
             extra_config_updates={

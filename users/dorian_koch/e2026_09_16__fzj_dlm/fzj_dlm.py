@@ -78,7 +78,7 @@ DLM_DATA_STAGE = "train"
 # (device propagation through the empty source) is of unknown depth. deText+deAudio answers the same question
 # -- does the pseudo-encoder carry German once the English-audio language cue is gone -- with zero
 # framework work, and is the better system besides. deText+enAudio is arm B re-run with the German SPM (§104).
-GERMAN_STAGE = "deText+enAudio-enSpm,deText+enAudio,deText+deAudio,deAudio"
+GERMAN_STAGE = "deText+enAudio-enSpm,deText+enAudio,deText+deAudio,deText+deAudio-long,deAudio"
 # Acoustic-prior budget for the German arms. ⚠ "9h" is the usable one: the 1 h duration table is
 # 21.8% floor-collapsed and its spectra are truncation-biased for affricates/stops (backlog 18, 21).
 GERMAN_BUDGET = "9h"
@@ -297,6 +297,7 @@ def py():
         "deText+enAudio",
         "deText-only",
         "deText+deAudio",
+        "deText+deAudio-long",
         "deAudio",
     }, f"unknown German stage: {_german_stages}"
 
@@ -366,6 +367,27 @@ def py():
             fix_text_spm=True,
             german_dev=True,
         )
+
+    if "deText+deAudio-long" in _german_stages:
+        # deText+deAudio trained 4x longer (user, 2026-09-22): nEp10 saw only ~13% of the injection text
+        # (10 x 1/75) and its dev_de curve was flat from ep6 without overfitting. Two audio doses:
+        # repeat 1 = 40 German-audio passes (same total as the nEp10 run), repeat 2 = 80 passes.
+        # ⚠ Two things change with nep: text coverage AND specaugment, whose step-keyed ramp
+        # (1850, 5550, 9250) never completed in the 3,528-update nEp10 run but does at ~14k updates.
+        from .german_xling import train_german_arm_b
+
+        for _rep in (1, 2):
+            train_german_arm_b(
+                prefix=f"{prefix}/german",
+                winner_model=winner_model,
+                budget=GERMAN_BUDGET,
+                smoke=GERMAN_SMOKE,
+                german_audio=True,
+                german_audio_repeat=_rep,
+                fix_text_spm=True,
+                german_dev=True,
+                nep=40,
+            )
 
     if "deText-only" in _german_stages:
         # Arm B-zero (user call, 2026-09-20): **no paired audio at all** -- the pseudo-encoder alone.
