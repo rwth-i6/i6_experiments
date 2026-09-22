@@ -1290,8 +1290,9 @@ class PodcastEpisodeIngest(Job):
         self.noise_pool = noise_pool
         self.out_dir = self.output_path("codes", directory=True)
         # Host RAM, not GPU: a 2.7 h episode is ~0.6 GB as 16 kHz mono, ~1.9 GB separated at 24 kHz
-        # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be.
-        self.rqmt = rqmt or {"gpu": 1, "cpu": 8, "mem": 64, "time": 8}
+        # stereo, and the repair holds a copy. 64 GB is comfortable; 16 would not be. 12 h is 2x the
+        # 6 h shard target (`track_podcast.build_podcast`), which absorbs a +-50% cost-model error.
+        self.rqmt = rqmt or {"gpu": 1, "cpu": 8, "mem": 64, "time": 12}
 
     @classmethod
     def hash(cls, parsed_args):
