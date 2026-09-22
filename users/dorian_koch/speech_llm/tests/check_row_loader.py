@@ -9,7 +9,9 @@ three behaviours all fail *quietly* rather than loudly:
 * **Determinism.** One seed must reproduce one epoch order, or a "same config" rerun isn't one.
 * **Bad-row skip.** A row that fails to decode is logged and skipped so one corrupt row cannot kill a
   multi-hour run. The cost is that a *systematic* failure looks like slow training, so the skip must
-  stay loud in the log and must not swallow the whole epoch silently.
+  stay loud in the log and must not swallow the whole epoch silently -- and (2026-09-22) it RAISES
+  after ``MAX_CONSECUTIVE_ROW_FAILURES`` consecutive failures or a failure rate above
+  ``MAX_ROW_FAILURE_RATE``; the old unlimited skip is re-introduced and shown to spin.
 
 Run from the setup root, no GPU needed:
     CUDA_HOME=/usr .venv/bin/python \\
@@ -154,5 +156,114 @@ except RuntimeError as e:
 else:
     raise SystemExit("FAIL: the prefetch swallowed a producer exception")
 
+# --- a SYSTEMATIC failure stops the run instead of spinning (review 2026-09-22) ---------------------
+# The old loop caught every per-row exception forever: with every row failing, an infinite loader
+# never yields and never raises -- the job burns its walltime looking like slow training. Driven on
+# an arrow table with an `id` column (what the real corpora have), so the log carries the row id.
+import logging  # noqa: E402
+
+import pyarrow as pa  # noqa: E402
+
+import moshi_family.train_data_common as tdc  # noqa: E402
+
+id_table = pa.table({"id": [f"ep{i}@a#w0" for i in range(NUM_ROWS)]})
+
+
+class _Escape(BaseException):
+    """Not an Exception: the loader's except cannot swallow it, so a spinning loop can be stopped."""
+
+
+class _Capture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.msgs = []
+
+    def emit(self, record):
+        self.msgs.append(record.getMessage())
+
+
+def drive(build, *, max_calls=5000, table=id_table):
+    """Run an infinite loader; returns ('raised', exc) / ('spun', calls) / ('yielded', n_batches)."""
+    calls = [0]
+
+    def counted(i, rng):
+        calls[0] += 1
+        if calls[0] > max_calls:
+            raise _Escape()
+        return build(i, rng)
+
+    it = batched_row_loader(table, counted, batch_size=2, seed=0, infinite=True)
+    n = 0
+    try:
+        for _ in it:
+            n += 1
+            if n >= 1000:
+                return "yielded", n
+    except RuntimeError as e:
+        return "raised", e
+    except _Escape:
+        return "spun", calls[0]
+    return "yielded", n
+
+
+def always_fails(i, rng):
+    raise KeyError(f"variant column missing for row {i}")
+
+
+cap = _Capture()
+tdc.logger.addHandler(cap)
+try:
+    kind, got = drive(always_fails)
+finally:
+    tdc.logger.removeHandler(cap)
+assert kind == "raised", f"every row failing did not stop the loader ({kind}, {got})"
+assert "consecutive" in str(got) and isinstance(got.__cause__, KeyError), got
+skips = [m for m in cap.msgs if m.startswith("skip row")]
+assert len(skips) == tdc.MAX_CONSECUTIVE_ROW_FAILURES, len(skips)
+assert "KeyError" in skips[0] and "@a#w0" in skips[0], f"skip log lacks the exception type / row id: {skips[0]!r}"
+print(f"[ok] all rows failing raises       after {tdc.MAX_CONSECUTIVE_ROW_FAILURES} consecutive: {str(got)[:70]}...")
+
+# Frequent but never consecutive: a third of the rows fail. The window rate catches it.
+kind, got = drive(lambda i, rng: always_fails(i, rng) if i % 3 == 0 else item_for(i, rng))
+assert kind == "raised" and "of the last" in str(got), f"a 1/3 failure rate was tolerated ({kind}, {got})"
+print(f"[ok] a 1/3 failure rate raises     {str(got)[:70]}...")
+
+# Rare failures (1 row in 20, 5% < the 10% limit) are still tolerated on an infinite run.
+kind, got = drive(lambda i, rng: always_fails(i, rng) if i % 20 == 0 else item_for(i, rng))
+assert kind == "yielded", f"a 5% failure rate stopped the run ({kind}, {got})"
+print("[ok] 5% bad rows tolerated         1000 batches on an infinite run")
+
+# The log stays bounded: many skips, at most MAX_LOGGED_ROW_SKIPS lines + the cut-off notice.
+cap = _Capture()
+tdc.logger.addHandler(cap)
+try:
+    drive(lambda i, rng: always_fails(i, rng) if i % 20 == 0 else item_for(i, rng))
+finally:
+    tdc.logger.removeHandler(cap)
+n_skip_lines = sum(m.startswith("skip row") for m in cap.msgs)
+assert n_skip_lines == tdc.MAX_LOGGED_ROW_SKIPS, n_skip_lines
+print(f"[ok] skip log bounded              {n_skip_lines} lines for ~100 skips")
+
+# Non-vacuous: with the budget replaced by the OLD unlimited skip, the all-failing loader spins.
+_real_budget = tdc.RowSkipBudget
+
+
+class _OldUnlimitedSkip:
+    def ok(self):
+        pass
+
+    def failed(self, row_id, exc):
+        pass
+
+
+tdc.RowSkipBudget = _OldUnlimitedSkip
+try:
+    kind, got = drive(always_fails)
+finally:
+    tdc.RowSkipBudget = _real_budget
+assert kind == "spun", f"guard is vacuous: the old unlimited skip did not spin ({kind})"
+print(f"[ok] guard can fail                the old unlimited skip spins ({got} rows, never raises)")
+
 print("\nthe shared row loader shards disjointly, reproduces its order, and survives bad rows")
+print("a systematic row failure stops the run with the last exception instead of spinning")
 print("prefetch overlaps batch building without changing a single batch")
