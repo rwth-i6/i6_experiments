@@ -6,7 +6,7 @@ from sisyphus import Job, Task, tk
 import os
 import sys
 import subprocess
-from .common import vllm_server
+from .common import vllm_gpu_mem_gb, vllm_server
 from .speech_inference import SpeechInference
 from .inference_harness import FDB_TASK_MAP
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
@@ -207,6 +207,7 @@ class FullDuplexBenchEval_Evaluation(Job):
                 "cpu": 2,
                 "mem": 16,
                 "time": 2,
+                "gpu_mem_gb": vllm_gpu_mem_gb(hf_model),
             }
             self.hf_model = hf_model
         else:

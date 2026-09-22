@@ -29,7 +29,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_server
+from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server
 from .podcast_ingest import WINDOW_SELECT_KEYS, _moshi_pythonpath, select_windows
 
 #: The paper's Minimal level, verbatim, and the opener every LLM level starts with.
@@ -374,7 +374,7 @@ class PersonaPromptGen(Job):
         self.sides = sides
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 80}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

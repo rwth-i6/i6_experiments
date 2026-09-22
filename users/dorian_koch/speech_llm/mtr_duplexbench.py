@@ -398,7 +398,9 @@ class MTRJudge(Job):
         self.judge = judge
         self.judge_model = judge_model
         if judge == "vllm":
-            self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 2}
+            from .common import vllm_gpu_mem_gb
+
+            self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(judge_model)}
         else:
             self.rqmt = None  # real GPT-4o: login-node mini_task (internet)
         self.out_file = self.output_path("scores.json")

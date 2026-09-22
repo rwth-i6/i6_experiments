@@ -154,6 +154,22 @@ def managed_subprocess_server(
 # gemma keeps its exact prior args so existing dialogue-gen jobs are unaffected. GPT-OSS-120B is an
 # MoE shipping MXFP4 weights (~63 GB) -> fits one H100; if it OOMs on an 80 GB card, raise the
 # dialogue shard's gpu rqmt and add "--tensor-parallel-size 2" here.
+#: Smallest per-GPU memory (GB, as settings.GPU_PARTITIONS counts it) that :func:`vllm_server` can
+#: serve a model on at its defaults. Put it in a job's rqmt via :func:`vllm_gpu_mem_gb`.
+#:
+#: gpt-oss-120b, measured 2026-09-22: 65.61 GiB of weights plus 14.7 GiB of KV cache at the 0.9
+#: utilisation ~= 80.3 GiB. Every one of its 20 loads on a 94 GB c23g card succeeded in ~1 min; each of
+#: the 3 that landed on an 80 GB c25g card (79.18 GiB usable) loaded for 9-22 min and then died with
+#: CUDA OOM before serving. MTRJudge and the FDB judge declared no gpu_mem_gb and only ever landed on
+#: c23g by scheduling luck. Models not listed fit 80 GB at the max_model_len their callers pass.
+VLLM_MIN_GPU_MEM_GB: dict[str, int] = {"openai/gpt-oss-120b": 94}
+
+
+def vllm_gpu_mem_gb(hf_model: str, default: int = 0) -> int:
+    """The ``gpu_mem_gb`` rqmt for a job that serves ``hf_model`` with :func:`vllm_server`."""
+    return max(int(default), VLLM_MIN_GPU_MEM_GB.get(hf_model, 0))
+
+
 _VLLM_MODEL_ARGS: dict[str, list[str]] = {
     "google/gemma-4-31B-it": ["--max-model-len", "65536"],
     "Qwen/Qwen3-32B": ["--max-model-len", "32768"],

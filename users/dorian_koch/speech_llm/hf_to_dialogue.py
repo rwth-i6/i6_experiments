@@ -10,7 +10,7 @@ style diversity and avoid the "That would be …" monoculture.
 from sisyphus import Job, Task, tk
 import os
 import hashlib
-from .common import vllm_server, write_progress
+from .common import vllm_gpu_mem_gb, vllm_server, write_progress
 from datasets import (
     load_from_disk,
     Dataset,
@@ -384,8 +384,7 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
         "Write a two-turn spoken exchange.  The user asks the question above; the assistant "
         "answers it in ONE turn that states the answer straight away and then keeps talking about "
         "it for several more sentences - why it is memorable, what sort of thing it is, how people "
-        "usually react to it - without adding any new specifics.  Total turns: 2.\n"
-        + _SPLICE_SUFFIX
+        "usually react to it - without adding any new specifics.  Total turns: 2.\n" + _SPLICE_SUFFIX
     ),
     # Template 15 - ramble_colour: the length comes from an OPINION, which is the safest possible
     # filler for a knowledge corpus because an opinion cannot be a wrong fact. Explicitly fenced as
@@ -395,8 +394,7 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
         "the answer immediately, then adds a short personal-sounding aside about it - finding it "
         "surprising, having always liked it, thinking it is underrated - and winds down naturally "
         "without closing the conversation.  The aside must be an opinion or a reaction, never a "
-        "new fact.  A single [chuckle] is allowed if it genuinely fits.  Total turns: 2.\n"
-        + _SPLICE_SUFFIX
+        "new fact.  A single [chuckle] is allowed if it genuinely fits.  Total turns: 2.\n" + _SPLICE_SUFFIX
     ),
     # Template 16 - ramble_thinking_aloud: trains disfluent floor-holding, which is the duplex
     # behaviour the A-series keeps measuring as lost (collapsed take_turn, 30-60% empty replies).
@@ -878,7 +876,7 @@ class HfToDialogue(Job):
             # not the 65536 default, which cuts the KV cache from ~12 GiB to ~1.5 GiB and leaves
             # ample room on an 80 GB H100. Declared as a memory figure rather than a partition name
             # to keep the job cluster-agnostic.
-            "gpu_mem_gb": 80,
+            "gpu_mem_gb": vllm_gpu_mem_gb(self.llm_name, 80),
         }
 
     @classmethod

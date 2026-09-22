@@ -27,6 +27,7 @@ from .common import (
     merge_jsonl_parts,
     run_worker_script,
     run_worker_script_per_gpu,
+    vllm_gpu_mem_gb,
 )
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
@@ -155,7 +156,7 @@ class LLMPreprocess(Job):
         self.in_hf = in_hf
         self.llm_name = llm_name
         self.out_hf = self.output_path("out_hf", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 32, "time": 4}
+        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 32, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -719,7 +720,7 @@ class LLMGrading(Job):
         # Grading prompts are <1k tokens, so we serve the judge with a small max_model_len (8192, see
         # run()) -> its KV cache fits c25g's 80 GiB H100 at TP=1, so we keep the default (fast) c25g GPU
         # routing instead of pinning the judge to the scarce c23g big-GPU queue.
-        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2}
+        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
