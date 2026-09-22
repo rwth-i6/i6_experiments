@@ -91,7 +91,12 @@ with contextlib.redirect_stdout(open(os.devnull, "w")):
 inference = np.stack(frames, axis=1)  # [17, P]
 training = system_prompt_prefix(text_ids, voice, n_q=N_Q, silence_frames=SIL).numpy()
 assert inference.shape == training.shape, (inference.shape, training.shape)
-assert np.array_equal(inference, training), "training prefix != what step_system_prompts feeds"
+# Frame 0: LMGen.prepare_step_input replaces whatever step() is given at offset 0 with the initial
+# token, so training's frame 0 is that token (the model-input parity itself: check_persona_selfplay [1]).
+assert training[0, 0] == 32000 and (training[1:, 0] == 2048).all(), (
+    f"frame 0 is not the initial token: {training[:, 0]}"
+)
+assert np.array_equal(inference[:, 1:], training[:, 1:]), "training prefix != what step_system_prompts feeds"
 assert inference.shape[1] == voice.shape[1] + SIL + len(text_ids) + SIL
 
 old = np.full((1 + N_Q, len(text_ids)), 3)
@@ -100,7 +105,7 @@ old[1:] = 0  # the pre-2026-09-21 prefix: code 0 on every audio row, no voice, n
 assert old.shape != inference.shape or not np.array_equal(old, inference), "guard is vacuous"
 print(
     f"[1] prefix == step_system_prompts, {inference.shape[1]} frames (voice {voice.shape[1]} + {SIL} + text "
-    f"{len(text_ids)} + {SIL}); the old code-0 prefix is rejected"
+    f"{len(text_ids)} + {SIL}; frame 0 = initial token); the old code-0 prefix is rejected"
 )
 
 # ---- 2. the codes loader --------------------------------------------------------------------

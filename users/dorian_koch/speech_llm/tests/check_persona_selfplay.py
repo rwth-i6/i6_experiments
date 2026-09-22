@@ -1,9 +1,14 @@
 """Guard: PersonaPlex self-play (``moshi_family.personaplex.selfplay``) -- prompt parity and the cross-feed.
 
   1. PRIME PARITY. ``prime_from_codes`` drives the real ``LMGen.step_system_prompts`` with the voice
-     given as stored codes; the frames it feeds must equal ``train_data.system_prompt_prefix`` (the
-     prefix every PersonaPlex arm was trained on). A voice with its frames reversed must NOT match,
-     so the comparison can fail.
+     given as stored codes; the frames it hands ``step()`` must equal ``train_data.system_prompt_prefix``
+     from frame 1 on, and training's frame 0 must be the initial token (a reversed voice must NOT
+     match). Then (2026-09-22) what the MODEL SEES, at every position: a tiny real LMModel records
+     its transformer input under ``forward_train`` (prefix + teacher-forced dialogue) and under
+     ``LMGen`` (``prime_from_codes`` + the same dialogue step by step). Training positions 1.. must
+     equal inference's inputs exactly, incl. positions 1-2, where ``prepare_step_input`` substitutes
+     the initial token for frame 0 (all rows at offset 0, the delayed codebooks at offset 1). The
+     pre-fix prefix (frame 0 = the first voice frame) must fail exactly there.
   2. CROSS-FEED. With two recording stand-in models (real ``converse``): each side's input at frame t
      is the OTHER side's output of frame t-1, silence codes until the other has produced output, and
      a side's own output is never fed back to itself. Outputs are collected per side in order.
@@ -31,7 +36,7 @@ sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duple
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from moshi_family.personaplex.models.lm import LMGen, SILENCE_TOKENS  # noqa: E402
+from moshi_family.personaplex.models.lm import SILENCE_TOKENS, SINE_TOKENS, LMGen  # noqa: E402
 from moshi_family.personaplex.selfplay import converse, prime_from_codes  # noqa: E402
 from moshi_family.personaplex.train_data import system_prompt_prefix  # noqa: E402
 
@@ -74,17 +79,90 @@ def rec_lmgen():
 
 
 # ---- 1 ----
+import copy  # noqa: E402
+
+from moshi_family.personaplex.models import loaders  # noqa: E402
+from moshi_family.personaplex.models.lm import LMModel  # noqa: E402
+
 want = system_prompt_prefix(text_ids, voice, n_q=N_Q, silence_frames=SIL).numpy()
 r = rec_lmgen()
 with contextlib.redirect_stdout(open(os.devnull, "w")):
     prime_from_codes(r, None, voice, text_ids)
 got = np.stack(r.frames, axis=1)
-assert got.shape == want.shape and np.array_equal(got, want), "self-play prime != training prefix"
+init_frame = np.array([loaders._lm_kwargs["text_card"]] + [loaders._lm_kwargs["card"]] * N_Q)
+assert np.array_equal(want[:, 0], init_frame), f"training frame 0 is not the initial token: {want[:, 0]}"
+assert got.shape == want.shape and np.array_equal(got[:, 1:], want[:, 1:]), "self-play prime != training prefix"
 r2 = rec_lmgen()
 with contextlib.redirect_stdout(open(os.devnull, "w")):
     prime_from_codes(r2, None, voice[:, ::-1].copy(), text_ids)
-assert not np.array_equal(np.stack(r2.frames, axis=1), want), "guard is vacuous: a reversed voice matched"
-print(f"[1] prime_from_codes == system_prompt_prefix ({want.shape[1]} frames); a reversed voice is rejected")
+assert not np.array_equal(np.stack(r2.frames, axis=1)[:, 1:], want[:, 1:]), "guard is vacuous: a reversed voice matched"
+
+# 1b. what the model SEES. A tiny random PersonaPlex LM (the shipping config's cards/delays, small dims).
+torch.manual_seed(0)
+kw = dict(loaders._lm_kwargs)
+kw.update(
+    dim=64,
+    num_heads=4,
+    num_layers=2,
+    hidden_scale=2.0,
+    text_card=100,
+    context=256,
+    depformer_dim=32,
+    depformer_dim_feedforward=64,
+    depformer_num_heads=2,
+    depformer_num_layers=1,
+    dep_q=16,
+)
+torch.set_default_dtype(torch.float64)  # greedy parity without float32 near-ties between batch shapes
+base_lm = LMModel(device="cpu", dtype=torch.float64, **kw).eval()
+small_text = [11, 22, 33, 44, 5]  # < the tiny text_card
+D = 12  # teacher-forced dialogue frames after the prompt
+dialogue = np.concatenate([rng.integers(4, 100, size=(1, D)), rng.integers(0, 2048, size=(N_Q, D))], axis=0)
+
+
+def model_inputs_train(prefix: np.ndarray) -> np.ndarray:
+    """``forward_train``'s transformer input [17, P + D] for prefix + dialogue."""
+    lm, rec = copy.deepcopy(base_lm), []
+    orig = lm.embed_codes
+    lm.embed_codes = lambda seq: (rec.append(seq.detach().clone()), orig(seq))[1]
+    codes = torch.as_tensor(np.concatenate([prefix, dialogue], axis=1))[None]
+    with torch.no_grad():
+        lm.forward_train(codes)
+    return rec[0][0].numpy()
+
+
+def model_inputs_infer() -> np.ndarray:
+    """``LMGen``'s transformer inputs, one per model call: the real prime, then the dialogue forced."""
+    lm, rec = copy.deepcopy(base_lm), []
+    orig = lm.embed_codes
+    lm.embed_codes = lambda seq: (rec.append(seq.detach().clone()), orig(seq))[1]
+    g = LMGen(lm, device="cpu", use_sampling=False, audio_silence_frame_cnt=SIL, sample_rate=24000, frame_rate=12.5)
+    g.streaming_forever(1)
+    with contextlib.redirect_stdout(open(os.devnull, "w")):
+        prime_from_codes(g, None, voice, small_text)
+    for t in range(D):
+        f = torch.as_tensor(dialogue[:, t])
+        g.step(input_tokens=f[9:].view(1, 8, 1), moshi_tokens=f[1:9].view(1, 8, 1), text_token=int(f[0]))
+    return torch.cat([x[0] for x in rec], dim=1).numpy()
+
+
+prefix = system_prompt_prefix(small_text, voice, n_q=N_Q, silence_frames=SIL, initial_ids=(100, 2048)).numpy()
+tr, inf = model_inputs_train(prefix), model_inputs_infer()
+P = prefix.shape[1]
+# LMGen runs no model call at offset 0, so its call j (input = cache position j) is training position j + 1.
+assert inf.shape == (1 + N_Q, P + D - 1), inf.shape
+assert (tr[0, 0], set(tr[1:, 0].tolist())) == (100, {2048}), "training position 0 is not the initial token"
+bad = sorted(set(np.nonzero((tr[:, 1:] != inf).any(0))[0].tolist()))
+assert not bad, f"training != inference model input at training positions {[j + 1 for j in bad]}"
+old = prefix.copy()
+old[:, 0] = np.concatenate([[3], voice[:, 0], SINE_TOKENS])  # the pre-fix frame 0: first voice frame, SINE user
+bad_old = sorted(j + 1 for j in set(np.nonzero((model_inputs_train(old)[:, 1:] != inf).any(0))[0].tolist()))
+assert bad_old == [1, 2], f"guard cannot see the old frame-0 prefix (mismatching positions {bad_old})"
+print(
+    f"[1] prime_from_codes == system_prompt_prefix from frame 1 ({want.shape[1]} frames; frame 0 = initial); a reversed "
+    f"voice is rejected. Model input: training positions 1..{P + D - 1} == all {inf.shape[1]} LMGen calls "
+    f"(prompt {P} + dialogue {D}); the old frame-0 prefix differs at positions {bad_old}"
+)
 
 # ---- 2 ----
 DELAY = 2
@@ -141,30 +219,8 @@ print(
     f"[2] cross-feed: each side hears the other's previous frame (silence for the first {DELAY + 1}), outputs in order"
 )
 # ---- 3 ----
-import copy  # noqa: E402
-
-from moshi_family.personaplex.models import loaders  # noqa: E402
-from moshi_family.personaplex.models.lm import LMModel  # noqa: E402
-
 sp.prime_from_codes = prime_from_codes  # undo [2]'s stub
-
-torch.manual_seed(0)
-kw = dict(loaders._lm_kwargs)
-kw.update(
-    dim=64,
-    num_heads=4,
-    num_layers=2,
-    hidden_scale=2.0,
-    text_card=100,
-    context=256,
-    depformer_dim=32,
-    depformer_dim_feedforward=64,
-    depformer_num_heads=2,
-    depformer_num_layers=1,
-    dep_q=16,
-)
-torch.set_default_dtype(torch.float64)  # greedy parity without float32 near-ties between batch shapes
-base_lm = LMModel(device="cpu", dtype=torch.float64, **kw).eval()
+# base_lm / kw: the tiny random LM built in [1]
 
 
 class Dummy:
