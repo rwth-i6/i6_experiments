@@ -332,6 +332,10 @@ Only output the final score (0, 0.5, 1, 1.5, ..., 5)
 """
 
 
+#: Judge requests MTRJudge keeps in flight against its own vLLM server. Run-side (not hashed).
+MTR_JUDGE_CONCURRENCY = 64
+
+
 def _judge_row(client, judge_model: str, dimension: str, row: dict):
     """Return one row's judge score (float) or None if unparseable, using the dimension's verbatim
     prompt + parse. IF/Safety -> 0/1; Dialogue Quality -> 0-5 in 0.5 steps."""
@@ -408,6 +412,8 @@ class MTRJudge(Job):
     def run(self):
         from openai import OpenAI
 
+        from .common import map_concurrent
+
         with open(self.asr_results.get_path()) as f:
             rows = json.load(f)
 
@@ -415,9 +421,17 @@ class MTRJudge(Job):
         _id_keys = ("dialogue_id", "round_num", "scenario", "audio_id", "turn_id", "seg_start", "seg_end")
 
         def _score_all(client, model):
+            # Rows are independent judge calls: run them concurrently against our own vLLM server
+            # (serially it kept 1 request in flight at 0.3% KV-cache use, 2026-09-22). Results are
+            # collected in row order, so the output is the same as the serial loop's. The real-OpenAI
+            # path stays serial (rate limits).
+            row_scores = map_concurrent(
+                lambda r: _judge_row(client, model, self.dimension, r),
+                rows,
+                concurrency=MTR_JUDGE_CONCURRENCY if self.judge == "vllm" else 1,
+            )
             scores, per_round = [], []
-            for r in rows:
-                s = _judge_row(client, model, self.dimension, r)
+            for r, s in zip(rows, row_scores):
                 per_round.append({**{k: r[k] for k in _id_keys if k in r}, "score": s})
                 if s is not None:
                     scores.append(s)

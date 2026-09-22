@@ -594,6 +594,38 @@ def merge_jsonl_parts(out_path, parts) -> int:
 #     metrics file (e.g. moshi-finetune's metrics.train.jsonl "percent_done").
 
 
+def map_concurrent(fn, items, *, concurrency: int, progress_path: str | None = None, progress_every: int = 10) -> list:
+    """Apply ``fn`` to every item with ``concurrency`` threads; results come back in INPUT order.
+
+    For I/O-bound calls against one of our LLM servers (:func:`vllm_server`): one thread per request
+    in flight, so the server sees ``concurrency`` requests at once and batches them. The concurrency
+    is what decides the server's utilisation, so set it from a measurement -- vLLM logs
+    ``Running: N reqs, Waiting: M reqs, GPU KV cache usage: X%`` every 10 s. Measured 2026-09-22 on an
+    H100 with gpt-oss-120b: 32 in flight ran at 5% KV use and 1.6k generated tok/s; 192 ran at ~28%
+    and 5.3k tok/s. (32 was the ``datasets.map(num_proc=32)`` of the job it replaced; a serial loop
+    is 1 in flight.) Jobs whose log already shows the KV cache full with requests waiting gain
+    nothing from more.
+
+    An exception in ``fn`` propagates, as it would from a serial loop; handle per-item failures
+    (retries, None results) inside ``fn``. ``progress_path``: a :func:`write_progress` marker, updated
+    every ``progress_every`` completions, for ``Job.completed_fraction``.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    items = list(items)
+    out = [None] * len(items)
+    with ThreadPoolExecutor(max(1, int(concurrency))) as ex:
+        futs = {ex.submit(fn, it): i for i, it in enumerate(items)}
+        for n_done, f in enumerate(as_completed(futs), 1):
+            out[futs[f]] = f.result()
+            if progress_path and (n_done % progress_every == 0 or n_done == len(items)):
+                try:
+                    write_progress(n_done, len(items), progress_path)
+                except Exception:
+                    pass
+    return out
+
+
 def write_progress(done: int, total: int, path: str = "progress.json") -> None:
     """Worker-side: atomically write a {done, total} progress marker.
 

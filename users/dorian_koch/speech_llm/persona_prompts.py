@@ -29,7 +29,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import vllm_server, write_progress
+from .common import map_concurrent, vllm_server
 from .podcast_ingest import WINDOW_SELECT_KEYS, _moshi_pythonpath, select_windows
 
 #: The paper's Minimal level, verbatim, and the opener every LLM level starts with.
@@ -309,6 +309,12 @@ def _label_for(words: list[dict], turns: list[dict]) -> str | None:
 # ---------------------------------------------------------------------------------------------
 # 1b. LLM prompt generation
 # ---------------------------------------------------------------------------------------------
+#: Requests PersonaPromptGen keeps in flight against its vLLM server (see common.map_concurrent for
+#: the measurement). Run-side (not hashed): it changes speed, not output (each call is seeded by its
+#: row id and side).
+PROMPT_GEN_CONCURRENCY = 192
+
+
 class PersonaPromptGen(Job):
     """Persona prompts for training windows at several detail levels, by an LLM served with vLLM.
 
@@ -427,7 +433,6 @@ class PersonaPromptGen(Job):
         )
 
         with vllm_server(llm_name) as url:
-            done = [0]
 
             def gen_side(client, row, side):
                 transcript = row[text_col[side]]
@@ -461,23 +466,20 @@ class PersonaPromptGen(Job):
                         continue
                     out = (cand, overlaps)
                     break
-                done[0] += 1
-                if done[0] % 10 == 0:
-                    try:
-                        write_progress(done[0], n_calls, os.path.join(work_dir, f"progress_{os.getpid()}.json"))
-                    except Exception:
-                        pass
                 if out is None:
                     return {"texts": None, "overlaps": None, "error": err}
                 return {"texts": json.dumps(out[0]), "overlaps": json.dumps(out[1]), "error": ""}
 
-            def gen(row):
-                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-                return {"by_side": json.dumps({s: gen_side(client, row, s) for s in sides})}
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+            calls = [(row, s) for row in ds for s in sides]
+            outs = map_concurrent(
+                lambda rs: gen_side(client, rs[0], rs[1]),
+                calls,
+                concurrency=PROMPT_GEN_CONCURRENCY,
+                progress_path=os.path.join(work_dir, "progress_0.json"),
+            )
 
-            res = ds.map(gen, num_proc=32)
-
-        per = [(r["id"], s, v) for r in res for s, v in json.loads(r["by_side"]).items()]
+        per = [(row["id"], s, v) for (row, s), v in zip(calls, outs)]
         failed = [(rid, s, v) for rid, s, v in per if v["texts"] is None]
         print(f"[prompts] {len(failed)}/{n_calls} (window, side) calls failed", flush=True)
         for rid, s, v in failed[:5]:
