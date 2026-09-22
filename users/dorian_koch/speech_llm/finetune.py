@@ -387,7 +387,7 @@ run_dir: "{run_dir}"  # Fill
 
 
 def _render_personaplex_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
-    """Render the PersonaPlex training config (consumed by personaplex_finetune_launcher, NOT the
+    """Render the PersonaPlex training config (consumed by moshi_family.personaplex.finetune_launcher, NOT the
     moshi_finetune schema). Paper values (arXiv 2602.06053): Adam+cosine, depformer LR 4e-6 /
     temporal 2e-6, batch 32, 24,576 steps, 163.84 s seq, full finetune; loss down-weights + system
     -prompt masking live in the launcher's personaplex_loss. ``system_prompt_key`` lets service rows
@@ -424,32 +424,6 @@ MOSHI_ADAPTER = FinetuneAdapter(
     render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshi_finetune_launcher",
     pythonpath_package="moshi_finetune",
-)
-
-
-# --------------------------------------------------------------------------- #
-# PersonaPlex adapter (IMPLEMENTED, single-GPU -- see projects/2026-01-speech-llm/personaplex.md).
-# Training base DECIDED (2026-06-19 investigation): moshi_finetune is NOT installed in the
-# personaplex venv, so the launcher must drive the PersonaPlex fork's OWN model. Good news --
-# unlike the moshi-rag fork, the personaplex fork ships a built-in training path:
-# ``moshi.models.lm.LMModel.forward_train(codes) -> LMOutput`` (delays handled, logits+masks) +
-# ``create_loss_report``, loaded via ``loaders.get_moshi_lm(model.safetensors)``. So pythonpath_package
-# is "moshi" and the launcher builds a loop on forward_train (port moshi_finetune's loop onto this
-# model); the config is a personaplex-specific YAML, NOT the moshi_finetune schema. The launcher
-# is IMPLEMENTED and training (single-GPU: train_scope=heads, backbone frozen, full-FT depformer +
-# heads); voice-prompt conditioning (the hybrid role/voice collator) is still TODO -- we condition
-# on role text only. Wire via ``SpeechFinetune(adapter=PERSONAPLEX_ADAPTER, venv_python_path=personaplex_venv(), ...)``.
-# --------------------------------------------------------------------------- #
-PERSONAPLEX_ADAPTER = FinetuneAdapter(
-    name="personaplex",
-    batch_size=32,  # paper
-    overlay_kind="personaplex_heads",
-    base_model="nvidia/personaplex-7b-v1",
-    weights_name="trained_heads.safetensors",
-    render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
-    launcher_module="i6_experiments.users.dorian_koch.speech_llm.personaplex_finetune_launcher",
-    pythonpath_package="moshi",  # the moshi-personaplex fork (import name `moshi`); installed by personaplex_venv()
-    # progress defaults to ("metrics.train.jsonl", "percent_done") -- exactly what the launcher writes.
 )
 
 

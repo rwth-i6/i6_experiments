@@ -43,7 +43,7 @@ LIB = SETUP / "recipe" / "speech_llm" / "full_duplex"
 RECIPES = SETUP / "recipe" / "i6_experiments" / "users" / "dorian_koch" / "speech_llm"
 
 #: launcher file -> (recipe file, name of the function rendering its YAML).
-#: The fork launchers under ``i6_experiments/`` are the live A/B references and are checked too.
+#: The fork launcher under ``i6_experiments/`` is the live A/B reference and is checked too.
 PAIRS = {
     LIB / "moshi_family/moshi_finetune_launcher.py": ("finetune.py", "_render_moshi_lib_config"),
     LIB / "moshi_family/moshirag_finetune_launcher.py": ("finetune.py", "_render_moshirag_lib_config"),
@@ -51,7 +51,6 @@ PAIRS = {
     LIB / "moshi_family/audex/finetune_launcher.py": ("audex_finetune.py", "_render_audex_config"),
     LIB / "moshi_family/rl/launcher.py": ("rl_finetune.py", "_render_rl_config"),
     RECIPES / "moshi_finetune_launcher.py": ("finetune.py", "_render_moshi_finetune_config"),
-    RECIPES / "personaplex_finetune_launcher.py": ("finetune.py", "_render_personaplex_config"),
 }
 
 #: Launchers fed by MORE than one renderer (one adapter per train_scope): each extra renderer's keys
