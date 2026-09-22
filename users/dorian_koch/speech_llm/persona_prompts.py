@@ -321,14 +321,16 @@ class PersonaPromptGen(Job):
 
     ``input_view``: ``assistant`` (only the assistant's words) or ``dialogue`` (both channels,
     labelled). ``sample_n``: a seeded subset for review before a full run (None = every window).
-    ``side``: whose prompt to write. ``assistant`` (default) = the window's assistant channel;
-    ``other`` = the OTHER channel, described with the same assistant-view instruction from that
-    speaker's own words only (to the LLM, that speaker is "the assistant"). Together the two sides
-    give each channel of a window its own prompt, e.g. for two concurrent models, one per channel.
-    ``other`` requires ``input_view="assistant"`` and gets its own ``prompt_set`` (suffix ``|other``).
+    ``sides``: whose prompts to write, in ONE job (one model load). ``assistant`` = the window's
+    assistant channel; ``other`` = the OTHER channel, described with the same assistant-view
+    instruction from that speaker's own words only (to the LLM, that speaker is "the assistant").
+    Both sides give each channel of a window its own prompt: for training with the channels swapped,
+    or for two concurrent models at inference, one per channel. ``other`` requires
+    ``input_view="assistant"``.
 
-    Output (long format, one row per (id, level)): ``id, prompt_set, level, text, llm_name,
-    input_view, spec, max_ngram_overlap``, with ``prompt_set = f"{spec}|{llm_name}|{input_view}"``.
+    Output (long format, one row per (id, side, level)): ``id, prompt_set, level, text, llm_name,
+    input_view, spec, max_ngram_overlap``, with ``prompt_set = f"{spec}|{llm_name}|{input_view}"`` for
+    the assistant side and that plus ``|other`` for the other side (``prompt_set_for(side)``).
     The ``minimal`` level is the constant ``PERSONA_MINIMAL`` and is written too, so a set is complete.
     """
 
@@ -345,11 +347,12 @@ class PersonaPromptGen(Job):
         num_shards: int | None = None,
         guided_json: bool = True,
         temperature: float = 0.6,
-        side: str = "assistant",
+        sides: tuple = ("assistant",),
     ):
+        sides = tuple(sides)
         assert input_view in _VIEW_DESCRIPTIONS, input_view
-        assert side in ("assistant", "other"), side
-        assert side == "assistant" or input_view == "assistant", "side='other' is defined for the assistant view"
+        assert sides and set(sides) <= {"assistant", "other"} and len(set(sides)) == len(sides), sides
+        assert "other" not in sides or input_view == "assistant", "side 'other' is defined for the assistant view"
         assert spec in PROMPT_SPECS, spec
         self.context_data = context_data
         self.input_view = input_view
@@ -362,7 +365,7 @@ class PersonaPromptGen(Job):
         self.num_shards = num_shards
         self.guided_json = bool(guided_json)
         self.temperature = float(temperature)
-        self.side = side
+        self.sides = sides
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 80}
@@ -370,13 +373,16 @@ class PersonaPromptGen(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
-    __sis_hash_exclude__ = {"side": "assistant"}
+    __sis_hash_exclude__ = {"sides": ("assistant",)}
+
+    def prompt_set_for(self, side: str) -> str:
+        base = f"{self.spec}|{self.llm_name}|{self.input_view}"
+        return base if side == "assistant" else f"{base}|{side}"
 
     @property
     def prompt_set(self) -> str:
-        base = f"{self.spec}|{self.llm_name}|{self.input_view}"
-        side = getattr(self, "side", "assistant")  # jobs pickled before `side` existed
-        return base if side == "assistant" else f"{base}|{side}"
+        """The assistant side's set (the one every single-side consumer reads)."""
+        return self.prompt_set_for("assistant")
 
     def completed_fraction(self):
         import glob
@@ -409,20 +415,26 @@ class PersonaPromptGen(Job):
         total = len(ds)
         work_dir = os.getcwd()
         view, llm_name, guided, temp = self.input_view, self.llm_name, self.guided_json, self.temperature
-        side = getattr(self, "side", "assistant")  # jobs pickled before `side` existed
-        text_col = (
-            {"assistant": "assistant_text", "other": "user_text"}[side] if view == "assistant" else "dialogue_text"
+        sides = tuple(getattr(self, "sides", ("assistant",)))  # jobs pickled before `sides` existed
+        text_col = {
+            s: ({"assistant": "assistant_text", "other": "user_text"}[s] if view == "assistant" else "dialogue_text")
+            for s in sides
+        }
+        n_calls = total * len(sides)
+        print(
+            f"[prompts] {total} windows x sides {sides} = {n_calls} calls, view={view!r}, guided_json={guided}",
+            flush=True,
         )
-        print(f"[prompts] {total} windows, set={self.prompt_set!r}, guided_json={guided}", flush=True)
 
         with vllm_server(llm_name) as url:
             done = [0]
 
-            def gen(row):
-                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-                transcript = row[text_col]
+            def gen_side(client, row, side):
+                transcript = row[text_col[side]]
                 msg = spec["instruction"].format(view_description=_VIEW_DESCRIPTIONS[view], transcript=transcript)
-                seed = int(hashlib.md5(row["id"].encode()).hexdigest(), 16) % (2**31)
+                # The assistant side keeps the single-side seed (id only), so it reproduces the review.
+                key = row["id"] if side == "assistant" else f"{row['id']}|{side}"
+                seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
                 out, err = None, ""
                 for attempt in range(5):
                     try:
@@ -452,30 +464,35 @@ class PersonaPromptGen(Job):
                 done[0] += 1
                 if done[0] % 10 == 0:
                     try:
-                        write_progress(done[0], total, os.path.join(work_dir, f"progress_{os.getpid()}.json"))
+                        write_progress(done[0], n_calls, os.path.join(work_dir, f"progress_{os.getpid()}.json"))
                     except Exception:
                         pass
                 if out is None:
                     return {"texts": None, "overlaps": None, "error": err}
                 return {"texts": json.dumps(out[0]), "overlaps": json.dumps(out[1]), "error": ""}
 
+            def gen(row):
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+                return {"by_side": json.dumps({s: gen_side(client, row, s) for s in sides})}
+
             res = ds.map(gen, num_proc=32)
 
-        failed = [r for r in res if r["texts"] is None]
-        print(f"[prompts] {len(failed)}/{total} rows failed", flush=True)
-        for r in failed[:5]:
-            print(f"  FAILED {r['id']}: {r['error']}", flush=True)
-        if len(failed) > 0.01 * total:
-            raise RuntimeError(f"prompt generation failed on {len(failed)}/{total} rows (> 1%); see the log")
+        per = [(r["id"], s, v) for r in res for s, v in json.loads(r["by_side"]).items()]
+        failed = [(rid, s, v) for rid, s, v in per if v["texts"] is None]
+        print(f"[prompts] {len(failed)}/{n_calls} (window, side) calls failed", flush=True)
+        for rid, s, v in failed[:5]:
+            print(f"  FAILED {rid} [{s}]: {v['error']}", flush=True)
+        if len(failed) > 0.01 * n_calls:
+            raise RuntimeError(f"prompt generation failed on {len(failed)}/{n_calls} calls (> 1%); see the log")
 
         out = {
             k: [] for k in ("id", "prompt_set", "level", "text", "llm_name", "input_view", "spec", "max_ngram_overlap")
         }
 
-        def add(rid, level, text, ov):
+        def add(rid, side, level, text, ov):
             for k, v in (
                 ("id", rid),
-                ("prompt_set", self.prompt_set),
+                ("prompt_set", self.prompt_set_for(side)),
                 ("level", level),
                 ("text", text),
                 ("llm_name", llm_name),
@@ -485,22 +502,24 @@ class PersonaPromptGen(Job):
             ):
                 out[k].append(v)
 
-        lens = {k: [] for k in spec["llm_levels"]}
-        for r in res:
-            if r["texts"] is None:
+        lens = {s: {k: [] for k in spec["llm_levels"]} for s in sides}
+        for rid, s, v in per:
+            if v["texts"] is None:
                 continue
-            texts, ovs = json.loads(r["texts"]), json.loads(r["overlaps"])
-            add(r["id"], "minimal", PERSONA_MINIMAL, 0)
+            texts, ovs = json.loads(v["texts"]), json.loads(v["overlaps"])
+            add(rid, s, "minimal", PERSONA_MINIMAL, 0)
             for k in spec["llm_levels"]:
-                add(r["id"], k, f"{PERSONA_MINIMAL} {texts[k]}", int(ovs[k]))
-                lens[k].append(len(texts[k].split()))
+                add(rid, s, k, f"{PERSONA_MINIMAL} {texts[k]}", int(ovs[k]))
+                lens[s][k].append(len(texts[k].split()))
         Dataset.from_dict(out).save_to_disk(self.out_dir.get_path())
         summary = {
-            "prompt_set": self.prompt_set,
+            "prompt_sets": {s: self.prompt_set_for(s) for s in sides},
             "spec_digest": self.spec_digest,
             "rows": total,
-            "failed": len(failed),
-            "words_per_level_median": {k: float(np.median(v)) if v else None for k, v in lens.items()},
+            "failed": {s: sum(1 for _, fs, _ in failed if fs == s) for s in sides},
+            "words_per_level_median": {
+                s: {k: float(np.median(v)) if v else None for k, v in lens[s].items()} for s in sides
+            },
         }
         json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
         print(f"[prompts] {summary}", flush=True)

@@ -301,4 +301,50 @@ for r in att6:
 att6s = attach_both("att6s", other_min_words=10**6)
 assert len(att6s) == len(train) and not any(att6s["other_ok"]), "a too-short other side must not be swappable"
 print(f"[6] other side: {len(ctx2)} windows == the converter's opposite-channel rows; attach carries its prompts, voice, alignments; short sides are not swappable")
+# ---- 7 ----
+# PersonaPromptGen(sides=("assistant", "other")): ONE job writes both prompt sets, each from ITS OWN
+# channel's words. The LLM is replaced by a stub that echoes a tag of the transcript it was shown, so
+# a side reading the wrong column (or both sides reading the same one) is caught.
+import contextlib  # noqa: E402
+import types  # noqa: E402
+
+import openai  # noqa: E402
+
+import i6_experiments.users.dorian_koch.speech_llm.persona_prompts as pp  # noqa: E402
+
+
+class _StubCompletions:
+    def create(self, *, messages, **_kw):
+        words = messages[0]["content"].split()
+        tag = next((w for w in words if w[:1] in "ab" and "_" in w), "none").split("_")[0]
+        body = json.dumps({"general": f"Talk about {tag}.", "topic": f"Discuss {tag} calmly.", "detailed": f"Discuss {tag} in depth."})
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=body))])
+
+
+class _StubClient:
+    def __init__(self, **_kw):
+        self.chat = types.SimpleNamespace(completions=_StubCompletions())
+
+
+pp.vllm_server = lambda _name: contextlib.nullcontext("http://stub")
+openai.OpenAI = _StubClient
+g = pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant", sides=("assistant", "other"))
+g.out_summary = tk.Path(os.path.join(tmp, "gen_summary.json"))
+gen = run(g, "gen_both")
+assert g.prompt_set_for("assistant") == g.prompt_set and g.prompt_set_for("other") == g.prompt_set + "|other"
+chan = {r["id"]: r["channel"] for r in ctx}
+by = {}
+for r in gen:
+    by.setdefault((r["id"], r["prompt_set"]), {})[r["level"]] = r["text"]
+assert len(by) == 2 * len(ctx), (len(by), len(ctx))
+for rid, ch in chan.items():
+    oth = "b" if ch == "a" else "a"
+    a_gen = by[(rid, g.prompt_set_for("assistant"))]["general"]
+    o_gen = by[(rid, g.prompt_set_for("other"))]["general"]
+    assert a_gen.endswith(f"Talk about {ch}0.") or a_gen.endswith(f"Talk about {ch}{rid[2]}."), (rid, a_gen)
+    assert o_gen.endswith(f"about {oth}{rid[2]}."), (rid, o_gen)
+single = pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant")
+assert single._sis_hash() == pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant", sides=("assistant",))._sis_hash()
+assert single._sis_hash() != g._sis_hash()
+print(f"[7] two-sided prompt job: {len(ctx)} windows x 2 sides, each side from its own channel; the default keeps its hash")
 print("OK")
