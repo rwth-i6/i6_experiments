@@ -168,4 +168,137 @@ try:
 except RuntimeError as e:
     assert "novoice" in str(e), e
 print(f"[4] attach: {len(att)} rows with the Minimal prompt + voice codes; missing voices raise")
+# ---- 5 ----
+# per_read=True: every level's prompt is stored as a list (sorted level order) for the loader to draw
+# from on each read; unequal weights are refused because the loader's draw is uniform.
+prows = [
+    {
+        "id": r["id"],
+        "prompt_set": "t|t|assistant",
+        "level": lv,
+        "text": f"You enjoy having a good conversation. {lv} {r['id']}",
+        "llm_name": "t",
+        "input_view": "assistant",
+        "spec": "t",
+        "max_ngram_overlap": 0,
+    }
+    for r in ctx
+    for lv in ("general", "topic")
+]
+Dataset.from_list(prows).save_to_disk(os.path.join(tmp, "prompts"))
+w3 = {"minimal": 1 / 3, "general": 1 / 3, "topic": 1 / 3}
+att3 = run(
+    AttachPersonaPrompts(
+        train_data=tk.Path(os.path.join(tmp, "train")),
+        context_data=tk.Path(os.path.join(tmp, "ctx")),
+        voice_codes=tk.Path(os.path.join(tmp, "voice")),
+        level_weights=w3,
+        prompt_data=[tk.Path(os.path.join(tmp, "prompts"))],
+        prompt_set="t|t|assistant",
+        per_read=True,
+    ),
+    "att3",
+)
+assert len(att3) == len(train)
+for r in att3:
+    assert r["context_level"] == ["general", "minimal", "topic"], r["context_level"]
+    assert r["context"] == [
+        f"You enjoy having a good conversation. general {r['id']}",
+        PERSONA_MINIMAL,
+        f"You enjoy having a good conversation. topic {r['id']}",
+    ], r["context"]
+try:
+    AttachPersonaPrompts(
+        train_data=tk.Path(os.path.join(tmp, "train")),
+        context_data=tk.Path(os.path.join(tmp, "ctx")),
+        voice_codes=tk.Path(os.path.join(tmp, "voice")),
+        level_weights={"minimal": 0.5, "general": 0.25, "topic": 0.25},
+        prompt_data=[tk.Path(os.path.join(tmp, "prompts"))],
+        prompt_set="t|t|assistant",
+        per_read=True,
+    )
+    raise RuntimeError("unequal per_read weights were accepted")
+except AssertionError:
+    pass
+print(f"[5] per_read attach: {len(att3)} rows carry all 3 levels as a list; unequal weights refused")
+# ---- 6 ----
+# with_other_side: the context job's OTHER channel must be exactly what the converter would have
+# written had it picked that channel as the assistant (same window, same alignment format), and the
+# attach step must carry that side's prompts, voice and alignments for the loader's channel swap.
+ctx2 = run(
+    PodcastWindowContext(
+        train_data=tk.Path(os.path.join(tmp, "train")), dialogue_shard_dirs=dlg, window_select=RULE, with_other_side=True
+    ),
+    "ctx2",
+)
+fixed = {}
+for ch in ("a", "b"):
+    for r in run(
+        PodcastCodesTrainData(shard_dirs=dlg, assistant_channel=ch, window_select=RULE, min_assistant_words=1),
+        f"train_{ch}",
+    ):
+        fixed[r["id"]] = r["alignments"]
+def f32(al):
+    """The training corpus stores alignment times as float32 (the attach step casts to that schema)."""
+    return [dict(w, start=float(np.float32(w["start"])), end=float(np.float32(w["end"]))) for w in al]
+
+
+for r in ctx2:
+    item, rest = r["id"].split("@")
+    ch, wi = rest.split("#")
+    twin = f"{item}@{'b' if ch == 'a' else 'a'}#{wi}"
+    assert f32(r["user_alignments"]) == fixed[twin], f"{r['id']}: other side != converter's row {twin}"
+    assert r["n_user_words"] == len(fixed[twin])
+    assert r["user_label"] is not None and r["user_label"] != r["assistant_label"], r["id"]
+labels = {(r["episode_id"], r["assistant_label"]) for r in ctx2} | {(r["episode_id"], r["user_label"]) for r in ctx2}
+vcode = {k: (np.arange(8 * 50) + 1000 * i).astype(np.int16) for i, k in enumerate(sorted(labels))}
+Dataset.from_list(
+    [
+        {"episode_id": e, "label": lb, "codes": v.tolist(), "n_frames": 50, "clip_sec": 4.0, "source_sec": 30.0}
+        for (e, lb), v in vcode.items()
+    ]
+).save_to_disk(os.path.join(tmp, "voice_both"))
+Dataset.from_list(
+    [dict(p, prompt_set="t|t|assistant|other", text=p["text"].replace(" general ", " OTHER general ").replace(" topic ", " OTHER topic ")) for p in prows]
+    + prows
+).save_to_disk(os.path.join(tmp, "prompts_both"))
+
+
+def attach_both(sub, **kw):
+    return run(
+        AttachPersonaPrompts(
+            train_data=tk.Path(os.path.join(tmp, "train")),
+            context_data=tk.Path(os.path.join(tmp, "ctx2")),
+            voice_codes=tk.Path(os.path.join(tmp, "voice_both")),
+            level_weights=w3,
+            prompt_data=[tk.Path(os.path.join(tmp, "prompts_both"))],
+            prompt_set="t|t|assistant",
+            per_read=True,
+            with_other_side=True,
+            other_prompt_set="t|t|assistant|other",
+            **kw,
+        ),
+        sub,
+    )
+
+
+att6 = attach_both("att6")
+c2 = {r["id"]: r for r in ctx2}
+assert len(att6) == len(train) and all(att6["other_ok"])
+for r in att6:
+    c = c2[r["id"]]
+    assert r["context"][0].endswith(f"general {r['id']}") and "OTHER" not in r["context"][0]
+    assert r["context_other"] == [
+        f"You enjoy having a good conversation. OTHER general {r['id']}",
+        PERSONA_MINIMAL,
+        f"You enjoy having a good conversation. OTHER topic {r['id']}",
+    ], r["context_other"]
+    assert r["voice_codes"] == vcode[(c["episode_id"], c["assistant_label"])].tolist()
+    assert r["voice_codes_other"] == vcode[(c["episode_id"], c["user_label"])].tolist()
+    assert r["voice_codes"] != r["voice_codes_other"]
+    twin = r["id"].replace("@a#", "@B#").replace("@b#", "@a#").replace("@B#", "@b#")
+    assert r["alignments_other"] == fixed[twin] and r["alignments_other"] != r["alignments"]
+att6s = attach_both("att6s", other_min_words=10**6)
+assert len(att6s) == len(train) and not any(att6s["other_ok"]), "a too-short other side must not be swappable"
+print(f"[6] other side: {len(ctx2)} windows == the converter's opposite-channel rows; attach carries its prompts, voice, alignments; short sides are not swappable")
 print("OK")

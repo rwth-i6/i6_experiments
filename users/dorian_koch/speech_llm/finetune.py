@@ -510,6 +510,7 @@ seed: {getattr(job, "seed", 0)}
 system_prompt_key: "{hp.get("system_prompt_key", "context")}"
 voice_codes_key: "{hp.get("voice_codes_key") or ""}"
 silence_frames: {int(hp.get("silence_frames", 6))}
+swap_channels: {"true" if hp.get("swap_channels") else "false"}
 emit_epad: {_opt_bool("emit_epad")}
 onset_floor: {_opt_bool("onset_floor")}
 text_lead_frames: {_tlf}

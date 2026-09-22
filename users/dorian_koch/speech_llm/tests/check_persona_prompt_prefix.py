@@ -152,4 +152,92 @@ dlg = codes[:, P:]
 assert dlg.shape == ref.shape and torch.equal(dlg, ref), "dialogue part differs from the base-Moshi codes path"
 assert (dlg[0] != 3).any(), "text row is all PAD"
 print(f"[2] codes loader: prefix {P} frames masked, dialogue {dlg.shape[1]} frames == base-Moshi build_codes_stored")
+# ---- 3. a LIST-valued prompt column is drawn per read, uniformly ---------------------------------
+# AttachPersonaPrompts(per_read=True) stores every level's prompt; the loader must pick one on EACH
+# read (so epochs differ), not always the first. Prompts of different token lengths make the chosen
+# one identifiable from the prefix. With one row, every read is a new epoch of that row.
+choices = [prompt, "You enjoy having a good conversation.", prompt + " Mention the weather and the traffic on the way."]
+tmp3 = tempfile.mkdtemp(prefix="check_ppx_perread_")
+Dataset.from_list(
+    [
+        {
+            "id": "ep#0@a#w0",
+            "duration": F / FR,
+            "n_codebooks": K,
+            "n_frames": F,
+            "frame_rate": FR,
+            "codes_assistant": ca.reshape(-1).tolist(),
+            "codes_user": cu.reshape(-1).tolist(),
+            "alignments": al,
+            "context": choices,
+            "voice_codes": voice.astype(np.int16).reshape(-1).tolist(),
+        }
+    ]
+).save_to_disk(tmp3)
+wants = [system_prompt_prefix(tok.system_prompt_text_tokens(c), voice, n_q=N_Q, silence_frames=SIL) for c in choices]
+assert len({w.shape[1] for w in wants}) == len(wants), "choices must differ in prefix length"
+counts = [0] * len(choices)
+it = build_data_loader(tmp3, tok, batch_size=1, seed=0, system_prompt_key="context", voice_codes_key="voice_codes")
+N_READS = 300
+for _ in range(N_READS):
+    c, m = next(it)
+    c, m = c[0], m[0]
+    hit = [
+        i
+        for i, w in enumerate(wants)
+        if c.shape[1] >= w.shape[1]
+        and torch.equal(c[:, : w.shape[1]], w)
+        and not m[: w.shape[1]].any()
+        and m[w.shape[1]]
+    ]
+    assert len(hit) == 1, f"read matches {hit} of the listed prompts"
+    counts[hit[0]] += 1
+assert all(0.25 < k / N_READS < 0.42 for k in counts), f"per-read draw is not uniform over the list: {counts}"
+print(f"[3] list-valued prompt: drawn per read, {counts} of {N_READS} reads over the {len(choices)} choices")
+# ---- 4. swap_channels: the other side becomes the assistant on ~half the reads -------------------
+# One row with a distinct prompt, voice and alignments per side. A swapped read must look exactly like
+# the stored row built with the channels exchanged: prefix from the other side's prompt + voice, and a
+# dialogue part equal to build_codes_stored(user codes, assistant codes, other alignments).
+voice_o = (voice + 7) % 2048
+al_o = [{"text": w, "start": 1.1 + i * 0.9, "end": 1.5 + i * 0.9, "speaker": "assistant"} for i, w in enumerate("now the other side talks for a while".split())]
+p_a, p_o = "You enjoy having a good conversation. Talk about foxes.", "You enjoy having a good conversation. Talk about the weather and the long drive home."
+
+
+def swap_row(ok):
+    return {
+        "id": "ep#0@a#w0", "duration": F / FR, "n_codebooks": K, "n_frames": F, "frame_rate": FR,
+        "codes_assistant": ca.reshape(-1).tolist(), "codes_user": cu.reshape(-1).tolist(), "alignments": al,
+        "context": [p_a], "voice_codes": voice.astype(np.int16).reshape(-1).tolist(),
+        "context_other": [p_o], "voice_codes_other": voice_o.astype(np.int16).reshape(-1).tolist(),
+        "alignments_other": al_o, "other_ok": ok,
+    }
+
+
+want_a = system_prompt_prefix(tok.system_prompt_text_tokens(p_a), voice, n_q=N_Q, silence_frames=SIL)
+want_o = system_prompt_prefix(tok.system_prompt_text_tokens(p_o), voice_o, n_q=N_Q, silence_frames=SIL)
+dlg_a, _ = mtok.build_codes_stored(ca, cu, al)
+dlg_o, _ = mtok.build_codes_stored(cu, ca, al_o)
+
+
+def count_swaps(ok, swap, n_reads):
+    d = tempfile.mkdtemp(prefix="check_ppx_swap_")
+    Dataset.from_list([swap_row(ok)]).save_to_disk(d)
+    it = build_data_loader(d, tok, batch_size=1, seed=0, system_prompt_key="context", voice_codes_key="voice_codes", swap_channels=swap)
+    k = 0
+    for _ in range(n_reads):
+        c, m = next(it)
+        c = c[0]
+        if c.shape[1] == want_o.shape[1] + dlg_o.shape[1] and torch.equal(c[:, : want_o.shape[1]], want_o):
+            assert torch.equal(c[:, want_o.shape[1] :], dlg_o), "swapped read: dialogue != channels exchanged"
+            k += 1
+        else:
+            assert torch.equal(c[:, : want_a.shape[1]], want_a) and torch.equal(c[:, want_a.shape[1] :], dlg_a), "unswapped read differs from the stored row"
+    return k
+
+
+n_sw = count_swaps(True, True, 200)
+assert 0.38 < n_sw / 200 < 0.62, f"swap rate {n_sw}/200 is not ~1/2"
+assert count_swaps(True, False, 40) == 0, "swap_channels=False swapped"
+assert count_swaps(False, True, 40) == 0, "a row with other_ok=False was swapped"
+print(f"[4] swap_channels: {n_sw}/200 reads used the other side (prompt, voice, codes, alignments); never when off or other_ok=False")
 print("OK")

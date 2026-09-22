@@ -157,7 +157,14 @@ class PodcastWindowContext(Job):
     wrong for about a quarter of dialogue rows (audio_datasets.md, "Label trap"), so the label is
     taken from the turns instead: the diarized speaker whose turns contain most of the assistant's
     word onsets in this window.
+
+    ``with_other_side=True`` also writes the OTHER channel as a training side: ``user_alignments``
+    (its words in exactly the converter's alignment format: onset-selected, re-based to the window
+    start, ``speaker="assistant"`` because that is its role when the loader swaps channels),
+    ``user_label`` (same turns-based rule) and ``n_user_words``.
     """
+
+    __sis_hash_exclude__ = {"with_other_side": False}
 
     def __init__(
         self,
@@ -167,6 +174,7 @@ class PodcastWindowContext(Job):
         window_select: dict,
         assistant_channel: str = "random",
         selection_seed: int = 0,
+        with_other_side: bool = False,
     ):
         assert assistant_channel in ("a", "b", "random"), assistant_channel
         assert set(window_select) <= set(WINDOW_SELECT_KEYS), window_select
@@ -175,6 +183,7 @@ class PodcastWindowContext(Job):
         self.window_select = {k: window_select[k] for k in WINDOW_SELECT_KEYS if k in window_select}
         self.assistant_channel = assistant_channel
         self.selection_seed = int(selection_seed)
+        self.with_other_side = bool(with_other_side)
         self.out_dir = self.output_path("dataset", directory=True)
 
     def tasks(self):
@@ -226,8 +235,24 @@ class PodcastWindowContext(Job):
                             return [w for w in ws if (w["start"] >= t0 or f0 == 0) and w["start"] < t1]
 
                         wa, wu = sel(words[ch]), sel(words[other])
+                        extra = {}
+                        if getattr(self, "with_other_side", False):
+                            extra = {
+                                "user_alignments": [
+                                    {
+                                        "text": w["text"],
+                                        "start": float(w["start"]) - t0,
+                                        "end": min(float(w["end"]), t1) - t0,
+                                        "speaker": "assistant",
+                                    }
+                                    for w in wu
+                                ],
+                                "user_label": _label_for(wu, turns),
+                                "n_user_words": len(wu),
+                            }
                         rows.append(
                             {
+                                **extra,
                                 "id": rid,
                                 "item_id": r["item_id"],
                                 "episode_id": r["episode_id"],
@@ -296,6 +321,11 @@ class PersonaPromptGen(Job):
 
     ``input_view``: ``assistant`` (only the assistant's words) or ``dialogue`` (both channels,
     labelled). ``sample_n``: a seeded subset for review before a full run (None = every window).
+    ``side``: whose prompt to write. ``assistant`` (default) = the window's assistant channel;
+    ``other`` = the OTHER channel, described with the same assistant-view instruction from that
+    speaker's own words only (to the LLM, that speaker is "the assistant"). Together the two sides
+    give each channel of a window its own prompt, e.g. for two concurrent models, one per channel.
+    ``other`` requires ``input_view="assistant"`` and gets its own ``prompt_set`` (suffix ``|other``).
 
     Output (long format, one row per (id, level)): ``id, prompt_set, level, text, llm_name,
     input_view, spec, max_ngram_overlap``, with ``prompt_set = f"{spec}|{llm_name}|{input_view}"``.
@@ -315,8 +345,11 @@ class PersonaPromptGen(Job):
         num_shards: int | None = None,
         guided_json: bool = True,
         temperature: float = 0.6,
+        side: str = "assistant",
     ):
         assert input_view in _VIEW_DESCRIPTIONS, input_view
+        assert side in ("assistant", "other"), side
+        assert side == "assistant" or input_view == "assistant", "side='other' is defined for the assistant view"
         assert spec in PROMPT_SPECS, spec
         self.context_data = context_data
         self.input_view = input_view
@@ -329,6 +362,7 @@ class PersonaPromptGen(Job):
         self.num_shards = num_shards
         self.guided_json = bool(guided_json)
         self.temperature = float(temperature)
+        self.side = side
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 80}
@@ -336,9 +370,13 @@ class PersonaPromptGen(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
+    __sis_hash_exclude__ = {"side": "assistant"}
+
     @property
     def prompt_set(self) -> str:
-        return f"{self.spec}|{self.llm_name}|{self.input_view}"
+        base = f"{self.spec}|{self.llm_name}|{self.input_view}"
+        side = getattr(self, "side", "assistant")  # jobs pickled before `side` existed
+        return base if side == "assistant" else f"{base}|{side}"
 
     def completed_fraction(self):
         import glob
@@ -371,6 +409,10 @@ class PersonaPromptGen(Job):
         total = len(ds)
         work_dir = os.getcwd()
         view, llm_name, guided, temp = self.input_view, self.llm_name, self.guided_json, self.temperature
+        side = getattr(self, "side", "assistant")  # jobs pickled before `side` existed
+        text_col = (
+            {"assistant": "assistant_text", "other": "user_text"}[side] if view == "assistant" else "dialogue_text"
+        )
         print(f"[prompts] {total} windows, set={self.prompt_set!r}, guided_json={guided}", flush=True)
 
         with vllm_server(llm_name) as url:
@@ -378,7 +420,7 @@ class PersonaPromptGen(Job):
 
             def gen(row):
                 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-                transcript = row["assistant_text"] if view == "assistant" else row["dialogue_text"]
+                transcript = row[text_col]
                 msg = spec["instruction"].format(view_description=_VIEW_DESCRIPTIONS[view], transcript=transcript)
                 seed = int(hashlib.md5(row["id"].encode()).hexdigest(), 16) % (2**31)
                 out, err = None, ""
@@ -508,6 +550,11 @@ class AttachPersonaPrompts(Job):
     """Training rows + ``context`` (persona text) + ``voice_codes``: what the PersonaPlex loader reads.
 
     Per row, ONE level is chosen by seeded hash of the row id, proportional to ``level_weights``.
+    With ``per_read=True`` the choice moves to TRAINING time instead: ``context`` holds every level's
+    prompt as a list (level order sorted by name, ``context_level`` the matching names) and the
+    PersonaPlex loader draws one uniformly each time it reads the row, so a row seen in several epochs
+    can get a different level each time. Uniform, so the weights must all be equal; a row missing any
+    of the levels counts as ``noprompt``.
     ``minimal`` needs no prompt set (it is the constant ``PERSONA_MINIMAL``), so an all-minimal corpus
     does not wait on an LLM job. The voice is the row's assistant speaker's clip from
     ``VoicePromptCodes`` (matched on episode + diarized label from ``PodcastWindowContext``).
@@ -516,6 +563,14 @@ class AttachPersonaPrompts(Job):
     ``max_drop_frac`` of either is an error rather than a quietly smaller corpus.
 
     Extra columns for analysis: ``context_level``, ``context_set``, ``voice_label``, ``voice_n_frames``.
+
+    ``with_other_side=True`` (needs ``per_read`` and a context built with ``with_other_side``) also
+    stores the OTHER channel as a second training side, for the loader's ``swap_channels``:
+    ``context_other`` (its levels' prompts from ``other_prompt_set``), ``voice_codes_other`` /
+    ``voice_n_frames_other`` / ``voice_label_other`` (that speaker's clip), ``alignments_other`` and
+    ``other_ok``. A row whose other side has fewer than ``other_min_words`` words (the converter's
+    ``min_assistant_words``), or lacks a prompt or voice for it, is KEPT with ``other_ok=False`` and
+    empty ``*_other`` columns, so the loader never swaps it; the count is logged.
     """
 
     def __init__(
@@ -529,9 +584,19 @@ class AttachPersonaPrompts(Job):
         prompt_set: str | None = None,
         seed: int = 0,
         max_drop_frac: float = 0.05,
+        per_read: bool = False,
+        with_other_side: bool = False,
+        other_prompt_set: str | None = None,
+        other_min_words: int = 8,
     ):
+        if with_other_side:
+            assert per_read, "with_other_side stores prompt lists; it needs per_read=True"
+            assert other_prompt_set, "with_other_side needs other_prompt_set"
         levels = {k for k, v in level_weights.items() if float(v) > 0}
         assert levels, level_weights
+        if per_read:
+            w = {float(v) for v in level_weights.values() if float(v) > 0}
+            assert len(w) == 1, f"per_read draws uniformly in the loader; weights must be equal: {level_weights}"
         if levels != {"minimal"}:
             assert prompt_data and prompt_set, "non-minimal levels need prompt_data + prompt_set"
         self.train_data = train_data
@@ -542,7 +607,18 @@ class AttachPersonaPrompts(Job):
         self.prompt_set = prompt_set
         self.seed = int(seed)
         self.max_drop_frac = float(max_drop_frac)
+        self.per_read = bool(per_read)
+        self.with_other_side = bool(with_other_side)
+        self.other_prompt_set = other_prompt_set
+        self.other_min_words = int(other_min_words)
         self.out_dir = self.output_path("dataset", directory=True)
+
+    __sis_hash_exclude__ = {
+        "per_read": False,
+        "with_other_side": False,
+        "other_prompt_set": None,
+        "other_min_words": 8,
+    }
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 4, "mem": 24, "time": 2})
@@ -551,20 +627,21 @@ class AttachPersonaPrompts(Job):
         import numpy as np
         from datasets import Dataset, Sequence, Value, load_from_disk
 
-        ctx = {
-            r["id"]: r
-            for r in load_from_disk(self.context_data.get_path()).select_columns(
-                ["id", "episode_id", "assistant_label"]
-            )
-        }
+        other_side = getattr(self, "with_other_side", False)
+        ctx_cols = ["id", "episode_id", "assistant_label"]
+        if other_side:
+            ctx_cols += ["user_alignments", "user_label", "n_user_words"]
+        ctx = {r["id"]: r for r in load_from_disk(self.context_data.get_path()).select_columns(ctx_cols)}
         voices = {}
         for r in load_from_disk(self.voice_codes.get_path()):
             voices[(r["episode_id"], r["label"])] = (np.asarray(r["codes"], dtype=np.int16), int(r["n_frames"]))
-        prompts = {}
+        prompts, other_prompts = {}, {}
         for p in self.prompt_data:
             for r in load_from_disk(p.get_path()):
                 if r["prompt_set"] == self.prompt_set:
                     prompts.setdefault(r["id"], {})[r["level"]] = r["text"]
+                elif other_side and r["prompt_set"] == self.other_prompt_set:
+                    other_prompts.setdefault(r["id"], {})[r["level"]] = r["text"]
         train = load_from_disk(self.train_data.get_path())
         print(
             f"[attach] {len(train)} rows, {len(voices)} voice clips, {len(prompts)} prompted ids, "
@@ -575,22 +652,73 @@ class AttachPersonaPrompts(Job):
         n = {"in": 0, "out": 0, "noprompt": 0, "novoice": 0}
         levels_used = {}
         feats = train.features.copy()
-        feats["context"] = Value("string")
-        feats["context_level"] = Value("string")
+        feats["context"] = Sequence(Value("string")) if self.per_read else Value("string")
+        feats["context_level"] = Sequence(Value("string")) if self.per_read else Value("string")
+        read_levels = sorted(k for k, v in self.level_weights.items() if v > 0)
+
+        def text_of(rid, level):
+            if level == "minimal":
+                return PERSONA_MINIMAL, "builtin"
+            return prompts.get(rid, {}).get(level), self.prompt_set
+
         feats["context_set"] = Value("string")
         feats["voice_codes"] = Sequence(Value("int16"))
         feats["voice_n_frames"] = Value("int32")
         feats["voice_label"] = Value("string")
+        if other_side:
+            feats["context_other"] = Sequence(Value("string"))
+            feats["voice_codes_other"] = Sequence(Value("int16"))
+            feats["voice_n_frames_other"] = Value("int32")
+            feats["voice_label_other"] = Value("string")
+            feats["alignments_other"] = train.features["alignments"]
+            feats["other_ok"] = Value("bool")
+            n.update({"other_ok": 0, "other_short": 0, "other_noprompt": 0, "other_novoice": 0})
+
+        def other_cols(rid, c):
+            """The other side's columns, or empty ones with other_ok=False (and the reason counted)."""
+            empty = {
+                "context_other": [],
+                "voice_codes_other": np.zeros(0, dtype=np.int16),
+                "voice_n_frames_other": 0,
+                "voice_label_other": c["user_label"],
+                "alignments_other": [],
+                "other_ok": False,
+            }
+            if c["n_user_words"] < self.other_min_words:
+                n["other_short"] += 1
+                return empty
+            texts = [PERSONA_MINIMAL if lv == "minimal" else other_prompts.get(rid, {}).get(lv) for lv in read_levels]
+            if any(t is None for t in texts):
+                n["other_noprompt"] += 1
+                return empty
+            ov = voices.get((c["episode_id"], c["user_label"]))
+            if ov is None:
+                n["other_novoice"] += 1
+                return empty
+            n["other_ok"] += 1
+            return {
+                "context_other": texts,
+                "voice_codes_other": ov[0],
+                "voice_n_frames_other": ov[1],
+                "voice_label_other": c["user_label"],
+                "alignments_other": c["user_alignments"],
+                "other_ok": True,
+            }
 
         def rows():
             for r in train:
                 n["in"] += 1
                 c = ctx[r["id"]]  # KeyError = the context job does not cover this corpus: a wiring bug
-                level = choose_level(self.level_weights, self.seed, r["id"])
-                if level == "minimal":
-                    text, pset = PERSONA_MINIMAL, "builtin"
+                if self.per_read:
+                    level = read_levels
+                    text = [text_of(r["id"], lv)[0] for lv in read_levels]
+                    pset = self.prompt_set if any(lv != "minimal" for lv in read_levels) else "builtin"
+                    if any(t is None for t in text):
+                        n["noprompt"] += 1
+                        continue
                 else:
-                    text, pset = prompts.get(r["id"], {}).get(level), self.prompt_set
+                    level = choose_level(self.level_weights, self.seed, r["id"])
+                    text, pset = text_of(r["id"], level)
                     if text is None:
                         n["noprompt"] += 1
                         continue
@@ -598,7 +726,8 @@ class AttachPersonaPrompts(Job):
                 if v is None:
                     n["novoice"] += 1
                     continue
-                levels_used[level] = levels_used.get(level, 0) + 1
+                for lv in level if self.per_read else [level]:
+                    levels_used[lv] = levels_used.get(lv, 0) + 1
                 n["out"] += 1
                 yield {
                     **r,
@@ -608,6 +737,7 @@ class AttachPersonaPrompts(Job):
                     "voice_codes": v[0],
                     "voice_n_frames": v[1],
                     "voice_label": c["assistant_label"],
+                    **(other_cols(r["id"], c) if other_side else {}),
                 }
 
         out = Dataset.from_generator(rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
