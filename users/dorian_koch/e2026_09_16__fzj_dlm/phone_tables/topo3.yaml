@@ -1,0 +1,156 @@
+a:
+  min_states: 3
+  max_states: 3
+aj:
+  min_states: 3
+  max_states: 3
+aw:
+  min_states: 3
+  max_states: 3
+aː:
+  min_states: 3
+  max_states: 3
+b:
+  min_states: 3
+  max_states: 3
+c:
+  min_states: 3
+  max_states: 3
+cʰ:
+  min_states: 3
+  max_states: 3
+d:
+  min_states: 3
+  max_states: 3
+eː:
+  min_states: 3
+  max_states: 3
+f:
+  min_states: 3
+  max_states: 3
+h:
+  min_states: 3
+  max_states: 3
+iː:
+  min_states: 3
+  max_states: 3
+j:
+  min_states: 3
+  max_states: 3
+k:
+  min_states: 3
+  max_states: 3
+kʰ:
+  min_states: 3
+  max_states: 3
+l:
+  min_states: 3
+  max_states: 3
+l̩:
+  min_states: 3
+  max_states: 3
+m:
+  min_states: 3
+  max_states: 3
+m̩:
+  min_states: 3
+  max_states: 3
+n:
+  min_states: 3
+  max_states: 3
+n̩:
+  min_states: 3
+  max_states: 3
+oː:
+  min_states: 3
+  max_states: 3
+p:
+  min_states: 3
+  max_states: 3
+pf:
+  min_states: 3
+  max_states: 3
+pʰ:
+  min_states: 3
+  max_states: 3
+s:
+  min_states: 3
+  max_states: 3
+t:
+  min_states: 3
+  max_states: 3
+ts:
+  min_states: 3
+  max_states: 3
+tʃ:
+  min_states: 3
+  max_states: 3
+tʰ:
+  min_states: 3
+  max_states: 3
+uː:
+  min_states: 3
+  max_states: 3
+v:
+  min_states: 3
+  max_states: 3
+x:
+  min_states: 3
+  max_states: 3
+yː:
+  min_states: 3
+  max_states: 3
+z:
+  min_states: 3
+  max_states: 3
+ç:
+  min_states: 3
+  max_states: 3
+øː:
+  min_states: 3
+  max_states: 3
+ŋ:
+  min_states: 3
+  max_states: 3
+œ:
+  min_states: 3
+  max_states: 3
+ɐ:
+  min_states: 3
+  max_states: 3
+ɔ:
+  min_states: 3
+  max_states: 3
+ɔʏ:
+  min_states: 3
+  max_states: 3
+ə:
+  min_states: 3
+  max_states: 3
+ɛ:
+  min_states: 3
+  max_states: 3
+ɟ:
+  min_states: 3
+  max_states: 3
+ɡ:
+  min_states: 3
+  max_states: 3
+ɪ:
+  min_states: 3
+  max_states: 3
+ɲ:
+  min_states: 3
+  max_states: 3
+ʁ:
+  min_states: 3
+  max_states: 3
+ʃ:
+  min_states: 3
+  max_states: 3
+ʊ:
+  min_states: 3
+  max_states: 3
+ʏ:
+  min_states: 3
+  max_states: 3
