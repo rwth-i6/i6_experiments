@@ -514,6 +514,7 @@ swap_channels: {"true" if hp.get("swap_channels") else "false"}
 emit_epad: {_opt_bool("emit_epad")}
 onset_floor: {_opt_bool("onset_floor")}
 text_lead_frames: {_tlf}
+word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_overlap"] + chr(34)}
 """
 
 
@@ -613,6 +614,7 @@ emit_epad: {str(bool(hp.get("emit_epad", False))).lower()}
 clamp_text_to_speech: {str(bool(hp.get("clamp_text_to_speech", False))).lower()}
 onset_floor: {str(bool(hp.get("onset_floor", False))).lower()}
 text_lead_frames: {int(hp.get("text_lead_frames", 0))}
+word_overlap: "{hp.get("word_overlap", "overwrite")}"
 aug_gain_prob: {float(hp.get("aug_gain_prob", 0.0))}
 aug_noise_prob: {float(hp.get("aug_noise_prob", 0.0))}
 aug_echo_reverb_prob: {float(hp.get("aug_echo_reverb_prob", 0.0))}
