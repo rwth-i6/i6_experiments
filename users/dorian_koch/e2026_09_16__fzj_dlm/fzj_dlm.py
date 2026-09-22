@@ -517,7 +517,13 @@ def py():
 
             train_paper_best_dlm_4gpu(_dlm_task)
             # Size-matched to the LM baseline (n32-d1024, ~422M): n1024 ~466M vs n1280 ~729M (user request 2026-09-22).
-            train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024)
+            _dlm_n1024 = train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024)
+            # Speed variant in parallel (packed + whole-step CUDA graph, same batches; dlm_on_winner.PACKED_GRAPHC_UPDATES),
+            # validated against the faithful run's curves and by the 1-GPU TrainStepBenchmarkJob parity/speed check.
+            from .dlm_on_winner import register_packed_graphc_benchmarks
+
+            _dlm_n1024_fast = train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024, packed_graphc=True)
+            register_packed_graphc_benchmarks(_dlm_n1024, _dlm_n1024_fast, prefix=f"{prefix}/dlm-n1024-speed")
 
     # Continue training the winner with TTS audio added (user request, 2026-09-17). Independent of the DLM
     # line above: it only adds jobs, and it touches none of tts_data's module state, so the hypothesis

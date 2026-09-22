@@ -238,8 +238,34 @@ def describe_bundles(jobs: List[Any]) -> None:
 
 DLM_NAME = "base-scalingLaws-enc24-dec8-n1280-nEp200"
 
+# Speed variant (2026-09-22): the faithful run is host (Python) bound -- GPU util 51-70%, n1024 steps only 13%
+# faster than n1280. RETURNN ``torch_cuda_graph`` (Albert's whole-step CUDA-graph capture, Inductor-compiled)
+# removes the per-step Python dispatch. Kept as close to the faithful run as the feature allows:
+# - batch_size / max_seqs / laplace ordering unchanged, so the batches are the same;
+#   packed_batch_size is only the content bound the capture needs (content <= the padded 5k, never binds),
+# - grad_explicit all-reduces the grads between step and optimizer, i.e. the DDP math without the DDP wrap,
+# - behavior_version 29 is required by packed tensors; of 22..29 only v27 (bf16 Linear/LayerNorm outputs under
+#   autocast) and v25 (scatter masking) can touch this Transformer, both switched back to the v21 behavior.
+# Bounds from all 2.9M logged steps of the n1280 run: max 422 seqs/batch, max len hyps 87 / real 75.
+PACKED_GRAPHC_UPDATES = {
+    "behavior_version": 29,
+    "rf_module_output_keep_dtype": False,
+    "rf_scatter_use_fixed_masking": False,
+    "packed_tensors": True,
+    "packed_batch_size": {"hyps": 5_000, "real": 5_000},
+    "torch_distributed": {"reduce_type": "grad_explicit"},
+    "torch_cuda_graph": {
+        "batch_size_bound": 500,
+        "dim_capacity": {"hyps": 96, "real": 75},
+        "warmup_steps": 0,
+        "compile": True,
+    },
+}
 
-def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu", model_dim: int = 1280):
+
+def train_paper_best_dlm_4gpu(
+    task, *, name_suffix: str = "-winnerHyps-4gpu", model_dim: int = 1280, packed_graphc: bool = False
+):
     """
     The paper-best DLM (``dlm_scaling_laws.get_dlm_scaling_stats``, entry (24, 8, 1280), nEp 200) on ``task``,
     as 4-GPU DDP on one JUPITER node with the same optimization as the single-GPU RZ run:
@@ -253,6 +279,7 @@ def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu", mo
 
     :param model_dim: 1280 = the paper-best entry (name and hash unchanged). Any other value changes ONLY the
         width, e.g. 1024 (~466M params) for a DLM near the size of the n32-d1024 LM (~422M) it is compared to.
+    :param packed_graphc: the speed variant, :data:`PACKED_GRAPHC_UPDATES` (name gets ``-packedGraphc``)
     """
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
@@ -273,6 +300,8 @@ def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu", mo
     num_enc, num_dec, n_epochs, num_gpus = 24, 8, 200, 4
     additional_opts = {"model_dim": model_dim}
     name = DLM_NAME if model_dim == 1280 else DLM_NAME.replace("-n1280-", f"-n{model_dim}-")
+    if packed_graphc:
+        name_suffix += "-packedGraphc"
     return train_exp(
         name + name_suffix,
         task,
@@ -303,8 +332,39 @@ def train_paper_best_dlm_4gpu(task, *, name_suffix: str = "-winnerHyps-4gpu", mo
                 "__gpu_mem": 96,
                 "__mem_rqmt": 100,  # per rank; sis multiplies by num_processes
                 "__cpu_rqmt": 72,  # per rank; 4 x 72 = the full node
+                **(PACKED_GRAPHC_UPDATES if packed_graphc else {}),
             },
         ),
         post_config={"log_grad_norm": True},
         with_recog=False,
     )
+
+
+def register_packed_graphc_benchmarks(faithful, fast, *, prefix: str, num_steps: int = 300):
+    """
+    Speed + numerical-parity check of the packed_graphc variant, with Albert's ``TrainStepBenchmarkJob``
+    (1 GPU, fixed seed, same data order; per-step losses must agree up to bf16 noise):
+    the faithful config as is, and the fast config in padded_eager and packed_graphc.
+    input_swapout is off in all three: its random draws follow the tensor layout, so it would make
+    packed and padded losses differ by construction.
+
+    :param faithful: ModelWithCheckpoints of the faithful training
+    :param fast: ModelWithCheckpoints of the packed_graphc training
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.experiments.exp2026_05_23_returnn import TrainStepBenchmarkJob
+
+    overrides = {"torch_distributed": None, "input_swapout_range": None}
+    for tag, model, mode in [
+        ("faithful-as_is", faithful, "as_is"),
+        ("fast-padded_eager", fast, "padded_eager"),
+        ("fast-packed_graphc", fast, "packed_graphc"),
+    ]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=model.model_dir.creator.returnn_config,
+            mode=mode,
+            num_steps=num_steps,
+            config_overrides=overrides,
+        )
+        job.add_alias(f"{prefix}/bench-{tag}")
+        tk.register_output(f"{prefix}/bench-{tag}.json", job.out_results)
