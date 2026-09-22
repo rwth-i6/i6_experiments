@@ -107,3 +107,102 @@ class PersonaSelfPlay(Job):
                 cmd += [f"--overlay_{s}", ov.get_path(), f"--lora_rank_{s}", str(rank)]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
+
+
+class SelfPlayTranscribe(Job):
+    """Per-channel word-level ASR of self-play conversations, with the podcast corpus's OWN ASR.
+
+    Decodes each conversation's two code streams to audio (``moshi_family.personaplex.selfplay_decode``)
+    and transcribes each channel separately with ``moshi_family/podcast_asr.py --serve`` -- the same
+    backend and model (faster_whisper/medium) and the same word cleaning that produced the JRE
+    corpus's ``words_a``/``words_b``. So turn-taking statistics computed on this output and on the
+    real windows come from the same ASR, not two. Output: the self-play dataset plus ``words_a`` /
+    ``words_b`` (JSON lists of ``{text, start, end, ...}``, seconds from the recording start).
+    """
+
+    def __init__(
+        self,
+        *,
+        selfplay_data: tk.Path,
+        venv_python_path: tk.Path,
+        asr_venv_python: tk.Path,
+        asr_backend: str = "faster_whisper",
+        asr_model: str = "medium",
+        asr_batch_size: int = 16,
+    ):
+        self.selfplay_data = selfplay_data
+        self.venv_python_path = venv_python_path
+        self.asr_venv_python = asr_venv_python
+        self.asr_backend = asr_backend
+        self.asr_model = asr_model
+        self.asr_batch_size = int(asr_batch_size)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 32, "time": 2})
+
+    def run(self):
+        import json
+        import shutil
+
+        from datasets import load_from_disk
+
+        env = dict(os.environ)
+        pypath = _moshi_pythonpath()
+        env["PYTHONPATH"] = pypath + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        wav_dir = os.path.abspath("wav_scratch")
+        subprocess.run(
+            [
+                self.venv_python_path.get(),
+                "-m",
+                "moshi_family.personaplex.selfplay_decode",
+                "--data",
+                self.selfplay_data.get_path(),
+                "--out_dir",
+                wav_dir,
+            ],
+            env=env,
+            check=True,
+        )
+        worker = os.path.join(pypath.split(os.pathsep)[0], "moshi_family", "podcast_asr.py")
+        cmd = [
+            self.asr_venv_python.get(),
+            worker,
+            "--backend",
+            self.asr_backend,
+            "--model",
+            self.asr_model,
+            "--batch_size",
+            str(self.asr_batch_size),
+            "--serve",
+        ]
+        print(" ".join(cmd), flush=True)
+        ds = load_from_disk(self.selfplay_data.get_path())
+        words = {}
+        # One long-lived ASR process (model loaded once); requests one per line on stdin, one JSON
+        # response per line on stdout, logging on stderr (see podcast_asr.py).
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        try:
+            for i in range(len(ds)):
+                for side in ("a", "b"):
+                    req = {
+                        "wav": os.path.join(wav_dir, f"{i}_{side}.wav"),
+                        "out": os.path.join(wav_dir, f"{i}_{side}.json"),
+                    }
+                    proc.stdin.write(json.dumps(req) + "\n")
+                    proc.stdin.flush()
+                    resp = json.loads(proc.stdout.readline())
+                    if not resp.get("ok"):
+                        raise RuntimeError(f"ASR failed on row {i} side {side}: {resp}")
+                    with open(req["out"]) as f:
+                        words[(i, side)] = json.load(f)["words"]
+                print(f"[selfplay-asr] {i + 1}/{len(ds)}", flush=True)
+        finally:
+            proc.stdin.close()
+            proc.wait()
+        out = ds.add_column("words_a", [json.dumps(words[(i, "a")]) for i in range(len(ds))])
+        out = out.add_column("words_b", [json.dumps(words[(i, "b")]) for i in range(len(ds))])
+        out.save_to_disk(self.out_dir.get_path())
+        n_words = sum(len(v) for v in words.values())
+        print(f"[selfplay-asr] {len(ds)} conversations, {n_words} words", flush=True)
+        shutil.rmtree(wav_dir)  # scratch audio; the dataset keeps the codes
