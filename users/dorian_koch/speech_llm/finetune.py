@@ -516,6 +516,7 @@ emit_epad: {_opt_bool("emit_epad")}
 onset_floor: {_opt_bool("onset_floor")}
 text_lead_frames: {_tlf}
 word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_overlap"] + chr(34)}
+loss_norm: "{hp.get("loss_norm", "count")}"
 """
 
 
