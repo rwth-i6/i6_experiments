@@ -9,6 +9,11 @@
      FAIL (it would pick other channels) -- the join is not vacuous.
   4. ``AttachPersonaPrompts`` (minimal level) writes ``context`` = the paper's Minimal prompt and the
      speaker's ``voice_codes``; with the voice missing it raises instead of shrinking the corpus.
+  8. JOINT VOICE LABELS (2026-09-22). A dialogue whose quiet channel backchannels inside the other
+     speaker's turns: the old per-channel rule gives both channels the SAME diarized label (shown, so
+     the check can fail); ``label_rule="joint"`` gives two different speakers on every window, and
+     ``AttachPersonaPrompts(reject_same_voice=True)`` makes the per-channel context's same-voice rows
+     non-swappable while keeping the joint context's rows swappable.
 
 Recipe venv, login node, ~20 s:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_prompts.py
@@ -347,4 +352,94 @@ single = pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), inp
 assert single._sis_hash() == pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant", sides=("assistant",))._sis_hash()
 assert single._sis_hash() != g._sis_hash()
 print(f"[7] two-sided prompt job: {len(ctx)} windows x 2 sides, each side from its own channel; the default keeps its hash")
+
+# ---- 8 ----
+from i6_experiments.users.dorian_koch.speech_llm.persona_prompts import _joint_labels, _label_for  # noqa: E402
+
+turns8 = [{"speaker": "S0" if i % 2 == 0 else "S1", "start": i * 5.0, "end": (i + 1) * 5.0} for i in range(20)]
+# Channel a speaks densely in S0's turns; channel b says one word per S1 turn and backchannels
+# ("yeah", "right") twice inside every S0 turn -- so most of b's onsets sit in S0's turns.
+wa8 = [
+    {"text": f"a_{i}", "start": b * 5.0 + 0.3 + k, "end": b * 5.0 + 0.8 + k, "speaker": "x"}
+    for i, (b, k) in enumerate((b, k) for b in range(0, 20, 2) for k in range(4))
+]
+wb8 = [
+    {"text": "yeah", "start": b * 5.0 + 1.2 + 2 * k, "end": b * 5.0 + 1.5 + 2 * k, "speaker": "y"}
+    for b in range(0, 20, 2)
+    for k in range(2)
+]
+wb8 += [{"text": f"b_{b}", "start": b * 5.0 + 1.0, "end": b * 5.0 + 1.6, "speaker": "y"} for b in range(1, 20, 2)]
+assert (_label_for(wa8, turns8), _label_for(wb8, turns8)) == ("S0", "S0"), "fixture: per-channel labels should collide"
+assert _joint_labels(wa8, wb8, turns8) == ("S0", "S1") and _joint_labels(wb8, wa8, turns8) == ("S1", "S0")
+assert _joint_labels(wa8, [w for w in wb8 if w["text"] == "yeah"], turns8) == ("S0", None), "no own speaker -> None"
+assert _joint_labels([], [], turns8) == (None, None)
+row8 = dict(
+    rows[0],
+    item_id="ep8#0",
+    episode_id="ep8",
+    words_a=json.dumps(wa8),
+    words_b=json.dumps(sorted(wb8, key=lambda w: w["start"])),
+    turns_json=json.dumps(turns8),
+)
+Dataset.from_list([row8]).save_to_disk(os.path.join(tmp, "dlg8", "parts", "part_000"))
+dlg8 = [tk.Path(os.path.join(tmp, "dlg8"))]
+train8 = run(
+    PodcastCodesTrainData(shard_dirs=dlg8, assistant_channel="random", window_select=RULE, min_assistant_words=1),
+    "train8",
+)
+ctx_kw = dict(
+    train_data=tk.Path(os.path.join(tmp, "train8")), dialogue_shard_dirs=dlg8, window_select=RULE, with_other_side=True
+)
+old8 = run(PodcastWindowContext(**ctx_kw, label_rule="per_channel"), "ctx8_old")
+new8 = run(PodcastWindowContext(**ctx_kw), "ctx8_joint")
+same_old = sum(r["assistant_label"] == r["user_label"] for r in old8)
+same_new = sum(r["assistant_label"] == r["user_label"] for r in new8)
+assert same_old == len(old8) > 0, (
+    f"fixture: the per-channel rule should collide on every window ({same_old}/{len(old8)})"
+)
+assert same_new == 0 and all(r["assistant_label"] and r["user_label"] for r in new8), [
+    (r["assistant_label"], r["user_label"]) for r in new8
+]
+Dataset.from_list(
+    [
+        {
+            "episode_id": "ep8",
+            "label": lb,
+            "codes": (np.arange(8 * 50) + k).astype(np.int16).tolist(),
+            "n_frames": 50,
+            "clip_sec": 4.0,
+            "source_sec": 30.0,
+        }
+        for k, lb in enumerate(("S0", "S1"))
+    ]
+).save_to_disk(os.path.join(tmp, "voice8"))
+
+
+def attach8(ctx_sub, sub, **kw):
+    return run(
+        AttachPersonaPrompts(
+            train_data=tk.Path(os.path.join(tmp, "train8")),
+            context_data=tk.Path(os.path.join(tmp, ctx_sub)),
+            voice_codes=tk.Path(os.path.join(tmp, "voice8")),
+            level_weights={"minimal": 1.0},
+            per_read=True,
+            with_other_side=True,
+            other_prompt_set="unused",
+            other_min_words=1,
+            **kw,
+        ),
+        sub,
+    )
+
+
+a_old_keep = attach8("ctx8_old", "att8_old_keep", reject_same_voice=False)
+a_old_rej = attach8("ctx8_old", "att8_old_rej")
+a_new = attach8("ctx8_joint", "att8_new")
+assert all(a_old_keep["other_ok"]) and all(r["voice_codes"] == r["voice_codes_other"] for r in a_old_keep), "fixture"
+assert not any(a_old_rej["other_ok"]), "same-voice rows stayed swappable with reject_same_voice"
+assert all(a_new["other_ok"]) and all(r["voice_codes"] != r["voice_codes_other"] for r in a_new)
+print(
+    f"[8] joint labels: per-channel rule gives both sides one voice on {same_old}/{len(old8)} windows, joint on 0; "
+    f"reject_same_voice makes those rows unswappable, joint rows stay swappable with two voices"
+)
 print("OK")

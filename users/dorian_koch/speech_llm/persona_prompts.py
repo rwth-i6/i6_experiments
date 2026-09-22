@@ -155,8 +155,14 @@ class PodcastWindowContext(Job):
 
     ``assistant_label``: the words' own ``speaker`` field is the channel's EPISODE-level anchor and is
     wrong for about a quarter of dialogue rows (audio_datasets.md, "Label trap"), so the label is
-    taken from the turns instead: the diarized speaker whose turns contain most of the assistant's
-    word onsets in this window.
+    taken from the turns instead, by word onsets inside each diarized speaker's turns.
+
+    ``label_rule`` (2026-09-22): ``"joint"`` (default) labels the TWO channels together -- two
+    different speakers, the pair with the most onsets in total (:func:`_joint_labels`); a channel
+    left without any speaker of its own gets None (no voice -> not swappable). ``"per_channel"``
+    (every job before 2026-09-22, pinned by p0/p1) labels each channel alone (:func:`_label_for`),
+    so the quiet channel's backchannels, which fall inside the other speaker's turns, took the
+    other speaker's label: 1,150 / 12,492 p1 swap rows gave both sides the same voice.
 
     ``with_other_side=True`` also writes the OTHER channel as a training side: ``user_alignments``
     (its words in exactly the converter's alignment format: onset-selected, re-based to the window
@@ -164,7 +170,7 @@ class PodcastWindowContext(Job):
     ``user_label`` (same turns-based rule) and ``n_user_words``.
     """
 
-    __sis_hash_exclude__ = {"with_other_side": False}
+    __sis_hash_exclude__ = {"with_other_side": False, "label_rule": "per_channel"}
 
     def __init__(
         self,
@@ -175,8 +181,10 @@ class PodcastWindowContext(Job):
         assistant_channel: str = "random",
         selection_seed: int = 0,
         with_other_side: bool = False,
+        label_rule: str = "joint",
     ):
         assert assistant_channel in ("a", "b", "random"), assistant_channel
+        assert label_rule in ("joint", "per_channel"), label_rule
         assert set(window_select) <= set(WINDOW_SELECT_KEYS), window_select
         self.train_data = train_data
         self.dialogue_shard_dirs = list(dialogue_shard_dirs)
@@ -184,6 +192,7 @@ class PodcastWindowContext(Job):
         self.assistant_channel = assistant_channel
         self.selection_seed = int(selection_seed)
         self.with_other_side = bool(with_other_side)
+        self.label_rule = label_rule
         self.out_dir = self.output_path("dataset", directory=True)
 
     def tasks(self):
@@ -235,6 +244,10 @@ class PodcastWindowContext(Job):
                             return [w for w in ws if (w["start"] >= t0 or f0 == 0) and w["start"] < t1]
 
                         wa, wu = sel(words[ch]), sel(words[other])
+                        if getattr(self, "label_rule", "per_channel") == "joint":
+                            label_a, label_u = _joint_labels(wa, wu, turns)
+                        else:
+                            label_a, label_u = _label_for(wa, turns), _label_for(wu, turns)
                         extra = {}
                         if getattr(self, "with_other_side", False):
                             extra = {
@@ -247,7 +260,7 @@ class PodcastWindowContext(Job):
                                     }
                                     for w in wu
                                 ],
-                                "user_label": _label_for(wu, turns),
+                                "user_label": label_u,
                                 "n_user_words": len(wu),
                             }
                         rows.append(
@@ -263,7 +276,7 @@ class PodcastWindowContext(Job):
                                 "assistant_text": " ".join(w["text"] for w in wa),
                                 "user_text": " ".join(w["text"] for w in wu),
                                 "dialogue_text": _dialogue_text(wa, wu),
-                                "assistant_label": _label_for(wa, turns),
+                                "assistant_label": label_a,
                                 "n_assistant_words": len(wa),
                             }
                         )
@@ -276,7 +289,11 @@ class PodcastWindowContext(Job):
                 "so prompts would be attached to the wrong windows."
             )
         n_nolabel = sum(r["assistant_label"] is None for r in rows)
-        print(f"[context] {len(rows)} windows; {n_nolabel} without an assistant label", flush=True)
+        msg = f"[context] {len(rows)} windows ({getattr(self, 'label_rule', 'per_channel')} labels); {n_nolabel} without an assistant label"
+        if getattr(self, "with_other_side", False):
+            n_same = sum(r["user_label"] is not None and r["user_label"] == r["assistant_label"] for r in rows)
+            msg += f", {sum(r['user_label'] is None for r in rows)} without a user label, {n_same} with both the same"
+        print(msg, flush=True)
         Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
 
 
@@ -296,14 +313,44 @@ def _dialogue_text(wa: list[dict], wu: list[dict], gap: float = 1.5) -> str:
     return "\n".join(f"{u['who']}: {' '.join(u['words'])}" for u in utts)
 
 
-def _label_for(words: list[dict], turns: list[dict]) -> str | None:
-    """The diarized speaker whose turns contain most of these word onsets (None if none do)."""
+def _onset_counts(words: list[dict], turns: list[dict]) -> dict[str, int]:
+    """Per diarized speaker: how many of these word onsets fall inside that speaker's turns."""
     counts = {}
     for w in words:
         for t in turns:
             if t["start"] <= w["start"] <= t["end"]:
                 counts[t["speaker"]] = counts.get(t["speaker"], 0) + 1
+    return counts
+
+
+def _label_for(words: list[dict], turns: list[dict]) -> str | None:
+    """The diarized speaker whose turns contain most of these word onsets (None if none do).
+
+    One channel ALONE -- ``label_rule="per_channel"``. Two channels labelled this way can get the same
+    speaker (the quiet side's backchannels sit inside the other's turns); see :func:`_joint_labels`.
+    """
+    counts = _onset_counts(words, turns)
     return max(sorted(counts), key=lambda s: counts[s]) if counts else None
+
+
+def _joint_labels(words_a: list[dict], words_b: list[dict], turns: list[dict]) -> tuple[str | None, str | None]:
+    """Diarized labels for two channels at once: two DIFFERENT speakers, most onsets in total.
+
+    Each channel may only take a speaker that holds at least one of its own onsets, or None. Among
+    the pairs with different speakers, the highest total onset count wins; ties prefer labelling both
+    channels, then the sorted speaker order (deterministic). When the per-channel choices already
+    differ, this is exactly that pair (it maximises each term).
+    """
+    ca, cb = _onset_counts(words_a, turns), _onset_counts(words_b, turns)
+    best, best_key = (None, None), (-1, -1)
+    for sa in [*sorted(ca), None]:
+        for sb in [*sorted(cb), None]:
+            if sa is not None and sa == sb:
+                continue
+            key = (ca.get(sa, 0) + cb.get(sb, 0), (sa is not None) + (sb is not None))
+            if key > best_key:
+                best, best_key = (sa, sb), key
+    return best
 
 
 # ---------------------------------------------------------------------------------------------
@@ -592,6 +639,10 @@ class AttachPersonaPrompts(Job):
     ``other_ok``. A row whose other side has fewer than ``other_min_words`` words (the converter's
     ``min_assistant_words``), or lacks a prompt or voice for it, is KEPT with ``other_ok=False`` and
     empty ``*_other`` columns, so the loader never swaps it; the count is logged.
+    ``reject_same_voice`` (default; ``False`` = every job before 2026-09-22, pinned by p0/p1): a row
+    whose two sides carry the SAME diarized label (hence the same voice prompt) is not swappable
+    either (``other_samevoice``) -- a model told "you sound like X" while hearing X would learn to
+    ignore its voice prompt. With a ``label_rule="joint"`` context this should never fire.
     """
 
     def __init__(
@@ -609,6 +660,7 @@ class AttachPersonaPrompts(Job):
         with_other_side: bool = False,
         other_prompt_set: str | None = None,
         other_min_words: int = 8,
+        reject_same_voice: bool = True,
     ):
         if with_other_side:
             assert per_read, "with_other_side stores prompt lists; it needs per_read=True"
@@ -632,6 +684,7 @@ class AttachPersonaPrompts(Job):
         self.with_other_side = bool(with_other_side)
         self.other_prompt_set = other_prompt_set
         self.other_min_words = int(other_min_words)
+        self.reject_same_voice = bool(reject_same_voice)
         self.out_dir = self.output_path("dataset", directory=True)
 
     __sis_hash_exclude__ = {
@@ -639,6 +692,7 @@ class AttachPersonaPrompts(Job):
         "with_other_side": False,
         "other_prompt_set": None,
         "other_min_words": 8,
+        "reject_same_voice": False,
     }
 
     def tasks(self):
@@ -693,7 +747,7 @@ class AttachPersonaPrompts(Job):
             feats["voice_label_other"] = Value("string")
             feats["alignments_other"] = train.features["alignments"]
             feats["other_ok"] = Value("bool")
-            n.update({"other_ok": 0, "other_short": 0, "other_noprompt": 0, "other_novoice": 0})
+            n.update({"other_ok": 0, "other_short": 0, "other_noprompt": 0, "other_novoice": 0, "other_samevoice": 0})
 
         def other_cols(rid, c):
             """The other side's columns, or empty ones with other_ok=False (and the reason counted)."""
@@ -707,6 +761,9 @@ class AttachPersonaPrompts(Job):
             }
             if c["n_user_words"] < self.other_min_words:
                 n["other_short"] += 1
+                return empty
+            if getattr(self, "reject_same_voice", False) and c["user_label"] == c["assistant_label"]:
+                n["other_samevoice"] += 1
                 return empty
             texts = [PERSONA_MINIMAL if lv == "minimal" else other_prompts.get(rid, {}).get(lv) for lv in read_levels]
             if any(t is None for t in texts):
