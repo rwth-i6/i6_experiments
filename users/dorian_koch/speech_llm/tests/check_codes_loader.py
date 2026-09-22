@@ -399,6 +399,7 @@ def main():
                 "codes_assistant_aug": [[]],
                 "codes_user_aug": [[]],
                 "n_user_aug": [0],
+                "user_aug_json": [None],
                 "alignments": [
                     [
                         {"text": "though.", "start": 0.79, "end": 0.95, "speaker": "assistant"},
