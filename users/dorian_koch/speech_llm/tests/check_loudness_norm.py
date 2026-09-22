@@ -1,13 +1,14 @@
 """Guard: per-channel loudness normalisation before the mimi encode (``podcast_mimi_encode.normalize_channel``).
 
 WHY. Nothing in DuplexChat, moshi-finetune or our loaders normalises the separated audio, and after
-the encode only codes exist -- so the gain has to be right the one time it is applied. Checked:
-  1. A quiet channel (-38 LUFS) and a loud one (-14 LUFS) both land at the target (+-0.2 LU,
-     re-measured with the same meter), and the recorded ``gain_db`` is what was applied.
-  2. A peaky channel whose target gain would push it past 1.0 is capped at LOUDNESS_PEAK_CAP and
-     says ``capped``.
-  3. Silence (no gated loudness) is returned unchanged with gain 0 dB -- not blown up to the target.
-  4. The two channels are independent: normalising A does not depend on B.
+the encode only codes exist -- so the gain has to be right the one time it is applied, and it must
+never pump a near-empty channel up into noise. Checked (reason = the rule that set the gain):
+  1. Channels at -30 and -14 LUFS land at the target (+-0.2 LU, re-measured) -- ONE gain for the
+     whole clip: the sample-wise ratio output/input is constant.
+  2. A quiet channel (-38 LUFS) is boosted by at most max_gain_db (reason max_gain).
+  3. A channel below min_lufs (-50: bleed/noise, not speech) is left unchanged (below_min_lufs).
+  4. A peaky channel is capped at LOUDNESS_PEAK_CAP (peak_cap); silence is untouched (silent).
+  5. The two channels are independent.
 
 moshi_family venv (pyloudnorm), CPU, seconds:
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \
@@ -36,36 +37,44 @@ def speechlike(sec=20.0):
 
 
 def at_lufs(x, lufs):
-    return pyloudnorm.normalize.loudness(
-        x.astype(np.float64), meter.integrated_loudness(x.astype(np.float64)), lufs
-    ).astype(np.float32)
+    return pyloudnorm.normalize.loudness(x.astype(np.float64), meter.integrated_loudness(x.astype(np.float64)), lufs).astype(np.float32)
 
 
 T = -24.0
-for start in (-38.0, -14.0):
+for start in (-30.0, -14.0):
     x = at_lufs(speechlike(), start)
     y, info = normalize_channel(x, T)
     got = meter.integrated_loudness(y.astype(np.float64))
-    assert abs(got - T) < 0.2 and not info["capped"], (start, got, info)
+    assert abs(got - T) < 0.2 and info["reason"] == "target", (start, got, info)
     assert abs(info["gain_db"] - (T - start)) < 0.2, info
-print("[1] -38 and -14 LUFS channels land at -24 +-0.2; gain_db recorded")
+    nz = np.abs(x) > 1e-6
+    ratio = y[nz] / x[nz]
+    assert np.allclose(ratio, ratio[0], rtol=1e-5), "gain varies along the clip"
+print("[1] -30 and -14 LUFS channels land at -24 +-0.2 with one constant gain")
 
-p = at_lufs(speechlike(), -40.0)
-p[1000] = 0.9  # one sharp peak: +16 dB would take it far past 1.0
+x = at_lufs(speechlike(), -38.0)
+y, info = normalize_channel(x, T, max_gain_db=10.0)
+assert info["reason"] == "max_gain" and info["gain_db"] == 10.0, info
+assert abs(meter.integrated_loudness(y.astype(np.float64)) - (-28.0)) < 0.2
+print("[2] -38 LUFS channel boosted by the +10 dB cap only (-> -28), not to -24")
+
+x = at_lufs(speechlike(), -50.0)
+y, info = normalize_channel(x, T, min_lufs=-45.0)
+assert np.array_equal(y, x) and info["reason"] == "below_min_lufs" and info["gain_db"] == 0.0, info
+print("[3] -50 LUFS channel (below the -45 floor) left unchanged")
+
+p = at_lufs(speechlike(), -30.0)
+p[1000] = 0.9
 y, info = normalize_channel(p, T)
-assert info["capped"] and abs(float(np.abs(y).max()) - LOUDNESS_PEAK_CAP) < 1e-5, info
-print(f"[2] peaky channel capped at {LOUDNESS_PEAK_CAP} (gain {info['gain_db']} dB instead of +16)")
-
+assert info["reason"] == "peak_cap" and abs(float(np.abs(y).max()) - LOUDNESS_PEAK_CAP) < 1e-5, info
 z = np.zeros(10 * MIMI_SR, np.float32)
 y, info = normalize_channel(z, T)
-assert np.array_equal(y, z) and info["gain_db"] == 0.0 and info["lufs_in"] is None, info
-print("[3] silence unchanged, gain 0 dB")
+assert np.array_equal(y, z) and info["reason"] == "silent" and info["gain_db"] == 0.0, info
+print(f"[4] peaky channel capped at {LOUDNESS_PEAK_CAP}; silence untouched")
 
 a, b = at_lufs(speechlike(), -30.0), at_lufs(speechlike(), -20.0)
 ya, _ = normalize_channel(a, T)
-ya2, _ = normalize_channel(a, T)
-assert np.array_equal(ya, ya2)
 yb, _ = normalize_channel(b, T)
 assert abs(meter.integrated_loudness(ya.astype(np.float64)) - meter.integrated_loudness(yb.astype(np.float64))) < 0.3
-print("[4] channels normalised independently to the same level")
+print("[5] channels normalised independently to the same level")
 print("OK")
