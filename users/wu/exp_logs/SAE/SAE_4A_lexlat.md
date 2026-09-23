@@ -830,6 +830,27 @@ User: "ablation of current 3gram phone LM. Do it on one or two most representati
 
 **Cost.** W1 and W2 about 1.8 h each (the D10e pack ran 23:13 to 01:00). C about 5 h (pack2's node took 4:58 h). The seed decode and the decphi fit precede W1 and W2.
 
+**Result, cold reads (b) and (c) (pack C `SZO7xTfO9x7Y` COMPLETED, all four arms at ep20).** Sources: `reports/exec_d15_wake_2026-09-23.md` and `reports/extract_d15_cold_2026-09-23.md`; outputs `output/exp2025_11_06_speech_llms/librispeech/sae_4a_lexlat_k2_prior_ablation/`. Paired statistics use 2864 utterances and 33 speakers, 95 % speaker-clustered.
+- **Fade.** prior_weight_eff in the `_rp` arms is 1.0 at ep1-7, then 0.667, 0.333, and 0.0 from ep10 on, as registered. The `_rep` arms log no such key; they run the parent's constant beta 1.
+- **Band.** M_c = max(0.0136; k2lat_rep - pack2 parent +0.0204 [+0.0173, +0.0237]; k2shuf_rep - pack2 parent +0.0032) = **0.0204**. The identity check at ep4, where the configs are identical before the on-set, reads -0.0174 (k2lat) and +0.0133 (k2shuf). So identical cold configs differ by 0.013-0.020 PER.
+- **Dev-other PER at ep20:**
+
+  | Arm | PER |
+  |---|---|
+  | k2lat_rp | 0.8378 |
+  | k2lat_rep | 0.8390 |
+  | k2shuf_rp | 0.8449 |
+  | k2shuf_rep | 0.8174 |
+
+  The pack2 parents are 0.8186 (k2lat) and 0.8142 (k2shuf). Every arm sits at or inside the chance band 0.83-0.91.
+- **(b) k2lat_rp - k2lat_rep: NOT NEEDED at both epochs.**
+  - ep10: -0.0124 [-0.0155, -0.0092]
+  - ep20: -0.0012 [-0.0040, +0.0014]
+  Both are inside M_c. On the cold line, replacing the phone trigram where the word graph carries the text changes nothing measurable.
+- **(c) k2lat_rp - k2shuf_rp at ep20: -0.0072 [-0.0095, -0.0047].** The interval is below zero, but the delta is not below -M_c, so the read is **not LEXICON-SPECIFIC**. The tie with the random-pronunciation null is not the double count's doing, and State fork 1 does not reopen through the prior.
+  - The beta-1 pair beside it, k2lat_rep - k2shuf_rep, is +0.0216 [+0.0190, +0.0243] (pack2: +0.0044). Its sign flips relative to (c), and both are within the replicate scale.
+- The warm read (a) comes with D14's W2. D18's JS, convergence and common-objective reads follow when D14 finishes.
+
 ## D16: cross-evaluation of the gold-start and cold pairs (user request 2026-09-23, registered before any job; descriptive, no gate)
 
 User: "a small cross-evaluation [theta_g, theta_c] x [phi_g, phi_c], the same objective and a fixed data subset; theta_g and phi_g are the matched pair after joint training. Do the ckpt loading and evaluate on dev-other as the cancelled plan last round." This is D13's cancelled eval, reduced to the 2x2.
