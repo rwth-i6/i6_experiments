@@ -26,22 +26,21 @@ BUILT:
 - Ladder and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`), with the chunk fix 6fd3d02e after the first pre-flight's k2 overflow.
 - L2-1 through A9 (3dc01561).
 - The A10 extension (c49559ce; review `reports/review_l21_a10_2026-09-23.md`).
+- A11 with A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`). The E-step and S are exact in both families. Launch review: `reports/review_l21_a11_launch_2026-09-23.md`.
 
-BUILDING:
-- A11 (`reports/impl_l21_a11_2026-09-23.md`).
-- Literature read (`reports/lit_em_decipherment_2026-09-23.md`).
+BUILDING: A13 (see NEXT 1).
 
 WAVE_DURATION_SETTING and WAVE_NUM_SUBEPOCHS stay None until the A10 reader.
 
 NEXT:
-1. After the A11 build returns: the implementer applies A13's 260-utterance disjoint CV reads to the ladder statistic readers and the A10/A11 S references, before the ladder packs finish.
+1. A13 is being built for the ladder readers and the A10 S references (`reports/impl_a13_disjoint_cv_2026-09-23.md`); the ladder and A10 managers restart if the graph changes. A11's S references follow after the A11 launch review.
 2. Ladder wake: the executor reads the packs. The L2-0 read follows A4 and A5 with A13's sets.
 3. A10, on its reader:
    - set the wave setting and sub-epoch count;
    - resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` is fixed at 1.65 h);
    - review the wave.
    The wave is held if both rt_r0 seeds have read NO LIFT.
-4. A11: when the build and the literature read are back, add any literature-driven change as an amendment, then review, launch and watch.
+4. A11: launch on review approval, then watch.
 
 ## Objective
 
@@ -124,6 +123,8 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - A run-preserving null: whole runs of identical units shuffled within each utterance, 8 seeds per arm, the top 2 per arm to stage B; reported as the selected S minus its best S. Frame shuffling also destroys unit runs, so a content-free duration model can beat the gate's null. This null keeps the runs and removes only the order.
     - For every finisher: the phone-trigram NLL per token of its genmarg decode, and the number of phone types used.
   - Budget: the measured stage-A time is recorded. If stage A projects above 24 GPU-h per corpus, the restart count halves, recorded before launch.
+    - Reading at build (before any A11 job): the E-step measures 33.6 ms per utterance. At the 100-iteration cap, 32 restarts per arm project to 27.45 GPU-h per corpus. That is above 24, so the count halves to 16 restarts per arm (seeds 1-16, shared across arms), about 13.7 GPU-h. Source: `reports/impl_l21_a11_2026-09-23.md`.
+  - Rate VOID (a clarification at build, before any A11 job): A7's clause carries A2/A8's VOID, so a finisher whose A8 emitted rate falls outside [5.80, 14.49] Hz cannot be selected. This holds in the real pipeline and in the nulls, including the set that defines the null spread. If no finisher is eligible, G4a.L2.2 reads CANNOT_TELL for the family. A7's duration-freeze rerun does not apply, because arms (a) and (b) already freeze durations. Stage A ranks by S only.
   - Planned next, if the families read NO SIGNAL or report no phonetic content, in the literature's order:
     1. more restarts and iterations;
     2. a coarse-to-fine unit inventory (the 500 codebook vectors clustered into about 100 classes, label-free; its own nulls; bridged by P(unit | class));
