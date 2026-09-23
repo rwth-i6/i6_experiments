@@ -1570,7 +1570,9 @@ class PodcastDialogueSlice(Job):
     that plugging into every existing consumer unchanged is worth more than avoiding the copy.
     """
 
-    __sis_hash_exclude__ = {"rqmt": None, "rows_per_part": 2000}
+    # `drop_channel_collisions` is excluded only at its False default (the corpora built before it
+    # existed keep their hash); set, it is HASHED -- it removes rows, i.e. changes the corpus.
+    __sis_hash_exclude__ = {"rqmt": None, "rows_per_part": 2000, "drop_channel_collisions": False}
 
     def __init__(
         self,
@@ -1583,6 +1585,7 @@ class PodcastDialogueSlice(Job):
         min_duration_seconds: float = 10.0,
         max_duration_seconds: float = 600.0,
         min_dialogues_per_episode: int = 4,
+        drop_channel_collisions: bool = False,
         rows_per_part: int = 2000,
         code_version: int = 1,
         rqmt: dict | None = None,
@@ -1595,6 +1598,11 @@ class PodcastDialogueSlice(Job):
         self.min_duration_seconds = float(min_duration_seconds)
         self.max_duration_seconds = float(max_duration_seconds)
         self.min_dialogues_per_episode = int(min_dialogues_per_episode)
+        # Drop a dialogue whose two diarization labels land mostly on the SAME channel (a separation /
+        # permutation failure, or a third voice merged under one label): see
+        # podcast_slice_main.channel_collision. Applied AFTER DuplexChat's filters and episode gate,
+        # which stay exactly theirs; every dropped row is recorded in rejected.jsonl.
+        self.drop_channel_collisions = bool(drop_channel_collisions)
         self.rows_per_part = int(rows_per_part)
         self.code_version = int(code_version)
         self.out_dir = self.output_path("codes", directory=True)
@@ -1623,7 +1631,11 @@ class PodcastDialogueSlice(Job):
         try:
             with open(os.path.join(self.out_dir.get(), "summary.json")) as f:
                 s = json.load(f)
-            return f"{s.get('n_dialogues', 0)} dlg, {s.get('kept_hours', 0)} h, retention {s.get('retention', 0):.3f}"
+            out = f"{s.get('n_dialogues', 0)} dlg, {s.get('kept_hours', 0)} h, retention {s.get('retention', 0):.3f}"
+            if s.get("channel_collisions"):
+                c = s["channel_collisions"]
+                out += f", {c['n_dropped']} collision rows ({c['dropped_hours']} h) dropped"
+            return out
         except Exception:  # noqa: BLE001
             return None
 
@@ -1652,7 +1664,8 @@ class PodcastDialogueSlice(Job):
                 self.min_dialogues_per_episode,
                 "--rows_per_part",
                 self.rows_per_part,
-            ],
+            ]
+            + (["--drop_channel_collisions"] if getattr(self, "drop_channel_collisions", False) else []),
             log_label="Podcast dialogue slice",
             extra_env={"PYTHONPATH": _moshi_pythonpath()},
         )
