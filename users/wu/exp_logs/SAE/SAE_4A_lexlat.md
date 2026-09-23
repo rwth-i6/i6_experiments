@@ -933,7 +933,7 @@ User: "for things we have good prior knowledge, we should use the prior knowledg
 
 ## D18: beyond-PER diagnostics for D14, D15 and D17 (user instruction 2026-09-23 evening, "audit results to find difference above PER like js divergence or convergence status/loss (e.g. for length controlled arm and trigram ablation)"; registered before any of their reads; descriptive, no gate)
 
-Every D14, D15 and D17 arm, the banked counterparts they are read against (`5XNGdxndoY1Y`: sup_plain, sup_k2lat, supphi_k2lat; pack2's `k2lat_20_ma3000` and `k2shuf_20_ma3000`), and p0. Plain PER keeps its registered role. These reads explain a PER difference or a PER tie; they never decide.
+Every D14, D15 and D17 arm, the banked counterparts they are read against (`5XNGdxndoY1Y`: sup_plain, sup_k2lat; supphi_k2lat from `WEmvqF2yBFG8`, the run D14's PER read and D16's gg cell use; pack2's `k2lat_20_ma3000` and `k2shuf_20_ma3000`), and p0. Plain PER keeps its registered role. These reads explain a PER difference or a PER tie; they never decide.
 
 - **B1, convergence.** The run's own per-sub-epoch dev (CV holdout) trajectory of each logged term:
   - the terms: l_tau, lexlat_k2, agg unigram and bigram KL, rate, reverse_per_frame and prior_per_token, plus the weighted training objective;
@@ -945,6 +945,6 @@ Every D14, D15 and D17 arm, the banked counterparts they are read against (`5XNG
   - JS between each arm and its counterpart;
   - the number of phone types used, and the SIL share.
   - Differences of JS between an arm and its counterpart get speaker-clustered intervals.
-- **B4, duration and rate.** From the same decodes: the mean emitted non-SIL segment length in frames, and the emitted non-SIL rate on original frames. For D17 add phi's E[d] per type (already registered). References: prior m 4.41 retained frames; the MFA 4.14 dev-other mean, a diagnostic.
+- **B4, duration and rate.** From the same decodes: the mean emitted non-SIL segment length in retained frames (review note: converting to original frames would read about 17% long against the retained-frame references), and the emitted non-SIL rate on original frames. For D17 add phi's E[d] per type (already registered). References: prior m 4.41 retained frames; the MFA 4.14 dev-other mean, a diagnostic.
 
 One registered reader job family computes B1, B3 and B4; B2 reuses the D16 cell forward. The launch waits until the source packs' managers finish, so no job runs under two managers.
