@@ -49,6 +49,8 @@ WINNER_TRAIN_JOB = "i6_core/returnn/training/ReturnnTrainingJob.8iFbool3x3TU"
 DLM_DATA_STAGE = "train"
 # TTS-free DLM data + n1024 training on it (dlm_on_winner.get_dlm_task_on_winner(tts_free=True), tts_free.py)
 DLM_TTS_FREE = True
+# 0 h paired audio: short pilots of text-branch changes vs the LS ladder audio0 run (pseudo0h.py)
+PSEUDO0H_PILOTS = True
 
 # German arm names say what each trains on, on top of the vocab-surgered English winner (ep38):
 #   zeroshot             -- no German training; winner decoded on MLS-de as-is (context only)
@@ -550,6 +552,11 @@ def py():
                 train_paper_best_dlm_4gpu(
                     _dlm_task_tf, model_dim=1024, packed_graphc=True, name_suffix="-winnerHyps-ttsFree-4gpu"
                 )
+
+    if PSEUDO0H_PILOTS:
+        from .pseudo0h import register_pseudo0h_pilots
+
+        register_pseudo0h_pilots(prefix=f"{prefix}/pseudo0h")
 
     # Continue training the winner with TTS audio added (user request, 2026-09-17). Independent of the DLM
     # line above: it only adds jobs, and it touches none of tts_data's module state, so the hypothesis
