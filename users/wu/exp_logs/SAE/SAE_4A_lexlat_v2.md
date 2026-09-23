@@ -4,7 +4,7 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: fits-only pid 1549096 `config/sae_4a_lexlat_v2_ladder_pre.py` (restarted; only `ExtractSubmoduleCheckpointJob.BPxyi2TzJcEH` left); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
+L2-0 fits graph `config/sae_4a_lexlat_v2_ladder_pre.py` complete (16/16 finished; no manager). LIVE managers: pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
 Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
@@ -14,7 +14,7 @@ BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md
 
 The first pre-flight failed on a k2 int32 overflow (Results). The chunking fix 6fd3d02e is reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`), and the rerun is live. R1 / R2 are held until it reads.
 
-NEXT: on the pre-flight wake, the executor reads it using the review's reading notes: read returncode, check ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection is measured. On pre-flight PASS: stop the fits manager once BPxyi2TzJcEH is done, then review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (P, R1, R2). On the A10 build: code review, launch `config/sae_4a_lexlat_v2_em_ext.py`, watch it; on its reader, set WAVE_DURATION_SETTING and the count here, then review the wave. The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: on the pre-flight wake, the executor reads it using the review's reading notes: read returncode, check ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection is measured. On pre-flight PASS: review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (P, R1, R2). On the A10 build: code review, launch `config/sae_4a_lexlat_v2_em_ext.py`, watch it; on its reader, set WAVE_DURATION_SETTING and the count here, then review the wave. The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
