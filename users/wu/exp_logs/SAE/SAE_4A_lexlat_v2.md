@@ -6,7 +6,7 @@ Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-
 
 LIVE managers:
 - Pre-flight rerun, pid 3795602, `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h).
-- A10 extension, `config/sae_4a_lexlat_v2_em_ext.py`; pid in `reports/exec_l21_a10_launch_2026-09-23.md`.
+- A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (restarts Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
 - D14-D17: see `SAE_4A_lexlat.md` State.
 
 The L2-0 fits are complete (16/16).
@@ -36,7 +36,7 @@ WAVE_DURATION_SETTING and WAVE_NUM_SUBEPOCHS stay None until the A10 reader.
 NEXT:
 1. Pre-flight wake: the executor reads it per `reports/review_l20_preflight_rerun_2026-09-23.md`: returncode, ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection was measured.
 2. On pre-flight PASS: review and launch `config/sae_4a_lexlat_v2_ladder.py` (P, R1, R2). Start its manager only after JhiT3D0MyfPg, 7AqKpfoiElR8 and zXJjnNqU7kTa, which it shares with A10, have finished.
-3. A10: arm a watcher on the pid in the launch report. On its reader:
+3. A10, on its reader:
    - set the wave setting and sub-epoch count;
    - resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` is fixed at 1.65 h);
    - review the wave.
