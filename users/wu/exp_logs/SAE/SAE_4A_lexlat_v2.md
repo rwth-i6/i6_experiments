@@ -5,7 +5,7 @@
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
 LIVE managers:
-- Pre-flight rerun, pid 3795602, `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h).
+- L2-0 ladder, pid 3672632, `config/sae_4a_lexlat_v2_ladder.py`: packs P `WX41NC734WLo` (Slurm 1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100) and R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70). All running since 22:16 (`reports/exec_l20_ladder_launch_2026-09-23.md`).
 - A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (restarts Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
 - D14-D17: see `SAE_4A_lexlat.md` State.
 
@@ -34,8 +34,8 @@ BUILDING:
 WAVE_DURATION_SETTING and WAVE_NUM_SUBEPOCHS stay None until the A10 reader.
 
 NEXT:
-1. Pre-flight wake: the executor reads it per `reports/review_l20_preflight_rerun_2026-09-23.md`: returncode, ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection was measured.
-2. On pre-flight PASS: review and launch `config/sae_4a_lexlat_v2_ladder.py` (P, R1, R2). Start its manager only after JhiT3D0MyfPg, 7AqKpfoiElR8 and zXJjnNqU7kTa, which it shares with A10, have finished.
+1. After the A11 build returns: the implementer applies A13's 260-utterance disjoint CV reads to the ladder statistic readers and the A10/A11 S references, before the ladder packs finish.
+2. Ladder wake: the executor reads the packs. The L2-0 read follows A4 and A5 with A13's sets.
 3. A10, on its reader:
    - set the wave setting and sub-epoch count;
    - resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` is fixed at 1.65 h);
@@ -140,6 +140,13 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
   - Exposed arms: cold_ctl, rt_r100 and possibly rt_r70.
   - Decision: all three packs launch now, since an OOM would stop only that arm. The executor reads those arms' arcs per frame and peak memory through step 12.
   - An arm that OOMs is rerun alone after an implementation-only fix: per-chunk backward with gradient accumulation, which bounds held memory. The fix is reviewed, and no registered constant changes.
+  - Watch result: every arm passed step 12 by 22:23, including the longest batches at steps 7-8 (maxlen 784-803). No arm OOMed. Peak reserved memory, of 95 GB:
+    - cold_ctl 83.7 GB, at step 3;
+    - rt_r100 81.7 GB;
+    - rt_r70 80.3 GB;
+    - other arms at most 80.9 GB.
+  - Peaks were set at steps 1-2 and stay flat after them. Arcs per frame at step 12 are 1,403 (cold_ctl), 1,434 (rt_r100) and 526 (rt_r70), against 37,200 at step 0.
+  - The pre-flight's 80 GiB clause was a pre-flight bar, not an abort rule. The running peaks exceed it by up to 4 GB and stay under the card.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
