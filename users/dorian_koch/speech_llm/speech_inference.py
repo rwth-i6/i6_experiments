@@ -136,9 +136,15 @@ def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> N
         )
     hparams = getattr(creator, "hparams", None)
     if step is not None and overlay_kind in CHECKPOINT_DIR_KINDS and isinstance(hparams, dict):
+        # SpeechFinetune carries max_steps as an attribute, not in hparams; without it the final save
+        # of a run whose length is not a save_every multiple was refused (found on p4, 2026-09-23). A
+        # num_epochs run's end is unknown here, so its (default) max_steps attribute is not used.
+        max_steps = hparams.get("max_steps")
+        if max_steps is None and hparams.get("num_epochs") is None and getattr(creator, "num_epochs", None) is None:
+            max_steps = getattr(creator, "max_steps", None)
         reason = impossible_checkpoint_reason(
             step,
-            max_steps=hparams.get("max_steps"),
+            max_steps=max_steps,
             save_every=int(hparams.get("save_every", SAVE_EVERY)),
             save_steps=tuple(hparams.get("save_steps", ()) or ()),
         )

@@ -160,6 +160,23 @@ def check_pending_run_declared_shape(tmp):
     print("PASS  a pending run is judged by its declared max_steps/save_every, a finished one by disk")
 
 
+def check_max_steps_attribute(tmp):
+    """SpeechFinetune keeps ``max_steps`` as a constructor ATTRIBUTE, not in ``hparams`` (2026-09-23, p4):
+    its final save is a checkpoint even off the ``save_every`` cadence, and a step past it never is. A
+    ``num_epochs`` run's end is unknown at graph time, so its ``max_steps`` attribute is ignored."""
+    run, creator = _make_run(tmp, "attr_steps", hparams={"save_every": 1500})
+    creator.max_steps, creator.num_epochs = 16875, None
+    _accepts(run, "lora", 16875)  # the final save, not a multiple of 1500
+    _accepts(run, "lora", 1500)
+    assert "not a checkpoint" in _rejects(run, "lora", 16000)
+    assert "past the end" in _rejects(run, "lora", 18000)
+    ep, ep_creator = _make_run(tmp, "attr_epochs", hparams={"save_every": 1500})
+    ep_creator.max_steps, ep_creator.num_epochs = 2000, 1
+    _accepts(ep, "lora", 3000)  # cadence only: 2000 is SpeechFinetune's default, not this run's end
+    assert "not a checkpoint" in _rejects(ep, "lora", 2000)
+    print("PASS  a SpeechFinetune-style max_steps attribute is the run's end (unless it is sized by num_epochs)")
+
+
 def check_creator_without_hparams(tmp):
     """MoshiFinetune / RLFinetune / AudexDuplexFinetune declare no hparams dict: nothing can be said
     while they run, everything can once they finish."""
@@ -244,6 +261,7 @@ if __name__ == "__main__":
         check_finished_run_missing_step(tmp)
         check_disk_beats_declared_shape(tmp)
         check_pending_run_declared_shape(tmp)
+        check_max_steps_attribute(tmp)
         check_creator_without_hparams(tmp)
         check_personaplex_layout(tmp)
         check_creator_less_path(tmp)
