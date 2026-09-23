@@ -2,27 +2,22 @@
 
 ## State
 
-Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume.
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE (restarted 2026-09-24 ~01:30 on the packing engine): 2097938 `config/sae_4a_lexlat_v2_em_ext.py`, 2098810 `config/sae_4a_lexlat_v2_ladder.py`, 2099340 `config/sae_4a_supervised_decphi.py`, 2099342 `config/sae_4a_lexlat_v2_em_table.py`.
 
-PAUSED (2026-09-23 23:30, user: "change now"): exclusive whole-node jobs left 1-GPU/CPU jobs idling GPUs. Four managers stopped; 212 pending sub-4-GPU jobs held, then cancelled (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`, `reports/exec_cancel_held_2026-09-24.md`); running packs finish. Packing engine built (settings.py + gpupack_engine.py; backup settings.py.bak_2026-09-23; `reports/impl_gpupack_engine_2026-09-23.md`). The review BLOCKED it (`reports/review_gpupack_engine_2026-09-24.md`): four gap-job classes ask 16-24 GB, peak around 70 GB, and would OOM the shared 143 GiB login cap. Fix: gpu-0 tasks go to short only for a whitelist of light classes (peak ≤ 1 GB); every other gpu-0 task becomes a 1-slot gpupack member. The implementer was stopped by the user before the fix, so it waits for the user's go. Nothing runs through the new settings, and no manager is live.
+Submission layer (user: "change now", 2026-09-23): booster is whole-node exclusive, so 1-3-GPU and non-whitelisted gpu-0 tasks go through gpupack (4 slots/node, srun --exact --gres=gpu:n; `gpupack_engine.py`, settings.py, backup settings.py.bak_2026-09-23); light CPU classes run on the login short engine; 4-GPU tasks unchanged. Sub-4-GPU jobs from before were cancelled (`reports/exec_cancel_held_2026-09-24.md`). Reviews: `reports/review_gpupack_engine_2026-09-24.md`. Packs 1982621-1982661 pending (`reports/exec_restart2_gpupack_2026-09-24.md`). Unverified until the first pack runs: distinct CUDA_VISIBLE_DEVICES per member, no step errors (batch log `log/gpupack/2026-09-24/`).
 
-Restart on approval: (1) em_ext; executor watches first pack: per-member GPU pinning, members sequential per slot, per-task state, no duplicate after one manager restart; (2) ladder, D14 decphi, em_table; (3) re-arm watchers. Pids dead.
+A10 restarts 1977837-44 finished at epoch.048. A11 stage A: 4-GPU jobs direct; nulls pending.
 
-Managers:
-- L2-0 ladder `config/sae_4a_lexlat_v2_ladder.py`: P `WX41NC734WLo` (1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100), R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70); phi fits 16/16 (`reports/exec_l20_ladder_launch_2026-09-23.md`).
-- A10 `config/sae_4a_lexlat_v2_em_ext.py` (1977837-1977844; `reports/exec_l21_a10_launch_2026-09-23.md`).
-- A11 `config/sae_4a_lexlat_v2_em_table.py`: stage A 1980303/05/06; nulls wait on PermutedUnits 1980304/07 (`reports/exec_l21_a11_launch_2026-09-23.md`).
-- D14-D17: `SAE_4A_lexlat.md` State.
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything, wave not awaiting D14; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything, wave not awaiting D14; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on, parallel to A10.
-
-BUILT: ladder (`reports/impl_l20_ladder_2026-09-23.md`, fix 6fd3d02e); L2-1 to A9 (3dc01561); A10 (c49559ce; `reports/review_l21_a10_2026-09-23.md`); A11+A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`, `reports/review_l21_a11_launch_2026-09-23.md`); A13 (22602b90; sets 285/25/260; `reports/impl_a13_disjoint_cv_2026-09-23.md`).
+BUILT: ladder (`reports/impl_l20_ladder_2026-09-23.md`); L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5; `reports/review_l21_a11_launch_2026-09-23.md`); A13 (22602b90; sets 285/25/260).
 
 NEXT:
-1. A13 adds 16 ladder jobs (read EktNvNSRrXKj), em_ext diagnostics G2NeV8oNr4tO, no pack hash moved; enter at engine restart. A11 needs no repair.
-2. Ladder wake: executor reads packs; L2-0 read after A4, A5 on A13 sets.
-3. A10 reader: set WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS (None now); resize alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506`, 1.65 h); review wave. Wave held if both rt_r0 seeds NO LIFT.
-4. A11 stage A: executor checks four `[cuda:r]` ranks (review note 1), E-step speed (smoke 33.6 ms/utt), OOM. Unbuilt report-only gold/r100 S references use A13's 260-utt set, 0.9/0.1 mixture (review note 2).
+1. First pack starts: executor checks its batch log; members without GPU stop all managers.
+2. em_table: confirm the 6 direct EmTableStageAJob are the nulls, not duplicates.
+3. Ladder: L2-0 read after A4, A5 on A13 sets (read EktNvNSRrXKj).
+4. A10 reader (DcfCsZNq1ucr, diagnostics G2NeV8oNr4tO): set WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS; resize alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506`); review wave. Held if both rt_r0 seeds NO LIFT.
+5. A11 stage A first run: four `[cuda:r]` ranks, E-step speed (smoke 33.6 ms/utt), OOM. Unbuilt report-only gold/r100 S references use the A13 260 set and 0.9/0.1 mixture.
 
 ## Objective
 
