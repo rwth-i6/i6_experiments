@@ -443,6 +443,39 @@ PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
 )
 
 
+#: Every training-speed launcher key (``moshi_family.train_perf``; finetuning.md "Training performance")
+#: and its YAML type, in render order. A launcher reads only the keys that apply to its model; each
+#: renderer names the subset it supports and refuses the rest (see :func:`render_train_perf_keys`).
+TRAIN_PERF_KEYS = {
+    "contiguous_step_inputs": bool,
+    "fused_causal_attention": bool,
+    "fused_lora_add": bool,
+    "depformer_skip_masked": bool,
+    "prefetch_batches": int,
+    "length_bucket_pool": int,
+}
+
+
+def render_train_perf_keys(hp: dict, supported, *, who: str, rendered_elsewhere=()) -> str:
+    """YAML lines for the training-speed keys ``hp`` sets, in :data:`TRAIN_PERF_KEYS` order; "" when none.
+
+    Rendered ONLY when set, so an arm without them renders a config byte-identical to before the keys
+    existed (and its launcher falls back to the historical kernels). A key this launcher cannot act on
+    raises instead of vanishing: it is in the hashed ``hparams``, so ignoring it would make a new job
+    that trains exactly like the old one -- the "knob that does nothing" trap (docs/sisyphus.md).
+    ``rendered_elsewhere``: keys the template already renders itself (base Moshi's ``prefetch_batches``)."""
+    unsupported = sorted(
+        k for k in TRAIN_PERF_KEYS if k not in supported and k not in rendered_elsewhere and hp.get(k) is not None
+    )
+    if unsupported:
+        raise ValueError(f"{who}: training-speed key(s) {unsupported} do not apply to this launcher")
+    out = ""
+    for k, typ in TRAIN_PERF_KEYS.items():
+        if k in supported and hp.get(k) is not None:
+            out += f"{k}: {str(bool(hp[k])).lower()}\n" if typ is bool else f"{k}: {int(hp[k])}\n"
+    return out
+
+
 def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
     """Render a PersonaPlex LoRA config (``moshi_family.personaplex.finetune_launcher``, train_scope=lora).
 
@@ -465,19 +498,7 @@ def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_
     # Training-speed switches (PERSONAPLEX_FAST_HPARAMS; finetuning.md "Training performance"), rendered
     # ONLY when the arm sets them: an arm without them gets a config byte-identical to before they
     # existed, and the launcher's defaults are the historical kernels and batching.
-    perf = ""
-    if hp.get("contiguous_step_inputs") is not None:
-        perf += f"contiguous_step_inputs: {str(bool(hp['contiguous_step_inputs'])).lower()}\n"
-    if hp.get("fused_causal_attention") is not None:
-        perf += f"fused_causal_attention: {str(bool(hp['fused_causal_attention'])).lower()}\n"
-    if hp.get("fused_lora_add") is not None:
-        perf += f"fused_lora_add: {str(bool(hp['fused_lora_add'])).lower()}\n"
-    if hp.get("depformer_skip_masked") is not None:
-        perf += f"depformer_skip_masked: {str(bool(hp['depformer_skip_masked'])).lower()}\n"
-    if hp.get("prefetch_batches") is not None:
-        perf += f"prefetch_batches: {int(hp['prefetch_batches'])}\n"
-    if hp.get("length_bucket_pool") is not None:
-        perf += f"length_bucket_pool: {int(hp['length_bucket_pool'])}\n"
+    perf = render_train_perf_keys(hp, TRAIN_PERF_KEYS, who="PersonaPlex LoRA")
     return (
         f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
 hf_repo_id: "{hf_repo_id}"
@@ -525,6 +546,42 @@ PERSONAPLEX_FAST_HPARAMS = {
     "fused_lora_add": True,
     "depformer_skip_masked": True,
     "prefetch_batches": 2,
+}
+
+#: The same for every other family (2026-09-23), each restricted to what its launcher can act on
+#: (``moshi_family.train_perf`` has the table). New arms get these from policy epoch POLICY_2026_09_23
+#: (``runs.RULE_FAST_TRAIN`` / ``runs.fast_train_hparams``); never merge them into an existing arm.
+#: base Moshi: prefetch is already on (``prefetch_batches`` renders 2 for every arm).
+MOSHI_FAST_HPARAMS = {
+    "contiguous_step_inputs": True,
+    "fused_causal_attention": True,
+    "fused_lora_add": True,
+    "depformer_skip_masked": True,
+}
+#: A full finetune has no LoRA to fuse.
+MOSHI_FULL_FAST_HPARAMS = {k: v for k, v in MOSHI_FAST_HPARAMS.items() if k != "fused_lora_add"}
+#: batch 1 with an all-ones loss mask: no depformer row to skip; no prefetch (the batch builder runs the
+#: model's ARC conditioner on the GPU).
+MOSHIRAG_FAST_HPARAMS = {"contiguous_step_inputs": True, "fused_causal_attention": True, "fused_lora_add": True}
+#: HF trunk (no fused causal attention); stage0 has no LoRA.
+AUDEX_STAGE0_FAST_TRAIN_PERF = {"contiguous_step_inputs": True, "depformer_skip_masked": True, "prefetch_batches": 2}
+AUDEX_STAGE1_FAST_TRAIN_PERF = {**AUDEX_STAGE0_FAST_TRAIN_PERF, "fused_lora_add": True}
+#: depformer_skip_masked = text-only log-prob forwards (the GRPO loss reads text only); no loader.
+RL_FAST_TRAIN_PERF = {
+    "contiguous_step_inputs": True,
+    "fused_causal_attention": True,
+    "fused_lora_add": True,
+    "depformer_skip_masked": True,
+}
+#: family -> preset. SpeechFinetune families are keyed by adapter name; Audex by stage.
+FAST_TRAIN_PRESETS = {
+    "moshi_lib": MOSHI_FAST_HPARAMS,
+    "moshi_lib_full": MOSHI_FULL_FAST_HPARAMS,
+    "moshirag_lib": MOSHIRAG_FAST_HPARAMS,
+    "personaplex_lib_lora": PERSONAPLEX_FAST_HPARAMS,
+    "audex_stage0": AUDEX_STAGE0_FAST_TRAIN_PERF,
+    "audex_stage1": AUDEX_STAGE1_FAST_TRAIN_PERF,
+    "rl_grpo": RL_FAST_TRAIN_PERF,
 }
 
 
@@ -673,7 +730,12 @@ knowledge_probe_capture_s: {_yaml_float(hp.get("knowledge_probe_capture_s", 20.0
 knowledge_probe_n: {hp.get("knowledge_probe_n", 0)}
 knowledge_probe_transcripts: {str(bool(hp.get("knowledge_probe_transcripts", True))).lower()}
 knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
-"""
+""" + render_train_perf_keys(hp, MOSHI_LIB_PERF_KEYS, who="base-Moshi lib", rendered_elsewhere=("prefetch_batches",))
+
+
+#: Training-speed keys the base-Moshi launcher reads (``prefetch_batches`` is rendered above, default 2
+#: since before these switches existed; the loader has no length bucketing).
+MOSHI_LIB_PERF_KEYS = ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add", "depformer_skip_masked")
 
 
 # Base Moshi on the OWNED moshi_family lib (Phase 5): fork-free LoRA finetune of moshiko via
@@ -717,7 +779,9 @@ def _render_moshirag_lib_config(job: "SpeechFinetune", batch_size: int, max_step
     the reference path needs: ``ref_dropout`` 0.2 (paper) and ``reference_key`` (the arrow column with
     the retrieved passage; ``ragify_dialogue`` writes ``reference_text``). The launcher builds the
     released moshika-rag (LoRA fused) + a fresh trainable LoRA over the trunk and injects the reference
-    as a per-frame ``ref_schedule`` (the training mirror of inference streaming-sum conditioning)."""
+    as a per-frame ``ref_schedule`` (the training mirror of inference streaming-sum conditioning).
+    ``job.hparams`` is read ONLY for the training-speed keys (rendered when set, MOSHIRAG_FAST_HPARAMS)."""
+    hp = getattr(job, "hparams", None) or {}
     return f"""# MoshiRAG LoRA finetune config (moshirag_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
 {_train_data_yaml(job, supports_mix=False)}
@@ -737,7 +801,9 @@ gradient_checkpointing: true
 save_every: 500
 log_every: 10
 seed: {getattr(job, "seed", 0)}
-"""
+""" + render_train_perf_keys(
+        hp, ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add"), who="MoshiRAG lib"
+    )
 
 
 # MoshiRAG on the OWNED moshi_family lib (Phase 5): fork-free LoRA finetune of the released moshika-rag
