@@ -39,6 +39,7 @@ class PersonaSelfPlay(Job):
         label_b: str = "b",
         hf_repo: str = "nvidia/personaplex-7b-v1",
         batch_size: int = 32,
+        temp_text: float | None = None,
     ):
         assert (overlay_a is None) == (lora_rank_a is None) and (overlay_b is None) == (lora_rank_b is None)
         self.data = data
@@ -52,6 +53,8 @@ class PersonaSelfPlay(Job):
         self.label_a, self.label_b = label_a, label_b
         self.hf_repo = hf_repo
         self.batch_size = int(batch_size)
+        #: Text sampling temperature of both sides (None = the engine's default, 0.7; audio unchanged).
+        self.temp_text = None if temp_text is None else float(temp_text)
         self.out_dir = self.output_path("dataset", directory=True)
         # Two 7B models in bf16 (~16 GB each), four mimi, and a KV cache per conversation sized by the
         # worker's context (conversation frames + 256; see selfplay --context). Measured 2026-09-22 at
@@ -59,6 +62,9 @@ class PersonaSelfPlay(Job):
         # 3000-frame context took 82.7 GiB at batch 16.) Outside the measured range, ask for more.
         big = self.batch_size > 32 or self.duration_sec > 60.0
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 94 if big else 80}
+
+    #: Added 2026-09-23 (text-temperature grid); every earlier self-play keeps its hash.
+    __sis_hash_exclude__ = {"temp_text": None}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -105,6 +111,8 @@ class PersonaSelfPlay(Job):
         for s, ov, rank in (("a", self.overlay_a, self.lora_rank_a), ("b", self.overlay_b, self.lora_rank_b)):
             if ov is not None:
                 cmd += [f"--overlay_{s}", ov.get_path(), f"--lora_rank_{s}", str(rank)]
+        if getattr(self, "temp_text", None) is not None:
+            cmd += ["--temp_text", str(self.temp_text)]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
 
