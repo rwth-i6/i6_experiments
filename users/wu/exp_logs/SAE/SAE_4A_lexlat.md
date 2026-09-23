@@ -945,6 +945,6 @@ Every D14, D15 and D17 arm, the banked counterparts they are read against (`5XNG
   - JS between each arm and its counterpart;
   - the number of phone types used, and the SIL share.
   - Differences of JS between an arm and its counterpart get speaker-clustered intervals.
-- **B4, duration and rate.** From the same decodes: the mean emitted non-SIL segment length in retained frames (review note: converting to original frames would read about 17% long against the retained-frame references), and the emitted non-SIL rate on original frames. For D17 add phi's E[d] per type (already registered). References: prior m 4.41 retained frames; the MFA 4.14 dev-other mean, a diagnostic.
+- **B4, duration and rate.** From the same decodes: the mean emitted non-SIL segment length in retained frames (review note: rVAD removes mostly non-phone frames, so a phone's length is about the same in both frame units; converting with the pooled original/retained ratio would read about 17% long), and the emitted non-SIL rate on original frames. For D17 add phi's E[d] per type (already registered). References: prior m 4.41 retained frames; the MFA 4.14 dev-other mean, a diagnostic.
 
 One registered reader job family computes B1, B3 and B4; B2 reuses the D16 cell forward. The launch waits until the source packs' managers finish, so no job runs under two managers.
