@@ -22,6 +22,7 @@ from .finetune import (
     finetune_completed_fraction,
     launch_training,
     prepare_run_dir,
+    render_train_perf_keys,
 )
 
 
@@ -51,7 +52,13 @@ kl_beta: {job.kl_beta}
 clip_eps: 0.2
 save_every: {job.save_every}
 seed: {job.seed}
-"""
+""" + render_train_perf_keys(
+        # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
+        # depformer_skip_masked = text-only log-prob forwards; no loader, so no prefetch.
+        getattr(job, "train_perf", None) or {},
+        ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add", "depformer_skip_masked"),
+        who="RL GRPO",
+    )
 
 
 def _rl_render_shim(job: "RLFinetune", _batch_size: int, _max_steps: int) -> str:
@@ -91,6 +98,9 @@ class RLFinetune(Job):
         "quality_asr": "whisper",
         "quality_asr_model": None,
         "rqmt": None,
+        # Training-speed switches (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams): excluded at
+        # None so every existing job keeps its hash; new runs pass the policy's dict.
+        "train_perf": None,
     }
 
     def __init__(
@@ -117,8 +127,10 @@ class RLFinetune(Job):
         save_every: int = 800,
         seed: int = 0,
         rqmt: dict | None = None,
+        train_perf: dict | None = None,
     ):
         self.adapter = RL_LIB_ADAPTER
+        self.train_perf = train_perf
         self.venv_python_path = venv_python_path
         self.hf_repo_id = hf_repo_id
         self.segment_source = segment_source
