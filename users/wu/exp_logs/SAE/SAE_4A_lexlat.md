@@ -8,9 +8,9 @@ LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py`
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-ACTIVE: D14, D15 (registered, reviewed `reports/review_d1{4,5}_*_2026-09-23.md`, launched). D16 read TWO BASINS; the audit is pending. D17 (general-knowledge duration prior at the edge) launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
+ACTIVE: D14, D15 (registered, reviewed `reports/review_d1{4,5}_*_2026-09-23.md`, launched). D16 read TWO BASINS, audited CONFIRMED. D17 (general-knowledge duration prior at the edge) launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
 
-NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D17 at ep8; on the D16 audit, record its verdict in D16. In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
+NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D17 at ep8. In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
 
 Open user forks: 1. k2 form on the cold line (random-pronunciation null; rung 10000): D15 (c) and lexlat_v2 bear on it. 2. D12 = ROOM: the word-aggregate arm waits on the user's go. 3. Double-counted text prior: D15 is the chosen ablation; the beta-2 control and the P3-divided graph are not run.
 
@@ -857,7 +857,7 @@ Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseva
 - The pairing set is the utterances kept in all four cells; the reader prints their count.
 - All cells run at supphi_k2lat's ep8 settings. The eval asserts that tau and lam at k2lat_20_x60's ep60 are the same.
 
-**Result: TWO BASINS (audit pending, `reports/audit_d16_crosseval_2026-09-23.md`).** Source: `CrossEvalReadJob.NQsiwtafITc6` (`output/report.txt`, `crosseval_read.json`), cells Slurm 1968020-1968025, read in `reports/exec_d16_read_2026-09-23.md`.
+**Result: TWO BASINS (audit CONFIRMED, `reports/audit_d16_crosseval_2026-09-23.md`: the identity side was computed on the GPU, not copied; strict loading of phi; settings asserted; contrasts recomputed independently, positive in all 33 speakers).** Source: `CrossEvalReadJob.NQsiwtafITc6` (`output/report.txt`, `crosseval_read.json`), cells Slurm 1968020-1968025, read in `reports/exec_d16_read_2026-09-23.md`.
 - Checks pass. Identity: the diagonal cells reproduce the logged dev values printed to 6 decimals (g ep8: l_tau 1.748996, lexlat_k2 0.247171; c ep60: 1.872530, 0.306184). Consistency: the differences across phi columns are 0 and 5.6e-17. The pairing set is 2864 of 2864 utterances from 33 speakers.
 - Per-frame dev-other means, in the order l_tau / agg / rate / lexlat_k2 / total (total = L + 0.1 agg):
 
@@ -874,7 +874,8 @@ Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseva
   - Interaction: I = -2.8119 [-2.8655, -2.7544].
 
   Every interval excludes zero, and adding agg changes no sign. Per term: l_tau TWO BASINS; rate TWO BASINS; lexlat_k2 MIXED, because it depends on theta only, so it has no phi effect, while theta_g is lower in both columns.
-- Reading, as registered: each pair is a co-adapted local optimum. Swapping either component alone raises L by 1.2-1.6 nats per frame, so from the cold end point no single-component move reaches the gold pair, although the gold pair is lower on the total (D13 agrees). This is the premise `SAE_4A_lexlat_v2.md` acts on. It does not show that a phi fitted first escapes.
+- Reading, as registered: the pairs are co-adapted. Swapping either component alone raises L by 1.2-1.6 nats per frame, so from the cold end point neither single-component swap reaches the gold pair, although the gold pair is lower on the total (D13 agrees). This is the premise `SAE_4A_lexlat_v2.md` acts on.
+- Scope, per the audit: D16 tests only the discrete 2x2 swap on the objective. It does not test that either pair is a continuous local optimum, reads no PER, and does not show that a phi fitted first escapes.
 
 ## D17: a general-knowledge duration prior at the edge (user request 2026-09-23, registered before any job; disclosed label-using diagnostic, no gate)
 
