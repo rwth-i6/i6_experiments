@@ -13,7 +13,7 @@ Read and audited on 2026-09-23 (no open item):
 - D10e: the untrained reverse model drove the supervised init's collapse. On the both-gold start the k2 term is specific to the lexicon (k2lat minus k2shuf -0.186) and PRESERVES the start ("D10e read", "D10e addendum read").
 - D12 = ROOM ("D12 read").
 
-NEXT: D13 (user question 2026-09-23, section "D13"): the implementer is writing the matched dev-other objective eval (`reports/impl_d13_objective_eval_2026-09-23.md` when done), then code review, then the executor launches. Otherwise waiting on the user, the forks below.
+NEXT: waiting on the user, the forks below. Nothing is queued on the cluster. D13 is answered from the logged read, and its dev-other eval was cancelled by the user.
 
 1. USER FORK, direction of the k2 form (inputs "E60 read at ep60", "D10e read", `reports/diag_k2_why_2026-09-22.md`). On the cold line the k2 form sits at a fixed point: any word graph gains about 0.05 PER over ctrl whether or not its pronunciations are the right ones, and the lexicon-specific contrast is <= 0.01 or reversed. On a phone-like start the same term is strongly lexicon-specific. Candidates, none launched:
    - (a) The random-pronunciation null (Design 6 follow-up). It decides whether the shared 0.05 needs word-shaped phone strings at all.
@@ -781,6 +781,8 @@ The comparison with ep20 is confounded by the learning rate: the extension never
 User: "compare the loss/performance of reverse model from k2lat with and without supervised init ... to know if phoneme is at least kind of 'global optimum'"; "in case they are not comparable, just run a quick eval on dev other fairly".
 
 **Logged read (descriptive; the packs' own dev split = CV holdout of the train stream, not dev-other; `reports/extract_goldinit_vs_cold_k2lat_losses_2026-09-23.md`).** Conditions match at gold ep8 vs cold ep20 / ep60: temperature 2.0, lam_lex 1, graph cdcxYJMjiYj5 at max_active 1000, prior RtzbESkOedsT, loss scales, dev set. The cold arms' code version is not checked. Per-frame dev terms, gold `supphi_k2lat` ep8 / cold `k2lat_20` ep20 / cold `k2lat_20_x60` ep60: l_tau 1.749 / 1.845 / 1.873; lexlat_k2 0.247 / 0.297 / 0.306; agg 0.211 / 1.319 / 1.264; rate 0.017 / 0.016 / 0.016; reverse model per frame (higher is better) -3.160 / -3.353 / -3.363. `supphi_plain` ep8 reads l_tau 1.725 at PER 0.256.
+
+**CANCELLED by the user before any job (2026-09-23: "the score was comparable so I don't need that").** The logged read above is the answer: at matched conditions, the gold-init solution is lower on every term except rate, which ties, and its reverse model scores better. This answers the question in the sense of "PHONES LOWER", without the paired intervals and without the untrained gold start. The eval as registered is kept for the record:
 
 **Eval (one registered job family, the training step's own loss code, no parameter update).** dev-other, 2864 utterances, identical settings for every row: temperature 2.0, lam_lex 1, lam_agg 0.1, lam_rate 3, the treatment graph at max_active 1000, the prior above, identical batches. Rows:
 - G0, the gold start: p0 recognizer `YtuVg6ZYuK0P` + gold phi `16v7R6ztSq1u` epoch.008, untrained.
