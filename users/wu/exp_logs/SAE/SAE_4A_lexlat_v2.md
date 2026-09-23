@@ -12,9 +12,9 @@ Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds
 
 BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, last commit 3dc01561; fixture emitted rate: gold phi 8.94 Hz, uniform random phi 0.77 Hz); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
 
-Pre-flight FAIL: k2 int32 overflow at step 1 (Results). R1 / R2 held; debugger diagnosing.
+Pre-flight FAIL: k2 int32 overflow in the stability read (Results). R1 / R2 held. The fix (per-utterance k2 chunking plus the wrapper's child-exit detection) is with the implementer: `reports/impl_l20_chunkfix_2026-09-23.md`.
 
-NEXT: on the debugger's report, choose the remedy. Prefer an implementation-only fix; a constant change is registered as an amendment first. Then implement it, fix the wrapper's missed child exit, review, and rerun the pre-flight. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: review the fix, then rerun the pre-flight. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
@@ -92,4 +92,7 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - The failure is the one A7 predicted: a k2 int32 overflow in the first training step, with 0 steps completed. The exact error is `Array1<char>::Init Check failed: size >= 0 (-1885666895 vs. 0)` in `MultiGraphDenseIntersectPruned::PruneTimeRange`. The HLG has 23.9M states and 98.6M arcs. nvidia-smi peaked at 61.8 GiB, and the crash came 1m46 after startup.
 - The wrapper missed the child's exit and held the GPU until the 2 h limit.
 - Not infrastructure, so an unchanged resubmit is not valid.
-- Cause diagnosis and ranked remedies: `reports/debug_l20_preflight_overflow_2026-09-23.md`. A remedy that changes a registered constant (rung, beam, on-set) needs an amendment before relaunch.
+- Cause (`reports/debug_l20_preflight_overflow_2026-09-23.md`): the crash is in the pre-training stability read, not in training. That check scores 16 utterances in one k2 call at max_active 10000. With a uniform posterior, all 16 are identical, and k2's 20-frame window holds 2.41e9 arcs, above the int32 limit. The rung-1000 call on the same 16 utterances completed. The cold k2lat_20 passed the same check only because its theta was trained by its on-set at 8.
+- Remedy chosen: implementation-only, with no constant changed. The stability read scores 1 utterance per call (about 2.1e8 arcs at rung 10000; the sample stays 16), and training uses a small chunk. k2's per-sequence max_active makes chunking exact. The rerun pre-flight measures the resulting step time.
+- The rejected alternatives change registered constants: a smaller search beam (9.3) or on-set 8 (A4).
+- L2-1 runs no k2. L2-2's dec_joint carries the same exposure and takes the same fix.
