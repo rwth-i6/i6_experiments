@@ -1962,6 +1962,62 @@ def _attach_german_result_sink(captured: Dict[str, Any], *, tag: str, note: str)
         notify_result(tag, {"mls_de": path}, note=note)
 
 
+class CaptureAedCtcRecog:
+    """Context manager: records the kwargs of the arm's headline AED+CTC recog call and passes it through.
+
+    Used by :func:`aed_ctc_recog_avg_checkpoint` to re-run exactly that recog (task, sharding, scale tuning,
+    extra config) on another checkpoint. Patches the module attribute, like :class:`SuppressRecog`.
+    """
+
+    def __enter__(self):
+        import unittest.mock
+
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext import (
+            aed_ctc_batched as _actc,
+        )
+
+        self.orig = _actc.aed_ctc_timesync_recog_recomb_auto_scale_batched
+        self.calls = []  # kwargs of each call
+
+        def _wrapped(*args, **kwargs):
+            assert not args, "keyword-only function"
+            self.calls.append(kwargs)
+            return self.orig(**kwargs)
+
+        self._patch = unittest.mock.patch.object(_actc, "aed_ctc_timesync_recog_recomb_auto_scale_batched", _wrapped)
+        self._patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._patch.stop()
+        return False
+
+
+def aed_ctc_recog_avg_checkpoint(cap: CaptureAedCtcRecog, exp, epochs: Sequence[int]):
+    """
+    The arm's AED+CTC recog once more, on the parameter average of ``epochs``
+    (i6_core ``AverageTorchCheckpointsJob``, as in zeyer/recog.py), under ``<prefix>/aed+ctc-avg<a>-<b>-batched``.
+    The checkpoints come straight from the training job, so epochs kept only by ``keep_last_n`` work too.
+    """
+    from i6_core.returnn.training import AverageTorchCheckpointsJob
+    from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
+
+    assert len(cap.calls) == 1, f"expected exactly one AED+CTC recog call, got {len(cap.calls)}"
+    kw = dict(cap.calls[0])
+    assert kw["prefix"].endswith("/aed+ctc-batched"), kw["prefix"]
+    train_job = exp.model_dir.creator
+    avg = AverageTorchCheckpointsJob(
+        checkpoints=[train_job.out_checkpoints[e] for e in epochs],
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+    ).out_checkpoint
+    tag = f"avg{min(epochs)}-{max(epochs)}"
+    kw["prefix"] = kw["prefix"][: -len("aed+ctc-batched")] + f"aed+ctc-{tag}-batched"
+    kw["aed_ctc_model"] = ModelWithCheckpoint(definition=kw["aed_ctc_model"].definition, checkpoint=avg)
+    return cap.orig(**kw)
+
+
 class SuppressRecog:
     """Context manager: while active, a training builds NO recog jobs.
 
@@ -2261,6 +2317,7 @@ def train_german_arm_b(
     german_audio_repeat: int = 4,
     nep: Optional[int] = None,
     prior: str = "selftrained",
+    avg_epochs: Optional[Sequence[int]] = None,
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2347,6 +2404,7 @@ def train_german_arm_b(
             else contextlib.nullcontext()
         ),
         CaptureRegisteredOutputs(match="recog_results") as _cap,
+        CaptureAedCtcRecog() if avg_epochs else contextlib.nullcontext() as _aedcap,
     ):
         _exp = _train_tts_encoder(
             name,
@@ -2426,6 +2484,9 @@ def train_german_arm_b(
             },
             extra_config_deletes=["optimizer.epsilon"],
         )
+        if avg_epochs:
+            # Same German patches active, so the extra recog is built exactly like the arm's own.
+            aed_ctc_recog_avg_checkpoint(_aedcap, _exp, avg_epochs)
 
     _attach_german_result_sink(
         _cap.captured,

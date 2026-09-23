@@ -392,6 +392,8 @@ def py():
                 fix_text_spm=True,
                 german_dev=True,
                 nep=40,
+                # the best German arm (dev 15.83 at ep40): also decode the average of its last 5 checkpoints
+                avg_epochs=(36, 37, 38, 39, 40) if _rep == 1 else None,
             )
 
     if "enarpa" in _german_stages:
