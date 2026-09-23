@@ -129,6 +129,17 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     2. a coarse-to-fine unit inventory (the 500 codebook vectors clustered into about 100 classes, label-free; its own nulls; bridged by P(unit | class));
     3. a word-level LM in the E-step with a wider beam (Ravi & Knight 2009: phonetic decipherment error 73.6 with a trigram against 57.2 with a word LM);
     4. a sparse channel prior.
+- **A13 (2026-09-23 night, at the ladder launch review, before any ladder statistic is read) CV-holdout overlap and diffuse-arm memory.** Source: `reports/review_l20_ladder_launch_2026-09-23.md`.
+  - Overlap:
+    - 25 of the 285 CV-holdout utterances (8.8 %) are in every ladder phi's fit set: gold `16v7R6ztSq1u`, r30-r100 and permphi, all fitted on the 2821-utterance split.
+    - phi_c and every L2-1 phi exclude the CV holdout.
+    - So A5's CV statistics, and the gold and r100 S references of A10 and A11, include memorised items for the ladder phis only.
+  - Repair: every CV-holdout statistic that compares a ladder phi with a non-ladder phi is read on the 260 utterances disjoint from the ladder fit set. That covers A5's bar and the S references. The 285-utterance value is reported beside it.
+  - dev-other is unaffected, and so is L2-1's own selection. Its S compares L2-1 phis only, which all exclude the holdout.
+  - Memory: the pre-flight's 76.7 GiB peak was set at steps 0-1, on the two shortest batches, while rt_r0's lattice collapsed (37,210 -> 1,007 arcs per frame by step 7). A near-uniform lattice on a full-length batch was never measured, and chunking does not bound held memory.
+  - Exposed arms: cold_ctl, rt_r100 and possibly rt_r70.
+  - Decision: all three packs launch now, since an OOM would stop only that arm. The executor reads those arms' arcs per frame and peak memory through step 12.
+  - An arm that OOMs is rerun alone after an implementation-only fix: per-chunk backward with gradient accumulation, which bounds held memory. The fix is reviewed, and no registered constant changes.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
