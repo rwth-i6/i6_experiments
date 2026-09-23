@@ -4,13 +4,13 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D17 pid 2658727 `config/sae_4a_lexlat_durprior.py` (hand-started; pack DNrT49EggYTY, Slurm 1971726). D16r pid 3443152 `config/sae_4a_lexlat_crosseval_rev.py` (hand-started; cells Slurm 1973352-1973357, reader CrossEvalRevReadJob.fETQJ2fZ3MwJ; review `reports/review_d16r_2026-09-23.md`). Logs `log/<config name>.manager.log`.
+LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D17 pid 2658727 `config/sae_4a_lexlat_durprior.py` (hand-started; pack DNrT49EggYTY, Slurm 1971726). Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-ACTIVE: D14, D15 (registered, reviewed `reports/review_d1{4,5}_*_2026-09-23.md`, launched). D16 read TWO BASINS, audited CONFIRMED. D17 launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
+ACTIVE: D14, D15 (registered, reviewed `reports/review_d1{4,5}_*_2026-09-23.md`, launched). D16 read TWO BASINS, audited CONFIRMED; D16r reads TWO BASINS on the reverse score alone. D17 launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
 
-NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D17 at ep8, D16r when its reader finishes (identity check first). In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
+NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D17 at ep8. D18 (beyond-PER battery, built as 093d1d30, `reports/impl_d18_2026-09-23.md`, review pending) launches once the D14, D15 and D17 managers have finished. Its reads go beside each PER read. In parallel, `SAE_4A_lexlat_v2.md` NEXT.
 
 Open user forks: 1. k2 form on the cold line (random-pronunciation null; rung 10000): D15 (c) and lexlat_v2 bear on it. 2. D12 = ROOM: the word-aggregate arm waits on the user's go. 3. Double-counted text prior: D15 is the chosen ablation; the beta-2 control and the P3-divided graph are not run.
 
@@ -900,6 +900,20 @@ Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseva
   - Matched gap: rev_cc - rev_gg.
   - The same D16 labels, with the signs flipped for higher-is-better.
 - pri is reported the same way, descriptively.
+
+**Result: rev reads TWO BASINS, like D16 on the objective.** Source: `CrossEvalRevReadJob.fETQJ2fZ3MwJ` (`output/report.txt`), cells Slurm 1973352-1973357, read in `reports/exec_d16r_read_2026-09-23.md`.
+- Checks pass. The self-check reproduces D16's l_tau in all six cells to 8.9e-16. Identity: g ep8 -3.160050 against the logged -3.160049; c ep60 -3.362877 against -3.362877. The pairing set is 2864 utterances from 33 speakers.
+- Per-frame cell means of rev / pri:
+  - gg: -3.3462 / -2.5945
+  - gc: -5.1348 / -3.0825
+  - cg: -4.4808 / -3.0802
+  - cc: -3.5951 / -2.8574
+- rev contrasts, with 95% intervals; negative means worse:
+  - phi effect: gc - gg = -1.797 [-1.839, -1.754]; cg - cc = -0.889 [-0.923, -0.854].
+  - theta effect: cg - gg = -1.144 [-1.179, -1.106]; gc - cc = -1.542 [-1.577, -1.506].
+  - Matched gap: cc - gg = -0.255 [-0.273, -0.234].
+- pri shows the same pattern (every interval excludes zero): the phi effects are -0.480 and -0.222, the theta effects -0.479 and -0.223, and the matched gap -0.257.
+- Reading: the reverse model alone is co-adapted to its own recognizer. Each phi explains the other recognizer's decodes 0.9-1.8 nats per frame worse. The gold pair's phi is better on its own decodes by 0.25, a gap 3.5-7 times smaller than a swap. The swap penalty on l_tau (D16) is carried by the reverse score, not only by the lattice marginal around it.
 
 ## D17: a general-knowledge duration prior at the edge (user request 2026-09-23, registered before any job; disclosed label-using diagnostic, no gate)
 
