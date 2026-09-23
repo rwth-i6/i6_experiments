@@ -4,25 +4,16 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers, 2026-09-23 morning: NONE. Every manager named in this phase has exited, and every registered job is finished.
+LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (seed decode -> decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS), log `log/sae_4a_supervised_decphi.manager.log`; D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D16 pid 3927592 `config/sae_4a_lexlat_crosseval.py` (6 forward cells Slurm 1968020-1968025, reader CrossEvalReadJob.NQsiwtafITc6). Manager logs `log/<config name>.manager.log`. Watch all three with the command above. Standing: USER RULING 2026-09-21, this phase is the main line; no bar is moved to make a gate pass. G4a.9 = CANNOT_TELL as written, PASS unreachable (audited). Audited reads with no open item: E60 (PLATEAU, longer training refuted), D10e (untrained phi drove the collapse; on the both-gold start k2 is lexicon-specific and PRESERVES), D12 = ROOM, D13 answered from the logged read.
 
-Standing: USER RULING 2026-09-21, this phase is the main line; a gate PASS runs the arm, a FAIL continues the cost work, no bar is moved to make it pass. G4a.9 reads CANNOT_TELL as written with PASS unreachable, audited (Results "VERDICT G4a.9"). Everything done lives in its own section (Results, Diagnosis, D10, D11, D12, Extension E60).
+ACTIVE (user request 2026-09-23): D14 (phi fitted on p0's own decodes; packs W1, W2) and D15 (phone trigram replaced by the word graph, beta = 1 - lam/full_lam; warm arm in W2, cold pack C). D16 (user request 2026-09-23): 2x2 cross-evaluation of supphi_k2lat ep8 and k2lat_20_x60 ep60, theta x phi, on dev-other. All three registered before any job (sections "D14", "D15", "D16"), code reviewed (`reports/review_d1{4,5,6}_*_2026-09-23.md`) and launched.
 
-Read and audited on 2026-09-23 (no open item):
-- E60: continuity PASS; PLATEAU in all four arms; the form re-read on `k2lat_20_ma3000_x60` misses on PER (0.824) and against its null (+0.0071). Training longer is refuted as the missing ingredient ("E60 read at ep60").
-- D10e: the untrained reverse model drove the supervised init's collapse. On the both-gold start the k2 term is specific to the lexicon (k2lat minus k2shuf -0.186) and PRESERVES the start ("D10e read", "D10e addendum read").
-- D12 = ROOM ("D12 read").
+NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C (Slurm 1967478) starts, check all four arms run and `prior_weight_eff` in learning_rates (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20; D16 when its reader finishes (VOID check first).
 
-NEXT: waiting on the user, the forks below. Nothing is queued on the cluster. D13 is answered from the logged read, and its dev-other eval was cancelled by the user.
-
-1. USER FORK, direction of the k2 form (inputs "E60 read at ep60", "D10e read", `reports/diag_k2_why_2026-09-22.md`). On the cold line the k2 form sits at a fixed point: any word graph gains about 0.05 PER over ctrl whether or not its pronunciations are the right ones, and the lexicon-specific contrast is <= 0.01 or reversed. On a phone-like start the same term is strongly lexicon-specific. Candidates, none launched:
-   - (a) The random-pronunciation null (Design 6 follow-up). It decides whether the shared 0.05 needs word-shaped phone strings at all.
-   - (b) Close the k2 form as a cold-start mechanism at this bed.
-   - (c) A seeded k2 track (supervised init + gold phi + k2 term). It is label-using and needs a user ruling; D10e itself initialises no main-line arm.
-   - (d) Rung 10000 or escape-price / lam_lex arms. Weaker: at rung 3000 the treatment still ties or loses to its derangement.
-   Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs").
-2. USER FORK, D12 = ROOM (margin 1.42 nats, not borderline). The drafted word-aggregate arm test waits on the user's go and on the user confirming that a unigram word aggregate beside the trigram G satisfies the trigram-or-better rule. If go: first the ep20 posterior-histogram K read added in "D12 read" (no pack if at or below the bound), then code per the drafted test. Its warm start is revisited against E60's checkpoints, which show no gain past ep20.
-3. USER FORK, raised 2026-09-23, blocks forks 1 and 2: the text prior is counted twice. Every k2 arm (31 of 31 configs) keeps the phone trigram at beta 1 inside the lattice term and ADDS the word graph at lam_lex 1. This was an orchestrator ruling ("Orchestrator rulings" item 2; Design line "ADDED to beta log P3") that was never put to the user. Consequently every k2-minus-ctrl contrast, including the cold line's shared 0.05, mixes the lexicon with extra text weight; only k2lat minus k2shuf isolates the lexicon. Literature: no training objective adds both at full weight; the one precedent scales them to sum to 1 "to avoid double counting" (`reports/lit_phone_lm_with_word_lm_2026-09-23.md`). Mechanism: `reports/code_phone_prior_vs_k2_2026-09-23.md`. Candidate arms (none launched): phone trigram at beta 2 with no lexicon, the extra-weight control; a 0.5 / 0.5 blend; the word graph with P3 divided out.
+Open user forks, parked until D14 / D15 read:
+1. Direction of the k2 form on the cold line (random-pronunciation null; close it; seeded track; rung 10000 / escape price). D15 (c) bears on it directly.
+2. D12 = ROOM: the word-aggregate arm waits on the user's go and a ruling on unigram word aggregate beside the trigram G.
+3. Double-counted text prior (every k2 arm adds the word graph on top of beta 1): D15 is the user's chosen ablation; the beta-2 extra-weight control and the P3-divided graph are not run.
 
 ## Design review amendments (2026-09-21, applied before any job)
 
@@ -798,3 +789,71 @@ Every row reports every term (per frame, as the dev scores) and the weighted tot
 - CODE LOWER: C60 below G8k on the total, with the G8k - C60 interval above zero. The objective prefers the cold solution at this bed.
 - MIXED otherwise; report per term.
 - Secondary, stationarity: G8p below G0 on the objective without the lexicon term, while its PER is worse (0.256 against 0.189), means the bed objective descends away from phones: a phone-like point is not a local minimum without the lexicon term.
+
+## D14: a reverse model fitted on the supervised recognizer's own output (user request 2026-09-23, registered before any job)
+
+User: "supervised init asr model on gold, train reverse model on its output and see if joint/frozen training on k2 lat would improve or degradate". Disclosed label-using diagnostic: p0 is gold-trained. It enters no gate and initialises no main-line arm.
+
+**Inputs.** theta = p0 (`SupervisedRecognizerExportJob.YtuVg6ZYuK0P`, dev-other 0.1894). decphi = `BlankfreeSupervisedReverseInitJob` with the gold phi's recipe and constants on the same 10 h seed utterances and split. Its phone targets are p0's greedy decodes of those utterances, dumped by a `ReturnnForwardJobV2` through the `BlankfreeGreedyPerJob` decode path, in place of the gold strings. The label source is the only delta from D10e's gold phi `16v7R6ztSq1u`. Descriptive, beside the packs: the PER of p0's seed decodes against seed gold (the label noise decphi is fit on), and the D10e precondition read under decphi (`BlankfreeDecodeGapJob`, dev-other, 500 utterances).
+
+**Arms.** D10e pack constants verbatim (tau 2.0 held, lr schedule, 8 sub-epochs, kept 1 / 2 / 4 / 8, seed, batches; k2 block = `supphi_k2lat`'s: treatment graph `cdcxYJMjiYj5`, rung 1000, on-set 1, ramp 3). One arm per GPU.
+- Pack W1: `decphi_plain` (p0 + decphi, both trainable); `decphi_frz` (phi frozen); `decphi_k2lat` (decphi_plain + the k2 term); `decphi_k2lat_frz` (decphi_k2lat with phi frozen).
+- Pack W2: `supphi_k2lat_frz` (D10e's supphi_k2lat with the gold phi frozen, completing D10e's gold-phi 2x2); `supphi_k2lat_rep` (supphi_k2lat verbatim: the warm identity band); `supphi_k2lat_rp` (D15's warm arm); `decphi_k2shuf` (decphi_plain + the null graph `UGE5MH3v5lyT`).
+
+**Band.** B_warm = |supphi_k2lat_rep - supphi_k2lat| (paired, dev-other) at ep4 and at ep8; M_w = max(0.010, B_warm at the same epoch).
+
+**Reads.** Dev-other greedy PER at ep4 and ep8, `PairedPerDeltaJob` (speaker-clustered bootstrap, 2000 resamples), delta = first minus second, negative = first better.
+1. Against the init, each W1 arm and `supphi_k2lat_frz` minus p0: REFINES if delta <= -M_w with the interval below zero; DEGRADES if delta >= +M_w with the interval above zero; PRESERVES otherwise. This differs from the D10e addendum's rule by the band and the symmetric DEGRADES clause; the addendum's read stands as registered.
+2. Joint against frozen under the k2 term: `decphi_k2lat_frz - decphi_k2lat` and `supphi_k2lat_frz - supphi_k2lat_rep`: FROZEN BETTER if delta <= -M_w with the interval below zero; JOINT BETTER if delta >= +M_w with the interval above zero; TIE otherwise.
+3. The k2 term's effect: `decphi_k2lat - decphi_plain` and `decphi_k2lat_frz - decphi_frz`: HELPS / HURTS / TIE by the same rule.
+4. Lexicon specificity on the decode start: `decphi_k2lat - decphi_k2shuf` <= -M_w with the interval below zero = LEXICON-SPECIFIC.
+5. Label source, descriptive: `decphi_k2lat - supphi_k2lat_rep` and `decphi_k2lat_frz - supphi_k2lat_frz`.
+6. D10b at ep8 for the four W1 arms (gold minus decoded, gold minus deranged gold), descriptive.
+
+Amendment before any job (2026-09-23, implementation): a seed utterance that p0 decodes to an empty string cannot be a fit target. Such utterances are dropped from the decphi fit, and the conversion job prints their count and IDs. If more than 1% of the seed (more than 28 of 2849) is empty, the job fails and D14 does not launch.
+
+## D15: ablating the phone trigram in the k2 arm (user request 2026-09-23, registered before any job; answers State fork 3's arm choice)
+
+User: "ablation of current 3gram phone LM. Do it on one or two most representative k2 arm is enough". Arms chosen: the cold line's best treatment `k2lat_20_ma3000` (the E60 candidate) and the warm-start treatment `supphi_k2lat`, where the term is lexicon-specific (D10e).
+
+**Operationalisation (orchestrator): replace the phone trigram where the word graph carries the text, do not remove it everywhere.** beta(e) = 1 - lam(e) / full_lam, with lam(e) the arm's own k2 ramp. So beta falls as the word graph's weight rises and is 0 wherever the word graph is at full weight. beta scales the phone trigram's emit score in the l_tau lattice DP, and through that DP the rate term's tilted passes (`reports/code_phone_prior_vs_k2_2026-09-23.md`). This follows the one precedent that scales the two models to sum to 1 "to avoid double counting" (`reports/lit_phone_lm_with_word_lm_2026-09-23.md`). Before the on-set nothing changes, so the cold arm equals its beta-1 parent through ep7; removing beta from ep1 on the cold line would leave the pre-on-set lattice with no text prior at all, which is a different experiment. Unchanged, disclosed: the agg term's order-1 / order-2 target from the same prior, and the escape path's unigram price (0.02 % of expected words). The word trigram G keeps the objective at trigram order.
+- Warm: `supphi_k2lat_rp` in pack W2 (D14); beta 2/3, 1/3, then 0 from sub-epoch 3.
+- Cold, pack C (one exclusive node, pack2 `2j2bZo1TrkC0` constants verbatim, 20 sub-epochs, rung 3000, on-set 8, ramp 3): `k2lat_20_ma3000_rp` and `k2shuf_20_ma3000_rp` (beta 1 through ep7, then 2/3, 1/3, and 0 from ep10); `k2lat_20_ma3000_rep` and `k2shuf_20_ma3000_rep`, verbatim replicates of pack2's two arms, as in-pack references and the rung-3000 identity band.
+- The effective beta per sub-epoch is logged in `learning_rates`, and the code review checks that it reaches the DP.
+
+**Bands.** Warm: M_w as in D14. Cold: M_c = max(0.0136, the G4a.9 margin; |k2lat_20_ma3000_rep - k2lat_20_ma3000| at ep20; |k2shuf_20_ma3000_rep - k2shuf_20_ma3000| at ep20), the parents being pack2's arms.
+
+**Reads.** Dev-other greedy PER, `PairedPerDeltaJob`, conventions as D14.
+- (a) Warm, ep4 and ep8: `supphi_k2lat_rp - supphi_k2lat_rep`. TRIGRAM NEEDED if delta >= +M_w with the interval above zero; DOUBLE COUNT HURTS if delta <= -M_w with the interval below zero; NOT NEEDED otherwise.
+- (b) Cold, ep10 and ep20: `k2lat_20_ma3000_rp - k2lat_20_ma3000_rep`, the same three classes with M_c.
+- (c) Cold, ep20, the main-line question: `k2lat_20_ma3000_rp - k2shuf_20_ma3000_rp` <= -M_c with the interval below zero = LEXICON-SPECIFIC ONCE THE TRIGRAM IS REPLACED. The double count masked the lexicon, and the k2 form reopens on the cold line (State fork 1). Otherwise the tie with the null is not the double count's doing. Read beside the beta-1 pair `k2lat_20_ma3000_rep - k2shuf_20_ma3000_rep` (pack2: +0.0044).
+- Identity check: `_rp - _rep` at ep4 on the cold pair (identical configs before the on-set) is recorded as a further band sample, not a gate.
+
+**Cost.** W1 and W2 about 1.8 h each (the D10e pack ran 23:13 to 01:00). C about 5 h (pack2's node took 4:58 h). The seed decode and the decphi fit precede W1 and W2.
+
+## D16: cross-evaluation of the gold-start and cold pairs (user request 2026-09-23, registered before any job; descriptive, no gate)
+
+User: "a small cross-evaluation [theta_g, theta_c] x [phi_g, phi_c], the same objective and a fixed data subset; theta_g and phi_g are the matched pair after joint training. Do the ckpt loading and evaluate on dev-other as the cancelled plan last round." This is D13's cancelled eval, reduced to the 2x2.
+
+**Checkpoints.** theta_g, phi_g = `supphi_k2lat` ep8 (`PackedBlankfreeTrainJob.WEmvqF2yBFG8`). theta_c, phi_c = `k2lat_20_x60` ep60 (C60, the cold end point, rung 1000, the same graph as supphi_k2lat). Each cell loads theta from one checkpoint and phi from the other; phi must load strictly into the partner's model. theta's own non-phi state (including the agg count EMA) comes with theta.
+
+**Objective.** The training step's own loss code, no parameter update, D13's settings for every cell: dev-other, 2864 utterances, identical batches; temperature 2.0; lam_lex 1 on `cdcxYJMjiYj5` at max_active 1000; lam_agg 0.1; lam_rate 3; prior `RtzbESkOedsT` at beta 1. Each cell reports every term per frame, the weighted total L, and per-utterance values of each term.
+
+**Checks, before any reading.**
+- Identity: each diagonal cell run through the eval path on its own run's CV holdout reproduces that run's logged dev l_tau and lexlat_k2 at the checkpoint's sub-epoch within 0.005. A miss voids the read until explained.
+- Consistency: lexlat_k2 and agg depend on theta only, so within a row they agree across the two phi columns to float tolerance.
+
+**Reads.** Paired per utterance, speaker-clustered bootstrap over 2000 resamples, on L and per term:
+- phi effect at fixed theta: L_gc - L_gg, L_cg - L_cc.
+- theta effect at fixed phi: L_cg - L_gg, L_gc - L_cc.
+- Interaction I = L_gg + L_cc - L_gc - L_cg. I < 0 means the matched pairs beat the swapped pairs beyond the sum of the component effects (co-adaptation).
+An inequality counts only when its interval excludes zero.
+- GOLD DOMINATES: theta_g is lower in both phi columns and phi_g is lower in both theta rows. Each gold component is better whichever partner it has, so the cold run found neither.
+- TWO BASINS: each theta is lower with its own phi and each phi is lower with its own theta. The pairs are co-adapted local optima.
+- MIXED otherwise; report per term.
+
+Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseval_2026-09-23.md`):
+- The consistency tolerance is 1e-4 nats per frame on each cell's dev-other mean of lexlat_k2 and of agg. As with the identity check, a miss voids the read until it is explained.
+- The per-utterance total is L = l_tau + lexlat_k2 + 3 rate. This is D13's sum. agg is batch-level and depends on theta only, so it enters as a point contrast on the theta effects.
+- The pairing set is the utterances kept in all four cells; the reader prints their count.
+- All cells run at supphi_k2lat's ep8 settings. The eval asserts that tau and lam at k2lat_20_x60's ep60 are the same.
