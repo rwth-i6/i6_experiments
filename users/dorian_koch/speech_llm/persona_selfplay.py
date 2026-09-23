@@ -20,7 +20,9 @@ from .podcast_ingest import _moshi_pythonpath
 class PersonaSelfPlay(Job):
     """``n`` seeded conversations of ``duration_sec`` between model A (the window's assistant side)
     and model B (the other side). ``overlay_*``: a resolved ``lora.safetensors`` (None = base
-    PersonaPlex), with its ``lora_rank_*``. ``label_*`` name the models in the output rows."""
+    PersonaPlex), with its ``lora_rank_*``; or (2026-09-23, p5) a FULL finetune's ``model.safetensors`` with
+    ``lora_rank_*`` None -- the engine then overlays the whole state dict, no LoRA wrapping.
+    ``label_*`` name the models in the output rows."""
 
     def __init__(
         self,
@@ -42,7 +44,10 @@ class PersonaSelfPlay(Job):
         temp_text: float | None = None,
         text_sampler: str | None = None,
     ):
-        assert (overlay_a is None) == (lora_rank_a is None) and (overlay_b is None) == (lora_rank_b is None)
+        # A LoRA rank needs its adapter; an overlay without a rank is a full state dict (full finetune).
+        assert not (overlay_a is None and lora_rank_a is not None) and not (
+            overlay_b is None and lora_rank_b is not None
+        )
         assert text_sampler in (None, "two_stage"), text_sampler
         self.data = data
         self.venv_python_path = venv_python_path
@@ -64,7 +69,12 @@ class PersonaSelfPlay(Job):
         # worker's context (conversation frames + 256; see selfplay --context). Measured 2026-09-22 at
         # 60 s: batch 32 -> 66.3 GiB peak, so it fits the 80 GB cards of either partition. (The full
         # 3000-frame context took 82.7 GiB at batch 16.) Outside the measured range, ask for more.
-        big = self.batch_size > 32 or self.duration_sec > 60.0
+        # A full-finetune overlay is read onto the GPU (~15 GB transient per side) while the models sit
+        # there -- unmeasured, so it asks for the 94 GB cards (rqmt is not hashed).
+        full_overlay = (overlay_a is not None and lora_rank_a is None) or (
+            overlay_b is not None and lora_rank_b is None
+        )
+        big = self.batch_size > 32 or self.duration_sec > 60.0 or full_overlay
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 94 if big else 80}
 
     #: Added 2026-09-23 (text-temperature grid); every earlier self-play keeps its hash.
@@ -114,7 +124,9 @@ class PersonaSelfPlay(Job):
         ]
         for s, ov, rank in (("a", self.overlay_a, self.lora_rank_a), ("b", self.overlay_b, self.lora_rank_b)):
             if ov is not None:
-                cmd += [f"--overlay_{s}", ov.get_path(), f"--lora_rank_{s}", str(rank)]
+                cmd += [f"--overlay_{s}", ov.get_path()]
+                if rank is not None:  # None = a full state dict (the worker builds no LoRA)
+                    cmd += [f"--lora_rank_{s}", str(rank)]
         if getattr(self, "temp_text", None) is not None:
             cmd += ["--temp_text", str(self.temp_text)]
         if getattr(self, "text_sampler", None) is not None:

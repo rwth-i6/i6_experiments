@@ -30,6 +30,7 @@ from i6_experiments.users.dorian_koch.speech_llm.finetune import (  # noqa: E402
     MOSHI_LIB_FULL_ADAPTER,
     MOSHIRAG_LIB_ADAPTER,
     PERSONAPLEX_LIB_ADAPTER,
+    PERSONAPLEX_LIB_FULL_ADAPTER,
     PERSONAPLEX_LIB_LORA_ADAPTER,
     _yaml_float,
     train_data_specs,
@@ -41,6 +42,7 @@ ADAPTERS = {
     "moshi_lib_full": MOSHI_LIB_FULL_ADAPTER,
     "personaplex_lib": PERSONAPLEX_LIB_ADAPTER,
     "personaplex_lib_lora": PERSONAPLEX_LIB_LORA_ADAPTER,
+    "personaplex_lib_full": PERSONAPLEX_LIB_FULL_ADAPTER,
     "moshirag_lib": MOSHIRAG_LIB_ADAPTER,
 }
 # Only the base-Moshi lib launcher reads `train_data_mix`; the rest do cfg["train_data"]. The
@@ -249,5 +251,32 @@ bucket = yaml.safe_load(
 )
 assert bucket["length_bucket_pool"] == 16 and isinstance(bucket["length_bucket_pool"], int)
 print(f"[ok] PERSONAPLEX_FAST_HPARAMS renders {sorted(PERSONAPLEX_FAST_HPARAMS)} and changes nothing else")
+
+# --------------------------------------------------------------------------------------------
+# 7. PersonaPlex FULL finetune (2026-09-23, p5): the LoRA template at train_scope "full" -- no lora_* keys,
+#    fused_lora_add refused (a full finetune has no LoRA), the family's presets render, overlay "full".
+# --------------------------------------------------------------------------------------------
+from i6_experiments.users.dorian_koch.speech_llm.finetune import (  # noqa: E402
+    LAUNCHER_FIX_PRESETS,
+    PERSONAPLEX_FULL_FAST_HPARAMS,
+)
+from speech_llm.full_duplex.sis_recipe.doriank.track_persona import P5_HPARAMS  # noqa: E402
+
+full = PERSONAPLEX_LIB_FULL_ADAPTER
+hp5 = {**P5_HPARAMS, **PERSONAPLEX_FULL_FAST_HPARAMS, **LAUNCHER_FIX_PRESETS["personaplex_lib_full"]}
+c5 = yaml.safe_load(full.render_config(_FakeJob(SINGLE, hparams=hp5, adapter=full), full.batch_size, 1000))
+assert c5["train_scope"] == "full" and not {"lora_rank", "lora_scaling"} & set(c5), c5
+assert {k: c5[k] for k in PERSONAPLEX_FULL_FAST_HPARAMS} == PERSONAPLEX_FULL_FAST_HPARAMS and "fused_lora_add" not in c5
+assert c5["resume_data_position"] is True and c5["gradient_checkpointing"] is True
+assert (c5["lr_temporal"], c5["lr_depformer"], c5["per_gpu_batch"], c5["grad_accum"]) == (2e-6, 4e-6, 8, 1), c5
+assert full.overlay_kind == "full" and full.weights_name == "model.safetensors"
+try:
+    full.render_config(_FakeJob(SINGLE, hparams={"fused_lora_add": True}, adapter=full), full.batch_size, 10)
+    raise SystemExit("personaplex_lib_full rendered fused_lora_add -- a LoRA switch on a full finetune")
+except ValueError:
+    pass
+lora_same = ppx.render_config(_FakeJob(SINGLE, hparams=P2_HPARAMS, adapter=ppx), ppx.batch_size, 3000)
+assert 'train_scope: "lora"\nlora_rank: 128\nlora_scaling: 2.0\ngradient_checkpointing:' in lora_same
+print("[ok] personaplex_lib_full: train_scope full, no lora_* keys, its presets render, fused_lora_add refused")
 
 print("\nALL CHECKS PASSED")

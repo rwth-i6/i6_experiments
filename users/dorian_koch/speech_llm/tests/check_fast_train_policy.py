@@ -91,6 +91,7 @@ LAUNCHER_OF = {
     "moshi_lib_full": "moshi_finetune_launcher.py",
     "moshirag_lib": "moshirag_finetune_launcher.py",
     "personaplex_lib_lora": "personaplex/finetune_launcher.py",
+    "personaplex_lib_full": "personaplex/finetune_launcher.py",
     "audex_stage0": "audex/finetune_launcher.py",
     "audex_stage1": "audex/finetune_launcher.py",
     "rl_grpo": "rl/launcher.py",

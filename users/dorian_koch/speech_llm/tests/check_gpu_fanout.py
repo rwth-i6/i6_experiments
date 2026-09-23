@@ -299,12 +299,82 @@ def check_wiring():
     st = (SETUP / "settings.py").read_text()
     assert re.search(r"^\s*MIN_GPUS_PER_JOB = \d+", st, re.M), "settings.MIN_GPUS_PER_JOB"
     assert 'current_rqmt["gpu"] < MIN_GPUS_PER_JOB' in st and 'current_rqmt["gpu"] = MIN_GPUS_PER_JOB' in st
-    # training never takes more ranks than it declared
-    assert (
-        'declared = int(job.hparams.get("gpu", 1))' in src["finetune.py"]
-        and "n_train_gpus = declared" in src["finetune.py"]
-    )
+    # training never takes more ranks than it declared (behaviourally: check_training_ranks)
+    assert "n_train_gpus = declared" in src["finetune.py"]
     print("PASS  every converted job/worker is wired, vLLM is TP, settings raises, training caps at declared")
+
+
+def _torchrun_nproc(job, visible: str, finetune=None) -> int:
+    """Drive the REAL ``finetune.launch_training`` with ``subprocess.run`` captured -> its ``--nproc-per-node``."""
+    import subprocess
+    import types
+
+    if finetune is None:
+        from i6_experiments.users.dorian_koch.speech_llm import finetune
+
+    seen = []
+
+    def fake_run(cmd, *a, **k):
+        seen.append(cmd)
+        return types.SimpleNamespace(stdout="", returncode=0)
+
+    real, old_env = subprocess.run, os.environ.get("CUDA_VISIBLE_DEVICES")
+    subprocess.run, os.environ["CUDA_VISIBLE_DEVICES"] = fake_run, visible
+    try:
+        adapter = types.SimpleNamespace(name="probe", pythonpath_package="_no_such_package_", launcher_module="m")
+        finetune.launch_training(job, adapter)
+    finally:
+        subprocess.run = real
+        if old_env is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = old_env
+    cmd = next(c for c in seen if "torch.distributed.run" in c)
+    return int(cmd[cmd.index("--nproc-per-node") + 1])
+
+
+def check_training_ranks():
+    """``launch_training`` trains on the DECLARED GPU count -- read from the hash-excluded ``compute`` channel
+    (every run since RULE_RQMT_NOT_HASHED, 2026-09-17) or, for older runs, from ``hparams`` -- capped by what
+    is visible. Found 2026-09-23 (p5, before it ran): only ``hparams`` was read, so a ``compute={"gpu": 4}`` run
+    would have trained ONE rank on a 4-GPU allocation, a quarter of its batch. Can fail: the old expression."""
+    import types
+
+    def job(hparams, compute):
+        return types.SimpleNamespace(
+            hparams=hparams,
+            compute=compute,
+            rqmt={"gpu": 4},
+            knowledge_probe_data=None,
+            venv_python_path=types.SimpleNamespace(get=lambda: "python"),
+            out_config=types.SimpleNamespace(get=lambda: "c.yaml"),
+        )
+
+    cases = [
+        ({}, {"gpu": 4}, "0,1,2,3", 4),  # a new run: the count travels in compute
+        ({"gpu": 4}, {}, "0,1,2,3", 4),  # a pre-2026-09-17 run: in hparams
+        ({}, {}, "0,1,2,3", 1),  # declares nothing -> 1 rank, the surplus idles
+        ({}, {"gpu": 4}, "0,1", 2),  # capped by what is visible
+    ]
+    for hp, comp, vis, want in cases:
+        got = _torchrun_nproc(job(hp, comp), vis)
+        assert got == want, f"hparams={hp} compute={comp} visible={vis}: {got} ranks, expected {want}"
+    # CAN FAIL: the real finetune.py with the pre-fix line reads 1 rank for the compute-channel run
+    import types
+
+    from i6_experiments.users.dorian_koch.speech_llm import finetune
+
+    import inspect
+
+    src = inspect.getsource(finetune.launch_training)
+    fixed = '    declared = int((getattr(job, "compute", None) or {}).get("gpu", job.hparams.get("gpu", 1)))\n'
+    assert fixed in src, "mutation anchor moved: update check_training_ranks"
+    ns = dict(vars(finetune))  # the real module globals, with launch_training re-defined from the pre-fix line
+    exec(compile(src.replace(fixed, '    declared = int(job.hparams.get("gpu", 1))\n'), finetune.__file__, "exec"), ns)
+    mut = types.SimpleNamespace(launch_training=ns["launch_training"])
+    got = _torchrun_nproc(job({}, {"gpu": 4}), "0,1,2,3", finetune=mut)
+    assert got == 1, f"the pre-fix launch_training gave {got} ranks -- this check cannot see the bug"
+    print("PASS  training ranks = declared GPUs (compute, else hparams), capped by visible; the pre-fix read gave 1")
 
 
 if __name__ == "__main__":
@@ -318,4 +388,5 @@ if __name__ == "__main__":
         check_jsonl_merge_restores_clip_order(tmp)
         check_progress_sums_every_worker(tmp)
     check_wiring()
+    check_training_ranks()
     print("ALL PASS")

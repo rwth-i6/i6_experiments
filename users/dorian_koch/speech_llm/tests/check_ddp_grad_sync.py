@@ -39,6 +39,10 @@ the LM in DDP and then called ``core.forward_train`` -- the same bypass, in a la
   * LoRA + our (non-reentrant) activation checkpointing under DDP WITHOUT ``static_graph`` synchronises
     and does not raise -- the Moshi launcher's old comment that static_graph is "REQUIRED" for
     checkpointing predates ``use_reentrant=False``;
+  * (2026-09-23, p5) the PersonaPlex FULL finetune under FSDP2, sharded exactly as the launcher shards it
+    (``shard_for_full_ft(core, root=_ForwardTrain(core), master_dtype=float32)``): every rank's
+    reduce-scattered gradient is the mean of the ranks' own full-model gradients on their own data, and
+    ``core.forward_train`` on the sharded model does not train (it raises on the still-sharded embeddings);
   * the source half scans every ``moshi_family/**/*launcher.py``, rejects any ``.forward*()`` method call
     inside a ``loss_step`` (``forward_train`` included) and any literal ``static_graph=True`` (base
     Moshi's is the config key ``ddp_static_graph``: True only for arms rendered before 2026-09-23), with
@@ -145,6 +149,45 @@ def lm_spread(kind, through_wrapper, static_graph):
         personaplex_loss(out, codes, mask, dep_q=core.dep_q).backward()
     return gather_spread(core.parameters())
 
+def ppx_fsdp_spread(through_wrapper):
+    """PersonaPlex FULL finetune under FSDP2 as the launcher shards it (fp32 masters, _ForwardTrain as the root;
+    fp32 compute here so the comparison is exact), different data per rank. Synchronised means: the gathered
+    gradient == the MEAN of the ranks' own unsharded gradients. -> max deviation (inf if the path raises)."""
+    from torch.distributed.device_mesh import init_device_mesh
+    from moshi_family.fsdp_full_ft import shard_for_full_ft
+
+    kw = dict(loaders._lm_kwargs)
+    kw.update(TINY, dep_q=16)
+
+    def fresh():
+        torch.manual_seed(0)
+        m = LMModel(device="cpu", dtype=torch.float32, **kw)
+        m.transformer.checkpointing = True
+        m.train()
+        return m
+
+    g = torch.Generator().manual_seed(100 + rank)
+    codes = torch.randint(0, 50, (1, 17, 20), generator=g)
+    codes[:, 0] = torch.randint(0, 100, (1, 20), generator=g)
+    mask = torch.ones(1, 20, dtype=torch.bool)
+    ref = fresh()
+    personaplex_loss(_ForwardTrain(ref)(codes), codes, mask, dep_q=16).backward()
+    local = torch.cat([p.grad.detach().flatten() for p in ref.parameters()])
+    parts = [torch.zeros_like(local) for _ in range(world)]
+    dist.all_gather(parts, local)
+    mean = sum(parts) / world
+    core = fresh()
+    w = _ForwardTrain(core)
+    shard_for_full_ft(core, root=w, master_dtype=torch.float32, param_dtype=torch.float32,
+                      mesh=init_device_mesh("cpu", (world,)))
+    try:
+        out = w(codes) if through_wrapper else core.forward_train(codes)
+        personaplex_loss(out, codes, mask, dep_q=16).backward()
+    except Exception:
+        return float("inf")
+    full = torch.cat([p.grad.full_tensor().detach().flatten() for p in core.parameters()])
+    return float((full - mean).abs().max())
+
 def ckpt_no_static_graph_spread():
     """LoRA + activation checkpointing under DDP WITHOUT static_graph, as MoshiRAG wraps it; 3 steps."""
     torch.manual_seed(0)
@@ -172,6 +215,8 @@ bypassed = spread(False)
 moshi_wrapped = lm_spread("moshi", True, static_graph=False)
 ppx_wrapped = lm_spread("personaplex", True, static_graph=False)
 ppx_bypassed = lm_spread("personaplex", False, static_graph=False)
+ppx_fsdp_wrapped = ppx_fsdp_spread(True)
+ppx_fsdp_bypassed = ppx_fsdp_spread(False)
 # The trap (reported, not asserted): what every multi-GPU base-Moshi LoRA arm before 2026-09-23 ran.
 moshi_static = lm_spread("moshi", True, static_graph=True)
 try:
@@ -190,6 +235,10 @@ if ppx_wrapped > 1e-6:
     fail.append(f"PersonaPlex through _ForwardTrain+DDP left ranks disagreeing by {ppx_wrapped}")
 if ppx_bypassed < 1e-6:
     fail.append(f"PersonaPlex core.forward_train ALSO synchronised ({ppx_bypassed}) -- cannot detect bug 3")
+if ppx_fsdp_wrapped > 1e-5:
+    fail.append(f"PersonaPlex full FT under FSDP2 through _ForwardTrain: gradient != rank mean by {ppx_fsdp_wrapped}")
+if ppx_fsdp_bypassed < 1e-6:
+    fail.append(f"PersonaPlex FSDP2 core.forward_train ALSO gives the synchronised gradient ({ppx_fsdp_bypassed})")
 if not isinstance(ckpt_nosg, float) or ckpt_nosg > 1e-6:
     fail.append(f"LoRA + checkpointing under DDP without static_graph: {ckpt_nosg}")
 if rank == 0:
@@ -199,6 +248,8 @@ if rank == 0:
     print(f"MOSHI_STATIC_GRAPH_TRUE {moshi_static}")
     print(f"PPX_WRAPPED {ppx_wrapped}")
     print(f"PPX_BYPASSED {ppx_bypassed}")
+    print(f"PPX_FSDP_WRAPPED {ppx_fsdp_wrapped}")
+    print(f"PPX_FSDP_BYPASSED {ppx_fsdp_bypassed}")
     print(f"CKPT_NO_STATIC_GRAPH {ckpt_nosg}")
     print("WORKER FAILED: " + " | ".join(fail) if fail else "WORKER OK")
 dist.destroy_process_group()
@@ -222,6 +273,9 @@ def main():
         raise SystemExit(1)
     print("[ok] ddp synchronises   ddp(x) leaves ranks identical; inner.forward(x) does NOT")
     print("[ok] base Moshi / PersonaPlex LMs + LoRA + ckpt under DDP synchronise; core.forward_train does NOT")
+    print(
+        "[ok] PersonaPlex full FT under FSDP2 (fp32 masters, _ForwardTrain root) = the rank mean; the bypass does NOT"
+    )
     trap = next((ln for ln in out.splitlines() if ln.startswith("MOSHI_STATIC_GRAPH_TRUE")), "")
     if trap and float(trap.split()[1]) > 1e-6:
         print(

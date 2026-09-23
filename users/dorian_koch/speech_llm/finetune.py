@@ -245,7 +245,10 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # inference job that is free speed, for a training run it would quadruple the effective batch
     # and silently make it a different experiment under the same hash. So the declared count wins
     # and the surplus idles -- an arm that should use 4 GPUs says so (Compute(gpus=4), backlog G2).
-    declared = int(job.hparams.get("gpu", 1))
+    # `compute` first: from RULE_RQMT_NOT_HASHED (2026-09-17) the GPU count travels there, not in `hparams`,
+    # and reading only `hparams` trained such a run on ONE rank of its N-GPU allocation (found 2026-09-23 on
+    # p5 before it ran; no earlier multi-GPU arm used `compute`). Same fallback order as `SpeechFinetune.rqmt`.
+    declared = int((getattr(job, "compute", None) or {}).get("gpu", job.hparams.get("gpu", 1)))
     if n_train_gpus > declared:
         print(
             f"[launch_training] {n_train_gpus} GPUs visible but the run declares gpu={declared}; "
@@ -476,8 +479,14 @@ def render_train_perf_keys(hp: dict, supported, *, who: str, rendered_elsewhere=
     return out
 
 
-def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+def _render_personaplex_lora_config(
+    job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str, train_scope: str = "lora"
+) -> str:
     """Render a PersonaPlex LoRA config (``moshi_family.personaplex.finetune_launcher``, train_scope=lora).
+
+    ``train_scope="full"`` (``PERSONAPLEX_LIB_FULL_ADAPTER``, 2026-09-23): the same template for a FULL
+    finetune -- no ``lora_*`` keys, and no ``fused_lora_add`` (refused). On more than one GPU the launcher
+    shards it with FSDP2 and fp32 master weights. The LoRA output is byte-identical to before the kwarg.
 
     Unlike :func:`_render_personaplex_config` (which predates per-arm knobs and hardcodes everything),
     every training knob here comes from ``job.hparams``, with defaults equal to the base-Moshi A-arms
@@ -498,24 +507,27 @@ def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_
     # Training-speed switches (PERSONAPLEX_FAST_HPARAMS; finetuning.md "Training performance"), rendered
     # ONLY when the arm sets them: an arm without them gets a config byte-identical to before they
     # existed, and the launcher's defaults are the historical kernels and batching.
-    perf = render_train_perf_keys(hp, TRAIN_PERF_KEYS, who="PersonaPlex LoRA")
+    assert train_scope in ("lora", "full"), train_scope
+    full = train_scope == "full"
+    who = "PersonaPlex full FT" if full else "PersonaPlex LoRA"
+    perf = render_train_perf_keys(hp, [k for k in TRAIN_PERF_KEYS if not (full and k == "fused_lora_add")], who=who)
     # EPAD's own text-loss weight (2026-09-23, ablation ab_epad1): rendered ONLY when set, so every
     # other arm's config is byte-identical to before the key existed (EPAD weighted as PAD).
     if hp.get("text_epad_weight") is not None:
         if not hp.get("emit_epad"):
-            raise ValueError("PersonaPlex LoRA: text_epad_weight needs emit_epad=True")
+            raise ValueError(f"{who}: text_epad_weight needs emit_epad=True")
         perf = f"text_epad_weight: {_yaml_float(hp['text_epad_weight'])}\n" + perf
+    scope_block = (
+        'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
+    )
     return (
-        f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
+        f"""# PersonaPlex {"full" if full else "LoRA"} finetune config (moshi_family.personaplex.finetune_launcher, train_scope={train_scope})
 hf_repo_id: "{hf_repo_id}"
 {_train_data_yaml(job, supports_mix=False)}
 out_dir: "{job.out_rundir.get()}"
 max_steps: {max_steps}
 duration_sec: {job.duration_sec}
-train_scope: "lora"
-lora_rank: {job.lora_rank}
-lora_scaling: 2.0
-gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
+{scope_block}gradient_checkpointing: {str(bool(hp.get("gradient_checkpointing", True))).lower()}
 per_gpu_batch: {hp.get("per_gpu_batch", 1)}
 grad_accum: {hp.get("grad_accum", 4)}
 lr_temporal: {_yaml_float(hp.get("temporal_lr", _lr))}
@@ -537,9 +549,7 @@ word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_
 loss_norm: "{hp.get("loss_norm", "weight")}"
 """
         + perf
-        + render_launcher_fix_keys(
-            hp, ("resume_data_position",), who="PersonaPlex LoRA", rendered_elsewhere=("loss_norm",)
-        )
+        + render_launcher_fix_keys(hp, ("resume_data_position",), who=who, rendered_elsewhere=("loss_norm",))
     )
 
 
@@ -556,6 +566,9 @@ PERSONAPLEX_FAST_HPARAMS = {
     "depformer_skip_masked": True,
     "prefetch_batches": 2,
 }
+
+#: A PersonaPlex FULL finetune (2026-09-23, p5): the same switches minus the LoRA one.
+PERSONAPLEX_FULL_FAST_HPARAMS = {k: v for k, v in PERSONAPLEX_FAST_HPARAMS.items() if k != "fused_lora_add"}
 
 #: The same for every other family (2026-09-23), each restricted to what its launcher can act on
 #: (``moshi_family.train_perf`` has the table). New arms get these from policy epoch POLICY_2026_09_23
@@ -588,6 +601,7 @@ FAST_TRAIN_PRESETS = {
     "moshi_lib_full": MOSHI_FULL_FAST_HPARAMS,
     "moshirag_lib": MOSHIRAG_FAST_HPARAMS,
     "personaplex_lib_lora": PERSONAPLEX_FAST_HPARAMS,
+    "personaplex_lib_full": PERSONAPLEX_FULL_FAST_HPARAMS,
     "audex_stage0": AUDEX_STAGE0_FAST_TRAIN_PERF,
     "audex_stage1": AUDEX_STAGE1_FAST_TRAIN_PERF,
     "rl_grpo": RL_FAST_TRAIN_PERF,
@@ -612,6 +626,7 @@ LAUNCHER_FIX_PRESETS = {
     "moshi_lib_full": {},
     "moshirag_lib": {"fp32_master_weights": True, "loss_norm": "weight", "resume_data_position": True},
     "personaplex_lib_lora": {"resume_data_position": True},
+    "personaplex_lib_full": {"resume_data_position": True},
     "audex_stage0": {"resume_data_position": True},
     "audex_stage1": {
         "fp32_master_weights": True,
@@ -665,6 +680,23 @@ PERSONAPLEX_LIB_LORA_ADAPTER = FinetuneAdapter(
     base_model="nvidia/personaplex-7b-v1",
     weights_name="lora.safetensors",
     render_config=partial(_render_personaplex_lora_config, hf_repo_id="nvidia/personaplex-7b-v1"),
+    launcher_module="moshi_family.personaplex.finetune_launcher",
+    pythonpath_package="moshi_family",
+)
+
+
+# PersonaPlex FULL finetune on the owned lib (2026-09-23, p5; the paper's own recipe): every parameter
+# trained, FSDP2 with fp32 master weights on more than one GPU (moshi_family.fsdp_full_ft). Checkpoints in
+# the base-Moshi full-FT layout ``checkpoints/checkpoint_<step>/consolidated/model.safetensors`` (bf16), so
+# ResolveOverlayCheckpoint(overlay_kind="full") resolves them and the PersonaPlex engine overlays the whole
+# state dict with no LoRA. A new ``name`` -> no existing arm is touched.
+PERSONAPLEX_LIB_FULL_ADAPTER = FinetuneAdapter(
+    name="personaplex_lib_full",
+    batch_size=32,
+    overlay_kind="full",
+    base_model="nvidia/personaplex-7b-v1",
+    weights_name="model.safetensors",
+    render_config=partial(_render_personaplex_lora_config, hf_repo_id="nvidia/personaplex-7b-v1", train_scope="full"),
     launcher_module="moshi_family.personaplex.finetune_launcher",
     pythonpath_package="moshi_family",
 )

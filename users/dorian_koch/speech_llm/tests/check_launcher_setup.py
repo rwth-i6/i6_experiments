@@ -24,7 +24,11 @@ Each launcher is checked for each CONCERN below; it must implement it or name it
 
 and, with no opt-out: ``loss_step`` never calls a ``.forward*()`` method (it bypasses DDP's reducer
 and FSDP's all-gather), and **every call site of one ``*_loss`` function passes the same keywords**
--- the rule that would have caught bug 2 (two ``moshi_loss`` calls, one without the knob). That rule
+-- the rule that would have caught bug 2 (two ``moshi_loss`` calls, one without the knob) -- and (2026-09-23,
+the PersonaPlex FSDP port) a launcher that shards its model (``shard_for_full_ft``) names its master dtype
+explicitly (``master_dtype=``: float32 = fp32 master weights; None = bf16 sharded params, whose AdamW updates
+round away at lr ~1e-6) and passes ``sharded_callbacks=`` to its ``TrainConfig`` (a rank-0-only save gathers
+alone and deadlocks). That rule
 covers the training objective, i.e. calls inside ``loss_step``; eval/diagnostic losses elsewhere may
 use fixed yardstick weights on purpose (base Moshi's held-out losses run at the default pad weight).
 
@@ -178,6 +182,25 @@ def analyse(src: str) -> tuple[dict, list[str], dict]:
     # train_perf
     impl["train_perf"] = any(_name(c.func) == "apply_train_perf" for c in calls)
 
+    # sharded (FSDP2) full finetune: an explicit master dtype, and collective callbacks
+    shard_calls = [c for c in calls if _name(c.func) == "shard_for_full_ft"]
+    for c in shard_calls:
+        if "master_dtype" not in _kw(c):
+            problems.append(
+                f"line {c.lineno}: shard_for_full_ft(...) without an explicit master_dtype= -- say whether the "
+                f"sharded params are fp32 masters (bf16 AdamW updates round away at lr ~1e-6)"
+            )
+    tcfg = [c for c in calls if _name(c.func) == "TrainConfig"]
+    if shard_calls and not any(
+        "sharded_callbacks" in _kw(c)
+        and not (isinstance(_kw(c)["sharded_callbacks"], ast.Constant) and _kw(c)["sharded_callbacks"].value is False)
+        for c in tcfg
+    ):
+        problems.append(
+            "shards the model (shard_for_full_ft) but no TrainConfig gets sharded_callbacks= -- the save gather "
+            "would run on rank 0 alone and deadlock"
+        )
+
     # every call site of one *_loss function inside loss_step (the TRAINING objective) passes the same
     # keywords. Eval/diagnostic losses elsewhere may use fixed yardstick weights on purpose.
     by_fn: dict[str, list[ast.Call]] = {}
@@ -267,6 +290,20 @@ MUTATIONS = [
         "",
         "a launcher without SETUP_OPT_OUTS",
         "no module-level SETUP_OPT_OUTS",
+    ),
+    (
+        "personaplex/finetune_launcher.py",
+        ", master_dtype=torch.float32)",
+        ")",
+        "PersonaPlex FSDP without fp32 master weights",
+        "without an explicit master_dtype",
+    ),
+    (
+        "personaplex/finetune_launcher.py",
+        "            sharded_callbacks=fsdp,\n",
+        "",
+        "PersonaPlex FSDP with rank-0-only callbacks",
+        "no TrainConfig gets sharded_callbacks",
     ),
 ]
 
