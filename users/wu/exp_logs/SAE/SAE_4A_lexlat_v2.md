@@ -4,7 +4,7 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. L2-1 probe pid 2747183 `config/sae_4a_lexlat_v2_em_probe.py` (hand-started; Slurm 1971921-1971926; reader `PhiFirstProbeReadJob.RuFm51PHSz4q`). D14-D17 managers: `SAE_4A_lexlat.md` State.
+LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe pid 2747183 `config/sae_4a_lexlat_v2_em_probe.py` (hand-started; Slurm 1971921-1971926; reader `PhiFirstProbeReadJob.RuFm51PHSz4q`). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
 Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
@@ -12,9 +12,9 @@ Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds
 
 BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, last commit 3dc01561; fixture emitted rate: gold phi 8.94 Hz, uniform random phi 0.77 Hz); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
 
-Pre-flight FAIL: k2 int32 overflow in the stability read (Results). R1 / R2 held. The fix (per-utterance k2 chunking plus the wrapper's child-exit detection) is with the implementer: `reports/impl_l20_chunkfix_2026-09-23.md`.
+Pre-flight FAIL: k2 int32 overflow in the stability read (Results). R1 / R2 held. Fix committed as 6fd3d02e (`reports/impl_l20_chunkfix_2026-09-23.md`; chunking exact up to GPU nondeterminism) and reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`); the rerun is launched.
 
-NEXT: review the fix, then rerun the pre-flight. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: on the pre-flight wake, the executor reads it using the review's reading notes: read returncode, check ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection is measured. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
