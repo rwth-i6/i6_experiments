@@ -4,13 +4,13 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: fits-only pid 1549096 `config/sae_4a_lexlat_v2_ladder_pre.py` (restarted after the first manager was reaped; only `ExtractSubmoduleCheckpointJob.BPxyi2TzJcEH` left); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
+LIVE managers: fits-only pid 1549096 `config/sae_4a_lexlat_v2_ladder_pre.py` (restarted; only `ExtractSubmoduleCheckpointJob.BPxyi2TzJcEH` left); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
 Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
 Registered before any job: L2-0 to L2-2, gates, A1-A7; A8 and A9 before any L2-1 job; A10 after the probe. User ruling: start everything parallelisable; the wave does not wait for D14.
 
-BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). Probe verdict NO WAVE SETTING (gain clause only; Results). The A10 extension (48 sub-epochs, K* rule, report-only dev-other decode reads) is being built (`reports/impl_l21_a10_2026-09-23.md`). WAVE_DURATION_SETTING and the wave's sub-epoch count stay None until its reader.
+BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe verdict NO WAVE SETTING (gain clause only; Results). The A10 extension (48 sub-epochs, K* rule, report-only dev-other decode reads) is being built (`reports/impl_l21_a10_2026-09-23.md`). WAVE_DURATION_SETTING and the wave's sub-epoch count stay None until its reader.
 
 The first pre-flight failed on a k2 int32 overflow (Results). The chunking fix 6fd3d02e is reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`), and the rerun is live. R1 / R2 are held until it reads.
 
@@ -105,7 +105,7 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - The rejected alternatives change registered constants: a smaller search beam (9.3) or on-set 8 (A4).
 - L2-1 runs no k2. L2-2's dec_joint carries the same exposure and takes the same fix.
 
-**L2-1 probe (A3 / A9): NO WAVE SETTING, gain clause only.** Source: `PhiFirstProbeReadJob.RuFm51PHSz4q` (`output/report.txt`, `probe_read.json`); restarts Slurm 1971921-1971926, all COMPLETED; read in `reports/exec_l21_probe_stall_2026-09-23.md`.
+**L2-1 probe (A3 / A9): NO WAVE SETTING, gain clause only.** Source: `PhiFirstProbeReadJob.RuFm51PHSz4q` (`output/report.txt`, `probe_read.json`); restarts (seed 1 / 2) uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`), Slurm 1971921-1971926, all COMPLETED; read in `reports/exec_l21_probe_stall_2026-09-23.md`.
 - Time passes: 57 steps per sub-epoch at 3.44 s per step and 95% GPU. A restart takes 0.246 h, against the 1.5 h bar.
 - Rate passes: the emitted rate is 0.98-1.41 Hz at sub-epoch 1 (tau 4) and in band from sub-epoch 2-3 on.
 - Gain fails for every restart. At sub-epoch 4, S is the held-out tau = 1 NLL per frame (lower is better; 285 utterances):
