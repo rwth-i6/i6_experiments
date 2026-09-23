@@ -106,6 +106,29 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
   - Report only, never a selection or a gate: for every stage-B finisher at iterations 10, 20 and 40 and at its end, the D4 dev-other genmarg decode, with direct PER, Hungarian PER, NMI(symbol, phone), E[d] and A8's emitted rate.
   - Bridge (on SIGNAL): the selected table is distilled into SegmentalReverseModel's head, fit to the table's categoricals with eta from the data (no labels). Its S is re-read, and it enters L2-2 as phi.
   - Efficiency: one restart per GPU, four per node.
+- **A12 (2026-09-23 night, after the literature read, before any A11 job) The A11 recipe brought in line with published EM decipherment.** Source: `reports/lit_em_decipherment_2026-09-23.md`. No published EM decipherment works on 50 Hz units, so the literature cannot say whether A11 will work. The working recipes do share three elements that A11 lacked:
+  - restarts run to near-convergence before they are ranked (200 iterations in Berg-Kirkpatrick & Klein 2013; 20 per stage in Klejch et al. 2022);
+  - the E-step model is smoothed toward uniform when the lattice is pruned (Nuhn & Ney 2014: pruning zeros counts that never recover);
+  - any annealing holds each temperature for several steps, and the evidence that it helps is weak (Smith & Eisner 2004; Johnson 2007).
+  Frequency-rank initialisation hurts at this homophony (Kambhatla et al. 2018), so the init stays Dirichlet(1). These changes supersede the corresponding A11 items. The gate, selection statistic and nulls of A11 are unchanged.
+  - Stage A:
+    - a fixed, seeded 300-utterance subset of the train stream;
+    - iterations run until the subset's training log-likelihood gain is < 1e-3 nats per frame, at most 100;
+    - ranking by held-out S at the end;
+    - S is also logged at iterations 10, 20 and 40, and the rank agreement between iteration 10 and the end is reported.
+  - Arms (32 restarts each, Dirichlet seeds 1-32 shared across arms): (a) durfrz, tau 1 throughout; (b) durfrz, slow anneal (tau 4, 2, 1.5, each held 5 iterations, then 1); (c) durinit, tau 1 throughout. A11's 4-step anneal is dropped.
+  - E-step smoothing: the emission model used in every E-step and in S is 0.9 x table + 0.1 x uniform over the 500 units (Nuhn & Ney 2014; Klejch et al. 2022). The M-step keeps the 1e-3 pseudo-count. Durations are not interpolated.
+  - Stage B: the top 4 per arm continue on L2-1's fixed 7.1k-utterance sub-epoch until S(i-1) - S(i) < 0.01, at most 40 iterations; the literature puts data length well below the bottleneck. Selected restart: the lowest S among all arms' finishers.
+  - Frame-permuted nulls (the gate): the identical pipeline, all three arms.
+  - Report only, never a selection or a gate:
+    - A run-preserving null: whole runs of identical units shuffled within each utterance, 8 seeds per arm, the top 2 per arm to stage B; reported as the selected S minus its best S. Frame shuffling also destroys unit runs, so a content-free duration model can beat the gate's null. This null keeps the runs and removes only the order.
+    - For every finisher: the phone-trigram NLL per token of its genmarg decode, and the number of phone types used.
+  - Budget: the measured stage-A time is recorded. If stage A projects above 24 GPU-h per corpus, the restart count halves, recorded before launch.
+  - Planned next, if the families read NO SIGNAL or report no phonetic content, in the literature's order:
+    1. more restarts and iterations;
+    2. a coarse-to-fine unit inventory (the 500 codebook vectors clustered into about 100 classes, label-free; its own nulls; bridged by P(unit | class));
+    3. a word-level LM in the E-step with a wider beam (Ravi & Knight 2009: phonetic decipherment error 73.6 with a trigram against 57.2 with a word LM);
+    4. a sparse channel prior.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
