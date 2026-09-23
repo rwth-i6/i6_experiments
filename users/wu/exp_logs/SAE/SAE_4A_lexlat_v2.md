@@ -10,7 +10,7 @@ Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervi
 
 Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds) and A9 (general-knowledge duration prior) before any L2-1 job. User ruling: start everything parallelisable; the wave launches on G4a.L2.1 without D14.
 
-BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, last commit 3dc01561; fixture emitted rate: gold phi 8.94 Hz, uniform random phi 0.77 Hz); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
+BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
 
 Pre-flight FAIL: k2 int32 overflow in the stability read (Results). R1 / R2 held. Fix committed as 6fd3d02e (`reports/impl_l20_chunkfix_2026-09-23.md`; chunking exact up to GPU nondeterminism) and reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`); the rerun is launched.
 
