@@ -13,9 +13,9 @@ Standing: USER RULING 2026-09-21, this phase is the main line; a gate PASS runs 
 NEXT (in order):
 
 0. E60 (section "Extension E60"): continuity clause PASS in all four arms ("E60 continuity read"). At the pack's finish read, in this order: the plateau clause (paired ep60 - ep50 per arm), the form re-read on `k2lat_20_ma3000_x60` with G4a.9's PASS conditions verbatim, then the registered paired rows at 30 / 40 / 50 / 60. A wall kill costs one sub-epoch plus a resubmission.
-0b. D10e READ and audited ("D10e read"): the untrained reverse model drove the collapse; on the both-gold start the k2 control reads CONFIRMED (k2lat minus k2shuf -0.186 at ep8). Pending: the "D10e addendum" rows (supphi arms minus the p0 init, ep1 / 4 / 8), implementer then executor on `config/sae_4a_supervised_goldphi.py`; read the REFINES / PRESERVES / DEGRADES line for `supphi_k2lat` ep8, then put the D10e finding to the user with the fork in (1).
+0b. D10e READ and audited ("D10e read"): the untrained reverse model drove the collapse; on the both-gold start the k2 control reads CONFIRMED (k2lat minus k2shuf -0.186 at ep8). Addendum read: `supphi_k2lat` ep8 PRESERVES (-0.0097 [-0.0151, -0.0045], 0.0003 short of the REFINES threshold). DONE; the finding is put to the user with the fork in (1).
 0d. USER FORK, D12 = ROOM, audited ("D12 read"; margin 1.42 nats, not borderline): the drafted word-aggregate arm test waits on the user's go and on the user confirming that a unigram word aggregate beside the trigram G satisfies the trigram-or-better rule. If go: first the ep20 posterior-histogram K read added in "D12 read" (no pack if at or below the bound), then code per the drafted test; its warm start (k2lat_20 ep20) is revisited against E60's ep60 checkpoints.
-1. USER FORK after E60's read: the delivered write-up (`reports/diag_k2_why_2026-09-22.md`) recommends choosing between the random-pronunciation null (Design 6 follow-up; decides whether the 0.03-0.06 gain of any word graph needs a lexicon at all) and closing the k2 form at this bed. Escape-price / lam_lex arms and rung 10000 are weaker candidates: on the main line and the positive control the treatment sits within 0.01 of its derangement. Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs").
+1. USER FORK after E60's read: the delivered write-up (`reports/diag_k2_why_2026-09-22.md`) recommends choosing between the random-pronunciation null (Design 6 follow-up; decides whether the 0.03-0.06 gain of any word graph needs a lexicon at all) and closing the k2 form at this bed. Escape-price / lam_lex arms and rung 10000 are weaker candidates: on the main line and the positive control the treatment sits within 0.01 of its derangement. Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs"). New input to this fork ("D10e read"): on a phone-like start the k2 term is lexicon-specific (k2lat minus k2shuf -0.186) and preserves the start, but it does not create one. A seeded k2 track would be a label-using route the user must rule on; D10e itself initialises no main-line arm.
 
 ## Design review amendments (2026-09-21, applied before any job)
 
@@ -661,6 +661,21 @@ Against the random-phi pack on the same recognizer and batches: `sup_plain` 0.84
 - REFINES: delta <= -0.010 with the interval below zero. The lexicon term improves a phone-like start beyond its init on this seed.
 - PRESERVES: the interval contains zero, or the delta is between -0.010 and 0.
 - DEGRADES: the interval lies above zero.
+
+**D10e addendum read (2026-09-23).** All 12 reads finished (`PairedPerDeltaJob`, commit 978913d4, `reports/exec_d10e_vs_init_2026-09-23.md`). Every row's base PER is 0.189446, and every candidate matches the banked value. Arm minus p0, delta [95% CI]:
+
+| arm | ep1 | ep4 | ep8 |
+|---|---|---|---|
+| plain | +0.0037 [-0.0016, +0.0087] | +0.1042 [+0.0971, +0.1114] | +0.0666 [+0.0604, +0.0727] |
+| frz | -0.0026 [-0.0074, +0.0020] | +0.0768 [+0.0714, +0.0823] | +0.0275 [+0.0212, +0.0340] |
+| k2lat | -0.0138 [-0.0192, -0.0087] | +0.0116 [+0.0058, +0.0168] | -0.0097 [-0.0151, -0.0045] |
+| k2shuf | +0.0322 [+0.0259, +0.0382] | +0.1828 [+0.1761, +0.1896] | +0.1762 [+0.1689, +0.1833] |
+
+**Reading, as registered: `supphi_k2lat` ep8 PRESERVES.** The delta of -0.0097 misses the -0.010 REFINES threshold by 0.0003, although its interval lies wholly below zero. The job prints `refines=True` by its own interval-only convention; the registered rule governs. Descriptive:
+- Every arm follows the same hump, worst at ep4 and recovering by ep8.
+- The k2 term shrinks that hump from +0.104 (plain) to +0.012.
+- The deranged lexicon's arm does not recover (+0.176 at ep8).
+- One seed only.
 
 ## Extension E60, training length (user ruling 2026-09-22, pre-registered before any job)
 
