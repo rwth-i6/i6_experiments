@@ -20,6 +20,7 @@ from .finetune import (
     finetune_completed_fraction,
     launch_training,
     prepare_run_dir,
+    render_launcher_fix_keys,
     render_train_perf_keys,
 )
 
@@ -29,7 +30,8 @@ def _render_audex_config(job: "AudexDuplexFinetune") -> str:
     train_data = job.train_data.get() if job.train_data is not None else ""
     init_checkpoint = job.init_checkpoint.get() if job.init_checkpoint is not None else ""
     curriculum_json = json.dumps(job.curriculum) if job.curriculum is not None else "null"
-    return f"""# AudexDuplex {job.stage} finetune config (moshi_family.audex.finetune_launcher schema)
+    return (
+        f"""# AudexDuplex {job.stage} finetune config (moshi_family.audex.finetune_launcher schema)
 out_dir: "{job.out_rundir.get()}"
 stage: "{job.stage}"
 train_data: "{train_data}"
@@ -54,13 +56,20 @@ text_pad_id: {job.text_pad_id}
 sample_every: {job.sample_every}
 unfreeze_text_readout: {job.unfreeze_text_readout}
 text_pad_weight: {job.text_pad_weight}
-""" + render_train_perf_keys(
-        # Training-speed keys (finetune.AUDEX_STAGE*_FAST_TRAIN_PERF; runs.fast_train_hparams): only when
-        # the job sets them. The HF trunk has no fused causal attention; stage0 has no LoRA to fuse.
-        getattr(job, "train_perf", None) or {},
-        ("contiguous_step_inputs", "depformer_skip_masked", "prefetch_batches")
-        + (("fused_lora_add",) if job.stage == "stage1" else ()),
-        who=f"Audex {job.stage}",
+"""
+        + render_launcher_fix_keys(
+            getattr(job, "launcher_fixes", None),
+            ("fp32_master_weights", "resume_data_position", "text_pad_weight_in_full_stage1"),
+            who="Audex",
+        )
+        + render_train_perf_keys(
+            # Training-speed keys (finetune.AUDEX_STAGE*_FAST_TRAIN_PERF; runs.fast_train_hparams): only when
+            # the job sets them. The HF trunk has no fused causal attention; stage0 has no LoRA to fuse.
+            getattr(job, "train_perf", None) or {},
+            ("contiguous_step_inputs", "depformer_skip_masked", "prefetch_batches")
+            + (("fused_lora_add",) if job.stage == "stage1" else ()),
+            who=f"Audex {job.stage}",
+        )
     )
 
 
@@ -105,6 +114,9 @@ class AudexDuplexFinetune(Job):
         "sample_every": 100,
         "unfreeze_text_readout": False,
         "text_pad_weight": 0.5,
+        # Launcher setup fixes (finetune.LAUNCHER_FIX_PRESETS["audex_stage0"/"audex_stage1"];
+        # runs.launcher_fix_hparams): excluded at None so every existing job keeps its hash.
+        "launcher_fixes": None,
         # Training-speed switches (finetune.AUDEX_STAGE0/1_FAST_TRAIN_PERF; runs.fast_train_hparams):
         # excluded at None so every existing job keeps its hash; new runs pass the policy's dict.
         "train_perf": None,
@@ -137,9 +149,11 @@ class AudexDuplexFinetune(Job):
         seed: int = 0,
         text_pad_id: int = 0,
         rqmt: dict | None = None,
+        launcher_fixes: dict | None = None,
         train_perf: dict | None = None,
     ):
         self.adapter = AUDEX_STAGE0_ADAPTER
+        self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
         self.venv_python_path = venv_python_path
         self.train_data = train_data

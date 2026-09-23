@@ -531,6 +531,9 @@ word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_
 loss_norm: "{hp.get("loss_norm", "weight")}"
 """
         + perf
+        + render_launcher_fix_keys(
+            hp, ("resume_data_position",), who="PersonaPlex LoRA", rendered_elsewhere=("loss_norm",)
+        )
     )
 
 
@@ -583,6 +586,66 @@ FAST_TRAIN_PRESETS = {
     "audex_stage1": AUDEX_STAGE1_FAST_TRAIN_PERF,
     "rl_grpo": RL_FAST_TRAIN_PERF,
 }
+
+#: Launcher setup fixes from the 2026-09-23 code-sharing review (code-map §9), per family. Each launcher
+#: reads its keys with a default that reproduces the old behaviour, and the renderers emit them ONLY
+#: when set, so an existing arm renders the same config and keeps its hash. New arms get them from
+#: policy epoch POLICY_2026_09_23 (``runs.RULE_LAUNCHER_FIXES`` / ``runs.launcher_fix_hparams``); never
+#: merge them into an existing arm. Base Moshi has every piece already (fp32 masters from
+#: RULE_FP32_MASTER_WEIGHTS, resume unconditionally since 2026-09-16) except one:
+#:  * ``ddp_static_graph=False`` -- DDP(static_graph=True) never all-reduces a module returning the
+#:    LMOutput dataclass, so every multi-GPU base-Moshi LoRA arm trained unsynchronised replicas
+#:    (found 2026-09-23; a no-op on one GPU, and absent from full finetunes, which use FSDP);
+#:  * ``fp32_master_weights`` -- AdamW on fp32 masters of the bf16 adapter (not for Audex stage0, which
+#:    trains the embeddings + depformer outright, like a full finetune);
+#:  * ``resume_data_position`` -- a preempted run continues its data stream instead of restarting it;
+#:  * ``loss_norm="weight"`` -- MoshiRAG's loss at the paper's eq. 7 denominator, like every other family;
+#:  * ``text_pad_weight_in_full_stage1`` -- Audex's replay/curriculum branch honours ``text_pad_weight``.
+LAUNCHER_FIX_PRESETS = {
+    "moshi_lib": {"ddp_static_graph": False},
+    "moshi_lib_full": {},
+    "moshirag_lib": {"fp32_master_weights": True, "loss_norm": "weight", "resume_data_position": True},
+    "personaplex_lib_lora": {"resume_data_position": True},
+    "audex_stage0": {"resume_data_position": True},
+    "audex_stage1": {
+        "fp32_master_weights": True,
+        "resume_data_position": True,
+        "text_pad_weight_in_full_stage1": True,
+    },
+    "rl_grpo": {"fp32_master_weights": True},
+}
+
+#: Every launcher-fix key and its YAML type, in render order (see :data:`LAUNCHER_FIX_PRESETS`).
+LAUNCHER_FIX_KEYS = {
+    "fp32_master_weights": bool,
+    "resume_data_position": bool,
+    "loss_norm": str,
+    "text_pad_weight_in_full_stage1": bool,
+    "ddp_static_graph": bool,
+}
+
+
+def render_launcher_fix_keys(hp: dict, supported, *, who: str, rendered_elsewhere=()) -> str:
+    """YAML lines for the launcher-fix keys ``hp`` sets, in :data:`LAUNCHER_FIX_KEYS` order; "" when none.
+
+    Rendered ONLY when set, as :func:`render_train_perf_keys`: an arm without them renders a config
+    byte-identical to before the keys existed. A key this launcher does not read raises instead of
+    vanishing (a hashed knob that does nothing). ``rendered_elsewhere``: keys the template already
+    renders itself (PersonaPlex LoRA's ``loss_norm``)."""
+    hp = hp or {}
+    unsupported = sorted(
+        k for k in LAUNCHER_FIX_KEYS if k not in supported and k not in rendered_elsewhere and hp.get(k) is not None
+    )
+    if unsupported:
+        raise ValueError(f"{who}: launcher-fix key(s) {unsupported} do not apply to this launcher")
+    out = ""
+    for k, typ in LAUNCHER_FIX_KEYS.items():
+        if k in supported and hp.get(k) is not None:
+            if typ is bool:
+                out += f"{k}: {str(bool(hp[k])).lower()}\n"
+            else:
+                out += f'{k}: "{hp[k]}"\n'
+    return out
 
 
 # PersonaPlex LoRA on the owned lib: the SAME uniform LoRA as base Moshi (moshi_family.build.apply_lora_to)
@@ -670,7 +733,8 @@ def _render_moshi_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: 
     _gen = _gen.get() if hasattr(_gen, "get") else (_gen or "")
     _data = _train_data_yaml(job, supports_mix=True)  # moshi_finetune_launcher reads train_data_mix
     _lr = hp.get("lr", 2e-6)
-    return f"""# base-Moshi LoRA finetune config (moshi_finetune_launcher schema)
+    return (
+        f"""# base-Moshi LoRA finetune config (moshi_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
 {_data}
 out_dir: "{job.out_rundir.get()}"
@@ -730,7 +794,14 @@ knowledge_probe_capture_s: {_yaml_float(hp.get("knowledge_probe_capture_s", 20.0
 knowledge_probe_n: {hp.get("knowledge_probe_n", 0)}
 knowledge_probe_transcripts: {str(bool(hp.get("knowledge_probe_transcripts", True))).lower()}
 knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
-""" + render_train_perf_keys(hp, MOSHI_LIB_PERF_KEYS, who="base-Moshi lib", rendered_elsewhere=("prefetch_batches",))
+"""
+        + render_train_perf_keys(
+            hp, MOSHI_LIB_PERF_KEYS, who="base-Moshi lib", rendered_elsewhere=("prefetch_batches",)
+        )
+        + render_launcher_fix_keys(
+            hp, ("ddp_static_graph",), who="base-Moshi lib", rendered_elsewhere=("fp32_master_weights", "loss_norm")
+        )
+    )
 
 
 #: Training-speed keys the base-Moshi launcher reads (``prefetch_batches`` is rendered above, default 2
@@ -782,7 +853,8 @@ def _render_moshirag_lib_config(job: "SpeechFinetune", batch_size: int, max_step
     as a per-frame ``ref_schedule`` (the training mirror of inference streaming-sum conditioning).
     ``job.hparams`` is read ONLY for the training-speed keys (rendered when set, MOSHIRAG_FAST_HPARAMS)."""
     hp = getattr(job, "hparams", None) or {}
-    return f"""# MoshiRAG LoRA finetune config (moshirag_finetune_launcher schema)
+    return (
+        f"""# MoshiRAG LoRA finetune config (moshirag_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
 {_train_data_yaml(job, supports_mix=False)}
 out_dir: "{job.out_rundir.get()}"
@@ -801,8 +873,11 @@ gradient_checkpointing: true
 save_every: 500
 log_every: 10
 seed: {getattr(job, "seed", 0)}
-""" + render_train_perf_keys(
-        hp, ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add"), who="MoshiRAG lib"
+"""
+        + render_train_perf_keys(
+            hp, ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add"), who="MoshiRAG lib"
+        )
+        + render_launcher_fix_keys(hp, ("fp32_master_weights", "loss_norm", "resume_data_position"), who="MoshiRAG lib")
     )
 
 

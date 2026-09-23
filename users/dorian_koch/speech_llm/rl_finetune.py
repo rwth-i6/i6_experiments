@@ -22,6 +22,7 @@ from .finetune import (
     finetune_completed_fraction,
     launch_training,
     prepare_run_dir,
+    render_launcher_fix_keys,
     render_train_perf_keys,
 )
 
@@ -29,7 +30,8 @@ from .finetune import (
 def _render_rl_config(job: "RLFinetune") -> str:
     """Render the ``moshi_family.rl.launcher`` YAML (GRPO knobs; paper defaults)."""
     train_data = job.train_data.get() if job.train_data is not None else ""
-    return f"""# GRPO interactivity-alignment config (moshi_family.rl.launcher schema)
+    return (
+        f"""# GRPO interactivity-alignment config (moshi_family.rl.launcher schema)
 hf_repo_id: "{job.hf_repo_id}"
 out_dir: "{job.out_rundir.get()}"
 segment_source: "{job.segment_source}"
@@ -52,12 +54,15 @@ kl_beta: {job.kl_beta}
 clip_eps: 0.2
 save_every: {job.save_every}
 seed: {job.seed}
-""" + render_train_perf_keys(
-        # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
-        # depformer_skip_masked = text-only log-prob forwards; no loader, so no prefetch.
-        getattr(job, "train_perf", None) or {},
-        ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add", "depformer_skip_masked"),
-        who="RL GRPO",
+"""
+        + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
+        + render_train_perf_keys(
+            # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
+            # depformer_skip_masked = text-only log-prob forwards; no loader, so no prefetch.
+            getattr(job, "train_perf", None) or {},
+            ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add", "depformer_skip_masked"),
+            who="RL GRPO",
+        )
     )
 
 
@@ -98,6 +103,9 @@ class RLFinetune(Job):
         "quality_asr": "whisper",
         "quality_asr_model": None,
         "rqmt": None,
+        # Launcher setup fixes (finetune.LAUNCHER_FIX_PRESETS["rl_grpo"]; runs.launcher_fix_hparams):
+        # excluded at None so every existing job keeps its hash; new runs pass the policy's dict.
+        "launcher_fixes": None,
         # Training-speed switches (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams): excluded at
         # None so every existing job keeps its hash; new runs pass the policy's dict.
         "train_perf": None,
@@ -127,9 +135,11 @@ class RLFinetune(Job):
         save_every: int = 800,
         seed: int = 0,
         rqmt: dict | None = None,
+        launcher_fixes: dict | None = None,
         train_perf: dict | None = None,
     ):
         self.adapter = RL_LIB_ADAPTER
+        self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
         self.venv_python_path = venv_python_path
         self.hf_repo_id = hf_repo_id
