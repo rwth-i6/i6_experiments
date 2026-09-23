@@ -6,11 +6,11 @@ Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-
 
 L2-0 fits graph `config/sae_4a_lexlat_v2_ladder_pre.py` complete (16/16 finished; no manager). LIVE managers: pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
-Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
+Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted. User ruling, 2026-09-23 night: "try hard enough on L2-1 in case the initial round is not successful... try freely on extension for L2-1 as long as it's purely unsupervised and gan-free". L2-1 variants are therefore registered as amendments (A11 on) and run in parallel with A10.
 
 Registered before any job: L2-0 to L2-2, gates, A1-A7; A8 and A9 before any L2-1 job; A10 after the probe. User ruling: start everything parallelisable; the wave does not wait for D14.
 
-BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe verdict NO WAVE SETTING (gain clause only; Results). The A10 extension (48 sub-epochs, K* rule, report-only dev-other decode reads) is being built (`reports/impl_l21_a10_2026-09-23.md`). WAVE_DURATION_SETTING and the wave's sub-epoch count stay None until its reader.
+BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe verdict NO WAVE SETTING (gain clause only; Results). A10 extension built as c49559ce (`reports/impl_l21_a10_2026-09-23.md`), launch in code review. The wave's alloc_hours must be resized to its sub-epoch count before the wave. A11 (exact-EM count table, own nulls) is being built (`reports/impl_l21_a11_2026-09-23.md`), with a literature read in parallel (`reports/lit_em_decipherment_2026-09-23.md`). WAVE_DURATION_SETTING and the wave's sub-epoch count stay None until its reader.
 
 The first pre-flight failed on a k2 int32 overflow (Results). The chunking fix 6fd3d02e is reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`), and the rerun is live. R1 / R2 are held until it reads.
 
@@ -60,6 +60,20 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Nulls and the phi_c arms run the same count.
     - Uniform is still reported only and never chosen (A9).
   - Report only, never a selection or a gate: every 4 sub-epochs, phi's genmarg decode of the 500-utterance D4 dev-other set is read for direct PER against gold (the symbols are the prior's phones), Hungarian PER, NMI(symbol, phone) and E[d]. The same held-out S is also computed for the gold phi and L2-0's `_r100` phi, as reference points on the label-free scale. These say whether EM is finding phonetic structure, and they are what the adjustment decisions after the wave will read.
+- **A11 (user ruling 2026-09-23 night, before any A11 job) Exact-EM count-table phi, a second L2-1 family in parallel with A10.** A10 stays as registered.
+  - Why: phi's emission head sees only (type, duration bucket, position bucket, eta) (`reverse.py` SegmentalReverseModel), so without eta its class is a 240 x 500 emission table plus the duration table. Under A3, a pass fits it with 228 Adam steps on the marginal, each a partial M-step; the probe's 0.28-0.33 nats per frame gains at sub-epoch 4 fit that. The decipherment recipe L2-1 cites (Berg-Kirkpatrick & Klein 2013; Klejch et al. 2022) fits the table by closed-form EM. EM reaches a fixed point in tens of iterations and makes many restarts affordable.
+  - Model: a free emission table (type, duration bucket, position bucket) -> 500 units, no eta; the duration table per type on [d_min, D_k]; A9's durinit and durfrz (uniform not run). SegmentalReverseModel's topology (d_min 2, D 25, D_sil 50).
+  - E-step: L2-1's posterior (null recognizer, stage-1 frozen trigram, max_active 1000, the same lattice code). Expected counts of (type, bucket, position, unit) and (type, duration) from its forward-backward; counts asserted finite and summing to the frame and token totals. Deterministic annealing: tau 4 -> 1 linearly over iterations 1-4, then 1.
+  - M-step: normalised counts plus a 1e-3 pseudo-count per cell, a positivity floor only. The job prints the smallest expected row mass, so that the floor's share can be checked.
+  - Stage A (screen): 32 restarts per duration setting, Dirichlet(1) emission tables (seeds 1-32), 10 iterations on a fixed 1,000-utterance subset of the train stream. Selected by S (A3's held-out tau = 1 NLL per frame, the 285-utterance CV holdout).
+  - Stage B: the top 4 per setting continue on the whole train stream (one iteration = one pass over train-clean-100) until S(i-1) - S(i) < 0.01, at most 40 iterations. Selected restart: the lowest S among both settings' finishers.
+  - Budget: the first stage-A restart's measured iteration time is recorded. If stage A projects above 12 GPU-h per corpus, the restart count halves, recorded before launch.
+  - Nulls: the identical pipeline (stage A seeds 1-32, stage B top 4, both settings) on the structure-destroyed corpus (units permuted within each utterance). Nulls are gated on their permuted holdout (A7). Null spread = max - min of S over the null stage-B finishers.
+  - Identity band: stage-B restarts 1 and 2 of the real pipeline rerun exactly (A7's definition).
+  - Gate: G4a.L2.2 by A7's clause, per family. SIGNAL if the selected S minus the best null stage-B S is below minus max(null spread, identity band, 0.01). A10 and A11 are read against their own nulls and both reads are reported; either family's SIGNAL funds the next step at the same bar.
+  - Report only, never a selection or a gate: for every stage-B finisher at iterations 10, 20 and 40 and at its end, the D4 dev-other genmarg decode, with direct PER, Hungarian PER, NMI(symbol, phone), E[d] and A8's emitted rate.
+  - Bridge (on SIGNAL): the selected table is distilled into SegmentalReverseModel's head, fit to the table's categoricals with eta from the data (no labels). Its S is re-read, and it enters L2-2 as phi.
+  - Efficiency: one restart per GPU, four per node.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
