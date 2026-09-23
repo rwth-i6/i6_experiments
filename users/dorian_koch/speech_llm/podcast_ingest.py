@@ -1259,13 +1259,21 @@ class PodcastEpisodeIngest(Job):
         # before 2026-09-22 was; excluded at None so those shards keep their hash. A dict
         # {"target_lufs", "max_gain_db", "min_lufs"}: one gain per channel per episode, see
         # podcast_mimi_encode.normalize_channel and audio_datasets.md ("Loudness").
+        # + "mode": "per_chunk" (2026-09-23): one gain per SEPARATOR chunk, cross-faded like the
+        # separator, then a soft limiter at "limiter_ceiling_dbfs" (podcast_mimi_encode.apply_loudness_norm).
+        # The worker is not hashed, so the mode is a key of this hashed dict; "per_channel" is dropped
+        # so an explicit default hashes like the dicts written before the key existed.
         if loudness_norm is not None:
-            assert "target_lufs" in loudness_norm and set(loudness_norm) <= {
-                "target_lufs",
-                "max_gain_db",
-                "min_lufs",
-            }, loudness_norm
+            loudness_norm = dict(loudness_norm)
+            mode = loudness_norm.pop("mode", "per_channel")
+            assert mode in ("per_channel", "per_chunk"), loudness_norm
+            allowed = {"target_lufs", "max_gain_db", "min_lufs"} | (
+                {"limiter_ceiling_dbfs"} if mode == "per_chunk" else set()
+            )
+            assert "target_lufs" in loudness_norm and set(loudness_norm) <= allowed, (mode, loudness_norm)
             loudness_norm = {k: float(v) for k, v in sorted(loudness_norm.items())}
+            if mode != "per_channel":
+                loudness_norm = dict(sorted({**loudness_norm, "mode": mode}.items()))
         self.loudness_norm = loudness_norm
         # HASHED when not "chunked": it decides every code in the corpus. "chunked" = the historical
         # streaming 30 s encode, which is NOT exact (see podcast_ingest_main.encode_pair); excluded at
