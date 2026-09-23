@@ -83,8 +83,9 @@ def get_ctc_topk_hdf(*, dataset, model, extra_config: Optional[Dict[str, Any]], 
         **(extra_config or {}),
         "ctc_dump_layer": ctc_layer,
         "model_outputs": {
-            "output": {"dims": [batch_dim, time_dim, k_dim], "dtype": "float32"},
-            "topk_idx": {"dims": [batch_dim, time_dim, k_dim], "dtype": "int32"},
+            # feature_dim must be explicit, else the HDF writer sees dim=None and flattens [T, K] to [T]
+            "output": {"dims": [batch_dim, time_dim, k_dim], "dtype": "float32", "feature_dim": k_dim},
+            "topk_idx": {"dims": [batch_dim, time_dim, k_dim], "dtype": "int32", "feature_dim": k_dim},
         },
     }
     return forward_to_hdf(dataset=dataset, model=model, forward_def=ctc_topk_forward, config=config)
@@ -314,7 +315,11 @@ def main(args_file: str):
     n_out = len(norm2lm)
     print(f"LM words: {n_in:,}; normalised forms: {n_out:,}", flush=True)
 
-    refs_raw = ast.literal_eval(gzip.open(a["dev_text_dict"], "rt").read() if a["dev_text_dict"].endswith(".gz") else open(a["dev_text_dict"]).read())
+    refs_raw = ast.literal_eval(
+        gzip.open(a["dev_text_dict"], "rt").read()
+        if a["dev_text_dict"].endswith(".gz")
+        else open(a["dev_text_dict"]).read()
+    )
     refs = {k: _norm(v) for k, v in refs_raw.items()}
 
     dev_tags, dev_data = _load_hdf(a["dev_hdf"])
@@ -337,8 +342,17 @@ def main(args_file: str):
     test_hyps = _decode_set(a, (lw, ws), [(t, v, i) for t, (v, i) in zip(test_tags, test_data)])
     _write_py_dict(a["out_dev"], dev_hyps)
     _write_py_dict(a["out_test"], test_hyps)
-    json.dump({"grid": grid, "best": {"lm_weight": lw, "word_score": ws}, "dev_wer_internal": _wer(dev_hyps, refs),
-               "lexicon_words": n_out, "tune_num_seqs": len(tune_items)}, open(a["out_grid"], "w"), indent=1)
+    json.dump(
+        {
+            "grid": grid,
+            "best": {"lm_weight": lw, "word_score": ws},
+            "dev_wer_internal": _wer(dev_hyps, refs),
+            "lexicon_words": n_out,
+            "tune_num_seqs": len(tune_items),
+        },
+        open(a["out_grid"], "w"),
+        indent=1,
+    )
 
 
 if __name__ == "__main__":
