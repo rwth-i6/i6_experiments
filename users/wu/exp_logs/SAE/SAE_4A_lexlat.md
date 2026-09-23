@@ -4,7 +4,7 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D17 pid 2658727 `config/sae_4a_lexlat_durprior.py` (hand-started; pack DNrT49EggYTY, Slurm 1971726). Logs `log/<config name>.manager.log`.
+LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 graph complete (pack C SZO7xTfO9x7Y, all four arms ep20; `reports/exec_d15_wake_2026-09-23.md`); D17 graph complete (pack DNrT49EggYTY; PER read in D17 Result). Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
@@ -930,6 +930,36 @@ User: "for things we have good prior knowledge, we should use the prior knowledg
 **Cost.** One node, about 1.8 h (as D10e).
 
 **Built (commit e1cd038c, `reports/impl_durprior_2026-09-23.md`).** m = (50 / 9.6619) x 0.852915 (rVAD-retained / original frames) = 4.4138 retained frames per phone (`ReQtJKYpZgsN`); pack `DNrT49EggYTY`. SIL cap, code reading: a SIL token holds at most 50 retained frames and SIL cannot follow SIL; 0.14 % of retained SIL runs exceed 50 (the 4.3 % is on original frames, before rVAD), so the cap is not a live issue. Code review APPROVE_WITH_NOTES (`reports/review_d17_durprior_2026-09-23.md`). Reading caveat: in the durfrz arms the global-norm clip leaves out the frozen phone rows, so durfrz minus uniform measures prior plus freeze, durinit minus uniform the prior alone.
+
+**Result (PER read; pack `DNrT49EggYTY` COMPLETED, all arms ep8; `reports/exec_d17_wake_2026-09-23.md`, outputs `output/exp2025_11_06_speech_llms/librispeech/sae_4a_lexlat_durprior/`).** The prior does not stop the collapse. Every arm falls from p0 (0.1894) to 0.75-0.80 at ep1 and ends at 0.82-0.86 at ep8, near or inside the chance band 0.83-0.91.
+
+Dev-other PER at ep1 / 2 / 4 / 8:
+
+| Arm | ep1 | ep2 | ep4 | ep8 |
+|---|---|---|---|---|
+| sup_durinit | 0.7544 | 0.8499 | 0.8553 | 0.8551 |
+| sup_durfrz | 0.7545 | 0.8488 | 0.8476 | 0.8509 |
+| sup_k2lat_durinit | 0.7990 | 0.8603 | 0.8202 | 0.8258 |
+| sup_k2lat_durfrz | 0.7990 | 0.8610 | 0.8255 | 0.8159 |
+
+Paired rows against the uniform counterpart (2864 utterances, 33 speakers; negative = the prior arm is better):
+
+| Pair | ep1 | ep8 |
+|---|---|---|
+| sup_durinit vs sup_plain | -0.0920 [-0.1090, -0.0764] | -0.0363 [-0.0401, -0.0326] |
+| sup_durfrz vs sup_plain | -0.0920 [-0.1088, -0.0764] | -0.0406 [-0.0438, -0.0373] |
+| sup_k2lat_durinit vs sup_k2lat | +0.1075 [+0.0987, +0.1154] | +0.0119 [+0.0098, +0.0142] |
+| sup_k2lat_durfrz vs sup_k2lat | +0.1075 [+0.0987, +0.1153] | +0.0020 [-0.0006, +0.0045] |
+
+Against p0, every arm is worse: +0.565 to +0.610 at ep1 and +0.626 to +0.666 at ep8, with all intervals excluding zero.
+
+- **Classification at ep8, band M_e = max(0.03, B_warm).** B_warm is D14's warm replicate spread, still pending.
+  - k2lat arms: **NO EFFECT**. Both deltas are inside the 0.03 floor, and a larger B_warm cannot change that.
+  - sup arms: **HELPS AT THE EDGE if B_warm <= 0.0363 (durinit) / 0.0406 (durfrz)**; otherwise NO EFFECT. This is final at D14's read.
+  - Either way, the "help" moves a collapsed arm from about 0.89 to 0.85, inside the chance band 0.83-0.91. It is not a recovery of phonetic content.
+- **Durations (report).** At ep8, the phone E[d] mean is 4.61 (3.43-6.02) for durinit and 4.68 (3.27-6.46) for k2lat_durinit, against the prior's 4.41. SIL E[d] falls from 25.8 to 13.6-14.8 in every arm. The non-SIL share of emitted tokens goes from 0.941 to 0.964 (sup arms) and from 0.928 to 0.895-0.899 (k2lat arms).
+- **What it means.** Consistent with D10e (the untrained phi drives the collapse): fixing the duration law alone leaves phi's emissions untrained, and they carry the collapse. At ep1 the prior slows the sup arms' collapse (-0.092) and speeds the k2lat arms' collapse (+0.108). By ep8 both effects have mostly washed out.
+- The D18 battery (JS, convergence, common-objective loss) follows when D14 finishes.
 
 ## D18: beyond-PER diagnostics for D14, D15 and D17 (user instruction 2026-09-23 evening, "audit results to find difference above PER like js divergence or convergence status/loss (e.g. for length controlled arm and trigram ablation)"; registered before any of their reads; descriptive, no gate)
 
