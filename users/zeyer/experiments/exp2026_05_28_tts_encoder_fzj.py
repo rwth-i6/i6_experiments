@@ -3122,7 +3122,7 @@ def _build_tables(prefix: str):
 
     # the LM column names the LM kind (AZ 2026-09-23): the standard Transformer LM, a diffusion LM,
     # a denoising LM; a mark only where none is used
-    _std_lm = "std LM"
+    _std_lm = "std."
 
     def _ls_rows(name: str, method: str, searches=("CTC+AED",), old_impl: bool = False, model: str = _m16):
         """one ls-main row per selected search of the model; the search as CTC+ (AED mark, LM kind)"""
@@ -3190,7 +3190,7 @@ def _build_tables(prefix: str):
                 model=_m24,
                 method="mean \\\\ log-mel",
                 aed=_xmk,
-                lm="diff LM",
+                lm="diff.",
                 wer={col: (_diff_lm_res, key) for col, key in ls_keys.items()},
             ),
             _ls_ext_row(
@@ -3198,7 +3198,7 @@ def _build_tables(prefix: str):
                 model=_m24,
                 method="mean \\\\ log-mel",
                 aed=_chk,
-                lm="den LM",
+                lm="den.",
                 wer=dict(zip(ls_wer, (1.40, 2.89, 1.62, 3.22))),  # Dorian
             ),
         ],
