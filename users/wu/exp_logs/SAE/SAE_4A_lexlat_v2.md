@@ -4,7 +4,7 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume.
 
-PAUSED (2026-09-23 23:30, user: "change now"): exclusive whole-node jobs left 1-GPU/CPU jobs idling GPUs. Four managers stopped; 212 pending sub-4-GPU jobs held, then cancelled (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`, `reports/exec_cancel_held_2026-09-24.md`); running packs finish. Packing engine built (settings.py + gpupack_engine.py; backup settings.py.bak_2026-09-23; `reports/impl_gpupack_engine_2026-09-23.md`), reviewing (`reports/review_gpupack_engine_2026-09-24.md`).
+PAUSED (2026-09-23 23:30, user: "change now"): exclusive whole-node jobs left 1-GPU/CPU jobs idling GPUs. Four managers stopped; 212 pending sub-4-GPU jobs held, then cancelled (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`, `reports/exec_cancel_held_2026-09-24.md`); running packs finish. Packing engine built (settings.py + gpupack_engine.py; backup settings.py.bak_2026-09-23; `reports/impl_gpupack_engine_2026-09-23.md`). The review BLOCKED it (`reports/review_gpupack_engine_2026-09-24.md`): four gap-job classes ask 16-24 GB, peak around 70 GB, and would OOM the shared 143 GiB login cap. Fix: gpu-0 tasks go to short only for a whitelist of light classes (peak ≤ 1 GB); every other gpu-0 task becomes a 1-slot gpupack member. The implementer was stopped by the user before the fix, so it waits for the user's go. Nothing runs through the new settings, and no manager is live.
 
 Restart on approval: (1) em_ext; executor watches first pack: per-member GPU pinning, members sequential per slot, per-task state, no duplicate after one manager restart; (2) ladder, D14 decphi, em_table; (3) re-arm watchers. Pids dead.
 
