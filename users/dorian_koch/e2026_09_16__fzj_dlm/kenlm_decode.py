@@ -64,6 +64,7 @@ def ctc_topk_forward(source, *, in_spatial_dim, model):
     values, indices, _ = rf.top_k(log_probs, axis=model.wb_target_dim, k_dim=k_dim)
     values = rf.cast(values, "float32")
     indices = rf.cast(indices, "int32")
+    indices.sparse_dim = None  # plain int32 ids (the declared output has no sparse dim)
     t_dim = expected.dims[1]
     values, _ = rf.replace_dim(values, in_dim=enc_spatial_dim, out_dim=t_dim)
     indices, _ = rf.replace_dim(indices, in_dim=enc_spatial_dim, out_dim=t_dim)
