@@ -4,7 +4,7 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. k2 pre-flight pid 2228146 `config/sae_4a_lexlat_v2_ladder_preflight.py` (hand-started, outside the systemd wrapper; Slurm 1971051, `LadderK2PreflightJob.ZM3MD9viV7sM`). L2-1 probe pid 2747183 `config/sae_4a_lexlat_v2_em_probe.py` (hand-started; Slurm 1971921-1971926; reader `PhiFirstProbeReadJob.RuFm51PHSz4q`). D14-D17 managers: `SAE_4A_lexlat.md` State.
+LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. L2-1 probe pid 2747183 `config/sae_4a_lexlat_v2_em_probe.py` (hand-started; Slurm 1971921-1971926; reader `PhiFirstProbeReadJob.RuFm51PHSz4q`). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
 Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
@@ -12,7 +12,9 @@ Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds
 
 BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, last commit 3dc01561; fixture emitted rate: gold phi 8.94 Hz, uniform random phi 0.77 Hz); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
 
-NEXT: on the pre-flight wake, executor reads it with `reports/review_l20_preflight_2026-09-23.md`'s notes (startup + projection vs 11.5 h, nvidia-smi peak, 100 steps, no `lexlat_k2_ABORT.json`). On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+Pre-flight FAIL: k2 int32 overflow at step 1 (Results). R1 / R2 held; debugger diagnosing.
+
+NEXT: on the debugger's report, choose the remedy. Prefer an implementation-only fix; a constant change is registered as an amendment first. Then implement it, fix the wrapper's missed child exit, review, and rerun the pre-flight. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
@@ -86,4 +88,8 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 
 ## Results
 
-None yet.
+**k2 pre-flight at rt_r0's config: FAIL, R1 / R2 held (A7).** Source: `LadderK2PreflightJob.ZM3MD9viV7sM`, Slurm 1971051; `output/rt_r0/log.run.1`; read in `reports/exec_l20_preflight_fail_2026-09-23.md`.
+- The failure is the one A7 predicted: a k2 int32 overflow in the first training step, with 0 steps completed. The exact error is `Array1<char>::Init Check failed: size >= 0 (-1885666895 vs. 0)` in `MultiGraphDenseIntersectPruned::PruneTimeRange`. The HLG has 23.9M states and 98.6M arcs. nvidia-smi peaked at 61.8 GiB, and the crash came 1m46 after startup.
+- The wrapper missed the child's exit and held the GPU until the 2 h limit.
+- Not infrastructure, so an unchanged resubmit is not valid.
+- Cause diagnosis and ranked remedies: `reports/debug_l20_preflight_overflow_2026-09-23.md`. A remedy that changes a registered constant (rung, beam, on-set) needs an amendment before relaunch.
