@@ -51,12 +51,15 @@ def get_dlm_task_on_winner(
     extra_config: Optional[Dict[str, Any]],
     alias_prefix: str,
     items_per_job: int = 8,
+    tts_free: bool = False,
 ):
     """
     :param hyps_model: the winner as recorded from its CTC+LM recog (``ModelWithCheckpoint``)
     :param extra_config: the winner's recog model config (``aux_loss_layers=[16]``, pseudo-encoder settings)
     :param alias_prefix:
     :param items_per_job: forwards bundled per 4-GPU node job
+    :param tts_free: LM-text hypotheses via the winner's own pseudo-speech encoder instead of TTS audio
+        (:mod:`.tts_free`); the real-audio hypotheses are the same forwards, reused from an earlier build
     :return: (task, batched forward jobs)
     """
     os.environ.setdefault("__DLM_TTS_BASE_DIR", _TTS_BASE_DIR_PLACEHOLDER)
@@ -68,7 +71,14 @@ def get_dlm_task_on_winner(
     from denoising_lm_2024.sis_recipe.tts_model import get_tts_opts_default_model
     from i6_experiments.users.zeyer.returnn.models.rf_mixup import MixupOpts
 
+    import contextlib
+    from .tts_free import tts_free_hyps, get_tts_free_opts
+
     def _build():
+        with tts_free_hyps() if tts_free else contextlib.nullcontext():
+            return _build_task()
+
+    def _build_task():
         # Verbatim the low_task arguments of dlm_scaling_laws.get_dlm_scaling_stats, except hyps_model and
         # get_hyps_extra_config (the RZ call passed {"behavior_version": 24}; the winner additionally needs its
         # recog model config, as in its own CTC recogs).
@@ -86,7 +96,9 @@ def get_dlm_task_on_winner(
                 },
             ),
             hyps_model=hyps_model,
-            hyps_tts_opts=get_tts_opts_default_model(
+            hyps_tts_opts=get_tts_free_opts()
+            if tts_free
+            else get_tts_opts_default_model(
                 {
                     "glow_tts_noise_scale_range": (0.3, 0.9),
                     "glow_tts_length_scale_range": (0.7, 1.1),
@@ -104,6 +116,10 @@ def get_dlm_task_on_winner(
         )
 
     return _with_batched_gpu_forwards(_build, alias_prefix=alias_prefix, items_per_job=items_per_job)
+
+
+# RETURNN config hash -> bundled output, over all builds in this process (see _with_batched_gpu_forwards)
+_BUNDLED_FORWARDS: Dict[str, tk.Path] = {}
 
 
 def _with_batched_gpu_forwards(
@@ -155,11 +171,16 @@ def _with_batched_gpu_forwards(
 
     # Pass 1: record.
     recorded: List[Tuple[Dict[str, Any], Dict[str, str]]] = []
+    reused: Dict[int, tk.Path] = {}  # recorded index -> output of an identical forward bundled by an earlier build
 
     def _record(**kw):
         if not _is_gpu(kw):
             return orig_forward_to_hdf(**kw)
-        recorded.append(_work_item(kw))
+        item = _work_item(kw)
+        h = short_hash(item[0]["returnn_config"])
+        if h in _BUNDLED_FORWARDS:
+            reused[len(recorded)] = _BUNDLED_FORWARDS[h]
+        recorded.append(item)
         return PlaceholderForwardJob(len(recorded)).out_hdf
 
     # The builder registers outputs itself (even with register_output=False), which would put pass-1 placeholder
@@ -170,10 +191,15 @@ def _with_batched_gpu_forwards(
     assert recorded, "the data builder made no GPU forward_to_hdf call"
 
     # Bundle into full-node jobs. Keys are local to the bundle, so a bundle's hash depends only on its items.
+    # Forwards already bundled by an earlier build in this process (same RETURNN config hash, e.g. the real-audio
+    # passes shared by the TTS and the TTS-free data) are answered with that output and not bundled again.
+    # Without reuse (the first build) this is exactly the old positional chunking, so no hash moves.
+    todo = [i for i in range(len(recorded)) if i not in reused]
     jobs: List[Any] = []
-    paths: List[tk.Path] = []
-    for b, start in enumerate(range(0, len(recorded), items_per_job)):
-        chunk = recorded[start : start + items_per_job]
+    paths: Dict[int, tk.Path] = dict(reused)
+    for b, start in enumerate(range(0, len(todo), items_per_job)):
+        idxs = todo[start : start + items_per_job]
+        chunk = [recorded[i] for i in idxs]
         work_items = {f"item_{j:02d}": item for j, (item, _env) in enumerate(chunk)}
         job = BatchedReturnnForwardJob(work_items)
         env: Dict[str, str] = {}
@@ -183,7 +209,9 @@ def _with_batched_gpu_forwards(
             job.set_env(k, v)  # BatchedReturnnForwardJob does not apply __env_updates itself
         job.add_alias(f"{alias_prefix}/hyps-batched-{b:02d}")
         jobs.append(job)
-        paths.extend(job.out_files[key][fth._hdf_out_filename] for key in work_items)
+        for i, key in zip(idxs, work_items):
+            paths[i] = job.out_files[key][fth._hdf_out_filename]
+            _BUNDLED_FORWARDS[short_hash(recorded[i][0]["returnn_config"])] = paths[i]
 
     # Pass 2: replay.
     # The builder calls hdf.creator.rqmt.update({"time": 48, "mem": 16}) per forward (ctc.py:1009); on a bundle that

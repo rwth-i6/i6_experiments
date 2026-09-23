@@ -47,6 +47,8 @@ WINNER_TRAIN_JOB = "i6_core/returnn/training/ReturnnTrainingJob.8iFbool3x3TU"
 #   "hyps"  -- all hypothesis bundles registered
 #   "train" -- all bundles + the paper-best DLM trained on them (4-GPU DDP), user decision 2026-09-16 22:20
 DLM_DATA_STAGE = "train"
+# TTS-free DLM data + n1024 training on it (dlm_on_winner.get_dlm_task_on_winner(tts_free=True), tts_free.py)
+DLM_TTS_FREE = True
 
 # German arm names say what each trains on, on top of the vocab-surgered English winner (ep38):
 #   zeroshot             -- no German training; winner decoded on MLS-de as-is (context only)
@@ -526,6 +528,25 @@ def py():
             # With the fix the 1-GPU bench matches the faithful config (324 steps, |dce| max 0.002, 3x faster).
             _dlm_n1024_fast = train_paper_best_dlm_4gpu(_dlm_task, model_dim=1024, packed_graphc=True)
             register_packed_graphc_benchmarks(_dlm_n1024, _dlm_n1024_fast, prefix=f"{prefix}/dlm-n1024-speed")
+
+            # TTS-free DLM data (Albert's proposal, 2026-09-22; user: full recipe, 2026-09-23): the LM-text
+            # hypotheses come from the winner's own pseudo-speech encoder instead of GlowTTS audio (tts_free.py).
+            # Built AFTER the TTS task, so its real-audio forwards are answered from the bundles above.
+            # One change vs `_dlm_n1024_fast` (qCrZHdzvGzel): the LM-text hypotheses.
+            if DLM_TTS_FREE:
+                _dlm_task_tf, jobs_tf = get_dlm_task_on_winner(
+                    hyps_model=ctc_lm_kwargs["ctc_model"],
+                    extra_config=ctc_lm_kwargs.get("extra_config"),
+                    alias_prefix=f"{prefix}/dlm-data-ttsfree",
+                    tts_free=True,
+                )
+                for b, job in enumerate(jobs_tf):
+                    for key, outs in job.out_files.items():
+                        for fn, path in outs.items():
+                            tk.register_output(f"{prefix}/dlm-data-ttsfree/hyps-batched-{b:02d}/{key}/{fn}", path)
+                train_paper_best_dlm_4gpu(
+                    _dlm_task_tf, model_dim=1024, packed_graphc=True, name_suffix="-winnerHyps-ttsFree-4gpu"
+                )
 
     # Continue training the winner with TTS audio added (user request, 2026-09-17). Independent of the DLM
     # line above: it only adds jobs, and it touches none of tts_data's module state, so the hypothesis
