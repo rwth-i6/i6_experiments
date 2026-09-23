@@ -4,16 +4,15 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (seed decode -> decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS), log `log/sae_4a_supervised_decphi.manager.log`; D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D16 pid 3927592 `config/sae_4a_lexlat_crosseval.py` (6 forward cells Slurm 1968020-1968025, reader CrossEvalReadJob.NQsiwtafITc6). Manager logs `log/<config name>.manager.log`. Watch all three with the command above. Standing: USER RULING 2026-09-21, this phase is the main line; no bar is moved to make a gate pass. G4a.9 = CANNOT_TELL as written, PASS unreachable (audited). Audited reads with no open item: E60 (PLATEAU, longer training refuted), D10e (untrained phi drove the collapse; on the both-gold start k2 is lexicon-specific and PRESERVES), D12 = ROOM, D13 answered from the logged read.
+LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D16 pid 3927592 `config/sae_4a_lexlat_crosseval.py` (cells Slurm 1968020-1968025, reader CrossEvalReadJob.NQsiwtafITc6). Logs `log/<config name>.manager.log`.
 
-ACTIVE (user request 2026-09-23): D14 (phi fitted on p0's own decodes; packs W1, W2) and D15 (phone trigram replaced by the word graph, beta = 1 - lam/full_lam; warm arm in W2, cold pack C). D16 (user request 2026-09-23): 2x2 cross-evaluation of supphi_k2lat ep8 and k2lat_20_x60 ep60, theta x phi, on dev-other. All three registered before any job (sections "D14", "D15", "D16"), code reviewed (`reports/review_d1{4,5,6}_*_2026-09-23.md`) and launched.
+Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C (Slurm 1967478) starts, check all four arms run and `prior_weight_eff` in learning_rates (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20; D16 when its reader finishes (VOID check first).
+ACTIVE: D14, D15, D16 (registered, reviewed `reports/review_d1{4,5,6}_*_2026-09-23.md`, launched). Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
 
-Open user forks, parked until D14 / D15 read:
-1. Direction of the k2 form on the cold line (random-pronunciation null; close it; seeded track; rung 10000 / escape price). D15 (c) bears on it directly.
-2. D12 = ROOM: the word-aggregate arm waits on the user's go and a ruling on unigram word aggregate beside the trigram G.
-3. Double-counted text prior (every k2 arm adds the word graph on top of beta 1): D15 is the user's chosen ablation; the beta-2 extra-weight control and the P3-divided graph are not run.
+NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D16 when its reader finishes (VOID check first). In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
+
+Open user forks: 1. k2 form on the cold line (random-pronunciation null; rung 10000): D15 (c) and lexlat_v2 bear on it. 2. D12 = ROOM: the word-aggregate arm waits on the user's go. 3. Double-counted text prior: D15 is the chosen ablation; the beta-2 control and the P3-divided graph are not run.
 
 ## Design review amendments (2026-09-21, applied before any job)
 

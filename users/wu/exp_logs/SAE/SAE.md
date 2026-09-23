@@ -120,6 +120,10 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    set (user idea 2026-09-21; SIL already marks word boundaries with p = 0.5 in the prior text, and
    a hard EOW the audio never realises is a free symbol for the private code, so it is a training
    arm read by the derangement gap and the prior-gap table, not a CPU screen).
+   **Cold-line successor (user decision 2026-09-23), own phase `SAE_4A_lexlat_v2.md`:** phi-first EM
+   decipherment from a random reverse model with likelihood-selected restarts and a competence ladder,
+   then a bridge into the joint run; pure unsupervised and GAN-free by ruling; gates G4a.L2.1-4
+   registered before any job.
    **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
    the sub-epoch count for future arms from the label-free behaviour of the running budget arms
    (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks
