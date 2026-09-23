@@ -151,6 +151,14 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - The rejected alternatives change registered constants: a smaller search beam (9.3) or on-set 8 (A4).
 - L2-1 runs no k2. L2-2's dec_joint carries the same exposure and takes the same fix.
 
+**k2 pre-flight rerun at rt_r0's config (chunked): PASS, R1 / R2 released (A7).** Source: `LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, COMPLETED; read in `reports/exec_l20_preflight_rerun_read_2026-09-23.md`.
+- The wrapper stopped the run at its 100-step budget (returncode -15), not at the time limit. The logs contain no ABORT, overflow or OOM.
+- Stability read, sub-epoch 1: median 0.0809 nats per retained frame, 16/16 utterances, 2.4 s.
+- Steps: 100/100, median 16.1 s per step.
+- Peak GPU memory: 76.7 GiB, against the 80 GiB bar.
+- Projection: 8 sub-epochs take 2.23 h (1,004 s per sub-epoch including dev) against TIME_RQMT 11.5 h, with no resume.
+- 2 empty lattices in 100 steps, no abort.
+
 **L2-1 probe (A3 / A9): NO WAVE SETTING, gain clause only.** Source: `PhiFirstProbeReadJob.RuFm51PHSz4q` (`output/report.txt`, `probe_read.json`); restarts (seed 1 / 2) uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`), Slurm 1971921-1971926, all COMPLETED; read in `reports/exec_l21_probe_stall_2026-09-23.md`.
 - Time passes: 57 steps per sub-epoch at 3.44 s per step and 95% GPU. A restart takes 0.246 h, against the 1.5 h bar.
 - Rate passes: the emitted rate is 0.98-1.41 Hz at sub-epoch 1 (tau 4) and in band from sub-epoch 2-3 on.
