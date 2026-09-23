@@ -2076,6 +2076,11 @@ def py():
             "pseudo-enc-logmel-mfatable-realdur2-lerp-dur05-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {"pseudo_enc_duration_scale": 0.5},
         ),
+        # scale 0.2 (AZ 2026-09-23, camera-ready): ~1.5 frames per phoneme, below the 6x front-end stride
+        (
+            "pseudo-enc-logmel-mfatable-realdur2-lerp-dur02-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {"pseudo_enc_duration_scale": 0.2},
+        ),
         (
             "pseudo-enc-logmel-mfatable-realdur2-lerp-dur10-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {"pseudo_enc_duration_scale": None, "pseudo_enc_max_len_factor": 15},
@@ -3210,26 +3215,63 @@ def _build_tables(prefix: str):
         "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     )
     _lognormal = "log-normal, \\\\ per-phoneme median"
+
+    # mean sampled duration per phone (frames, count-weighted over the MFA table's phones) of each
+    # duration model, from the same table the sampling reads (AZ 2026-09-23); the caption states the
+    # real mean of the alignment for comparison
+    def _mean_dur(distribution: str, scale=None, sigma=None, duration_range=None):
+        # counted on the phoneme sequences the training sees (AZ): 20k random LS LM lines through the
+        # winner's PhoneSeqGenerator settings (random pronunciation, [space] with p=0.15 between words),
+        # durations sampled per phoneme with the model's rule; [space] / [start] / [end] excluded
+        from i6_core.text.processing import TakeNRandomLinesJob
+        from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+        from i6_experiments.users.zeyer.datasets.pseudo_enc_duration_stats import SamplePseudoEncMeanDurationJob
+        from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_duration_table
+        from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_phone_info
+
+        job = SamplePseudoEncMeanDurationJob(
+            corpus_text=TakeNRandomLinesJob(get_librispeech_normalized_lm_data(), 20_000).out,
+            phone_info=get_glow_tts_phone_info(train=True, add_silence_between_words=0.15),
+            duration_table=get_mfa_phone_duration_table().out_duration_table,
+            distribution=distribution,
+            scale=scale,
+            sigma=sigma,
+            duration_range=duration_range,
+        )
+        name = (
+            f"{distribution}"
+            + (f"-s{scale}" if scale is not None else "")
+            + (f"-sig{sigma}" if sigma is not None else "")
+        )
+        if duration_range is not None:
+            name += f"-{duration_range[0]}-{duration_range[1]}"
+        tk.register_output(f"datasets/LibriSpeech/pseudo_enc_mean_duration/{name}.json", job.out_stats)
+        return job.out_mean
+
+    def _ls_dur(name: str, distribution: str, jitter: str, scale: str, mean_dur) -> Dict[str, Any]:
+        return _ls(name, distribution=distribution, jitter=jitter, scale=scale, mean_dur=mean_dur)
+
     _table(
         "ls-durations",
-        ["distribution", "scale", "jitter", *ls_wer_other, "hours"],
+        ["distribution", "scale", "jitter", "mean_dur", *ls_wer_other, "hours"],
         [
             # ordered by scale, then jitter: the jitter ladder sits inside the scale-0.7 block
             # (the winner is 0.7 / 0.45)
-            _ls(win.replace("dur07", "dur05"), distribution=_lognormal, jitter="0.45", scale="0.5"),
-            _ls(f"{win}-dursig0", distribution=_lognormal, jitter="0.00", scale="0.7"),
-            _ls(f"{win}-dursig02", distribution=_lognormal, jitter="0.20", scale="0.7"),
-            _ls(win, distribution=_lognormal, jitter="0.45", scale="0.7"),
-            _ls(f"{win}-dursig07", distribution=_lognormal, jitter="0.70", scale="0.7"),
-            _ls(win.replace("dur07", "dur10"), distribution=_lognormal, jitter="0.45", scale="1.0"),
-            _ls(
+            _ls_dur(win.replace("dur07", "dur05"), _lognormal, "0.45", "0.5", _mean_dur("lognormal", 0.5, 0.45)),
+            _ls_dur(f"{win}-dursig0", _lognormal, "0.00", "0.7", _mean_dur("lognormal", 0.7, 0.0)),
+            _ls_dur(f"{win}-dursig02", _lognormal, "0.20", "0.7", _mean_dur("lognormal", 0.7, 0.2)),
+            _ls_dur(win, _lognormal, "0.45", "0.7", _mean_dur("lognormal", 0.7, 0.45)),
+            _ls_dur(f"{win}-dursig07", _lognormal, "0.70", "0.7", _mean_dur("lognormal", 0.7, 0.7)),
+            _ls_dur(win.replace("dur07", "dur10"), _lognormal, "0.45", "1.0", _mean_dur("lognormal", 1.0, 0.45)),
+            _ls_dur(
                 f"{win}-dursilonly",
-                distribution="log-normal, \\\\ one median for all phonemes",
-                jitter="0.45",
-                scale="0.7",
+                "log-normal, \\\\ one median \\\\ for all phonemes",
+                "0.45",
+                "0.7",
+                _mean_dur("lognormal_global", 0.7, 0.45),
             ),
-            _ls(f"{win}-unidur", distribution="uniform 5 to 10", jitter="-", scale="-"),
-            _ls(f"{win}-fixdur6", distribution="fixed 6", jitter="-", scale="-"),
+            _ls_dur(f"{win}-unidur", "uniform 5 to 10", "-", "-", _mean_dur("uniform", duration_range=(5, 10))),
+            _ls_dur(f"{win}-fixdur6", "fixed 6", "-", "-", _mean_dur("fixed", duration_range=(6, 6))),
         ],
     )
     # The text representation: frozen MFA log-mel table vs trained embedding vs one-hot channels
@@ -3435,15 +3477,25 @@ def _build_tables(prefix: str):
     # Loquacious: the scale axis, control vs injection per subset.
     inj = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon"
     loq_wer = ["dev", "test"]
+    # used text : audio = the large transcripts (25 000 h) over the subset's paired hours; the seen
+    # ratio over the training is ~1:1 for every injection run (caption). Subset cells rotated (AZ)
+    _loq_used_ratio = {"small": "100:1", "medium1k": "25:1", "medium": "10:1", "large": "1:1"}
     _table(
         "loq-scale",
-        ["subset", "audio_h", "model", "audio_passes", "steps", *loq_wer, "hours"],
+        ["subset", "audio_h", "model", "used_ratio", "audio_passes", "steps", *loq_wer, "hours"],
         [
             # per subset: audio-only at the injection's audio passes with the full 24M audio batch
             # (fewer updates), with the injection's audio share per batch (16.8M: same updates; none
             # for large), with twice the passes (24M), then the injection (AZ 2026-09-22)
             *[
-                _loq(name, subset=subset, audio_h=audio_h, model=model, audio_passes=passes)
+                _loq(
+                    name,
+                    subset=f"\\rotatebox{{90}}{{{subset}}}",
+                    audio_h=audio_h,
+                    model=model,
+                    used_ratio=_loq_used_ratio[subset] if model != "none" else "-",
+                    audio_passes=passes,
+                )
                 for subset, audio_h, rows in [
                     (
                         "small",
