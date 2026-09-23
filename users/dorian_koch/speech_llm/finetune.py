@@ -462,7 +462,24 @@ def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_
         return "null" if hp.get(k) is None else str(bool(hp[k])).lower()
 
     _tlf = "null" if hp.get("text_lead_frames") is None else int(hp["text_lead_frames"])
-    return f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
+    # Training-speed switches (PERSONAPLEX_FAST_HPARAMS; finetuning.md "Training performance"), rendered
+    # ONLY when the arm sets them: an arm without them gets a config byte-identical to before they
+    # existed, and the launcher's defaults are the historical kernels and batching.
+    perf = ""
+    if hp.get("contiguous_step_inputs") is not None:
+        perf += f"contiguous_step_inputs: {str(bool(hp['contiguous_step_inputs'])).lower()}\n"
+    if hp.get("fused_causal_attention") is not None:
+        perf += f"fused_causal_attention: {str(bool(hp['fused_causal_attention'])).lower()}\n"
+    if hp.get("fused_lora_add") is not None:
+        perf += f"fused_lora_add: {str(bool(hp['fused_lora_add'])).lower()}\n"
+    if hp.get("depformer_skip_masked") is not None:
+        perf += f"depformer_skip_masked: {str(bool(hp['depformer_skip_masked'])).lower()}\n"
+    if hp.get("prefetch_batches") is not None:
+        perf += f"prefetch_batches: {int(hp['prefetch_batches'])}\n"
+    if hp.get("length_bucket_pool") is not None:
+        perf += f"length_bucket_pool: {int(hp['length_bucket_pool'])}\n"
+    return (
+        f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
 hf_repo_id: "{hf_repo_id}"
 {_train_data_yaml(job, supports_mix=False)}
 out_dir: "{job.out_rundir.get()}"
@@ -492,6 +509,23 @@ text_lead_frames: {_tlf}
 word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_overlap"] + chr(34)}
 loss_norm: "{hp.get("loss_norm", "weight")}"
 """
+        + perf
+    )
+
+
+#: Training-speed preset for FUTURE PersonaPlex LoRA arms (2026-09-23; measured in finetuning.md
+#: "Training performance"). Merge it into an arm's ``hparams`` -- that is a new hash, i.e. a new arm, so
+#: it is never applied to a running or finished one (p2/p3 do not use it). Every entry computes the same
+#: training step as without it, to bf16 rounding (guard ``check_train_perf.py``); prefetching yields the
+#: same batches bit for bit. Not in here, because they change the EXPERIMENT and not just its speed:
+#: ``length_bucket_pool`` (batch composition / data order), ``per_gpu_batch`` and ``gradient_checkpointing``.
+PERSONAPLEX_FAST_HPARAMS = {
+    "contiguous_step_inputs": True,
+    "fused_causal_attention": True,
+    "fused_lora_add": True,
+    "depformer_skip_masked": True,
+    "prefetch_batches": 2,
+}
 
 
 # PersonaPlex LoRA on the owned lib: the SAME uniform LoRA as base Moshi (moshi_family.build.apply_lora_to)

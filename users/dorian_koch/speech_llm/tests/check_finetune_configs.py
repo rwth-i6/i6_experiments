@@ -196,4 +196,58 @@ for label, adapter in ADAPTERS.items():
     assert len(adapter.progress) == 2, label
 print(f"[ok] {len(ADAPTERS)} adapters have unique names and complete fields")
 
+# --------------------------------------------------------------------------------------------
+# 6. PersonaPlex LoRA training-speed switches (2026-09-23): rendered only when an arm sets them.
+#    p2 is RUNNING and p3 renders its config at start, so neither may see a new key; the preset
+#    renders every key, with the right types, and adds nothing else.
+# --------------------------------------------------------------------------------------------
+from i6_experiments.users.dorian_koch.speech_llm.finetune import PERSONAPLEX_FAST_HPARAMS  # noqa: E402
+from speech_llm.full_duplex.sis_recipe.doriank.track_persona import (  # noqa: E402
+    P2_HPARAMS,
+    P2_TRAINED_HPARAMS,
+)
+
+PERF_KEYS = {
+    "contiguous_step_inputs",
+    "fused_causal_attention",
+    "fused_lora_add",
+    "depformer_skip_masked",
+    "prefetch_batches",
+    "length_bucket_pool",
+}
+ppx = PERSONAPLEX_LIB_LORA_ADAPTER
+for label, hp in (("p2 (P2_TRAINED_HPARAMS)", P2_TRAINED_HPARAMS), ("p3 (P2_HPARAMS)", P2_HPARAMS)):
+    assert not PERF_KEYS & set(hp), f"{label} carries a perf switch: {sorted(PERF_KEYS & set(hp))}"
+    cfg = yaml.safe_load(ppx.render_config(_FakeJob(SINGLE, hparams=hp, adapter=ppx), ppx.batch_size, 3000))
+    assert not PERF_KEYS & set(cfg), f"{label}: config renders {sorted(PERF_KEYS & set(cfg))}"
+print("[ok] p2/p3 hparams carry no perf switch and render none")
+# p2's config as it was written on 2026-09-23, before the switches existed: re-render it byte for byte.
+P2_DIR = "work/i6_experiments/users/dorian_koch/speech_llm/finetune/SpeechFinetune.iAOoYovkkDAI/output"
+if os.path.exists(os.path.join(P2_DIR, "config.yaml")):
+    real = open(os.path.join(P2_DIR, "config.yaml")).read()
+    job = _FakeJob(_FakePath(yaml.safe_load(real)["train_data"]), hparams=P2_TRAINED_HPARAMS, adapter=ppx)
+    job.out_rundir = _FakePath(yaml.safe_load(real)["out_dir"])
+    job.duration_sec = 60
+    again = ppx.render_config(job, ppx.batch_size, 3000)
+    assert again == real, "the current renderer no longer reproduces p2's config.yaml byte for byte"
+    print("[ok] p2's config.yaml (written before the switches) re-renders byte for byte")
+else:
+    print(f"[--] {P2_DIR}/config.yaml not on disk; byte-for-byte p2 re-render skipped")
+fast = yaml.safe_load(
+    ppx.render_config(
+        _FakeJob(SINGLE, hparams={**P2_HPARAMS, **PERSONAPLEX_FAST_HPARAMS}, adapter=ppx), ppx.batch_size, 3000
+    )
+)
+plain = yaml.safe_load(ppx.render_config(_FakeJob(SINGLE, hparams=P2_HPARAMS, adapter=ppx), ppx.batch_size, 3000))
+assert {k: fast[k] for k in PERSONAPLEX_FAST_HPARAMS} == PERSONAPLEX_FAST_HPARAMS, fast
+assert {k: v for k, v in fast.items() if k not in PERSONAPLEX_FAST_HPARAMS} == plain, (
+    "the preset changed a non-perf key"
+)
+assert "length_bucket_pool" not in PERSONAPLEX_FAST_HPARAMS, "bucketing changes the data order: not a speed-only preset"
+bucket = yaml.safe_load(
+    ppx.render_config(_FakeJob(SINGLE, hparams={"length_bucket_pool": 16}, adapter=ppx), ppx.batch_size, 10)
+)
+assert bucket["length_bucket_pool"] == 16 and isinstance(bucket["length_bucket_pool"], int)
+print(f"[ok] PERSONAPLEX_FAST_HPARAMS renders {sorted(PERSONAPLEX_FAST_HPARAMS)} and changes nothing else")
+
 print("\nALL CHECKS PASSED")
