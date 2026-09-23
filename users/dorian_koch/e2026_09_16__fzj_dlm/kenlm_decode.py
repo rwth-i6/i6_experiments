@@ -65,11 +65,13 @@ def ctc_topk_forward(source, *, in_spatial_dim, model):
     values = rf.cast(values, "float32")
     indices = rf.cast(indices, "int32")
     indices.sparse_dim = None  # plain int32 ids (the declared output has no sparse dim)
-    t_dim = expected.dims[1]
-    values, _ = rf.replace_dim(values, in_dim=enc_spatial_dim, out_dim=t_dim)
-    indices, _ = rf.replace_dim(indices, in_dim=enc_spatial_dim, out_dim=t_dim)
-    rf.get_run_ctx().mark_as_output(values, "output", dims=expected.dims)
-    rf.get_run_ctx().mark_as_output(indices, "topk_idx", dims=expected.dims)
+    # the config's model_outputs dims are templates: bind the time dim to the encoder frames
+    # (as zeyer's gauss_hmm forward does; replace_dim leaves the template's sizes unset for the callback)
+    for key in ("output", "topk_idx"):
+        rf.get_run_ctx().expected_outputs[key].dims[1].declare_same_as(enc_spatial_dim)
+    dims = [*values.remaining_dims((enc_spatial_dim, k_dim)), enc_spatial_dim, k_dim]
+    rf.get_run_ctx().mark_as_output(values, "output", dims=dims)
+    rf.get_run_ctx().mark_as_output(indices, "topk_idx", dims=dims)
 
 
 def get_ctc_topk_hdf(*, dataset, model, extra_config: Optional[Dict[str, Any]], ctc_layer: int, k: int = 64) -> tk.Path:
