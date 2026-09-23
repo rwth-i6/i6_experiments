@@ -2,29 +2,27 @@
 
 ## State
 
-Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume.
 
-PAUSED (2026-09-23 23:30, user: "change now"). Every job held a whole exclusive node, so 1-GPU and CPU-only jobs idled GPUs. All four managers are stopped, and 212 pending jobs with fewer than 4 GPUs are held (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`). The running packs and A10 restarts continue (last 1-GPU job ends 01:56). The managers restart only on the reviewed packing engine (`reports/impl_gpupack_engine_2026-09-23.md`); then the held jobs are cancelled and resubmitted packed. The pids below are dead.
+PAUSED (2026-09-23 23:30, user: "change now"): exclusive whole-node jobs left 1-GPU/CPU jobs idling GPUs. Four managers stopped; 212 pending sub-4-GPU jobs held, then cancelled (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`, `reports/exec_cancel_held_2026-09-24.md`); running packs finish. Packing engine built (settings.py + gpupack_engine.py; backup settings.py.bak_2026-09-23; `reports/impl_gpupack_engine_2026-09-23.md`), reviewing (`reports/review_gpupack_engine_2026-09-24.md`).
+
+Restart on approval: (1) em_ext; executor watches first pack: per-member GPU pinning, members sequential per slot, per-task state, no duplicate after one manager restart; (2) ladder, D14 decphi, em_table; (3) re-arm watchers. Pids dead.
 
 Managers:
-- L2-0 ladder, pid 3672632, `config/sae_4a_lexlat_v2_ladder.py`: packs P `WX41NC734WLo` (Slurm 1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100), R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70), running since 22:16 (`reports/exec_l20_ladder_launch_2026-09-23.md`). The ladder's phi fits are complete (16/16).
-- A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
-- A11 exact-EM, pid 741081, `config/sae_4a_lexlat_v2_em_table.py`, started 23:01: stage A Slurm 1980303/05/06 pending; nulls wait on PermutedUnits 1980304/07 (`reports/exec_l21_a11_launch_2026-09-23.md`).
-- D14-D17: see `SAE_4A_lexlat.md` State.
+- L2-0 ladder `config/sae_4a_lexlat_v2_ladder.py`: P `WX41NC734WLo` (1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100), R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70); phi fits 16/16 (`reports/exec_l20_ladder_launch_2026-09-23.md`).
+- A10 `config/sae_4a_lexlat_v2_em_ext.py` (1977837-1977844; `reports/exec_l21_a10_launch_2026-09-23.md`).
+- A11 `config/sae_4a_lexlat_v2_em_table.py`: stage A 1980303/05/06; nulls wait on PermutedUnits 1980304/07 (`reports/exec_l21_a11_launch_2026-09-23.md`).
+- D14-D17: `SAE_4A_lexlat.md` State.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; start everything parallelisable, the wave does not wait for D14; L2-1 may be extended freely, the user: "try hard enough on L2-1 in case the initial round is not successful"; extensions register as amendments from A11 on, parallel to A10.
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything, wave not awaiting D14; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on, parallel to A10.
 
-Registered: L2-0 to L2-2, gates, A1-A13.
-
-BUILT: ladder and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`, chunk fix 6fd3d02e); L2-1 through A9 (3dc01561); A10 (c49559ce; `reports/review_l21_a10_2026-09-23.md`); A11+A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`; launch review `reports/review_l21_a11_launch_2026-09-23.md`). BUILDING: A13.
-
-WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS: None until the A10 reader.
+BUILT: ladder (`reports/impl_l20_ladder_2026-09-23.md`, fix 6fd3d02e); L2-1 to A9 (3dc01561); A10 (c49559ce; `reports/review_l21_a10_2026-09-23.md`); A11+A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`, `reports/review_l21_a11_launch_2026-09-23.md`); A13 (22602b90; sets 285/25/260; `reports/impl_a13_disjoint_cv_2026-09-23.md`).
 
 NEXT:
-1. A13 build for ladder readers and A10 S references (`reports/impl_a13_disjoint_cv_2026-09-23.md`); ladder and A10 managers restart if the graph changes. A11's S references follow after A13 returns (item 4).
-2. Ladder wake: executor reads the packs; L2-0 read follows A4, A5 with A13's sets.
-3. A10 reader: set wave setting and sub-epoch count; resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` fixed at 1.65 h); review the wave. Wave held if both rt_r0 seeds read NO LIFT.
-4. A11 stage A first run: executor checks four `[cuda:r]` ranks (review note 1), E-step speed (33.6 ms/utt at smoke), OOM. A11 gold and r100 S references (report-only, unbuilt) take A13's 260-utterance set and the 0.9/0.1 mixture (review note 2).
+1. A13 adds 16 ladder jobs (read EktNvNSRrXKj), em_ext diagnostics G2NeV8oNr4tO, no pack hash moved; enter at engine restart. A11 needs no repair.
+2. Ladder wake: executor reads packs; L2-0 read after A4, A5 on A13 sets.
+3. A10 reader: set WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS (None now); resize alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506`, 1.65 h); review wave. Wave held if both rt_r0 seeds NO LIFT.
+4. A11 stage A: executor checks four `[cuda:r]` ranks (review note 1), E-step speed (smoke 33.6 ms/utt), OOM. Unbuilt report-only gold/r100 S references use A13's 260-utt set, 0.9/0.1 mixture (review note 2).
 
 ## Objective
 
