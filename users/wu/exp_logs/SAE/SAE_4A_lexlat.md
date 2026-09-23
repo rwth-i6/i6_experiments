@@ -4,11 +4,11 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D16 pid 3927592 `config/sae_4a_lexlat_crosseval.py` (cells Slurm 1968020-1968025, reader CrossEvalReadJob.NQsiwtafITc6). Logs `log/<config name>.manager.log`.
+LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 pid 3600681 `config/sae_4a_lexlat_k2_prior_ablation.py` (pack C SZO7xTfO9x7Y, Slurm 1967478); D16 pid 3927592 `config/sae_4a_lexlat_crosseval.py` (cells Slurm 1968020-1968025, reader CrossEvalReadJob.NQsiwtafITc6); D17 pid 2658727 `config/sae_4a_lexlat_durprior.py` (hand-started; pack DNrT49EggYTY, Slurm 1971726). Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-ACTIVE: D14, D15, D16 (registered, reviewed `reports/review_d1{4,5,6}_*_2026-09-23.md`, launched). D17 (general-knowledge duration prior at the edge) built, pack `DNrT49EggYTY`; launch on code-review APPROVE. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
+ACTIVE: D14, D15, D16 (registered, reviewed `reports/review_d1{4,5,6}_*_2026-09-23.md`, launched). D17 (general-knowledge duration prior at the edge) launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
 
 NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D16 when its reader finishes (VOID check first). In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
 
