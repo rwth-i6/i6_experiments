@@ -8,15 +8,11 @@ LIVE managers: L2-0 fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py
 
 Standing rulings (2026-09-23): every main-line method is pure unsupervised and GAN-free; GAN-lineage and supervised inits are analysis only, enter no gate and initialise no main-line arm. The lexlat objective, lexicon, LM and both models are unchanged in this phase; it changes the order in which the two models are fitted.
 
-REGISTERED 2026-09-23, before any job: L2-0 (competence ladder, label-using diagnostic), L2-1 (phi-first EM decipherment, pure cold, the escape experiment), L2-2 (bridge into the joint run, funded only on L2-1 SIGNAL). Gate table below, defined before any number. Background: `reports/assessment_reviewer_escape_plan_2026-09-23.md`, `reports/lit_escape_private_code_2026-09-23.md`.
+Registered 2026-09-23 before any job: L2-0, L2-1, L2-2, gates below; design-review amendments A1-A7 applied before any job. User ruling 2026-09-23: start everything parallelisable, step order not binding; the wave launches on G4a.L2.1 without D14 (D14 fills only the 0.19 rung).
 
-User ruling 2026-09-23: start everything parallelisable; the step order above need not be followed. So the L2-1 wave launches on the G4a.L2.1 read without waiting for D14 (D14 only fills L2-0's 0.19 rung); design review runs alongside implementation, before any launch.
+BUILT: ladder nodes P WX41NC734WLo, R1 P968G6HIBjfx, R2 C0APRJ3MBUgT (reviews `reports/review_l20_ladder{,_rt}_2026-09-23.md`); genmarg jobs, commit bdbf74c7 (`reports/impl_l2_genmarg_2026-09-23.md`). IN FLIGHT: ladder wiring + k2 pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); L2-1 null-recognizer EM, probe, wave (`reports/impl_l21_phifirst_2026-09-23.md`).
 
-Design review done; amendments A1-A7 applied below (before any job). Nothing launched yet.
-
-IN FLIGHT (implementers): L2-0 p0 ladder built and code-reviewed clean (commit 10880dbe, pack WX41NC734WLo, `reports/review_l20_ladder_2026-09-23.md`); its extension to the random-theta nodes R1 / R2, permphi and phi_c -> `reports/impl_l20_ladder_2026-09-23.md`; L2-1 null-recognizer EM, probe, wave -> `reports/impl_l21_phifirst_2026-09-23.md`; genmarg eval / decode / selection jobs -> `reports/impl_l2_genmarg_2026-09-23.md`.
-
-NEXT: no ladder launch until the L2-1 edits to `sae_blankfree.py` are committed (the packs import the live checkout). Then wire genmarg into both configs, code-review, launch L2-0 (fits, nodes P / R1 / R2) and the probe; the wave launches on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: packs wait until the L2-1 edits to `sae_blankfree.py` are committed (they import the live checkout). Then code-review and launch node P (trained p0, as D10e), the k2 pre-flight and the probe; R1 / R2 after the pre-flight; the wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
