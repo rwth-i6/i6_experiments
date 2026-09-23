@@ -242,9 +242,14 @@ def _host_constants(stats_file: str, table_file: str, num_mel: int) -> Dict[str,
 
 
 def _const(arr, dims, like: Tensor) -> Tensor:
-    import torch
+    """numpy constant created directly on ``like``'s device and backend (as RETURNN's mel_filterbank does:
+    ``like`` may be packed, whose raw tensor has no ``.device``; a CPU tensor would be a per-call H2D copy)"""
+    import numpy
 
-    return rf.convert_to_tensor(torch.tensor(arr, device=like.raw_tensor.device), dims=dims, dtype="float32")
+    # noinspection PyProtectedMember
+    return rf.convert_to_tensor(
+        numpy.asarray(arr, dtype=numpy.float32), dims=dims, _backend=like._raw_backend, device=like.device
+    )
 
 
 def _box_matrix(feat_dim: Dim, width: int, like: Tensor) -> Tensor:
@@ -258,6 +263,20 @@ def _box_matrix(feat_dim: Dim, width: int, like: Tensor) -> Tensor:
         m[lo:hi, o] = 1.0 / numpy.sqrt(hi - lo)
     out = Dim(f, name="box_out")
     return _const(m, [feat_dim, out], like), out
+
+
+def _matmul_allow_unpack(a: Tensor, b: Tensor, *, reduce: Dim) -> Tensor:
+    """rf.matmul where ``b`` references the batch dim (a per-utterance matrix): on packed tensors that needs
+    the unpack -> matmul -> repack fallback, allowed here for this call only (small [B, T, F] features)"""
+    from returnn.frontend import _packed_backend as pb
+
+    # noinspection PyProtectedMember
+    prev = pb._allowed_fallback_ops
+    pb.set_allowed_fallbacks(["matmul"])
+    try:
+        return rf.matmul(a, b, reduce=reduce)
+    finally:
+        pb.set_allowed_fallbacks(prev)
 
 
 def _smooth_channels(x: Tensor, feat_dim: Dim, width: int) -> Tensor:
@@ -288,7 +307,7 @@ def _augment(x: Tensor, *, spatial_dim: Dim, feat_dim: Dim, opts: Dict[str, Any]
         out = Dim(feat_dim.dimension, name="warp_out")
         src_pos = rf.clip_by_value(rf.range_over_dim(out, dtype="float32") * alpha, 0.0, nf - 1.0)
         warp = rf.relu(1.0 - rf.abs(ch - src_pos))  # [B, F_in, F_out]
-        x = rf.matmul(x, warp, reduce=feat_dim)
+        x = _matmul_allow_unpack(x, warp, reduce=feat_dim)
         x, _ = rf.replace_dim(x, in_dim=out, out_dim=feat_dim)
     if opts.get("pitch"):
         # harmonic comb at a per-utterance F0, pushed through the mel filterbank, on voiced frames only
