@@ -4,15 +4,15 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: L2-0 fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption r30/50/70/100 + permphi -> fits HpmOCSCklRsB / QGovsj3absf2 / OLIUO3BGy0ug / Ud3O2Pa3Lotp / jjc51BwoW48b; CPU prep jobs queue on booster, Slurm 1970580-1970584). Stop it before the full ladder config starts (never two managers on one job set). k2 pre-flight pid 2228146 `config/sae_4a_lexlat_v2_ladder_preflight.py` (started by hand, not under the systemd wrapper; Slurm 1971051, job `LadderK2PreflightJob.ZM3MD9viV7sM`); read with the notes of `reports/review_l20_preflight_2026-09-23.md` (startup + projection vs 11.5 h, nvidia-smi peak, 100 steps and no `lexlat_k2_ABORT.json`). The lexlat phase's D14 / D15 / D16 managers are listed in `SAE_4A_lexlat.md` State.
+LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. k2 pre-flight pid 2228146 `config/sae_4a_lexlat_v2_ladder_preflight.py` (hand-started, outside the systemd wrapper; Slurm 1971051, `LadderK2PreflightJob.ZM3MD9viV7sM`). D14 / D15 / D16 managers: `SAE_4A_lexlat.md` State.
 
-Standing rulings (2026-09-23): every main-line method is pure unsupervised and GAN-free; GAN-lineage and supervised inits are analysis only, enter no gate and initialise no main-line arm. The lexlat objective, lexicon, LM and both models are unchanged in this phase; it changes the order in which the two models are fitted.
+Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
-Registered 2026-09-23 before any job: L2-0, L2-1, L2-2, gates below; amendments A1-A7 before any job, A8 (rate reads, seeds) before any L2-1 job. User ruling 2026-09-23: start everything parallelisable, step order not binding; the wave launches on G4a.L2.1 without D14 (D14 fills only the 0.19 rung).
+Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds) and A9 (general-knowledge duration prior) before any L2-1 job. User ruling: start everything parallelisable; the wave launches on G4a.L2.1 without D14.
 
-BUILT (commits 35c1eb26, d0048d7f, bdbf74c7, 3d72b33b): ladder nodes P / R1 / R2 and the k2 pre-flight `LadderK2PreflightJob.ZM3MD9viV7sM` (`reports/impl_l20_ladder_2026-09-23.md`); genmarg (`reports/impl_l2_genmarg_2026-09-23.md`); L2-1 probe and wave (`reports/impl_l21_phifirst_2026-09-23.md`). IN FLIGHT: A8 edits to genmarg and the L2-1 config (ids will move); the given duration prior (A9 / lexlat D17: table job, model option, `reports/impl_durprior_2026-09-23.md`); code review of the pre-flight launch.
+BUILT (35c1eb26, d0048d7f, bdbf74c7, 3d72b33b): ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg (`reports/impl_l2_genmarg_2026-09-23.md`); L2-1 probe and wave (`reports/impl_l21_phifirst_2026-09-23.md`). IN FLIGHT: A8 edits (ids will move); duration prior option + lexlat D17 pack (`reports/impl_durprior_2026-09-23.md`).
 
-NEXT: on the pre-flight watcher wake, executor reads it. Once A8 and the prior option land: wire A9's probe (3 duration settings x 2 seeds), code-review, launch. On pre-flight PASS: stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: on the pre-flight wake, executor reads it with `reports/review_l20_preflight_2026-09-23.md`'s notes (startup + projection vs 11.5 h, nvidia-smi peak, 100 steps, no `lexlat_k2_ABORT.json`). Once A8 and the prior option land: wire A9's probe (3 duration settings x 2 seeds), code-review, launch. On pre-flight PASS: stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
