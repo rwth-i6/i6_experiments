@@ -213,7 +213,6 @@ def get_logmel_variance_stats() -> ComputeMfaPhoneLogMelVarianceJob:
 def _host_constants(stats_file: str, table_file: str, num_mel: int) -> Dict[str, Any]:
     """numpy constants, read once per process (host only, safe inside a CUDA-graph capture)"""
     import numpy
-    import torch
 
     st = numpy.load(stats_file, allow_pickle=True)
     tab = numpy.load(table_file, allow_pickle=True)
@@ -225,12 +224,11 @@ def _host_constants(stats_file: str, table_file: str, num_mel: int) -> Dict[str,
     unvoiced = [i for i, lab in enumerate(labs) if lab in UNVOICED]
     speech = voiced + unvoiced
     sil = labs.index("[space]")
-    # RETURNN mel matrix [257, num_mel], by pushing the identity through the exact filterbank
-    fdim, edim, mdim = Dim(257, name="freq"), Dim(257, name="eye"), Dim(num_mel, name="mel")
-    mel = rf.audio.mel_filterbank(
-        rf.convert_to_tensor(torch.eye(257), dims=[edim, fdim]), in_dim=fdim, out_dim=mdim, sampling_rate=16000
-    )
-    melmat = mel.copy_transpose([edim, mdim]).raw_tensor.detach().cpu().numpy()
+    # RETURNN's exact mel matrix [257, num_mel], in numpy (this runs inside the traced train step:
+    # no torch here, a FakeTensor has no .numpy())
+    from returnn.frontend.audio.mel import _mel_filter_bank_matrix_np
+
+    melmat = _mel_filter_bank_matrix_np(f_min=0, f_max=8000.0, sampling_rate=16000, fft_size=512, nr_of_filters=num_mel)
     return {
         "within_std": st["pooled_within_std"],
         "speaker_std": st["speaker_std"],
