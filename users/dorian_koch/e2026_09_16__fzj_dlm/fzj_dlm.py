@@ -394,6 +394,7 @@ def py():
                 nep=40,
                 # the best German arm (dev 15.83 at ep40): also decode the average of its last 5 checkpoints
                 avg_epochs=(36, 37, 38, 39, 40) if _rep == 1 else None,
+                kenlm_5gram=_rep == 1,  # CTC + official MLS 5-gram, comparable to the published MLS decodes
             )
 
     if "enarpa" in _german_stages:

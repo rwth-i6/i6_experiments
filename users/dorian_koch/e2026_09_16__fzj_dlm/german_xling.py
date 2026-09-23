@@ -2018,6 +2018,42 @@ def aed_ctc_recog_avg_checkpoint(cap: CaptureAedCtcRecog, exp, epochs: Sequence[
     return cap.orig(**kw)
 
 
+def ctc_kenlm_5gram_decode(cap: CaptureAedCtcRecog, *, name: str):
+    """
+    CTC + the official MLS German 5-gram, via :mod:`.kenlm_decode`, on the same model, task and
+    recog config as the arm's AED+CTC recog. WERs through the task's own sclite scorer.
+    """
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+    from .kenlm_decode import get_ctc_topk_hdf, CtcKenLmDecodeJob, MLS_DE_LM_DIR
+
+    assert len(cap.calls) == 1, f"expected exactly one AED+CTC recog call, got {len(cap.calls)}"
+    kw = cap.calls[0]
+    task = kw["task"]
+    layer = kw["aux_ctc_layer"]
+    assert layer, kw.get("aux_ctc_layer")
+    base = kw["prefix"][: -len("aed+ctc-batched")] + "ctc+mls5gram"
+    hdfs = {
+        n: get_ctc_topk_hdf(dataset=ds, model=kw["aed_ctc_model"], extra_config=kw.get("extra_config"), ctc_layer=layer)
+        for n, ds in task.eval_datasets.items()
+    }
+    for n, h in hdfs.items():
+        h.creator.add_alias(f"{base}/ctc-topk-{n}")
+    job = CtcKenLmDecodeJob(
+        dev_hdf=hdfs["dev"],
+        test_hdf=hdfs["test"],
+        dev_text_dict=task.score_recog_output_func.keywords["text_dicts"]["dev"],
+        spm_model=DE_SPM_EXTENDED,
+        lm_binary=tk.Path(f"{MLS_DE_LM_DIR}/5-gram_lm.trie.bin", hash_overwrite="dorian/de/mls-lm-5gram-trie/v1"),
+        lm_vocab=tk.Path(f"{MLS_DE_LM_DIR}/vocab_counts.txt", hash_overwrite="dorian/de/mls-lm-vocab/v1"),
+    )
+    job.add_alias(f"{base}/decode")
+    tk.register_output(f"{base}/tuning_grid.json", job.out_grid)
+    for n, out in (("dev", job.out_dev), ("test", job.out_test)):
+        res = task.score_recog_output_func(task.eval_datasets[n], RecogOutput(output=out))
+        tk.register_output(f"{base}/{n}-wer", res.main_measure_value)
+    return job
+
+
 class SuppressRecog:
     """Context manager: while active, a training builds NO recog jobs.
 
@@ -2318,6 +2354,7 @@ def train_german_arm_b(
     nep: Optional[int] = None,
     prior: str = "selftrained",
     avg_epochs: Optional[Sequence[int]] = None,
+    kenlm_5gram: bool = False,
 ):
     """
     **Arm B — the claim.** English LS-960 audio ⇄ **German text injection**, starting from the
@@ -2404,7 +2441,7 @@ def train_german_arm_b(
             else contextlib.nullcontext()
         ),
         CaptureRegisteredOutputs(match="recog_results") as _cap,
-        CaptureAedCtcRecog() if avg_epochs else contextlib.nullcontext() as _aedcap,
+        CaptureAedCtcRecog() if (avg_epochs or kenlm_5gram) else contextlib.nullcontext() as _aedcap,
     ):
         _exp = _train_tts_encoder(
             name,
@@ -2487,6 +2524,9 @@ def train_german_arm_b(
         if avg_epochs:
             # Same German patches active, so the extra recog is built exactly like the arm's own.
             aed_ctc_recog_avg_checkpoint(_aedcap, _exp, avg_epochs)
+        if kenlm_5gram:
+            # CTC + official MLS German 5-gram (lexicon + KenLM beam search), the published-baseline decode.
+            ctc_kenlm_5gram_decode(_aedcap, name=name)
 
     _attach_german_result_sink(
         _cap.captured,
