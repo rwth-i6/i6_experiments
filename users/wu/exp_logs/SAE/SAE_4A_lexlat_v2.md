@@ -4,17 +4,17 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers: fits-only pid 1770648 `config/sae_4a_lexlat_v2_ladder_pre.py` (corruption + permphi fits; CPU prep Slurm 1970580-1970584); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe pid 2747183 `config/sae_4a_lexlat_v2_em_probe.py` (hand-started; Slurm 1971921-1971926; reader `PhiFirstProbeReadJob.RuFm51PHSz4q`). D14-D17 managers: `SAE_4A_lexlat.md` State.
+LIVE managers: fits-only pid 1549096 `config/sae_4a_lexlat_v2_ladder_pre.py` (restarted after the first manager was reaped; only `ExtractSubmoduleCheckpointJob.BPxyi2TzJcEH` left); stop it before the full ladder config starts. Pre-flight rerun pid 3795602 `config/sae_4a_lexlat_v2_ladder_preflight.py` (`LadderK2PreflightJob.Pl51viCk4CVP`, Slurm 1975698, 3 h). L2-1 probe finished (reader `PhiFirstProbeReadJob.RuFm51PHSz4q`, verdict in Results). D14-D17 managers: `SAE_4A_lexlat.md` State.
 
 Standing rulings (2026-09-23): pure unsupervised and GAN-free main line; supervised inits analysis only. This phase changes only the order in which the two models are fitted.
 
 Registered before any job: L2-0, L2-1, L2-2, gates, A1-A7; A8 (rate reads, seeds) and A9 (general-knowledge duration prior) before any L2-1 job. User ruling: start everything parallelisable; the wave launches on G4a.L2.1 without D14.
 
-BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). WAVE_DURATION_SETTING stays None until the reader's verdict.
+BUILT: ladder P / R1 / R2 and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`); genmarg and L2-1 through A8 / A9 (`reports/impl_l21_phifirst_2026-09-23.md`, commit 3dc01561); duration prior m 4.41 retained frames (`reports/impl_durprior_2026-09-23.md`). Probe: uniform TVCw6EcU5ahd / F4WuEU8vqmeI, durinit zWqS49iSFTdV / G270UY24rWaM, durfrz ivlkWhhMJd53 / OAlQmq7yNkQh (review `reports/review_l21_probe_2026-09-23.md`). Probe verdict NO WAVE SETTING (gain clause only; Results). The A10 extension (48 sub-epochs, K* rule, report-only dev-other decode reads) is being built (`reports/impl_l21_a10_2026-09-23.md`). WAVE_DURATION_SETTING and the wave's sub-epoch count stay None until its reader.
 
 Pre-flight FAIL: k2 int32 overflow in the stability read (Results). R1 / R2 held. Fix committed as 6fd3d02e (`reports/impl_l20_chunkfix_2026-09-23.md`; chunking exact up to GPU nondeterminism) and reviewed (`reports/review_l20_preflight_rerun_2026-09-23.md`); the rerun is launched.
 
-NEXT: on the pre-flight wake, the executor reads it using the review's reading notes: read returncode, check ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection is measured. On the probe wake, executor reads the reader; set WAVE_DURATION_SETTING from it, record it here, then review the wave. On pre-flight PASS (and once the probe manager has finished the shared `GenMargSampleJob.b7aFZd9Tse5X`): stop the fits manager, review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (node P needs the fits; R1 / R2). The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
+NEXT: on the pre-flight wake, the executor reads it using the review's reading notes: read returncode, check ABORT in `output/rt_r0/log.run.1`, and a time-limit stop counts if the projection is measured. On pre-flight PASS: stop the fits manager once BPxyi2TzJcEH is done, then review and launch the full ladder shim `config/sae_4a_lexlat_v2_ladder.py` (P, R1, R2). On the A10 build: code review, launch `config/sae_4a_lexlat_v2_em_ext.py`, watch it; on its reader, set WAVE_DURATION_SETTING and the count here, then review the wave. The wave on amended G4a.L2.1, held if both rt_r0 seeds have read NO LIFT by then.
 
 ## Objective
 
@@ -52,6 +52,14 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
 - **A8 (2026-09-23, after implementation, before any L2-1 job) Rate reads and seeds.** Supersedes A2's "expected rate" and A7's pooling sentence, which disagreed with each other and with the band's own definition: [5.80, 14.49] Hz is a greedy emitted rate per original second, "never a posterior expectation" (`SAE_4A_attrib.md` S3b-R; c5 met an expected count with a diffuse posterior). Under the null recognizer the emitted sequence is phi's decode of the tau = 1 generative posterior (the genmarg decode). Rate = 50 x (sum of non-SIL tokens in that decode) / (sum of original 50 Hz frames), pooled over the CV holdout; A2's VOID, A3's probe PASS and NO ELIGIBLE RESTART read it, so the probe's scoring reads decode. The expected rate (both denominators) and the training monitor `blankfree_nonsil_rate_retained_hz` (retained frames, the sub-epoch's tau) are reported only; the monitor's 14.5 Hz at tau 8 and genmarg's 3.7 Hz (expected, random phi, tau 1, original frames) are different quantities. A2's freeze mean is converted into retained unit frames: (50 / 9.66) x (sum retained / sum original frames) on the train stream. Every L2-1 run's seed also sets the training data order (reruns keep their original's seed): phi has no dropout and phi_c a fixed init, so phic_s01 / s02 were one run; restarts become independent draws of init and order, and the identity band still measures nondeterminism.
 - **A9 (user request 2026-09-23, before any L2-1 job) General-knowledge duration prior.** General knowledge of phone length may initialise or restrict phi; a duration model learned from supervised data may not (user clarification). Prior and modes `durinit` / `durfrz` as `SAE_4A_lexlat.md` D17: one rate-matched maximum-entropy law for every phone type, from the label-free rho; SIL uniform and trainable. Probe = 3 duration settings x seeds 1, 2: uniform (as registered), durinit, durfrz, each read by A3's PASS with A8's rate. The wave uses the prior setting that passes PASS with the higher mean held-out tau = 1 marginal at sub-epoch 4 (label-free); if neither passes, the wave waits for a re-derivation under A3, recorded before it. Uniform is reported only (does the prior matter under phi-first EM). Nulls use the wave's setting; phi_c arms keep phi_c's own durations. durfrz replaces A2's max-entropy freeze. Report only: E[d] per type and the emitted rate per probe sub-epoch. L2-0 is unchanged (its fitted phis carry fitted durations); L2-2's cold_ctl baseline takes the wave's duration setting, so its single delta stays phi's emissions.
 - **N7.** dec_distil's lr and steps are stated, with a source, before L2-2 is built.
+- **A10 (2026-09-23, after the probe read, before any wave job) The re-derivation that A3 and A9 prescribe.** The probe read NO WAVE SETTING (Results): every restart passes time and rate, and fails only the gain clause, with gains of 0.28-0.33 nats per frame from sub-epoch 3 to 4. No gate threshold changes.
+  - Extension: the six probe restarts rerun from scratch with the same seeds and settings to 48 sub-epochs (12 passes, about 3 h each; tau 4 at sub-epoch 1, then 1). Every sub-epoch checkpoint is scored as in the probe. Sub-epochs 1-4 against the probe are an identity-band sample, reported.
+  - K*(setting) = the first sub-epoch k >= 4 at which the held-out gain S(k-1) - S(k) < 0.01 for both seeds, with both emitted rates in band.
+  - Wave setting and length: among the settings with a K*, the lowest mean S over seeds at the largest K* among them. The wave's sub-epoch count is that setting's K*, rounded up to a whole pass (a multiple of 4).
+    - If no setting reaches K* by 48: the setting with the lowest mean S at 48 among those in band, run for 48 sub-epochs, and the wave is reported as NOT CONVERGED.
+    - Nulls and the phi_c arms run the same count.
+    - Uniform is still reported only and never chosen (A9).
+  - Report only, never a selection or a gate: every 4 sub-epochs, phi's genmarg decode of the 500-utterance D4 dev-other set is read for direct PER against gold (the symbols are the prior's phones), Hungarian PER, NMI(symbol, phone) and E[d]. The same held-out S is also computed for the gold phi and L2-0's `_r100` phi, as reference points on the label-free scale. These say whether EM is finding phonetic structure, and they are what the adjustment decisions after the wave will read.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -96,3 +104,18 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - Remedy chosen: implementation-only, with no constant changed. The stability read scores 1 utterance per call (about 2.1e8 arcs at rung 10000; the sample stays 16), and training uses a small chunk. k2's per-sequence max_active makes chunking exact. The rerun pre-flight measures the resulting step time.
 - The rejected alternatives change registered constants: a smaller search beam (9.3) or on-set 8 (A4).
 - L2-1 runs no k2. L2-2's dec_joint carries the same exposure and takes the same fix.
+
+**L2-1 probe (A3 / A9): NO WAVE SETTING, gain clause only.** Source: `PhiFirstProbeReadJob.RuFm51PHSz4q` (`output/report.txt`, `probe_read.json`); restarts Slurm 1971921-1971926, all COMPLETED; read in `reports/exec_l21_probe_stall_2026-09-23.md`.
+- Time passes: 57 steps per sub-epoch at 3.44 s per step and 95% GPU. A restart takes 0.246 h, against the 1.5 h bar.
+- Rate passes: the emitted rate is 0.98-1.41 Hz at sub-epoch 1 (tau 4) and in band from sub-epoch 2-3 on.
+- Gain fails for every restart. At sub-epoch 4, S is the held-out tau = 1 NLL per frame (lower is better; 285 utterances):
+
+  | Setting | Seed 1: S / Hz / gain 3-4 | Seed 2: S / Hz / gain 3-4 |
+  |---|---|---|
+  | durinit | 3.683 / 7.83 / 0.285 | 3.709 / 7.47 / 0.279 |
+  | durfrz | 3.717 / 7.59 / 0.299 | 3.739 / 7.42 / 0.296 |
+  | uniform | 3.760 / 6.53 / 0.314 | 3.709 / 6.74 / 0.333 |
+
+- S falls from 5.77 at sub-epoch 1, through 4.91 and 3.97-4.07.
+- E[d] for the phone types: durinit drifts from 4.09 to 4.86-4.94; durfrz is held at 4.41; uniform falls from 12.8 to 9.95. SIL falls from 24.9 to about 18.4 in every setting.
+- Consequence: A10's re-derivation.
