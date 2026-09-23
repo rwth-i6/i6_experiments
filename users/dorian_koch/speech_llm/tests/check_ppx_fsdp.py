@@ -21,6 +21,9 @@ over two gloo processes with DIFFERENT data per rank, against a single-process r
       lands bit-exactly where the uninterrupted run did (a fresh model does not); ``model.safetensors`` holds
       exactly the base LM's keys in bf16 == the masters, and loads into an unwrapped model with no missing or
       unexpected key; an older resume state is pruned, its weights kept.
+  [0] ``loaders.get_moshi_lm(device="cuda:<k>")`` hands safetensors that DEVICE. It passed ``dev.type`` ("cuda" =
+      cuda:0), so every rank of the p5 smoke loaded the 16 GB checkpoint onto GPU 0 and kept it cached there (OOM at
+      step 1, 2026-09-23). CAN FAIL: the pre-fix source reads "cuda".
   [6] the real ``run_training``, preempted after a checkpoint and resumed: every rank restores ITS OWN shard of
       theta_0 (``weight_delta_baseline.rank<k>.pt``), and the logged ``weight_delta_by_module`` == the
       reference from full tensors. CAN FAIL: rank 0's shard on every rank gives a different number.
@@ -367,7 +370,50 @@ sys.exit(1 if (rank == 0 and any(gathered)) else 0)
 '''
 
 
+def check_loader_device():
+    """[0]: drive the real get_moshi_lm with safetensors' load_file captured (meta init, no weights read)."""
+    import inspect
+
+    sys.path.insert(0, str(FULL_DUPLEX))
+    from moshi_family.personaplex.models import loaders
+
+    class _Stop(Exception):
+        pass
+
+    seen = []
+
+    def fake_load_file(filename, device="cpu"):
+        seen.append(device)
+        raise _Stop()
+
+    def device_for(fn, ns, dev):
+        saved = ns["load_file"]
+        ns["load_file"] = fake_load_file
+        try:
+            fn("x.safetensors", device=dev)
+        except _Stop:
+            pass
+        finally:
+            ns["load_file"] = saved
+        return seen[-1]
+
+    real = loaders.get_moshi_lm
+    got = {d: device_for(real, vars(loaders), d) for d in ("cuda:3", "cuda", "cpu")}
+    assert got == {"cuda:3": "cuda:3", "cuda": "cuda", "cpu": "cpu"}, got
+    src = inspect.getsource(real)
+    fixed = 'device=str(dev) if dev.type == "cuda" else dev.type)'
+    assert fixed in src, "mutation anchor moved: update check_loader_device"
+    ns = dict(vars(loaders))
+    exec(compile(src.replace(fixed, "device=dev.type)"), loaders.__file__, "exec"), ns)
+    old = device_for(ns["get_moshi_lm"], ns, "cuda:3")
+    assert old == "cuda", f"the pre-fix loader passed {old!r} -- this check cannot see the bug"
+    print(
+        '[ok] [0] get_moshi_lm(device="cuda:3") loads onto cuda:3 ("cuda" and "cpu" unchanged); the pre-fix source read "cuda"'
+    )
+
+
 def main():
+    check_loader_device()
     tmp = _FsPath(tempfile.mkdtemp(prefix="check_ppx_fsdp_"))
     worker = tmp / "_check_ppx_fsdp_worker.py"
     worker.write_text(WORKER)
@@ -391,7 +437,7 @@ def main():
         print(out[-6000:], file=sys.stderr)
         raise SystemExit(1)
     for line in out.splitlines():
-        if line.startswith("["):
+        if line[:1] == "[" and line[1:2].isdigit():
             print("[ok] " + line)
     print(f"\nPersonaPlex FSDP2 full FT == single-process training (scratch {tmp})")
 
