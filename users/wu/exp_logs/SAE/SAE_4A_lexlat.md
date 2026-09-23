@@ -875,7 +875,31 @@ Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseva
 
   Every interval excludes zero, and adding agg changes no sign. Per term: l_tau TWO BASINS; rate TWO BASINS; lexlat_k2 MIXED, because it depends on theta only, so it has no phi effect, while theta_g is lower in both columns.
 - Reading, as registered: the pairs are co-adapted. Swapping either component alone raises L by 1.2-1.6 nats per frame, so from the cold end point neither single-component swap reaches the gold pair, although the gold pair is lower on the total (D13 agrees). This is the premise `SAE_4A_lexlat_v2.md` acts on.
-- Scope, per the audit: D16 tests only the discrete 2x2 swap on the objective. It does not test that either pair is a continuous local optimum, reads no PER, and does not show that a phi fitted first escapes.
+- Matched-pair gap (user question 2026-09-23; a descriptive follow-up reader, `CrossEvalMatchedGapJob.LHZdl41pticW`, `output/report.txt`; its self-check reproduces L_cg - L_gg to 0). Values are cc - gg, per frame, paired over 2864 utterances, with 95% intervals:
+  - L: +0.1818 [+0.1704, +0.1935]; positive for 2620/2864 utterances and 33/33 speakers.
+  - l_tau: +0.1473 [+0.1388, +0.1551].
+  - lexlat_k2: +0.0437 [+0.0361, +0.0521].
+  - rate: -0.0031 [-0.0059, -0.0003].
+  - agg (point): +1.054; L + 0.1 agg: +0.287.
+
+  The gold pair is lower by 0.18, while a swap costs 1.2-1.6: the pairs are far apart relative to their gap.
+- Scope, per the audit:
+  - D16 tests only the discrete 2x2 swap on the objective. It does not test that either pair is a continuous local optimum, reads no PER, and does not show that a phi fitted first escapes.
+  - It cannot separate "two basins" from "each phi is fitted to its own theta's output conventions".
+  - The reverse model's own score, expected_reverse per retained frame, was not dumped by the cells; it enters only inside l_tau.
+
+**D16r, the reverse model's own score (user question 2026-09-23, "no reverse model term alone?"; registered before any job; descriptive, no gate).**
+- Six new cell forwards: D16's cells with D16's checkpoints, settings and batches. Each dumps two extra per-utterance values:
+  - rev = expected_reverse / retained frames, the reverse model's posterior-expected segment log score (duration included), exactly as the training monitor `reverse_per_frame` computes it. Higher is better.
+  - pri = expected_prior / expected tokens.
+- D16's banked jobs must keep their hashes.
+- Identity check first: on its run's CV holdout, each diagonal cell reproduces the logged dev `blankfree_reverse_per_frame` at the checkpoint's sub-epoch within 0.005 (g ep8, c ep60). A miss voids the read.
+- Reads on rev: paired, speaker-clustered, 2000 resamples, as in D16.
+  - phi effect: rev_gc - rev_gg and rev_cg - rev_cc.
+  - theta effect: rev_cg - rev_gg and rev_gc - rev_cc.
+  - Matched gap: rev_cc - rev_gg.
+  - The same D16 labels, with the signs flipped for higher-is-better.
+- pri is reported the same way, descriptively.
 
 ## D17: a general-knowledge duration prior at the edge (user request 2026-09-23, registered before any job; disclosed label-using diagnostic, no gate)
 
