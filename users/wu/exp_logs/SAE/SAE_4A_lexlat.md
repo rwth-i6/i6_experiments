@@ -4,7 +4,7 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 graph complete (pack C SZO7xTfO9x7Y, all four arms ep20; `reports/exec_d15_wake_2026-09-23.md`); D17 graph complete (pack DNrT49EggYTY; PER read in D17 Result). Logs `log/<config name>.manager.log`.
+LIVE managers: D14 pid 2099340 (restarted 2026-09-24 on the packing engine, `SAE_4A_lexlat_v2.md` State) `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 graph complete (pack C SZO7xTfO9x7Y, all four arms ep20; `reports/exec_d15_wake_2026-09-23.md`); D17 graph complete (pack DNrT49EggYTY; PER read in D17 Result). Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
