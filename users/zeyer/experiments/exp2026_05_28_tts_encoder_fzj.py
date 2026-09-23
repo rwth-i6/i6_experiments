@@ -3120,8 +3120,12 @@ def _build_tables(prefix: str):
     _m16 = "\\rotatebox{90}{\\footnotesize\\makecell{EncL16 \\\\ DecL6}}"
     _m24 = "\\rotatebox{90}{\\footnotesize\\makecell{EncL24 \\\\ DecL8}}"
 
+    # the LM column names the LM kind (AZ 2026-09-23): the standard Transformer LM, a diffusion LM,
+    # a denoising LM; a mark only where none is used
+    _std_lm = "std LM"
+
     def _ls_rows(name: str, method: str, searches=("CTC+AED",), old_impl: bool = False, model: str = _m16):
-        """one ls-main row per selected search of the model; the search as CTC+ (AED, LM) checkmarks"""
+        """one ls-main row per selected search of the model; the search as CTC+ (AED mark, LM kind)"""
         rows = []
         for recog, rlabel in ls_recogs:
             if rlabel not in searches:
@@ -3132,10 +3136,26 @@ def _build_tables(prefix: str):
                 model=model,
                 method=method,
                 aed=_chk if "AED" in rlabel else _xmk,
-                lm=_chk if "LM" in rlabel else _xmk,
+                lm=_std_lm if "LM" in rlabel else _xmk,
             )
             rows.append(_old_impl(row) if old_impl else row)
         return rows
+
+    def _ls_ext_row(name: str, model: str, method: str, aed: str, lm: str, wer: Dict[str, Any]) -> Dict[str, Any]:
+        """an ls-main row of one of our models with WER cells from outside this graph
+        (another user's result file, read at table-job run time, or numbers as reported);
+        updates and train time come from the model's training like for our own rows"""
+        row = _ls(name, "<external>", model=model, method=method, aed=aed, lm=lm)
+        row.update(wer)
+        return row
+
+    # CTC + diffusion LM joint decoding of the EncL24-DecL8 injection model (Davyd Naveriani's setup;
+    # the output symlink of his JoinScoreResultsJob, same JSON format as our recog results; his CTC-greedy
+    # of the model matches our row exactly)
+    _diff_lm_res = tk.Path(
+        "/e/project1/spell/naveriani1/setups/exp2025-08-22/output/diffusion-lm/returnn/icassp2027"
+        "/frozen-table-mfa-encl24-decl8/usdm-25ep/joint-decoding/n1-tstart01-hard-input/recog-res.txt"
+    )
 
     _table(
         "ls-main",
@@ -3163,6 +3183,24 @@ def _build_tables(prefix: str):
             *_ls_rows(win, "mean \\\\ log-mel", _all_searches),
             *_ls_rows(f"{base}-encL24-decL8", "none", model=_m24),
             *_ls_rows(f"{win}-encL24-decL8", "mean \\\\ log-mel", _all_searches, model=_m24),
+            # the same model with the other LMs (AZ 2026-09-23): CTC + diffusion LM (Davyd's result file),
+            # CTC + AED + denoising LM (DLM-sum with Dorian's DLM; numbers as reported by him, no file)
+            _ls_ext_row(
+                f"{win}-encL24-decL8",
+                model=_m24,
+                method="mean \\\\ log-mel",
+                aed=_xmk,
+                lm="diff LM",
+                wer={col: (_diff_lm_res, key) for col, key in ls_keys.items()},
+            ),
+            _ls_ext_row(
+                f"{win}-encL24-decL8",
+                model=_m24,
+                method="mean \\\\ log-mel",
+                aed=_chk,
+                lm="den LM",
+                wer=dict(zip(ls_wer, (1.40, 2.89, 1.62, 3.22))),  # Dorian
+            ),
         ],
     )
     # The duration model of the pseudo encoder: d = round(median * scale * exp(jitter * N(0,1))),
@@ -3221,7 +3259,9 @@ def _build_tables(prefix: str):
             ),
             # the one-hot + alignment-durations run (launched 2026-09-22 22:10, ~Thu evening) is a
             # camera-ready row (icassp2027/TODO-camera-ready.md): no placeholder rows in the submission (AZ)
-            _ls(_textogram, acoustics="extra one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"),
+            _ls(
+                _textogram, acoustics="extra one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"
+            ),
             _ls(
                 "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
                 acoustics="extra one-hot \\\\ channels",
@@ -3447,8 +3487,16 @@ def _build_tables(prefix: str):
                         "large",
                         "25000",
                         [
-                            ("base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "2.8"),
-                            ("base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "5.6"),
+                            (
+                                "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                                "none",
+                                "2.8",
+                            ),
+                            (
+                                "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                                "none",
+                                "5.6",
+                            ),
                             (
                                 f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
                                 "mean \\\\ log-mel",
