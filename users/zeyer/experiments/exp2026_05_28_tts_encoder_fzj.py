@@ -3212,7 +3212,7 @@ def _build_tables(prefix: str):
     _lognormal = "log-normal, \\\\ per-phoneme median"
     _table(
         "ls-durations",
-        ["distribution", "scale", "jitter", *ls_wer_other],
+        ["distribution", "scale", "jitter", *ls_wer_other, "hours"],
         [
             # ordered by scale, then jitter: the jitter ladder sits inside the scale-0.7 block
             # (the winner is 0.7 / 0.45)
