@@ -1,33 +1,39 @@
-"""VQ unsupervised training with within-epoch EMA updates — 3-gram test.
+"""Unsupervised VQ training with Viterbi (maximum-approximation) search.
 
-Replicates the :mod:`.vq_unsupervised` experiment matrix (both 3-gram LMs,
-sigma in {0.1, 1.0}, seeds 42 and 43) but with a different update rule.
-Instead of accumulating p(codeword | label) counts over the whole epoch and
-normalising once, the corpus is streamed in mini-batches of
-``EMA_MINIBATCH_SIZE`` sequences, and after each mini-batch the table is
-updated via an exponential moving average:
+Same model as :mod:`.vq_unsupervised_long` — frozen 512-entry codebook, table
+``p(codeword | phoneme)`` estimated from Viterbi alignments — but the E-step
+uses the linear search (max approximation) instead of the forward-backward
+fullsum.
 
-    table <- EMA_ALPHA * table + (1 - EMA_ALPHA) * table_minibatch
+Only the 5-gram LM with two seeds is run here to keep the scope small and to
+directly compare against the equivalent FB runs in :mod:`.vq_unsupervised_long`.
 
-This runs as a **single task** per epoch (no job array). Parallelism comes from
-the ``num_workers`` RASR processes that recognise each mini-batch concurrently
-inside :class:`.BatchedEMAEpochJob`.
+**Feature sharing:** :func:`.vq_unsupervised.silence_free_ls100_features` and
+:func:`.vq_unsupervised.silence_free_cv_features` build the same
+:class:`.SegmentedFeaturesFromAlignmentJob` objects as the FB config, so the
+segmented HDF files are reused rather than rebuilt.
 
-Kept at 10 epochs first so the per-epoch trajectory can be compared directly
-against the full-epoch runs in :mod:`.vq_unsupervised` before committing to a
-longer run.
+**No continuation from the FB runs.** The RASR search config is part of the
+epoch job hash (via the recognition config), so Viterbi epoch jobs are distinct
+from their FB counterparts and start from scratch.
 """
+
+from typing import Optional
 
 from sisyphus import tk
 
 from i6_experiments.example_setups.guided_kmeans.setup.constants import (
     COLLEAGUE_CENTROIDS_K512,
-    PHONEME_LM_ZIJIAN_3GRAM,
     GMM_SEGMENT_PHONEMES_LS960,
 )
+from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+    NormalTableJob,
+    chunked_clustering,
+    vq_flavor,
+)
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import (
-    create_lexicon,
     create_recog_rasr_config,
+    create_lexicon,
     phonetic_lm_dict,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.statistics_jobs import (
@@ -50,95 +56,81 @@ from i6_experiments.example_setups.guided_kmeans import tools
 from i6_experiments.example_setups.guided_kmeans.setup.score import (
     GmmSegmentPhonemesReferenceJob,
 )
-from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
-    NormalTableJob,
-    chunked_clustering,
-    vq_flavor,
+from i6_experiments.example_setups.guided_kmeans.setup.vq_baseline import (
+    FrameClusterAccuracyJob,
 )
 from i6_experiments.example_setups.guided_kmeans.config.vq_unsupervised import (
-    build_decode_config,
     silence_free_cv_features,
     silence_free_ls100_features,
+    build_decode_config,
     NUM_LABELS,
     NUM_CODEWORDS,
-    LM_ORDER,
-    USE_FORWARD_BACKWARD,
-    SUBSAMPLING,
     LM_SCALE,
     DISTANCE_SCALE,
-    LOOP_PROB,
-    BEAM_SIZE,
     TABLE_FLOOR,
+    LOOP_PROB,
+    USE_EOW_PHONEMES,
+    #BEAM_SIZE as BASE_BEAM_SIZE,
 )
 
-exp_dir = "vq_unsupervised_batched_ema"
+exp_dir = "vq_unsupervised_viterbi"
 version = 1
 
-# 5-gram beam pruning: same rationale as vq_unsupervised_long (40^4 = 2.56M states).
-BEAM_SIZE_5GRAM = 1000
-
-#: (lm_name, lm_path, sigma, seed, max_beam_size)
 EXPERIMENTS = [
-    ("ours-3gram",   None,                    0.1, 42, BEAM_SIZE),
-    ("ours-3gram",   None,                    0.1, 43, BEAM_SIZE),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42, BEAM_SIZE),
-    ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 43, BEAM_SIZE),
-    ("ours-5gram",   phonetic_lm_dict[5],     0.02, 42, BEAM_SIZE_5GRAM),
-    ("ours-5gram",   phonetic_lm_dict[5],     0.02, 43, BEAM_SIZE_5GRAM),
+    # (lm_name, lm_path, sigma, seed, epoch_rqmt)
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 42, {"mem": 12}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 43, {"mem": 12}),
 ]
 
-NUM_EPOCHS = 20
-
-EMA_ALPHA = 0.8
-EMA_MINIBATCH_SIZE = 2000  # sequences per EMA update step
-
-# 10 RASR workers + 1 overhead = 11 CPUs. Each worker handles roughly
-# EMA_MINIBATCH_SIZE / NUM_WORKERS = 200 sequences per mini-batch.
-# Single-task job: one allocation per epoch, not a job array.
-NUM_WORKERS = 10
-
-# The single task reads the full corpus mini-batch by mini-batch, keeping at
-# most EMA_MINIBATCH_SIZE sequences buffered at once. At 2000 seqs * ~120
-# frames * 512-D float64 that is ~1 GB; 16 GB leaves comfortable headroom.
-EPOCH_RQMT = {"mem": 16}
-
-decode_epochs = [0, 5, 10, 15, 20]
+NUM_EPOCHS = 100
+NUM_CHUNKS = 30
+BEAM_SIZE = 1000   # 5-gram state space (40^4 = 2.56M) needs beam pruning
+NUM_WORKERS = 9    # request 10 CPUs (num_workers + 1), matches Slurm even-rounding
 
 
-def build_vq_training_batched_ema(
+def build_vq_training_viterbi(
     *,
     features,
     lm_path,
     sigma,
     seed,
     num_epochs,
+    num_chunks,
     lexicon,
     alias_prefix,
     num_workers=NUM_WORKERS,
     rqmt=None,
-    max_beam_size=BEAM_SIZE,
+    max_beam_size: int = BEAM_SIZE,
+    initial_table: Optional[tk.Path] = None,
 ):
-    """One unsupervised VQ run using within-epoch EMA updates."""
+    """Same as :func:`.vq_unsupervised.build_vq_training` but with Viterbi search.
+
+    ``use_forward_backward=False`` is passed throughout and the linear-search
+    RASR binary is used for training. The decode always uses the linear-search
+    binary regardless of training mode, so decode is unchanged.
+    """
     recognition_config = create_recog_rasr_config(
         lm_scale=LM_SCALE,
         emission_scale=1.0,
         transition_scale=LM_SCALE,
         loop_probability=LOOP_PROB,
         silence_loop_probability=LOOP_PROB,
-        use_forward_backward_search=USE_FORWARD_BACKWARD,
-        lm_order=LM_ORDER,
-        use_eow_phonemes=False,
+        use_forward_backward_search=False,
+        lm_order=3,
+        use_eow_phonemes=USE_EOW_PHONEMES,
         max_beam_size=max_beam_size,
         lm_path=lm_path,
     )
+    if initial_table is None:
+        initial_table = NormalTableJob(NUM_LABELS, NUM_CODEWORDS, sigma=sigma, seed=seed).out_table
     flavor = vq_flavor(
         centroids=COLLEAGUE_CENTROIDS_K512,
-        table=NormalTableJob(NUM_LABELS, NUM_CODEWORDS, sigma=sigma, seed=seed).out_table,
+        table=initial_table,
         recognition_config=recognition_config,
         lexicon=lexicon,
         num_clusters=NUM_LABELS,
         distance_scale=DISTANCE_SCALE,
-        use_forward_backward=USE_FORWARD_BACKWARD,
+        use_forward_backward=False,
         table_floor=TABLE_FLOOR,
         num_workers=num_workers,
     )
@@ -149,18 +141,14 @@ def build_vq_training_batched_ema(
         lexicon=lexicon,
         num_clusters=NUM_LABELS,
         flavor=flavor,
-        subsampling=SUBSAMPLING,
+        subsampling=None,
         distance_scale=DISTANCE_SCALE,
-        use_forward_backward=USE_FORWARD_BACKWARD,
-        rasr_path=(
-            tools.RASR_PATH_FORWARD_BACKWARD if USE_FORWARD_BACKWARD else tools.RASR_PATH
-        ),
-        num_chunks=1,  # unused by BatchedEMAEpochJob (single task, no job array)
+        use_forward_backward=False,
+        rasr_path=tools.RASR_PATH,
+        num_chunks=num_chunks,
         num_workers=num_workers,
         rqmt=rqmt,
         alias_prefix=alias_prefix,
-        ema_alpha=EMA_ALPHA,
-        ema_minibatch_size=EMA_MINIBATCH_SIZE,
     )
     return recognition_config, exp_result
 
@@ -181,6 +169,7 @@ def run():
 
     decode_lm_scale = 1.0
     decode_loop_prob = 0.0
+    decode_epochs = [0, 10, 25, 50, 75, 100]
 
     cv_dataset = DatasetConfig(
         audio_hdf_path=cv_features.out_features,
@@ -191,7 +180,7 @@ def run():
     latex_report = LatexTableReport(
         columns=[
             "lm", "sigma", "seed", "epoch",
-            "mi", "per", "del", "ins", "sub",
+            "mi", "frame_err", "per", "del", "ins", "sub",
             "per_gmm", "del_gmm", "ins_gmm", "sub_gmm",
             "log_likelihood", "posterior_entropy", "dead_clusters",
         ],
@@ -199,29 +188,30 @@ def run():
         epochs=None,
         drop_empty_rows=True,
         caption=(
-            f"Unsupervised discrete-HMM training over a frozen 512-entry codebook "
-            f"with within-epoch EMA updates (alpha={EMA_ALPHA}, "
-            f"{EMA_MINIBATCH_SIZE} sequences per step), {NUM_EPOCHS} epochs on "
+            f"Unsupervised discrete-HMM training with Viterbi (max-approximation) "
+            f"search over a frozen 512-entry codebook, {NUM_EPOCHS} epochs on "
             f"silence-free ls-100h, decoded on silence-free cv at LM scale "
-            f"{decode_lm_scale}. Both 3-gram LMs, both sigmas, both seeds: "
-            f"direct comparison against vq_unsupervised."
+            f"{decode_lm_scale}. Compare against the forward-backward runs in "
+            f"vq_unsupervised_long."
         ),
     )
     recog_results = []
+    frame_acc_vars = []
 
-    for lm_name, lm_path, sigma, seed, max_beam_size in EXPERIMENTS:
+    for lm_name, lm_path, sigma, seed, epoch_rqmt in EXPERIMENTS:
         exp_name = f"ls100-nosil_{lm_name}_sigma-{sigma}_seed-{seed}"
-        _, exp_result = build_vq_training_batched_ema(
+        _, exp_result = build_vq_training_viterbi(
             features=ls100_features.out_features,
             lm_path=lm_path,
             sigma=sigma,
             seed=seed,
             num_epochs=NUM_EPOCHS,
+            num_chunks=NUM_CHUNKS,
             lexicon=lexicon,
             alias_prefix=f"guided_kmeans/{exp_dir}/{exp_name}",
             num_workers=NUM_WORKERS,
-            rqmt=EPOCH_RQMT,
-            max_beam_size=max_beam_size,
+            rqmt=epoch_rqmt,
+            max_beam_size=BEAM_SIZE,
         )
 
         tk.register_output(
@@ -245,9 +235,21 @@ def run():
             )
 
         recognition_config_decode = build_decode_config(
-            lm_path, decode_lm_scale, decode_loop_prob, max_beam_size=max_beam_size, forbid_blank=True
+            lm_path, decode_lm_scale, decode_loop_prob, max_beam_size=BEAM_SIZE, forbid_blank=True
         )
         for recog_epoch in decode_epochs:
+            decode_name = f"{exp_name}_ep-{recog_epoch}"
+            frame_acc_job = FrameClusterAccuracyJob(
+                features_hdf=cv_features.out_features,
+                alignment=cv_features.out_labels,
+                centroids=COLLEAGUE_CENTROIDS_K512,
+                table=exp_result.out_artifacts["table"][recog_epoch],
+            )
+            tk.register_output(
+                f"guided_kmeans/{exp_dir}/frame_acc/{decode_name}.json",
+                frame_acc_job.out_diagnostics,
+            )
+
             decode_config = DecodeConfig(
                 centroids=COLLEAGUE_CENTROIDS_K512,
                 model_dir=exp_result.out_models[recog_epoch],
@@ -255,7 +257,6 @@ def run():
                 distance_scale=1.0,
                 write_frame_labels=True,
             )
-            decode_name = f"{exp_name}_ep-{recog_epoch}"
             res = decode_and_score(
                 decode_name,
                 "cv",
@@ -272,6 +273,7 @@ def run():
                     f"guided_kmeans/{exp_dir}/per_gmm/{decode_name}_per", res.per_gmm
                 )
             recog_results.append(res)
+            frame_acc_vars.append(frame_acc_job.out_error_rate)
             latex_report.add_row(
                 result=res,
                 params={"lm": lm_name, "sigma": sigma, "seed": seed},
@@ -279,12 +281,19 @@ def run():
                 statistics=statistics,
                 values={
                     "mi": diagnostics[recog_epoch].out_mi,
+                    "frame_err": frame_acc_job.out_error_rate,
                 },
             )
 
+    plain_report = create_report(recog_results)
+    for idx, (res, acc_var) in enumerate(zip(recog_results, frame_acc_vars), start=1):
+        if acc_var is not None:
+            plain_report.add_entry(
+                col="6 Frame err.", row=f"{idx}_{res.descriptor}", var=acc_var
+            )
     tk.register_report(
         f"guided_kmeans/{exp_dir}/recognition/report_{version}.txt",
-        values=create_report(recog_results),
+        values=plain_report,
         required=True,
     )
     latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_{version}.tex")

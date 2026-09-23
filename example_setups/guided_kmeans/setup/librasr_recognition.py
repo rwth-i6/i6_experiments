@@ -217,7 +217,7 @@ def get_cheating_lm_config() -> RasrConfig:
 
     return config
 
-def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75, forbid_blank = False) -> RasrConfig:
+def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75, forbid_blank = False, label_to_blank_probability = None) -> RasrConfig:
     config = RasrConfig()
     config.type = "combine"
     config.num_scorers = 2
@@ -230,8 +230,9 @@ def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_p
     transition_config.type = "transition"
     transition_config.scale = transition_scale
 
+    _label_to_blank_prob = (1.0 - loop_probability) if label_to_blank_probability is None else label_to_blank_probability
     transition_config.label_to_label_score = neg_log(1.0 - loop_probability)
-    transition_config.label_to_blank_score = neg_log(0.0) if forbid_blank else neg_log(1.0 - loop_probability)
+    transition_config.label_to_blank_score = neg_log(0.0) if forbid_blank else neg_log(_label_to_blank_prob)
     transition_config.label_loop_score = neg_log(loop_probability)
 
     transition_config.blank_to_label_score = neg_log(1.0 - silence_loop_probability)
@@ -286,6 +287,7 @@ def create_recog_rasr_config(
     loop_log_odds=None,
     lm_path=None,
     forbid_blank=False,
+    label_to_blank_probability=None,
 ):
     if loop_log_odds is not None:
         if transition_scale is not None:
@@ -334,6 +336,7 @@ def create_recog_rasr_config(
                 loop_probability=loop_probability,
                 silence_loop_probability=silence_loop_probability,
                 forbid_blank=forbid_blank,
+                label_to_blank_probability=label_to_blank_probability,
             ),
             lm_config=lm_config,
             blank_index=0,
@@ -356,6 +359,7 @@ def create_recog_rasr_config(
                 loop_probability=loop_probability,
                 silence_loop_probability=silence_loop_probability,
                 forbid_blank=forbid_blank,
+                label_to_blank_probability=label_to_blank_probability,
             ),
             # the cheating-segment LM is only wired up for the linear/tree
             # searches, so forward-backward always uses the n-gram LM
@@ -377,6 +381,7 @@ def create_recog_rasr_config(
                 loop_probability=loop_probability,
                 silence_loop_probability=silence_loop_probability,
                 forbid_blank=forbid_blank,
+                label_to_blank_probability=label_to_blank_probability,
             ),
             lm_config=lm_config,
             blank_index=0,
