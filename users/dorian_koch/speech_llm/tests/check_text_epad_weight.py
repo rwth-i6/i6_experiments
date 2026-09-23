@@ -104,8 +104,14 @@ w = torch.where(tgt == TEXT_PADDING_ID, TEXT_PAD, 1.0) * valid
 want = float((ce * w).sum() / w.sum())
 n_epad = int(((tgt == TEXT_EPAD_ID).float() * valid).sum())
 check(n_epad >= 5, "the fixture has EPAD targets (non-vacuous)", f"{n_epad}")
-check(abs(c_one["text_loss"] - want) < 1e-5, "text_loss matches the hand computation", f"{c_one['text_loss']} vs {want}")
-check(abs(c_one["text_loss"] - c_old["text_loss"]) > 1e-3, "and differs from the default", f"{c_one['text_loss']} vs {c_old['text_loss']}")
+check(
+    abs(c_one["text_loss"] - want) < 1e-5, "text_loss matches the hand computation", f"{c_one['text_loss']} vs {want}"
+)
+check(
+    abs(c_one["text_loss"] - c_old["text_loss"]) > 1e-3,
+    "and differs from the default",
+    f"{c_one['text_loss']} vs {c_old['text_loss']}",
+)
 
 print("[3] scoped: audio loss and pad diagnostics unchanged")
 check(c_one["audio_loss"] == c_old["audio_loss"], "audio_loss identical")
@@ -116,7 +122,13 @@ print("[4] a weight without text_epad_id raises")
 codes, out, loss_mask = fixture()
 try:
     duplex_ce_loss(
-        out, codes, loss_mask, dep_q=DEP_Q, other_audio_weight=AUDIO_OTHER, text_pad_weight=TEXT_PAD, text_epad_weight=1.0
+        out,
+        codes,
+        loss_mask,
+        dep_q=DEP_Q,
+        other_audio_weight=AUDIO_OTHER,
+        text_pad_weight=TEXT_PAD,
+        text_epad_weight=1.0,
     )
     check(False, "raised ValueError")
 except ValueError:

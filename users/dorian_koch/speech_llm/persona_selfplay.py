@@ -40,8 +40,10 @@ class PersonaSelfPlay(Job):
         hf_repo: str = "nvidia/personaplex-7b-v1",
         batch_size: int = 32,
         temp_text: float | None = None,
+        text_sampler: str | None = None,
     ):
         assert (overlay_a is None) == (lora_rank_a is None) and (overlay_b is None) == (lora_rank_b is None)
+        assert text_sampler in (None, "two_stage"), text_sampler
         self.data = data
         self.venv_python_path = venv_python_path
         self.n = int(n)
@@ -55,6 +57,8 @@ class PersonaSelfPlay(Job):
         self.batch_size = int(batch_size)
         #: Text sampling temperature of both sides (None = the engine's default, 0.7; audio unchanged).
         self.temp_text = None if temp_text is None else float(temp_text)
+        #: Opt-in text sampler of both sides (None = the released one; moshi_family.personaplex.text_sampling).
+        self.text_sampler = text_sampler
         self.out_dir = self.output_path("dataset", directory=True)
         # Two 7B models in bf16 (~16 GB each), four mimi, and a KV cache per conversation sized by the
         # worker's context (conversation frames + 256; see selfplay --context). Measured 2026-09-22 at
@@ -64,7 +68,7 @@ class PersonaSelfPlay(Job):
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 94 if big else 80}
 
     #: Added 2026-09-23 (text-temperature grid); every earlier self-play keeps its hash.
-    __sis_hash_exclude__ = {"temp_text": None}
+    __sis_hash_exclude__ = {"temp_text": None, "text_sampler": None}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -113,6 +117,8 @@ class PersonaSelfPlay(Job):
                 cmd += [f"--overlay_{s}", ov.get_path(), f"--lora_rank_{s}", str(rank)]
         if getattr(self, "temp_text", None) is not None:
             cmd += ["--temp_text", str(self.temp_text)]
+        if getattr(self, "text_sampler", None) is not None:
+            cmd += ["--text_sampler", self.text_sampler]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
 
