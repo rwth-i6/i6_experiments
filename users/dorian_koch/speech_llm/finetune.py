@@ -499,6 +499,12 @@ def _render_personaplex_lora_config(job: "SpeechFinetune", batch_size: int, max_
     # ONLY when the arm sets them: an arm without them gets a config byte-identical to before they
     # existed, and the launcher's defaults are the historical kernels and batching.
     perf = render_train_perf_keys(hp, TRAIN_PERF_KEYS, who="PersonaPlex LoRA")
+    # EPAD's own text-loss weight (2026-09-23, ablation ab_epad1): rendered ONLY when set, so every
+    # other arm's config is byte-identical to before the key existed (EPAD weighted as PAD).
+    if hp.get("text_epad_weight") is not None:
+        if not hp.get("emit_epad"):
+            raise ValueError("PersonaPlex LoRA: text_epad_weight needs emit_epad=True")
+        perf = f"text_epad_weight: {_yaml_float(hp['text_epad_weight'])}\n" + perf
     return (
         f"""# PersonaPlex LoRA finetune config (moshi_family.personaplex.finetune_launcher, train_scope=lora)
 hf_repo_id: "{hf_repo_id}"
