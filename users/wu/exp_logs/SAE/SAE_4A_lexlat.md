@@ -8,7 +8,7 @@ LIVE managers (2026-09-23): D14 pid 3640835 `config/sae_4a_supervised_decphi.py`
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-ACTIVE: D14, D15, D16 (registered, reviewed `reports/review_d1{4,5,6}_*_2026-09-23.md`, launched). D17 (given duration prior at the edge, user ruling: duration statistics are given like the lexicon) registered, in implementation (`reports/impl_durprior_2026-09-23.md`); code review, then launch. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
+ACTIVE: D14, D15, D16 (registered, reviewed `reports/review_d1{4,5,6}_*_2026-09-23.md`, launched). D17 (general-knowledge duration prior at the edge: rate-matched max-entropy init or freeze, no supervised duration table) registered, in implementation (`reports/impl_durprior_2026-09-23.md`); code review, then launch. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
 
 NEXT: on a watcher wake, dispatch executor with the job dir; at the first wake after pack C starts, check all four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D16 when its reader finishes (VOID check first). In parallel, `SAE_4A_lexlat_v2.md` NEXT (design review, then L2-0 and the L2-1 probe).
 
@@ -857,13 +857,13 @@ Amendment before any job (2026-09-23, implementation, `reports/impl_d16_crosseva
 - The pairing set is the utterances kept in all four cells; the reader prints their count.
 - All cells run at supphi_k2lat's ep8 settings. The eval asserts that tau and lam at k2lat_20_x60's ep60 are the same.
 
-## D17: a given duration prior at the edge (user request 2026-09-23, registered before any job; disclosed label-using diagnostic, no gate)
+## D17: a general-knowledge duration prior at the edge (user request 2026-09-23, registered before any job; disclosed label-using diagnostic, no gate)
 
-User: "for things we have good prior knowledge, we should use the prior knowledge. I don't think fixed it would make previous k2 arms suddenly work, but it could really make a difference for model at the edge"; ruling: phone duration statistics are "also supervised information but I count this as given, just like the lexicon".
+User: "for things we have good prior knowledge, we should use the prior knowledge. I don't think fixed it would make previous k2 arms suddenly work, but it could really make a difference for model at the edge"; clarification the same day, before any job: "we can use a 'general knowledge' of phoneme length to e.g. init model or do some restriction, but using duration model learned from supervised data is one more step".
 
 **Facts before any job.** phi's duration law is a per-type categorical masked to [2, D_k] (D 25, SIL 50), initialised uniform (E[d] 13.5 for phones). MFA 39-phone mean 4.14 frames on dev-other and 4.22 on train-clean-100; p99.9 19 / 18; 0.019 % / 0.011 % above 25 (`reports/exec_mfa_duration_quantiles_2026-09-23.md`). D10's sup_plain (p0 + the untrained phi) collapsed in sub-epoch 1 (0.846 at ep1), sup_k2lat to 0.691.
 
-**Prior.** Per-type duration histogram of the train-clean-100 MFA alignments (never dev or test), in phi's frame units, one-frame mass folded into d = 2 (d_min 2 standing), mass above D_k dropped and renormalised, add-one smoothing on [2, D_k] so no legal duration is impossible. Modes: `durinit` (copied into phi's duration logits, trainable) and `durfrz` (copied and frozen). The same table serves `SAE_4A_lexlat_v2.md` A9.
+**Prior (corrected before any job; the first draft's MFA per-type table is withdrawn by the clarification).** General knowledge only. Every non-SIL type gets the same maximum-entropy law on [2, D_k] with mean m = (50 / rho) x (retained / original frames on the train stream); rho = 9.66/s is the label-free rate (phones per word of the text x the read-speech constant 2.7 words/s, `SAE_4A.md` S3b-R). SIL keeps the bed's uniform init. Modes: `durinit` (phone rows copied into phi's duration logits, trainable) and `durfrz` (phone rows frozen, the restriction; SIL trains). MFA stays a diagnostic reference for E[d]. The same prior serves `SAE_4A_lexlat_v2.md` A9.
 
 **Arms.** One pack, the diagnostic pack's constants and batches verbatim (as D10e), one delta each against its banked uniform counterpart in `5XNGdxndoY1Y`: `sup_durinit`, `sup_durfrz` (sup_plain + prior); `sup_k2lat_durinit`, `sup_k2lat_durfrz` (sup_k2lat + prior).
 
