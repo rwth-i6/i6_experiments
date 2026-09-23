@@ -4,18 +4,24 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers, 2026-09-23 00:15 (every other manager named in this phase is dead):
+LIVE managers, 2026-09-23 morning: NONE. Every manager named in this phase has exited, and every registered job is finished.
 
-- 1771856 `config/sae_4a_lexlat_k2_ext.py` (E60, NEXT 0): `PackedBlankfreeContinueJob.xsWAIaMMsWOw`, Slurm 1957557, started 2026-09-22 18:50, wall ends about 06:20. At 00:13 the arms stood at sub-epoch 51 / 45 / 45 / 40 (ctrl / k2lat_20 / ma3000 / k2shuf ma3000); the null binds at about 948 s per sub-epoch, projected finish about 05:30.
+Standing: USER RULING 2026-09-21, this phase is the main line; a gate PASS runs the arm, a FAIL continues the cost work, no bar is moved to make it pass. G4a.9 reads CANNOT_TELL as written with PASS unreachable, audited (Results "VERDICT G4a.9"). Everything done lives in its own section (Results, Diagnosis, D10, D11, D12, Extension E60).
 
-Standing: USER RULING 2026-09-21, this phase is the main line; a gate PASS runs the arm, a FAIL continues the cost work, no bar is moved to make it pass. G4a.9 reads CANNOT_TELL as written with PASS unreachable, audited (Results "VERDICT G4a.9"). Everything below NEXT that is done lives in its own section (Results, Diagnosis, D10, D11, D12, Extension E60).
+Read and audited on 2026-09-23 (no open item):
+- E60: continuity PASS; PLATEAU in all four arms; the form re-read on `k2lat_20_ma3000_x60` misses on PER (0.824) and against its null (+0.0071). Training longer is refuted as the missing ingredient ("E60 read at ep60").
+- D10e: the untrained reverse model drove the supervised init's collapse. On the both-gold start the k2 term is specific to the lexicon (k2lat minus k2shuf -0.186) and PRESERVES the start ("D10e read", "D10e addendum read").
+- D12 = ROOM ("D12 read").
 
-NEXT (in order):
+NEXT: waiting on the user, the forks below. Nothing is queued on the cluster.
 
-0. E60 (section "Extension E60"): continuity clause PASS in all four arms ("E60 continuity read"). At the pack's finish read, in this order: the plateau clause (paired ep60 - ep50 per arm), the form re-read on `k2lat_20_ma3000_x60` with G4a.9's PASS conditions verbatim, then the registered paired rows at 30 / 40 / 50 / 60. A wall kill costs one sub-epoch plus a resubmission.
-0b. D10e READ and audited ("D10e read"): the untrained reverse model drove the collapse; on the both-gold start the k2 control reads CONFIRMED (k2lat minus k2shuf -0.186 at ep8). Addendum read: `supphi_k2lat` ep8 PRESERVES (-0.0097 [-0.0151, -0.0045], 0.0003 short of the REFINES threshold). DONE; the finding is put to the user with the fork in (1).
-0d. USER FORK, D12 = ROOM, audited ("D12 read"; margin 1.42 nats, not borderline): the drafted word-aggregate arm test waits on the user's go and on the user confirming that a unigram word aggregate beside the trigram G satisfies the trigram-or-better rule. If go: first the ep20 posterior-histogram K read added in "D12 read" (no pack if at or below the bound), then code per the drafted test; its warm start (k2lat_20 ep20) is revisited against E60's ep60 checkpoints.
-1. USER FORK after E60's read: the delivered write-up (`reports/diag_k2_why_2026-09-22.md`) recommends choosing between the random-pronunciation null (Design 6 follow-up; decides whether the 0.03-0.06 gain of any word graph needs a lexicon at all) and closing the k2 form at this bed. Escape-price / lam_lex arms and rung 10000 are weaker candidates: on the main line and the positive control the treatment sits within 0.01 of its derangement. Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs"). New input to this fork ("D10e read"): on a phone-like start the k2 term is lexicon-specific (k2lat minus k2shuf -0.186) and preserves the start, but it does not create one. A seeded k2 track would be a label-using route the user must rule on; D10e itself initialises no main-line arm.
+1. USER FORK, direction of the k2 form (inputs "E60 read at ep60", "D10e read", `reports/diag_k2_why_2026-09-22.md`). On the cold line the k2 form sits at a fixed point: any word graph gains about 0.05 PER over ctrl whether or not its pronunciations are the right ones, and the lexicon-specific contrast is <= 0.01 or reversed. On a phone-like start the same term is strongly lexicon-specific. Candidates, none launched:
+   - (a) The random-pronunciation null (Design 6 follow-up). It decides whether the shared 0.05 needs word-shaped phone strings at all.
+   - (b) Close the k2 form as a cold-start mechanism at this bed.
+   - (c) A seeded k2 track (supervised init + gold phi + k2 term). It is label-using and needs a user ruling; D10e itself initialises no main-line arm.
+   - (d) Rung 10000 or escape-price / lam_lex arms. Weaker: at rung 3000 the treatment still ties or loses to its derangement.
+   Any NEW pack on the official 4-gram graph costs its leg at 289.8 s (Results "Official probes on the word-boundary graphs").
+2. USER FORK, D12 = ROOM (margin 1.42 nats, not borderline). The drafted word-aggregate arm test waits on the user's go and on the user confirming that a unigram word aggregate beside the trigram G satisfies the trigram-or-better rule. If go: first the ep20 posterior-histogram K read added in "D12 read" (no pack if at or below the bound), then code per the drafted test. Its warm start is revisited against E60's checkpoints, which show no gain past ep20.
 
 ## Design review amendments (2026-09-21, applied before any job)
 
@@ -714,6 +720,41 @@ Dropped for the slot count: `k2shuf_20` (D6's rung-1000 null); `k2lat_20_x60` re
 | `k2shuf_20_ma3000_x60` | 0.8135 | 0.8142 | -0.0007 | 92249 / 49760 / 2197 (98155 / 43400 / 2777) | 8.30 |
 
 Clause: all four |delta| <= M = 0.015, so **continuity PASS in every arm**; the runs are continuations and the later reads stand. The control's -0.0141 sits 0.001 inside the bound. Descriptive, no gate: the one sub-epoch at the restored lr 1e-4 moves every arm the same way, deletions up by 4.4k-6.4k with substitutions and insertions down, so the warm restart first thins the output; the ep20 values were not a fixed point under the larger step, as D2 predicted. The treatment and null orderings at ep21 are not read (registered rows start at 30).
+
+**E60 read at ep60 (2026-09-23; pack `PackedBlankfreeContinueJob.xsWAIaMMsWOw` FINISHED, Slurm 1957557 COMPLETED after 10 h 31 min; 20 greedy-PER, 20 derangement-gap and 29 paired readers FINISHED; numbers `reports/extract_e60_final_2026-09-23.md`; audit CONFIRMED_WITH_CAVEATS `reports/audit_e60_gate_2026-09-23.md`).** The auditor traced every decisive reader to its checkpoint in this run. Sub-epochs 21-60 ran at lr 1e-4, tau 2.0 and lexicon weight 1.0, and the null graph `UGE5MH3v5lyT` is a true derangement.
+
+Dev-other greedy PER at parent ep20 and ep21 / 30 / 40 / 50 / 60:
+
+| arm | ep20 | ep21 | ep30 | ep40 | ep50 | ep60 |
+|---|---|---|---|---|---|---|
+| `ctrl_20_x60` | 0.8746 | 0.8605 | 0.8734 | 0.8748 | 0.8747 | 0.8735 |
+| `k2lat_20_x60` | 0.8435 | 0.8398 | 0.8490 | 0.8444 | 0.8441 | 0.8484 |
+| `k2lat_20_ma3000_x60` | 0.8186 | 0.8158 | 0.8244 | 0.8203 | 0.8205 | 0.8240 |
+| `k2shuf_20_ma3000_x60` | 0.8142 | 0.8135 | 0.8114 | 0.8142 | 0.8160 | 0.8169 |
+
+Paired rows at ep60, delta [95% CI], negative = first arm better:
+- `k2lat_20_ma3000_x60` minus ctrl: -0.0495 [-0.0562, -0.0439].
+- `k2shuf_20_ma3000_x60` minus ctrl: -0.0566 [-0.0637, -0.0502].
+- `k2lat_20_x60` minus ctrl: -0.0251 [-0.0304, -0.0202].
+- `k2lat_20_ma3000_x60` minus `k2shuf_20_ma3000_x60`: +0.0071 [+0.0035, +0.0107].
+- `k2lat_20_ma3000_x60` minus `k2lat_20_x60`: -0.0244 [-0.0278, -0.0214].
+
+Ep60 minus ep50, per arm:
+- ctrl: -0.0012 [-0.0029, +0.0001].
+- k2lat_20: +0.0043 [+0.0029, +0.0058].
+- ma3000: +0.0035 [+0.0025, +0.0044].
+- k2shuf ma3000: +0.0008 [-0.0007, +0.0025].
+
+Monitors from ep20 to ep60, flat throughout: ma3000's lexicon term 0.310 to 0.320, reverse per frame -3.28 to -3.28, prior per token -3.148 to -3.142. The other arms move alike.
+
+Gate E60, clause by clause:
+- **Plateau: PLATEAU in all four arms.** Every ep60 - ep50 interval lies inside [-0.010, +0.010], so no 61-100 extension is queued. Caveat from the audit: both lexicon treatments drift slightly upward (their ep60 - ep50 intervals are above zero, and ep60 is worse than ep21), so this plateau is not convergence at their best point.
+- **Form re-read on `k2lat_20_ma3000_x60`: not PASS.** It misses two clauses: PER 0.824 against < 0.50, and minus its null +0.0071 against <= -0.015. It meets minus ctrl (-0.0495), the rate (7.81 Hz original audio, 9.20 retained) and the health clause (derangement gap 3.84). G4a.9's reading stands as audited.
+- **Abort rule: no abort.** No NaN, |dev agg| <= 1.56, and the expected rate never goes below 8.19 Hz against a floor of 5.80.
+
+**Reading.** D2 / D6's hypothesis that the ep20 plateau was a step-size artefact is refuted. Forty sub-epochs at the peak learning rate (2,280 more updates, twice the launch round's 1,140) moved no arm more than 0.01 from its ep20 PER and moved no monitored term. On this bed the objective sits at a fixed point, and training longer is not the missing ingredient.
+
+At rung 3000 the gain over the trigram-only control is shared by the deranged lexicon: -0.057 for the null against -0.050 for the treatment. So it needs a word graph but not the correct word-to-pronunciation mapping. On the cold line the true lexicon carries no signal specific to the lexicon, even at 60 sub-epochs (+0.007 against its derangement). On a phone-like start it carries a large one ("D10e read": -0.186).
 
 ## D12: word-histogram floor, the screen for the external word-level aggregate proposal (orchestrator 2026-09-22, pre-registered before any number)
 
