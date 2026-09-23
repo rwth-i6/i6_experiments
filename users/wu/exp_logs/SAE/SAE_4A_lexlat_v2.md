@@ -4,7 +4,9 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
-LIVE managers:
+PAUSED (2026-09-23 23:30, user: "change now"). Every job held a whole exclusive node, so 1-GPU and CPU-only jobs idled GPUs. All four managers are stopped, and 212 pending jobs with fewer than 4 GPUs are held (`reports/exec_brake_2026-09-23.md`, `reports/held_jobs_2026-09-23.txt`). The running packs and A10 restarts continue (last 1-GPU job ends 01:56). The managers restart only on the reviewed packing engine (`reports/impl_gpupack_engine_2026-09-23.md`); then the held jobs are cancelled and resubmitted packed. The pids below are dead.
+
+Managers:
 - L2-0 ladder, pid 3672632, `config/sae_4a_lexlat_v2_ladder.py`: packs P `WX41NC734WLo` (Slurm 1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100), R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70), running since 22:16 (`reports/exec_l20_ladder_launch_2026-09-23.md`). The ladder's phi fits are complete (16/16).
 - A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
 - A11 exact-EM, pid 741081, `config/sae_4a_lexlat_v2_em_table.py`, started 23:01: stage A Slurm 1980303/05/06 pending; nulls wait on PermutedUnits 1980304/07 (`reports/exec_l21_a11_launch_2026-09-23.md`).
