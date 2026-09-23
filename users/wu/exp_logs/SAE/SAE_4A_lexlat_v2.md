@@ -2,45 +2,27 @@
 
 ## State
 
-Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm all watchers first after any resume.
 
 LIVE managers:
-- L2-0 ladder, pid 3672632, `config/sae_4a_lexlat_v2_ladder.py`: packs P `WX41NC734WLo` (Slurm 1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100) and R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70). All running since 22:16 (`reports/exec_l20_ladder_launch_2026-09-23.md`).
-- A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (restarts Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
+- L2-0 ladder, pid 3672632, `config/sae_4a_lexlat_v2_ladder.py`: packs P `WX41NC734WLo` (Slurm 1978798), R1 `mZaZk7Ptt5Sg` (1978810; rt_r0, r30, r50, r100), R2 `UdhhxiGIMBob` (1978797; cold_ctl, perm, rt_r0_s2, r70), running since 22:16 (`reports/exec_l20_ladder_launch_2026-09-23.md`). The ladder's phi fits are complete (16/16).
+- A10 extension, pid 3391279, `config/sae_4a_lexlat_v2_em_ext.py` (Slurm 1977837-1977844, 4 h; `reports/exec_l21_a10_launch_2026-09-23.md`).
+- A11 exact-EM, pid 741081, `config/sae_4a_lexlat_v2_em_table.py`, started 23:01: stage A Slurm 1980303/05/06 pending; nulls wait on PermutedUnits 1980304/07 (`reports/exec_l21_a11_launch_2026-09-23.md`).
 - D14-D17: see `SAE_4A_lexlat.md` State.
 
-The L2-0 fits are complete (16/16).
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; start everything parallelisable, the wave does not wait for D14; L2-1 may be extended freely, the user: "try hard enough on L2-1 in case the initial round is not successful"; extensions register as amendments from A11 on, parallel to A10.
 
-Rulings (2026-09-23):
-- Pure unsupervised and GAN-free; supervised inits are for analysis only.
-- Start everything that can run in parallel; the wave does not wait for D14.
-- L2-1 may be extended freely within these limits. The user: "try hard enough on L2-1 in case the initial round is not successful". Extensions are registered as amendments from A11 on and run in parallel with A10.
+Registered: L2-0 to L2-2, gates, A1-A13.
 
-Registered:
-- L2-0 to L2-2, the gates and A1-A7, before any job;
-- A8 and A9, before any L2-1 job;
-- A10, after the probe read NO WAVE SETTING (gain clause only);
-- A11, before its build.
+BUILT: ladder and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`, chunk fix 6fd3d02e); L2-1 through A9 (3dc01561); A10 (c49559ce; `reports/review_l21_a10_2026-09-23.md`); A11+A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`; launch review `reports/review_l21_a11_launch_2026-09-23.md`). BUILDING: A13.
 
-BUILT:
-- Ladder and pre-flight (`reports/impl_l20_ladder_2026-09-23.md`), with the chunk fix 6fd3d02e after the first pre-flight's k2 overflow.
-- L2-1 through A9 (3dc01561).
-- The A10 extension (c49559ce; review `reports/review_l21_a10_2026-09-23.md`).
-- A11 with A12 (e8bf63a8, rate VOID 93c06db5; `reports/impl_l21_a11_2026-09-23.md`). The E-step and S are exact in both families. Launch review: `reports/review_l21_a11_launch_2026-09-23.md`.
-
-BUILDING: A13 (see NEXT 1).
-
-WAVE_DURATION_SETTING and WAVE_NUM_SUBEPOCHS stay None until the A10 reader.
+WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS: None until the A10 reader.
 
 NEXT:
-1. A13 is being built for the ladder readers and the A10 S references (`reports/impl_a13_disjoint_cv_2026-09-23.md`); the ladder and A10 managers restart if the graph changes. A11's S references follow after the A11 launch review.
-2. Ladder wake: the executor reads the packs. The L2-0 read follows A4 and A5 with A13's sets.
-3. A10, on its reader:
-   - set the wave setting and sub-epoch count;
-   - resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` is fixed at 1.65 h);
-   - review the wave.
-   The wave is held if both rt_r0 seeds have read NO LIFT.
-4. A11: launch on review approval, then watch.
+1. A13 build for ladder readers and A10 S references (`reports/impl_a13_disjoint_cv_2026-09-23.md`); ladder and A10 managers restart if the graph changes. A11's S references follow after A13 returns (item 4).
+2. Ladder wake: executor reads the packs; L2-0 read follows A4, A5 with A13's sets.
+3. A10 reader: set wave setting and sub-epoch count; resize the wave's alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506` fixed at 1.65 h); review the wave. Wave held if both rt_r0 seeds read NO LIFT.
+4. A11 stage A first run: executor checks four `[cuda:r]` ranks (review note 1), E-step speed (33.6 ms/utt at smoke), OOM. A11 gold and r100 S references (report-only, unbuilt) take A13's 260-utterance set and the 0.9/0.1 mixture (review note 2).
 
 ## Objective
 
