@@ -3397,80 +3397,68 @@ def _build_tables(prefix: str):
     loq_wer = ["dev", "test"]
     _table(
         "loq-scale",
-        ["subset", "audio_h", "model", *loq_wer, "hours"],
+        ["subset", "audio_h", "model", "audio_passes", "steps", *loq_wer, "hours"],
         [
-            _loq(
-                "base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="small",
-                audio_h="250",
-                model="no text",
-            ),
-            _loq(
-                "base-small-nFullEp400-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="small",
-                audio_h="250",
-                model="no text, \\\\ twice the epochs",
-            ),
-            _loq(
-                f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
-                subset="small",
-                audio_h="250",
-                model="injection",
-            ),
-            _loq(
-                "base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="medium1k",
-                audio_h="1000",
-                model="no text",
-            ),
-            _loq(
-                "base-medium1k-nFullEp325-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="medium1k",
-                audio_h="1000",
-                model="no text, \\\\ twice the epochs",
-            ),
-            _loq(
-                f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
-                subset="medium1k",
-                audio_h="1000",
-                model="injection",
-            ),
-            _loq(
-                "base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="medium",
-                audio_h="2500",
-                model="no text",
-            ),
-            _loq(
-                "base-medium-nFullEp130-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="medium",
-                audio_h="2500",
-                model="no text, \\\\ twice the epochs",
-            ),
-            _loq(
-                f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
-                subset="medium",
-                audio_h="2500",
-                model="injection",
-            ),
-            _loq(
-                "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="large",
-                audio_h="25000",
-                model="no text",
-            ),
-            _loq(
-                "base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
-                subset="large",
-                audio_h="25000",
-                model="no text, \\\\ twice the epochs",
-            ),
-            _loq(
-                f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
-                subset="large",
-                audio_h="25000",
-                model="injection",
-            ),
+            # per subset: audio-only at the injection's audio passes with the full 24M audio batch
+            # (fewer updates), with the injection's audio share per batch (16.8M: same updates; none
+            # for large), with twice the passes (24M), then the injection (AZ 2026-09-22)
+            *[
+                _loq(name, subset=subset, audio_h=audio_h, model=model, audio_passes=passes)
+                for subset, audio_h, rows in [
+                    (
+                        "small",
+                        "250",
+                        [
+                            ("base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "200"),
+                            ("base-small-nFullEp200-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "none", "200"),
+                            ("base-small-nFullEp400-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "400"),
+                            (
+                                f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
+                                "mean \\\\ log-mel",
+                                "200",
+                            ),
+                        ],
+                    ),
+                    (
+                        "medium1k",
+                        "1000",
+                        [
+                            ("base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "162"),
+                            ("base-medium1k-nFullEp162-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "none", "162"),
+                            ("base-medium1k-nFullEp325-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "325"),
+                            (
+                                f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
+                                "mean \\\\ log-mel",
+                                "162",
+                            ),
+                        ],
+                    ),
+                    (
+                        "medium",
+                        "2500",
+                        [
+                            ("base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "65"),
+                            ("base-medium-nFullEp65-muon-lr2_5e3-bs16_8m-specaug60-stepcomp-len40s", "none", "65"),
+                            ("base-medium-nFullEp130-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "130"),
+                            (f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0", "mean \\\\ log-mel", "65"),
+                        ],
+                    ),
+                    (
+                        "large",
+                        "25000",
+                        [
+                            ("base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "2.8"),
+                            ("base-large-srcExp0-nFullEp5_6-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s", "none", "5.6"),
+                            (
+                                f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
+                                "mean \\\\ log-mel",
+                                "2.8",
+                            ),
+                        ],
+                    ),
+                ]
+                for name, model, passes in rows
+            ],
         ],
     )
     # Loquacious medium: the injected text (source weighting, text per step), per-source dev WERs.
