@@ -7,13 +7,13 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): pack ge1MKcAPmZIV finished (gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 queued (SLURM 2001624, est. start 09-25 05:50); its 3 paired rows wait on it.
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14).
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
-2. A17 (i)/(ii) reads extracted, under audit; keyinit reads (GOLD KEY REACHES BASIN, A17 (iii)) being extracted. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
+1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) passed; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
+2. Keyinit reads (GOLD KEY REACHES BASIN, A17 (iii)) being extracted. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
@@ -748,6 +748,31 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
 - Reading: the phone trigram alone lets a phi with up to 70 % of its fit tokens substituted lift a random theta. The k2 term is not needed for the lift, but it improves the ep8 result by 0.08-0.14 PER.
 - Without k2, r30 and r50 are best at ep1 (about 0.20), worsen to about 0.30 by ep4, and recover partly to 0.26-0.27 by ep8. This matches D10e's trigram-only drift from p0.
 - M is taken from the k2 runs' seed pair. The ep1 labels for r30 and r50 are therefore the least robust (report only).
+
+### A17 (i)/(ii) read (2026-09-24): BASIN SUFFICIENT; OBJECTIVE DRIFT, at the bar (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `A17BasinLiftReadJob.q0C0J9o54cwW` (pack `PackedBlankfreeTrainJob.T18RrTNTdg65`) and `A17AnnealDriftReadJob.jcIFDGis10WJ` (runs `PhiFirstProbeTrainingJob.nVpD2O3xpfcJ`, `.YtsRkvAl7Kl8`). Extraction: `reports/extract_a17_reads_2026-09-24.md`. Audit: `reports/audit_a17_reads_2026-09-24.md`, which re-scored every (i) arm on all 2,864 dev-other utterances.
+- (i): the phi inits are A14 (ii)'s sub-epoch-48 checkpoints, and the configs differ from A14 (i) only in the phi path. All 8 sub-epochs ran without NaN. Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm | PER | ep8 band | phi genPER, init -> ep8 (direct / Hungarian) |
+  |---|---|---|---|
+  | gold-EM | 0.284 / 0.255 / 0.253 / 0.200 | LIFT | 0.353 -> 0.232 / 0.232 |
+  | r30-EM | 0.323 / 0.283 / 0.224 / 0.201 | LIFT | 0.394 -> 0.239 / 0.239 |
+  | r70-EM | 0.434 / 0.432 / 0.412 / 0.362 | LIFT | 0.495 -> 0.393 / 0.432 |
+  | r100-EM | 0.869 / 0.859 / 0.836 / 0.839 | NO LIFT | 0.860 -> 0.858 / 0.858 |
+
+  - **BASIN SUFFICIENT.** r100-EM clears the NO LIFT bar by only 0.0225, but it does not lift. The A10 EM phis read 0.820-0.842 in A14 (i), so where the phi sits decides whether it lifts. Joint training also repairs the basin phis' generative PER, by 0.10-0.16.
+  - The basin phis kept their MFA durations, so A17 (iii) and A18 (b)'s paired rows decide whether the lift needs supervised segmentation.
+- (ii): tau = 1 from sub-epoch 1, otherwise A14 (ii)'s recipe; PER(0) is the init phi. Generative PER at 0 / 4 / 8 / 12, against A14 (ii) at the same sub-epochs:
+  - gold: 0.193 / 0.266 / 0.283 / 0.295 (A14 (ii): 0.193 / 0.300 / 0.317 / 0.328). S on the 260 set: 3.474 / 3.264 / 3.249 / 3.241.
+  - r70 (direct / Hungarian): 0.608/0.628, 0.385/0.413, 0.382/0.412, 0.393/0.421 (A14 (ii): 0.608/0.628, 0.477, 0.478, 0.482). S on the 260 set: 4.411 / 3.400 / 3.304 / 3.266.
+  - **OBJECTIVE DRIFT**: gold drift +0.1019 against the registered 0.193 (+0.1017 against the measured 0.1933). That is 0.0019 over the 0.10 bar, or 57 phones.
+  - The audit's bootstrap over the 500 utterances gives an SE of 0.0024-0.0031. MIXED therefore lies within sampling error, while ANNEALING-DOMINATED is excluded. Direct and Hungarian PER agree for gold.
+  - Reading: dropping the tau = 4 sub-epoch removes about a quarter of the gold damage at 12 (0.295 against 0.328). The rest comes at tau = 1 while S falls by 0.23, so S's optimum near gold is not gold.
+- Correction: no same-config PER repeat exists for (ii), because the sub-epoch-0 value comes from the same job. The 0.01-0.03 spread cited under A17 is the joint bed's, not phi EM's.
+- Consequences as registered:
+  - Stage 2 of A16 (b) is not withdrawn.
+  - No tau = 1 amendment to stage 2.
+  - A18 (d) is not triggered: gold-EM lifts, and the drift is not below 0.05.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
