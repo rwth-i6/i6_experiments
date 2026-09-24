@@ -12,6 +12,7 @@ defaults are the bed's, and every phase-4a arm is the bed plus explicit keyword 
 * ``ctrl_20``: the N = 20 schedules only;
 * the k2 arms: ``lexlat_k2=lexlat_k2_model_args(...)`` (the default-off ``lexlat_k2_*`` block);
 * D15: ``prior_weight_schedule`` (``schedules.phone_trigram_weight_schedule``);
+* ``ctrl_20_rc``: ``sil_run_collapse`` (the SIL-run fix of T1.6, SaeBlankfreeModelV1's class comment);
 * L2-1 stage 1 (phi-first EM): ``null_recognizer`` / ``freeze_recognizer``, ``adam_betas`` /
   ``adam_eps``, ``random_seed`` / ``random_seed_offset``, a 4-entry tau schedule;
 * durinit / durfrz: ``reverse_duration_prior`` + ``reverse_duration_prior_mode`` ("init" / "freeze");
@@ -21,7 +22,7 @@ defaults are the bed's, and every phase-4a arm is the bed plus explicit keyword 
 
 The ``get_model`` keyword ORDER is the one the banked configs were written in (the base arguments,
 then ``null_recognizer``, ``freeze_recognizer``, ``reverse_checkpoint_path``, the duration prior, the
-``lexlat_k2_*`` block and ``prior_weight_schedule``), so a preset's ``returnn.config`` diffs
+``lexlat_k2_*`` block, ``prior_weight_schedule`` and ``sil_run_collapse``), so a preset's ``returnn.config`` diffs
 line-for-line against its banked one.  The order does not enter the hash (sisyphus hashes a dict
 order-independently).
 
@@ -209,6 +210,7 @@ def build_train_config(
     reverse_duration_prior_mode: Optional[str] = None,
     lexlat_k2: Optional[Dict[str, Any]] = None,
     prior_weight_schedule: Optional[Sequence[float]] = None,
+    sil_run_collapse: bool = False,
     adam_betas: Sequence[float] = EMC_ADAM_BETAS,
     adam_eps: float = EMC_ADAM_EPS,
     random_seed: Optional[int] = None,
@@ -244,6 +246,8 @@ def build_train_config(
     :param prior_weight_schedule: D15's per-sub-epoch phone-trigram weight beta (length
         ``num_subepochs``, ``schedules.phone_trigram_weight_schedule``); ``None`` keeps the scalar
         ``prior_weight`` 1.0 at every sub-epoch.
+    :param sil_run_collapse: the train lattice reads a SIL run as ONE token (the DP's history is
+        rebuilt from the blank-free cfg); ``False`` writes no key and keeps the banked SIL split.
 
     Optimizer / seed deltas (stage 1 of L2-1 writes all four):
 
@@ -341,6 +345,8 @@ def build_train_config(
         assert all(0.0 <= v <= 1.0 for v in prior_weight_schedule), prior_weight_schedule
         assert model_args["prior_weight"] == 1.0, model_args["prior_weight"]
         model_args["prior_weight_schedule"] = prior_weight_schedule
+    if sil_run_collapse:
+        model_args["sil_run_collapse"] = True
 
     ser = Collection(
         serializer_objects=[

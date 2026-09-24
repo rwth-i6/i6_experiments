@@ -32,6 +32,7 @@ import torch
 from .agg import AggLoss
 from .blankfree import expected_run_counts, project_text_bigram
 from .emc_model import SaeEmcModelV1, refuse_removed_flags, schedule_value
+from .lattice import _use_matmul, build_prior_history
 
 __all__ = [
     "BlankfreeAggLoss",
@@ -389,6 +390,22 @@ class SaeBlankfreeModelV1(SaeEmcModelV1):
     # table), with ``reverse_duration_freeze_mean`` (two laws for one table) and with
     # ``freeze_reverse`` (phi frozen whole leaves nothing for the mode to decide).  ``None`` -- every
     # other arm and every banked config -- adds no parameter, buffer or hook.
+    #
+    # ``sil_run_collapse`` (default ``False`` = the banked behaviour, bit for bit) fixes the SIL-run
+    # split of test T1.6.  The base class builds ``prior_history`` while ``lattice_cfg.topology`` is
+    # still ``"ctc"``, whose repeat diagonal ``same_nonsil`` exempts SIL (``lattice._prior_history``),
+    # and the switch to ``"blankfree"`` below never rebuilt it: the train step's DP
+    # (``history=model.prior_history``) may then read one SIL run as several SIL tokens, each paying
+    # its own prior term and SIL duration.  ``True`` rebuilds the history from the blank-free cfg, so
+    # a SIL run is ONE token like every phone run (the run-collapse definition of
+    # SAE_i6_ref_objective.md section 4.1, the one ``agg``'s ``expected_run_counts`` and the k2 leg's
+    # ``h_topology`` already use).  Every DP that takes ``model.prior_history`` follows it (l_tau, the
+    # rate term's tilted passes, the expected counts; ``genmarg.bed_from_train_config`` refuses the
+    # key, so no genmarg read runs on such a bed yet); no parameter or buffer changes, so a checkpoint
+    # loads either way.  With SIL run-collapsed, the band caps one SIL token's run like any token's
+    # (17 recognizer frames inside an utterance, 10 at its end) and D_sil caps its duration (50
+    # units), so a longer silence is read with a non-SIL token inside it
+    # (tests/test_model_sil_run_collapse.py).
     def __init__(self, *, zero_reverse_emission: bool = False, agg_order: int = 2,  # (port) refused
                  agg_grad_mode: str = "kl", agg_trigram_weight: float = 1.0,
                  permute_frames_seed: Optional[int] = None,
@@ -423,7 +440,8 @@ class SaeBlankfreeModelV1(SaeEmcModelV1):
                  null_recognizer: bool = False,
                  reverse_duration_freeze_mean: Optional[float] = None,
                  reverse_duration_prior: Optional[str] = None,
-                 reverse_duration_prior_mode: Optional[str] = None, **kwargs):
+                 reverse_duration_prior_mode: Optional[str] = None,
+                 sil_run_collapse: bool = False, **kwargs):
         refuse_removed_flags(
             "SaeBlankfreeModelV1",
             dict(
@@ -479,6 +497,13 @@ class SaeBlankfreeModelV1(SaeEmcModelV1):
             self.prior_weight_schedule = schedule
             self.prior_weight = None  # see the class comment: an unplumbed reader must fail
         self.lattice_cfg = replace(self.lattice_cfg, topology="blankfree", recognizer_stride=3)
+        # ``sil_run_collapse`` (see the class comment): rebuild the DP's history from the blank-free
+        # cfg just set, so its repeat diagonal also covers SIL.  False keeps the history the base
+        # class built under the "ctc" topology, i.e. the banked SIL-split behaviour.
+        self.sil_run_collapse = bool(sil_run_collapse)
+        if self.sil_run_collapse:
+            self.prior_history = build_prior_history(self.lattice_cfg, self.prior_history_name)
+            _use_matmul(self.lattice_reduction, self.prior_history)
         # (port) the order-3 target of ``agg_order = 3`` is cut (refused above)
         self.agg = BlankfreeAggLoss(
             self.agg_cfg, self.agg.text_uni.detach(),

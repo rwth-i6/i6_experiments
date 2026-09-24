@@ -208,7 +208,10 @@ def test_removed_flags_at_their_defaults_are_accepted(inputs):
 # The oracle is tests/lattice_oracle.py.  It enumerates the train step's ACTUAL latent set, which is
 # the SIL-split set (``sil_split=True``): the model's ``prior_history`` is built while the lattice
 # topology is still "ctc" (model/emc_model.py:367), so a SIL run may split into several SIL tokens
-# (the defect pinned by test_model_lattice.py T1.6).  The prior of every latent is the fitted
+# (the defect pinned by test_model_lattice.py T1.6).  With the model option ``sil_run_collapse=True``
+# (arm ctrl_20_rc) the history is rebuilt from the blank-free cfg and the oracle enumerates the
+# run-collapse set (``sil_split=False``) instead; :func:`_enum` reads the option off the model.
+# The prior of every latent is the fitted
 # ``log_tri`` rounded to float32 (the model's buffer dtype) and walked by the oracle's own history
 # rows (BOS-padded, over tokens); ``PhoneNgramPrior.per_token_log_probs`` is never used
 # (model/prior.py:246 double-counts one-token strings).  The only Z = 0 row of these batches is
@@ -347,10 +350,12 @@ _ENUMS = {}
 
 
 def _enum(model, T, S, s_cols):
-    """The train step's latent set: SIL-split readings (see the section comment)."""
-    key = (T, S, s_cols)
+    """The train step's latent set: SIL-split readings, or run-collapse ones under the model option
+    ``sil_run_collapse`` (see the section comment)."""
+    sil_split = not model.sil_run_collapse
+    key = (T, S, s_cols, sil_split)
     if key not in _ENUMS:
-        _ENUMS[key] = O.enumerate_utterance(T, S, _topo(model), "trigram", s_cols=s_cols, sil_split=True)
+        _ENUMS[key] = O.enumerate_utterance(T, S, _topo(model), "trigram", s_cols=s_cols, sil_split=sil_split)
     return _ENUMS[key]
 
 
@@ -470,7 +475,29 @@ def _rel(a, b):
 def test_t2_1_train_step_assembly(p2_inputs, eps):
     """T2.1: l_tau and rate are means over the kept rows, agg is the T1.16/T1.17 oracle, the total is
     1 l_tau + 3 rate + 0.1 agg, and theta's gradient is the oracle gradient of that sum."""
-    model, prior, units, rec = _t2_1(p2_inputs, eps)
+    _check_t2_1_assembly(p2_inputs, eps)
+
+
+@pytest.mark.parametrize("eps", [1e-4, 0.25])
+def test_t2_1_rc_train_step_assembly(p2_inputs, eps):
+    """T2.1 with ``sil_run_collapse=True`` (ctrl_20_rc): the same assembly against the run-collapse
+    oracle, with the step's history the model's rebuilt blank-free one."""
+    model, rec = _check_t2_1_assembly(p2_inputs, eps, sil_run_collapse=True)
+    (call,) = rec["l_tau"]
+    assert model.sil_run_collapse is True and call["kw"]["history"] is model.prior_history
+    rebuilt = LAT.build_prior_history(model.lattice_cfg, "trigram")
+    assert torch.equal(model.prior_history.same_nonsil, rebuilt.same_nonsil)
+    # the oracle's latent set is not the SIL-split one on either kept row
+    topo, s_cols = _topo(model), call["seg"].shape[-1]
+    for b in (0, 1):
+        T = math.ceil(T21_S[b] / 3)
+        split = O.enumerate_utterance(T, T21_S[b], topo, "trigram", s_cols=s_cols, sil_split=True)
+        assert _enum(model, T, T21_S[b], s_cols).n < split.n, b
+
+
+def _check_t2_1_assembly(p2_inputs, eps, **over):
+    """The body of :func:`test_t2_1_train_step_assembly`; ``over`` are extra model keywords."""
+    model, prior, units, rec = _t2_1(p2_inputs, eps, **over)
     o = _t2_1_oracle(model, prior, units, rec, eps)
     losses, (call,) = rec["losses"], rec["l_tau"]
     out = call["out"]
@@ -534,13 +561,23 @@ def test_t2_1_train_step_assembly(p2_inputs, eps):
     print(f"T2.1 eps={eps}: theta parameter grads vs the oracle FD-surrogate gradient pulled back: "
           f"max scaled deviation {worst:.3e}")
     assert worst <= 1e-6
+    return model, rec
 
 
 def test_t2_1_reverse_gradient_is_l_tau_only(p2_inputs):
     """T2.1: phi's gradient equals a run with lam_rate = lam_agg = 0 (bitwise) and the oracle
     gradient of the l_tau mean alone (1e-6)."""
-    model, prior, units, rec = _t2_1(p2_inputs, 0.25)
-    model0, _, _, rec0 = _t2_1(p2_inputs, 0.25, lam_rate=0.0, lam_agg=0.0)
+    _check_t2_1_reverse_gradient(p2_inputs)
+
+
+def test_t2_1_rc_reverse_gradient_is_l_tau_only(p2_inputs):
+    """:func:`test_t2_1_reverse_gradient_is_l_tau_only` with ``sil_run_collapse=True`` (both runs)."""
+    _check_t2_1_reverse_gradient(p2_inputs, sil_run_collapse=True)
+
+
+def _check_t2_1_reverse_gradient(p2_inputs, **over):
+    model, prior, units, rec = _t2_1(p2_inputs, 0.25, **over)
+    model0, _, _, rec0 = _t2_1(p2_inputs, 0.25, lam_rate=0.0, lam_agg=0.0, **over)
     assert "rate" not in [k for k, v in rec0["losses"].items() if v.scale != 0.0 and not v.as_error]
     names = [n for n, p in model.reverse.named_parameters() if p.requires_grad]
     g_full = dict((n, p.grad) for n, p in model.reverse.named_parameters() if p.requires_grad)
@@ -573,7 +610,32 @@ def test_t2_1_reverse_gradient_is_l_tau_only(p2_inputs):
         d = float((p.grad.double() - g.double()).abs().max())
         worst = max(worst, d / scale)
         assert d <= 1e-6 * scale, (n, d)
-    print(f"T2.1 reverse grads vs l_tau-only oracle: max scaled deviation {worst:.3e}")
+    print(f"T2.1 reverse grads vs l_tau-only oracle{' (rc)' if over else ''}: max scaled deviation {worst:.3e}")
+
+
+# --- sil_run_collapse (arm ctrl_20_rc): the history is the only thing the option moves -----------
+
+
+def test_sil_run_collapse_moves_only_the_history(p2_inputs):
+    """Default: the history the base class built under the "ctc" topology (the banked behaviour, table
+    for table).  Option on: the one built from the blank-free cfg.  Same seed, same parameters,
+    buffers and lattice cfg, so a checkpoint loads into either."""
+    from dataclasses import replace
+
+    default = _p2_model(p2_inputs)
+    rc = _p2_model(p2_inputs, sil_run_collapse=True)
+    assert default.sil_run_collapse is False and rc.sil_run_collapse is True
+    assert default.lattice_cfg == rc.lattice_cfg and rc.lattice_cfg.topology == "blankfree"
+    fields = ("succ", "last", "next", "group", "members", "dst", "same_nonsil")
+    for model, cfg in ((default, replace(default.lattice_cfg, topology="ctc")), (rc, rc.lattice_cfg)):
+        ref = LAT.build_prior_history(cfg, "trigram")
+        assert (model.prior_history.name, model.prior_history.n_outer, model.prior_history.start) == (
+            ref.name, ref.n_outer, ref.start)
+        for f in fields:
+            assert torch.equal(getattr(model.prior_history, f), getattr(ref, f)), f
+    sd_d, sd_r = default.state_dict(), rc.state_dict()
+    assert list(sd_d) == list(sd_r)
+    assert all(torch.equal(sd_d[k], sd_r[k]) for k in sd_d)
 
 
 # --- T2.2 the configured constants of ctrl_20 ----------------------------------------------------

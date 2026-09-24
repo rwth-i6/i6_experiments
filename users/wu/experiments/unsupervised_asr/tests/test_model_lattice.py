@@ -527,13 +527,25 @@ _SIL_SPLIT = (
     "FINDING model/emc_model.py:367 + model/blankfree_model.py:481: model.prior_history is built while "
     "lattice_cfg.topology is still 'ctc' (SIL exempt from the repeat diagonal, lattice.py:355-357) and "
     "is not rebuilt when the blank-free model switches the topology, so the train step's lattice lets a "
-    "SIL run split into several SIL tokens -- latents outside the run-collapse definition (NOTE 4.1)"
+    "SIL run split into several SIL tokens -- latents outside the run-collapse definition (NOTE 4.1); "
+    "the default (sil_run_collapse=False) keeps it, the option fixes it (test_t1_6_rc_*)"
 )
 
 
 @pytest.fixture(scope="module")
 def t1_6(tmp_path_factory):
     """One blank-free train step at the T1.6 configuration, with the l_tau DP call recorded."""
+    return _t1_6_step(tmp_path_factory.mktemp("t1_6"))
+
+
+@pytest.fixture(scope="module")
+def t1_6_rc(tmp_path_factory):
+    """:func:`t1_6` with the model option ``sil_run_collapse=True`` (arm ``ctrl_20_rc``), nothing else."""
+    return _t1_6_step(tmp_path_factory.mktemp("t1_6_rc"), sil_run_collapse=True)
+
+
+def _t1_6_step(tmp, **model_over):
+    """The body of :func:`t1_6`; ``model_over`` are extra model keywords (default: none)."""
     import returnn.frontend as rf
     from returnn.frontend._backend import select_backend_torch
     from returnn.tensor import Dim, Tensor, TensorDict
@@ -542,7 +554,6 @@ def t1_6(tmp_path_factory):
     from i6_experiments.users.wu.experiments.unsupervised_asr.model import blankfree_model as BM
     from i6_experiments.users.wu.experiments.unsupervised_asr.model import train_step as TS
 
-    tmp = tmp_path_factory.mktemp("t1_6")
     select_backend_torch()
     counts, _ = PP.count_ngrams([line.split() for line in PRIOR_CORPUS])
     prior = PP.PhoneNgramPrior.from_counts(counts)
@@ -561,7 +572,7 @@ def t1_6(tmp_path_factory):
         eta_table_path=eta_path,
         reverse_kwargs={"n_units": n_units, "eta_dim": eta_dim, "d_model": 16, "d_ff": 16},
         lam_rate=3.0, rate_rho_hz=9.6619373279, rate_fd_eps=0.25, rate_fd_mode="central",
-        lattice_reduction="matmul", lattice_checkpoint=2, lattice_float64=True,
+        lattice_reduction="matmul", lattice_checkpoint=2, lattice_float64=True, **model_over,
     )
     s_lens = [6, 5]
     g = torch.Generator().manual_seed(7)
@@ -691,6 +702,59 @@ def test_t1_6_model_history_is_the_blankfree_one(t1_6):
     print(f"T1.6 same_nonsil[(BOS, SIL), SIL]: model {bool(model.prior_history.same_nonsil[0, 0, h, sil])}, "
           f"rebuilt from the blank-free cfg {bool(rebuilt.same_nonsil[0, 0, h, sil])}")
     assert torch.equal(model.prior_history.same_nonsil, rebuilt.same_nonsil)
+
+
+# --- the fix: ``sil_run_collapse=True`` (arm ctrl_20_rc) -------------------------------------------
+
+
+def test_t1_6_rc_train_step_arguments(t1_6, t1_6_rc):
+    """Option on: the step's l_tau call is the default's in every argument but the history, which is
+    the model's own, rebuilt from the blank-free cfg; the step's inputs are the default's bit for bit."""
+    model, kw = t1_6_rc["model"], t1_6_rc["kw"]
+    assert model.sil_run_collapse is True and t1_6["model"].sil_run_collapse is False
+    assert kw["history"] is model.prior_history and model.prior_history.name == "trigram"
+    rebuilt = L.build_prior_history(model.lattice_cfg, "trigram")
+    assert torch.equal(model.prior_history.same_nonsil, rebuilt.same_nonsil)
+    sil, h = model.lattice_cfg.sil_id, 40 * 41 + model.lattice_cfg.sil_id  # (BOS, SIL)
+    assert bool(model.prior_history.same_nonsil[0, 0, h, sil])  # SIL -> SIL emit from f = 1 forbidden
+    assert not bool(t1_6["model"].prior_history.same_nonsil[0, 0, h, sil])  # default: still allowed
+    for name in ("succ", "last", "next", "group", "members", "dst"):
+        assert torch.equal(getattr(model.prior_history, name), getattr(t1_6["model"].prior_history, name)), name
+    # only SIL's diagonal differs from the default history
+    diff = model.prior_history.same_nonsil ^ t1_6["model"].prior_history.same_nonsil
+    assert diff.any() and bool((diff.nonzero()[:, -1] == sil).all())
+    assert model.lattice_cfg == t1_6["model"].lattice_cfg
+    assert set(kw) == set(t1_6["kw"])
+    for name, v in kw.items():
+        if name == "history":
+            continue
+        ref = t1_6["kw"][name]
+        assert (torch.equal(v, ref) if torch.is_tensor(v) else v == ref), name
+    assert torch.equal(t1_6_rc["log_q"], t1_6["log_q"]) and torch.equal(t1_6_rc["seg"], t1_6["seg"])
+
+
+def test_t1_6_rc_log_z_vs_run_collapse_oracle(t1_6_rc):
+    """The plan's T1.6 assertion with the option on: the captured log Z = the run-collapse oracle (1e-10)."""
+    _t1_6_compare(t1_6_rc, t1_6_rc["out"].log_z, sil_split=False, label="rc step vs run-collapse")
+
+
+def test_t1_6_rc_log_z_is_not_the_sil_split_lattice(t1_6, t1_6_rc):
+    """Option on: the SIL-split oracle no longer matches, and log Z sums over a strict subset of the
+    default's latents (G0.RC: rc log Z <= ctrl_20's on the same inputs).  The split latents are few at
+    this tiny shape (3 of 4723 and 2 of 3162): utterance 0's log Z moves by ~4e-8, 18x T1.6's tolerance,
+    utterance 1's by ~2e-11, inside it -- so the mismatch is required of at least one utterance and the
+    strict decrease of every one."""
+    mismatched = []
+    for b, S in enumerate(t1_6_rc["s_lens"]):
+        ref_split, n_split = _t1_6_oracle(t1_6_rc, b, sil_split=True)
+        ref_rc, n_rc = _t1_6_oracle(t1_6_rc, b, sil_split=False)
+        got, got_default = float(t1_6_rc["out"].log_z[b]), float(t1_6["out"].log_z[b])
+        print(f"T1.6 rc utt {b}: S={S} latents rc={n_rc} split={n_split} log Z rc={got:.13f} "
+              f"default={got_default:.13f} sil-split oracle={ref_split:.13f} diff={got - ref_split:.3e}")
+        assert n_rc < n_split
+        assert got < got_default and abs(got_default - ref_split) <= 1e-10 * max(1.0, abs(ref_split))
+        mismatched.append(abs(got - ref_split) > 1e-10 * max(1.0, abs(ref_split)))  # T1.6's tolerance
+    assert mismatched[0] and any(mismatched), mismatched
 
 
 # ---------------------------------------------------------------------------------------------------

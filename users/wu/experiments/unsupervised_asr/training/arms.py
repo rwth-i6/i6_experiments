@@ -37,6 +37,7 @@ __all__ = [
     "ctrl_20",
     "ctrl_20_s1",
     "CTRL_20_S1_SEEDS",
+    "ctrl_20_rc",
     "k2lat_20_ma3000",
     "off4_k2lat_20",
     "k2_word_lm",
@@ -144,6 +145,16 @@ def ctrl_20_s1(*, data: Dict[str, Any], num_sub_epochs: int = 20) -> Arm:
     return Arm(_name("ctrl_20_s1", n), cfg, n, KEEP_EPOCHS[n])
 
 
+def ctrl_20_rc(*, data: Dict[str, Any], num_sub_epochs: int = 20) -> Arm:
+    """The fixed control: :func:`ctrl_20` plus ``sil_run_collapse`` (the train lattice reads a SIL run
+    as one token, T1.6; ``SaeBlankfreeModelV1``'s class comment) and nothing else."""
+    n = _check_n(num_sub_epochs)
+    tau, lr = phase_schedules(n)
+    cfg = build_train_config(**_data(data), num_subepochs=n, temperature_schedule=tau, learning_rates=lr,
+                             sil_run_collapse=True)
+    return Arm(_name("ctrl_20_rc", n), cfg, n, KEEP_EPOCHS[n])
+
+
 def _k2_arm(
     base_name: str,
     *,
@@ -246,6 +257,7 @@ def k2_word_lm(
 ARM_PRESETS = {
     "ctrl_20": ctrl_20,
     "ctrl_20_s1": ctrl_20_s1,
+    "ctrl_20_rc": ctrl_20_rc,
     "k2lat_20_ma3000": k2lat_20_ma3000,
     "off4_k2lat_20": off4_k2lat_20,
     "k2_word_lm": k2_word_lm,
