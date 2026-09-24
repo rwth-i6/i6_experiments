@@ -4,8 +4,7 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 2739483 `config/sae_4a_lexlat_v2_em.py`: wave complete; A18 (a) bridge pack 63nbj6Jgiegj (SLURM 1998206) and the cold_ctl forwards (1998211), started 19:20 (`reports/exec_a18a_bridge_launch_2026-09-24.md`).
-- 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
-- 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
+- 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): pack ge1MKcAPmZIV finished (gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 queued (SLURM 2001624, est. start 09-25 05:50); its 3 paired rows wait on it.
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
 
 Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14).
@@ -14,7 +13,7 @@ Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A1
 
 NEXT:
 1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
-2. A18: read (a) by G4a.L2.4 when its pack finishes. Flip A18B_PAIRED_ROWS once A17 (i) finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
+2. A17 (i)/(ii) reads extracted, under audit; keyinit reads (GOLD KEY REACHES BASIN, A17 (iii)) being extracted. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
