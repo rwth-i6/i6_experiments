@@ -13,6 +13,10 @@ GPU routing `reports/review_gpu_route_2026-09-24.md` (all PASS_WITH_NOTES). Code
 Watcher (re-arm first on resume; from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1583423 config/sae_i6_p0_screen.py 60`.
 G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 fixed in `ctrl_20_rc` only (Runs).
+Blocking ctrl_20 (19:15): g2p training (the posterior-hmm copy of the same hash took 4.8 h, so expect about 22:00),
+then the phone-prior chain; and the VAD job `RLrgIh6lFv9m` (started 18:59, cn-604). A second background
+waiter watches for `work/i6_core/returnn/training/ReturnnTrainingJob.GiT88bxzoZbZ/output/models/epoch.001*`
+or an `error.*` there; re-arm it too on resume.
 NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
 peak GPU memory (<= 40 GiB), the step-1 triple and the ep1 PER against G0.R1. Pass: stop the screen
 manager, then start `config/sae_i6_p0.py` (164 jobs incl. `ctrl_20_rc` `llSFybyKXkbL`; never both
