@@ -15,9 +15,13 @@ In ``settings.py`` the package reads exactly:
 * ``FFMPEG_PIN_ACCEPT`` -- OPTIONAL, unset by default; a label that lets an ffmpeg which fails the
   pin check run anyway, as a visibly different audio generation (the label moves every downstream
   hash; :func:`get_ffmpeg_pin_accept`, ``data.ffmpeg_pin``);
-* ``SAE_PYTHON``, ``K2_PYTHON``, ``HF_HOME`` -- OPTIONAL overrides of the main conda env's python
-  (also ``RETURNN_EXE``), the k2 env's python and the Hugging Face cache; the defaults below are the
-  reference cluster's paths;
+* ``SAE_PYTHON``, ``HF_HOME`` -- OPTIONAL overrides of the conda env's python (also ``RETURNN_EXE``)
+  and the Hugging Face cache; the defaults below are the reference cluster's paths.  The env is the
+  one ``env/install_env.sh`` creates (one env, k2 included);
+* ``K2_PYTHON`` -- OPTIONAL; the python of a SEPARATE k2 env.  Without it the k2 jobs use
+  ``SAE_PYTHON`` (one env).  The reference cluster (JUPITER) must set it: its main env has no k2,
+  which was built from source into a clone of the main env
+  (``/e/project1/spell/wu24/envs/sae_k2/bin/python``);
 * ``KENLM_BINARY_PATH`` -- OPTIONAL; a prebuilt KenLM ``bin/`` dir (built from ``KENLM_COMMIT``)
   used instead of compiling KenLM (:func:`get_kenlm_binary_path`).  Set it where the job env cannot
   compile KenLM (the reference cluster: ``<setup>/tools/kenlm/build/bin``);
@@ -52,9 +56,10 @@ Names
 * ``SAE_PYTHON_EXE`` -- the main conda env (``speech_llm`` on the reference cluster): the RETURNN
   interpreter of every non-k2 job and the python of jobs that run a child python of their own.
 * ``RETURNN_EXE`` -- the same object as ``SAE_PYTHON_EXE`` (kept as the name other modules import).
-* ``K2_PYTHON_EXE`` -- the k2 + CUDA env (a conda clone of the main env with k2 built from source,
-  torch 2.7.1).  The k2 training arms run RETURNN under it, and the HLG build jobs run their child
-  scripts under it.
+* ``K2_PYTHON_EXE`` -- the python with k2 (CUDA, torch 2.7.1): ``settings.py``'s ``K2_PYTHON`` if
+  set, else ``SAE_PYTHON`` (one env).  The k2 training arms run RETURNN under it, and the HLG build
+  jobs run their child scripts under it.  On the reference cluster it is a separate env (a conda
+  clone of the main env with k2 built from source), so ``settings.py`` there sets ``K2_PYTHON``.
 * ``get_kenlm_binary_path()`` -- KenLM ``bin/`` (``lmplz``, ``build_binary``, ``query``), kpu/kenlm
   at ``KENLM_COMMIT`` (the commit of the reference cluster's prebuilt ``tools/kenlm``).
 * ``FFMPEG_BINARY`` -- the ffmpeg that transcodes the openslr LibriSpeech FLAC to 16 kHz Ogg Vorbis
@@ -92,17 +97,21 @@ RETURNN_ROOT = CloneGitRepositoryJob(
 RETURNN_ROOT.hash_overwrite = "UNSUPERVISED_ASR_RETURNN_ROOT_00171dfe_LOCAL_FIXES"
 
 # -------------------------------------------------------------------------------------------------
-# Interpreters (``settings.py`` SAE_PYTHON / K2_PYTHON override the reference cluster's defaults)
+# Interpreters (``settings.py`` SAE_PYTHON overrides the reference cluster's default; K2_PYTHON
+# names a separate k2 env and defaults to SAE_PYTHON)
 # -------------------------------------------------------------------------------------------------
-#: the main conda env (torch 2.7.1, transformers, datasets, h5py, rVADfast, ffmpeg, sequitur)
+#: the conda env (torch 2.7.1, transformers, datasets, h5py, rVADfast, ffmpeg, sequitur; k2 in the
+#: env ``env/install_env.sh`` creates, not in the reference cluster's main env)
 SAE_PYTHON = str(getattr(gs, "SAE_PYTHON", None) or "/e/project1/spell/wu24/env/conda/envs/speech_llm/bin/python")
 SAE_PYTHON_EXE = tk.Path(SAE_PYTHON, hash_overwrite="UNSUPERVISED_ASR_SAE_PYTHON_EXE")
 #: the RETURNN interpreter of every non-k2 job (no ``settings.py`` RETURNN_PYTHON_EXE is read)
 RETURNN_EXE = SAE_PYTHON_EXE
 
-#: the k2 env: a clone of the main env with k2 built from source (k2 ec31d2c9, CUDA 12, sm_90,
-#: torch 2.7.1).  A fixed ``hash_overwrite``: the path may differ per server, the hash does not.
-K2_PYTHON = str(getattr(gs, "K2_PYTHON", None) or "/e/project1/spell/wu24/envs/sae_k2/bin/python")
+#: the python with k2 (k2 ec31d2c9, CUDA 12, torch 2.7.1): ``settings.py`` K2_PYTHON if set, else
+#: :data:`SAE_PYTHON` (one env).  The reference cluster sets K2_PYTHON to its separate k2 env
+#: (``/e/project1/spell/wu24/envs/sae_k2/bin/python``), because its main env has no k2.  A fixed
+#: ``hash_overwrite``: the path may differ per server, the hash does not.
+K2_PYTHON = str(getattr(gs, "K2_PYTHON", None) or SAE_PYTHON)
 K2_PYTHON_EXE = tk.Path(K2_PYTHON, hash_overwrite="UNSUPERVISED_ASR_K2_PYTHON_EXE")
 
 # -------------------------------------------------------------------------------------------------
