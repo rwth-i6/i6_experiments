@@ -15,7 +15,7 @@ Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last train
 
 NEXT:
 1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launched (pid 1895908, see LIVE). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
-2. A19 trigram-only ladder: built (bf5b2972, pack DzrmcjOQ4I3r), in review (`reports/review_a19_triladder_2026-09-24.md`); launch needs the user's shim `config/sae_4a_lexlat_v2_triladder.py`.
+2. A19 trigram-only ladder: review PASS (`reports/review_a19_triladder_2026-09-24.md`), pack DzrmcjOQ4I3r ready; waiting for the user's shim `config/sae_4a_lexlat_v2_triladder.py`, then the executor starts a new manager.
 3. A18 review PASS_WITH_NOTES (`reports/review_a18_bridge_2026-09-24.md`); the (b) lift pack is in the keyinit graph (see LIVE). Flip A18B_PAIRED_ROWS once A17 (i) is finished. Launch order: the two bridges share 9 cold_ctl jobs, so flip the second bridge flag only after the first bridge's cold_ctl jobs finish; start the keyarms manager only after keysearch_s1 ends.
 4. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 5. At each watcher wake, the executor checks; every read is audited, then recorded.
