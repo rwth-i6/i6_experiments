@@ -3,7 +3,7 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 4063254 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 2026-09-25 01:36, `reports/exec_keyinit_rerun_2026-09-25.md`): A18 (b) lift pack ZUZypSQn7qc0 FINISHED. The genmarg decode of a18_r30_dur at ep8 (`ReturnnForwardJobV2.GTAGKejuQTxD`) hit a one-off wrong value on node jpbo-028-30, an environment fault (`reports/debug_keyinit_genmarg_2026-09-25.md`). It was resubmitted unchanged (pack 2005128). The lift read `uRzbIh0EfQXG`, over all 4 arms, waits on it.
+- The keyinit manager finished on 2026-09-25. The r30 genmarg decode was rerun after a node fault (`reports/debug_keyinit_genmarg_2026-09-25.md`).
 - 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
@@ -12,7 +12,7 @@ Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. A18 (b): read when ZUZypSQn7qc0 finishes. Then apply the A18 (c) hold rule at once, which the review's condition requires: if (b)'s gold-key arm reads NO LIFT and S_cand >= 3.19704 on the same tags, the implementer sets BRIDGE_KEYARMS False and the keyarms manager is restarted before the key arms finish. Re-enable only if S_cand < 3.19704.
+1. A18 (b): the lift read `uRzbIh0EfQXG` prints DURINIT BASIN LIFTS, with all 4 arms at LIFT (`reports/extract_a18b_lift_2026-09-25.md`). Audit `reports/audit_a18b_lift_2026-09-25.md` is pending; record after it. The gold-key arm reads LIFT, so the A18 (c) hold rule does not trigger and BRIDGE_KEYARMS stays True.
 2. Owed report: A15-F measures on the key arms (review finding), registered as AN-5 in `SAE_4A_rename.md`.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
