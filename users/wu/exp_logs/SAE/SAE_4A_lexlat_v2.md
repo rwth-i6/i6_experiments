@@ -151,7 +151,7 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
   - **Text preference.** Each is the per-frame log p_phi(z | string, eta), marginalised over segmentations: gold minus the alternative. Speaker-clustered 95 % intervals.
     - (T1) Utterance swap: gold against a same-speaker deranged gold string (D10b's form).
     - (T2) Phone-identity swap: gold against gold with phone labels permuted. Three levels: 1 random pair, 5 random pairs, and a full random permutation of the 39 non-SIL phones. 5 permutation seeds each, reported as a mean and a range.
-    - (T3) Relabelled gold: the phi's Hungarian symbol-to-phone map (from R1's decode) is applied to gold, and the result is set against T1's deranged string. This asks whether the phi is phonetic up to relabelling. For permphi, its own permutation is also scored.
+    - (T3) Relabelled gold: the phi's Hungarian symbol-to-phone map (from R1's decode) is applied to gold, and the result is set against T1's deranged string. This asks whether the phi is phonetic up to relabelling. For permphi, its own permutation is also scored. Amended 2026-09-24, before any result, because that contrast mixes the relabelling with the utterance swap. The primary T3 is now M(gold) against M(deranged), the same map applied to both strings, so it isolates content. Also reported: M(gold) against gold, which reads the relabelling alone, and the original mixed contrast.
   - **Raw accuracy.**
     - (R1) The genmarg decode under the phone trigram, as in A10's diagnostics: direct PER, Hungarian PER, NMI(symbol, phone), E[d].
     - (R2) The same decode under a uniform phone prior, which is phi's content without the text prior's help.
