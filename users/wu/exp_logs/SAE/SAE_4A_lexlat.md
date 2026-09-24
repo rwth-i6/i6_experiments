@@ -811,6 +811,55 @@ User: "supervised init asr model on gold, train reverse model on its output and 
 
 Amendment before any job (2026-09-23, implementation): a seed utterance that p0 decodes to an empty string cannot be a fit target. Such utterances are dropped from the decphi fit, and the conversion job prints their count and IDs. If more than 1% of the seed (more than 28 of 2849) is empty, the job fails and D14 does not launch.
 
+**Result (W1 and W2 COMPLETED, all arms at ep8; `reports/extract_d14_read_2026-09-24.md`, outputs `output/exp2025_11_06_speech_llms/librispeech/sae_4a_supervised_decphi/`).** Paired rows use 2864 utterances and 33 speakers, 95 % speaker-clustered, 2000 resamples.
+- **Fit.** p0's seed decodes score 0.1277 PER against seed gold (2849 utterances). None is empty, so none is dropped.
+- **Band.** B_warm = |supphi_k2lat_rep - supphi_k2lat|: 0.0019 at ep4 and 0.0010 at ep8. So M_w = 0.010 at both epochs.
+- **Dev-other PER at ep8:**
+
+  | Arm | PER |
+  |---|---|
+  | decphi_plain | 0.2416 |
+  | decphi_frz | 0.2220 |
+  | decphi_k2lat | 0.1822 |
+  | decphi_k2lat_frz | 0.1728 |
+  | supphi_k2lat_frz | 0.1701 |
+  | supphi_k2lat_rep | 0.1808 |
+  | supphi_k2lat_rp | 0.2180 |
+  | decphi_k2shuf | 0.3618 |
+
+  p0 is 0.1894, and the banked supphi_k2lat is 0.1797.
+- **Read 1, against p0:**
+
+  | Arm | ep4 | ep8 |
+  |---|---|---|
+  | decphi_plain | +0.0945 [+0.0874, +0.1016] DEGRADES | +0.0521 [+0.0450, +0.0589] DEGRADES |
+  | decphi_frz | +0.0901 [+0.0849, +0.0958] DEGRADES | +0.0326 [+0.0278, +0.0374] DEGRADES |
+  | decphi_k2lat | +0.0093 [+0.0030, +0.0150] PRESERVES | -0.0072 [-0.0129, -0.0017] PRESERVES |
+  | decphi_k2lat_frz | +0.0126 [+0.0067, +0.0179] DEGRADES | -0.0166 [-0.0220, -0.0114] REFINES |
+  | supphi_k2lat_frz | +0.0033 [-0.0024, +0.0084] PRESERVES | -0.0193 [-0.0244, -0.0144] REFINES |
+
+- **Read 2, joint against frozen under the k2 term:**
+  - decphi_k2lat_frz - decphi_k2lat: +0.0033 [+0.0009, +0.0058] at ep4, TIE. At ep8, -0.0094 [-0.0113, -0.0073], TIE, just inside M_w.
+  - supphi_k2lat_frz - supphi_k2lat_rep: -0.0064 [-0.0079, -0.0047] at ep4, TIE. At ep8, -0.0107 [-0.0129, -0.0084], **FROZEN BETTER**.
+- **Read 3, the k2 term:** it **HELPS** at both epochs, frozen or not.
+  - decphi_k2lat - decphi_plain: -0.0852 at ep4 and -0.0593 [-0.0629, -0.0560] at ep8.
+  - decphi_k2lat_frz - decphi_frz: -0.0776 at ep4 and -0.0492 [-0.0536, -0.0452] at ep8.
+- **Read 4:** decphi_k2lat - decphi_k2shuf is -0.1593 at ep4 and -0.1796 [-0.1847, -0.1742] at ep8, so the read is **LEXICON-SPECIFIC**. The shuffled graph degrades the decode start to 0.36.
+- **Read 5, label source (descriptive):**
+  - decphi_k2lat - supphi_k2lat_rep: +0.0015 [+0.0003, +0.0026] at ep8.
+  - decphi_k2lat_frz - supphi_k2lat_frz: +0.0027 [+0.0007, +0.0046] at ep8.
+  - A phi fitted on p0's 12.8 %-PER decodes does within 0.003 of the gold phi under the k2 term.
+- **Read 6, D10b at ep8 (gold minus decoded / gold minus deranged gold, nats per frame):**
+  - p0 with decphi: -0.097 / +4.087.
+  - decphi_plain: -0.473 / +4.484.
+  - decphi_frz: -0.130 / +4.087.
+  - decphi_k2lat: -0.378 / +4.488.
+  - decphi_k2lat_frz: -0.140 / +4.087.
+- **What it means.**
+  - Without the k2 term, the pair drifts away from p0 whether phi is frozen or not.
+  - With the k2 term, the pair holds or refines p0, and the gain depends on the lexicon.
+  - The reverse model's label source hardly matters at this competence.
+
 ## D15: ablating the phone trigram in the k2 arm (user request 2026-09-23, registered before any job; answers State fork 3's arm choice)
 
 User: "ablation of current 3gram phone LM. Do it on one or two most representative k2 arm is enough". Arms chosen: the cold line's best treatment `k2lat_20_ma3000` (the E60 candidate) and the warm-start treatment `supphi_k2lat`, where the term is lexicon-specific (D10e).
@@ -849,7 +898,7 @@ User: "ablation of current 3gram phone LM. Do it on one or two most representati
   Both are inside M_c. On the cold line, replacing the phone trigram where the word graph carries the text changes nothing measurable.
 - **(c) k2lat_rp - k2shuf_rp at ep20: -0.0072 [-0.0095, -0.0047].** The interval is below zero, but the delta is not below -M_c, so the read is **not LEXICON-SPECIFIC**. The tie with the random-pronunciation null is not the double count's doing, and State fork 1 does not reopen through the prior.
   - The beta-1 pair beside it, k2lat_rep - k2shuf_rep, is +0.0216 [+0.0190, +0.0243] (pack2: +0.0044). Its sign flips relative to (c), and both are within the replicate scale.
-- The warm read (a) comes with D14's W2. D18's JS, convergence and common-objective reads follow when D14 finishes.
+- **(a) Warm, from D14's W2: TRIGRAM NEEDED at both epochs.** supphi_k2lat_rp - supphi_k2lat_rep is +0.0337 [+0.0305, +0.0372] at ep4 and +0.0372 [+0.0349, +0.0396] at ep8, against M_w = 0.010 (`reports/extract_d14_read_2026-09-24.md`). With a competent phi, fading out the phone trigram costs 0.037 PER. On the cold line (b) it changes nothing. D18 reads follow.
 
 ## D16: cross-evaluation of the gold-start and cold pairs (user request 2026-09-23, registered before any job; descriptive, no gate)
 
@@ -974,9 +1023,9 @@ Paired rows against the uniform counterpart (2864 utterances, 33 speakers; negat
 
 Against p0, every arm is worse: +0.565 to +0.610 at ep1 and +0.626 to +0.666 at ep8, with all intervals excluding zero.
 
-- **Classification at ep8, band M_e = max(0.03, B_warm).** B_warm is D14's warm replicate spread, still pending.
+- **Classification at ep8, band M_e = max(0.03, B_warm).** B_warm = 0.0010 at ep8 (D14 Result).
   - k2lat arms: **NO EFFECT**. Both deltas are inside the 0.03 floor, and a larger B_warm cannot change that.
-  - sup arms: **HELPS AT THE EDGE if B_warm <= 0.0363 (durinit) / 0.0406 (durfrz)**; otherwise NO EFFECT. This is final at D14's read.
+  - sup arms: **HELPS AT THE EDGE** (final; B_warm at ep8 = 0.0010 from D14, so M_e = 0.03). The deltas -0.0363 and -0.0406 are both beyond -0.03 with intervals below zero. Both arms still end at 0.85, inside the collapse.
   - Either way, the "help" moves a collapsed arm from about 0.89 to 0.85, inside the chance band 0.83-0.91. It is not a recovery of phonetic content.
 - **Durations (report).** At ep8, the phone E[d] mean is 4.61 (3.43-6.02) for durinit and 4.68 (3.27-6.46) for k2lat_durinit, against the prior's 4.41. SIL E[d] falls from 25.8 to 13.6-14.8 in every arm. The non-SIL share of emitted tokens goes from 0.941 to 0.964 (sup arms) and from 0.928 to 0.895-0.899 (k2lat arms).
 - **What it means.** Consistent with D10e (the untrained phi drives the collapse): fixing the duration law alone leaves phi's emissions untrained, and they carry the collapse. At ep1 the prior slows the sup arms' collapse (-0.092) and speeds the k2lat arms' collapse (+0.108). By ep8 both effects have mostly washed out.

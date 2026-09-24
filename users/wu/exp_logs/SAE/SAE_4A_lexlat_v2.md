@@ -125,6 +125,21 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - other arms at most 80.9 GB.
   - Peaks were set at steps 1-2 and stay flat after them. Arcs per frame at step 12 are 1,403 (cold_ctl), 1,434 (rt_r100) and 526 (rt_r70), against 37,200 at step 0.
   - The pre-flight's 80 GiB clause was a pre-flight bar, not an abort rule. The running peaks exceed it by up to 4 GB and stay under the card.
+- **A14 (2026-09-24, after the A10 and L2-0 reads, before any A14 job) Does an EM phi lift a random theta, and does the stage-1 objective prefer phonetic phis?** Trigger: every A10 restart beats the gold phi on held-out S (3.30-3.40 against 3.47 on the 260 set), while its genmarg decode stays in the chance band (Results). L2-0's rt arms show that a fitted phi lifts a random theta at this recipe. No registered gate or constant changes, and the wave runs as registered.
+  - **(i) rt_em, pure unsupervised: the direct lift test.**
+    - Recipe: the L2-0 R-node recipe verbatim, with theta at the cold random init, D10e pack constants, `supphi_k2lat`'s k2 block, 8 sub-epochs, and both models trainable. phi is initialised from an A10 restart's sub-epoch-48 checkpoint.
+    - Arms: all four candidate restarts, durinit s1/s2 and durfrz s1/s2, so no selection is made. They run as one 4-arm pack.
+    - Read: dev-other greedy PER at ep8 in A4's bands (LIFT < 0.50, PARTIAL < 0.8164, else NO LIFT).
+    - Verdict: **EM PHI LIFTS** if any arm reads LIFT or PARTIAL; **EM PHI DOES NOT LIFT** if all four read NO LIFT. Reported beside: ep1/2/4/8 PER, and a paired row rt_em minus cold_ctl at ep8.
+    - PER is a read here and never selects a phi. The L2-2 funding rule (A7) is unchanged.
+  - **(ii) Objective floor, analysis only (supervised init, disclosed; never a route or a fallback).**
+    - Recipe: the A10 recipe verbatim (durinit, tau 4 then 1, 48 sub-epochs, the same sub-epoch and scoring), with phi initialised from the L2-0 fits: gold `16v7R6ztSq1u`, r30, r70 and r100. These are 4 one-GPU restarts. Diagnostics run as in A10, every 4 sub-epochs and also at sub-epoch 0, the init phi itself.
+    - Read: S_g = the gold-init restart's S at 48 on the 260 set, against S_min = 3.2990, the lowest of the six A10 restarts at 48.
+      - **PHONETIC BASIN LOWER** if S_g < S_min - 0.01 and the gold-init Hungarian PER at 48 is < 0.50. The objective prefers the phonetic basin, and random-init EM is search-limited.
+      - **NON-PHONETIC PREFERRED** if S_g > S_min + 0.01, or the gold-init Hungarian PER at 48 is >= 0.83 (drift into the chance band). Here the stage-1 objective, not the search, stops EM, and the next cost work goes to the objective.
+      - **TIE** otherwise.
+    - The 0.01 is A7's floor. The r30, r70 and r100 inits are reported only.
+  - Cost: 8 GPUs on two nodes, about 2.2 h for (i) and about 3 h for (ii). (i) runs as a 4-GPU pack, and (ii) runs through gpupack.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -192,3 +207,22 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - S falls from 5.77 at sub-epoch 1, through 4.91 and 3.97-4.07.
 - E[d] for the phone types: durinit drifts from 4.09 to 4.86-4.94; durfrz is held at 4.41; uniform falls from 12.8 to 9.95. SIL falls from 24.9 to about 18.4 in every setting.
 - Consequence: A10's re-derivation.
+
+**A10 extension read: WAVE SETTING durinit, 12 sub-epochs.** Source: `PhiFirstA10ReadJob.DcfCsZNq1ucr` and diagnostics `PhiFirstA10DiagnosticsDisjointJob.G2NeV8oNr4tO`, all six restarts COMPLETED at sub-epoch 48; read in `reports/extract_a10_read_2026-09-24.md`.
+- **K\*:** durinit 12, durfrz 10, uniform 10 (report only). Every rate is in band at 48, between 6.8 and 7.6 Hz.
+- **Choice:** at sub-epoch 12, the largest K\* among the candidates, mean S is 3.4217 for durinit and 3.4571 for durfrz. So WAVE_DURATION_SETTING = durinit and WAVE_NUM_SUBEPOCHS = 12.
+- **Identity band:** the largest difference between sub-epochs 1-4 and the probe is 3.4e-5.
+- **S at sub-epoch 48, 260-utterance disjoint set, with the 285 set in parentheses:**
+
+  | Setting | Seed 1 | Seed 2 |
+  |---|---|---|
+  | durinit | 3.2990 (3.3040) | 3.3703 (3.3760) |
+  | durfrz | 3.3667 (3.3720) | 3.3996 (3.4058) |
+  | uniform | 3.3476 (3.3505) | 3.3224 (3.3277) |
+
+  The gold phi reads 3.4735 (3.4702) and L2-0's r100 phi 4.6901 (4.6861). Every restart is below gold from sub-epoch 12 on.
+- **Report only (dev-other, 500 utterances, phi's genmarg decode):**
+  - At 48, direct PER is 0.832-0.856 and Hungarian PER 0.838-0.861. Both are inside the chance band 0.83-0.91 at every checkpoint, and neither improves after sub-epoch 4.
+  - NMI(symbol, phone) is 0.079-0.113.
+  - E[d]: durinit 6.0-6.2, uniform 6.2-6.3, durfrz held at 4.41.
+- **What it says, untested interpretation:** EM from random init finds phis that the stage-1 held-out likelihood prefers to the gold phi, and whose decodes carry no phonetic content. A5's bar, which needs a statistic that separates competent from sharp-wrong phis, is the same question. The A14 analysis tests whether the objective or the search is responsible.
