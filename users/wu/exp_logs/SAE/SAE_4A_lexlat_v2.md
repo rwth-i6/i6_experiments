@@ -702,3 +702,14 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
     - add symbol-swap moves, which exchange two symbols' unit sets and change only the LM and duration terms;
     - add relabel starts, from each A10/A11 partition with its class-to-symbol map deciphered under J.
   - Deciphering the A10 partitions also answers a question for the handoff: whether J at the best relabelling of an EM partition reaches J(gold).
+
+### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
+- No term reads a run of identical frames as several phones, and no path count is inflated.
+  - l_tau: the repeat arc keeps the trigram history and adds no prior or segment. A token equal to its predecessor, SIL included, is masked.
+  - k2: H has one path per frame string.
+  - l_tau and k2 admit the same support: collapsed runs, SIL as an ordinary symbol, and never two equal phones in a row.
+- Costs of the blank-free support, small and disclosed:
+  - A true repeat can only surface as X SIL X. Dev-other has 989 repeat pairs in 177,275 reference phones (0.56 %, in 772 of 2,864 utterances; 962 cross-word, 6 with a real pause). That sets a PER floor of about 0.56 % without SIL.
+  - The trigram was fitted on uncollapsed text (0.265 % repeat tokens). The masked mass is not renormalised: 0.0027 nats per token.
+  - The k2 lexicon has 533 of 151,731 words with an internal repeat, and these can never be reached. A cross-word repeat is reachable only through SIL, so k2 pushes such spans toward X SIL X or another parse. The size of that pressure is unmeasured.
+  - phi's HSMM allows same-symbol neighbours on its own, but never inside l_tau.
