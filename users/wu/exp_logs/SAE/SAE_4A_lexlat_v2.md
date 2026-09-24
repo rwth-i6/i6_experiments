@@ -6,6 +6,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
+- 1192448 `config/sae_4a_lexlat_v2_keyinit.py`: pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii)), submitted 09:54 (`reports/exec_keyinit_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited. A10: the EM phis beat gold on S, but decode at chance. D18: co-adaptation. A11: CANNOT_TELL (no rate-eligible null).
@@ -16,7 +17,7 @@ Reads 2026-09-24 (Results):
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only (2026-09-23). The last training round runs here (2026-09-24): only work in progress, meaning A14, A17 and A16 (b) as registered (Constraints).
 
 NEXT:
-1. A17 (i)/(ii) are live (see above). The keyinit pack (gold-key control plus A17 (iii) G-dur, r30-dur, r70-dur; 572b59ca) is built and in review (`reports/review_keyinit_launch_2026-09-24.md`); then launch. The key-arms builder exists (keyarms_v1), but its stage-1 key wiring and its setup shim are still missing. A16 (b) stage 0 read J SEES THE KEY, audited but fragile (margin 0.009; Results). Stage 1 (with swap moves and relabel starts) is being built; review, then launch. The stage-1 key search, with cluster-then-decipher starts, is being built in parallel; it runs on J SEES THE KEY. Stage-2 key arms follow under their gates (A17 (i) BASIN INSUFFICIENT withdraws them; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds them). Literature: `reports/lit_segmentation_gap_2026-09-24.md`.
+1. A17 (i)/(ii) are live (see above). The keyinit pack is live (see above). The key-arms builder exists (keyarms_v1), but its stage-1 key wiring and its setup shim are still missing. A16 (b) stage 0 read J SEES THE KEY, audited but fragile (margin 0.009; Results). Stage 1 (with swap moves and relabel starts) is being built; review, then launch. The stage-1 key search, with cluster-then-decipher starts, is being built in parallel; it runs on J SEES THE KEY. Stage-2 key arms follow under their gates (A17 (i) BASIN INSUFFICIENT withdraws them; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds them). Literature: `reports/lit_segmentation_gap_2026-09-24.md`.
 2. At each watcher wake, the executor checks. Every read is audited, then written up for the handoff.
 
 ## Objective
