@@ -200,3 +200,33 @@ full. Lines 1-33 and 401-459 of settings.py are byte-identical to the pre-routin
    PD (Resources), all on gpu_48gb, with none held. The dispatch said all five were held.
 4. The worker's LoggingThread (sisyphus/worker.py:62) also runs the router on the compute node.
    That costs 2 Slurm calls at job start and has no effect on placement.
+
+## Delta review, round 4 (settings.py sha256 ea461de836245e08, tests 9d106cbf931d2abd)
+
+Verdict: PASS.
+
+- **Diff against the reviewed 43585da6.** I rebuilt 43585da6 byte-exactly from my round-3 read of the
+  file; the sha matched. The diff is only `_gr_pick` (lines 218-222) and the header comment
+  (lines 43-44). `check_engine_limits`, the gpu_mem > 24 line (396), the queued/sticky paths and
+  `gpu_route` (957c59f7) are unchanged.
+- **The new pick.** Candidates are the partitions with headroom > 0, or both partitions when
+  neither has any. Among the candidates the pick is max by score, then by gpu_48gb.
+  - When any partition has headroom, every candidate does, so the key "headroom > 0" is inert.
+    It changes no pick.
+  - Case checks:
+    - (24 at score -2, headroom 6) vs (48 at score 0, headroom 0) -> gpu_24gb. This is the
+      reads-behind-5-trainings case.
+    - (0, 6) vs (0, 0) -> gpu_24gb.
+    - Both headrooms ≤ 0 -> higher score, and gpu_48gb on a tie.
+    - Both headrooms > 0 -> higher score, and gpu_48gb on a tie.
+- **Trainings and gpu_mem > 24.** `_gr_pick` is reached only for flexible tasks that are neither
+  queued nor sticky trainings.
+  - In the dump, every ReturnnTrainingJob keeps `-p gpu_48gb`: 6 in P0 and 1 in the screen.
+  - Apart from the ReturnnForwardJobV2 run tasks, no sbatch line differs from the baseline. The only
+    other change is the `submitted` flag of jobs the manager has launched since round 3.
+- **Ids.** P0 has 164 jobs, sha1 61a14191. The screen has 75, sha1 db40328d. Both are identical to
+  round 3.
+- **Tests and live runs.**
+  - 33/33 tests pass under python 3.11 (sae) and 3.10.
+  - Live at 22:55: `./gpu_route` gave gpu_48gb (score 4 vs 0), and the rebalance dry run moved 0.
+  - The burst split is still identical cold, warm and sequential.
