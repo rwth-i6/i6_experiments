@@ -13,7 +13,8 @@ Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat go
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
 
 NEXT:
-1. Stage-1 key search: fix committed (1a64a51d, `reports/impl_a16b_stage1_fix_2026-09-24.md`), in re-review (`reports/review_a16b_stage1_fix_2026-09-24.md`); then launch and watch.
+1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launching (`reports/exec_a16b_stage1_launch_2026-09-24.md`). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
+5. A19 trigram-only ladder: building (`reports/impl_a19_triladder_2026-09-24.md`), then review and launch; shim `config/sae_4a_lexlat_v2_triladder.py` (user).
 2. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim exists (user, 2026-09-24).
 3. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 4. At each watcher wake, the executor checks; every read is audited, then recorded.
@@ -37,6 +38,7 @@ Break the cold line's private code without labels and without a GAN. The record:
   - Analysis on these runs is allowed without limit: forwards, readers, CPU analyses and audits, including new analyses registered here.
   - Only new training is excluded, such as a segmentation-init or duration-shape run. Such runs go to the continuation as handoff items.
   - Bridge and joint runs on the phis these lines select are permitted (user, 2026-09-24), withheld only when surely non-lifting: A18.
+  - The trigram-only lift ladder, one four-GPU pack, is authorised by the user (2026-09-24): A19.
 
 ## Gates (pre-registered 2026-09-23, before any job)
 
@@ -349,6 +351,21 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - A new one-GPU baseline would have idled a whole node.
     - dec_distil trains at tau 2.0 (the arms' tau) and lr 1e-5 (the pack schedule's sub-epoch-1 value, since the D10e constants apply verbatim). Its target is the plain l_tau posterior, with no k2 term.
   - Cost: one four-GPU pack each for (a), (b) and (c), about 11.5 h each (A14 (i)'s request); (d) adds one pack if its condition holds.
+
+- **A19 (2026-09-24, user request, before any job) Trigram-only lift ladder: does a partly wrong phi still lift a random theta without the k2 word-lexicon term?** Disclosed label-using diagnostic, as L2-0.
+  - Trigger: the user asked whether, under the phone trigram alone, r30, r50 and r70 still lift, and ruled "do it here with a gpu pack".
+    - L2-0's random-theta ladder ran only with the k2 block on.
+    - The only trigram-only evidence starts from p0: D10e's supphi_plain drifted from 0.193 to 0.256 by ep8, against 0.180 with k2.
+  - Recipe: L2-0's R-node recipe verbatim (theta at the zero-logit flat init, D10e pack constants, tau 2.0, 8 sub-epochs, kept 1/2/4/8, both models trainable, the same corrupted phi fits), with the k2 block removed. That removal is the single delta against each rt_rX arm.
+  - Arms, one four-GPU pack: tri_r30, tri_r50, tri_r70, and tri_r100 as the content-free negative control.
+  - Read per arm: dev-other greedy PER at ep8 in A4's bands (LIFT < 0.50, PARTIAL < 0.8164, else NO LIFT).
+    - rho*_tri is the largest rho that LIFTs with every smaller rung lifting; a non-monotone ladder reads CANNOT_TELL.
+    - **SAME LADDER** if rho*_tri = 0.7. **K2 NEEDED ABOVE rho*_tri** if rho*_tri < 0.7, including no lifting rung. **VOID** if tri_r100 lifts.
+  - Reported beside, never gating:
+    - The paired rows tri_rX minus rt_rX at ep1 and ep8 (`PairedPerDeltaJob`, speaker-clustered bootstrap), with M = max(0.010, |rt_r0 - rt_r0_s2| at ep8 = 0.001) = 0.010. K2 HELPS at a rung if the delta exceeds M with the interval above zero, and TRIGRAM ENOUGH otherwise.
+    - The jointly trained phi's generative PER (direct, Hungarian, NMI) at ep8.
+    - The ep1/2/4 PER.
+  - Cost: one four-GPU pack, at most L2-0's request; steps are cheaper without k2.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
