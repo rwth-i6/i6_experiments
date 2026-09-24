@@ -3213,8 +3213,9 @@ def _build_tables(prefix: str):
                 "aed": _chk,
                 "lm": _xmk,
                 **dict(zip(ls_wer, ("1.57", "3.53", "1.73", "3.64"))),
-                "steps": "-",
-                "hours": "-",
+                # one merged cell over updates + time (spec hmerge_groups): the cited run is another regime
+                "steps": "single GPU",
+                "hours": "single GPU",
             },
             # the frozen table in the $^*$ setup (3.66 / 3.86, 130 h vs GlowTTS 235 h) is NOT a row: the
             # earlier settings may simply be suboptimal for the table, so the pair would suggest a WER
@@ -3452,7 +3453,9 @@ def _build_tables(prefix: str):
             _ls(f"{win}-lmsub50-textP38", text_ratio="1:1", text="50\\%", used_ratio="44:1", text_passes="4"),
             _ls(f"{win}-lmsub25-textP19", text_ratio="1:1", text="25\\%", used_ratio="22:1", text_passes="8"),
             _ls(f"{win}-lmsub10-textP8", text_ratio="1:1", text="10\\%", used_ratio="9.5:1", text_passes="19"),
-            _ls(f"{win}-lmsub0_65-textP1", text_ratio="1:1", text="0.65\\%", used_ratio="1.6:1", text_passes="152"),
+            # by words the seen ratio here is the used ratio (152 passes each): the LM subset matches the
+            # transcripts in LINES (542,660 per subepoch as in the P75 rows) but its lines are shorter
+            _ls(f"{win}-lmsub0_65-textP1", text_ratio="1.6:1", text="0.65\\%", used_ratio="1.6:1", text_passes="152"),
             _ls(f"{win}-textP37", text_ratio="2:1", text="100\\%", used_ratio="86:1", text_passes="4"),
         ],
     )
@@ -7836,11 +7839,12 @@ def _build_ratio_gain_figure(prefix: str, *, win: str, base: str):
     job = PlotTextRatioGainJob(
         ladders=ladders,
         groups=groups,
-        xlabel="used text : audio",
+        xlabel="used text : audio ratio",
         figsize=(3.4, 2.9),
         legend_ncol=2,
         fontsize=5.0,
-        markersize=4.0,
+        markersize=3.5,
+        linewidth=0.8,
         show_secondary=False,  # one point per series: the primary set only (AZ)
     )
     tk.register_output("figures/text-ratio-gain.pdf", job.out_pdf)

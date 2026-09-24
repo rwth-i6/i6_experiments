@@ -19,7 +19,7 @@ from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob
 
 class PlotTextRatioGainJob(Job):
     # v2: legend anchored further below the x-axis label (the module code is not part of the hash)
-    __sis_version__ = 4  # y-label anchored at 0.44 (its top character left the canvas)
+    __sis_version__ = 6  # x ticks as ratios (10:1); our points black-edged, our legend entries bold
 
     """
     :param ladders: connected series, each ``{"label", "color", "marker", "points": [
@@ -28,7 +28,7 @@ class PlotTextRatioGainJob(Job):
         {"label", "ratio", "primary": gain, "secondary": gain or None}, ...]}``;
         a gain is a float (percent) or ``(baseline_cell, injection_cell)``
     :param xlabel, ylabel, note: axis labels and the marker-convention note (top left)
-    :param figsize, legend_ncol, fontsize: layout
+    :param figsize, legend_ncol, fontsize, markersize, linewidth: layout (markers and lines of ladders and groups)
     """
 
     def __init__(
@@ -43,6 +43,7 @@ class PlotTextRatioGainJob(Job):
         legend_ncol: int = 3,
         fontsize: float = 7.0,
         markersize: float = 7.0,
+        linewidth: float = 1.0,
         show_secondary: bool = True,
     ):
         super().__init__()
@@ -55,6 +56,7 @@ class PlotTextRatioGainJob(Job):
         self.legend_ncol = legend_ncol
         self.fontsize = fontsize
         self.markersize = markersize
+        self.linewidth = linewidth
         self.show_secondary = show_secondary
         self.out_png = self.output_path("plot.png")
         self.out_pdf = self.output_path("plot.pdf")
@@ -83,6 +85,8 @@ class PlotTextRatioGainJob(Job):
 
         resolved: Dict[str, Any] = {"ladders": [], "groups": []}
         fig, ax = plt.subplots(figsize=self.figsize)
+        # our own results (the ladders and the 'ours' group points): a thin black marker edge
+        ours_edge = dict(markeredgecolor="black", markeredgewidth=0.5)
         for ladder in self.ladders:
             pts = sorted(
                 (
@@ -98,8 +102,11 @@ class PlotTextRatioGainJob(Job):
                 [p[1] for p in pts],
                 color=ladder["color"],
                 marker=ladder["marker"],
+                markersize=self.markersize,
+                linewidth=self.linewidth,
                 linestyle="-",
                 label=ladder["label"],
+                **ours_edge,
             )
             if self.show_secondary and all(p[2] is not None for p in pts):
                 ax.plot(
@@ -107,6 +114,8 @@ class PlotTextRatioGainJob(Job):
                     [p[2] for p in pts],
                     color=ladder["color"],
                     marker=ladder["marker"],
+                    markersize=self.markersize,
+                    linewidth=self.linewidth,
                     linestyle="--",
                     markerfacecolor="none",
                 )
@@ -125,6 +134,7 @@ class PlotTextRatioGainJob(Job):
                     linestyle="none",
                     markersize=self.markersize,
                     label=point["label"],
+                    **(ours_edge if point["label"].startswith("ours") else {}),
                 )
                 if self.show_secondary and g2 is not None:
                     ax.plot(
@@ -138,6 +148,11 @@ class PlotTextRatioGainJob(Job):
                     )
             resolved["groups"].append(out_group)
         ax.set_xscale("log")
+        # the axis is a text : audio ratio; label the decades as such (the minor ticks stay unlabelled)
+        from matplotlib.ticker import FuncFormatter, NullFormatter
+
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _pos: f"{v:g}:1" if v >= 1 else f"1:{1 / v:g}"))
+        ax.xaxis.set_minor_formatter(NullFormatter())
         ax.set_xlabel(self.xlabel, fontsize=self.fontsize + 1.5)
         # centered, the label is a bit longer than the axis and its top character leaves the canvas
         ax.set_ylabel(self.ylabel, fontsize=self.fontsize + 1.5, y=0.44)
@@ -155,6 +170,9 @@ class PlotTextRatioGainJob(Job):
             labelspacing=0.25,
             handletextpad=0.4,
         )
+        for txt in legend.get_texts():
+            if txt.get_text().startswith("ours"):
+                txt.set_fontweight("bold")
         fig.tight_layout()
         # the legend sits below the axes: include it in the saved bounding box, else it is clipped
         save_opts = dict(bbox_inches="tight", bbox_extra_artists=[legend], pad_inches=0.05)
