@@ -18,7 +18,9 @@ NEXT:
 1. AN-0 under Amendment R1 (lambda grid 1/2/4.4/10, plain and rate-neutral forms, gold-row guard, restore
    statistic; made at the launch review, before any result). Re-review `reports/review_rename_an0_r1_2026-09-25.md`
    APPROVE_WITH_CONDITIONS; launched. On finish: extract, audit, record.
-2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
+2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 launch review
+   `reports/review_rename_an24_launch_2026-09-25.md` APPROVE_WITH_CONDITIONS (AN-4 plain-only scope recorded;
+   AN3 stays False until the an24 manager has finished the 4 shared PhiFromKeyInitJobs). AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
    AN-3 as re-scoped by AN-0; AN-5 when stage 2 finishes.
 3. After the reads are audited, bring the decision table's proposal to the user.
 
@@ -176,6 +178,12 @@ names, and the plain P_LM^lambda form confounds names with rate in AN-2 and AN-3
     contraindicates TP-A1 and TP-B swaps.
   - P2: the LM term per frame differs between finals and basin by less than half the paired S gap of the same phis.
   - P3 (E11): along the basin trajectories, the channel term rises and the LM per phone falls as PER rises.
+  - R1 scope (2026-09-25, at the launch review `reports/review_rename_an24_launch_2026-09-25.md`, before any AN-4
+    result): AN-4's lambda is a measuring device at lambda = 1, not an operating point. Its registered quantity
+    is E_q[log P_LM], which only the plain form's derivative gives, so AN-4 uses the plain form only. The
+    rate-neutral derivative would add H_LM times the token rate: a constant per phone, so P1b is unchanged; per
+    frame it is recoverable from the printed rate columns. P2 is read on the plain term as registered, and the
+    rate difference is reported through P1c.
 - **AN-5 (GPU forwards; label-using; owed by the keyarms review) Name tracking in stage 2.** A15-F measures
   (own-label agreement, claimed and unclaimed phones, duplicates, R4) and key identity on the gold-key arm and the
   four stage-2 key arms at 0/4/12/48. **EM RENAMES** if identity at 48 minus identity at 0 is at least 0.2 (K70's
