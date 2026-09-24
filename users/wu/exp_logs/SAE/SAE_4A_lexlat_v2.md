@@ -615,3 +615,22 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
 - Best A10/A11 comparison key: a10_durfrz_s01, -4.971, a gap of 0.153 against a margin of 0.144 (the random-key range). The best random key's gap is 1.64. No verdict key is VOID. The decisive comparison clears the margin by 0.009.
 - The A10/A11 argmax keys span -4.97 to -5.18, above K30 (70 % of units correct) and below gold. The r30 argmax key reads -4.822 and r70 -5.548 (report only). Fitted pi(SIL) is 0.061-0.074 for the A10 phis.
 - Open, for the audit and for key-agreement reporting: whether J is monotone in key accuracy across key families or only along the random-reassignment ladder. The A10 keys decode at chance yet outscore K30.
+- Key agreement with the gold key (`KeyAgreementReportJob.HZxcl9qgT1im`, report only, label-using):
+
+  | key | held-out J | identity agreement, frame | many-to-one, frame |
+  |---|---|---|---|
+  | gold | -4.818 | 1.00 | 1.00 |
+  | r30 | -4.822 | 0.86 | 0.86 |
+  | A10 argmax | -4.97 to -5.06 | 0.07-0.13 | 0.46-0.50 |
+  | r70 | -5.548 | 0.45 | 0.48 |
+  | K30_s1 | -5.602 | 0.69 | 0.71 |
+  | K70_s1 | -6.368 | 0.30 | 0.36 |
+  | K100_s1 | -6.520 | 0.00 | 0.23 |
+
+  - J against identity agreement, Spearman: 0.75 over all 56 keys, 0.32 without the random keys.
+  - The A10 keys are good partitions carrying wrong labels. Their emission term, which does not depend on the labels, beats gold's (-3.27 against -3.35). Only the LM and duration terms see the labels.
+  - So J is monotone in accuracy along the random-reassignment ladder, but not across families. It ranks mislabelled clean partitions above 70 %-correct noisy ones.
+  - Consequence for stage 1, a pre-result amendment:
+    - add symbol-swap moves, which exchange two symbols' unit sets and change only the LM and duration terms;
+    - add relabel starts, from each A10/A11 partition with its class-to-symbol map deciphered under J.
+  - Deciphering the A10 partitions also answers a question for the handoff: whether J at the best relabelling of an EM partition reaches J(gold).
