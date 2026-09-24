@@ -6,12 +6,12 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): A18 (b) lift pack ZUZypSQn7qc0 RUNNING (SLURM 2001624); its 3 paired rows wait on it.
 - Finished graphs (23:08-23:30): em (A18 (a) bridge done, BridgeReadJob.v6SONiAZL7rH), keysearch_s1 (clean: failed 0, loop_error null; top 4 in `KeySearchSelectJob.g9wsznNnqmyO`, `reports/exec_keysearch_s1_finish_2026-09-24.md`).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023).
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023). Stage 1: all finals beat gold on J (selected -4.55 against -4.818) through the name-free emission term; clusters with wrong names (identity 0.07-0.14), no better than random-start finals.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 2 launch: BRIDGE_KEYARMS flip (`reports/impl_keyarms_bridge_flip_2026-09-24.md`), then code review, then keyarms manager. Keyarms must share no unfinished job with keyinit (ZUZypSQn7qc0). Stage-1 key read (extracted `reports/extract_keysearch_s1_2026-09-24.md`) under audit.
+1. Stage 2 launch: BRIDGE_KEYARMS flip (`reports/impl_keyarms_bridge_flip_2026-09-24.md`), then code review, then keyarms manager. Keyarms must share no unfinished job with keyinit (ZUZypSQn7qc0). Launch under review (`reports/review_keyarms_launch_2026-09-24.md`). The A18 (c) hold rule is not in the graph: check it by hand when A18 (b) reads, before the key arms finish. A20 oracle-name J check: implementer.
 2. A18: (a) read being extracted (`reports/extract_a18a_bridge_read_2026-09-24.md`); (b) when ZUZypSQn7qc0 finishes.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
@@ -363,6 +363,21 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - The jointly trained phi's generative PER (direct, Hungarian, NMI) at ep8.
     - The ep1/2/4 PER.
   - Cost: one four-GPU pack, at most L2-0's request; steps are cheaper without k2.
+- **A20 (2026-09-24, after the stage-1 read, before any job; disclosed label-using analysis, CPU, no training) Does J reward the right names on the found partitions?**
+  - Trigger: the user asked whether EM has the freedom to rename. Stage 1 found keys whose clusters are sharper than K70's but whose names are wrong: identity 0.07-0.14 against K70's 0.30. J prefers them over gold through the name-free emission term.
+  - The question: is the name gap a search failure (J's trigram term would reward the right names, but no local move reaches them) or an objective failure (the trigram term does not see names on these partitions)?
+  - Keys: the 4 selected stage-1 keys and the 6 A10/A11 argmax finals. Gold and the K30/K70 ladder give the scale.
+  - For each key, three variants:
+    - (a) as found;
+    - (b) oracle 1:1 rename: symbol names permuted by the Hungarian assignment that maximises frame agreement with the gold key, with the partition unchanged;
+    - (c) oracle many-to-one rename: each symbol takes its majority gold phone.
+  - Read held-out J and its terms on the 260 set, computed as in stages 0-1.
+  - Reading, fixed before any result, on the 4 selected keys:
+    - **NAMES VISIBLE** if J(b) - J(a) > 0.01 nats per frame (A7's floor) on at least 3 of the 4. J then rewards the right names on the found partitions, and a global rename move (an assignment over names under J, or S for phi) is the cost work.
+    - **NAME-BLIND** if J(b) - J(a) <= 0.01 on at least 3 of the 4. The trigram term then does not reward the right names on these partitions, a rename step would not help, and the cost work goes to the objective's name signal.
+    - **MIXED** otherwise.
+  - Reported beside: each variant's term decomposition, J(c), the 1:1 identity agreement after (b) (it separates wrong names from merges), and the same rows for the A10/A11 finals.
+  - It gates nothing registered, and stage 2 runs regardless. Cost: one CPU job on the login node.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -801,6 +816,31 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
   - S and PER agree between basins (0.34-0.47 against 0.86 for r100) but not inside one. G-dur's PER rises by 0.148 while S falls, as in A17 (ii).
   - The durinit arms end 0.008-0.053 below their A14 twins in PER, on one seed and descriptive only.
 - Consequences as registered: neither the gold-key control nor A17 (iii) holds the stage-2 key arms, which wait only on stage 1. The PREACT_ON caveat is moot, since the control passed.
+
+### A16 (b) stage 1 read (2026-09-24): J's optima are clusters with wrong names; gold is not J's maximiser (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `KeySearchJob.AzM1NoHpOnFJ` (status real ok 196, failed 0; null ok 172, VOID-ON-RATE 8; loop_error null; 15 null runs truncated), `KeySearchSelectJob.g9wsznNnqmyO`, and `KeyAgreementReportJob.Xk3Wxu9kJ38t` (report only, label-using). Extraction: `reports/extract_keysearch_s1_2026-09-24.md`. Audit: `reports/audit_keysearch_s1_2026-09-24.md`.
+- Stage 1's J matches stage 0 term by term on the 27 shared keys, so the values are comparable. The printed gold row is copied from stage 0, not recomputed.
+- Selected top 4, all cluster starts under the warm schedule: cluster_centroid_s01, cluster_centroid_s04, cluster_context_s01 and cluster_context_s04. Held-out J:
+  - selected: -4.5525 / -4.5647 / -4.5671 / -4.5755;
+  - references: gold -4.8180; best A10 argmax start -4.9714; K30 -5.6097; best null -5.8543.
+  - All 124 real finals beat gold. Every start family reaches -4.55 to -4.75. The real rise over the null is 1.29-1.30.
+- Decomposition of the 0.24-0.27 margin over gold: emission 0.20-0.22, trigram 0.01-0.04, duration < 0.01. Over all 124 finals the trigram term ties gold (mean -0.002). The emission term does not depend on symbol names.
+- Agreement with the gold key, frame-weighted, identity / many-to-one:
+
+  | Keys | Before search | After search |
+  |---|---|---|
+  | selected 4 | | 0.07-0.14 / 0.49-0.58 |
+  | A10/A11 argmax | 0.110 / 0.486 | 0.10-0.12 / 0.50-0.51 |
+  | random | 0.026 / 0.223 | 0.098 / 0.487 |
+  | K30 / K70 / K100 | 0.70/0.71, 0.30/0.35, 0/0.22 | |
+
+- The final keys are distinct: an unregistered audit check gives identity about 0.11 between finals, and 0.22 for same-start twins.
+- Reading:
+  - The search sharpens clusters: many-to-one agreement rises from 0.22 to 0.49 from random starts, above K70's 0.35. It does not find names: identity stays at 0.07-0.14, below K70's 0.30.
+  - The selected keys are no better than what the search reaches from random starts. The argmax starts gain 0.33-0.43 in J with no gain in agreement.
+  - J prefers these keys over gold through the name-free emission term. The name-dependent trigram term only ties gold.
+- Licensed: gold is not J's maximiser, and J's found optima are clusters with wrong names. Not licensed: that no near-gold key beats -4.55, since no search started from gold, r30 or K30; and nothing about stage-2 S or PER.
+- Stage 2 runs as registered (the agreement is label-using, report only). A20 asks whether J's trigram term rewards the right names on these partitions.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
