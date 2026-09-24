@@ -173,6 +173,16 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Through the emission map: T3 (primary, relabel), R3 matched and R4 matched.
     - Positive control: the emission map recovers permphi's true permutation (count of correct labels). The gold phi maps to the identity.
     - Descriptive, no gate, never selects. Rules go in the job docstring.
+- **A16 (2026-09-24, after the A15/A15-E read, before any A16 job) Is the labelling the missing piece, and can it be found without labels?** The A15-E read (Results) finds the A10 EM phis phonetic at about r70's emission-matched frame accuracy, but mislabelled and merged. An L2-1 extension under the user's latitude ruling.
+  - **(a) Does the label-free objective prefer the right labelling?** Analysis only: gold enters through the emission map, never a selection.
+    - Held-out S (tau = 1, A13's 260-utterance set, the A10 S reader path) for each of the six A10 sub-epoch-48 phis, under two labellings: identity, and relabelled through its A15-E emission map (the phi's symbol axis permuted so that symbol h^-1(k) is read as phone k).
+    - Positive control: permphi under identity and under its true inverse permutation. Its identity S is 4.075, and gold's is 3.474.
+    - Read per phi, as dS = S(emis) - S(identity), with a speaker-clustered interval:
+      - **OBJECTIVE PREFERS THE RIGHT LABELLING** if dS < -0.01 for at least 4 of 6. EM stops at a labelling local optimum, so a discrete label search on S is the extension, (b).
+      - **OBJECTIVE LABEL-BLIND OR WRONG** if dS > -0.01 for at least 4 of 6. The label signal must come from the prior term, and the next cost work goes there.
+      - Otherwise **MIXED**.
+    - The positive control must read dS < -0.3; otherwise the read is VOID.
+  - **(b) An unsupervised label search**, designed after (a) and a literature read on substitution-cipher decipherment (homophonic, noisy, under an n-gram LM). It is registered as its own amendment before any job. It must be label-free and GAN-free, and select only on held-out S.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -289,3 +299,47 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 - **Audit notes.**
   - N1: the corruption is independent of the acoustics, so each phone's most likely unit stays right below rho 1. rho*_lift therefore does not carry over to an EM phi, whose errors are structured. A14 (i) tests an EM phi directly.
   - N2: the label-free statistics rate the sharp-wrong phi_c as competent as gold.
+
+### A15 and A15-E read (2026-09-24; descriptive, label-using, no gate; audit pending)
+
+Sources:
+- `reports/extract_a15_read_2026-09-24.md`: reader `PhiCompetenceBatteryReadJob.HWlC9YZ1U2GI`.
+- `reports/extract_a15e_read_2026-09-24.md`: reader `PhiEmissionMapReadJob.mZWCsgaj92GS`.
+
+Conventions:
+- Set: the D4 dev-other set of 500 utterances. The item set is identical for every phi and contrast, and nothing was dropped.
+- T columns are per-frame nats, with speaker-clustered 95% intervals (listed in the extracts).
+- R4 is frame accuracy against MFA, with the majority-unit oracle 0.615.
+- "emis" means through the A15-E emission map. The EM rows cover the six A10 restarts at sub-epoch 48.
+
+| phi | T1, own labels | T2 full | T3 primary, emis | R1 / R2 Hungarian PER | R3 JS direct / emis | R4 direct / emis | phones unclaimed |
+|---|---|---|---|---|---|---|---|
+| gold | 3.93 | 4.47 | 3.93 | 0.193 / 0.276 | 0 / 0 | 0.589 / 0.589 | 0 |
+| r30 | 2.22 | 2.44 | 2.22 | 0.240 / 0.363 | 0.116 / 0.116 | 0.571 / 0.571 | 0 |
+| r50 | 1.58 | 1.77 | 1.58 | 0.313 / 0.437 | 0.232 / 0.232 | 0.548 / 0.548 | 0 |
+| r70 | 0.57 | 0.64 | 0.59 | 0.628 / 0.648 | 0.532 / 0.522 | 0.371 / 0.342 | 15 |
+| r100 | 0.00 | 0.06 | 0.18 | 0.830 / 0.862 | 0.728 / 0.652 | 0.092 / 0.136 | 37 |
+| A10 EM ×6 | 0.08-0.34 | 0.35-0.71 | 1.99-2.20 | 0.838-0.861 / 0.846-0.869 | 0.79-0.87 / 0.50-0.55 | 0.07-0.12 / 0.29-0.31 | 11-19 |
+| phi_c | 0.16 | 0.52 | 1.75 | 0.868 / 0.859 | 0.827 / 0.563 | 0.099 / 0.284 | 15 |
+| permphi | -0.07 | -0.24 | 3.92 (40/40 labels) | 0.819 / 0.605 | 0.868 / 0.007 | 0.071 / 0.591 | 0 |
+| random_init | 0.00 | 0.00 | 0.00 | 0.903 / 0.921 | 0.717 / 0.716 | 0.080 / 0.080 | 39 |
+| rt_r70_ep8 | 4.04 | 4.33 | 4.04 | 0.228 / 0.326 | 0.111 / 0.111 | 0.564 / 0.564 | 0 |
+
+- **Under their own labels, the EM phis sit near the content-free end.**
+  - T1 is 0.08-0.34. Every interval excludes 0, but it is 12-50 times below gold and below r70's 0.57 for all six.
+  - R4 direct is 0.07-0.12, against r100's 0.092 and random_init's 0.080. The R1 and R2 Hungarian PERs are at r100's level.
+- **Through the emission map, they are phonetic at about r70's frame accuracy.**
+  - R4 emis is 0.29-0.31, against r70's 0.342 (0.371 direct). JS emis is 0.50-0.55, against r70's 0.52.
+  - Fitting the map on the content-free r100 gains only +0.044 on R4 and +0.18 on T3, so the EM gains (about +0.2 on R4, +1.7 to +2.1 on T3) are far outside that null.
+  - T magnitudes grow with a phi's sharpness: r70 is flattened by uniform label noise, while the EM phis are sharp. So T ranks phis within one family, and R4 is the accuracy comparison across families.
+- **The EM phis are mislabelled, and also merged.**
+  - T3 relabel (emis against identity) is +1.2 to +1.7 for every EM phi, against r70's -0.04 and r100's -0.01.
+  - Under nearest-phone matching, the 40 symbols claim only 21-29 gold phones. 11-19 phones go unclaimed, most often rare ones (AO, AW, OY, UH, TH, ZH), and in some restarts AE, IH or EH. SIL, N, T, W, AY and Z each take 3-4 symbols.
+  - T2 full is 0.35-0.71, against r70's 0.64. Own labels still beat a random relabelling, so some symbols sit on or near their phones.
+- **Along the trajectory (durinit s1 and durfrz s1 at sub-epochs 4, 12 and 48), the partition sharpens while the labels drift.**
+  - T3 primary emis rises: 1.77, 2.08, 2.20 and 1.77, 1.92, 2.03.
+  - T1 under own labels falls: 0.150, 0.077, 0.078 and 0.230, 0.115, 0.116.
+  - R4 emis stays at 0.29-0.31. Held-out S improves over the same span (A10 read).
+- **Decode-based detectors miss this.** R1 and R2 Hungarian PER stay at chance for the EM phis, although r70, at similar emission-matched accuracy, decodes to 0.628. permphi shows the relabelling half cleanly: R1 0.819, R2 0.605, yet the emission map gets 40/40 and R4 emis reads 0.591. Why the EM phis' uniform-prior decodes stay at chance is not established. The merges are one candidate.
+- **phi_c, the cold line's phi, has the same profile**: own-label R4 0.099; emission-matched R4 0.284 and JS 0.563; 15 phones unclaimed. This qualifies audit note N2: phi_c is a mislabelled phonetic partition, not a content-free one.
+- **Interpretation (audit pending).** r70 lifts because its labels are right (its identity labelling is its best, T3 relabel -0.04) and its argmax is right on 0.371 of frames. Joint training then repairs it toward gold: rt_r70_ep8 reads T1 4.04, R4 0.564, R1 0.228. The EM phis have comparable matched accuracy but wrong labels, which is permphi's case, and rt_perm read NO LIFT (0.87). On this evidence, L2-1 fails on the symbol-to-phone labelling (plus merges), not on phonetic content. A14 (i) tests the direct use.
