@@ -3,31 +3,27 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 2099342 `config/sae_4a_lexlat_v2_em_table.py`: A11 stage B, 5 four-GPU jobs.
-- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, Slurm 1989235-38/40/41, 1.06 h.
-- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) as one four-GPU pack, 1989249, 11.5 h; A14 (ii) as one gpupack node, 1989248, 4 h.
-- 3741311 `config/sae_4a_lexlat_v2_phibattery.py`: A15, 25 forwards in gpupack 1989344/1989362, then 21 CPU battery jobs (`reports/exec_a15_launch_2026-09-24.md`).
-- 1705981 `config/sae_4a_lexlat_v2_phiemis.py`: A15-E (a1758b29), 21 maps in gpupack 1989528/1989530 (`reports/exec_a15e_launch_2026-09-24.md`).
+- 2099342 `config/sae_4a_lexlat_v2_em_table.py`: A11 selection rerun after fix 46968ade/9bada5fb (`reports/exec_a11_selection_rerun_2026-09-24.md`; the pid may change there). Stage B finished.
+- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, 1.06 h.
+- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), one four-GPU pack, 11.5 h; A14 (ii), one gpupack node, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 
-Launch record: `reports/exec_a14_wave_launch_2026-09-24.md`. The em_ext, ladder, decphi and D18 graphs are complete.
-
-Submission layer (user: "change now", 2026-09-23): sub-4-GPU tasks are packed 4 per exclusive node by `gpupack_engine.py`; light CPU classes run on the login node. Live-verified: concurrent members get distinct CUDA_VISIBLE_DEVICES, and 541 members ran with rc 0 (`reports/exec_first_pack_verify_2026-09-24.md`). Isolation relies on the variable alone; nvidia-smi shows all 4 GPUs.
+The A15 and A15-E graphs are complete, as are em_ext, ladder, decphi and D18. Packing: sub-4-GPU tasks run 4 per node through `gpupack_engine.py` (`reports/exec_first_pack_verify_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
-- L2-0: rho*_lift 0.7, G4a.L2.3 CANNOT_TELL, audited.
-- A10: wave durinit, 12 sub-epochs. EM phis beat gold on S, but their decodes are at chance.
-- A14 and A15 registered.
-- D18 (`SAE_4A_lexlat.md`): on one common objective, the frozen-phi arms are worse by 0.11-0.12 despite better PER. So training phi lowers the objective by co-adaptation, the same direction as A10.
+- L2-0: rho*_lift 0.7, audited.
+- A10: EM phis beat gold on S, but decode at chance.
+- D18: training phi lowers the objective by co-adaptation.
+- A15/A15-E (audit pending): the EM phis are phonetic at about r70's emission-matched frame accuracy (0.29-0.31 against 0.34), but mislabelled and merged. So L2-1 fails on labelling, not content.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on.
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT: ladder; L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5); A13 (22602b90); wave and A14 (9974004e, tests af912d60; review `reports/review_a14_wave_launch_2026-09-24.md`); A15 (a6392d82, T3 89713d1a; `reports/impl_a15_phibattery_2026-09-24.md`), in launch review (`reports/review_a15_launch_2026-09-24.md`).
+BUILT through A15-E (a1758b29). BUILDING: A16 (a), relabelled S (`reports/impl_a16a_relabel_s_2026-09-24.md`).
 
 NEXT:
-1. At the A15 and A15-E wakes, the executor checks the 1-slot routing of the battery jobs. Then the extractor, my analysis, an auditor, and the report to the user (their request: L2-1 against gold and r70 on text preference and raw accuracy).
-2. At the wave and A14 wakes, the executor checks. Also check that gpupack members get distinct CUDA_VISIBLE_DEVICES, and where the 53 CPU report jobs route (login expected).
-3. A11: the executor reads stage B at the em_table wake; G4a.L2.2 reads after the nulls.
-4. The A14 (i) read decides whether an EM phi lifts; A14 (ii) decides objective against search. Audit both before any direction change.
+1. Audit of the A15 read (`reports/audit_a15_read_2026-09-24.md`), then apply the corrections and report to the user.
+2. Literature on decipherment (`reports/lit_decipherment_relabel_2026-09-24.md`) and A16 (a) together shape A16 (b). A16 (a) takes a review only if it needs GPU or runs over 1 h.
+3. At the wave and A14 wakes, the executor checks, including the CUDA_VISIBLE_DEVICES isolation and where the 53 CPU report jobs route. The A14 (i) and (ii) reads get audited before any direction change.
+4. A11: read the selection and diagnostics (G4a.L2.2 CANNOT_TELL expected per the fix test: no eligible null).
 
 ## Objective
 
