@@ -8,17 +8,15 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
 - 1192448 `config/sae_4a_lexlat_v2_keyinit.py`: pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii)), submitted 09:54 (`reports/exec_keyinit_launch_2026-09-24.md`).
 
-Reads 2026-09-24 (Results):
-- L2-0: rho*_lift 0.7, audited. A10: the EM phis beat gold on S, but decode at chance. D18: co-adaptation. A11: CANNOT_TELL (no rate-eligible null).
-- A15/A15-E + A15-F, audited: the EM phis are mislabelled and merged, but partly phone-level (within-class 0.54-0.62, class share 0.50-0.56 against gold 0.73), a little below r70.
-- A16 (a)/(a2), audited: the verdicts stand, and the "model error" inference is withdrawn (data and criterion confound; the gap sits in the channel). Trigram re-weighting is ruled out.
-- A14 (ii), audited: PHONETIC BASIN LOWER (S_g 3.216 against 3.299, PER 0.35). At matched data, S's lower basin is phonetic, so random-init EM is search-limited. r70 init reaches the basin; r100 does not. Every basin-reaching arm (gold, r30, r70) kept durations fitted on MFA segments, so A17 (iii) tests label information without supervised segmentation.
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged, partly phone-level. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); every basin-reaching arm kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009).
 
-Rulings: pure unsupervised, GAN-free, supervised inits analysis-only (2026-09-23). The last training round runs here (2026-09-24): only work in progress, meaning A14, A17 and A16 (b) as registered (Constraints).
+Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
 
 NEXT:
-1. A17 (i)/(ii) are live (see above). The keyinit pack is live (see above). The key-arms builder exists (keyarms_v1), but its stage-1 key wiring and its setup shim are still missing. A16 (b) stage 0 read J SEES THE KEY, audited but fragile (margin 0.009; Results). Stage 1 (with swap moves and relabel starts) is being built; review, then launch. The stage-1 key search, with cluster-then-decipher starts, is being built in parallel; it runs on J SEES THE KEY. Stage-2 key arms follow under their gates (A17 (i) BASIN INSUFFICIENT withdraws them; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds them). Literature: `reports/lit_segmentation_gap_2026-09-24.md`.
-2. At each watcher wake, the executor checks. Every read is audited, then written up for the handoff.
+1. Stage-1 key search (`KeySearchJob.AzM1NoHpOnFJ`) is in code review (`reports/review_a16b_stage1_launch_2026-09-24.md`); then launch and watch.
+2. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim is still missing (user).
+3. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
+4. At each watcher wake, the executor checks; every read is audited, then recorded.
 
 ## Objective
 
@@ -38,6 +36,7 @@ Break the cold line's private code without labels and without a GAN. The record:
   - The user clarified that "working on" includes work being implemented. The first reading, which dropped A16 (b) stages 1-2, is withdrawn.
   - Analysis on these runs is allowed without limit: forwards, readers, CPU analyses and audits, including new analyses registered here.
   - Only new training is excluded, such as a segmentation-init or duration-shape run. Such runs go to the continuation as handoff items.
+  - Bridge and joint runs on the phis these lines select are permitted (user, 2026-09-24), withheld only when surely non-lifting: A18.
 
 ## Gates (pre-registered 2026-09-23, before any job)
 
@@ -276,7 +275,7 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - Key arms: the stage-1 top 4, as one four-GPU pack.
         - **KEY BASIN** if the best key arm by S at 48 (260 set, paired as in A14 (ii)) has S < 3.289; else **NO KEY BASIN**.
         - Reported, never gating: direct and Hungarian PER, NMI, and A15-F's measures at 0-48.
-      - KEY BASIN sends the selected phi to the lift test (A14 (i)'s form) and to L2-2.
+      - KEY BASIN sends the selected phi to the lift test (A14 (i)'s form) and to L2-2. A18 (c) amends this: the S-best key arm goes to L2-2 whatever KEY BASIN reads.
     - Cost: stage 0 takes minutes on CPU; stage 1 is one node for about 1-3 h; stage 2 is one GPU for about 3 h (the control) and one four-GPU pack for about 3 h.
 
 - **A17 (2026-09-24, after the A14 (ii) read, before any A16 (b) or A17 result; disclosed analysis only, supervised inits) Is the phonetic basin worth reaching, and what degrades gold under EM?**
@@ -319,6 +318,27 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - The best-supported label-free replacement is resegmentation under the trigram, which our HSMM EM already does, with a self-supervised segmenter only as its init.
       - No published work compares MFA and rate-matched durations in an EM HSMM, and every published segmenter tuned its settings on labels.
 
+- **A18 (2026-09-24, user permission, before any wave, keyinit or key-arm result) Joint runs on the selected phis.**
+  - The user (2026-09-24): "for all your currently planned phi EM, the bridging/joint training on selected phi is also permitted, otherwise the phi EM means nothing to us. Unless you are really sure it cannot lift".
+  - Rule: each phi-EM line of the last round sends its label-free selected phi to a joint run.
+    - A spend gate on S (A7's SIGNAL, KEY BASIN) no longer withholds that joint run, because none of them measures lift. The verdicts are still read and reported as registered.
+    - Hold rule, the only ground for withholding a joint run ("really sure it cannot lift"): a completed lift read on phis of the same line read NO LIFT on every arm, and the candidate's S at 48 (260 set) is not below the best of those arms' S by more than 0.01 (A7's floor).
+  - (a) The wave: G4a.L2.2's selected restart goes to L2-2 as registered (4 arms, A6's cold_ctl baseline, read by G4a.L2.4), whatever G4a.L2.2 reads.
+    - Same-line lift read for the hold rule: A14 (i) (A10 restarts, the wave's recipe).
+    - The count-table repair that SIGNAL + BELOW would fund first is new training and is not built; the bridge runs without it.
+  - (b) The keyinit pack (ge1MKcAPmZIV: gold-key control, G-dur, r30-dur, r70-dur), disclosed analysis only.
+    - All four sub-epoch-48 phis go to one four-arm lift pack in A14 (i)'s form, as A17 (i): no selection, launched when the keyinit pack finishes.
+    - Read per arm in A4's bands. **DURINIT BASIN LIFTS** if G-dur or r30-dur reads LIFT or PARTIAL; **DURINIT BASIN DOES NOT LIFT** if G-dur, r30-dur and r70-dur all read NO LIFT.
+    - Reported beside: the jointly trained phi's generative PER at ep8, and paired rows against A17 (i)'s same-init arm with MFA durations (G-dur against gold-EM, r30-dur against r30-EM, r70-dur against r70-EM). These rows ask the segmentation question at the lift level.
+  - (c) Stage-2 key arms: the S-best key arm at 48 (260 set) goes to L2-2, whatever KEY BASIN reads.
+    - dec_joint is A14 (i)'s arm form, so L2-2 carries the registered lift test.
+    - Same-line lift read for the hold rule: (b)'s gold-key arm (the same key-to-phi conversion from the gold key).
+    - The key arms' own gates (A17 (i), A17 (iii), GOLD KEY REACHES BASIN) are unchanged.
+  - (d) A17 (ii)'s tau = 1 phis are not bridged by default. Their gold arm lies between L2-0's gold phi, which lifts, and A17 (i)'s gold-EM.
+    - They get a lift pack (gold and r70, seeds 1 and 2) only if A17 (i) reads NO LIFT for gold-EM and A17 (ii) reads ANNEALING-DOMINATED. Only then does their lift read tell whether the tau = 4 sub-epoch is what destroys liftability.
+  - Every joint arm reports its phi's generative PER (direct, Hungarian, NMI) at the kept epochs, report only.
+  - Cost: one four-GPU pack each for (a), (b) and (c), about 11.5 h each (A14 (i)'s request); (d) adds one pack if its condition holds.
+
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
 Question: how competent must phi be to anchor a recognizer, and which label-free statistic tracks it? D10e gives rho = 0 (gold strings, HOLD 0.180); D14 gives rho about 0.19 (p0's decodes, pending). Nothing between is measured, and L2-1's phi needs a competence criterion without labels.
@@ -348,7 +368,7 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
 
 **Amendment slot (SIGNAL + BELOW):** count-table repair moves on phi, merge / split / swap on the 40 x 500 emission rows rescored by the held-out E-step likelihood, accepted only when the held-out likelihood rises by more than the null spread; never a neural refit per move.
 
-## L2-2: the bridge into the joint run (funded only on G4a.L2.2 SIGNAL)
+## L2-2: the bridge into the joint run (funded on G4a.L2.2 SIGNAL; A18 (a) funds it whatever G4a.L2.2 reads)
 
 **Arms** (one node, D10e pack constants, tau 2.0 held from the start as the supphi arms, k2 block as `supphi_k2lat`, 8 sub-epochs, kept 1 / 2 / 4 / 8): `dec_joint` (theta at the cold packs' random init, phi = L2-1's selected phi, both trainable from step 1); `dec_distil` (theta first trained one sub-epoch by cross-entropy to the stopped-gradient generative posterior with phi frozen, the reviewer's alpha = 0 update, then joint); `dec_frz` (phi frozen throughout); `dec_joint_s2` (second seed, the identity band). Cold baseline: pack C's cold k2 arm at matched sub-epochs (`k2lat_20`). Read by G4a.L2.4.
 
