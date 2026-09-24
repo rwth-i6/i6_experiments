@@ -9,11 +9,17 @@ review (`reports/review_p0_launch_2026-09-24.md`: screen PASS_WITH_NOTES) and th
 `2ae4445f0`. FROZEN until the P0 trainings end: the package's `model/`, `training/`, `analysis/`
 (RETURNN imports them live, unhashed). Watcher (re-arm first on resume; from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1554133 config/sae_i6_p0_screen.py 60`.
-G0.V: GPU tests green (Results); pending only the user's explicit acceptance of the in-train-step xfails.
-NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch
+G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 to be FIXED (user decision
+2026-09-24, see Runs: `ctrl_20_rc`).
+In flight: implementer building the fix in a detached worktree `/work/asr4/hwu/tmp_dev/silfix`
+(never the live tree), delivering `/work/asr4/hwu/tmp_dev/silfix.patch` + `silfix_config.diff` and
+`reports/impl_silfix_2026-09-24.md`. If the report is absent on resume, re-dispatch.
+NEXT: (a) fix report -> code-reviewer (hash check, default path bit-identical, all consumers,
+D_sil interaction) -> apply the patch to the live tree only if the default path is bit-identical ->
+commit. (b) once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch
 (<= 1800 s) and peak GPU memory (<= 40 GiB), the step-1 triple, and the ep1 PER against G0.R1 ->
-pass: stop the screen manager, then start `config/sae_i6_p0.py` (never both at once); fail: stop
-and decide. Check `error.create_files.*` on the first ReturnnConfig job.
+pass: stop the screen manager, then start `config/sae_i6_p0.py` with `ctrl_20_rc` (never both at
+once); fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
 
 ## Objective
 
@@ -41,6 +47,7 @@ says. Everything later compares against the i6 controls produced here, not again
 | `ctrl_20` | `config/base.py` | the control of every later pack; banked PER 0.874568 |
 | `ctrl_20_s1` | seed replicate of ctrl_20 (flat_seed 1, random_seed 1, offset 1000) | the i6 seed band B for every later pack; a second step-1 identity point |
 | `k2lat_20_ma3000` | `config/k2_word_lm.py` preset | the only banked arm clearly off the control (-0.0560); exercises the k2 path |
+| `ctrl_20_rc` (added 2026-09-24, user decision) | `ctrl_20` + the hashed option that rebuilds the prior history from the blank-free cfg (SIL runs collapse to one token, the run-collapse definition of `SAE_i6_ref_objective.md` section 4.1) | the fixed control. From P0 on, it is the base of every new arm. The reproduction arms keep the banked (SIL-split) behaviour, so G0.R1-R3 stay readable |
 | gold phi and p0 (analysis only, disclosed label use) | `config/supervised_init.py` | p0's dev-other PER 0.1894 is a near-deterministic end-to-end check of features, VAD, gold, recognizer and PER chain; the gold phi exercises the reverse model |
 
 `ctrl_20_x60`, `k2lat_20_ma3000_x60`, `off4_k2lat_20` and the never-run default `k2_word_lm` are
@@ -87,6 +94,15 @@ generation); widened tolerances in brackets apply then.
 - **G0.R3 supervised inits (analysis only).** (A): p0 dev-other greedy PER 0.1894 +-0.02 at its selected
   checkpoint (banked: selected at pass 1). (B, report-only under an audio label): gold phi
   `dev_loss_nll_per_frame` at epoch 8 = 3.2888 +-0.02 (package-banked value, not in the JUPITER logs).
+- **G0.RC fixed control `ctrl_20_rc` (registered 2026-09-24, before any job).**
+  - (A, correctness):
+    - The option-on T1.6 test matches the run-collapse oracle to 1e-10.
+    - With the option off, every existing job id and test result is unchanged.
+    - Step 1 of `ctrl_20_rc` has the same batch and inputs as `ctrl_20`; its log Z is <= ctrl_20's,
+      because it sums over a subset of the latents.
+  - (Report-only; no pass/fail, a new operating point): the paired dev-other PER delta
+    `ctrl_20_rc` - `ctrl_20` at sub-epochs 1/4/10/20, read against the i6 seed band from G0.R1s.
+    Also its emitted rate and derangement gap at 20.
 - **G0.V components.** All priority-1 tests (T1.1-T1.23) and T2.1-T2.4 green, the gpu- and k2-marked
   tests run on a gpu_48gb node, plus a CPU-vs-CUDA parity assert for `log_z_hlg` and `log_z_h` on the
   T1.19 fixture (1e-5). Strict xfails are allowed only for defects outside what the train step
@@ -180,5 +196,5 @@ clone (00171dfe + the shipped patch). Report: `reports/exec_gpu_tests_2026-09-24
 `/work/asr4/hwu/sae_i6_tests/gpu_2026-09-24/`.
 G0.V: every clause is met. Several strict xfails sit inside the train step: the SIL-run split (T1.6)
 and the `_logmm` floor (T1.4c, T1.5). They count as banked behaviour only through the orchestrator's
-decision "the code defines the bed" (`SAE_i6_ref_objective.md` section 10). The user has not yet
-accepted them explicitly.
+decision "the code defines the bed" (`SAE_i6_ref_objective.md` section 10). The user accepted T1.4c and
+T1.5 on 2026-09-24; T1.6 is pending the user's decision.
