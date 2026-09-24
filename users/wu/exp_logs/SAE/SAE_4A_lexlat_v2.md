@@ -18,7 +18,7 @@ Reads 2026-09-24 (Results):
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (review PASS; launch after 3023733 exits, expecting exactly 39 unfinished jobs). BUILDING: A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
+BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (review PASS; launch after 3023733 exits, expecting exactly 39 unfinished jobs). A15-F 8972c436 built (CPU, < 1 h, no review needed); reading-rule amendment being coded (`reports/impl_a15f_content_2026-09-24.md`), then launch.
 
 NEXT:
 1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
@@ -184,6 +184,10 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Reading rules (descriptive, never a gate or a selection; they go in the job docstring):
       - A phi's content counts as ABOVE MANNER LEVEL if its within-class accuracy exceeds the within-class accuracy of the 7-class oracle.
       - An EM T3 or R4 gain counts only if it exceeds the maximum over its 5 permuted-unit nulls.
+    - Amendment (2026-09-24, at build, before any A15-F job; source `reports/impl_a15f_content_2026-09-24.md`):
+      - The build found the 7-class oracle's within-class accuracy (0.374) below the random 40-way partitions' maximum (0.429). The sharp permuted-unit nulls reach 0.34-0.40. Within-class accuracy conditions on class-correct frames, so it is inflated for weak partitions. The rule above could therefore fire on a null.
+      - Replacement: ABOVE MANNER LEVEL only if the phi's within-class accuracy exceeds the maximum of three references: the 7-class oracle's, the random-partition maximum, and the maximum over the phi's own 5 permuted-unit nulls. The class-correct share and R4 emis are reported next to it, against the same three references.
+      - Class assignment: the primary oracle assigns each unit the class of its majority MFA phone, which reproduces the audit's 0.287 and 0.377. The per-unit majority-class variant (0.279 and 0.367) is printed as VARIANT.
 - **A16 (2026-09-24, after the A15/A15-E read, before any A16 job) Is the labelling the missing piece, and can it be found without labels?** The A15-E read (Results) finds the A10 EM phis phonetic at about r70's emission-matched frame accuracy, but mislabelled and merged. An L2-1 extension under the user's latitude ruling.
   - Premise corrected by the audit (2026-09-24, before any A16 result): even relabelled, the EM phis sit below r70, at about the manner-class level, and fit gold worse than r100 (Results, A15 read). A16 (a) still reads as registered. Its dS asks whether S prefers the emission-map labelling, which stays informative. A16 (b)'s design waits on A15-F as well.
   - The emission map is chosen against the transcript-fitted gold phi. So any use of it, A16 (a) included, stays analysis-only and never relabels a phi that trains or is selected.
