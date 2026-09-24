@@ -3,6 +3,7 @@ protocol, OOV dropping, the job end to end on a tiny bliss + g2p lexicon), the s
 sample and the content-based line filter."""
 
 import gzip
+import math
 import random
 
 import numpy as np
@@ -98,3 +99,73 @@ def test_sample_lines_job(tmp_path):
         got = fh.read().splitlines()
     assert got == [lines[i] for i in T.sample_line_indices(50, 7, 0)]
     assert T.count_lines(str(tmp_path / "corpus.gz")) == 50
+
+
+# ---------------------------------------------------------------------------------------------------
+# T3.5 (test plan 2026-09-24): SIL insertion statistics of the job at its defaults (sil_prob 0.5,
+# surround, seed 0) on 20,000 lines, and the count pass's mapping of ``<SIL>`` onto SIL_ID.
+# ---------------------------------------------------------------------------------------------------
+# one-phone words, so every token position is a word or a boundary and SILs can be attributed
+_BLISS_1PH = """<?xml version="1.0" encoding="utf-8"?>
+<lexicon>
+  <lemma><orth>W1</orth><phon>AA</phon></lemma>
+  <lemma><orth>W2</orth><phon>B</phon></lemma>
+  <lemma><orth>W3</orth><phon>IY</phon></lemma>
+</lexicon>
+"""
+
+
+@pytest.fixture(scope="module")
+def sil_corpus(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("sil")
+    (tmp / "lex.xml").write_text(_BLISS_1PH)
+    rng = random.Random(0)
+    lines = [" ".join(rng.choice(["W1", "W2", "W3"]) for _ in range(rng.randint(1, 30))) for _ in range(20000)]
+    with gzip.open(tmp / "text.gz", "wt") as fh:
+        fh.write("\n".join(lines) + "\n")
+    job = T.PhonemizeWithSilJob(text_file=tk.Path(str(tmp / "text.gz")), bliss_lexicon=tk.Path(str(tmp / "lex.xml")))
+    assert (job.sil_prob, job.surround, job.seed) == (0.5, True, 0)  # the defaults the corpus uses
+    job.out_text = tk.Path(str(tmp / "out.phn.gz"))
+    job.out_stats = tk.Path(str(tmp / "stats.txt"))
+    job.run()
+    with gzip.open(tmp / "out.phn.gz", "rt") as fh:
+        out = [l.split() for l in fh.read().splitlines()]
+    return lines, out, str(tmp / "out.phn.gz")
+
+
+def test_sil_insertion_statistics(sil_corpus):
+    lines, out, _ = sil_corpus
+    assert len(out) == len(lines) == 20000
+    n_boundaries = n_sil = 0
+    for words, toks in zip(lines, out):
+        words = words.split()
+        assert toks[0] == T.SIL and toks[-1] == T.SIL  # the line edges: always SIL
+        inner = toks[1:-1]
+        assert inner[0] != T.SIL and inner[-1] != T.SIL  # no second SIL at an edge
+        assert [t for t in inner if t != T.SIL] == [{"W1": "AA", "W2": "B", "W3": "IY"}[w] for w in words]
+        assert all(not (a == T.SIL and b == T.SIL) for a, b in zip(inner, inner[1:]))  # at most one per boundary
+        n_boundaries += len(words) - 1
+        n_sil += sum(t == T.SIL for t in inner)
+    p = 0.5
+    sigma = math.sqrt(n_boundaries * p * (1 - p))
+    assert n_boundaries > 100000
+    assert abs(n_sil - p * n_boundaries) <= 4 * sigma, (n_sil, n_boundaries, sigma)
+
+
+def test_count_ngrams_maps_sil_token(sil_corpus):
+    from i6_experiments.users.wu.experiments.unsupervised_asr.lm import phone_prior as PP
+
+    _, out, path = sil_corpus
+    counts, held = PP.count_ngrams(PP.read_phone_lines(path))
+    assert held == [] and counts.n_lines == len(out)
+    n_sil = sum(t == "<SIL>" for toks in out for t in toks)
+    assert int(counts.unigram[PP.SIL_ID]) == n_sil
+    assert int(counts.unigram.sum()) == counts.n_tokens == sum(len(t) for t in out)
+    # every line opens with <SIL> after the two BOS pads
+    assert int(counts.bigram[PP.BOS_ID, PP.SIL_ID]) == len(out) == int(counts.bigram[PP.BOS_ID].sum())
+    assert int(counts.trigram[PP.BOS_ID * PP.N_CTX + PP.BOS_ID, PP.SIL_ID]) == len(out)
+    # the other spellings of silence land on the same id; an unknown token is an error
+    c2, _ = PP.count_ngrams([["<SIL>", "AA", "[SIL]", "sil", "SIL"]])
+    assert int(c2.unigram[PP.SIL_ID]) == 4 and int(c2.unigram[PP.PHONE2ID["AA"]]) == 1
+    with pytest.raises(KeyError):
+        PP.count_ngrams([["<SIL>", "ZZ"]])

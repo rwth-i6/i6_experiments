@@ -34,7 +34,7 @@ from typing import Dict, Optional, Sequence
 
 from sisyphus import Job, Task, tk
 
-__all__ = ["BANKED_VAD_COUNTS", "BlankfreeVadHdfJob", "prepare_blankfree_data"]
+__all__ = ["BANKED_VAD_COUNTS", "BlankfreeVadHdfJob", "prepare_blankfree_data", "write_counts_report"]
 
 #: summary of the banked joint-VAD run ``BlankfreeVadHdfJob.SAjz8y1cT06g`` (identical to the
 #: wav2vec-U 2.0 reproduction totals it was checked against).
@@ -64,6 +64,31 @@ def _feature_index(paths: dict[str, list[str]]) -> dict[str, tuple[str, int, int
     return index
 
 
+def write_counts_report(summary: dict, expected_counts: dict[str, dict[str, int]], path: str) -> dict:
+    """Report-only count check: per split and count key the observed total, the expected one and
+    ``(observed - expected) / expected``; plus ``max_abs_rel_diff`` over everything.  Written to
+    ``path`` (json) and returned."""
+    splits = {}
+    worst = 0.0
+    for split in sorted(expected_counts):
+        rows = {}
+        for key in _COUNT_KEYS:
+            if key not in expected_counts[split]:
+                continue
+            expected = int(expected_counts[split][key])
+            observed = int(summary[split][key])
+            rel = (observed - expected) / expected if expected else (0.0 if observed == 0 else float("inf"))
+            worst = max(worst, abs(rel))
+            rows[key] = {"observed": observed, "expected": expected, "rel_diff": rel}
+        splits[split] = rows
+    report = {"mode": "report-only (ffmpeg pin accept label): a mismatch does not raise",
+              "all_equal": all(r["observed"] == r["expected"] for rows in splits.values() for r in rows.values()),
+              "max_abs_rel_diff": worst, "splits": splits}
+    with open(path, "w") as fh:
+        json.dump(report, fh, indent=2)
+    return report
+
+
 def prepare_blankfree_data(
     *,
     ogg_zips: dict[str, list[str]],
@@ -75,7 +100,12 @@ def prepare_blankfree_data(
     out_orig_length_hdfs: dict[str, list[str]],
     manifest_path: str,
     expected_counts: Optional[dict[str, dict[str, int]]] = None,
+    counts_report_path: Optional[str] = None,
 ) -> None:
+    """Joint rVAD masking (module doc).  With ``expected_counts``, a mismatch of any given count
+    raises after the manifest is written; with ``counts_report_path`` as well (report-only mode, used
+    under an ffmpeg accept label), nothing raises on a mismatch: the observed totals, the expected
+    ones and their relative differences are written to ``counts_report_path`` instead."""
     import h5py
     import numpy as np
     from rVADfast import rVADfast
@@ -87,6 +117,7 @@ def prepare_blankfree_data(
     assert set(ogg_zips) == set(feature_hdfs), (sorted(ogg_zips), sorted(feature_hdfs))
     if expected_counts is not None:
         assert set(expected_counts) == set(feature_hdfs), (sorted(expected_counts), sorted(feature_hdfs))
+    assert counts_report_path is None or expected_counts is not None, "a counts report needs expected_counts"
 
     feature_index = _feature_index(feature_hdfs)
 
@@ -132,7 +163,9 @@ def prepare_blankfree_data(
         json.dump({"vad": "rVADfast 0.0.5 via vad_port.rvad_silence, threshold=0.4, "
                           "25ms window/10ms shift, subframes=2, tail=silence",
                    "summary": summary}, fh, indent=2)
-    if expected_counts is not None:
+    if counts_report_path is not None:
+        write_counts_report(summary, expected_counts, counts_report_path)
+    elif expected_counts is not None:
         for split, stats in summary.items():
             expected = {k: int(v) for k, v in expected_counts[split].items()}
             observed = {k: stats[k] for k in expected}
@@ -195,7 +228,14 @@ class BlankfreeVadHdfJob(Job):
     :param expected_counts: optional ``{split: {key: count}}`` with keys among ``"utterances"``,
         ``"original_frames"``, ``"kept_frames"``; a mismatch of a given key raises after the manifest
         is written.
+    :param counts_report_only: with ``expected_counts``, do NOT raise on a count mismatch; write the
+        observed totals and their relative differences from ``expected_counts`` to
+        ``out_counts_report`` (``counts_vs_expected.json``) instead.  For audio that is knowingly not
+        the banked audio (``FFMPEG_PIN_ACCEPT``).  ``False`` (the default) is hash-excluded, so the
+        strict job keeps its hash; ``out_counts_report`` is then ``None``.
     """
+
+    __sis_hash_exclude__ = {"counts_report_only": False}
 
     def __init__(
         self,
@@ -204,6 +244,7 @@ class BlankfreeVadHdfJob(Job):
         feature_hdfs: Dict[str, Sequence[tk.Path]],
         units_store: tk.Path,
         expected_counts: Optional[Dict[str, Dict[str, int]]] = None,
+        counts_report_only: bool = False,
     ):
         super().__init__()
         self.feature_hdfs = {s: list(feature_hdfs[s]) for s in sorted(feature_hdfs)}
@@ -222,6 +263,9 @@ class BlankfreeVadHdfJob(Job):
             expected_counts = {s: {k: int(expected_counts[s][k]) for k in _COUNT_KEYS if k in expected_counts[s]}
                                for s in sorted(expected_counts)}
         self.expected_counts = expected_counts
+        if counts_report_only and expected_counts is None:
+            raise ValueError("counts_report_only needs expected_counts")
+        self.counts_report_only = bool(counts_report_only)
         self.out_feature_hdfs = {
             s: [self.output_path(f"feats.{s}.shard{k}.hdf") for k in range(len(paths))]
             for s, paths in self.feature_hdfs.items()
@@ -240,6 +284,7 @@ class BlankfreeVadHdfJob(Job):
         }
         self.out_manifest = self.output_path("manifest.json")
         self.out_stats = self.output_path("summary.txt")
+        self.out_counts_report = self.output_path("counts_vs_expected.json") if self.counts_report_only else None
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 4, "mem": 96, "time": 8})
@@ -255,6 +300,7 @@ class BlankfreeVadHdfJob(Job):
             out_orig_length_hdfs={s: [p.get_path() for p in paths] for s, paths in self.out_orig_length_hdfs.items()},
             manifest_path=self.out_manifest.get_path(),
             expected_counts=self.expected_counts,
+            counts_report_path=self.out_counts_report.get_path() if self.counts_report_only else None,
         )
         summary = json.load(open(self.out_manifest.get_path()))["summary"]
         with open(self.out_stats.get_path(), "w") as fh:

@@ -65,6 +65,11 @@ generation); widened tolerances in brackets apply then.
 - **G0.R0 input graph (A).** Pin check verdict recorded first. HLG (in-house, word-boundary) states in
   [23.8 M, 24.0 M], arcs in [98.1 M, 99.1 M]. Prior held-out ppl 9.56 +-0.02; rho = 9.6619373279
   (1e-9 rel). VAD totals equal `BANKED_VAD_COUNTS` (audio label: within 0.5 %, report-only).
+  Amended 2026-09-24, before any job: under the audio label the VAD job only reports, and the gate
+  reads `utterances` and `original_frames` as exact and only `kept_frames` within 0.5 %. The first two
+  do not depend on the audio (the decode length equals the FLAC length on 24 of 24 probed files). A
+  different ffmpeg build moved the kept count of 2 of 120 probed utterances
+  (`reports/review_p0_launch_2026-09-24.md`, issue 2).
 - **G0.R1 ctrl_20 (A).** dev-other PER ep1 0.855 +-0.01 [+-0.015]; ep4 / 10 / 20 0.875 / 0.869 / 0.874568
   +-0.03; step 1 l_tau -0.350 +-0.002, prior per token -5.657 +-0.005, expected tokens 63.821 +-1.0
   [+-0.005 / +-0.01 / +-3 %] (a batch-shape change voids the step-1 clause); ep20 emitted greedy rate
@@ -101,16 +106,22 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
 
 - **Audio generation (G0.R0 pin clause read 2026-09-24): the ffmpeg pin check FAILS** — the i6 conda
   ffmpeg 7.1.1 (x86_64) reproduces only 14 of the 2864 dev-other reference PCM digests (aarch64 build;
-  `reports/exec_pincheck2_2026-09-24.md`). No aarch64 emulation is available. Decision (orchestrator):
+  `reports/exec_pincheck2_2026-09-24.md`). No aarch64 emulation is available. Decision (orchestrator; the user confirmed on 2026-09-24,
+  declining an import of the banked JUPITER Ogg audio):
   run P0 on this generation under `FFMPEG_PIN_ACCEPT = "x86_64-conda-ffmpeg-7.1.1-i6"` (every downstream
   hash moves; README: "a reproduction on other audio"); the gates' audio-label tolerances apply and the
   VAD job reports its totals against the banked ones instead of raising.
 - Hardware: L40S 46 GB (sm_89) instead of GH200 96 GB (sm_90); x86_64 instead of aarch64.
+- Slurm time: `settings.py` raises the ReturnnTrainingJob `run` task from the package's 11.5 h to 72 h
+  (not hashed). At the screen's 1800 s per sub-epoch ceiling, 20 sub-epochs would exceed 11.5 h, and
+  the TIMEOUT-resume path is checked only statically (`reports/impl_settings_time_2026-09-24.md`).
 - Setup: `IMPORT_PATHS` made absolute in `settings.py` (tasks run in `<job>/work`; lazy recipe imports
   failed otherwise); hash-neutral.
 - Env (`reports/env_build_2026-09-24.md`): every environment.yml pin unchanged; BLAS MKL instead of
   OpenBLAS; k2 source build of the pinned commit for sm_70/sm_86 (SASS sm_86 runs on the L40S);
-  librosa 0.11.0 added (i6_core imports it; the spec omitted it). Recipe checkouts newer than the README
+  librosa 0.11.0 added (i6_core imports it; the spec omitted it); matplotlib-base 3.11.2 added (the
+  ReturnnTrainingJob `plot` task imports it; without it every training ends in ERROR and p0's
+  checkpoint pick never runs; 20 packages added, none changed). Recipe checkouts newer than the README
   pins: i6_core 4537aaf (pin ca161b7 is an ancestor; three later commits: JAX checkpoint support in
   ReturnnTrainingJob, a new ExtractOovWordsFromTextJob, an optional prettify), sisyphus a567fa7 (pin ddcd028 plus later fixes); RETURNN for jobs
   is cloned at the pinned commit with the shipped patch.

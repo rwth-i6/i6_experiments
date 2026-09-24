@@ -53,6 +53,8 @@ dependencies:
   # sisyphus' requirements.txt (psutil above; ipython for the console, flask for the web UI)
   - ipython=9.13.0
   - flask=3.1.3
+  # i6_core ReturnnTrainingJob's `plot` task imports matplotlib (missing from this hand-pinned list)
+  - matplotlib-base=3.11.2
   - pip:
       - transformers==5.9.0
       - tokenizers==0.22.2
@@ -68,3 +70,4 @@ dependencies:
       - kenlm==0.3.0              # lm/prior_gap.py (python module; the KenLM binaries are separate)
       - kaldilm==1.15.4           # in the reference k2 env; not imported by the package itself
       - pytest==9.1.1             # tests/
+      - librosa==0.11.0           # i6_core returnn/hdf.py imports it (missing from this hand-pinned list)

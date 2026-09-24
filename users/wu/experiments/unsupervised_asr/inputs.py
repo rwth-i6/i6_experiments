@@ -13,7 +13,7 @@ Chain (the package module that owns each step in brackets):
   the four shipped shards, plus the 10 h seed and both dev sets (``w2v2.features``);
 * units: the k-means unit store (``w2v2.units.get_units_store``);
 * streams: joint rVAD masking of features and units (``data.vad.BlankfreeVadHdfJob``), checked
-  against the banked totals ``BANKED_VAD_COUNTS``;
+  against the banked totals ``BANKED_VAD_COUNTS`` (report-only under ``FFMPEG_PIN_ACCEPT``);
 * ids / split: the sorted train-clean-100 ids (``data.librispeech.get_split_ids``) -> the seed-0 1 %
   CV holdout (``data.splits.CvHoldoutSplitJob``, 28,254 / 285);
 * gold: MFA phones of dev-clean + dev-other (``data.gold.GoldPhonesJob``; PER reference only);
@@ -118,6 +118,7 @@ def get_inputs() -> Inputs:
     from .data.speaker import SpeakerEtaJob
     from .data.splits import CvHoldoutSplitJob
     from .data.vad import BANKED_VAD_COUNTS, BlankfreeVadHdfJob
+    from .default_tools import get_ffmpeg_pin_accept
     from .lm.phone_prior import get_phone_prior
     from .reverse_model.phi_first import duration_prior_json
     from .training.config import NET_ARGS
@@ -130,13 +131,17 @@ def get_inputs() -> Inputs:
     units_store = get_units_store()
 
     feature_hdfs = {s: [j.out_files["feats.hdf"] for j in dumps[s]] for s in ("train",) + DEV_SPLITS}
+    # the pinned-ffmpeg audio is sample-identical to the banked audio (review_data), so the banked
+    # totals are a real check: a mismatch raises after the manifest is written.  Under an ffmpeg accept
+    # label (a different audio generation) the totals are expected to move: the job then only reports
+    # them against the banked ones (``out_counts_report``) and does not raise.
+    report_only = get_ffmpeg_pin_accept() is not None
     vad = BlankfreeVadHdfJob(
         ogg_zips={"train": [ogg_zips["train-clean-100"]], **{s: [ogg_zips[s]] for s in DEV_SPLITS}},
         feature_hdfs=feature_hdfs,
         units_store=units_store,
-        # the pinned-ffmpeg audio is sample-identical to the banked audio (review_data), so the banked
-        # totals are a real check: a mismatch raises after the manifest is written
         expected_counts=BANKED_VAD_COUNTS,
+        **({"counts_report_only": True} if report_only else {}),
     )
     vad.add_alias("sae/4a/data/vad")
 

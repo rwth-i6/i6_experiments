@@ -77,3 +77,44 @@ def test_js_rows_read_job_on_tiny_decodes(tmp_path):
     assert row["djs_gold_unigram"]["mean"] < 0 and row["djs_gold_bigram"]["mean"] < 0
     assert rec["references"] == {"n_speakers": 2, "n_utterances": 3}
     assert open(os.path.join(tmp, "report.txt")).read().startswith(M.JS_ROWS_CONVENTION)
+
+
+# ===================================================================================================
+# Priority-2 test (test plan 2026-09-24, T2.11): js_divergence against scipy.
+# ===================================================================================================
+
+
+def test_t2_11_js_divergence_is_scipy_jensenshannon_squared():
+    """js_divergence(p, q) = scipy.spatial.distance.jensenshannon(p, q, base=2)^2 (1e-12), with zeros
+    in p only, in q only, in both at the same cell, disjoint supports and unnormalised counts."""
+    from scipy.spatial.distance import jensenshannon
+
+    rng = np.random.RandomState(11)
+    cases = [
+        (np.array([3.0, 1.0, 0.0, 2.0]), np.array([1.0, 1.0, 1.0, 1.0])),
+        (np.array([1.0, 2.0, 3.0]), np.array([0.0, 5.0, 1.0])),
+        (np.array([0.0, 2.0, 0.0, 7.0]), np.array([0.0, 1.0, 4.0, 0.0])),
+        (np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 9.0])),
+        (np.array([1.0]), np.array([4.0])),
+    ]
+    for _ in range(200):
+        k = int(rng.randint(2, 50))
+        p = rng.randint(0, 20, size=k) * (rng.rand(k) > 0.3)
+        q = rng.rand(k) * (rng.rand(k) > 0.3)
+        p[rng.randint(k)] += 1.0
+        q[rng.randint(k)] += 0.5
+        cases.append((p.astype(float), q))
+    worst = 0.0
+    for p, q in cases:
+        ref = float(jensenshannon(p, q, base=2)) ** 2
+        got = M.js_divergence(p, q)
+        worst = max(worst, abs(got - ref))
+        assert abs(got - ref) <= 1e-12, (p, q, got, ref)
+    rows_p = rng.randint(0, 6, size=(9, 13)).astype(float)
+    rows_p[:, 0] += 1.0
+    q = rng.rand(13) * (rng.rand(13) > 0.4)
+    q[1] += 1.0
+    rows = M.js_rows(rows_p, q)
+    for i in range(len(rows_p)):
+        assert abs(rows[i] - float(jensenshannon(rows_p[i], q, base=2)) ** 2) <= 1e-12
+    print(f"T2.11 max |js_divergence - jensenshannon^2| over {len(cases)} pairs: {worst:.2e}")

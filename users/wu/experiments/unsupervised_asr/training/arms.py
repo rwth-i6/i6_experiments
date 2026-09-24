@@ -35,6 +35,8 @@ __all__ = [
     "KEEP_EPOCHS",
     "K2_ONSET",
     "ctrl_20",
+    "ctrl_20_s1",
+    "CTRL_20_S1_SEEDS",
     "k2lat_20_ma3000",
     "off4_k2lat_20",
     "k2_word_lm",
@@ -114,6 +116,32 @@ def ctrl_20(*, data: Dict[str, Any], num_sub_epochs: int = 20) -> Arm:
     tau, lr = phase_schedules(n)
     cfg = build_train_config(**_data(data), num_subepochs=n, temperature_schedule=tau, learning_rates=lr)
     return Arm(_name("ctrl_20", n), cfg, n, KEEP_EPOCHS[n])
+
+
+#: ``ctrl_20_s1``'s seeds (JUPITER ``SAE_4A_prepro.md`` l.13: "ctrl_20_s1 moves flat_seed 1,
+#: random_seed 1, random_seed_offset 1000"): theta's flat init seed, RETURNN's ``random_seed`` and the
+#: train stream's sequence-order offset
+CTRL_20_S1_SEEDS = {"flat_seed": 1, "random_seed": 1, "random_seed_offset": 1000}
+
+
+def ctrl_20_s1(*, data: Dict[str, Any], num_sub_epochs: int = 20) -> Arm:
+    """The seed replicate of :func:`ctrl_20` (its seed band): the same bed and schedules, with theta's
+    flat init at ``FlatRecognizerInitJob(net_args=NET_ARGS, seed=1)`` (replacing
+    ``data["flat_checkpoint"]``), ``random_seed`` 1 and ``random_seed_offset`` 1000
+    (:data:`CTRL_20_S1_SEEDS`)."""
+    from .config import NET_ARGS
+    from .init import FlatRecognizerInitJob
+
+    n = _check_n(num_sub_epochs)
+    seeds = CTRL_20_S1_SEEDS
+    flat = FlatRecognizerInitJob(net_args=NET_ARGS, seed=seeds["flat_seed"])
+    flat.add_alias(f"sae/4a/init/flat_s{seeds['flat_seed']}")
+    d = _data(data)
+    d["flat_checkpoint"] = flat.out_checkpoint
+    tau, lr = phase_schedules(n)
+    cfg = build_train_config(**d, num_subepochs=n, temperature_schedule=tau, learning_rates=lr,
+                             random_seed=seeds["random_seed"], random_seed_offset=seeds["random_seed_offset"])
+    return Arm(_name("ctrl_20_s1", n), cfg, n, KEEP_EPOCHS[n])
 
 
 def _k2_arm(
@@ -217,6 +245,7 @@ def k2_word_lm(
 #: preset name -> builder
 ARM_PRESETS = {
     "ctrl_20": ctrl_20,
+    "ctrl_20_s1": ctrl_20_s1,
     "k2lat_20_ma3000": k2lat_20_ma3000,
     "off4_k2lat_20": off4_k2lat_20,
     "k2_word_lm": k2_word_lm,
