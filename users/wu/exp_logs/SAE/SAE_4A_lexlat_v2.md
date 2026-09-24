@@ -16,7 +16,7 @@ Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last train
 NEXT:
 1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launched (pid 1895908, see LIVE). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
 2. A19 trigram-only ladder: building (`reports/impl_a19_triladder_2026-09-24.md`), then review and launch; shim `config/sae_4a_lexlat_v2_triladder.py` (user).
-3. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim exists (user, 2026-09-24).
+3. A18 build done (84b77283, `reports/impl_a18_bridge_2026-09-24.md`), in review (`reports/review_a18_bridge_2026-09-24.md`). Next: keyinit manager restart adds the (b) lift pack; flip A18B_PAIRED_ROWS once A17 (i) is finished; BRIDGE_WAVE / BRIDGE_KEYARMS after the hold-rule check.
 4. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 5. At each watcher wake, the executor checks; every read is audited, then recorded.
 
