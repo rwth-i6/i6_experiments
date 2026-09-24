@@ -13,6 +13,11 @@ tiny random PersonaPlex LM (real LMModel + LMGen, greedy, float64):
   3. CAN FAIL. A core whose ``begin_sync`` skips ``lm_gen.reset_streaming()`` must violate check 1.
   4. SYNC == ASYNC. ``begin_sync`` (model thread, no disconnect check) gives the same session as the async
      ``begin`` it duplicates.
+  5. JRE VOICE == SELF-PLAY PRIMING. A ``jre:<id>`` session on the core equals ``selfplay.prime_from_codes``
+     with the same stored codes and encoded prompt followed by the same steps, token for token.
+  6. NO VOICE LEAK. JRE -> no voice -> JRE on one core: the middle session equals a fresh no-voice session
+     (``prime_from_codes`` overrides the voice source on the instance; ``_forget_stored_codes`` must undo
+     it) and the last equals a fresh JRE session. CAN FAIL: a core that keeps the override violates it.
 
 moshi_family venv, CPU, seconds (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && PYTHONPATH=recipe/speech_llm/full_duplex:recipe \
@@ -94,6 +99,19 @@ class _NoResetCore(LiveCore):
         self.lm_gen.step_system_prompts(self.mimi)
 
 
+JRE = {
+    "v0": np.random.default_rng(7).integers(0, 2048, size=(8, 20)),
+    "v1": np.random.default_rng(8).integers(0, 2048, size=(8, 20)),
+}
+
+
+class _KeepsOverride(LiveCore):
+    """The failure mode: a session after a JRE one keeps the stored-codes voice source."""
+
+    def _forget_stored_codes(self):
+        pass
+
+
 def make_core(cls=LiveCore):
     g = LMGen(
         copy.deepcopy(BASE_LM),
@@ -104,19 +122,19 @@ def make_core(cls=LiveCore):
         frame_rate=12.5,
     )
     g.streaming_forever(1)
-    return cls(_NoMimi(), _NoMimi(), _Tok(), g, torch.device("cpu"))
+    return cls(_NoMimi(), _NoMimi(), _Tok(), g, torch.device("cpu"), jre_voices=JRE)
 
 
 def codes(seed, n=30):
     return torch.as_tensor(np.random.default_rng(seed).integers(0, 2048, size=(1, 8, n)))
 
 
-def session(core, prompt, seed, use_async=False):
+def session(core, prompt, seed, use_async=False, voice=None):
     with contextlib.redirect_stdout(open(os.devnull, "w")):
         if use_async:
-            asyncio.run(core.begin(None, prompt))
+            asyncio.run(core.begin(voice, prompt))
         else:
-            core.begin_sync(None, prompt)
+            core.begin_sync(voice, prompt)
         out = core.step_codes(codes(seed))
     return torch.cat(out, dim=-1).numpy()
 
@@ -150,6 +168,35 @@ def main():
     a = session(core, "You are a pirate.", 2, use_async=True)
     assert np.array_equal(s, a), "begin_sync and begin give different sessions"
     print("[ok] 4 begin_sync (the server's model-thread path) == the async begin, token for token")
+
+    from moshi_family.personaplex.components import encode_system_prompt
+    from moshi_family.personaplex.selfplay import prime_from_codes
+
+    live = session(make_core(), "You are a pirate.", 4, voice="jre:v0")
+    ref = make_core()
+    with contextlib.redirect_stdout(open(os.devnull, "w")):
+        ref.lm_gen.reset_streaming()
+        prime_from_codes(
+            ref.lm_gen, ref.mimi, JRE["v0"], encode_system_prompt(ref.text_tokenizer, "You are a pirate.") or []
+        )
+        manual = torch.cat(ref.step_codes(codes(4)), dim=-1).numpy()
+    assert np.array_equal(live, manual), "a jre: session differs from self-play's prime_from_codes"
+    other = session(make_core(), "You are a pirate.", 4, voice="jre:v1")
+    assert not np.array_equal(live[:, :9], other[:, :9]), "the JRE voice had no effect on the output"
+    print("[ok] 5 a jre: session == prime_from_codes + the same steps (and the voice matters)")
+
+    def leak_free(cls) -> bool:
+        core = make_core(cls)
+        session(core, "You enjoy having a good conversation.", 5, voice="jre:v0")
+        mid = session(core, "You are a pirate.", 6)
+        last = session(core, "You are a nurse on a night shift.", 7, voice="jre:v1")
+        fresh_mid = session(make_core(cls), "You are a pirate.", 6)
+        fresh_last = session(make_core(cls), "You are a nurse on a night shift.", 7, voice="jre:v1")
+        return np.array_equal(mid, fresh_mid) and np.array_equal(last, fresh_last)
+
+    assert leak_free(LiveCore), "a session after a JRE voice differs from a fresh one: the voice leaked"
+    assert not leak_free(_KeepsOverride), "check 6 passes with the override kept: it cannot fail"
+    print("[ok] 6 JRE -> no voice -> JRE == fresh sessions; a core that keeps the override fails (can fail)")
     print("\nALL CHECKS PASSED")
 
 
