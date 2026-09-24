@@ -1073,6 +1073,15 @@ class PersonaProfileGen(Job):
         print(f"[profiles] {summary}", flush=True)
 
 
+def profile_text(profile: str) -> str:
+    """``PERSONA_MINIMAL`` + the profile, with any opener the LLM repeated despite the instruction removed (49 of 690
+    ``persona_profile_v1`` replies on p3's corpus began with it; ``PersonaProfileGen``'s ``text`` keeps them raw)."""
+    body = " ".join(profile.split())
+    while body.startswith(PERSONA_MINIMAL):
+        body = body[len(PERSONA_MINIMAL) :].strip()
+    return f"{PERSONA_MINIMAL} {body}"
+
+
 def profile_prompt_lists(row: dict, episode_id: str, profiles: dict, levels: tuple) -> tuple:
     """``(context, context_other)`` of one attached row with every non-minimal level replaced by the speaker's
     profile: ``PERSONA_MINIMAL`` for ``minimal``, ``profiles[(episode, voice label)]`` otherwise; ``None`` for a
@@ -1102,6 +1111,9 @@ class AttachPersonaProfiles(Job):
     ``other_ok`` row missing either profile is an error, a row that is not ``other_ok`` and lacks its profile
     keeps ``PERSONA_MINIMAL`` in the profile slots (never picked by self-play; counted).
     """
+
+    #: 2 (2026-09-24, before any consumer): the profile text via ``profile_text`` (drops an opener the LLM repeated).
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -1139,7 +1151,9 @@ class AttachPersonaProfiles(Job):
                 ]
             )
         )
-        profiles = {(r["episode_id"], r["label"]): r["text"] for r in load_from_disk(self.profiles.get_path())}
+        profiles = {
+            (r["episode_id"], r["label"]): profile_text(r["profile"]) for r in load_from_disk(self.profiles.get_path())
+        }
         src = load_from_disk(self.data.get_path())
         assert "context_other" in src.column_names, "needs an AttachPersonaPrompts(with_other_side=True) dataset"
         levels = list(self.levels)

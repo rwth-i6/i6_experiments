@@ -14,6 +14,8 @@
      position; every window of one (episode, speaker) carries the SAME text; the other side gets ITS speaker's
      profile (a label-swapped profile table is caught); a missing profile drops the row (training) or raises
      (``keep_all_rows``, other_ok); a missing other-side profile makes the row unswappable.
+  5. ``profile_text``: a reply that repeats the opener "You enjoy having a good conversation." (7% of real replies)
+     yields a prompt with the opener exactly once.
 
 The real-data leak number (content words of the profile said in the same window vs another window of the same
 episode) is ``analysis/persona_prompt_leak.py <corpus> profile`` on the built corpus, not this check.
@@ -246,7 +248,7 @@ def attach(sub, profiles=prof_path, **kw):
 
 
 out = attach("att")
-ptext = {(r["episode_id"], r["label"]): r["text"] for r in prof}
+ptext = {(r["episode_id"], r["label"]): pp.profile_text(r["profile"]) for r in prof}
 src = load_from_disk(src_path)
 assert out["id"] == src["id"]
 changed = {"context", "context_level", "context_set", "context_other"}
@@ -290,4 +292,13 @@ print(
     f"[4] AttachPersonaProfiles: only the prompt lists change, minimal keeps its slot, one profile per speaker, "
     f"sides not swapped (a swapped table is caught), missing profiles drop ({n_asst}) / unswap ({n_oth}) / raise"
 )
+# ---- 5 ----
+OP = pp.PERSONA_MINIMAL
+assert pp.profile_text(f"{OP} {OP}  You joke a lot.") == f"{OP} You joke a lot."
+assert pp.profile_text("You joke a lot.") == f"{OP} You joke a lot."
+Dataset.from_list([{**r, "profile": f"{OP} {r['profile']}"} for r in prof]).save_to_disk(os.path.join(tmp, "prof_op"))
+att_op = attach("att_op", profiles=tk.Path(os.path.join(tmp, "prof_op")))
+assert all(x.count(OP) == 1 for r in att_op for x in r["context"] if x != OP), "a repeated opener must be removed"
+assert att_op["context"] == out["context"]
+print("[5] an opener the LLM repeated is dropped: the prompt starts with it exactly once")
 print("ALL OK")
