@@ -4,13 +4,12 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 2739483 `config/sae_4a_lexlat_v2_em.py`: wave complete; A18 (a) bridge pack 63nbj6Jgiegj (SLURM 1998206) and the cold_ctl forwards (1998211), started 19:20 (`reports/exec_a18a_bridge_launch_2026-09-24.md`).
-- 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack e9xZa5ElF16P pending (SLURM 1989249); A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
 - 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
-- 2494198 `config/sae_4a_lexlat_v2_triladder.py`: A19 pack DzrmcjOQ4I3r (SLURM 1995148, 4 GPU, 11.5 h), started 12:43 (`reports/exec_a19_triladder_launch_2026-09-24.md`).
+- A19 graph complete (manager exited 21:10); read `A19TriLadderReadJob.5ny4LPLFrIXw` under audit (`reports/extract_a19_read_2026-09-24.md`).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE.
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
@@ -713,7 +712,28 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
 - Audit corrections, none changing the verdict:
   - report.txt quotes A7's funding rule as LIFT only; the registered rule is LIFT or PARTIAL.
   - The bridge checks neither the verdict nor the rt_r0 condition. A18 (a) funds it whatever G4a.L2.2 reads, and rt_r0 read LIFT.
-- A18 (a) takes `KCj5mptWgBqb/output/em_s13/models/epoch.012.pt` (flag commit b9f676f5; launch under review).
+- A18 (a) takes `KCj5mptWgBqb/output/em_s13/models/epoch.012.pt` (flag commit b9f676f5). Launched 19:20; pack SLURM 1998206 running since 21:00.
+
+### A14 (i) read (2026-09-24): EM PHI DOES NOT LIFT (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `A14LiftReadJob.GAKp6IJ5pA3l`, pack `PackedBlankfreeTrainJob.e9xZa5ElF16P` (SLURM 1989249, 1 h 55 min). All 8 sub-epochs ran with no NaN. Configs equal L2-0's rt_r70 except the phi path. Extraction: `reports/extract_a14i_read_2026-09-24.md`. Audit: `reports/audit_a14i_hold_2026-09-24.md`, which recomputed PER on all 2,864 dev-other utterances.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm (A10 phi at sub-epoch 48) | PER | ep8 band | ep8 minus cold_ctl [95 % CI] |
+  |---|---|---|---|
+  | cold_ctl (random phi) | 0.888 / 0.886 / 0.855 / 0.849 | NO LIFT | |
+  | durinit s1 | 0.864 / 0.852 / 0.834 / 0.840 | NO LIFT | -0.009 [-0.013, -0.005] |
+  | durinit s2 | 0.839 / 0.831 / 0.824 / 0.820 | NO LIFT | -0.029 [-0.032, -0.026] |
+  | durfrz s1 | 0.866 / 0.864 / 0.841 / 0.842 | NO LIFT | -0.006 [-0.010, -0.003] |
+  | durfrz s2 | 0.845 / 0.829 / 0.820 / 0.821 | NO LIFT | -0.028 [-0.032, -0.025] |
+
+- Reading: no arm leaves the chance band. The s2 arms sit 0.004 above the PARTIAL bar (0.8164), and every arm beats cold_ctl by a small margin with its interval excluding zero. So an EM phi moves a random theta slightly, but far from the 0.18-0.19 a gold or 30-70 %-corrupted phi reaches (L2-0).
+- The job reports no generative PER.
+- A18 hold rule for (a), applied after (a) was launched:
+  - A14 (i) reads NO LIFT on every arm.
+  - Comparing the arms' S at 48 with em_s13's S at its final sub-epoch 12: 3.2990 against 3.3810 on the 260 set, +0.082 with paired CI [+0.072, +0.092]. On the 285 set it is 3.3040 against 3.3863. The clause is met. em_s13's 260-set value is the auditor's calculation from per-utterance files; no job prints it.
+  - At matched sub-epoch 12, em_s13 is 0.0107 below durinit s1, so the clause fails narrowly.
+  - The registered clause assumes the candidate has an S at 48, and em_s13 has none. The rule reads CANNOT_TELL, so it gives no ground for withholding ("really sure it cannot lift").
+  - (a) continues. It had started at 21:00, before this read was taken.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
