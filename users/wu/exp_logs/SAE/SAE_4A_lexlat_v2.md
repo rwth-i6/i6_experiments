@@ -3,7 +3,7 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): A18 (b) lift pack ZUZypSQn7qc0 RUNNING (SLURM 2001624); its 3 paired rows wait on it.
+- `config/sae_4a_lexlat_v2_keyinit.py`: manager EXITED 2026-09-25. A18 (b) lift pack ZUZypSQn7qc0 FINISHED. The genmarg decode of a18_r30_dur at ep8 (`ReturnnForwardJobV2.GTAGKejuQTxD`) failed a code assertion: re-added score -3.6e15 against -306.5 (`reports/exec_keyinit_error_2026-09-25.md`). Debugger: `reports/debug_keyinit_genmarg_2026-09-25.md`. The lift read `uRzbIh0EfQXG` waits.
 - 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
