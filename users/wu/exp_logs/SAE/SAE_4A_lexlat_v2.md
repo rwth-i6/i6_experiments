@@ -2,22 +2,23 @@
 
 ## State
 
-Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE (restarted 2026-09-24 ~01:30 on the packing engine): 2097938 `config/sae_4a_lexlat_v2_em_ext.py`, 2098810 `config/sae_4a_lexlat_v2_ladder.py`, 2099340 `config/sae_4a_supervised_decphi.py`, 2099342 `config/sae_4a_lexlat_v2_em_table.py`.
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE: 2099342 `config/sae_4a_lexlat_v2_em_table.py` (A11 stage B, 5 four-GPU jobs); 2271415 `config/sae_4a_lexlat_d18.py` (D18, `SAE_4A_lexlat.md`). The em_ext, ladder and decphi graphs are complete; those managers exited normally (`reports/debug_manager_exit_2026-09-24.md`).
 
-Submission layer (user: "change now", 2026-09-23): booster is whole-node exclusive, so 1-3-GPU and non-whitelisted gpu-0 tasks go through gpupack (4 slots/node, srun --exact --gres=gpu:n; `gpupack_engine.py`, settings.py, backup settings.py.bak_2026-09-23); light CPU classes run on the login short engine; 4-GPU tasks unchanged. Sub-4-GPU jobs from before were cancelled (`reports/exec_cancel_held_2026-09-24.md`). Reviews: `reports/review_gpupack_engine_2026-09-24.md`. Packs 1982621-1982661 pending (`reports/exec_restart2_gpupack_2026-09-24.md`). Unverified until the first pack runs: distinct CUDA_VISIBLE_DEVICES per member, no step errors (batch log `log/gpupack/2026-09-24/`).
+Submission layer (user: "change now", 2026-09-23): sub-4-GPU tasks are packed 4 per exclusive node by `gpupack_engine.py`; light CPU classes run on the login node. Live-verified: concurrent members get distinct CUDA_VISIBLE_DEVICES, and 541 members ran with rc 0 (`reports/exec_first_pack_verify_2026-09-24.md`). Isolation relies on the variable alone; nvidia-smi shows all 4 GPUs.
 
-A10 restarts 1977837-44 finished at epoch.048. A11 stage A: 4-GPU jobs direct; nulls pending.
+Reads 2026-09-24 (Results):
+- L2-0: rho*_lift 0.7, G4a.L2.3 CANNOT_TELL, audited.
+- A10: wave durinit, 12 sub-epochs. EM phis beat gold on S, but their decodes are at chance.
+- A14 registered.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything, wave not awaiting D14; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on.
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on.
 
-BUILT: ladder (`reports/impl_l20_ladder_2026-09-23.md`); L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5; `reports/review_l21_a11_launch_2026-09-23.md`); A13 (22602b90; sets 285/25/260).
+BUILT: ladder; L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5); A13 (22602b90). BUILDING: wave settings plus A14 (i) and (ii) (`reports/impl_a14_wave_2026-09-24.md`).
 
 NEXT:
-1. First pack starts: executor checks its batch log; members without GPU stop all managers.
-2. em_table: confirm the 6 direct EmTableStageAJob are the nulls, not duplicates.
-3. Ladder: L2-0 read after A4, A5 on A13 sets (read EktNvNSRrXKj).
-4. A10 reader (DcfCsZNq1ucr, diagnostics G2NeV8oNr4tO): set WAVE_DURATION_SETTING, WAVE_NUM_SUBEPOCHS; resize alloc_hours (`config_sae_4a_lexlat_v2_em_v1.py:506`); review wave. Held if both rt_r0 seeds NO LIFT.
-5. A11 stage A first run: four `[cuda:r]` ranks, E-step speed (smoke 33.6 ms/utt), OOM. Unbuilt report-only gold/r100 S references use the A13 260 set and 0.9/0.1 mixture.
+1. Implementer returns; code-reviewer checks the wave, A14 (i) and A14 (ii) launches (static, with job counts by GPU rqmt and route); the executor launches them. Wave: 24 one-GPU restarts in gpupack. A14 (i): one 4-arm pack. A14 (ii): 4 restarts, 48 sub-epochs.
+2. A11: executor reads stage B at the em_table wake; G4a.L2.2 reads after the nulls.
+3. A14 (i) read decides whether an EM phi lifts. A14 (ii) decides objective against search. Audit both before any direction change.
 
 ## Objective
 
@@ -226,3 +227,33 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
   - NMI(symbol, phone) is 0.079-0.113.
   - E[d]: durinit 6.0-6.2, uniform 6.2-6.3, durfrz held at 4.41.
 - **What it says, untested interpretation:** EM from random init finds phis that the stage-1 held-out likelihood prefers to the gold phi, and whose decodes carry no phonetic content. A5's bar, which needs a statistic that separates competent from sharp-wrong phis, is the same question. The A14 analysis tests whether the objective or the search is responsible.
+
+**L2-0 ladder read: a fitted phi lifts a random theta; rho*_lift = 0.7; G4a.L2.3 = CANNOT_TELL (audit CONFIRMED_WITH_NOTES, `reports/audit_l20_ladder_2026-09-24.md`).** Sources: packs P `WX41NC734WLo`, R1 `mZaZk7Ptt5Sg` and R2 `UdhhxiGIMBob`, and the reader `LadderCompetenceDisjointReadJob.EktNvNSRrXKj`, all COMPLETED; read in `reports/extract_l20_ladder_read_2026-09-24.md`.
+- **Audit.**
+  - Theta in R1 and R2 is the zero-logit flat init, never p0.
+  - Realised substitution rates are 0.300, 0.500, 0.700 and 1.000. permphi changes every token, and cold_ctl has no reverse checkpoint.
+  - PER uses the same 2864 utterances and scorer as p0 and the chance band.
+  - No transcripts are seen beyond the disclosed 10 h seed labels. The prior, graph and lexicon come from the LibriSpeech LM corpus and the official lexicon.
+- **Dev-other PER, ep1 / ep8, and the A4 class:**
+
+  | Arm | ep1 | ep8 | Class |
+  |---|---|---|---|
+  | rt_r0 | 0.1807 | 0.1776 | LIFT |
+  | rt_r0_s2 | 0.1809 | 0.1786 | LIFT |
+  | rt_r30 | 0.1861 | 0.1826 | LIFT |
+  | rt_r50 | 0.1902 | 0.1863 | LIFT |
+  | rt_r70 | 0.2533 | 0.1909 | LIFT |
+  | rt_r100 | 0.8445 | 0.8552 | NO LIFT |
+  | cold_ctl | 0.8881 | 0.8487 | NO LIFT |
+  | rt_perm | 0.8891 | 0.8655 | NO LIFT |
+
+  rho*_lift = 0.7, and the ladder is monotone. A7's rt_r0 condition for L2-2 is met; SIGNAL is pending. The wave is not held.
+- **Node P** (theta = p0), at ep8: r30 0.1817, r50 0.1824 and r70 0.1887 read HOLD; r100 0.8530 reads COLLAPSE. By the D14 rule with M_w = 0.010, r30 to r70 read PRESERVES (r30 -0.0078 [-0.0132, -0.0026]) and r100 reads DEGRADES (+0.6635).
+- **A5 bar on the 260 set** (the 285 set agrees):
+  - (a), tau = 1 NLL per frame: gold 3.474, r30 3.719, r50 3.959, r70 4.411, r100 4.690, phi_c 3.499, permphi 4.075.
+  - (b), own minus deranged: gold +4.30, r30 +2.53, r50 +1.91, r70 +1.08, r100 +0.64, phi_c +4.56, permphi +4.10.
+  - Both are monotone in rho and separate r70 from r100. Both put phi_c and permphi on the lifting side, although permphi's own arm reads NO LIFT. So G4a.L2.3 = **CANNOT_TELL**: no separating statistic.
+  - (c) was not built, because its inputs do not exist.
+- **Audit notes.**
+  - N1: the corruption is independent of the acoustics, so each phone's most likely unit stays right below rho 1. rho*_lift therefore does not carry over to an EM phi, whose errors are structured. A14 (i) tests an EM phi directly.
+  - N2: the label-free statistics rate the sharp-wrong phi_c as competent as gold.

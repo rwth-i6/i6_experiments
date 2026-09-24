@@ -4,13 +4,13 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE managers: D14 pid 2099340 (restarted 2026-09-24 on the packing engine, `SAE_4A_lexlat_v2.md` State) `config/sae_4a_supervised_decphi.py` (decphi fit vTBVxrnkVPXI -> W1 jAO8KheTvHCe, W2 HsoaHg2T70bS); D15 graph complete (pack C SZO7xTfO9x7Y, all four arms ep20; `reports/exec_d15_wake_2026-09-23.md`); D17 graph complete (pack DNrT49EggYTY; PER read in D17 Result). Logs `log/<config name>.manager.log`.
+LIVE manager: D18 pid 2271415 `config/sae_4a_lexlat_d18.py` (launched 2026-09-24, review `reports/review_d18_launch_2026-09-24.md`, launch `reports/exec_d18_launch_2026-09-24.md`; three gpupack packs). The D14, D15 and D17 graphs are complete. Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-ACTIVE: D14, D15 (registered, reviewed `reports/review_d1{4,5}_*_2026-09-23.md`, launched). D16 read TWO BASINS, audited CONFIRMED; D16r reads TWO BASINS on the reverse score alone. D17 launched. Cold-line escape work (phi competence ladder, phi-first EM decipherment, bridge) is registered 2026-09-23 in its own phase `SAE_4A_lexlat_v2.md`; the external reviewer assessment is `reports/assessment_reviewer_escape_plan_2026-09-23.md`.
+READ 2026-09-24: D14 (k2 term HELPS and is LEXICON-SPECIFIC; the decoded-label phi is within 0.003 of gold; gold phi FROZEN BETTER at ep8); D15 warm TRIGRAM NEEDED, cold NOT NEEDED and not LEXICON-SPECIFIC; D17 sup arms HELPS AT THE EDGE, k2lat arms NO EFFECT, every arm still collapses. D16 and D16r read TWO BASINS (audited). Cold-line escape work lives in `SAE_4A_lexlat_v2.md`.
 
-NEXT: on a watcher wake, dispatch executor with the job dir; at pack C's first wake, check the four arms run and `prior_weight_eff` (rp: 1.0 at ep1, 2/3 at 8, 1/3 at 9, 0 from 10); read D14 at W1/W2 ep8, D15 warm with W2, D15 cold at pack C ep20, D17 at ep8. D18 (beyond-PER battery, built as 093d1d30, `reports/impl_d18_2026-09-23.md`, review pending) launches once the D14, D15 and D17 managers have finished. Its reads go beside each PER read. In parallel, `SAE_4A_lexlat_v2.md` NEXT.
+NEXT: at the D18 wake, dispatch the executor with the job dir; then enter the B1-B4 reads beside the D14, D15 and D17 PER reads, explaining the PER differences and ties. They never decide. In parallel, `SAE_4A_lexlat_v2.md` NEXT.
 
 Open user forks: 1. k2 form on the cold line (random-pronunciation null; rung 10000): D15 (c) and lexlat_v2 bear on it. 2. D12 = ROOM: the word-aggregate arm waits on the user's go. 3. Double-counted text prior: D15 is the chosen ablation; the beta-2 control and the P3-divided graph are not run.
 
