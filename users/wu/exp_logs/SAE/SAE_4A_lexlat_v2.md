@@ -6,6 +6,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 - 721657 `config/sae_4a_lexlat_v2_phicontent.py`: A15-F, one gpupack pack 1990124 (`reports/exec_a15f_launch_2026-09-24.md`).
+- 943255 `config/sae_4a_lexlat_v2_priorscale_s.py`: A16 (a2), 3 gpupack packs (`reports/exec_a16a2_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
@@ -16,10 +17,6 @@ Reads 2026-09-24 (Results):
 - A16 (a): OBJECTIVE LABEL-BLIND OR WRONG. S prefers each EM phi's own labelling over the emission map by 0.12-0.31 (6/6); the permphi control is valid (-0.60).
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
-
-Ready:
-- A16 (a2), 2186ad57, review PASS: being launched (`reports/exec_a16a2_launch_2026-09-24.md`), after 3023733 exited.
-
 
 NEXT:
 1. Read A16 (a2) and A15-F against their registered rules; audit the combined A16 (a) / (a2) / A15-F reading before A16 (b) is registered. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
