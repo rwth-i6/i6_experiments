@@ -3,20 +3,20 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 4111121 `config/sae_4a_lexlat_v2_em.py`: all 6 wave packs finished 04:48; 32 downstream forwards pending (SLURM 1989952, 1989953).
+- em (`config/sae_4a_lexlat_v2_em.py`): wave graph complete. Manager 4111121 exited once nothing was left to run. A18 (a) bridge flag committed (b9f676f5); its launch review is pending (`reports/review_a18a_bridge_launch_2026-09-24.md`), then the executor restarts the manager.
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack e9xZa5ElF16P pending (SLURM 1989249); A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
 - 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
 - 2494198 `config/sae_4a_lexlat_v2_triladder.py`: A19 pack DzrmcjOQ4I3r (SLURM 1995148, 4 GPU, 11.5 h), started 12:43 (`reports/exec_a19_triladder_launch_2026-09-24.md`).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009).
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
 1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
-2. A18 (`reports/review_a18_bridge_2026-09-24.md`): flip A18B_PAIRED_ROWS once A17 (i) finishes; flip the second bridge flag only after the first bridge's shared cold_ctl jobs finish.
+2. A18 (`reports/review_a18_bridge_2026-09-24.md`): (a) on a PASS launch review, the executor restarts the em manager and a watcher is armed. Flip A18B_PAIRED_ROWS once A17 (i) finishes; flip the second bridge flag only after the first bridge's shared cold_ctl jobs finish.
 3. A19 read when its pack finishes (verdicts in A19).
 4. At each watcher wake the executor checks; every read is audited, then recorded.
 
@@ -703,6 +703,17 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
     - add symbol-swap moves, which exchange two symbols' unit sets and change only the LM and duration terms;
     - add relabel starts, from each A10/A11 partition with its class-to-symbol map deciphered under J.
   - Deciphering the A10 partitions also answers a question for the handoff: whether J at the best relabelling of an EM partition reaches J(gold).
+
+### G4a.L2.2 wave read (2026-09-24): SIGNAL, NOT BEYOND PRIVATE CODE (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `GenMargSelectionJob.dPjElzqvLUYt`, over all 16 restarts, 4 nulls, 2 phi_c restarts and the seed 1/2 reruns. The wave ran durinit for 12 sub-epochs, and S was read at sub-epoch 12 on the 285-utterance CV holdout (the nulls on its permuted copy). Extraction: `reports/extract_wave_read_2026-09-24.md`. Audit: `reports/audit_wave_read_2026-09-24.md`, which recomputed the read from the per-restart files.
+- Selected restart: em_s13, S 3.3863 (next best em_s01, 3.3981). Its emitted rate is 7.58 Hz, and all 16 restarts are in band, so none is VOID.
+- Best null: null_s02, S 5.7133. Null range 0.0027, identity band 2.7e-5, so the margin is 0.01. The gap of 2.327 is SIGNAL, and em_s13 beats the best null on all 285 utterances.
+- Report only: the best phi_c restart (phic_s01, S 3.3441) is 0.042 below em_s13, so the read is NOT BEYOND PRIVATE CODE.
+- Reading: A7 expects SIGNAL from any segmental fit, so it shows no phonetic content. The wave's reads compute no generative PER. The selected phi's PER will come from A18 (a)'s dec_frz arm, whose phi stays frozen.
+- Audit corrections, none changing the verdict:
+  - report.txt quotes A7's funding rule as LIFT only; the registered rule is LIFT or PARTIAL.
+  - The bridge checks neither the verdict nor the rt_r0 condition. A18 (a) funds it whatever G4a.L2.2 reads, and rt_r0 read LIFT.
+- A18 (a) takes `KCj5mptWgBqb/output/em_s13/models/epoch.012.pt` (flag commit b9f676f5; launch under review).
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
