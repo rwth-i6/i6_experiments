@@ -341,6 +341,13 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
   - (d) A17 (ii)'s tau = 1 phis are not bridged by default. Their gold arm lies between L2-0's gold phi, which lifts, and A17 (i)'s gold-EM.
     - They get a lift pack (gold and r70, seeds 1 and 2) only if A17 (i) reads NO LIFT for gold-EM and A17 (ii) reads ANNEALING-DOMINATED. Only then does their lift read tell whether the tau = 4 sub-epoch is what destroys liftability.
   - Every joint arm reports its phi's generative PER (direct, Hungarian, NMI) at the kept epochs, report only.
+  - Build choices, fixed before any result (`reports/impl_a18_bridge_2026-09-24.md`):
+    - (b) reads **MIXED** in the one case left open: G-dur and r30-dur read NO LIFT and r70-dur lifts. MIXED is reported and has no consequence.
+    - G4a.L2.4 is decided by dec_joint against cold_ctl, with B = |dec_joint - dec_joint_s2|. The other arms are reported.
+    - cold_ctl reuses L2-0's `UdhhxiGIMBob`.
+      - Its random phi has uniform duration logits instead of A9's durinit values. A9's prior is init-only, so this is part of phi's init, which A6 lets differ.
+      - A new one-GPU baseline would have idled a whole node.
+    - dec_distil trains at tau 2.0 (the arms' tau) and lr 1e-5 (the pack schedule's sub-epoch-1 value, since the D10e constants apply verbatim). Its target is the plain l_tau posterior, with no k2 term.
   - Cost: one four-GPU pack each for (a), (b) and (c), about 11.5 h each (A14 (i)'s request); (d) adds one pack if its condition holds.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
