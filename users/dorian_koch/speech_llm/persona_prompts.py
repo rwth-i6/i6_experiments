@@ -1215,3 +1215,513 @@ class AttachPersonaProfiles(Job):
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )
+
+
+# ---------------------------------------------------------------------------------------------
+# 3. short CONTENT prompts from a large chunk / from the first half (ablations ab_epad1_chunkprompt /
+#    ab_epad1_firsthalf, 2026-09-25)
+# ---------------------------------------------------------------------------------------------
+#: One instruction for BOTH content specs, so the two ablations differ only in the transcript the LLM is shown (user,
+#: 2026-09-25: keep content prompts, but condense much more; one short sentence a person would plausibly type). The
+#: two style examples are PersonaPlex's published topic prompts (arXiv 2602.06053 v1 Appendix A; the repo README).
+CONTENT_PROMPT_INSTRUCTION = """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below is a transcript of part of a real two-person conversation. Lines starting with "Assistant:" are THE ASSISTANT; lines starting with "Other:" are the other person.
+
+Write ONE short sentence that tells the assistant what to talk about: the broad subject of this conversation from the assistant's side, the way a person would type it when asking for a conversation. It is appended to the fixed opening sentence "You enjoy having a good conversation." -- do NOT repeat that sentence. Examples of the style:
+- "Have a casual discussion about eating at home versus dining out."
+- "Have an empathetic discussion about the meaning of family amid uncertainty."
+
+Rules:
+- At most {max_words} words, ONE sentence.
+- Name only the broad subject: one or two themes that fit the whole transcript. Leave out the individual points, claims, opinions, stories, examples, names, places and numbers.
+- Describe only what the assistant talks about.
+- Do not quote. Do not copy any phrase of four or more consecutive words from the transcript.
+- Do not mention a podcast, a show, a host, a guest, an interview, a transcript, an excerpt, or these instructions.
+- Never name the assistant or anyone else.
+
+Answer with JSON: {{"prompt": "..."}}
+
+TRANSCRIPT:
+{transcript}"""
+
+#: Versioned content specs (the whole dict entry is hashed into ``PersonaContentPromptGen``). ``source``:
+#:   ``chunk``: the fixed ``chunk_sec`` block of EPISODE time holding the window's midpoint (extended to cover every
+#:     window assigned to it), both speakers' words, one prompt per (episode, block, speaker) shared by all its
+#:     windows. 600 s = a Fisher call: PersonaPlex's real-data stage has ONE prompt per call, 7,303 calls / 1,217 h
+#:     = 10.0 min each, while its training crops are <= 163.84 s (paper_recipes.md).
+#:   ``firsthalf``: the training window's own words with onset in its FIRST half (both speakers); nothing said in the
+#:     second half reaches the LLM.
+#: ``max_words``: the prompt body (after the opener) is at most this many words; longer replies are retried.
+CONTENT_SPECS = {
+    "content_chunk600_v1": {
+        "instruction": CONTENT_PROMPT_INSTRUCTION,
+        "source": "chunk",
+        "chunk_sec": 600.0,
+        "max_words": 15,
+    },
+    "content_firsthalf_v1": {
+        "instruction": CONTENT_PROMPT_INSTRUCTION,
+        "source": "firsthalf",
+        "max_words": 15,
+    },
+}
+
+_CONTENT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {"prompt": {"type": "string", "minLength": 1}},
+    "required": ["prompt"],
+    "additionalProperties": False,
+}
+
+
+def content_spec_digest(name: str) -> str:
+    """Content hash of a content spec (hashed into ``PersonaContentPromptGen``)."""
+    return hashlib.sha256(json.dumps(CONTENT_SPECS[name], sort_keys=True).encode()).hexdigest()[:16]
+
+
+def strip_opener(text: str) -> str:
+    """The prompt body: whitespace-normalised, any leading copies of ``PERSONA_MINIMAL`` removed."""
+    body = " ".join(str(text).split())
+    while body.startswith(PERSONA_MINIMAL):
+        body = body[len(PERSONA_MINIMAL) :].strip()
+    return body
+
+
+def content_reply_error(body: str, transcript: str, max_words: int) -> str:
+    """Why an LLM reply (opener already stripped) is rejected, or "" when it is accepted: empty, over the word cap,
+    or a verbatim run of ``MAX_SHARED_NGRAM`` words shared with the transcript it was written from."""
+    n = len(body.split())
+    if n == 0:
+        return "empty"
+    if n > max_words:
+        return f"{n} words > {max_words}"
+    ov = max_shared_ngram(body, transcript)
+    if ov >= MAX_SHARED_NGRAM:
+        return f"verbatim overlap {ov}"
+    return ""
+
+
+def firsthalf_transcript(focus: list, other: list, duration: float) -> str:
+    """Labelled dialogue of the words whose ONSET lies in the first half of a window (``start < duration / 2``,
+    window-relative alignments as the training rows store them): ``focus`` is "Assistant", ``other`` is "Other"."""
+    half = float(duration) / 2.0
+    fa = [w for w in focus or [] if float(w["start"]) < half]
+    fo = [w for w in other or [] if float(w["start"]) < half]
+    return _dialogue_text(fa, fo)
+
+
+def chunk_block(abs_mid: float, chunk_sec: float) -> int:
+    """Index of the fixed ``chunk_sec`` block of episode time holding a window's midpoint."""
+    return int(float(abs_mid) // float(chunk_sec))
+
+
+def chunk_transcripts(windows: list, slice_rows: list, chunk_sec: float) -> tuple:
+    """Per (episode, block, speaker): the labelled dialogue of that block of the episode, the speaker as "Assistant".
+
+    ``windows``: dicts ``id, episode_id, abs_t0, abs_t1, labels`` (``labels`` = the diarized speakers that need a
+    prompt for this window: its assistant, and its other side when swappable). ``slice_rows``: the episode's dialogue
+    rows (``episode_id, span_start_sec, words_a, words_b, turns_json``; words/turns row-relative). Each row's two
+    channels are labelled together (``_joint_labels`` over the whole row); a channel's words go to "Assistant" when its
+    label is the key's speaker, else to "Other". The block span is ``[b * chunk_sec, (b + 1) * chunk_sec)`` widened
+    to cover every window assigned to the block, so each window lies inside the text its prompt is written from.
+
+    Returns ``(texts, key_of)``: ``{(episode, block, label): (transcript, span_start, span_end)}`` and
+    ``{(window id, label): key}``."""
+    spans, key_of = {}, {}
+    for w in windows:
+        b = chunk_block((w["abs_t0"] + w["abs_t1"]) / 2.0, chunk_sec)
+        s0, s1 = spans.get((w["episode_id"], b), (b * chunk_sec, (b + 1) * chunk_sec))
+        spans[(w["episode_id"], b)] = (min(s0, w["abs_t0"]), max(s1, w["abs_t1"]))
+        for lab in w["labels"]:
+            key_of[(w["id"], lab)] = (w["episode_id"], b, lab)
+    by_ep = {}
+    for r in slice_rows:
+        by_ep.setdefault(r["episode_id"], []).append(r)
+    labelled = {}  # episode -> [(label, abs word)] over all its rows
+
+    def ep_words(ep):
+        if ep not in labelled:
+            out, seen = [], set()
+            for r in by_ep.get(ep, []):
+                s = float(r["span_start_sec"])
+                wa, wb = json.loads(r["words_a"] or "[]"), json.loads(r["words_b"] or "[]")
+                la, lb = _joint_labels(wa, wb, json.loads(r["turns_json"] or "[]"))
+                for lab, ws in ((la, wa), (lb, wb)):
+                    for x in ws:
+                        a = round(s + float(x["start"]), 3)
+                        if (lab, a, x["text"]) in seen:  # rows never overlap; this only guards a duplicate row
+                            continue
+                        seen.add((lab, a, x["text"]))
+                        out.append((lab, {"text": x["text"], "start": a, "end": s + float(x["end"])}))
+            labelled[ep] = out
+        return labelled[ep]
+
+    texts = {}
+    for key in sorted(set(key_of.values()), key=lambda k: (k[0], k[1], str(k[2]))):
+        ep, b, lab = key
+        s0, s1 = spans[(ep, b)]
+        inside = [(lb, w) for lb, w in ep_words(ep) if s0 <= w["start"] < s1]
+        focus = [w for lb, w in inside if lb is not None and lb == lab]
+        other = [w for lb, w in inside if lb is None or lb != lab]
+        texts[key] = (_dialogue_text(focus, other), s0, s1)
+    return texts, key_of
+
+
+class PersonaContentPromptGen(Job):
+    """Short CONTENT prompts (one sentence, <= ``max_words``) for training windows, by an LLM served with vLLM
+    (ablations ``ab_epad1_chunkprompt`` / ``ab_epad1_firsthalf``, 2026-09-25). What the LLM is shown is the spec's
+    ``source`` (``CONTENT_SPECS``): a ~10-min block of the episode around the window (``chunk``; one call per
+    (episode, block, speaker)), or the window's first half (``firsthalf``; one call per (window, side)). Both see
+    both speakers, the prompted speaker labelled "Assistant". The spec (instruction + source + caps) is hashed.
+
+    ``data``: an ``AttachPersonaPrompts(per_read=True, with_other_side=True)`` corpus -- the rows to prompt, their
+    alignments (firsthalf) and voice labels (chunk). ``context_data`` + ``dialogue_shard_dirs`` (chunk only): the
+    corpus's ``PodcastWindowContext`` (window -> row + bounds) and its dialogue slices (the block's words).
+    ``sides``: ``assistant`` = the row's assistant channel; ``other`` = its other channel (swappable rows only).
+    ``ids``: prompt only these rows (self-play inputs, probe windows); None = every row. ``shard``/``num_shards``:
+    a strided slice of the calls.
+
+    Output (long format): ``id, side, level, text`` (``PERSONA_MINIMAL`` + body), ``body, n_words, key,
+    max_ngram_overlap, spec, llm_name``; ``level`` = the spec's source name. Seeded per call key, retries, > 1% failed
+    calls is fatal; ``summary.json`` has the word-count distribution and examples."""
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        spec: str,
+        context_data: tk.Path | None = None,
+        dialogue_shard_dirs: list | None = None,
+        sides: tuple = ("assistant", "other"),
+        ids: list | None = None,
+        shard: int | None = None,
+        num_shards: int | None = None,
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 0.6,
+    ):
+        assert spec in CONTENT_SPECS, spec
+        sides = tuple(sides)
+        assert sides and set(sides) <= {"assistant", "other"} and len(set(sides)) == len(sides), sides
+        if CONTENT_SPECS[spec]["source"] == "chunk":
+            assert context_data is not None and dialogue_shard_dirs, "a chunk spec needs context_data + slices"
+        self.data = data
+        self.spec = spec
+        self.context_data = context_data
+        self.dialogue_shard_dirs = list(dialogue_shard_dirs or [])
+        self.sides = sides
+        self.ids = sorted(set(ids)) if ids else None
+        self.shard = shard
+        self.num_shards = num_shards
+        self.llm_name = llm_name
+        self.temperature = float(temperature)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The spec's CONTENT is part of the hash (Sisyphus hashes only ``__init__`` arguments): an edited instruction,
+        source or cap is a different job."""
+        return super(PersonaContentPromptGen, cls).hash(
+            {**parsed_args, "spec_digest": content_spec_digest(parsed_args["spec"])}
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    @property
+    def level(self) -> str:
+        return CONTENT_SPECS[self.spec]["source"]
+
+    @property
+    def prompt_set(self) -> str:
+        return f"{self.spec}|{self.llm_name}"
+
+    def completed_fraction(self):
+        from sisyphus import global_settings as gs
+
+        try:
+            d = json.load(open(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_0.json")))
+            return min(d["done"] / d["total"], 1.0) if d.get("total") else None
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def _calls(self) -> tuple:
+        """``(calls, n_rows)``: ``calls`` = ``[(call key, transcript, [(row id, side), ...])]`` in a fixed order."""
+        from datasets import load_from_disk
+
+        spec = CONTENT_SPECS[self.spec]
+        cols = ["id", "duration", "alignments", "alignments_other", "voice_label", "voice_label_other", "other_ok"]
+        ds = load_from_disk(self.data.get_path()).select_columns(cols)
+        if self.ids:
+            want = set(self.ids)
+            idx = [i for i, x in enumerate(ds["id"]) if x in want]
+            if len(idx) != len(want):
+                raise RuntimeError(f"{len(want) - len(idx)} of {len(want)} requested ids are not in the data")
+            ds = ds.select(idx)
+        rows = list(ds)
+
+        def row_sides(r):
+            return [s for s in self.sides if s == "assistant" or r["other_ok"]]
+
+        if spec["source"] == "firsthalf":
+            calls = []
+            for r in rows:
+                for s in row_sides(r):
+                    focus, other = (
+                        (r["alignments"], r["alignments_other"])
+                        if s == "assistant"
+                        else (r["alignments_other"], r["alignments"])
+                    )
+                    calls.append((f"{r['id']}|{s}", firsthalf_transcript(focus, other, r["duration"]), [(r["id"], s)]))
+            return calls, len(rows)
+
+        ctx = load_from_disk(self.context_data.get_path()).select_columns(["id", "item_id", "episode_id", "t0", "t1"])
+        want = {r["id"] for r in rows}
+        cinfo = {c["id"]: c for c in ctx if c["id"] in want}
+        missing = want - set(cinfo)
+        if missing:
+            raise RuntimeError(f"{len(missing)} rows have no window context (e.g. {sorted(missing)[:3]})")
+        eps = {c["episode_id"] for c in cinfo.values()}
+        slice_rows, span_start = [], {}
+        for d in self.dialogue_shard_dirs:
+            for p in _parts(d):
+                part = load_from_disk(p).select_columns(["item_id", "episode_id", "span_start_sec"])
+                keep = [i for i, e in enumerate(part["episode_id"]) if e in eps]
+                if not keep:
+                    continue
+                sub = load_from_disk(p).select_columns(
+                    ["item_id", "episode_id", "span_start_sec", "words_a", "words_b", "turns_json"]
+                )
+                for r in sub.select(keep):
+                    slice_rows.append(r)
+                    span_start[r["item_id"]] = float(r["span_start_sec"])
+        windows = []
+        for r in rows:
+            c = cinfo[r["id"]]
+            s = span_start[c["item_id"]]  # KeyError = the slices do not match the context: a wiring bug
+            labels = [r["voice_label"] if sd == "assistant" else r["voice_label_other"] for sd in row_sides(r)]
+            windows.append(
+                {
+                    "id": r["id"],
+                    "episode_id": c["episode_id"],
+                    "abs_t0": s + float(c["t0"]),
+                    "abs_t1": s + float(c["t1"]),
+                    "labels": labels,
+                    "sides": row_sides(r),
+                }
+            )
+        texts, key_of = chunk_transcripts(windows, slice_rows, spec["chunk_sec"])
+        members = {}
+        for w in windows:
+            for lab, sd in zip(w["labels"], w["sides"]):
+                members.setdefault(key_of[(w["id"], lab)], []).append((w["id"], sd))
+        calls = [
+            (f"{k[0]}|{k[1]}|{k[2]}", texts[k][0], members[k])
+            for k in sorted(members, key=lambda k: (k[0], k[1], str(k[2])))
+        ]
+        return calls, len(rows)
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset
+        from openai import OpenAI
+
+        spec, llm_name, temp = CONTENT_SPECS[self.spec], self.llm_name, self.temperature
+        calls, n_rows = self._calls()
+        if self.shard is not None and self.num_shards is not None:
+            calls = calls[self.shard :: self.num_shards]
+        tlens = [len(c[1].split()) for c in calls]
+        print(
+            f"[content] {self.spec} ({spec['source']}): {n_rows} rows -> {len(calls)} calls "
+            f"({sum(len(c[2]) for c in calls)} (row, side) prompts); transcript words median "
+            f"{np.median(tlens) if tlens else 0:.0f}, max {max(tlens) if tlens else 0}",
+            flush=True,
+        )
+
+        with vllm_server(llm_name) as url:
+
+            def gen(client, call):
+                key, transcript, _ = call
+                if not transcript.strip():
+                    return {"body": None, "overlap": None, "error": "empty transcript"}
+                msg = spec["instruction"].format(max_words=spec["max_words"], transcript=transcript)
+                seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
+                err = ""
+                for attempt in range(5):
+                    try:
+                        resp = client.chat.completions.create(
+                            model=llm_name,
+                            messages=[{"role": "user", "content": msg}],
+                            seed=(seed + attempt) % (2**31),
+                            temperature=temp,
+                            max_tokens=4096,  # GPT-OSS reasons before answering
+                            extra_body={"guided_json": _CONTENT_JSON_SCHEMA},
+                        )
+                        raw = (resp.choices[0].message.content or "").strip()
+                        body = strip_opener(json.loads(raw[raw.find("{") : raw.rfind("}") + 1])["prompt"])
+                    except Exception as e:  # API error, empty or unparsable reply: retry
+                        err = f"{type(e).__name__}: {e}"[:200]
+                        continue
+                    err = content_reply_error(body, transcript, spec["max_words"])
+                    if err:
+                        continue
+                    return {"body": body, "overlap": max_shared_ngram(body, transcript), "error": ""}
+                return {"body": None, "overlap": None, "error": err}
+
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+            outs = map_concurrent(
+                lambda c: gen(client, c),
+                calls,
+                concurrency=PROMPT_GEN_CONCURRENCY,
+                progress_path=os.path.join(os.getcwd(), "progress_0.json"),
+            )
+
+        failed = [(c[0], o["error"]) for c, o in zip(calls, outs) if o["body"] is None]
+        print(f"[content] {len(failed)}/{len(calls)} calls failed", flush=True)
+        for k, e in failed[:5]:
+            print(f"  FAILED {k}: {e}", flush=True)
+        if len(failed) > 0.01 * max(1, len(calls)):
+            raise RuntimeError(f"content prompt generation failed on {len(failed)}/{len(calls)} calls (> 1%)")
+        rows = []
+        for (key, _, members), o in zip(calls, outs):
+            if o["body"] is None:
+                continue
+            for rid, side in members:
+                rows.append(
+                    {
+                        "id": rid,
+                        "side": side,
+                        "level": self.level,
+                        "text": f"{PERSONA_MINIMAL} {o['body']}",
+                        "body": o["body"],
+                        "n_words": len(o["body"].split()),
+                        "key": key,
+                        "max_ngram_overlap": int(o["overlap"]),
+                        "spec": self.spec,
+                        "llm_name": llm_name,
+                    }
+                )
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+        lens = [len(o["body"].split()) for o in outs if o["body"] is not None]
+        summary = {
+            "spec": self.spec,
+            "spec_digest": content_spec_digest(self.spec),
+            "source": spec["source"],
+            "rows": n_rows,
+            "calls": len(calls),
+            "failed": len(failed),
+            "prompts": len(rows),
+            "words": {f"p{q}": float(np.percentile(lens, q)) if lens else None for q in (0, 10, 25, 50, 75, 90, 100)},
+            "words_hist": {str(n): lens.count(n) for n in sorted(set(lens))},
+            "transcript_words_median": float(np.median(tlens)) if tlens else None,
+            "examples": [r["text"] for r in rows[:: max(1, len(rows) // 8)][:8]],
+        }
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(f"[content] {summary}", flush=True)
+
+
+def content_prompt_lists(row: dict, prompts: dict, levels: tuple) -> tuple:
+    """``(context, context_other)`` of one attached row with every non-minimal level replaced by that side's content
+    prompt: ``PERSONA_MINIMAL`` for ``minimal``, ``prompts[(id, side)]`` otherwise; ``None`` for a side whose prompt
+    is missing (the other side only when ``other_ok``)."""
+    a = prompts.get((row["id"], "assistant"))
+    ctx = None if a is None else [PERSONA_MINIMAL if lv == "minimal" else a for lv in levels]
+    oth = []
+    if row.get("other_ok"):
+        b = prompts.get((row["id"], "other"))
+        oth = None if b is None else [PERSONA_MINIMAL if lv == "minimal" else b for lv in levels]
+    return ctx, oth
+
+
+class AttachContentPrompts(Job):
+    """An ``AttachPersonaPrompts(per_read=True, with_other_side=True)`` dataset with ONLY its prompt lists replaced
+    by ``PersonaContentPromptGen`` prompts (``prompts``: one or more of its outputs), per (row id, side); the exact
+    counterpart of ``AttachPersonaProfiles`` (same list positions, so the loader's per-read draw of minimal vs the LLM
+    level is unchanged: ``levels=("chunk", "minimal", "chunk")`` in place of p3's ``general, minimal, topic``).
+
+    ``keep_all_rows=False`` (training): a row without its assistant prompt is dropped, an ``other_ok`` row without
+    the other side's prompt becomes unswappable; counted, > ``max_drop_frac`` is an error.
+    ``keep_all_rows=True`` (self-play inputs; self-play picks rows by index among ``other_ok``, so every row and
+    flag stays): every id in ``require_ids`` must have its prompt(s), else an error; any other row keeps
+    ``PERSONA_MINIMAL`` in the LLM slots (never picked; counted)."""
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        prompts: list,
+        prompt_set: str,
+        levels: tuple,
+        keep_all_rows: bool = False,
+        require_ids: list | None = None,
+        max_drop_frac: float = 0.05,
+    ):
+        assert levels and "minimal" in levels and any(lv != "minimal" for lv in levels), levels
+        assert not require_ids or keep_all_rows, "require_ids is the keep_all_rows (self-play) contract"
+        self.data = data
+        self.prompts = list(prompts)
+        self.prompt_set = prompt_set
+        self.levels = tuple(levels)
+        self.keep_all_rows = bool(keep_all_rows)
+        self.require_ids = sorted(set(require_ids)) if require_ids else None
+        self.max_drop_frac = float(max_drop_frac)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 4, "mem": 24, "time": 2})
+
+    def run(self):
+        from datasets import Dataset, load_from_disk
+
+        prompts = {}
+        for p in self.prompts:
+            for r in load_from_disk(p.get_path()).select_columns(["id", "side", "text"]):
+                prompts[(r["id"], r["side"])] = r["text"]
+        src = load_from_disk(self.data.get_path())
+        assert "context_other" in src.column_names, "needs an AttachPersonaPrompts(with_other_side=True) dataset"
+        levels = list(self.levels)
+        required = set(self.require_ids or [])
+        n = {"in": 0, "out": 0, "noprompt": 0, "other_noprompt": 0, "kept_minimal": 0, "required": 0}
+
+        def rows():
+            for r in src:
+                n["in"] += 1
+                ctx, oth = content_prompt_lists(r, prompts, self.levels)
+                if r["id"] in required:
+                    if ctx is None or oth is None:
+                        raise RuntimeError(f"{r['id']}: a required (self-play) row without its content prompt(s)")
+                    n["required"] += 1
+                elif self.keep_all_rows and (ctx is None or oth is None):
+                    n["kept_minimal"] += 1
+                    ctx = [PERSONA_MINIMAL for _ in levels]
+                    oth = [PERSONA_MINIMAL for _ in levels] if r["other_ok"] else []
+                if oth is None:
+                    n["other_noprompt"] += 1
+                    r = {**r, "other_ok": False, "voice_codes_other": [], "voice_n_frames_other": 0}
+                    r["alignments_other"] = []
+                    oth = []
+                if ctx is None:
+                    n["noprompt"] += 1
+                    continue
+                n["out"] += 1
+                yield {
+                    **r,
+                    "context": ctx,
+                    "context_level": levels,
+                    "context_set": self.prompt_set,
+                    "context_other": oth,
+                }
+
+        out = Dataset.from_generator(rows, features=src.features, cache_dir=os.path.abspath("hf_gen_cache"))
+        print(f"[attach-content] {n}; levels {levels}", flush=True)
+        if n["required"] != len(required):
+            raise RuntimeError(f"{len(required) - n['required']} required ids are not in the data")
+        if not self.keep_all_rows:
+            for k in ("noprompt", "other_noprompt"):
+                if n[k] > self.max_drop_frac * n["in"]:
+                    raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
+        out.save_to_disk(self.out_dir.get_path())
+        json.dump(
+            {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
+        )
