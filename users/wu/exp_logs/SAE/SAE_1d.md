@@ -1,5 +1,10 @@
 # SAE §1d — Rung-0 self-training on the §1c wav2vec2-L15 GAN
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. No-Kaldi self-training (paper stages 1 + 3).** The published recipe's stage 2 is an HMM-GMM

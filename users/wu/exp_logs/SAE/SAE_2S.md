@@ -1,5 +1,10 @@
 # SAE Phase 2S — the text-bottleneck autoencoder and its token-LM reconstruction reward
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. Build the autoencoder: audio -> AV -> text tokens -> AR -> discrete units, the AV trained by GRPO
@@ -617,7 +622,7 @@ they are CEs of different random variables.
 
 ## Verifier feedback
 
-**2026-08-20 (gate reconciliation).** The `PLAN.md` claim of a +1.24 unsupervised-selected win is
+**2026-08-20 (gate reconciliation).** The `SAE.md` claim of a +1.24 unsupervised-selected win is
 not valid as stated: 15.89 and 17.13 are independently cherry-picked dev-other minima from epochs 1
 and 2, and Conclusion 43 already notes that the frozen best requires supervised dev-WER selection.
 The fixed four-epoch comparison is joint AR 16.13 versus identical-start self-training 17.74, a 1.61

@@ -1,5 +1,10 @@
 # SAE Phase 0 — Foundations (0a representation audit, 0b lexicon/phonemization)
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. §0a representation audit on frozen BEST-RQ (layer 6, 25 Hz).** Per-frame metrics
@@ -80,3 +85,17 @@ every digit reproduces. Protocol audited fair (identical scoring pipeline both a
   headline no-VAD 0.632 is unaffected); dev-clean only, replicate the two headline rows on dev-other.
 - `load_state_dict(strict=False)` does not assert empty missing/unexpected despite the comment
   claiming an exact load.
+
+## 0b (CPT) — phoneme/grapheme-adapted LLM: gate, deferral and revival triggers
+
+Moved here from the index 2026-09-14 (the "0b" above covers lexicon/corpus phonemization, not this
+CPT phase).
+
+**Purpose.** A phoneme-aware LLM for decipherment LMs, neural P2G, and phoneme priors.
+**Approach.** Extend Qwen3-1.7B-Base with ARPAbet tokens; CPT on mixed phonemized / grapheme /
+synthetic-P2G streams rendered from the text corpus.
+**Experiments.** None run.
+**Gate.** Phoneme-LM ppl stabilized; grapheme ppl regression <= 5 %; P2G robustness curve
+(theta_P2G = max input PER with output WER <= 40 %).
+**Status: DEFERRED (2026-07-18), never run — consumers dissolved.** Revival triggers: §2a shows
+lexicon/word-LM-limited headroom, or the Phase-4 pure-phoneme arm runs. If revived, drop `<wb>`.

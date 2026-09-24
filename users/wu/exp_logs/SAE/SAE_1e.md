@@ -1,5 +1,10 @@
 # SAE §1e — pairing-free initialization
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. Length-banded pseudo-pairing (1e.1) against a random-permutation control (1e.2).** For each audio
@@ -94,3 +99,9 @@ separately.
   anchoring on `dev_loss_ce` 5.7371 instead would have manufactured a false 0.2-nat failure.
 - `band=0.216` would match the true length spread exactly; 0.169 is kept because it is the disclosed
   2S-measured constant rather than a number fitted to the gold pairing.
+
+## Standing condition on any §1e loop
+
+Moved here from the index 2026-09-14. SFT on length-paired / random-paired / audio-continuation
+pseudo-pairs; any 1e loop runs joint AR with the lam_1 + lam_2 anchors mandatory (no seed pins the text
+side).

@@ -1,5 +1,10 @@
 # SAE 0d — LM-prior domain adaptation to LibriSpeech text
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 1. **Where the prior actually lives.** `grpo/anchors.py` computes the `lam_lm` term with the AV's own
@@ -169,7 +174,7 @@
    better English prior buys ranking that the null can also buy, and the only cell where the adapted
    donor clearly buys *audio*-attributable ranking is the operating point the loops already run at —
    which is why re-tuning to the peak would trade the phase's gain for free English. Planner verdict
-   (`PLAN.md` §0d Status, awaiting the user): pass for theta_0-bed loop use at lam_lm=1, do not chase
+   (`SAE.md` §0d Status, awaiting the user): pass for theta_0-bed loop use at lam_lm=1, do not chase
    lam_lm=0.3, no G-track use licensed.
 7. (4) **The loop keeps the init's lead rather than closing it, and the saving is in sample budget**:
    the adapted arm is 7.14 / 11.35 at sub-ep 1 and 5.95 / 10.16 at sub-ep 2, against the stock arm's
@@ -201,7 +206,7 @@
     channel was already unlicensed on this bed (concl. 6), BOTH channels of the swap are now measured
     on the G-track and neither pays: what caps that init is the pseudo-label quality, not the donor's
     English, so a 960 h G-track loop cannot be justified by the donor swap and the lever stays on the
-    §1d text (`PLAN_3E1` D4) rather than on the prior.
+    §1d text (`archive/SAE_3e1_spec_legacy.md` D4) rather than on the prior.
 
 11. (4) **The 100 h arm is closed and the adapted donor wins it at the label-free pin**: all 8
     sub-epochs are in, and at `checkpoint_last` — the convention that selects on no annotation — the
@@ -277,7 +282,7 @@
   `ReplaceLmPriorJob.{kR3sv14S4KNS,Wj2MbrD8gTgX}` reprice the shipped n=512 dumps;
   `RewardShapeSweepJob.{oaOqWCrd3ZPO,FPIKAU6TkEK4}` (adapted) vs `.{yCfwZSr3huv7,GUbnTUM2ggiv}`
   (stock, hash-reused). Log the stock-vs-adapted table (T=0.7 rows incl. the `noar` null) as its
-  own approach + conclusion; the planner's verdict on it is in PLAN.md §0d Status (margin over the
+  own approach + conclusion; the planner's verdict on it is in SAE.md §0d Status (margin over the
   audio-free null is statistic-, lam-, and bed-dependent; null itself strengthens on both beds).
 - 2026-08-08 — Loop arms started before the (ii) read ("loop use only after that read") — noted as
   procedural; at unchanged lam=1/T=0.7 they are the clean donor-axis A/B against the stock shaped

@@ -1,5 +1,10 @@
 # SAE §3g — Z-track: from-scratch fully-unsupervised joint loop
 
+## State
+
+Closed: no active experiment and no live run pointer. Findings are in the Conclusion section below;
+work that reopens this phase restates its live gate here before producing a new result.
+
 ## Approach
 
 **1. Z-track base arm (launched 2026-08-12).** The joint loop with no paired data on either side, run
@@ -320,7 +325,7 @@ round 5) that is neither monotone nor larger than the round-to-round movement of
   `ReturnnTrainingJob.hjxeQdZbG9TY` has finished markers, checkpoints 1--6, and six epochs in
   `learning_rates`; it completed the registered run rather than stopping mid-sub-epoch 5. Z3 also
   completed all six and its primary duration-matched gap remained negative throughout, as Approach 4
-  and Conclusion 4 record. `PLAN_3G.md` now reflects both endpoints. The mechanism evidence strongly
+  and Conclusion 4 record. `archive/SAE_3g_spec_legacy.md` now reflects both endpoints. The mechanism evidence strongly
   favors nuisance/private coding, but the pre-registered B/C taxonomy is formally incomplete: no
   unit-emission purity/PER result exists, so the controlled nulls must not be presented as that missing
   deliverable.
@@ -501,7 +506,7 @@ round 5) that is neither monotone nor larger than the round-to-round movement of
   the training jobs' own learning_rates (train_loss_reward_std_within_group 0.0737/0.0579/
   0.0741/0.0785 at r1/r3/r4/r6), and the persistence and distinct-string reads recompute
   independently from the decode dumps (25 and 26 of 2703; 1561/1504 distinct, top 43x/34x).
-  Gate verdict FAILS recorded in PLAN_3G.md; the exhaustion framing in the planner's own
+  Gate verdict FAILS recorded in archive/SAE_3g_spec_legacy.md; the exhaustion framing in the planner's own
   in-flight reads is replaced there (it described rounds 1-3 only). Conclusion 6's
   insertion span (27584 -> 5460) is round 1 -> 6 while its WER sentence spans round 3 -> 6
   (round 3 is 27238) — wording only, no number wrong. Probe defect mechanism sharpened

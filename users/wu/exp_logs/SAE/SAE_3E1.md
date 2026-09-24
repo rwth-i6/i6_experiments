@@ -1,563 +1,185 @@
-# SAE §3e.1 — scorer trainability without collapse (ladder D0–D4, `PLAN_3E1.md`)
+# SAE §3e.1 — scorer trainability without collapse (ladder D0–D4, `archive/SAE_3e1_spec_legacy.md`)
 
 ## State
-<!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
-question each answers), blockers, next action, proposals for the planner. -->
 
-**D9 IS REGISTERED AND FUNDED; ITS PRE-SPEND PROVENANCE DUTY IS DISCHARGED, PIN CONFIRMED.** The
-registration requires the epoch-to-recog provenance to be asserted from the recog job's own inputs
-before any spend. Traced end to end on 2026-08-23, every link read from a job's own `info`:
+D9 IS COMPLETE AND NOTHING OF THIS PHASE IS QUEUED OR RUNNING. D8 closed on verdict 84; D9's
+registered reads are all banked (approach 39, verdicts 85-86).
 
-`ReturnnTrainingJob.rJWSC5xOsrf2/output/models/epoch.002.pt`
--> `ExtractAvSubmodelJob.FSYsyEJm5VHX` (its `grpo_checkpoint` PARAMETER is that exact file,
-   `submodel_prefix` `av.`)
--> `ReturnnForwardJobV2.SgTOBGwxO6nF` (dev-clean) and `.9GwKJ97FtuG6` (dev-other)
--> `SearchWordsDummyTimesToCTMJob.e3rgP2fFMD8f` / `.lyBmKhRT3pUZ`
--> `ScliteJob.paK5JVk5SckU` = **12.68** and `ScliteJob.KTVFso7HriMn` = **17.57**, read from each
-   job's own `output/wer`.
+Run pointers. Arm 2, the 1-best refit D9.2 reads: `S/d9_refit/D9OnlineTrainJob.nJQy199AQZQu`
+(2,421 steps, held NLL/frame 2.2550). The read: `S/d9_refit/D9EtaReadJob.A7QvXl7VR7wl`. Arm 3,
+`S/d8_train/D8ScorerRefitJob.XvPF118rphQP`, stays in its guard-fired error state by planner ruling
+(2026-08-24): DO NOT clear, retry or delete it while D9 is open, and a manager exiting on it is not
+a stall to repair.
 
-The recog does NOT consume the training checkpoint directly -- an `ExtractAvSubmodelJob` sits
-between them -- so a check that stopped at "the training job has an epoch.002.pt" would have
-proved nothing about which checkpoint produced 12.68/17.57.
+NEXT EXPERIMENTAL ACTION: none of the implementer's own. The phase closes only on the USER's word
+over verdict 86, with the D8.3 authorization question attached.
 
-ARM 1 IS CONFIRMED AS THE SCORER THAT SHAPED THIS ARM, from the same source: the training job's
-INPUT list contains `PsiAlignTrainJob.DnBJxqz4sNQZ/output/model.pt`, which is the incumbent D9
-names, and its alias is `..._shaped_T0.7_lr2e5_psid2_contrast/training`. The pin is therefore the
-d2_contrast-shaped arm, not the incumbent-shaped one at the same schedule position -- the two sit
-adjacent in approach 9's table at 12.68/17.57 and 13.91/18.91, so this is a real confusion risk.
+Pending decisions carried into that word (details under Open findings): the clause-3
+point-versus-CI eligibility convention is still dual-reported and unpinned; the D2 winner rule's
+ladder-floor reading is likewise unpinned and is what decides `d2_states` against `d2_contrast`,
+while `config_sae_3e1_d3_v1.py` hard-codes `WINNER='d2_contrast'` provisionally.
 
-Note in passing, not a blocker: the pinned training job carries a `hold` file, so that arm is
-paused. D9 only reads a written checkpoint from it.
+## Gates
 
-D9.0 IS SCOPED AND ITS FRAME IS VERIFIED AGAINST THE CHECKPOINT (planner amendment accepted
-2026-08-23: gate on the incumbent census plus the structural d_min>=2 census; the read-set rule
-applies at D9.2; a structurally-alignable row scored non-finite by a refit is a STOP). Two knobs
-where the registration's D8 frame and the pinned checkpoint could have conflicted are settled by
-reading the checkpoint's own inputs rather than by choosing:
+Predefined gates, as registered. Where a gate was amended or a conclusion overturned, both readings
+are kept and the current one is named.
 
-- THE DONOR IS STOCK, NOT THE ADAPTED ONE. The pinned training job's INPUT list carries
-  `DownloadHuggingFaceRepoJob.JcEANaYZr2oe/output/hub_cache` -- the stock Qwen download -- and no
-  `ExportHfLmDirJob` output. So the D9.0 dump must NOT pass `qwen_hub_dir=lbslm_donor()`, which is
-  what the D4' psi-bed dump passes; passing it would hand the rollout policy a donor its own
-  checkpoint contradicts. `_reward_rank`'s default (omit the argument) is the correct call here.
-- THE READ BED IS tc100, NOT THE 960 h BED, and that is the established frame rather than my
-  choice: D6-PERIODIC's own refresh dumps a 960 h-trained policy over tc100 with
-  `tc100_units()`, because tc100 is the third of the 960 h bed that carries text, which the
-  evaluation columns need; D8.4's beds are tc100 on both sides. The registration's "960 h HF/Ogg
-  bed" names the refit frame, not the read bed, and "sized to D8.4's read" fixes the read at 512
-  utterances x 12 rollouts at T=0.7.
+**D0.** Suspect-vocabulary threshold pre-registered from the mechanism before any table was read:
+`min_excess = 0.002` (one extra occurrence per 500 tokens).
 
-MACHINERY IDENTIFIED, all reused rather than rebuilt: the dump is `_reward_rank` with
-`psi_model_args` and `av_checkpoint_prefix="av."` (the D4'/D6-PERIODIC psi-bed idiom, which
-extracts the submodel itself); the incumbent census comes from a `PsiAlignRerankJob` on that dump
-with `DnBJxqz4sNQZ` at d_min=1 as trained, which prints its own infeasibility counts; the report is
-a `D8BedFeasibilityJob`-analog. The one genuinely new piece is the STRUCTURAL census, which must be
-exact rather than D8.4's crude character bound -- feasible iff the realized state count times
-d_min=2 fits the frame count -- because the registration rests the D9.2 STOP clause on (b)
-predicting the refit census by construction, and a bound that over-predicts by design cannot carry
-that.
+**D2 winner rule (approach 9), fixed before the D2 read.** An arm is eligible only if its held
+CE_loo is below the unit-marginal floor 6.03, its `text_explained_loo` is not below the pre-loop
+floor, and its corruption-ladder spearman is not below `psi_g_tc100`'s; among eligible arms the
+winner is the one that most reduces the insertion discount (`psi_g_tc100`: 0.0584), ties broken by
+the D0 rollout beta at matched WER. If no arm reduces the discount by more than the bootstrap CI
+half-width (~0.005) there is no winner and D3 is not funded from D2 -- the fallback is the
+planner's call.
+- AMENDMENT (operative): the rule reads the STATE-MATCHED control pool, intersection reads and the
+  paired cross-arm difference CI (`archive/SAE_3e1_spec_legacy.md` D1 build item (b)), because the
+  frequency-drawn control is state-count-confounded (verdict 8 correction).
+- AMENDMENT (operative): gate v2 (i)'s round-to-round improvement clause is FLOOR-ONLY for
+  changed-text candidates, since the held text is unrepaired pseudo-text and would ask a repair arm
+  to model the defect it removed.
+- UNPINNED: the ladder floor's "not below" is CI-read in this log and point-read in the rule text.
+  Point reading elects `d2_states`; CI reading elects `d2_contrast`. See Open findings.
 
-**D9.0 IS COMPLETE AND THE GATE PASSES: the refit spend is authorized on this bed**
-(`D9FeasibilityJob.oabVIcp22cy1`; dump `ReturnnForwardJobV2.t4sIOlpGVDcY`, incumbent rerank
-`PsiAlignRerankJob.cysJQBiP9iW1`). The dump is 512 utterances x 12 rollouts at T=0.7 plus 512
-greedy and 512 reference rows, which is D8.4's read size exactly.
+**D4 curation-view admissibility.** A candidate view is admissible only if (e) it ranks -- within-group
+spearman(signal, -WER) with a CI excluding zero -- and (f) its partial beta on the suspect count at
+matched WER does not pay for the filler. A refresh round may not curate with an audio-free view alone.
 
-| census | result |
-|---|---|
-| (a) incumbent finite scores, d_min=1 as trained | 7,168 rows, 0 infeasible, 0 groups dropped |
-| (b) structural alignability, d_min>=2, rollout rows | 6,144 of 6,144 (share 1.0000), 512 of 512 groups retained |
+**D6 (approach 20) bars.** spearman/eta not below the comparator's, held ce_loo within +0.05 of it,
+ins_1 >= +0.14 growing in k, and mono(ins) out of last place.
 
-Median row: 695 unit frames against 210 needed under the refit topology, so the bed clears the
-minimum-duration bound by better than a factor of three. This is the opposite of D8.4's operative
-join, which lost 81.5 percent of rows and 498 of 512 groups -- and the point of running the gate
-first was that D8.4 could not make this call until after its refits had been trained.
+**D6 swap-in (approach 21a) pre-registered in-loop confirmation.** The control's sub-epoch-3
+regression (5.34/9.50 at the fork to 6.56/11.15 one sub-epoch later, never recovered through
+sub-epoch 10) shrinks.
 
-- WHAT THE GATE DOES NOT SAY: nothing about eta, nothing about whether a refit beats the incumbent,
-  and nothing about D9.2's read set, which is fixed only once all three arms exist. It says the bed
-  can carry the read.
-- TWO BUGS OF MINE, both caught by running rather than by review, both after an upstream job had
-  already been paid for. (1) The rerank was not handed the family's segmentation kwargs, so it died
-  on "the bpe text side needs its codes file" -- `PsiAlignRerankJob` builds its text side from its
-  OWN arguments and only then asserts them against the checkpoint. (2) The gate filtered rows by
-  temperature unconditionally and died on the dump's reference rows, which carry `T=None` because
-  they are not sampled. Both are fixed (speech-llm `975a598` -> `351a97b`), both now have
-  regression tests, and `scripts/d9_feasibility_test.py` is 28/28. Bug (1) is the third instance
-  this session of a wrong CALL into a correct primitive; the test that guards it now parses the
-  actual call in the config, and writing that test caught a bug in the test itself, which had split
-  the call at the first parenthesis and would have passed a broken config.
+**D6-PERIODIC acceptance gate (as first run).** Four clauses -- (i) rank quality, (ii) held
+likelihood, (iii) insertion price, (iv) corruption ladders -- read against the last ACCEPTED
+scorer, swap on pass and keep on fail, with a two-consecutive-failure stop rule.
+- AMENDED BY THE USER 2026-08-18: the acceptance step was REMOVED from every gold-seeded periodic
+  arm and the arms relaunched ungated. Approach 22's table is the only surviving record of what the
+  gated run decided.
 
-**D9.1 IS BUILT, TESTED AND LAUNCHED** (planner authorization 2026-08-23 in `PLAN_3E1.md` D9
-Status latest; speech-llm `a42fa37`; manager `sae_3e1_d9_1`). Eighteen jobs and no others, verified
-against the graph's own job dirs -- ten sampled dump shards over the 960 h bed from the pinned
-checkpoint, the pseudo-text bed and pool built from that dump's own greedy rows, and the two refit
-trainings; the other 38 jobs it reaches are finished and reused. It trains arms 2 and 3 and
-measures nothing. D9.2 is the read and is a separate registration.
+**D6-PERIODIC/GAN-FROZEN (user-directed 2026-08-20), verbatim:** "a durable/actionable recency
+benefit requires periodic leg 8 to beat frozen leg 8 on both dev-clean and dev-other". A frozen
+final-leg win is the gate's named "refresh has no established durable benefit" case; an early-leg
+transient is pre-registered as non-licensing.
 
-- 2026-08-24: THE DUMP, THE MERGE, THE POOL AND THE WEIGHT JOB ARE DONE; both refit trainings are
-  resubmitted after two failures that were both guards firing correctly on the wrong thing.
-  ARM 2 IS NOW `D9OnlineTrainJob.nJQy199AQZQu`, NOT `D7OnlineTrainJob.qcbbdPnZ2nLK` (speech-llm
-  `8df2580`; `scripts/d9_refit_test.py` 50/50).
+**D6-PERIODIC/GAN960-FROZEN.** Leg 8 beating this arm's own init 13.11/16.82 on both splits;
+matched-leg deltas against GAN-FROZEN are reported and select nothing.
 
-  1. ARM 2 crashed in D7's own-infeasible guard: `realized [] against expected [the four named
-     rows]`. D7's constant names four rows of D7's OWN pseudo-text bed -- that decode's runaway-
-     repetition tail, 70-80 word texts needing 400+ frames against about 350 units -- and D9.1
-     runs the same recipe on a different decode from a different checkpoint, where none of them is
-     infeasible. The guard was right to fail closed; it was asserting the wrong bed's constant.
-     `_make_items` now takes the bed's registered set as a keyword defaulting to D7's, and
-     `D9OnlineTrainJob(D7OnlineTrainJob)` registers D9.1's, which is EMPTY -- no row may be
-     dropped for own-infeasibility at all, which is the STRICTEST reading of D7's bound, not a
-     loosened one. MEASURED on this bed with the production text side and feasibility law before
-     the value was fixed, so the choice is not fitted to the answer: 0 of 281,241 rows are
-     own-infeasible, the tightest row uses 77.9 pct of its frame budget
-     (`6065-109178-0010`, 612 of 786), and D7's four named rows sit at 23-32 pct here. The audio
-     side is literally the same store (`PackUnitsJob.I0uzRMfUrKWC`) in both beds, so the whole
-     difference is the text -- which makes it a fact about the pinned checkpoint's decode, not
-     about the recipe. D7's constant and every D7/D8 hash are untouched (`D7OnlineTrainJob`
-     `WA1bqjXQtzeZ`/`j16rTskXF1QU`, `D8WeightJob.juRpzTNHKCSq`,
-     `D8ScorerRefitJob.2bQzhz6U1yHp`, `D9WeightJob.uyKXr4ZiGj9R`, all re-read from the loaded
-     graphs after the edit).
-  2. ARM 3 then died in `d8_train`'s source-identity guard, "D8.1b source changed after graph
-     construction". Also correct: that job was constructed by the manager holding the PRE-edit
-     graph, so its saved identity recorded the old `d7_online.py`. It had run six seconds with
-     empty `output/` and `work/`, so it was re-created surgically through the console
-     (`_sis_move(); _sis_setup_directory()`) rather than with a manager clear flag -- nothing was
-     destroyed because nothing existed.
+**HOM.** 0a admission floor: >= 5 % of corpus tokens sit in a homophone class. 0b bar: median
+|delta lm_prior| against median |delta recon| at the arm's own lam_lm 1.0 and per-unit-frame
+normalization. Arm primary read: stay within 0.3 dev-other WER of D6-PERIODIC/GAN at every matched
+leg.
 
-**ARM 3 IS NOT FUNDED: `D9WeightJob.uyKXr4ZiGj9R` RULES NO-GO ON CLAUSE (a), AND THAT IS A RESULT
-RATHER THAN A FAILURE.** On its rerun arm 3 refused to start with "D8.1b requires a GO weight
-artifact; this one reads 'NO-GO'", which is the registered guard working. I have NOT cleared it,
-retried it, or touched tau to rescue it; this is a gate verdict and the fallback is the planner's.
-`D8ScorerRefitJob.XvPF118rphQP` therefore stays in error state and the manager will exit on it
-once arm 2 finishes -- that is expected, not a stall to repair.
+**D7-v2 / D7.0b structural floors (frozen 2026-08-21, before any scorer read).** Training: K=4
+(2+2) row-local Q2, ten-table regular construction, requiring 6,778 rows and 201 speakers. External:
+K=1, M=1, no-band, max-cardinality/minimum-nuisance cap-three matching admitting at least 435/725
+dev-clean and 465/775 dev-other sources plus 32/40 and 27/33 source speakers, retaining fixed
+725/1500 and 775/1500 split weights, never shrinking the all-1,500-row Acceptance gate. Fail-closed:
+no solver retry, floor relaxation or third graph amendment is authorized.
 
-- CLAUSE (a): median distinct support **2.0** against the registered 3.0. The distribution is the
-  finding, not the median: of 281,241 groups, **92,995 (33.1 pct) carry exactly ONE distinct-scoring
-  member** and 61,989 (22.0 pct) carry two, so 55.1 pct sit at or below two; mean 3.12, max 13. The
-  bed offers 13 candidates per group (12 rollouts plus greedy, 3,374,892 + 281,241 dump rows), and
-  they collapse to a median of two distinct strings. That is mode collapse in the pinned policy at
-  the sampling settings this dump used, measured on the full 960 h bed.
-- IT IS NOT AN ARTIFACT OF ANY CHOICE I MADE. The scorer-free variant of clause (a) fails
-  identically (median 2.0), so it is not the scorer; `distinct_rollouts_only` is also 2.0, so it is
-  not the greedy member's inclusion (the 2026-08-22 ruling that binds it); and the clause is a
-  property of the support SET, which the tau pin does not touch -- both convention readings
-  (corrected and legacy) report the clause fired.
-- CLAUSES (b) AND (c) PASS: every tau of the grid lands in the [1.5, 8.0] ESS band, and the median
-  token R2 at the pinned tau is 0.4403 against the 0.5 ceiling. The exclusion rate is 0.0000 pct
-  against the 5 pct safety valve, and 281,241 of 281,241 groups carry live support -- so nothing
-  here is a coverage or feasibility problem. The bed is fine; the policy's samples are not diverse.
-- THE PIN'S DISAGREEMENT, printed as designed: this bed's own |median ESS - 3| rule would have
-  chosen tau 1.0 rather than D8.1a's pinned 0.05. The pin still governs, per the registration.
-- ARM 2 IS UNAFFECTED and running: it reads the pool index and the pseudo-text bed, never the
-  weight artifact, so the 1-best refit stands on its own.
+**D7.0 parity clause (original).** Two deepcopies of one model, same restored RNG state, same batch
+at `online_weight=0`, must produce byte-equal loss AND byte-equal gradients
+(`torch.equal(g_control, g_parity)`).
+- AMENDED (operational parity rule, commit `91c437a`, CURRENT): losses keep exact equality; F is the
+  max over 2 extra re-runs of the CONTROL model of the max abs gradient difference against its own
+  first run; PASS iff cross <= 3F and F <= 1e-4, with F > 1e-4 failing as a distinct
+  backend-too-noisy defect. Reason: exact gradient equality is unreachable on this backend
+  (approach 32).
 
-RULED 2026-08-24 (`PLAN_3E1.md` D9 Status): option (i) ADOPTED, (ii) not funded, (iii) rejected as a
-post-hoc gate edit. D9.2 is amended BY REPLACEMENT to a TWO-ARM read -- arm 2 (1-best refit) against
-arm 1 (incumbent), per-group eta, paired per-group delta eta, `bootstrap_delta_eta` at n_boot 10000
-seed 42, D8.4 machinery and constants verbatim; the read set is the groups where BOTH arms score
-every member finitely with per-arm drop counts printed, the structural-census STOP clause unchanged;
-the soft-EM-versus-1-best attribution contrast is STRUCK as unreadable. The collapse measurement is
-banked as verdict 85 (approach 39), descriptive and adopting nothing. `D8ScorerRefitJob.XvPF118rphQP`
-stays in its guard-fired error state as expected debris of a correctly-firing gate: DO NOT clear,
-retry or delete it while D9 is open, and a manager exiting on it is not a stall to repair.
+**D7.2 gate.** Four clauses -- (1) paired internal-held `L_online` admission, (2) internal-held
+per-frame NLL no greater than the control's, (3) the 1,500-row external Acceptance gate v2,
+(4) scorer parity. The gate passes only if all four hold; failure closes D7 without a policy leg and
+no sampler or temperature rescue may be selected from the result.
 
-**D9.2 IS COMPLETE AND D9 HAS NOTHING RUNNING** (`D9EtaReadJob.A7QvXl7VR7wl`; speech-llm
-`c147014`; `scripts/d9_2_eta_read_test.py` 23/23, `scripts/d8_eta_test.py` 12/12 after the seam;
-approach 39, verdict 86). Arm 2 finished at 2,421 steps with held NLL/frame 2.2550. The read is
-INDISTINGUISHABLE, delta eta -0.0310 [-0.1545, +0.0923] over 512 of 512 shared groups, resolving
-to the incumbent under the standing tie rule; arm 2 is NOT adopted. The STOP clause passed on its
-own terms -- both arms scored 7,168 of 7,168 rows finite with 0 groups dropped, exactly as D9.0's
-structural census predicted.
+**D7.3 (corrected 2026-08-20).** The prospective scientific gate is improvement over the exact
+matched control `ReturnnTrainingJob.kr1foUV6lecx` (14.45/19.69) on both dev splits, conditional on
+required scorer parity. The former absolute 13.89/17.84 clause is RETIRED as unsupported for a
+one-leg causal read; the GAN init 13.89/18.34 and the prior frozen-loop 12.68/17.57 are report-only
+anchors.
 
-- THE POWER CAVEAT BELONGS WITH THE TIE, not in a footnote: this bed's shared oracle headroom is
-  0.0116 against D8.4's 0.0600, and eta divides by it, so the interval is 0.247 wide against
-  D8.4's 0.078. The read says "not distinguishable on this bed"; it does not say the two scorers
-  rank equally well, and a future arm wanting to be distinguished on this bed would need a much
-  larger effect than D8.4 needed.
-- ONE BUILD DECISION FOR THE PLANNER, cheap to reverse. D9.2's config PINS arm 2's finished model
-  by path instead of importing D9.1's build. That build constructs arm 3, and an error job in the
-  graph makes the manager hit sisyphus's interactive "Clear jobs in error state?" prompt, read EOF
-  and exit -- so importing it would have made D9.2 unrunnable without clearing the very job the
-  ruling protects. The pin is checked at graph-build time against D9.1's OWN alias
-  (`alias/sae/3e1/d9_1/refit_1best`), so a re-hashed arm 2 fails loudly rather than being read
-  stale, and it points at the `work/` job directory, never an `output/` alias.
-- ARM 3's job dir is untouched, as ruled. Nothing of D9 is queued or running.
+**D8.0 / D8.1a no-go clauses** (the same three, re-applied verbatim at D8.1a): (a) median distinct
+support >= 3; (b) at least one grid tau inside the [1.5, 8.0] ESS band; (c) median token R2 below
+the 0.5 ceiling. A binding-slice exclusion rate above the ruled 5 % safety valve returns UNRESOLVED
+instead of feeding clause (a).
+- CLAUSE-(a) RULING 2026-08-22 (CURRENT): the structural-infeasibility exclusion is evaluated
+  against `T_i` from the frozen raw 50 Hz store `S/quantize_states/PackUnitsJob.I0uzRMfUrKWC` with
+  coverage asserted; the per-unit prior currency still divides by each dump's OWN store. The two
+  earlier readings -- dedup-only, and the as-run pooled-store exclusion -- are both rejected.
 
-NEXT ACTION: none of my own. D9's registered reads are all banked and the phase closes only on the
-USER's word over verdict 86, with the D8.3 authorization question attached.
+**D8.1a arm-selection rule** (pre-registered, reads only D8.1a statistics): if
+spearman(shaped, acoustic-only) > 0.95 the two arms are operationally identical and only
+`candidate_acoustic` is funded; a spearman(shaped, LM-only) above the same bar would strike the
+shaped arm out as free English.
 
-- ARM 2 `D9OnlineTrainJob.nJQy199AQZQu` (1-best refit, online weight 0), ARM 3
-  `D8ScorerRefitJob.XvPF118rphQP` (soft-EM) on `D9WeightJob.uyKXr4ZiGj9R`; the shared dump merges
-  at `D8MergeRolloutsJob.C4G6qGzjEIrx` from ten `ReturnnForwardJobV2` shards
-  (`7pn7wCdqQ7Wb pfmSXPmED4Ov hhbi9TmvyRnc lzKuXw4bkFRF 5tXsjYhVMIMF 0ZcqQ8rhgO0N UMJyglLRiKkf
-  AHhdYqA5ukeE yVygb8dep7HF ueKzHy0j1OjW`); pool `D9PoolFromDumpJob.RhwBlgMhqHbA`.
-- WALL CLOCK FROM MEASUREMENT, not assumption: D8.1a's finished shards ran 3,516 steps in 7:00 h at
-  `max_seqs=8`, 41 GB resident against 64 requested; D9.0's 512-utterance dump of THIS policy ran
-  256 steps in 21:23 at `max_seqs=2`, i.e. 2.51 s per utterance against D8.1a's 0.895 s at four
-  times the batch, which is the ratio the launch-bound cost model predicts. So the shards project
-  near 7 h against the 11.5 h cap and the batching is D8.1a's proven value, not a new guess.
+**D8.1a support deviation ruling (2026-08-22).** The registration reuses the D7 pool's greedy 1-best
+at identical hash; a regenerated greedy is admissible ONLY against a zero-mismatch normalized-text
+equivalence read over all 281,241 utterances.
+- RULED latest+1 after that read failed: support restored to the registration's own reader rule --
+  the D7 pool greedy at identical hash as an explicit weight-job input, dump `kind=="rollout"`
+  whitelist, the dump's regenerated greedy quarantined as the divergence record, same-string scoring
+  law for the differing minority, both-sides coverage asserts.
+- RULED latest+3: the mixed convention (dump columns on agreeing tags, text path on differing ones)
+  is REJECTED; every column of the pool member comes from the text path on all 281,241 tags, with a
+  pre-registered convention-sensitivity line.
 
-TWO IMPLEMENTER DECISIONS FOR THE PLANNER, both stated because the registration asks for knobs to
-be flagged rather than resolved silently. Neither is expensive to reverse: the 960 h dump is shared
-by every reading of them, and each refit training is minutes.
+**D8.2 gate, verbatim:** "D8.2 passes for a candidate only if all four hold" and "failure at any
+rung closes D8 without a policy leg; no tau, temperature, support or coefficient rescue is selected
+from results." `delta_NI` must be computed from the CONTROL's own held spread before any candidate
+number is read, at D7.2's convention and resample count.
 
-1. THE POOL IS BUILT FROM THE DUMP'S OWN GREEDY ROWS, not from a separately decoded pool. In D8 the
-   support's greedy member was the D7 pool 1-best, decoded through a different decoder path, and
-   the dump's regenerated greedy disagreed with it on 31,562 of 281,241 utterances; the equivalence
-   read, the ten-shard text-path rescoring pass, the corrected-versus-legacy convention and the
-   sensitivity line that watches it all exist to repair that. D9 has no pre-existing pool -- its
-   1-best IS this dump's greedy decode, scored in the same forward pass as the rollouts. Building
-   the pool from the dump makes the two agree BY CONSTRUCTION, makes the same string arm 2's target
-   and arm 3's greedy support member (which is what makes "the one-hot special case of the drawn
-   target" true rather than approximately true), and saves the ten-shard greedy decode, about 115
-   GPU-hours. The price, stated rather than enjoyed: D8's convention-sensitivity line is VACUOUS
-   here -- both conventions read the same row for every tag -- so its empty flip list is a
-   tautology and not a passed check. The weight job's report says exactly that in print.
-2. ARM 2 IS `D7OnlineTrainJob` AT WEIGHT 0, i.e. D8's control recipe, on the reading that "the
-   incumbent refit recipe" means the recipe D8's own A/B calls the one-hot special case of the
-   drawn target. Under the other reading -- a fresh `PsiAlignTrainJob` -- arms 2 and 3 would differ
-   in recipe as well as target and D9.2's "soft-EM versus 1-best" contrast would be unreadable.
-   Switching costs one 14-minute job and nothing upstream.
+**D8.4 (registered after the user reopened D8).** A constructed clause battery gates spend but never
+closes a phase, so the phase question is answered by ranking quality in a fair paired comparison.
+Three-way verdict, owned by the reader: BETTER when the 95 percent interval excludes zero for the
+candidate, WORSE when it excludes zero against it, otherwise INDISTINGUISHABLE, resolving to the
+control under the standing incumbent-tie rule. Pins: `n_boot=10000`, `seed=42`, two arms differing in
+`model_pt` alone on the SAME frozen dump at the same temperature, fairness floor of 512 shared
+groups (the reader refuses any other bed). Nulls (length-only, OOV-count, audio-free margin) and the
+D8.2 clause verdict print as context and cannot move it; every null is arm-internal and is never
+differenced.
+- AMENDED 2026-08-23 closing (CURRENT): the primary pair's units join is re-pinned from the sae3d
+  quarter-rate store to `MergeUnitsPklJob.ncxcd3vouD5E` (50 Hz enc50), same dump and same draw, after
+  the registered join failed closed on the bed guard (verdict 83). Clause (a) is scoped to
+  stored-column reads. The failed-closed artifacts stay banked and in the graph at their finished
+  hashes.
 
-TAU IS PINNED, NOT SOLVED. `D8WeightJob` solves the registered |median ESS - 3| rule on whatever bed
-it is given, so running it unchanged here would re-derive on the evolved-point bed exactly the
-constant the registration pins ("at D8's registered tau ... no constant is re-derived here").
-`D9WeightJob` pins it at D8.1a's own `tau_star` = 0.05 and prints the bed's OWN solution beside it,
-so a bed that disagrees with the pin is visible in the artifact instead of hidden by it.
+**D9.0 (amended 2026-08-23, CURRENT).** Gate on the incumbent census plus the structural d_min>=2
+census; the read-set rule applies at D9.2; a structurally-alignable row scored non-finite by a refit
+is a STOP. The original three-arm census is withdrawn (it cannot precede D9.1).
 
-HASH SAFETY ASSERTED, not assumed: the seams added to `d8_weights.py` (`_slice_statistics`,
-`_report_addendum`) and the optional `tau_override` in `d8_feasibility.slice_statistics` are all
-`run()`- or function-level, and `_source_identity` covers `d8_train.py`/`d7_online.py`/`psi_align*`
-but neither edited file. Re-read from the D8.4 graph after the edits: `D8WeightJob.juRpzTNHKCSq`,
-`D8ScorerRefitJob.2bQzhz6U1yHp`, `PsiAlignRerankJob.GNOktIsG251m` and `D8PoolScoresJob.1ivehCZ5q5ON`
-are all unmoved.
+**D9.2.** Registered as a three-arm read; AMENDED BY REPLACEMENT 2026-08-24 (CURRENT) to a TWO-ARM
+read -- arm 2 (1-best refit) against arm 1 (incumbent), per-group eta, paired per-group delta eta,
+`bootstrap_delta_eta` at n_boot 10000 seed 42, D8.4 machinery and constants verbatim; the read set is
+the groups where BOTH arms score every member finitely with per-arm drop counts printed; the
+structural-census STOP clause is unchanged. The soft-EM-versus-1-best attribution contrast is STRUCK
+as unreadable. A refit arm is adopted only on an interval excluding zero in its favour. Option (ii)
+(re-dump for diversity) not funded; option (iii) (threshold edit) rejected as a post-hoc gate edit.
 
-Tests `scripts/d9_refit_test.py` 44/44; `d8_support_test` 27/27, `d8_convention_test` 7/7,
-`d8_draw_test` 11/11, `d8_admission_test` 4/4, `d8_eta_test` 12/12, `d8_bed_feasibility_test` 12/12,
-`d8_0_mechanics_test` and `d9_feasibility_test` 28/28 all still pass. `scripts/d8_1a_weights_test.py`
-fails with `build_support() missing pool_greedy` -- PRE-EXISTING and not mine: it predates the
-2026-08-22 pool-greedy ruling and `build_support` is untouched by these commits. Noted so a later
-reader does not mistake it for a live regression.
+**Standing constraints.** Minimum-duration topology d_min>=2 on every new scorer plan (user
+2026-08-15). Plain sclite WER only, never a rescored or normalized variant. Labels never train or
+select; gold reads report and select nothing. G3 bars (`archive/SAE_3a_spec_legacy.md` §6):
+gap_true >= 0.0248, spearman >= 0.17, audio-margin CI excluding zero.
 
-**D8.1a IS COMPLETE. Verdict GO, one arm funded: `candidate_acoustic`** (approach 35 result table,
-verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a scoring is open.
+## Results
 
-- Operative artifact `D8WeightJob.juRpzTNHKCSq` (the successor hash stated in State before the
-  restart, as the standing requirement demands). All three no-go clauses pass with margin, the
-  exclusion rate is 0.0006 percent against a 5 percent valve, `tau_star` = 0.05, and all 281,241
-  groups are frozen to `supports.jsonl` for the arm to read.
-- The arm-selection rule fires on spearman(shaped, acoustic-only) = 0.9835 > 0.95: the two arms are
-  operationally identical at this operating point, so `candidate_shaped` is not funded. It was not
-  struck out as free English -- spearman(shaped, LM-only) is 0.3462, far below the same bar.
-- Ruling part 4 discharged: the pre-registered sensitivity line finds NO flip of any clause, the
-  valve, the verdict or the funded-arm set against the superseded mixed convention. The convention
-  choice is immaterial to the decision BY MEASUREMENT, which is the only way it could have been
-  established.
-- Ruling parts 1-3 discharged earlier this round: full-bed text-path pass
-  (`D8PoolScoresJob.1ivehCZ5q5ON`, 281,241 of 281,241 members, 0 degenerate), no reuse branch left
-  in the weight job, and the token mechanism named (verdict 72).
+Path prefixes: `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
+`S/` = `work/speech_llm/sae/`.
 
-**D8.1b IS COMPLETE** (planner ruling 2026-08-23; speech-llm `aadf92b`;
-`D8ScorerRefitJob.2bQzhz6U1yHp`; approach 37, verdicts 75-77). One training job,
-`candidate_acoustic` only; the shaped arm is not funded and a future shaped arm is a new
-registration. No control trained -- the D7.1 exact control is reused at
-`D7OnlineTrainJob.j16rTskXF1QU` as the one-hot special case.
-
-- 13:52 wall clock against the control's 13:59 over an identical 10 shards and 2,361 batches, so
-  the registered per-step-cost parity is measured, not assumed. The whole run is fourteen minutes:
-  the batch budget is 24 M cells at up to 256 utterances, so one 960 h pass is 2,361 steps.
-- The realized greedy-draw fraction is 0.25312 against the 0.25266 the frozen weights predict --
-  agreement to 5e-04 on a quantity nothing tuned, which is the check that the draw did what the
-  artifact says. Three quarters of visits trained on a non-greedy target; 0 drawn members were
-  infeasible.
-- The registered persistence set is written: fixed-final checkpoint in the control's own format
-  with role hashes, the sampler seed/state contract and its key construction, ten per-shard loss
-  records, and the internal-held read.
-- DESCRIPTIVE ONLY, decides nothing: fixed-final internal-held per-frame NLL 2.51389 candidate
-  against 2.52588 control. D8.2 owns the registered admission -- a PAIRED estimator with a
-  speaker-cluster bootstrap and a `delta_NI` margin computed from the control's own held spread
-  before any candidate number is read. This unpaired difference is not that statistic.
-
-**D8.2 IS AUTHORIZED, BUILT, TESTED AND LAUNCHED** (planner ruling 2026-08-23; speech-llm
-`2bdb188`; `sae_3e1_d8_2` manager; 6 new jobs, everything else reused at its existing hash).
-
-- Clause 1 is a new job, `D8AdmissionJob.C2HUHUtUjfhN`: the paired candidate-minus-control
-  internal-held per-frame NLL with a speaker-cluster bootstrap, against a control-defined
-  `delta_NI`. It persists the per-anchor paired deltas and speaker-cluster ids beside the
-  aggregate, as registered 2026-08-22 -- D7.2's own job banks aggregates only, which is why a new
-  job was needed rather than a reuse.
-- Clauses 2-4 are literally D7.2's construction with the candidate substituted
-  (`d4p.battery`, `d4p.rerank`, `PsiGateClauseTableJob.xFSaHcqvUR2S` with the exact D7 control as
-  incumbent), so "the rest of the battery applies unchanged" holds by code reuse, not assertion.
-  No clause is skipped on another's expected outcome; all four are built.
-- THE `delta_NI` CONVENTION PIN IS DISCHARGED BY TEST, not by assertion.
-  `scripts/d8_admission_test.py` 4/4 re-runs D7.2's INLINE bootstrap and cluster construction
-  beside the helpers this module exposes and requires bit-identical output value for value; it
-  also asserts `delta_NI` is a function of the control alone and that a resample count other than
-  D7.2's is refused as a new registration. That is what makes the pin real given that D8.1b's
-  authorized persistence set already exposed a candidate number, so literal sequencing was gone.
-- The control is the D7.1 exact control at its existing hash; nothing retrains it.
-
-**D8.2 HAS A BLOCKING RESULT FOR THE PLANNER: it does not pass, and the registered consequence is
-that D8 CLOSES WITHOUT A POLICY LEG** (verdicts 78-81).
-
-- Clause 1 PASSES and strongly: paired delta mean -0.012475, one-sided 95 percent upper bound
-  -0.011800 against `delta_NI` 0.004826 -- below ZERO, so it would pass at D7's stricter zero
-  margin and the data-defined margin never became load-bearing.
-- Clause 2 FAILS: no corruption ladder has a bootstrap lower bound above zero, and `filler_ins` is
-  significantly WORSE at -0.0033 [-0.0064, -0.0003].
-- Clause 3 FAILS: gate v2 returns NO WINNER under both readings; the candidate is ineligible on
-  the ladder-not-below clause despite passing (i) floor, (i) improvement and (ii) and improving the
-  matched insertion discount at every k and leave-one-out cross entropy.
-- Clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) PASSES and is now read and banked (verdict 82):
-  online against offline per-frame recon agrees to 2.4e-07 against a 2.0e-03 tolerance, 512 of 512
-  rollouts round-tripped, no row floored. It was not needed to reach the outcome and was not
-  skipped. It is an implementation-identity check and changes nothing about verdict 81.
-
-The localization to carry: the arm improved absolute fit and insertion pricing while failing to
-improve ranking. It learned the target distribution better without learning to discriminate
-corruption better -- the failure mode the acoustic-only arm was registered to expose. The gate's
-no-rescue rule bars selecting a different tau, group size or weight view from this table.
-
-**D8 IS REOPENED BY THE USER AND D8.4 IS BUILT AND LAUNCHED** (planner ruling 2026-08-23 later;
-`config/sae_3e1_d8_4.py`, manager `sae_3e1_d8_4`; two new jobs,
-`PsiAlignPairedCompareJob.yrEq1ogcluJF` and `D8EtaReadJob.S3NTCZAOfSnZ`). The user's rule is that a
-constructed clause battery gates spend but never closes a phase, so the phase question is answered
-by measuring ranking quality (eta) in a fair paired comparison.
-
-- STEP ZERO OF THE REGISTRATION IS ANSWERED, and on the code rather than on a pending result:
-  `PsiScorerParityJob` does NOT discharge D8.4. It re-scores ONE arm's own rerank dump through the
-  online scorer path and requires it to reproduce that same dump's `recon` column to 2e-3. There is
-  no second arm in it, no selection, no eta and no null. So D8.4 funds exactly the missing read and
-  nothing else.
-- **MY CLAIM THAT THE FAIRNESS PINS WERE ALREADY SATISFIED BY THE D8.2 GRAPH WAS WRONG, and the
-  planner's 2026-08-23 latest ruling corrects it.** That graph's rerank pair consumes
-  `ReturnnForwardJobV2.QbIYruVEI0fF`, the FORK-EPOCH-2 policy's rollouts. D8.0 had already
-  classified that dump as "fork epoch vs theta_0^G" and moved its binding clause to
-  `ReturnnForwardJobV2.J9yA1eYnxwYA` precisely because that one carries the OPERATIVE policy, so
-  the registration's own pin excluded the bed I reused, and my module docstring (operative
-  theta_0^G family) contradicted my own wiring. Reusing a pair that was already in the graph is
-  what made the error easy to miss: it looked like thrift, and the check it skipped was the only
-  one that mattered.
-- THE CORRECTION IS BUILT (10:55). Two new reranks on the operative dump's T=0.7 slice --
-  `PsiAlignRerankJob.8oYpO4IBeqHb` (candidate) and `sQGYUL22Kpg6` (control), 512 utterances at
-  G=12, the registered floor exactly -- feeding a second compare
-  (`PsiAlignPairedCompareJob.ffqCTOA3qssf`); the PRIMARY verdict now reads from that pair alone
-  (`D8EtaReadJob.S3NTCZAOfSnZ`). Each dump joins ITS OWN unit store, since that is the stream its
-  stored `recon` column is per frame of -- the confusion D8.0's clause-(a) ruling corrected. The
-  dump is frozen and pinned by path exactly as D8.0 pins it; nothing re-decodes.
-- THE FORK PAIR IS COMPLETE and prints as context, never as the verdict
-  (`PsiAlignPairedCompareJob.yrEq1ogcluJF`): candidate eta 0.2471 against control 0.2503 on 28,531
-  shared groups, delta -0.0033 [-0.0164, +0.0096] -- INDISTINGUISHABLE, and close to the banked D7
-  rerank etas on that very dump (candidate 0.258 / control 0.250), so the D7-vs-D8 continuity story
-  holds. This bed is a DIFFERENT policy and cannot answer D8.4.
-- THE READER NOW REFUSES THE WRONG BED rather than trusting the caller: it asserts the shared-group
-  count sits at or just below the registered 512, so the 28,539-group fork bed cannot pass as the
-  operative one. `scripts/d8_eta_test.py` 12/12 covers both directions of that refusal and that a
-  context pair pointing the other way cannot move the verdict.
-- THE PAIRING INSTRUMENT IS PLAN_3A's OWN `PsiAlignPairedCompareJob`, reused unchanged except that
-  its per-temperature cell now also carries the shared `mean_wer`/`oracle_wer`/`sel_wer` it already
-  computed. It is instantiated twice -- once per bed. That addition is hash-neutral (only `__init__` kwargs hash) and it lets the reader
-  restate delta eta in its plain-WER form without recomputing the pairing on a second,
-  differently-dropped bed. It is instantiated at the D8 family's pins, `n_boot=10000`, `seed=42`,
-  at the bed's only temperature.
-- THE VERDICT IS THREE-WAY AND THE READER OWNS IT: BETTER when the 95 percent interval excludes
-  zero for the candidate, WORSE when it excludes zero against it, otherwise INDISTINGUISHABLE,
-  resolving to the control under the standing incumbent-tie rule. The registered reporting rule is
-  in the producing module's docstring verbatim, written before any statistic of this job existed.
-  The standing null battery (length-only, OOV-count, audio-free margin) and the D8.2 clause verdict
-  are printed as context and cannot move it -- every null is arm-internal and is never differenced.
-- TESTED before launch, no artifact and no scorer: `scripts/d8_eta_test.py` 11/11, including that
-  a swapped candidate/control pairing is refused, that a bed below the registered 512 shared groups
-  is refused, that the bootstrap pins cannot be overridden, and that a delta eta inconsistent with
-  its own plain-WER form fails closed rather than reporting a confident interval over two beds.
-- MANAGER CHANGE: `sae_3e1_d8_4` REPLACES `sae_3e1_d8_2`, because the D8.4 config calls the D8.2
-  build and its graph is therefore a strict superset. `sae_3e1_d8_2` is now in the manager script's
-  BLOCKED list; two managers over the shared reranks would double-submit them.
-
-**D8.4 IS COMPLETE AND ITS VERDICT IS WITH THE USER: INDISTINGUISHABLE, resolving to the control**
-(verdict 84; `D8EtaReadJob.KwmHTXqiJMGr`; planner reading in PLAN_3E1 D8 Status 2026-08-23 verdict).
-Paired delta eta -0.0293 [-0.0697, +0.0085] on the re-pinned operative bed, guard passing at 512 of
-512 shared groups. Nothing here closes the phase: this is a measurement, and the closure question
-is the USER's with the D8.3 authorization attached.
-
-- THE ROUND BEHIND IT, IN ONE LINE: the read first FAILED CLOSED on the registered quarter-rate
-  units join (verdict 83), the planner re-pinned the join to the 50 Hz enc50 stream both scorers
-  train against, and the re-pinned read passed its guard at full bed size. Same dump, same draw,
-  same banked per-rollout WERs -- only the frame stream moved. The failed-closed artifacts stay
-  banked as the record and stay in the graph at their finished hashes.
-- THE PLANNER'S REQUIRED TRUE-UP IS EXECUTED (speech-llm `be2019a`). Approach 38 cited the
-  feasibility producer for three figures it did not print. `D8BedFeasibilityJob` is now v2
-  (`9fCCv5HAPg4a`, superseding `QTlLFcnka0Hy`): it adds the shared-key-set corpus means -- which
-  print as exactly the cited 146.8 and 585.7 -- states in its conventions why a per-bed mean
-  (158.2 / 631.2 / 633.8, each over that bed's own utterances) cannot substitute for them, and
-  names the ratio's direction as right over left, so the quarter-rate store reads 0.25 rather than
-  its reciprocal 4.00. Approach 38 now quotes the producer's own figures and names the THREE
-  DIFFERENT POPULATIONS the paragraph mixes: the crude bound is on the T=0.7 slice (98.76 pct,
-  6,068 of 6,144, not the 97.2 pct I had from an ad-hoc all-rows read), observed infeasibility is
-  over all rerank rows at every temperature (81.486 pct of 31,744), and the store statistics are
-  over the 34,106 utterances every store holds. The fork characters-per-frame p05 is the
-  producer's 0.22, not the 0.24 my truncated sample gave.
-- THE TRUE-UP CANNOT REACH THE VERDICT, and that was checked rather than assumed: bumping the
-  producer's revision re-hashes only the feasibility leaf, and `D8EtaReadJob.KwmHTXqiJMGr` is
-  byte-identical in hash before and after. The producer has no dependents.
-- THE VERDICT'S OWN NUMBERS, for the record: eta +0.4220 candidate against +0.4513 control;
-  selection WER 0.1417 against 0.1400, delta +0.0018 over a 0.0600 headroom, which recomputes the
-  same -0.0293; paired delta spearman -0.0114 [-0.0234, -0.0004] as context; the fork context pair
-  -0.0033 [-0.0164, +0.0096] agreeing in direction on a different policy.
-
-The D8.3 authorization question goes to the USER together with verdict 84, and per the standing
-rule the phase closes only on the user's word over that measured number.
-
-Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
-workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
-outputs and every downstream job read them successfully. The marker is a hardlink of the log, so
-renaming it does not stick while duplicates drain. Never `-co` here.
-
-**D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
-EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
-and the D7 pool's 1-best, at exact coverage. The registered deviation is admissible only at zero
-mismatches, so the D8.1a verdict is not accepted on this support and the direction fork is the
-planner's. Nothing is auto-escalated and no fallback has been chosen here. The dump and merge are
-complete and unaffected; `D8WeightJob.1G2lPRnRmPks` was left running because it is deterministic,
-cheap and selects nothing, but ANY number it produces rests on a support that failed its
-admissibility read and must not be read as a D8.1a result.
-
-A double storage outage on 2026-08-22 killed both downstream jobs mid-write with `Errno 122`
-(quota), NOT on content: the login node's `/tmp` filled with 1.4 TB of `/tmp/mmfs` GPFS traces
-(not this user's files -- the whole Claude tree was 739 MB) and the project fileset hit its quota
-at the same time. `jutil` showed 46.8/53.7 TB and 3.58M/4.0M inodes but its reading was three days
-stale, so it never showed the violation. Both jobs were cleared and rerun once writes worked again
--- safe because both are stateless deterministic reads, never for a training job.
-
-In flight 2026-08-22:
-
-- **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
-  `c9747c7`, `5428a62`, `3af12bd`, `e7fc5ef`, `b68dd1a`), ten sampled dump shards RELAUNCHED 08:10
-  under manager pid 2554047 with a watcher, at the corrected `max_seqs=8`. Margin re-checked at
-  4 % by matched-completion comparison against the first launch (approach 35): 6.9-7.4 h against
-  the 11.5 h wall, ~4.1-4.6 h of margin, healthy and left alone. The first launch's ten shards were cancelled at 49 % because they
-  projected past that wall -- approach 35 has the numbers. Then the merge, the greedy-equivalence
-  read and the deterministic weight job. Weight `D8WeightJob.1G2lPRnRmPks`, merge
-  `D8MergeRolloutsJob.gXDwFsfvraDS`, greedy-equivalence read
-  `D8GreedyEquivalenceJob.xR1RduqgjFKe` (the merge is its input, so the relaunch moved it too;
-  the earlier `XTdRp3OO3LNf` is an orphan at the pre-relaunch hash and holds no result).
-
-  **The five fixes required by the 2026-08-22 verification are IN and are HASH-NEUTRAL**, so no
-  manager restart was needed for them and none of the running work moved. That is measured, not
-  assumed: the graph was built against the committed tree and against the fixed tree and both give
-  `D8WeightJob.lF7OF4pQu66m` and `D8MergeRolloutsJob.XPXsAbeeZWVE` -- the PRE-RELAUNCH hashes,
-  which is what made the check meaningful at the time; the later `max_seqs` correction moved them
-  to the values named above. (The hash difference from the
-  very first build was the earlier `av_checkpoint_prefix` fix moving the dump hashes, not these
-  edits.) The edits therefore land at worker import, as the verifier anticipated.
-
-- **D6-PERIODIC/GAN-FROZEN is COMPLETE** (approach 36, verdicts 68-69). All eight legs finished
-  2026-08-22, manager exited on DONE, watcher retired. Its registered gate is decided: the frozen
-  control wins leg 8 on both splits, so scorer refresh has no established durable benefit here.
-  The periodic arm it controls also completed all eight legs -- the log's earlier "legs 1-3, leg 4
-  pending" was stale and is superseded by approach 36's table.
-- **D6-PERIODIC/GAN960-FROZEN** (approach 33), manager pid 3514914, watcher attached. Leg 1
-  `ReturnnTrainingJob.ohmLWWmr6Kxe` FINISHED; leg 2 `liehXoiGoRI0` and leg 3 `VEE2CPJ5jHn0` both
-  running 2026-08-22, plus two recog forwards. Its gate is leg 8 beating this arm's own init
-  13.11/16.82 on both splits; matched-leg deltas against GAN-FROZEN are reported and select
-  nothing.
-
-  Two legs running at once is NORMAL for this arm and is not a race -- checked 2026-08-22 rather
-  than assumed, because a chained leg overlapping its own predecessor looks like a broken
-  dependency. Leg N+1 takes leg N's epoch-1 checkpoint through sisyphus's per-epoch checkpoint
-  dependency, so it becomes runnable when that file lands and not when the job finishes: leg 2
-  wrote `epoch.001.pt` at 08:33:24.60, sisyphus set leg 3's directory up at 08:33:25.29 and
-  submitted it at 08:33:29, and leg 3 only loaded it at 08:33:58, well after both the checkpoint
-  and its `.opt.pt` were complete. Leg N stays "running" afterwards only to finalize.
-- `sae_3e1_hom` manager also alive (pid 1992923).
-
-**D7-GAN-SEQDISC IS CLOSED: D7.2 FAILS ON CLAUSE 2** (approach 32, verdicts 64-67; speech-llm
-`e2a421b`, `c40655d`). The whole config is finished -- D7.0, D7.1 and all ten D7.2 jobs. Clause 1
-passes decisively (paired mean -0.00269867, one-sided 95 % bootstrap upper bound -0.0026589, 99.25 %
-of 14,008 anchors), clause 4 passes exactly on both arms, and clause 3 has both arms clearing the
-external floor; clause 2 fails because the candidate's internal-held per-frame NLL is 2.531898
-against the control's 2.525882. Per the registered gate that closes D7 without a policy leg and no
-sampler or temperature rescue may be selected from the result. The one convention still open --
-clause 3's point-versus-CI eligibility reading -- does not change the outcome and is the planner's
-to pin if it is wanted for the record.
-
-D7.1's own facts stand behind that: the own-infeasible-anchor amendment held (both arms name exactly
-the four registered train-role rows, 267,175 trained / 14,062 held, digit-identical to the offline
-dropcheck and to each other), each arm was a single ~14-minute ten-shard job so the 11.5 h wall cap
-and resume path never came into play, and D7.2's independent recompute reproduced both arms' banked
-per-frame NLL to 3.62e-9.
-
-Correction to an earlier State claim: this manager, like `sae_1g_h4_prelabel_surfaces`, exits on
-sisyphus's interactive "All calculations are done" prompt once its graph finishes, and a one-shot
-console status then calls several finished jobs `runnable`/`waiting`. A watcher verdict of
-`STATUS=STALLED ... work remains` on this config is that artifact; every one of its 227 jobs
-carries `finished` or `finished.tar.gz` on disk.
-
-**D8.0 IS COMPLETE AND ITS BINDING CLAUSE PASSES** (approach 34, verdicts 62-63; speech-llm
-`889750c`, `a3dd6c7`, operative v3 `3843918`; manager `sae_3e1_d8_0`, all reads finished). The planner's
-2026-08-22 clause-(a) ruling is implemented: the structural-infeasibility exclusion now joins `T_i`
-from the frozen raw 50 Hz store `S/quantize_states/PackUnitsJob.I0uzRMfUrKWC`, the operative
-D8.1a/D8.1b frame, with coverage over the slice's ids asserted; the per-unit prior currency still
-divides by each dump's own store. The v2 law-conflict guard retired by construction, its count
-survives as a reported diagnostic, and the ruled 5 % safety valve is implemented and did not fire.
-On the binding theta_0^G T=0.7 slice: median distinct feasible support **12 of 13** against a
-threshold of 3, exclusion **0 of 5,730** scored members, verdict **GO**. The exclusion is empty on
-all five slices, so the v2 UNRESOLVED was entirely the pooled-store frame. D8 does not close at
-D8.0; D8.1a-b remain gated behind the D7.2 admission verdict and D8.3 still needs its own word.
-
-All three earlier proposals are ruled and discharged: clause (a) reads in the operative frame
-(implemented, no new dump needed); the dedup survivor tie rule is ratified and is to be pinned in
-the D8.1a weight job's docstring when that job is built; the GAN960 leg-1 scorer provenance is
-covered by the registered Disclosed-asymmetry paragraph and needs no plan change.
-
-Verifier follow-ups from the 2026-08-22 round, all applied: `scripts/d7_parity_diag.py` unpacks the
-5-tuple again (it would have crashed on a rerun); the D8 code is cited at branch head `a3dd6c7`, not
-its pre-amend twin; the collapse tally is labelled CLASSES not groups in both the job docstring and
-this log, and the artifact now reports classes and groups separately; approach 34's v2 table carries
-the omitted T=0.5 row.
-
-Next action: hold the D8.1a watcher, then read the weight artifact -- the three no-go clauses
-re-apply verbatim on the binding T=0.7 slice and a no-go closes D8 before any D8.1b training. If it
-is a GO, the arm-selection rule in the same artifact says which of candidate-shaped and
-candidate-acoustic is funded; D8.1b is built only then. D7.3 is closed by the D7.2 gate, not merely
-unauthorized.
-
-Registered for D8.2 before that job exists (planner, 2026-08-22, from the D7.2 verification): its
-admission job MUST persist the per-anchor paired deltas and speaker-cluster ids beside the aggregate,
-so the paired mean, negative share and bootstrap bound are re-derivable from disk. In D7.2 those
-three rested solely on the job's own arithmetic, which was harmless only because the gate closed on
-clause 2's deterministic comparison.
-§1g H4's pre-label surfaces are COMPLETE (`SAE_1g.md` State, approach 11, verdict 17).
-
-Proposal for the planner, measured while building D7.2 and now reported inside the admission
-artifact: the registered "32 stateless donor draws" does not buy 32 independent donors on this
-population. A speaker's internal-held rows inside the duration window are few, so an anchor's draws
-are sampled with replacement from a pool of typically about four -- mean 3.67 distinct donors over
-32 draws on the first 400 held anchors, and exactly 1 for every `nearest_fallback` anchor by
-construction. Nothing about the clause changes; the precision comes from the speaker-cluster
-resampling and not from the draw count, and the artifact now reports the distinct-donor count per
-anchor so the estimate is never read as carrying 32 draws' worth of donor variation.
-
-The clause-2 flag raised before the run is DISCHARGED: D7.2 reproduced the NLL ordering and D7
-closed on it exactly as flagged, with the gate ruled unmoved. Remaining item for the planner, for
-the record only: clause 3's point-versus-CI eligibility convention (`elig_pt False` /
-`elig_CI True` for the candidate) is a pin the gate table deliberately leaves to the planner, and it
-is now moot for D7 but will recur at the next acceptance round.
-
-Proposal for the planner: none outstanding.
-
-## Approach
-
-**1. AR text-usage gate along the co-trained trajectory** (PLAN.md §3e.1 queue item 2, first half).
-The §3c 100 h replay arm (`freeze_ar=False`, the only trainable-scorer run on record) is re-read with
-the §2.5 usage gate at each of its own checkpoints: `gate = ln(ppl_shuffled) - ln(ppl_true)` on the
-10 h seed dev subset (5000 utts), avunits k500 stream, within-dev derangement at seed 42, p=1.0
-history masking — one protocol, only the checkpoint moves. `SaeGrpoModelV1` nests the scorer as
-`self.ar`, so each epoch's `ar.`-stripped sub-state is a standalone `SaeTokenLmV1` checkpoint
-(`ExtractAvSubmodelJob`, `submodel_prefix="ar."`). ep0 is the frozen AR every loop arm starts from and
-is the already-finished `p10` cell of `config_sae_2s_ar_usage_gate_avunits_v1`, reused by asserted job
-id, so the anchor predates the question; its CE 5.7444 reproduces that AR's logged dev CE 5.7371.
+**1. AR text-usage gate along the co-trained trajectory** (SAE.md §3e.1 queue item 2). The §3c 100 h
+replay arm (`freeze_ar=False`) re-read with the §2.5 usage gate at each of its own checkpoints:
+`gate = ln(ppl_shuffled) - ln(ppl_true)` on the 10 h seed dev subset (5000 utts), avunits k500
+stream, within-dev derangement at seed 42, p=1.0 history masking -- one protocol, only the
+checkpoint moves. Each epoch's `ar.`-stripped sub-state is a standalone `SaeTokenLmV1` checkpoint
+(`ExtractAvSubmodelJob`, `submodel_prefix="ar."`). ep0 is the frozen AR every loop arm starts from,
+the finished `p10` cell of `config_sae_2s_ar_usage_gate_avunits_v1` reused by asserted job id, so
+the anchor predates the question; its CE 5.7444 reproduces that AR's logged dev CE 5.7371.
 Interpretation floors on this stream: unit marginal 6.0072, uniform ln 500 = 6.2146.
+Artifacts: `S/scorer_diag/ArUsageTrajectoryJob.9Ughq5htDaXx`; replay arm
+`T/ReturnnTrainingJob.KBTADeS7Qp1G`; ep0 `T/ReturnnTrainingJob.ExCoQDKtXAGH/output/models/epoch.050.pt`;
+ep0 usage cells `F/ReturnnForwardJobV2.GBuKgHp3GNlz` (true) / `.HKsuKQJdUwGA` (shuffled).
 
 | point | CE_true | CE_shuffled | gate | vs ep0 |
 |---|---|---|---|---|
@@ -571,11 +193,10 @@ Interpretation floors on this stream: unit marginal 6.0072, uniform ln 500 = 6.2
 | ep7 | 6.0770 | 6.6032 | 0.5261 | +0.193 |
 
 **2. Excess-mass suspect vocabulary, label-free** (D0(d)). Rate of each token in the §1d pseudo-text
-(28 539 utts, 963 857 tokens) minus its rate in the LibriSpeech LM corpus (803 M tokens); threshold
-pre-registered from the mechanism before any table was read: `min_excess = 0.002`, one extra
-occurrence per 500 tokens, i.e. about one per utterance at this bed's length — the smallest rate at
-which a token can act as a per-utterance filler. A ratio test was rejected in the plan because it
-top-ranks rare words; sensitivity: 4 tokens at 0.001, 1 at 0.005.
+(28 539 utts, 963 857 tokens) minus its rate in the LibriSpeech LM corpus (803 M tokens), at the
+pre-registered `min_excess = 0.002`. A ratio test was rejected in the plan because it top-ranks rare
+words; sensitivity: 4 tokens at 0.001, 1 at 0.005. `S/scorer_diag/SuspectVocabJob.7LSZhTXKculV` over
+`S/scorer_diag/LmWordCountsJob.SqAFPqiRBD9k` (`i6_core/tools/download/DownloadJob.g4jClO48cAvP`).
 
 | word | n_pseudo | rate_pseudo | rate_lm | excess |
 |---|---|---|---|---|
@@ -585,22 +206,24 @@ top-ranks rare words; sensitivity: 4 tokens at 0.001, 1 at 0.005.
 | vary (below threshold) | 1 044 | 0.001083 | 0.000005 | 0.001078 |
 
 **3. D0 mechanism discriminator** (queue item 2, second half). Bias vs noise vs group blindness on
-finished artifacts only — 512 tc100 utterances sampled from theta_0^G at G=12/T=0.7, the loop's own
+finished artifacts only -- 512 tc100 utterances sampled from theta_0^G at G=12/T=0.7, the loop's own
 operating point, re-ranked by three psi_align scorers that share the rollout set
-(`ReturnnForwardJobV2.J9yA1eYnxwYA`) and the unit stream (`AssignUnitsJob.X8DBup0jQlhR`) and differ
-only in which text they were fitted to: `psi_g_tc100` (the loop's own scorer, fitted to the same §1d
-pseudo-text theta_0^G was initialized from), `psi_g_seed` (same recipe, 10x less of that text),
-`gold_enc50` (10 h gold text — the never-contaminated control that localizes any effect to the
-training text rather than to the bed). Labels enter as evaluation only. Both live reward variants are
-read: `recon`, and `shaped` = recon + 1.0 * prior/n_units — the dumps normalize the prior per text
-token, so the job rebuilds the sum and divides by the utterance's own unit count to restore the live
-`lm_prior_norm="units"` term. Bias statistic = group-centred partial effect of the suspect count on
-reward with WER as covariate (`beta_ols`; `beta_rank` is its nonparametric twin), positive meaning the
-scorer PAYS for the filler at matched WER. Arm-invariant rows (sampling headroom, coverage, and every
-selector taken from the shared dump) come out identical across arms, which is the wiring check.
+(`F/ReturnnForwardJobV2.J9yA1eYnxwYA`) and the unit stream (`S/quantize_states/AssignUnitsJob.X8DBup0jQlhR`)
+and differ only in the text they were fitted to: `psi_g_tc100` (the loop's own scorer), `psi_g_seed`
+(same recipe, 10x less of that text), `gold_enc50` (10 h gold text -- the never-contaminated control
+that localizes any effect to the training text rather than to the bed). Labels enter as evaluation
+only. Both live reward variants are read: `recon`, and `shaped` = recon + 1.0 * prior/n_units (the
+dumps normalize the prior per text token, so the job rebuilds the sum and divides by the utterance's
+own unit count to restore the live `lm_prior_norm="units"` term). Bias statistic = group-centred
+partial effect of the suspect count on reward with WER as covariate (`beta_ols`; `beta_rank` its
+nonparametric twin), positive meaning the scorer PAYS for the filler at matched WER. Arm-invariant
+rows come out identical across arms, which is the wiring check. Table
+`S/scorer_diag/RolloutMechanismJob.vsl00qaCHQbP`; re-rankings `S/psi_align_jobs/PsiAlignRerankJob.QdHRXsev2Txh`
+(psi_g_tc100 <- `PsiAlignTrainJob.kSYy0ADBgPGo`), `.2AUBSd8Y0oq0` (psi_g_seed <- `.SUAAuCS2o3pz`),
+`.bZCAVAKWQq3I` (gold_enc50 <- `.IN3zmmGpH4Bv`).
 
 Shared across arms: mean_wer 0.1670, oracle 0.1071 (G=12) / 0.1125 (G=8), greedy 0.1345, 512 groups.
-Group contrast — fraction of groups carrying the token that also hold a token-free member: **"to"
+Group contrast -- fraction of groups carrying the token that also hold a token-free member: **"to"
 0.2334** (467 live groups, mean within-group count std 0.4824), "of" 0.1089, any suspect 0.0922.
 
 | arm | spearman recon | spearman shaped | beta_ols "to" | beta_rank "to" | beta_ols any |
@@ -609,17 +232,19 @@ Group contrast — fraction of groups carrying the token that also hold a token-
 | psi_g_tc100 (the loop's) | 0.4959 | 0.5558 | 0.2425 | 0.2634 | 0.2514 |
 | psi_g_seed | 0.4696 | 0.5404 | 0.2664 | 0.3219 | 0.2753 |
 
-Selectors, within-group spearman(signal, -WER) with 95 % CI over groups (arm-invariant):
-`lm_prior_units` 0.5020 [0.4737, 0.5308], `neg_n_suspect` 0.1855 [0.1510, 0.2186], `n_tokens` -0.0354
-[-0.0710, 0.0004], `psi_len_only` 0.0125–0.0354 with the CI straddling zero, `neg_n_oov` undefined
-(every row on this bed has n_oov = 0).
+Selectors, within-group spearman(signal, -WER) with 95 % CI over groups: `lm_prior_units` 0.5020
+[0.4737, 0.5308], `neg_n_suspect` 0.1855 [0.1510, 0.2186], `n_tokens` -0.0354 [-0.0710, 0.0004],
+`psi_len_only` 0.0125-0.0354 with the CI straddling zero, `neg_n_oov` undefined (every row on this
+bed has n_oov = 0). The "(arm-invariant)" label these were first logged under is corrected under
+Open findings.
 
 **4. Frozen external held pair set, and gate v2 (i)+(ii) read on it** (D1). The §1d student decoded
 LibriSpeech dev as well as tc100, so (pseudo-text, enc50 units) pairs exist on 5567 utterances no
 scorer in this program trains on; 1500 are taken by a seeded permutation of the id-sorted pool and
 never move again, which is what `PsiAlignTrainJob`'s per-candidate 5 % split of its own corpus cannot
 be. 1493 are feasible under both the true and the length-matched deranged pairing. All three D0
-scorers are read on it, unrepeated and label-free.
+scorers are read on it, unrepeated and label-free. `S/scorer_diag/FrozenHeldPairsJob.E8UaEwRF65HW`;
+held NLL `S/psi_align_jobs/PsiHeldNllJob.J1A028bt3Faw` / `.WrmDwFU9dVvV` / `.ag5DZ3A2Gd1K`.
 
 | arm | ce_loo (true) | H_uni on these frames | text_explained_loo | usage gate (len-matched) |
 |---|---|---|---|---|
@@ -628,12 +253,12 @@ scorers are read on it, unrepeated and label-free.
 | gold_enc50 | 3.1274 | 6.0324 | +2.8939 | +4.2821 |
 
 **5. D1 filler probe battery** (D1). Paired text-side corruptions on the same 1442 held pairs that
-survive every pairing's U <= 2T bound: at k = 1, 2, 4 randomly drawn slots, the filler and an LM-drawn
-frequent word are written into the SAME slots (substitution) and inserted at the SAME slots
+survive every pairing's U <= 2T bound: at k = 1, 2, 4 randomly drawn slots, the filler and an
+LM-drawn frequent word are written into the SAME slots (substitution) and inserted at the SAME slots
 (insertion), and the same slots are deleted; the statistic is the per-utterance increase in `ce_loo`
 over the untouched text, bootstrapped over utterances. Substitution asks what the filler costs to
-write over a word, insertion what it costs to ADD — and the G-track's degradation is made of
-insertions.
+write over a word, insertion what it costs to ADD -- and the G-track's degradation is made of
+insertions. `S/psi_align_jobs/PsiTextProbeJob.eNVc8JTbm7n8` / `.qo8IB8MLA8ES` / `.rY39iGv8bhhi`.
 
 | arm | del_1 | sub filler_1 | sub LM_1 | ins filler_1 | ins LM_1 | insertion discount k=1 / 2 / 4 | suspect state mass |
 |---|---|---|---|---|---|---|---|
@@ -642,14 +267,16 @@ insertions.
 | gold_enc50 | 0.3941 | 0.3595 | 0.3570 | 0.0261 | 0.0851 | 0.0590 / 0.1056 / 0.2351 | 2.08 % |
 
 Insertion-discount CIs at k=1: psi_g_tc100 [0.0537, 0.0634], psi_g_seed [0.0520, 0.0604], gold_enc50
-[0.0539, 0.0639]. The substitution discount is ~0 in every arm (+0.0036 / +0.0044 / −0.0025). Ladder
-spearman (severity vs `ce_loo` increase) 0.94 for substitution and deletion, 0.66–0.86 for insertion.
+[0.0539, 0.0639]. The substitution discount is ~0 in every arm (+0.0036 / +0.0044 / -0.0025). Ladder
+spearman (severity vs `ce_loo` increase) 0.94 for substitution and deletion, 0.66-0.86 for insertion
+(psi_g_tc100 only; across arms 0.55-0.87, see Open findings).
 
 **6. Sampling-side contingency: contrast coverage and steerability vs temperature** (D0 coverage
-co-requirement, reproduced as a logged table). The D0 dump already carries T = {0.3, 0.5, 0.7, 0.9,
-1.0} at G=12, so this is a re-read: coverage is the fraction of "to"-carrying groups holding a
-"to"-free member, steerable additionally requires that member's live shaped reward to beat the group
-mean. Coverage is arm-invariant; steerability is not, and WER enters as evaluation only.
+co-requirement). The D0 dump already carries T = {0.3, 0.5, 0.7, 0.9, 1.0} at G=12, so this is a
+re-read: coverage is the fraction of "to"-carrying groups holding a "to"-free member, steerable
+additionally requires that member's live shaped reward to beat the group mean. Coverage is
+arm-invariant; steerability is not, and WER enters as evaluation only.
+`S/scorer_diag/CoverageTemperatureJob.JAP5gJQE0PwP`.
 
 | T | coverage "to" | steerable (psi_g_tc100) | steerable / coverage | mean WER | oracle WER |
 |---|---|---|---|---|---|
@@ -661,9 +288,11 @@ mean. Coverage is arm-invariant; steerability is not, and WER enters as evaluati
 
 **7. D2 round-0 pseudo-text repair** (D2, corpus side). Rates of the three excess-mass suspects are
 matched to the LibriSpeech LM corpus by removal only, with a per-utterance multiplicity cap read off
-the LM corpus at matched utterance length (q99: 3 for "to" in the 20–30-token bucket). 60.6 % of
+the LM corpus at matched utterance length (q99: 3 for "to" in the 20-30-token bucket). 60.6 % of
 utterances are edited and the corpus loses 2.94 % of its tokens; no utterance is emptied, and the
 repaired corpus differs from the contaminated one only where a token was removed.
+`S/text_repair/RepairPseudoTextJob.o086K9a8uXDa`, corpora `S/text_repair/TextHfDirJob.UEAxxdGitOHu`
+(control) / `.7Msi4BxlykgV` (repaired), LM reference `S/text_repair/LmLineStatsJob.l9ZJSEj8tP0S`.
 
 | word | rate before | rate after | rate in LM corpus | removed by cap / by rate |
 |---|---|---|---|---|
@@ -678,11 +307,18 @@ reused and only the DP repeats, and the term activates once the alignment prior 
 (epoch 5 of 30). Four arms separate corpus from mechanism at otherwise identical hyperparameters,
 one variable each against psi_g_tc100: `d2_rate` (repaired corpus), `d2_contrast` (weight 1),
 `d2_both`, and `d2_states` (chars_per_state 1.5 -> 0.5, the frames-per-state term of conclusion 12).
-The control corpus is asserted byte-equal to the one psi_g_tc100 was fitted to, id order included,
-so "the only difference is the repair" is checked rather than claimed. All four arms ran the full 30
-epochs and each is read at its own best-held epoch; every ce_loo-derived column is
-segmenter-dependent, so `d2_states`' entries in those columns are NOT comparable to the cps-1.5 rows
-and are marked (*).
+The control corpus is asserted byte-equal to the one psi_g_tc100 was fitted to, id order included.
+All four arms ran the full 30 epochs and each is read at its own best-held epoch; every
+ce_loo-derived column is segmenter-dependent, so `d2_states`' entries in those columns are NOT
+comparable to the cps-1.5 rows and are marked (*). Scorers
+`S/psi_align_jobs/PsiAlignTrainJob.HTy12IMDmYdB` (d2_rate), `.DnBJxqz4sNQZ` (d2_contrast),
+`.9pTbjjx29yVc` (d2_both), `.hxK0HTBZQSJa` (d2_states); held NLL `.PsiHeldNllJob.XvvciDyN3LyS`,
+`.Z8quArGjzAj3`, `.1okicjOpTszW`, `.9D2ywKhnL5ZH`; probes `.PsiTextProbeJob.wkAV3KfAUwW9`,
+`.g3p5aA7nBONQ`, `.8LGrp6IuVyzD`, `.eRBqqPfUtf6k`; re-rankings `.PsiAlignRerankJob.jRvegq7Bf7lu`,
+`.zAzQGZbtxrw9`, `.DQQLmfIhPTOe`, `.DVcQhryzLU2j`; parity `.PsiScorerParityJob.bBjvefspGS4L`,
+`.0U0yG8pdt6fB`, `.O7WiXL0OfmvA`, `.g5gIUiLRMqLg`; cross-arm D0-dump re-read
+`S/scorer_diag/RolloutMechanismJob.uDTs6ZlhOFQa`; steerable coverage vs T
+`S/scorer_diag/CoverageTemperatureJob.Ku9zNUNDK12D`.
 
 | arm (corpus / weight / cps) | best ep | held ce_loo | ins. disc. k1 | ladder filler_ins | beta_to | spearman | steerable | susp. mass % |
 |---|---|---|---|---|---|---|---|---|
@@ -694,27 +330,21 @@ and are marked (*).
 
 The `ins. disc. k1` column is the FREQUENCY-DRAWN discount and is kept only because approach 9's
 original rule names it; it is state-count-confounded and approach 10 replaces it. 2 T/U on the held
-set is 9.77 at cps 1.5 and 3.92 at cps 0.5. `beta_to`, `spearman` and `steerable`
-are the D0-dump re-reads at T=0.7 with every arm re-ranking the SAME rollouts, so those three columns
-are cross-arm comparable even for `d2_states`; contrast coverage itself is arm-invariant at 0.2334,
-so `steerable` moves only through the scorer. All four candidates PASS `PsiScorerParityJob` at
-max |online - offline| = 0, and all four clear the three G3 bars of `PLAN_3A` §6 (gap_true >= 0.0248,
-spearman >= 0.17, audio-margin CI excluding zero; margins +0.146 to +0.154, all CIs overlapping).
+set is 9.77 at cps 1.5 and 3.92 at cps 0.5. `beta_to`, `spearman` and `steerable` are the D0-dump
+re-reads at T=0.7 with every arm re-ranking the SAME rollouts, so those three columns are cross-arm
+comparable even for `d2_states`; contrast coverage itself is arm-invariant at 0.2334, so `steerable`
+moves only through the scorer. All four candidates PASS `PsiScorerParityJob` at
+max |online - offline| = 0, and all four clear the three G3 bars (margins +0.146 to +0.154, all CIs
+overlapping). COLUMN-MIXING CAVEAT under Open findings.
 
 **9. D3 frozen-repaired G-track control arm** (D3). The winner's scorer is frozen into the same
 `config_sae_3a_gan_loop_960h_v1.baseline` that builds the arms it controls, so bed, data and
 schedule differ in one input only; bar 2 is the suspect share of sclite insertions, read off the
-recogniser's own alignment at four sub-epochs. The winner is selected by a rule fixed before the D2
-read: an arm is eligible only if its held CE_loo is below the unit-marginal floor 6.03, its
-text_explained_loo is not below the pre-loop floor, and its corruption-ladder spearman is not below
-psi_g_tc100's; among eligible arms the winner is the one that most reduces the insertion discount
-(psi_g_tc100: 0.0584), ties broken by the D0 rollout beta at matched WER. If no arm reduces the
-discount by more than the bootstrap CI half-width (~0.005) there is no winner and D3 is not funded
-from D2 — the fallback is the planner's call. Gate v2 (i)'s round-to-round improvement clause is not
-used for eligibility because the held text is unrepaired pseudo-text, which asks a repair arm to
-model the defect it removed; it is reported alongside. Three of four sub-epochs are in (`psid2_contrast`
-= the frozen `d2_contrast` scorer, against the same arm on the incumbent `psi_g_tc100`); the
-insertion columns are dev-clean, read off the recogniser's own alignment.
+recogniser's own alignment at four sub-epochs. Winner rule and its amendments are in Gates. Gate v2
+(i)'s improvement clause is not used for eligibility here (the held text is unrepaired pseudo-text)
+and is reported alongside. Three of four sub-epochs are in (`psid2_contrast` = the frozen
+`d2_contrast` scorer, against the same arm on the incumbent `psi_g_tc100`); the insertion columns are
+dev-clean. Arms `T/ReturnnTrainingJob.rJWSC5xOsrf2` (shaped) and `.L6FwOOpffNL4` (recon).
 
 | arm | sub-ep | psi | dev-clean | dev-other | ins | `to` ins | suspect share |
 |---|---|---|---|---|---|---|---|
@@ -731,15 +361,20 @@ insertion columns are dev-clean, read off the recogniser's own alignment.
 | recon | 3 | incumbent | 33.54 | 39.74 | 8724 | 4627 | 0.542 |
 | recon | 3 | d2_contrast | 32.94 | 37.91 | 5623 | 1834 | 0.341 |
 
-**10. State-matched control pool, and the D2 selection read on it** (D1 build item (b), D2 admission).
-The LM control is redrawn from a pool holding the filler's own emitting-state count under each arm's
-own segmenter — 57 one-state words at cps 1.5 and 51 four-state words at cps 0.5, of the same 6 472
-above the rate floor — where the
-frequency-drawn pool averages 2.70 states against the filler's one (8.16 against four at cps 0.5), and
-per-utterance `ce_loo` is dumped so every cross-arm number below is a PAIRED difference on the 1442
-utterances all seven arms could score. The frequency-drawn pairings are drawn from their own generator
-and reproduce the pre-extension jobs to the last digit (0 of 7 arms differ on any statistic), so this
-is a control added beside the old one, not a re-measurement of it.
+The shaped/d2_contrast sub-epoch 2 row (12.68 / 17.57) is the best previous frozen-scorer loop result
+on the GAN init and is the anchor D9 pins against; provenance chain in the D9 entry (approach 39).
+
+**10. State-matched control pool, and the D2 selection read on it** (D1 build item (b), D2
+admission). The LM control is redrawn from a pool holding the filler's own emitting-state count under
+each arm's own segmenter -- 57 one-state words at cps 1.5 and 51 four-state words at cps 0.5, of the
+same 6 472 above the rate floor -- where the frequency-drawn pool averages 2.70 states against the
+filler's one (8.16 against four at cps 0.5), and per-utterance `ce_loo` is dumped so every cross-arm
+number below is a PAIRED difference on the 1442 utterances all seven arms could score. The
+frequency-drawn pairings are drawn from their own generator and reproduce the pre-extension jobs to
+the last digit (0 of 7 arms differ on any statistic), so this is a control added beside the old one,
+not a re-measurement of it. Batteries `S/psi_align_jobs/PsiTextProbeJob.WBXWwmZIK7HY` (psi_g_tc100),
+`.4KpANAZV864A` (psi_g_seed), `.a8WsW4jjddcq` (gold_enc50), `.jQPGx36tCccz` (d2_rate), `.cMO136SC9uUu`
+(d2_contrast), `.rNCJA9Y987bY` (d2_both), `.lcbBuAIimK11` (d2_states); each carries `items.json`.
 
 | arm | matched ins. disc. k1 | paired vs incumbent | k4 | paired vs incumbent | ladders worse (of 5) |
 |---|---|---|---|---|---|
@@ -753,20 +388,20 @@ is a control added beside the old one, not a re-measurement of it.
 
 **11. The acceptance rule as a job, and the D4 admissibility instruments** (D4 prereqs a/b/c). The
 gate v2 clauses now compute from the per-arm `items.json` + `held.json` at a pinned seed and resample
-count (`PsiGateClauseTableJob`), printing both readings of the ladder floor rather than choosing one;
-the selector block of the D0 discriminator gained a filler-affinity twin (partial beta of the suspect
-count on each CURATION view at matched WER, group-bootstrap CI), opt-in and hash-excluded so the
-audited D0/D2 tables keep their ids, and it scores `ar_recon` -- the G-track AR's own reward, carried
-in every re-rank dump as `recon_incumbent` and never read as a selector before -- as the one
-audio-conditioned view on offer. `SaeGrpoModelV1` gained `av_checkpoint_prefix`, which imports a
-previous round's policy out of the loop's own state_dict and leaves psi at the newly accepted scorer.
-
-The clause table on the seven finished arms reproduces the audited D2 verdict (ladders-worse
+count (`S/gate_table/PsiGateClauseTableJob.x0d7dYpOdilI`, 7 finished arms), printing both readings of
+the ladder floor rather than choosing one; the selector block of the D0 discriminator gained a
+filler-affinity twin (partial beta of the suspect count on each CURATION view at matched WER,
+group-bootstrap CI), opt-in and hash-excluded so the audited D0/D2 tables keep their ids
+(`S/scorer_diag/RolloutMechanismJob.jYDxg98sWJIj`), and it scores `ar_recon` -- the G-track AR's own
+reward, carried in every re-rank dump as `recon_incumbent` and never read as a selector before -- as
+the one audio-conditioned view on offer. `SaeGrpoModelV1` gained `av_checkpoint_prefix`, which imports
+a previous round's policy out of the loop's own state_dict and leaves psi at the newly accepted
+scorer. The clause table on the seven finished arms reproduces the audited D2 verdict (ladders-worse
 3/1/3/0/0/0; point reading -> `d2_states`, paired-CI reading -> `d2_contrast`), and the import
 override carries 719 `av.*` keys out of a live 960 h loop checkpoint -- name- and shape-identical to
 theta_0^G's own AV SFT checkpoint -- while dropping its 82 `psi.*` keys.
 
-Candidate curation views under both pre-registered bars (arm-invariant rows; `to` for (f)):
+Candidate curation views under both pre-registered bars (`to` for (f)):
 
 | view | (e) spearman(signal, -WER) | (f) beta on suspect count at matched WER | admissible |
 |---|---|---|---|
@@ -778,22 +413,20 @@ Candidate curation views under both pre-registered bars (arm-invariant rows; `to
 
 **12. Refresh round 1: a curated pool from theta_0^G's own rollouts, and a scorer refit on it** (D4).
 One fresh dump of theta_0^G over all 28539 pseudo-text utterances at the loop's own T=0.7 and G=12
-(a whole-bed pass at the finished probes' batching measured 9.5 h against the 11.5 h cap and the
-forward job has no resume; the step is latency-bound in the decode, not throughput-bound in the
-batch, so 8 utterances per step rather than 4 buys 1.68x and G stays at the loop's value), curated
-by two-view agreement with both advantages positive and one member per utterance, on top of the rate-repaired round-0 corpus as the anchor at a floored 50 %
-share. A curated pool holds an utterance twice against one unit stream, and both rows are pairs the
-NLL term maximizes, so the matching-aware term drops a same-utterance negative exactly as it drops a
-structurally impossible one — without that mask 5.48 % of rows per epoch contrast a reading of their
-own audio, and since `_batches` sorts by (T, U) the twins land adjacent and the shorter always wins,
-which is the length detector the (T, U) bucketing exists to rule out. The candidate is the
-`d2_contrast` recipe refit from scratch on anchor + curated, judged by
-the same frozen held set, state-matched probe battery and clause table the D2 arms were judged by,
-with gate v2 (i) floor-only because a refresh candidate is changed-text by construction.
-
+(`F/ReturnnForwardJobV2.lQMOR5n2ntcS`; the step is latency-bound in the decode, so 8 utterances per
+step rather than 4, G at the loop's value), curated by two-view agreement with both advantages
+positive and one member per utterance, on top of the rate-repaired round-0 corpus as the anchor at a
+floored 50 % share. A curated pool holds an utterance twice against one unit stream, and both rows
+are pairs the NLL term maximizes, so the matching-aware term drops a same-utterance negative exactly
+as it drops a structurally impossible one -- without that mask 5.48 % of rows per epoch contrast a
+reading of their own audio, and since `_batches` sorts by (T, U) the twins land adjacent and the
+shorter always wins, which is the length detector the (T, U) bucketing exists to rule out. The
+candidate is the `d2_contrast` recipe refit from scratch on anchor + curated, judged by the same
+frozen held set, state-matched probe battery and clause table the D2 arms were judged by, with gate
+v2 (i) floor-only. Chain `S/curate/CuratePairsJob.0Xs8AhGwRn80` -> `S/psi_align_jobs/PsiAlignTrainJob.cRIigmxPtt75`
+-> `.PsiHeldNllJob.Q24MX1AhUGFK`, `.PsiTextProbeJob.UEVRWgPseI16`, `S/gate_table/PsiGateClauseTableJob.5oMRtYKrhE3C`.
 `d2_contrast` is the same recipe on the uncurated round-0 corpus, so its column is what curation is
-worth. Paired on the 1442 utterances every arm scores; the discount reduction is against the
-incumbent, ladder deltas likewise.
+worth. Paired on the 1442 utterances every arm scores.
 
 | frozen held set, pinned ep28 | incumbent `psi_g_tc100` | `d2_contrast` (uncurated) | round-1 `r1` |
 |---|---|---|---|
@@ -805,11 +438,11 @@ incumbent, ladder deltas likewise.
 | ladders nominally / significantly worse | -- | 2 / 0 | 4 / 0 |
 | eligible, point / CI reading of the floor | -- | no / yes | no / yes |
 
-**13. Error anatomy along the collapsing trajectory** (D5(a)-1). The four rates are recomputed from
+**13. Error anatomy along the collapsing trajectory** (D5(a)-1). The four rates recomputed from
 sclite's own counts against the reference length for both dev sets at ep0-ep4 of the 100 h
 seed-replay joint-AR arm, alongside the hypothesis/reference length ratio, the top inserted words and
 the suspect set's share of all insertions. No new decoding: the ten finished `ScliteJob` report dirs
-are pinned by absolute path.
+are pinned by absolute path. `S/scorer_diag/PolicyAnatomyJob.eMeWgTsMWSRM`.
 
 | point | set | WER | %Corr | %Del | %Ins | hyp/ref | n_ins | susp share | top inserted |
 |---|---|---|---|---|---|---|---|---|---|
@@ -825,11 +458,12 @@ are pinned by absolute path.
 | ep4 | dev-other | 51.42 | 88.92 | 1.96 | 40.34 | 1.384 | 20552 | 0.056 | the:1111, and:994, to:595 |
 
 **14. Scorer allegiance grid** (D5(a)-2). CE(units | conditioning text) in nats/unit under each ep-k
-scorer for six texts on one 5000-utterance seed dev subset — gold, theta_0's decodes (`dec0`) and the
-arm's own decodes at ep1-ep4 — so only the scorer and the conditioning text move and the gold column
-is approach 1's `CE_true` column by construction. The policy decodes are merged from both dev sets'
-`search_out`, lowercased and NFKD-folded, three utterances carrying accents that the corpus reader
-cannot decode.
+scorer for six texts on one 5000-utterance seed dev subset -- gold, theta_0's decodes (`dec0`) and the
+arm's own decodes at ep1-ep4 -- so only the scorer and the conditioning text move and the gold column
+is approach 1's `CE_true` column by construction (the same five forward jobs, one instrument, not two
+agreeing). The policy decodes are merged from both dev sets' `search_out`, lowercased and NFKD-folded
+in place (12 fold events over 7 utterances; nothing is dropped).
+`S/scorer_diag/AllegianceGridJob.kR0YA9kfUd4s`.
 
 | scorer | dec0 | gold | dec1 | dec2 | dec3 | dec4 | self_pref | follow |
 |---|---|---|---|---|---|---|---|---|
@@ -844,9 +478,11 @@ CE(own decodes | ep0). Floors on this stream: unit marginal 6.0072, uniform ln 5
 
 **15. Ranking-vs-oracle with the policy pinned** (D5(a)-3). The reward-rank probe re-run five times
 with theta_0 as the sampling policy in every cell and only the scorer swapped to the ep-k extraction,
-so all five cells re-rank the same rollouts and eta is attributable to the scorer alone; the ep0 cell
-is the finished `theta0_avunits_p10` job, asserted by job id as a free wiring anchor. Shared across
-all five at T=0.7: mean WER 0.1076, oracle 0.0316, greedy 0.0525.
+so all five cells re-rank the same rollouts (byte-identical 6400-row census) and eta is attributable
+to the scorer alone; the ep0 cell is the finished `theta0_avunits_p10` job, asserted by job id as a
+free wiring anchor. eta is the ratio of across-group means, not a mean of per-group ratios. Shared
+across all five at T=0.7: mean WER 0.1076, oracle 0.0316, greedy 0.0525. Dumps
+`F/ReturnnForwardJobV2.p9y6xUfCZ4sW`, `.4nTgyBPY2SlM`, `.dEOPiBW4ADQM`, `.aoynOYDHBqLs`, `.9px8IEReJyUG`.
 
 | scorer | recon @0.7 | std_wg @0.7 | spearman @0.7 | sel_wer @0.7 | eta @0.3 | eta @0.5 | eta @0.7 | eta @1.0 |
 |---|---|---|---|---|---|---|---|---|
@@ -857,13 +493,13 @@ all five at T=0.7: mean WER 0.1076, oracle 0.0316, greedy 0.0525.
 | ep4 | -5.9863 | 0.02593 | 0.1203 | 0.1288 | -0.2374 | -0.2877 | **-0.2792** | 0.2837 |
 
 **16. The fork point for the three update-rule arms, label-free** (D4'/D5(b) step 1). The standing
-selection rule (dev reward = recon + 1.0 * lm_prior from the arm's own `learning_rates`) is combined
+selection rule (dev reward = recon + 1.0 * lm_prior from the arm's own `learning_rates`) combined
 with a health screen computed on the arm's own dev hypotheses and nothing else: words per utterance,
 and the ABSOLUTE count of the minimal-state class {and, but, i}, each required to sit within a
-pre-registered 10 % of the window minimum over the four sub-epochs that existed at fork time. The
-two dev sets are pooled (5567 utterances, fixed across sub-epochs, so words/utt is the speaking-rate
-screen up to the constant total duration); no WER enters the job, and the fork epoch is a config
-constant the job asserts against.
+pre-registered 10 % of the window minimum over the four sub-epochs that existed at fork time. The two
+dev sets are pooled (5567 utterances, fixed across sub-epochs); no WER enters the job, and the fork
+epoch is a config constant the job asserts against. `S/fork_screen/ForkPointScreenJob.avOkAB1TUN3d`;
+fork parent `T/ReturnnTrainingJob.vhyvv2waeU16`, sub-ep 2 = `output/models/epoch.002.pt`.
 
 | ep | dev reward | words/utt | d_len | and | but | i | min-state | d_cls | screen | dev WER (confirm) |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -874,18 +510,18 @@ constant the job asserts against.
 
 **17. The joint-psi control arm on the best bed** (D5(b)-b). One knob off the fork checkpoint:
 `train_psi=True`, so psi's per-frame NLL on all G sampled texts joins the shared optimizer at ce
-scale 1.0 with no in-loop contrastive term, and everything else is the parent's (shaped lam_lm 1.0
+scale 1.0 with no in-loop contrastive term, everything else the parent's (shaped lam_lm 1.0
 units-normed, T=0.7, `partition_epoch` 10, `keep_epochs` all). The learning rate continues the
-parent's cosine rather than restarting it — `epoch_offset` evaluates the parent's curve at
-epoch + 2 with the parent's 10-epoch span, reproducing its ep3-8 values exactly — and the arm runs
-6 sub-epochs, then stops regardless of trajectory. Forensics are instrumented during the run, one
-row per sub-epoch plus the fork as ep0: CE_true, the length-matched derangement contrast and the
-unit-marginal floor on a frozen 1500-pair gold dev set, then the same job with the conditioning text
-replaced by that sub-epoch's own decode of the same frames. The joint backward does not fit at the
-parent's batching, so this arm runs `batch_size` 1e6 / `accum_grad_multiple_step` 2 against the
-parent's 2e6 / 1: the 2e6-frame effective batch and the updates per sub-epoch are preserved and
-`max_seqs`, `group_size`, `max_seq_length`, schedule and `partition_epoch` are untouched, but the
-per-update gradient is the mean of two half-batches rather than one full batch.
+parent's cosine rather than restarting it (`epoch_offset` evaluates the parent's curve at epoch + 2
+with the parent's 10-epoch span, reproducing its ep3-8 values exactly) and the arm runs 6 sub-epochs,
+then stops regardless of trajectory. Forensics are instrumented during the run, one row per
+sub-epoch plus the fork as ep0. The joint backward does not fit at the parent's batching, so this arm
+runs `batch_size` 1e6 / `accum_grad_multiple_step` 2 against the parent's 2e6 / 1: the 2e6-frame
+effective batch and the updates per sub-epoch are preserved and `max_seqs`, `group_size`,
+`max_seq_length`, schedule and `partition_epoch` are untouched, but the per-update gradient is the
+mean of two half-batches rather than one full batch. Arm `T/ReturnnTrainingJob.jQmmGy2yGtGR`
+(first launch `.eYhb6alu9OIQ` OOMed, superseded); WERs `ScliteJob.{onJeeX0UOiRy,RYa3OTRBO2Uf}` /
+`.{1qm9kIUcj2y6,49zgvrMKwznh}`.
 
 | sub-ep | arm | dev-clean / dev-other | insertions dc / do | substitutions dc / do |
 |---|---|---|---|---|
@@ -895,25 +531,31 @@ per-update gradient is the mean of two half-batches rather than one full batch.
 | 2 | frozen control (parent sub-ep 4) | 6.89 / 11.31 | — | — |
 
 The frozen arm's insertions over its whole post-peak stretch are 1182-1415 dc / 1592-1794 do
-(`SAE_0d.md` c13), which is the band both joint rows are read against.
+(`SAE_0d.md` c13), which is the band both joint rows are read against. Sub-ep 3 completed at
+**41.8 / 50.9** (`ScliteJob.yVyM2WLvkXxG` / `.4mnMvy9mUVI7`, epoch 3 via
+`ExtractAvSubmodelJob.a1d9LlyUDSED`), with dev-other insertions 21,406; the psi forensics give
+gold-pair ce_loo 2.6343 / 2.7928 / 2.9771 at sub-eps 1/2/3 (`PsiHeldNllJob.LTg9xnjtl8Zs` /
+`.SFOP6DaI3Zpv` / `.vJnzFU0eRSyl`) against own-decode ce_loo 2.6270 / 2.4726 / 2.2994
+(`.8DHdEHY7HZ2b` / `.2WmXVQYlCjnF` / `.uEc3jigALnmE`) -- the scorer's fit to gold degrades while its
+fit to its own output improves, monotonically, over the three sub-epochs.
 
 **18. Refresh round 1 on the best bed** (D4', steps 2-3). The rollout source is the fork policy
-itself at the loop's own operating point (T=0.7, G=12) over all of tc100, and it is ranked by this
-bed's own psi rather than by a token-LM AR, which does not exist here — the scorer swap is the only
-way `recon` in the dump means what it means everywhere else in this log. The suspect set is
-re-derived on this bed instead of carried over: excess mass of the fork policy's own dev decodes
-against the same LM corpus at D0's pre-registered `min_excess` 0.002, so whether the minimal-state
-class {and, but, i} falls out of a label-free derivation is a reported check rather than the target.
-That class stays a MONITOR and never enters the curation views, because it was found by counting
-insertions against references. Steps 4-5 are wired and inert behind an unset `CURATION_VIEWS`: the
-views follow this bed's own admissibility table, not the G-track's. The incumbent half of the gate
-battery (held-NLL and the state-matched probes on the frozen 1500-pair gold seed-dev set that D5(b)
-also reads, plus the online/offline parity check on the dump's own psi column) runs ahead of it.
-
-The label-free derivation returns an EMPTY set here (largest excess "and" 0.00135 against the
-pre-registered 0.002; 0.001 admits that word alone, 0.005 none), so the table below is the incumbent
-battery's instead: the round-0 gold psi on this bed, 1443 of 1500 frozen gold seed-dev pairs, ce_loo
-2.7560 on the untouched text against a unit marginal of 6.0332, held ce_loo 2.7614.
+itself at the loop's own operating point (T=0.7, G=12) over all of tc100
+(`F/ReturnnForwardJobV2.QbIYruVEI0fF`), ranked by this bed's own psi rather than by a token-LM AR,
+which does not exist here. The suspect set is re-derived on this bed instead of carried over
+(`S/scorer_diag/SuspectVocabJob.UG1VLQjflE7G`): excess mass of the fork policy's own dev decodes
+against the same LM corpus at D0's pre-registered `min_excess` 0.002. The minimal-state class
+{and, but, i} stays a MONITOR (`S/scorer_diag/FillerWatchJob.3x3IRoxcQSha`) and never enters the
+curation views, because it was found by counting insertions against references. The label-free
+derivation returns an EMPTY set here (largest excess "and" 0.00135; 0.001 admits that word alone,
+0.005 none), so the table below is the incumbent battery's instead: the round-0 gold psi
+(`S/psi_align_jobs/PsiAlignTrainJob.IN3zmmGpH4Bv`) on this bed, 1443 of 1500 frozen gold seed-dev
+pairs, ce_loo 2.7560 on the untouched text against a unit marginal of 6.0332, held ce_loo 2.7614.
+The frozen 1500-pair gold seed-dev set is
+`S/psi_forensics/HfSplitTextJob.hITA2tWgTklY` -> `S/scorer_diag/FrozenHeldPairsJob`. Battery
+`S/psi_align_jobs/PsiHeldNllJob.yMQGlcL3OVVj`, `.PsiTextProbeJob.pBrTx11FPZvS`,
+`.PsiAlignRerankJob.pJONTykQhQaS`, `.PsiScorerParityJob.gRkOlabxfLVY`; selector admissibility
+`S/scorer_diag/RolloutMechanismJob.UJ0DfPXTH8Cq`.
 
 | edit at k=1, delta ce_loo (>0 = the scorer charges) | minimal-state word | frequency-matched LM word | discount (LM - minimal-state), 95% CI |
 |---|---|---|---|
@@ -925,15 +567,16 @@ battery's instead: the round-0 gold psi on this bed, 1443 of 1500 frozen gold se
 | suspect-state alignment mass (gate v2 iii) | 2.6838 % of 497 767 frames | -- | -- |
 
 **19. Round 1 refits on the whole pool, selection removed** (D4', steps 4-5). No admissible curation
-view exists on this bed (approach 18, c30), so the planner amended round 1 to refit on the anchor plus
-EVERY greedy decode instead of a selected subset: 2 849 gold seed pairs repeated 11x beside 28 539
-one-per-utterance argmax decodes of the fork policy, 59 878 rows at a 52.3 % anchor share, split by
-utterance so a repeated anchor cannot land on both sides of the internal held-out. The recipe is the
-incumbent gold-psi one with the D2-winner contrastive term on; the greedy rows come from the existing
-dump rather than a second forward job, since its `greedy` kind already is one deterministic argmax
-decode per utterance. Batching is widened 8x (`max_batch` 32 -> 256, cells 3e6 -> 24e6) after
-measuring the DP to be launch-bound rather than FLOP-bound, which is a SECOND difference from the
-loop's frozen scorer and is recorded as a confound, not absorbed.
+view exists on this bed (approach 18, verdict 30), so the planner amended round 1 to refit on the
+anchor plus EVERY greedy decode instead of a selected subset: 2 849 gold seed pairs repeated 11x
+beside 28 539 one-per-utterance argmax decodes of the fork policy, 59 878 rows at a 52.3 % anchor
+share, split by utterance so a repeated anchor cannot land on both sides of the internal held-out.
+The recipe is the incumbent gold-psi one with the D2-winner contrastive term on; the greedy rows come
+from the existing dump rather than a second forward job. Batching is widened 8x (`max_batch` 32 ->
+256, cells 3e6 -> 24e6) after measuring the DP to be launch-bound rather than FLOP-bound, which is a
+SECOND difference from the loop's frozen scorer and is recorded as a confound, not absorbed. Corpus
+`S/curate/UncuratedPoolJob.1RgS3KEtkdEy`, refit `S/psi_align_jobs/PsiAlignTrainJob.Be8yVs7MaLrS`,
+clause table `S/gate_table/PsiGateClauseTableJob.hRgVjm5bYRKI`, re-rank `.PsiAlignRerankJob.DU9JY7WG9b0y`.
 
 | statistic | set | psi0_gold (ep 9) | round-1 uncurated (ep 30) |
 |---|---|---|---|
@@ -945,21 +588,20 @@ loop's frozen scorer and is recorded as a confound, not absorbed.
 | eta | same | +0.2599 | +0.2663 |
 | internal held NLL/frame at the pin | own corpus, not cross-comparable | -- | 2.8122 |
 
-**20. D6 -- structural insertion repair, three rungs on one corpus.** Insertion is under-priced by the
-topology, not by the vocabulary (c27, and c28's 7.7 % says corpus repair cannot reach it), so the
-three rungs go at the arcs: (1) OFFLINE PRICE STEERING re-scores the frozen incumbent on the same
-corruption draw the D1 battery uses, sweeping a renormalized bias against the skip arc and a
-minimum-duration charge of `dur_cost` nats per frame a state falls short of `d_min` (silence exempt,
-carried exactly in the DP as a frames-held axis); (2) CORRUPTION-TRAINED ARC PRICES refits with a
-hinge demanding an inserted LM-drawn word cost at least half of what deleting a word costs on the SAME
-row -- scale-free, so no nats constant is chosen, and the deletion side is detached so the term can
-only make insertion dearer; (3) MIN-DURATION TOPOLOGY refits with every content symbol split into
-`d_min` states and the skip arc masked wherever it would cross one, which lives in the model config so
-a checkpoint carries its own topology and every scorer follows it. Rungs 2-3 train on the IDENTICAL
-corpus as approach 19 and are read against it, which keeps the corpus axis and the recipe axis each
-single-variable; rung 3 waits on rung 1's feasibility statistic (the share of pairs with fewer frames
-than `d_min` times their content states), reported there on both the held set and the refit corpus.
-
+**20. D6 -- structural insertion repair, three rungs on one corpus.** Insertion is under-priced by
+the topology, not by the vocabulary (verdicts 27-28), so the three rungs go at the arcs: (1) OFFLINE
+PRICE STEERING re-scores the frozen incumbent on the same corruption draw the D1 battery uses,
+sweeping a renormalized bias against the skip arc and a minimum-duration charge of `dur_cost` nats
+per frame a state falls short of `d_min` (silence exempt, carried exactly in the DP as a frames-held
+axis; `S/psi_align_jobs/PsiPriceSteerJob.4Eqth3bY2Zc2`); (2) CORRUPTION-TRAINED ARC PRICES refits
+with a hinge demanding an inserted LM-drawn word cost at least half of what deleting a word costs on
+the SAME row -- scale-free, deletion side detached so the term can only make insertion dearer
+(`S/psi_align_jobs/PsiAlignTrainJob.zjUitbvGbDg3`); (3) MIN-DURATION TOPOLOGY refits with every
+content symbol split into `d_min` states and the skip arc masked wherever it would cross one, which
+lives in the model config so a checkpoint carries its own topology (`.wlruSpBK1EDP`; the CUDA
+forward-backward twin is `.QhaW4lUpbkl6`, rungs 2+3 combined `.HVjMgYBlJ4tp`). Rungs 2-3 train on
+the IDENTICAL corpus as approach 19 and are read against it; rung 3 waits on rung 1's feasibility
+statistic. Clause table `S/gate_table/PsiGateClauseTableJob.JdrWdaCm7UeG`. Bars in Gates.
 
 | arm (all on the round-1 corpus) | held ce_loo | ins_1 | del_1 | ins/del | mono(ins) | matched ins discount k1 | spearman | eta |
 |---|---|---|---|---|---|---|---|---|
@@ -969,26 +611,30 @@ than `d_min` times their content states), reported there on both the held set an
 | rung 3, min-duration d_min=2 | **2.1620** | **+0.1985** | +0.5759 | 0.345 | **0.853** | +0.0141 | **+0.4357** | +0.3296 |
 | rungs 2+3 combined | 2.1768 | +0.4964 | +0.7106 | 0.699 | 0.785 | +0.3150 | +0.4441 | +0.3392 |
 
-`mono(ins)` is the `filler_ins` ladder's monotone fraction, the clause (iv) statistic (the sub/del band
-runs 0.71-0.80 across these arms); the D6 bars are spearman/eta not below the comparator's, held ce_loo
-within +0.05 of it, ins_1 >= +0.14 growing in k, and mono(ins) out of last place.
+`mono(ins)` is the `filler_ins` ladder's monotone fraction, the clause (iv) statistic (the sub/del
+band runs 0.71-0.80 across these arms). Clause (i)'s picked-WER half, missing from the table above
+and read from the rerank jobs: sel_wer d6_mindur 0.05028 / combined 0.05015 / margin 0.05097 /
+r1_uncurated 0.05219 / psi0_gold 0.05228 -- d_min=2 PASSES that half. Caveat: the min-duration arms
+score 28531 of 28538 groups (7 unscorable under the topology), so their random/oracle baselines
+differ slightly (0.05477/0.04116 vs 0.05613/0.04133) and cross-arm sel_wer is not perfectly paired;
+ordering unaffected.
 
 **21. D6 swap-in -- the min-duration scorer as the live reward, on both beds.** The rung-3 checkpoint
 replaces the incumbent psi in the reward and nothing else moves. (a) BEST BED: the fork policy
 continues from the same sub-epoch 2 state on the parent's own cosine tail for the remaining 8
 sub-epochs, same shaped reward at T=0.7, same 960 h slices, same batching -- so the free frozen
 continuation that already ran those sub-epochs with the incumbent psi is the control at matched
-points. Read as dev WER plus both arms' sclite error decomposition in absolute insertion counts, the
-gate's pre-registered in-loop confirmation being that the control's sub-epoch-3 regression (5.34/9.50
-at the fork to 6.56/11.15 one sub-epoch later, never recovered through sub-epoch 10) shrinks.
-(b) G-TRACK: the topology transfers, checkpoints do not, so the G-track round-1 refresh recipe is
-refit at `min_dur=2` on that bed's own round-1 curated corpus, single-variable against the
-`min_dur=1` refit, and read with the four D6 clauses on G-track instruments. Both arms there gain the
-G3 re-rank and the online/offline parity check the G-track round 1 never carried -- clause (i)'s
-within-group ranking half has no other instrument, so the comparator had to be re-ranked too.
-
-Arm (a), all eight sub-epochs (arm sub-ep k = parent global sub-ep k+2), plain sclite WER, with
-the control read at every matched point and the dev-other insertion counts both arms are separated by:
+points. Read as dev WER plus both arms' sclite error decomposition in absolute insertion counts;
+pre-registered confirmation in Gates. (b) G-TRACK: the topology transfers, checkpoints do not, so the
+G-track round-1 refresh recipe is refit at `min_dur=2` on that bed's own round-1 curated corpus
+(`S/psi_align_jobs/PsiAlignTrainJob.TicugJYx52p2`, best epoch 23), single-variable against the
+`min_dur=1` refit (`.cRIigmxPtt75`), and read with the four D6 clauses on G-track instruments
+(`S/gate_table/PsiGateClauseTableJob.qYRE7JWyUcJQ` vs `r1`, `.H9QbX4VgXAwf` vs `psi_g_tc100`;
+re-rank `.PsiAlignRerankJob.BRfnFlMK1job`, probe `.PsiTextProbeJob.mSJzvpTBW0Y3`). Both arms there
+gain the G3 re-rank and the online/offline parity check the G-track round 1 never carried.
+Arm (a): `T/ReturnnTrainingJob.YUh6Gzvavctf` (last three sub-epochs at half micro-batch,
+`.qQeSijpUKP2k`); control `T/ReturnnTrainingJob.vhyvv2waeU16`; anatomy
+`S/scorer_diag/PolicyAnatomyJob.pxqfrYx23Rth`.
 
 | arm sub-ep | global sub-ep | swap-in dev-clean / dev-other | frozen control at the same point | dev-other insertions, swap-in / control |
 |---|---|---|---|---|
@@ -1002,24 +648,26 @@ the control read at every matched point and the dev-other insertion counts both 
 | 8 | 10 | **4.73 / 9.31** | 6.46 / 11.41 | 933 / 1964 |
 
 **22. D6-PERIODIC -- the min-duration scorer refit at every sub-epoch boundary, best bed.** Approach
-21a's whole gain landed in its first post-swap sub-epoch and the frozen scorer bought nothing after
-it, so this arm re-forks from the same parent sub-epoch-2 checkpoint and repeats one unit at every
-boundary from 3->4 on: decode the tc100 refresh corpus with the round-1 recipe unchanged (gold anchor
-at its 50 % floor plus one greedy decode per utterance, only the decoding checkpoint varying), refit
-`d_min=2` from scratch on the CUDA path, read the four pre-registered clauses against the last
-ACCEPTED scorer on the standing frozen instruments (same corruption draw, same held pair set, same
-fork re-rank dump), and swap on pass or keep on fail. Everything else is 21a point for point -- same
-fork, same cosine tail evaluated at the parent's own epoch index (verified equal to the control's
-logged rates at parent sub-epochs 8 and 10), same shaped reward at T=0.7, same 960 h bed at the
-parent's partition size, and the control's own two batching regimes (2e6 through parent sub-epoch 7,
-then 1e6 with `accum` 2) -- so 21a is the control for free and the scorer's recency is the only
-variable. Two differences it cannot avoid, both forced by one sisyphus job per sub-epoch: the bed
-partition moves into the graph as round-robin shards (the RETURNN epoch counter resets in every leg,
-which would otherwise train all eight on the same tenth of the bed), and Adam restarts at every
-boundary against the control's twice. The acceptance clauses below are the arm AS FIRST RUN; the
-verdicts are recorded here because the user removed the acceptance step from every gold-seeded
-periodic arm on 2026-08-18 and its jobs were deleted, so this table is the only surviving record of
-what it decided.
+21a's whole gain landed in its first post-swap sub-epoch, so this arm re-forks from the same parent
+sub-epoch-2 checkpoint and repeats one unit at every boundary from 3->4 on: decode the tc100 refresh
+corpus with the round-1 recipe unchanged (gold anchor at its 50 % floor plus one greedy decode per
+utterance, only the decoding checkpoint varying), refit `d_min=2` from scratch on the CUDA path, read
+the four pre-registered clauses against the last ACCEPTED scorer on the standing frozen instruments,
+and swap on pass or keep on fail. Everything else is 21a point for point -- same fork, same cosine
+tail at the parent's own epoch index, same shaped reward at T=0.7, same 960 h bed at the parent's
+partition size, and the control's own two batching regimes (2e6 through parent sub-epoch 7, then 1e6
+with `accum` 2) -- so 21a is the control for free and the scorer's recency is the only variable. Two
+differences it cannot avoid, both forced by one sisyphus job per sub-epoch: the bed partition moves
+into the graph as round-robin shards, and Adam restarts at every boundary against the control's twice.
+Legs `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`,
+`.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s`; per-boundary refits
+`S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`,
+`.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf`.
+
+The acceptance clauses below are the arm AS FIRST RUN; the verdicts are recorded here because the
+user removed the acceptance step on 2026-08-18 and those jobs were deleted, so this table is the only
+surviving record of what it decided (planner-verified against the pre-deletion artifacts, clause for
+clause).
 
 | leg / boundary | dev-clean / dev-other | (i) rank quality | (ii) held likelihood | (iii) insertion price | (iv) corruption ladders | verdict |
 |---|---|---|---|---|---|---|
@@ -1032,26 +680,24 @@ what it decided.
 Because every verdict was KEEP, all five legs ran the SAME round-1 scorer as the one-shot swap arm
 did, which makes each leg a PAIRED replicate of that arm at its own global sub-epoch -- and the
 paired difference, not the spread across legs, is the run-to-run measure: the legs are successive
-segments of one trajectory on a decaying schedule, so 4.64-5.37 and 8.68-10.81 across them is mostly
-trajectory shape (the one-shot arm's own dev-other walks 8.64, 8.98, 9.03, 9.51, 9.12 over the same
-positions and BOTH arms bump at global sub-epoch 6). Matched-point absolute differences against it:
-dev-clean 0.29 / 0.03 / 0.32 / 0.36 / 0.19 and dev-other 0.24 / 0.30 / 0.32 / 1.30 / 0.11, i.e. a
-maximum of 0.36 / 1.30 and a median of 0.29 / 0.30 over five paired points. A single matched-point
-claim on this bed has to clear the maximum; a consistent-sign difference over four or more matched
-points reads against the median.
+segments of one trajectory on a decaying schedule (leg k trains from leg k-1's checkpoint), so the
+across-leg range conflates schedule evolution with noise. Matched-point absolute differences against
+the one-shot arm: dev-clean 0.29 / 0.03 / 0.32 / 0.36 / 0.19 and dev-other 0.24 / 0.30 / 0.32 / 1.30
+/ 0.11, i.e. a maximum of 0.36 / 1.30 and a median of 0.29 / 0.30 over five paired points. A single
+matched-point claim on this bed has to clear the maximum; a consistent-sign difference over four or
+more matched points reads against the median.
 
-The user then removed the scorer-statistic gate and relaunched. The completed ungated prefix is:
-
-The two primary 10 h-init anchors are separated from the trajectory. “Best” selects the checkpoint
-with lowest dev-other WER and reports its paired dev-clean value:
+The user then removed the scorer-statistic gate and relaunched. The two primary 10 h-init anchors are
+separated from the trajectory; "best" selects the checkpoint with lowest dev-other WER and reports
+its paired dev-clean value:
 
 | 10 h-init anchor | dev-clean / dev-other | operating point |
 |---|---|---|
 | AV SFT, no loop: adapted-donor theta_0' | 11.43 / 15.54 | 10 h AV SFT, epoch 50 |
 | best previous frozen-scorer loop | **4.68 / 8.64** | D6 one-shot d_min=2 scorer swap, scorer then frozen, global sub-epoch 3 |
 
-The older incumbent-scorer loop's 5.34 / 9.50 fork is retained as a secondary historical anchor,
-but it is not the best previous frozen-loop result.
+The older incumbent-scorer loop's 5.34 / 9.50 fork is retained as a secondary historical anchor, but
+it is not the best previous frozen-loop result.
 
 | ungated leg / global sub-ep | fresh periodic dev-clean / dev-other | one-shot frozen scorer | frozen control | dev-other S / D / I, fresh |
 |---|---|---|---|---|
@@ -1061,17 +707,18 @@ but it is not the best previous frozen-loop result.
 | 4 / 6 | 6.05 / 10.56 | 5.01 / 9.51 | 6.54 / 11.16 | 3553 / 476 / 1350 |
 | 5 / 7 | 7.42 / 12.68 | 4.70 / 9.12 | 6.69 / 11.03 | 3597 / 376 / 2489 |
 
-These are a prefix, not an endpoint: leg 6 is submitted but pending for maintenance and legs 7-8
-do not yet exist. `S / D / I` are sclite substitution, deletion and insertion counts on dev-other;
-the late WER loss is almost entirely insertion growth, not a drift in substitutions.
+These are a prefix, not an endpoint: leg 6 was submitted but pending for maintenance and legs 7-8 did
+not exist at the last read. `S / D / I` are sclite substitution, deletion and insertion counts on
+dev-other; the late WER loss is almost entirely insertion growth, not a drift in substitutions.
 
 **23. HOM-0a -- how much of the pseudo-label corpus a homophone substitution could reach.** The
 D6-PERIODIC/GAN+HOM arm resamples homophone spellings in the init's SFT targets, so the admission
-read asks whether enough corpus mass sits in a homophone class to be worth funding, against a
-pre-registered floor of 5 % of tokens. A class is one distinct FULL pronunciation set over the
-39-ARPAbet lexicon, members must reach 1e-5 of LM tokens (8,033 occurrences) and two characters, and
-the in-class draw is uniform; the read is label-free, on the §1d student's own word decode with the
-lexicon as allowed prior knowledge.
+read asks whether enough corpus mass sits in a homophone class to be worth funding, against the
+pre-registered 5 % floor. A class is one distinct FULL pronunciation set over the 39-ARPAbet lexicon,
+members must reach 1e-5 of LM tokens (8,033 occurrences) and two characters, and the in-class draw is
+uniform; the read is label-free, on the §1d student's own word decode with the lexicon as allowed
+prior knowledge. `S/homophone/HomophoneClassStatsJob.our76yheSD0c` (`classes.json` carries every class
+with per-member LM and corpus counts); augmented corpus `S/homophone/HomophoneAugmentJob.k2OwZiTcKpEG`.
 
 | quantity | value |
 |---|---|
@@ -1083,22 +730,29 @@ lexicon as allowed prior knowledge.
 | share a uniform draw actually rewrites | 4.02 % |
 | top 8 classes' share of all rewrites | 60.5 % |
 
-**24. D6-PERIODIC-WARM -- the same per-boundary refit, CONTINUED from the previous round's scorer.**
-Approach 22's seven refits each discarded the previous scorer and re-fit from the random
-initialization at a fixed seed, so the only thing carrying across a boundary was the corpus; this arm
-changes that one argument and nothing else -- same fork, same cosine offsets, same shard rule
-(it calls approach 22's own `train_bed`, so leg k trains on the identical utterances), same refresh
-corpus, pool recipe, reward, batching regimes and four-clause gate against the last accepted scorer.
-Leg 1 precedes the first warm start and is therefore approach 22's own finished leg, shared by hash
-rather than recomputed, so the arms are identical through parent sub-epoch 3 and the changed argument
-first lands in the boundary producing leg 2's scorer. Relaunched 2026-08-18 with no acceptance step,
-as the sibling was; the one verdict the gated run produced before that is banked here because its job
-was deleted with the rest -- the warm-started round-2 candidate was REJECTED under the binding
-confidence-interval reading, failing the corruption ladder (worse on filler substitution and on
-language-model substitution) while passing the insertion price it was the sibling's habitual failure,
-so a continuation of the incumbent did NOT find the clause table easier as registered.
+From the ratified class list: corpus-zero members carrying dominant LM mass (by, sea, right, side,
+air, fair, they're) total ~0.5-0.6 % of corpus tokens, so the repair channel is real and small;
+`they're` = 0 is a decoder commitment, not an alphabet artifact. `in`/`inn` alone carries 19 % of
+rewrites.
 
-The ungated relaunch has completed the same five-leg prefix as approach 22:
+**24. D6-PERIODIC-WARM -- the same per-boundary refit, CONTINUED from the previous round's scorer.**
+Approach 22's refits each discarded the previous scorer and re-fit from the random initialization at a
+fixed seed; this arm changes that one argument and nothing else -- same fork, same cosine offsets,
+same shard rule (it calls approach 22's own `train_bed`, so leg k trains on the identical utterances),
+same refresh corpus, pool recipe, reward, batching regimes and four-clause gate. Leg 1 precedes the
+first warm start and is therefore approach 22's own finished leg, shared by hash, so the arms are
+identical through parent sub-epoch 3. Relaunched 2026-08-18 with no acceptance step, as the sibling
+was. The one verdict the gated run produced is banked here because its job was deleted: the
+warm-started round-2 candidate was REJECTED under the binding confidence-interval reading -- (i) pass,
+(ii) pass, (iii) point fail / CI PASS, (iv) point fail / CI FAIL -- failing the corruption ladder
+(worse on filler substitution and on LM substitution) while passing the insertion price that was the
+sibling's habitual failure, so a continuation of the incumbent did NOT find the clause table easier as
+registered (`S/refresh_gate/PsiRefreshAcceptJob.uXG53BObiW55`, read off disk before deletion). Legs `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`,
+`.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT`; warm-started refits
+`S/psi_align_jobs/PsiAlignTrainJob.2TDm8VwIZzjv`, `.frtMcQ6wvR4s`, `.ENcr81sGwHfp`, `.3tMeo1Meuceg`,
+`.ZeEsJq6JOdNx`, `.34mTYfJioAsm`, `.3JLOhu5PSKwj`. Warm-start mechanics were verified to load the
+state dict before the [UNK] unigram pin, with inventory and six topology keys asserted against the
+checkpoint (warm held NLL 1.1869 vs cold 2.2609 after one epoch, source best 1.4341).
 
 | leg | fresh periodic dev-clean / dev-other | warm periodic dev-clean / dev-other | dev-other S / D / I, warm |
 |---|---|---|---|
@@ -1109,28 +763,29 @@ The ungated relaunch has completed the same five-leg prefix as approach 22:
 | 5 | 7.42 / 12.68 | 12.18 / 19.33 | 3685 / 441 / 5874 |
 
 Warm inheritance is inside the fresh arm's range through leg 3, then separates in the harmful
-direction; the leg-5 gap is +4.76 / +6.65 WER and is an insertion explosion. Leg 6 is submitted but
+direction; the leg-5 gap is +4.76 / +6.65 WER and is an insertion explosion. Leg 6 was submitted but
 pending for maintenance, so this is not the final registered read.
 
 **25. HOM-0b and HOM-0c -- whether the reward can act on a spelling, and whether sampling already
 varies one.** 0b takes the label-free arm's own round-1 samples at T=0.7, substitutes ONE in-class
 spelling per variant leaving the rest of the text untouched, and re-scores both reward terms under
 that arm's round-1 refit and the same language model the loop's prior reads, at the arm's own weight
-(lam_lm 1.0) and the arm's own per-unit-frame normalization -- so the pre-registered bar, median
-|delta lm_prior| against median |delta recon|, is a direct comparison; the swaps split into the
-repair direction (a spelling the refit corpus never contained) and the diversity direction (both
-attested), and the sign of delta recon is read against the change in spelling length. The prior
-column is anchored rather than trusted: the dump carries the prior the loop itself banked for every
-base text, rows whose text does not re-tokenize to the length the loop scored are dropped first, and
-the recomputed column has to reproduce the banked one or the job fails. 0c counts how often the
-init's sampled groups already hold two spellings of one class, and runs on the label-free init's
-full-bed G=12 dump at the same temperature rather than the arm's round-1 dump, which samples one
-candidate per utterance and therefore cannot express within-group coverage at all. Measured:
-0b on 8,000 utterances (25,541 of 28,539 sampled texts round-trip through the tokenizer exactly,
-89.5 %) giving 23,085 swaps with 5,162 dropped by a 4-per-text cap, the prior column reproducing the
-dump's own to a median 0.0053 nats/token against a 0.05 bar; 0c on all 28,539 groups of 12, of which
-26,584 are homophone-bearing, 6,228 = 23.43 % already hold two spellings of one class, and 217 =
-0.82 % ever contain a spelling absent from the scorer's own training corpus.
+(lam_lm 1.0) and per-unit-frame normalization -- so the pre-registered bar is a direct comparison; the
+swaps split into the repair direction (a spelling the refit corpus never contained) and the diversity
+direction (both attested), and the sign of delta recon is read against the change in spelling length.
+The prior column is anchored rather than trusted: rows whose text does not re-tokenize to the length
+the loop scored are dropped first, and the recomputed column has to reproduce the banked one or the
+job fails. 0c counts how often the init's sampled groups already hold two spellings of one class, on
+the label-free init's full-bed G=12 dump at the same temperature (the round-1 dump has
+DUMP_GROUP_SIZE=1 and cannot express within-group coverage at all -- an artifact substitution ratified
+as a frame repair). Measured: 0b on 8,000 utterances (25,541 of 28,539 sampled texts round-trip
+through the tokenizer exactly, 89.5 %) giving 23,085 swaps with 5,162 dropped by a 4-per-text cap, the
+prior column reproducing the dump's own to a median 0.0053 nats/token against a 0.05 bar; 0c on all
+28,539 groups of 12, of which 26,584 are homophone-bearing, 6,228 = 23.43 % already hold two spellings
+of one class, and 217 = 0.82 % ever contain a spelling absent from the scorer's own training corpus.
+`S/homophone_probe/HomophoneSwapScoreJob.gN7mZ0EcPhsS`, read
+`S/homophone_probe/HomophoneSensitivityJob.xB5RvcgLVgtD`, coverage
+`S/homophone_probe/HomophoneCoverageJob.F76iJ8j0AQi1` on `F/ReturnnForwardJobV2.lQMOR5n2ntcS`.
 
 | medians over 23,085 single-word swaps, per unit frame at lam_lm 1.0 | abs delta lm_prior | abs delta recon | ratio |
 |---|---|---|---|
@@ -1138,36 +793,38 @@ dump's own to a median 0.0053 nats/token against a 0.05 bar; 0c on all 28,539 gr
 | diversity (both spellings attested in the refit corpus) | 0.0134 | 0.0105 | **1.27** |
 | repair (into a spelling the refit corpus never contained) | 0.0159 | 0.0194 | **0.82** |
 
-**26. D6-PERIODIC/GAN -- the same per-boundary refit on the label-free init** (logged after the fact;
-launched 2026-08-17). Approach 22's refresh unit with theta_0^G in place of the gold-seeded fork, on
-the same 960 h bed, same shard rule, same shaped reward at T=0.7, same `d_min=2` topology -- with the
-two parts that read gold text dropped rather than ported, so the pool is an anchor-free greedy decode
-and the refit's own model goes straight to the next leg with no acceptance gate at all. Leg k sits at
-the schedule position the two held frozen-scorer arms occupied at their sub-epoch k, so those arms and
-the frozen-repaired-scorer control are read at matched points; the no-loop init theta_0^G is
-13.89 / 18.34 and is the level every G-track loop arm has so far failed to clear.
+Diversity n=22,584, repair n=501. The SIGNED medians are negative for both terms in both directions:
+even `lm_prior` penalizes repair swaps on median. HOM-0b is reference-BLIND by construction (its
+verdict compares absolute movement), which is what approach 28 joins back.
 
-The two primary GAN-init anchors are:
+**26. D6-PERIODIC/GAN -- the same per-boundary refit on the label-free init** (launched 2026-08-17).
+Approach 22's refresh unit with theta_0^G in place of the gold-seeded fork, on the same 960 h bed,
+same shard rule, same shaped reward at T=0.7, same `d_min=2` topology -- with the two parts that read
+gold text dropped rather than ported, so the pool is an anchor-free greedy decode and the refit's own
+model goes straight to the next leg with no acceptance gate at all. Leg k sits at the schedule
+position the two held frozen-scorer arms occupied at their sub-epoch k. Legs
+`T/ReturnnTrainingJob.kr1foUV6lecx`, `.AuzMGgyskdJT`, `.KD73Hc4eGDfW`, `.E6s3lUUaodzw`, `.J9m38fxEwXl4`,
+`.AS1g33qDo28i`, `.QTQuYQnppmSs`, `.cR8Q29Pmfuhy`; refits `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`,
+`.7jHYVGToyWPR`, `.M2Z0M9UpKW98`, `.rdkbJsLOLEJW`, `.YPyCrmgjglsj`, `.jMaYmBUAffMb`, `.NM6sQa0D9uQM`,
+`.wPujQSh4PLSd`; init `T/ReturnnTrainingJob.2fb02hGUdHNj`.
 
 | GAN-init anchor | dev-clean / dev-other | operating point |
 |---|---|---|
 | AV SFT, no loop: theta_0^G | 13.89 / 18.34 | pseudo-label AV SFT, epoch 10 |
 | best previous frozen-scorer loop (reference, not schedule-only control) | **12.68 / 17.57** | shaped arm, repaired d2_contrast scorer frozen, sub-epoch 2 |
 
-The frozen contaminated-scorer arm is shown below as a diagnostic control, but it is not the best
-previous frozen-loop result. The best frozen row is also not a single-variable control for periodic:
-both start from theta_0^G and match the 960 h bed, shaped reward, T=0.7 and nominal cosine position,
-but the frozen row uses one d_min=1 d2_contrast scorer trained under the D2 recipe and one continuous
-multi-sub-epoch training job. Periodic fits d_min=2 from scratch on each policy's anchor-free greedy
-pool and runs one training job per leg, restarting Adam. Isolating scorer schedule requires the
-periodic graph with its own round-1 d_min=2 scorer held fixed across otherwise identical legs; that
-arm does not exist.
-
-The d_min=1 setting was historical, not a winning hyperparameter. D2 was committed on 2026-08-07
-to change only the contrastive objective relative to psi_g_tc100, and its PsiAlignTrainJob call had
-no `min_dur` argument because that interface did not yet exist. D6 added the minimum-duration
-topology on 2026-08-11 in response to the later insertion-price diagnosis. D3 then froze the already
-finished D2 winner, inheriting d_min=1; it never compared d_min=1 against d_min=2.
+The frozen contaminated-scorer arm below is a diagnostic control, not the best previous frozen-loop
+result, and the best frozen row is NOT a single-variable control for periodic: both start from
+theta_0^G and match bed, reward, T and nominal cosine position, but the frozen row uses one d_min=1
+d2_contrast scorer under the D2 recipe in one continuous multi-sub-epoch training job, while periodic
+fits d_min=2 from scratch on each policy's anchor-free greedy pool and runs one training job per leg,
+restarting Adam. Isolating scorer schedule requires the periodic graph with its own round-1 d_min=2
+scorer held fixed across otherwise identical legs; that arm does not exist. The d_min=1 setting was
+historical, not a winning hyperparameter: D2 landed 2026-08-07 with topology intentionally identical
+to psi_g_tc100 and `PsiAlignTrainJob` had no `min_dur` interface then; D6 added the minimum-duration
+topology 2026-08-11; D3 froze the already-finished D2 winner and inherited d_min=1. It never compared
+d_min=1 against d_min=2, so topology is a standing confound in every frozen-versus-periodic contrast,
+beside corpus and Adam continuity.
 
 | dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 | sub-ep 5 | sub-ep 6 |
 |---|---|---|---|---|---|---|
@@ -1176,11 +833,10 @@ finished D2 winner, inheriting d_min=1; it never compared d_min=1 against d_min=
 | refit at every boundary (this arm) | 14.45 / 19.69 | 12.85 / 17.89 | 13.20 / 18.20 | 17.76 / 23.17 | 17.92 / 23.27 | 18.38 / 24.01 |
 
 Only sub-epoch 2 improves the no-loop init's 18.34 dev-other, by 0.45; the later loss is mainly
-substitutions (4,110 at sub-epoch 2 to 7,331 at sub-epoch 6), not insertions. Sub-epoch 7 is submitted
-but pending for maintenance and sub-epoch 8 is dependency-unbuilt.
-
-The GAN+HOM variant changes the policy initialization through homophone-resampled SFT and then runs
-the same loop with its own downstream refits:
+substitutions (4,110 at sub-epoch 2 to 7,331 at sub-epoch 6), not insertions. The GAN+HOM variant
+changes the policy initialization through homophone-resampled SFT and then runs the same loop with
+its own downstream refits (legs `T/ReturnnTrainingJob.JocWKAmYroFJ`, `.dp0XmU5Mm9V5`, `.tpby6E3kTeSE`,
+`.JBaqJExxDKGz`):
 
 | dev-clean / dev-other, plain WER as scored | init | loop leg 1 | loop leg 2 | loop leg 3 |
 |---|---|---|---|---|
@@ -1189,50 +845,60 @@ the same loop with its own downstream refits:
 | class-internal substitutions, GAN+HOM dev-other | 1827 | 130 | 110 | 105 |
 
 The hom arm loses at legs 1-2 but catches the plain trajectory at leg 3, while removing nearly all
-augmentation-specific class-internal substitutions in its first leg. Its leg 4 was submitted but
-pending for maintenance when this was written; later legs did not yet exist. The PLAIN arm's own
-eight-leg trajectory has since completed and is in approach 36's table -- legs 4-8 are far worse
-than legs 2-3, so the three legs above are its best three and not a representative sample.
+augmentation-specific class-internal substitutions in its first leg. The PLAIN arm's own eight-leg
+trajectory is in approach 36 -- legs 4-8 are far worse than legs 2-3, so the three legs above are its
+best three and not a representative sample. HOM leg 1 also carries a different psi_checkpoint
+(`ACP3LqKDUSQ0` vs `dsMKgPHQApyR`) as well as a different init, since its refit is downstream of its
+own decodes, so the A/B cannot be stated as a single differing input.
 
 **27. theta_0^G_hom -- the homophone arm's policy init** (launched 2026-08-18 on the user's
 greenlight, after HOM-0b admitted the arm). theta_0^G's own builder with the resampled pseudo-label
-corpus as targets and every other argument shared, so the two inits differ in the training text and
-nothing else; 10 epochs, last-epoch pin, no dev-WER selection. The dev recogs it runs are the arm's
-no-loop baseline and the level its eight loop legs will be read against, exactly as theta_0^G's
-13.89 / 18.34 serves approach 26.
+corpus as targets and every other argument shared (config diff moves four lines: three dataset dirs
+plus the model path); 10 epochs, last-epoch pin, no dev-WER selection (learning_rate_control constant,
+`keep_best_n` ranks pseudo-label dev CE, ep10 = num_epochs and is also each arm's best scored epoch).
+`T/ReturnnTrainingJob.EabxlDlT0oji` on `TransformAndMapHuggingFaceDatasetJob.157IDJgBOv9H`; pinned-epoch
+dev-other scores `ScliteJob.4xgsEBkQtPsg` (plain) and `.KKjjg7A3vT52` (hom). A parallel NON-SCLITE
+scorer exists on this arm (`JoinRobustMetricsJob.6il1r3BMTMEj`, normalized WER_clean / WER_cap
+columns) whose numbers must NEVER be quoted -- plain sclite only, standing rule.
 
 | dev-clean / dev-other, plain WER as scored | ep 2 | ep 4 | ep 6 | ep 8 | ep 10 (pinned) |
 |---|---|---|---|---|---|
 | theta_0^G (plain corpus) | 175.25 / 180.54 | 28.27 / 33.04 | 14.46 / 19.09 | 13.91 / 18.74 | 13.89 / 18.34 |
 | theta_0^G_hom (resampled corpus) | 226.53 / 217.88 | 20.57 / 24.06 | 17.25 / 22.37 | 16.84 / 21.45 | 16.67 / 21.45 |
 
-The homophone arm's dev-other does not move between ep 8 and ep 10, so the 3.11 gap at the pin is
-carried by the plain arm's own late gain.
+ep2 was scored for both arms (degenerate, above 100 % WER) and is omitted from the curve above. The
+homophone arm's dev-other does not move between ep 8 and ep 10, so the 3.11 gap at the pin is carried
+by the plain arm's own late gain.
 
-Where the extra errors sit, at the pinned epoch on dev-other (the registered class-internal
-substitution read; gold, reported only, selecting nothing): the homophone init makes 1,587 more
-errors NET than the plain one, and 1,534 of that net -- 96.7 % -- are substitutions WITHIN a
-homophone class (of extra SUBSTITUTIONS alone the share is 92.2 %: 130 non-class substitutions were
-also added, offset by 20 fewer deletions and 57 fewer insertions). Class-internal substitutions are
-25.2 % of all its substitutions against 5.2 % of the plain arm's -- and that 5.2 % baseline is 65 %
-one pair, `by -> buy`, 190 of 293. Its top confusions after the shared `with -> of` are `in -> inn`
-(329), `not -> knot` (155), `be -> bee` (155), `by -> buy` (91), `no -> know` (81). Per dev-other
-REFERENCE token the class-internal substitution rate is 3.59 % against the plain arm's 0.58 %; over
-class-bearing reference tokens only, the same counts read 40.96 % against 6.57 %. The like-for-like
-expectation is 4.58 % of reference tokens if the SFT reproduced the uniform draw in full, so the
-realized 3.59 % is 78 % of it -- the policy under-reproduces the draw by about a fifth. The
-damage also SPREADS: it lands in 82 distinct classes against the plain init's 33. Neither
-figure is an artifact of the arm's 292-word filtered class list -- recounted against the full
-pronunciation lexicon's 52,969 in-class words the same two decodes read 12.87 % and 31.38 %
-of substitutions.
+Where the extra errors sit, at the pinned epoch on dev-other (registered class-internal substitution
+read; gold, reported only, selecting nothing; independently recomputed from both arms' `sclite.pra`):
+the homophone init makes 1,587 more errors NET than the plain one, and 1,534 of that net -- 96.7 % --
+are substitutions WITHIN a homophone class (of extra SUBSTITUTIONS alone the share is 92.2 %: 130
+non-class substitutions were also added, offset by 20 fewer deletions and 57 fewer insertions).
+Class-internal substitutions are 25.2 % of all its substitutions against 5.2 % of the plain arm's --
+and that 5.2 % baseline is 65 % one pair, `by -> buy`, 190 of 293. Its top confusions after the shared
+`with -> of` are `in -> inn` (329), `not -> knot` (155), `be -> bee` (155), `by -> buy` (91),
+`no -> know` (81). Per dev-other REFERENCE token the class-internal substitution rate is 3.59 %
+against the plain arm's 0.58 %; over class-bearing reference tokens only (4,461), the same counts read
+40.96 % against 6.57 %. The like-for-like expectation is 4.58 % of reference tokens (2,331
+substitutions) if the SFT reproduced the uniform draw in full, so the realized 3.59 % is 78 % of it --
+the policy under-reproduces the draw by about a fifth. The damage also SPREADS: 82 distinct classes
+against the plain init's 33. Not an artifact of the arm's 292-word filtered class list -- recounted
+against the full pronunciation lexicon's 52,969 in-class words the same two decodes read 12.87 % and
+31.38 % of substitutions. Outside the classes the two inits are within noise: +53 errors, paired
+bootstrap CI [-70, +173], against a total-error CI of [+1,438, +1,735].
 
-**28. Which SPELLING the reward points at** (`HomophoneDirectionJob.Uo4UAJp5Ue42`, on HOM-0b's own
-23,085 swaps and the round-1 dump's reference rows). HOM-0b's bar compares the two terms' absolute
-movement, so it cannot separate a term that swings toward the right spelling from one that swings
-toward the wrong one; the reference text sits unused in the same dump the swaps were built from.
-This joins it back and reports, per direction, the share of swaps each term PREFERS. Position-aligned
-(reference word aligned to the swapped position) is the primary read; bag-of-words is reported
-beside it and agrees. Gold read: reports only, selects nothing.
+**28. Which SPELLING the reward points at** (`S/homophone_probe/HomophoneDirectionJob.Uo4UAJp5Ue42`,
+on HOM-0b's own 23,085 swaps and the round-1 dump's reference rows; the round-1
+artifacts both HOM reads run on are dump `F/ReturnnForwardJobV2.66pIzBzffnK2`, refit corpus
+`S/curate/GreedyPoolJob.Yv6qBpz0UC0U`, scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`).
+HOM-0b's bar compares the two
+terms' absolute movement, so it cannot separate a term that swings toward the right spelling from one
+that swings toward the wrong one; the reference text sits unused in the same dump the swaps were built
+from. This joins it back and reports, per direction, the share of swaps each term PREFERS.
+Position-aligned is the primary read; bag-of-words is reported beside it and agrees (n=1550, lm_prior
+0.895, recon 0.182, composed 0.532). Gold read: reports only, selects nothing. Measured on the PLAIN
+arm's round-1 dump, i.e. on a policy without the augmentation.
 
 | share of swaps the term prefers | n | reconstruction | language-model prior | composed, lam_lm 1.0 |
 |---|---|---|---|---|
@@ -1244,62 +910,56 @@ toward-reference swaps (67.6 %) and reads 0.446, while the remaining 460 read 0.
 `air`/`ere`/`heir` 1.000, `side`/`sighed` 0.949, `knew`/`new` 0.884, `sea`/`see` 0.800,
 `right`/`write` 0.726, `their`/`there`/`they're` 0.588, `war`/`wore` 0.333 (n=15). Splitting by
 whether the reference spelling is one the scorer's refit corpus holds does NOT explain it: only 24
-toward-reference swaps are the repair direction at all, and the attested-spelling subset still
-reads 0.534. Measured on the PLAIN arm's round-1 dump, i.e. on a policy without the augmentation.
+toward-reference swaps are the repair direction at all, and the attested-spelling subset still reads
+0.534. WEIGHTING DEFECT, quantified against the artifact: this measurement's per-class share vector
+overlaps the PLAIN arm's dev-other class-internal profile at total variation 0.880 and the HOM arm's
+at 0.197 -- near-orthogonal to the distribution it was being used to predict; 78.8 % of the hom arm's
+damage sits outside the eight classes the job reports and 31.1 % in classes with ZERO toward-reference
+swaps here. The AWAY cell (n=19,328) covers 99.7 % of the hom damage mass and sign-reversed reads
+composed 0.900, so the plain dump BRACKETS the hom arm's per-swap edge between about 0.51 and 0.90 --
+uninformative for the funding question, which is why approach 29 was run on the arm's own dump.
 
-**29. The same two reads on the arm's OWN dump and OWN scorer** (`HomophoneDirectionJob.deNc7xXnCfSu`
-and `HomophoneScorerDeltaJob.JKbbRWimojlI`, on theta_0^G_hom's round-1 dump). Approach 28 is
-weighted by theta_0^G's error profile, which overlaps this arm's damage barely; here the swaps come
-from the policy whose errors the loop must actually repair, and the scorer is this arm's own round-1
-refit -- the reward leg 1 is graded by. The second job holds the dump and the swaps fixed and moves
-ONLY the scorer, so the refit's effect is separable from the policy's.
+**29. The same two reads on the arm's OWN dump and OWN scorer**
+(`S/homophone_probe/HomophoneDirectionJob.deNc7xXnCfSu` and `.HomophoneScorerDeltaJob.JKbbRWimojlI`,
+on theta_0^G_hom's round-1 dump; refit `S/psi_align_jobs/PsiAlignTrainJob.ACP3LqKDUSQ0`, swaps under
+own/plain scorer `S/homophone_probe/HomophoneSwapScoreJob.IG6wFl5QWnld` / `.iRCxGqNRxQha`). Here the
+swaps come from the policy whose errors the loop must actually repair, and the scorer is this arm's own
+round-1 refit; the second job holds dump and swaps fixed and moves ONLY the scorer.
 
 | share of swaps the term prefers, position-aligned | n | reconstruction | language-model prior | composed |
 |---|---|---|---|---|
 | TOWARD the reference spelling | 8806 | 0.357 | 0.970 | 0.825 |
 | AWAY from the reference spelling | 10959 | 0.559 | 0.030 | 0.140 |
 
-Coverage is now the damage distribution: `in`/`inn` n=1755 (composed 0.833), `their`/`there`/`they're`
-819 (0.896), `knot`/`not` 807 (0.927), `buy`/`by`/`bye` 700 (0.661), `be`/`bee` 632 (0.728),
-`know`/`no` 517 (0.660), `wood`/`would` 368 (0.948), `too`/`two` 273 (0.905) -- every class above
-chance, against approach 28's 1,421 toward-swaps of which 961 were one class.
-
-Read beside the audio-free null, as the standing principle requires: the language-model prior ALONE
-reads 0.9701 on the same swaps, so the composed 0.8255 means adding the audio-grounded term COSTS
-14.5 points of reference accuracy. Homophone class members are acoustically identical by
-construction, so this is expected rather than a defect -- there is no audio evidence to use -- but
-the headline is the prior's number, not the scorer's, and is not quotable without it.
-
-The scorer contrast, same swaps, scorer the only thing that moves: the reconstruction term's
+Coverage is now the damage distribution: `in`/`inn` n=1755 (composed 0.833),
+`their`/`there`/`they're` 819 (0.896), `knot`/`not` 807 (0.927), `buy`/`by`/`bye` 700 (0.661),
+`be`/`bee` 632 (0.728), `know`/`no` 517 (0.660), `wood`/`would` 368 (0.948), `too`/`two` 273 (0.905)
+-- every class above chance. Read beside the audio-free null, as the standing principle requires: the
+language-model prior ALONE reads 0.9701 on the same swaps, so the composed 0.8255 means adding the
+audio-grounded term COSTS 14.5 points of reference accuracy; homophone class members are acoustically
+identical by construction, so this is expected rather than a defect, but the headline is the prior's
+number and is not quotable without it. The scorer contrast, same swaps: the reconstruction term's
 toward-reference rate is 0.357 under this arm's own refit against 0.684 under the plain arm's
-(-0.327); at the OPERATING POINT, i.e. under the composed reward the loop actually applies, the same
-swaps read 0.825 against 0.895, so entrenchment costs -0.069 in the deployed reward. Paired per swap
-2547 both / 598 own only / 3480 plain only; of 121 classes 77 move down, 18 up, 26 tie, median
-per-class delta -0.172.
-
-Length-matched, because these repairs are predominantly SHORTENING and a refit that merely priced
-character length upward would reproduce the signature with no spelling-specific learning: the
+(-0.327); at the OPERATING POINT (composed reward) the same swaps read 0.825 against 0.895, so
+entrenchment costs -0.069 in the deployed reward. Paired per swap 2547 both / 598 own only / 3480 plain
+only; of 121 classes 77 move down, 18 up, 26 tie, median per-class delta -0.172. Length-matched, the
 entrenchment survives at EQUAL character count, -0.284 on n=1889 (own 0.469 against plain 0.752),
-beside -0.388 shortening and -0.137 lengthening. So it is not a length price. The sharper reading is
-that the plain scorer holds real spelling discrimination at equal length (0.752) and the arm's own
-refit collapses it to near chance (0.469).
+beside -0.388 shortening and -0.137 lengthening, so it is not a length price: the plain scorer holds
+real spelling discrimination at equal length (0.752) and the arm's own refit collapses it to near
+chance (0.469). Operating point, named rather than assumed: T=0.7 sampled rollouts over
+train-clean-100, whereas the damage profile it is weighted against is a greedy dev-other decode -- not
+the same population. The refit saw every base text in its own training corpus (a bias running against
+the reference). The dump's own reward columns were written under psi_g_tc100 while every swap number
+here is under the named refit. The corpus-zero repair direction is unmeasured at 11 of 8806 swaps.
 
-Operating point of the measurement, named rather than assumed: T=0.7 sampled rollouts over
-train-clean-100, whereas the damage profile it is weighted against is a greedy dev-other decode --
-the two are not the same population. The refit saw every base text in its own training corpus (a
-bias that runs against the reference, so it cannot inflate the headline). The dump's own reward
-columns were written under psi_g_tc100 while every swap number here is under the named refit. The
-corpus-zero repair direction is unmeasured at 11 of 8806 swaps and nothing here speaks to it.
-
-**30. D7.0a raw donor-support census** (`D7RawDonorCensusJob.zsnx1p9nLyV3`). This is the
-standalone, label-free feasibility read authorized before D7-v2: it enumerates every directed edge
-from each of the immutable 1,500 external source utterances to the disjoint 4,067-utterance dev
-complement, and separately every directed edge within the intended 28,539-utterance scorer corpus.
-An edge requires a different utterance from the same speaker and inclusive raw-unit duration match
-`20 * abs(L_d - L_s) <= max(L_s, 1)`, where `L_s` and `L_d` are the 50 Hz unit-array lengths before
-deduplication. “Same chapter” means equality of the middle LibriSpeech utterance-ID field; the other
-stratum is “different chapter”. No tokenization, dynamic-programming feasibility, duplicate
-filtering, nuisance ranking, capacity, assignment, scorer, reference text, WER, or training enters.
+**30. D7.0a raw donor-support census** (`S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3`). The
+standalone, label-free feasibility read authorized before D7-v2: every directed edge from each of the
+immutable 1,500 external source utterances to the disjoint 4,067-utterance dev complement, and
+separately every directed edge within the intended 28,539-utterance scorer corpus. An edge requires a
+different utterance from the same speaker and inclusive raw-unit duration match
+`20 * abs(L_d - L_s) <= max(L_s, 1)` on 50 Hz unit-array lengths before deduplication. "Same chapter"
+is equality of the middle LibriSpeech utterance-ID field. No tokenization, DP feasibility, duplicate
+filtering, nuisance ranking, capacity, assignment, scorer, reference text, WER or training enters.
 
 | population | sources | candidates | raw edges | same / different chapter | sources with >=2 in both | sources with >=8 in both |
 |---|---:|---:|---:|---:|---:|---:|
@@ -1307,95 +967,93 @@ filtering, nuisance ranking, capacity, assignment, scorer, reference text, WER, 
 | intended scorer corpus | 28,539 | 28,539 | 632,913 | 327,169 / 305,744 | 18,843 (66.0 %) | 11,711 (41.0 %) |
 
 On the external graph, 1,331 sources have any donor and 169 are isolated; 2,571 candidates are used
-and 1,496 have zero load. The edgeful bipartite graph has 583 weak components. Complete sorted edge
-tables and per-source degrees, donor loads, component membership, split/speaker/chapter coverage and
-signed/absolute duration shifts are retained in the cited artifact. Their semantic tuple hashes are
-`7855557c...d2f3` externally and `3a6038ab...4376` on the scorer corpus.
+and 1,496 have zero load; the edgeful bipartite graph has 583 weak components. Semantic tuple hashes
+`7855557c...d2f3` externally and `3a6038ab...4376` on the scorer corpus (both independently
+reproduced). A planner-side maximum-matching replay of the immutable external raw edge table gives
+1,267, 1,328 and 1,331 admitted edgeful sources at donor capacities one, two and three; a
+deterministic cap-three raw matching contains 669 same-chapter and 662 different-chapter edges, so
+capacity three is the smallest tested load cap preserving every raw edgeful source.
 
-**31. D7-v2 / D7.0b frozen donor and loss preflight.** The 2026-08-21 amendment is implemented as
-three serial, label-free jobs. The first binds the accepted D7.0a edges, exact pseudo-pairs, raw
-units, BPE/lexicon inventory and round-1 scorer, then applies the registered feasibility, duplicate
-and two-stage ordinal nuisance law. The second solves the common-set training construction (ten
-K=4, 2+2, exact 2-in/2-out Q2 tables) and the external construction (one K=1 cap-three matching,
-fixed chapter balance and split floors). Only after both structural floors pass, the third recreates
-the common epoch-4 training point, freezes MAD temperature and gradient-norm coefficient, reports
-the K1/K4/K8 diagnostics on one common K8-eligible population, and measures one K=4 update. The graph
-contains no D7.1 scorer, policy, reference text or WER consumer.
+**31. D7-v2 / D7.0b frozen donor and loss preflight** (`S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`,
+`S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K`). Three serial, label-free jobs: bind the accepted D7.0a
+edges, exact pseudo-pairs, raw units, BPE/lexicon inventory and round-1 scorer under the registered
+feasibility, duplicate and two-stage ordinal nuisance law; solve the common-set training construction
+(ten K=4, 2+2, exact 2-in/2-out Q2 tables) and the external construction (one K=1 cap-three matching,
+fixed chapter balance and split floors); only after both structural floors pass, recreate the common
+epoch-4 training point, freeze MAD temperature and gradient-norm coefficient, report K1/K4/K8
+diagnostics on one common K8-eligible population and measure one K=4 update. The graph contains no
+D7.1 scorer, policy, reference text or WER consumer. The feature census found 28,538 feasible scorer
+rows, 569,785 hard training edges, 136,966 Q2 edges and 17,748 rows with at least two raw outgoing
+donors in both chapter strata; the zero-gap MILP returned 56 admitted rows from two speakers against
+the registered 6,778-row / 201-speaker floor. An independent iterative necessary-core calculation
+(repeatedly removing every vertex with fewer than two incoming or two outgoing edges in either
+stratum) leaves at most 120 rows from four speakers, so every feasible common 2-in/2-out solution lies
+inside that core and no optimizer can reach the floor. The assignment stopped before external
+matching; the loss preflight never ran.
 
-**32. D7-GAN-SEQDISC full-bed online-negative A/B.** This is the corrected active D7 and shares no
-construction with Approaches 30--31. Ten deterministic theta_0^G argmax-decode shards cover the
-281,241-utterance unlabeled 960 h bed. A D7.0 barrier binds those texts to the frozen enc50 K=500 raw
-50 Hz unit store, reproduces the established ordered seed-42 5% holdout, persists only a
-speaker/duration/role index, and runs the registered one-update finite/resource check on frozen shard
-0. Only after that PASS artifact exists do the matched D7.1 control (`L_NLL + L_U->z`) and candidate
-(`L_NLL + L_U->z + softplus(s_donor-s_own)`) run for one ten-shard corpus pass. Both jobs preserve the
-same initialization, batch order and dropout RNG stream; the candidate's extra forward contributes
-gradient without advancing the next positive batch's RNG. D7.2 and D7.3 are absent from this graph.
+**32. D7-GAN-SEQDISC full-bed online-negative A/B** (`config/sae_3e1_d7_gan_seqdisc.py`). The
+corrected active D7, sharing no construction with approaches 30-31. Ten deterministic theta_0^G
+argmax-decode shards cover the 281,241-utterance unlabeled 960 h bed. A D7.0 barrier binds those
+texts to the frozen enc50 K=500 raw 50 Hz unit store (`S/quantize_states/PackUnitsJob.I0uzRMfUrKWC`),
+reproduces the established ordered seed-42 5 % holdout, persists only a speaker/duration/role index,
+and runs the registered one-update finite/resource check on frozen shard 0
+(`S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu`, `.D7OnlinePreflightJob.ZxfANwBZYpaI`). Only after that
+PASS artifact exists do the matched D7.1 control (`L_NLL + L_U->z`) and candidate
+(`L_NLL + L_U->z + softplus(s_donor-s_own)`) run for one ten-shard corpus pass, preserving the same
+initialization, batch order and dropout RNG stream; the candidate's extra forward contributes gradient
+without advancing the next positive batch's RNG. Deviation disclosed: prior weight is 0 from step 0
+against the refit's 4-epoch prior anneal, entailed by carrying `L_U->z` across a single pass.
 
-Decoder equivalence of the merged shards, 2026-08-21 (verification-round check, label-free): on the
-28,539 train-clean-100 utterances the ten-shard merge shares with the banked greedy decode
-`ReturnnForwardJobV2.66pIzBzffnK2`, the two texts agree on 25,426 utterances exactly (89.09 %) and
-differ by 4,667 word edits against 1,016,991 reference words, i.e. 0.459 %. Of the 3,113 differing
-utterances 67.9 % differ by a single word edit (mean 1.50), and the net length drift is +7 words over
-the whole set. That is the signature of argmax ties resolving differently under a different batching
-of the same model and decoder, not of a different decode: no systematic length or content bias.
+Decoder equivalence of the merged shards (label-free): on the 28,539 tc100 utterances the merge shares
+with the banked greedy decode `F/ReturnnForwardJobV2.66pIzBzffnK2`, the two texts agree on 25,426
+utterances exactly (89.09 %) and differ by 4,667 word edits against 1,016,991 reference words, i.e.
+0.459 %. Of the 3,113 differing utterances 67.9 % differ by a single word edit (mean 1.50) and the net
+length drift is +7 words -- the signature of argmax ties resolving differently under a different
+batching, not of a different decode.
 
-D7.0's registered parity clause cannot pass on this backend, 2026-08-21. The preflight asserts that
-two deepcopies of one model, given the same restored RNG state and the same batch at
-``online_weight=0``, produce byte-equal loss AND byte-equal gradients
-(``torch.equal(g_control, g_parity)``). On its first ever run it raised "D7 control parity failed
-when L_online=0". Reproduced read-only on one GH200 through the job's own code path
-(`scripts/d7_parity_diag.py`, `log/d7_parity_diag.1446568.out`, shard 0's first batch, 256 rows):
+D7.0's registered parity clause cannot pass on this backend (reproduced read-only on one GH200 through
+the job's own code path, `scripts/d7_parity_diag.py`, `log/d7_parity_diag.1446568.out`, shard 0's
+first batch, 256 rows):
 
 | comparison | loss | max abs gradient delta | gradients equal |
 |---|---|---:|---|
 | the two deepcopies, i.e. what the clause asserts | 9.983121871948242 both, EQUAL | 2.623e-06 | no |
 | the SAME model object, run twice -- the control | identical again | 5.484e-06 | no |
 
-The same-object repeat is decisive: rerunning one model on one batch perturbs its gradients MORE
-than the two copies differ from each other, so the difference is the backend's own run-to-run noise
-(``deterministic_algorithms`` False, ``fast_bw`` True, atomics in the FastBaumWelch backward), not a
-state difference between the arms and not an effect of the resume-RNG or counter commit. Exact
-gradient equality is therefore unreachable here and the barrier can never emit its PASS artifact as
-written, while loss equality holds exactly. This is the configuration-exact versus bit-exact
-distinction already pinned for D8, firing inside D7's own barrier. The clause is pre-registered, so
-its form is the planner's to rule on and no repair has been made; the implementer's proposal is to
-keep exact equality on the loss and make the gradient arm self-calibrating -- measure the run-to-run
-floor in the same job and require the control-versus-parity delta not to exceed it -- which needs no
-constant and still fails loudly on a real state difference. First live exercise of the registered
-infeasible-donor counter in the same run: 0 infeasible of 256 donor pairs, cases 209
+The same-object repeat is decisive: rerunning one model on one batch perturbs its gradients MORE than
+the two copies differ from each other, so the difference is the backend's own run-to-run noise
+(`deterministic_algorithms` False, `fast_bw` True, atomics in the FastBaumWelch backward), not a state
+difference between the arms. Loss equality holds exactly. The amended self-calibrating clause (Gates)
+then PASSED on its own artifact: losses exactly equal at 9.983121871948242, F 7.391e-06, cross
+4.053e-06, candidate gradient delta 0.02046 confirming candidate-only gradient flow. First live
+exercise of the registered infeasible-donor counter: 0 infeasible of 256 donor pairs, 209
 ordinary_window / 47 nearest_fallback.
 
-
-**D7.1 completed 2026-08-21 23:05, both arms, one ten-shard corpus pass each.** The pass is a single
-14-minute job per arm, not a multi-resubmit run: 2,361 batches over 10 round-robin shards at ~70 s
-per shard, peak resident set 4.89 / 4.85 GiB. Both arms report the identical bed -- 281,241 rows,
-267,179 train and 14,062 held before filtering, then the SAME four own-infeasible train anchors
-dropped by name (`3488-85273-0024`, `3889-130125-0028`, `4492-8904-0032`, `8424-284526-0028`),
-267,175 trained and 14,062 held. Shard row and frame counts agree arm to arm at every one of the ten
-shards, and the internal-held donor draw is identical (case counts 11,855 ordinary_window / 2,153
-nearest_fallback / 54 singleton, 14 infeasible donor pairs, 9,825 unique donors), so the two arms
-differ only in the loss term.
+D7.1 completed 2026-08-21, both arms, one ten-shard corpus pass each: a single 14-minute job per arm
+(13:59 control / 13:58 candidate), 2,361 batches over 10 round-robin shards at ~70 s per shard, peak
+resident 4.89 / 4.85 GiB. Both arms report the identical bed -- 281,241 rows, 267,179 train and 14,062
+held before filtering, then the SAME four own-infeasible train anchors dropped by name
+(`3488-85273-0024`, `3889-130125-0028`, `4492-8904-0032`, `8424-284526-0028`), 267,175 trained and
+14,062 held, digit-identical to the offline dropcheck and to each other. Shard row and frame counts
+agree arm to arm at every shard and the internal-held donor draw is identical (11,855 ordinary_window
+/ 2,153 nearest_fallback / 54 singleton, 14 infeasible donor pairs, 9,825 unique donors), so the two
+arms differ only in the loss term; an exhaustive recursive diff of the two arms' monitors finds ONE
+non-metric difference, `online_weight` 0.0 vs 1.0.
 
 | arm | objective | internal-held NLL per frame | internal-held mean `L_online` | job |
 |---|---|---:|---:|---|
 | control | `L_NLL + L_U->z` | 2.5259 | 0.010225 | `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU` |
 | candidate | control `+ softplus(s_donor - s_own)` | 2.5319 | 0.007541 | `S/d7_online/D7OnlineTrainJob.WA1bqjXQtzeZ` |
 
-Train-side sampling over the 267,175 anchors, identical in both arms: 266,134 ordinary_window /
-1,041 nearest_fallback, 1 infeasible donor pair, 170,443 unique donors, maximum donor reuse 8,
-own/donor duration ratio mean 1.0144 (min 0.4615, max 3.7246). D7.2 and D7.3 remain absent from this
-graph; the config registers d7_0 and d7_1 only and is now fully finished.
+Train-side sampling over the 267,175 anchors, identical in both arms: 266,134 ordinary_window / 1,041
+nearest_fallback, 1 infeasible donor pair, 170,443 unique donors, maximum donor reuse 8, own/donor
+duration ratio mean 1.0144 (min 0.4615, max 3.7246). The four dropped anchors were all
+ordinary_window donor cases, so the donor law was untouched by the drop.
 
-
-
-**D7.2 COMPLETED 2026-08-22, all four registered clauses** (speech-llm `c40655d`; ten jobs, all
-finished). Clause 2 fails and the other three do not, so the registered gate closes; the numbers are
-below and the reading of clause 3 does not change the outcome.
-
-*Clauses 1 and 2, `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI`.* 14,008 of the 14,062 internal
-held anchors are eligible (the 54 `singleton` anchors have no donor and are excluded identically in
-both arms), in 2,274 speaker clusters, 32 paired draws each.
+D7.2, all four registered clauses (ten jobs, all finished). Clauses 1-2,
+`S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI`: 14,008 of the 14,062 internal held anchors are
+eligible (the 54 `singleton` anchors have no donor and are excluded identically in both arms), in
+2,274 speaker clusters, 32 paired draws each.
 
 | statistic | control | candidate | clause |
 |---|---:|---:|---|
@@ -1406,27 +1064,30 @@ both arms), in 2,274 speaker clusters, 32 paired draws each.
 | share of anchors with a negative difference | — | 99.25 % | -- |
 | internal-held NLL per frame (8,642,253 frames) | 2.525882 | 2.531898 | **2 FAIL** |
 
-The recomputed per-frame NLLs reproduce the values D7.1 banked to 3.62e-9 on both arms (control 2.5258815395 there
-against 2.5258815431 here, candidate 2.5318976985 against 2.5318977021), which is the job's own
-assert that checkpoint and training report describe the same scorer. The ratified donor-diversity
-diagnostic reads: 32 draws land on a median 3.0 distinct donors per anchor (mean 3.42, min 1, max
-12), and 4,022 of the 14,008 anchors -- 28.7 % -- see exactly ONE distinct donor across all 32
-draws. The precision is the speaker-cluster resampling, not the draw count.
+The recomputed per-frame NLLs reproduce the values D7.1 banked to 3.62e-9 on both arms. Ratified
+donor-diversity diagnostic: 32 draws land on a median 3.0 distinct donors per anchor (mean 3.42, min
+1, max 12) and 4,022 of the 14,008 anchors -- 28.7 % -- see exactly ONE distinct donor across all 32
+draws, so the precision comes from the speaker-cluster resampling and not from the draw count. 448 of
+448,256 donor draws are structurally impossible and contribute exactly 0 to both arms by documented
+design.
 
-*Clause 3, the external half.* Both `PsiHeldNllJob`s on the unchanged frozen 1,500-row external
-gold-dev set, 1,493 of 1,500 pairs scored in both arms, 0.47 % impossible under the length-matched
-null in both:
+Clause 3, external half -- both `PsiHeldNllJob`s (text probes `S/psi_align_jobs/PsiTextProbeJob.o6d4bN6EBB2O`, `.C3vgGM2guvS0`) on the unchanged frozen 1,500-row external gold-dev
+set, 1,493 of 1,500 pairs scored in both arms, 0.47 % impossible under the length-matched null in both:
 
 | arm | nll/frame, true | held `ce_loo` | `text_explained_loo` | usage gate | job |
 |---|---:|---:|---:|---:|---|
 | control | 2.4595 | 2.2588 | +3.7744 | +5.0509 | `S/psi_align_jobs/PsiHeldNllJob.6bf5GyPGHuAi` |
 | candidate | 2.4595 | 2.2581 | +3.7751 | +5.3587 | `S/psi_align_jobs/PsiHeldNllJob.QDKOlbGXdEOA` |
 
-*Clause 3, the gate table* (`S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u`, incumbent = the exact
-D7 control, 1,443 utterances scored by both arms, seed 42, 10,000 resamples, `improvement_void`
-empty). Both arms clear the (i) absolute floor against H_uni 6.0332 and pass (ii); the candidate also
-passes the (i) improvement half. The five corruption ladders (clause iv) are unchanged -- every
-paired difference straddles zero. The one clear movement is the wrong way:
+The candidate's usage-gate widening (+0.3078) decomposes to +0.30712 from the length-matched deranged
+NULL against +0.00071 from the true side -- the candidate mostly prices the null worse, not the truth
+better.
+
+Clause 3, gate table (`S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u`, incumbent = the exact D7
+control, 1,443 utterances scored by both arms, seed 42, 10,000 resamples, `improvement_void` empty).
+Both arms clear the (i) absolute floor against H_uni 6.0332 and pass (ii); the candidate also passes
+the (i) improvement half. The five corruption ladders (clause iv) are unchanged -- every paired
+difference straddles zero. The one clear movement is the wrong way:
 
 | matched insertion discount | control | candidate | paired difference | 95 % CI | p |
 |---|---:|---:|---:|---|---:|
@@ -1434,36 +1095,207 @@ paired difference straddles zero. The one clear movement is the wrong way:
 | k=2 | 0.0156 | 0.0238 | +0.0082 | [0.0031, 0.0133] | 0.001 |
 | k=4 | 0.0238 | 0.0443 | +0.0205 | [0.0125, 0.0287] | 0.000 |
 
-The candidate pays MORE for the inserted filler than the control at every k, significantly and with
-CIs excluding zero. The table's own eligibility columns split on the convention the planner pins:
-`elig_pt False` / `elig_CI True` for the candidate (`worse_pt 2`, `worse_CI 0`), and the table
-returns NO WINNER under BOTH readings -- but for two DIFFERENT reasons, and neither is the one the
-finished artifact prints. On the point reading no arm is eligible at all. On the CI reading the
-candidate is the argmax and its k=1 paired CI [0.0039, 0.0106] excludes zero on the WRONG side: a
-significant INCREASE in the discount, not an unproven reduction. `clauses.txt` says "NO WINNER
-(reduction CI includes zero)" in both places because that reason was hard-coded rather than derived
-(`gate_table.py:263` as it stood); the numbers in the same file and in `clauses.json` are correct and
-were verified bit-exactly, only that one printed line is false. Fixed in speech-llm `fc30dc1` so the
-reason is derived and persisted as `no_winner_reason`, but the FINISHED artifact
-`4Z0gb5GgtD2u` still carries the false line and no rerun was spent on a display string. That pin is
-not made here and does not need to be: clause 2 already fails.
+The substitution discount (computed, registered to decide nothing) is also worse for the candidate at
+every k with CIs excluding zero. The table's eligibility columns split on the unpinned convention:
+`elig_pt False` / `elig_CI True` for the candidate (`worse_pt 2`, `worse_CI 0`), and the table returns
+NO WINNER under BOTH readings -- but for two DIFFERENT reasons, neither of which is the one the
+finished artifact prints (see Open findings). Clause 4, scorer parity -- PASS on both arms exactly:
+512 of 512 rollouts round-tripped, `max |online - offline| = 0.000e+00` against a 2e-3 tolerance,
+0.00 % rows floored (`S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6`).
 
-*Clause 4, scorer parity* -- PASS on both arms, exactly: 512 of 512 rollouts round-tripped,
-`max |online - offline| = 0.000e+00` against a 2e-3 tolerance, 0.00 % rows floored
-(`S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6`).
+Label-as-evaluation ranking tables computed by the clause-4 parity vehicles for BOTH D7 fixed finals
+over the fork-epoch dump (28,531 groups, T=0.7; WER never a gate input): candidate
+(`PsiAlignRerankJob.kkEEVosPO80P`) spearman 0.3889, selection WER 5.126 %, eta 0.258; control
+(`.OiRBghBiTriv`) 0.3878, 5.136 %, eta 0.250; shared mean WER 5.477 %, oracle 4.116 %. The two arms
+rank near-identically; the tiny candidate lead has no null spread behind it and selects nothing. This
+bed is the BEST-BED fork policy's tc100 rollouts, not the operative theta_0^G policy, and the tables'
+G3 bar lines are cross-bed diagnostics (gap_true is per-arm units). Policy-leg performance -- the WER
+of a leg trained on the candidate reward -- remains the one genuinely unmeasured quantity.
 
+**33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960** (user-funded
+2026-08-21 on the §3d.A scale read; `config/sae_3e1_d6periodic_gan960_frozen.py`). Approach 26's
+frozen sibling verbatim -- eight segmented policy legs, same round-robin 960 h shard per leg, shaped
+reward, T=0.7, cosine offsets, fresh optimizer state per leg, round 1's completed `d_min=2` scorer
+`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` frozen at EVERY leg -- with exactly one experimental
+change: the policy init is theta_0^G960 (`T/ReturnnTrainingJob.HuSkdbuVRg6d` sub-epoch 10, dev
+13.11/16.82) instead of theta_0^G (`.2fb02hGUdHNj` ep10, dev 13.89/18.34). A fresh scorer refit on
+theta_0^G960's own decodes is deliberately NOT funded: holding the sibling's frozen scorer is what
+keeps this a one-argument init A/B. Verified against the built graph before launch: the frozen scorer
+resolves to `dsMKgPHQApyR` at all eight legs; legs 1/2/8 are `T/ReturnnTrainingJob.ohmLWWmr6Kxe`,
+`.liehXoiGoRI0`, `.V1WEV1giQXZA`; legs 2-8 carry dump/pool/refit `None`; of the 64 unfinished jobs a
+launch would fund there is ZERO psi_align/curate/scorer_diag work. One inherited-bookkeeping conflict
+flagged rather than resolved: `build()` reuses `round1_artifacts()`, so leg 1's record carries
+dump/pool/refit that are the SCORER's provenance from theta_0^G decodes, which in this arm is not its
+own round 1 -- those jobs are finished and fund nothing, but a downstream audit could misread them.
+Legs 1-3 had finished/were running at the last read; no endpoint exists in this log.
 
-**36. D6-PERIODIC/GAN-FROZEN completes: the frozen-scorer control against the periodic arm, all
-eight legs.** The registered schedule-only control (`PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN, user-
-directed 2026-08-20): the D6-PERIODIC/GAN policy graph verbatim from theta_0^G, with round 1's
-scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` frozen at all eight legs, so scorer recency
-is the only experimental difference. Both arms finished 2026-08-22.
+**34. D8.0 feasibility read of the two frozen rollout dumps** (`config/sae_3e1_d8_0.py`,
+`sae/d8_feasibility.py`; speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 `3843918`). The
+CPU-only registered read that can close D8 before any rollout is generated on the 960 h bed. Per group
+it dedups the support on the D8 reader-normalized string, zeroes and counts candidates that are empty
+after the fold, structurally infeasible on their own audio at `d_min=2`, or unencodable, then reports
+distinct support, median ESS across the registered tau grid for the shaped, acoustic-only and LM-only
+scores, the provisional `tau_star` from the `|median ESS - 3|` rule, the within-group weight variance
+token count alone explains at `tau_star`, and the median spearman between shaped weights and each
+single-term weight vector. Rows are whitelisted by `kind`, so reference rows and the gold-derived
+`wer` column are never read; the LM term is converted to per-unit currency
+(`lm_prior * n_tokens / n_units`) against each dump's OWN unit store before any weight. Only the
+theta_0^G artifact binds, on its T=0.7 slice.
 
-The registered reproduction check passes by construction rather than by luck: frozen leg 1 and
-periodic leg 1 resolve to the SAME scoring job (`R/scoring/ScliteJob.LzKRDl102Jaf`), because leg 1 IS
-the banked periodic job `T/ReturnnTrainingJob.kr1foUV6lecx` shared between the arms. Legs 2-8 resolve
-to distinct scoring jobs per arm; every number below was traced to its own job dir rather than read
-off the `output/` path.
+The v1 read returned NO-GO on that slice (`S/d8_feasibility/D8FeasibilityReadJob.iCuYuvkL6bwr`; fork
+`.onK5ekDuoLLA`). The v2 reader added one guard, pre-registered in the job docstring before it ran: a
+member the reader calls structurally infeasible whose STORED `recon` is finite is a contradiction, so
+a nonzero count on the binding slice returns UNRESOLVED, never a no-go -- which is what it returned
+(`.mDQ2LoAzrMTE`, fork `.ulUbBcxIiJtf`; binding slice 5,096 law conflicts of 5,730 scored, distinct 0
+with the exclusion applied and 12 without). Both are kept as the evidence that motivated the ruling.
+
+**v3, the ruled operative-frame read** (clause-(a) ruling; Gates). Exactly one thing changes: the
+structural-infeasibility exclusion is evaluated against `T_i` from
+`S/quantize_states/PackUnitsJob.I0uzRMfUrKWC` with coverage over the slice's ids asserted; the
+per-unit prior currency still divides by the DUMP's own store, the two joins deliberately separate.
+The v2 law-conflict guard retires by construction and its count survives as the reported
+`operative_law_finite_score_exclusions`. Two implementation-over-ruling deviations ratified, both
+conservative: the safety-valve denominator counts ALL excluded scored members, and the coverage assert
+spans all 34,106 dump ids.
+
+| artifact | slice | excluded / scored | distinct (feasible, greedy incl.) | tau* | median ESS at tau* | token R2 | rho(shaped, LM-only) | rho(shaped, acoustic-only) | verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| theta_0^G, 512 utts | T=0.3 | 0 / 3,182 | 6 | 0.05 | 3.685 | 0.4133 | 1.0000 | 0.3000 | reported |
+| theta_0^G, 512 utts | T=0.5 | 0 / 4,693 | 10 | 0.05 | 5.308 | 0.2837 | 0.9833 | 0.2857 | reported |
+| theta_0^G, 512 utts | **T=0.7 (binds)** | **0 / 5,730** | **12 of 13** | 0.05 | 5.433 | 0.1741 | 0.9790 | 0.3132 | **GO** |
+| theta_0^G, 512 utts | T=0.9 | 0 / 6,457 | 13 | 0.05 | 2.392 | 0.0483 | 0.9785 | 0.5497 | reported |
+| theta_0^G, 512 utts | T=1.0 | 0 / 6,604 | 13 | 0.2 | 3.976 | 0.0354 | 0.9785 | 0.6593 | reported |
+| fork epoch, 28,539 utts | T=0.7 | 18 / 101,190 | 3 | 1.0 | 2.976 | 0.3928 | 0.5000 | 1.0000 | reported-only |
+
+Jobs: `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding) and `.W7TWfwoZtkaC`
+(fork epoch). The fork read's numbers are unchanged from v2 to the last digit, because that dump
+already joined the raw 50 Hz store; its 18 exclusions in 101,190 members are the genuine rate the
+ruling prices the 5 % valve against. Independent recompute of the binding slice from the raw dump rows
+and the raw 50 Hz store reproduces it exactly: 512 groups, 5,730 distinct scored classes, ZERO
+empty/unencodable/infeasible members, with-greedy median 12.0 and rollouts-only 12.0. The margin is
+structural: raw-store median 695 frames over the slice against the pooled 169/174 that drove v1's
+88.9 % exclusion, tightest single-utterance margin 65 frames.
+
+**35. D8.1a: the operative-bed candidate generation pass and the frozen weight artifact.** Released by
+the planner 2026-08-22 once the D7.2 verdict existed -- the registered condition was the verdict, not
+a pass. One group-12, T=0.7 sampled dump of theta_0^G over all 281,241 utterances of the 960 h bed, in
+the same ten round-robin shards D7.0 decoded in, `recon` under the pinned weight scorer
+`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` and `lm_prior` under the registered prior; then
+`D8MergeRolloutsJob.gXDwFsfvraDS` (asserts the shards are a partition -- no tag in two shards, union
+exactly 281,241) and `D8WeightJob`. The merged dump is complete: 281,241 utterances, 3,937,374 rows =
+greedy 281,241 + rollouts 3,374,892 + true 281,241, and 281,241 x 12 = 3,374,892 exactly.
+
+Two construction facts, each a place a silent error would have survived. The dump does not call the
+existing `_reward_rank` (that builder attaches its reconstruction target from a whole
+`{seq_tag: units}` pickle, which the 960 h raw 50 Hz stream cannot be), so `forward_step._units_by_tag`
+also accepts the packed store and the dump passes `units_store_path`; the two interfaces were checked
+against each other on the real artifacts BEFORE the config was written -- over the whole 34,106-tag
+shared population the tc100 pickle `MergeUnitsPklJob.ncxcd3vouD5E` and the operative store
+`PackUnitsJob.I0uzRMfUrKWC` return byte-equal unit sequences with zero mismatches (population median
+length 674), an independent re-confirmation of the premise behind D8.0's v3 ruling. And because this
+dump is GENERATED against the operative store, the per-unit currency denominator and the
+structural-feasibility frame are the same object, which `D8WeightJob` asserts rather than assumes.
+`D8WeightJob` imports every statistic from `d8_feasibility` (`build_support` / `slice_statistics` are
+module-level and the D8.0 read job delegates to them unchanged), so "the same statistic as D8.0" is
+the same code; the binding-slice filter is a fail-closed assert on each row's T, the 5 % valve is
+enforced through the shared `valve_verdict` ordering, the ratified dedup-survivor rule (already-
+normalized member, else earliest stored row) is implemented with a score-differing collapse
+diagnostic, and a structurally feasible member with non-finite `recon` is its own loud category
+feeding the valve. Both D8.0 dumps carry ZERO feasible-but-non-finite rows (31,232 and 371,007
+whitelisted rows, all finite), so that guard is pure there.
+
+`S/d8_pool_scores/D8GreedyEquivalenceJob.xR1RduqgjFKe` implements the planner's ruling on the
+registration deviation (Gates): it compares on the D8 reader's own fold, reports coverage in its own
+buckets so zero mismatches cannot be reached on a subset, and reports rather than raises. Its verdict
+is NOT EQUIVALENT (verdict 70). The pre-relaunch pin `XTdRp3OO3LNf` is superseded and never ran.
+Pool scoring under the corrected convention: `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`
+(281,241 of 281,241 members through the text path, 0 dump columns reused, 0 degenerate rows, 249,679
+tags where the dump's regenerated greedy agrees anyway); overlap probe
+`S/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` (verdict 71), token mechanism
+`.D8PoolTokenMechanismJob.rVkoJpPoBGG8` (verdict 72).
+
+RESULT TABLE (one row per read of the frozen weight artifact; `rho_ac` is spearman(shaped,
+acoustic-only) and `rho_lm` spearman(shaped, LM-only), both at `tau_star`).
+
+| convention | job | excluded / scored | median distinct | taus in ESS band | token R2 | tau_star | rho_lm | rho_ac | verdict / arms |
+|---|---|---|---|---|---|---|---|---|---|
+| corrected text path (operative) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.3462 | 0.9835 | GO / candidate_acoustic |
+| legacy mixed (sensitivity only, same job) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.2747 | 0.9835 | GO / candidate_acoustic |
+
+Independent recompute over all 281,241 frozen groups of `supports.jsonl` reproduces every gate
+statistic to the last digit: median distinct 13, median shaped ESS at all five taus (2.982409 and
+5.32854 inside the band, the rest outside), tau_star 0.05 by the nearest-to-target rule, median
+per-group spearman 0.34615384615384615 (shaped-LM) and 0.9835164835164836 (shaped-acoustic), median
+token R-squared 0.06203486419535191 with 278,215 defined groups, live members 3,170,658 = 3,170,676
+scored minus the 18 exclusions (7 `empty_after_fold` + 11 `infeasible`), valve idle at 5.7e-06. The
+spearman convention is per-group rho with average-rank ties aggregated by median.
+
+**37. D8.1b: the candidate-acoustic scorer refit** (`S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`;
+speech-llm `aadf92b`). The D7 exact-control recipe by import, with the one registered change -- each
+anchor visit draws its target from the anchor's frozen `acoustic_only` weight vector at `tau_star`
+0.05 instead of always the greedy 1-best. Batches are the control's own, formed by the control's code
+before any draw. No control trains: the D7.1 exact control (`S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`)
+is reused as the one-hot special case. The job refuses to run unless the weight artifact reads GO,
+funds exactly `candidate_acoustic` and reports no sensitivity flips, plus a source-drift guard after
+graph construction.
+
+| arm | job | wall clock | shards / batches | anchors trained / held | realized greedy-draw fraction | internal-held per-frame NLL |
+|---|---|---|---|---|---|---|
+| D8.1b candidate-acoustic | `D8ScorerRefitJob.2bQzhz6U1yHp` | 13:52 | 10 / 2,361 | 267,175 / 14,062 | 0.25312 | 2.51389 |
+| D7.1 exact control (reused) | `D7OnlineTrainJob.j16rTskXF1QU` | 13:59 | 10 / 2,361 | 267,175 / 14,062 | n/a (always greedy) | 2.52588 |
+
+Draw diagnostics banked in `sampling.json`: 267,175 draws (one per anchor visit, one pass), mean
+11.273 members available, 67,628 greedy draws, 68,164 drawn targets that encode identically to the
+control's, mean state length delta +1.379 against the control, 0 infeasible drawn members, donor cases
+`ordinary_window` 266,134 / `nearest_fallback` 1,041 with 0 infeasible donor pairs. Artifact-reading
+caveat: `sampling.json`'s `target` field says "own greedy pseudo-text, never a draw" and describes the
+INTERNAL-HELD evaluation only, not training -- it is inherited from the D7 schema's held block and
+reads as a contradiction of the arm's purpose; the successor schema names `held_target` explicitly, and
+the finished artifact was not re-hashed for a wording fix.
+
+D8.2 clause 1 (`S/d8_admission/D8AdmissionJob.C2HUHUtUjfhN`), on the 14,062 internal-held anchors over
+2,328 speaker clusters, 10,000 resamples at seed 42; `per_anchor.jsonl` persists the paired deltas and
+cluster ids, and the verifier recomputed mean, `delta_NI`, bound and negative share bit-exactly from it:
+
+| quantity | value |
+|---|---|
+| control pooled per-frame NLL | 2.525882 |
+| candidate pooled per-frame NLL | 2.513888 |
+| paired per-anchor delta, mean | -0.012475 |
+| paired delta, one-sided 95 percent upper bound | -0.011800 |
+| `delta_NI` (control-only, D7.2 convention verbatim) | 0.004826 |
+| clause 1 | PASSES |
+
+D8.2 clauses 2-3 (`S/gate_table/PsiGateClauseTableJob.xFSaHcqvUR2S`), paired on the 1,443 of 1,500
+external rows scored by every arm, seed 42, 10,000 row-bootstrap resamples. Corruption-ladder
+spearman, candidate minus control:
+
+| ladder | candidate level | paired delta | 95 percent CI |
+|---|---|---|---|
+| `filler_sub` | 0.9493 | +0.0027 | [-0.0001, +0.0053] |
+| `lmsub` | 0.9617 | +0.0019 | [-0.0007, +0.0044] |
+| `del` | 0.9520 | -0.0012 | [-0.0046, +0.0021] |
+| `filler_ins` | 0.9769 | -0.0033 | [-0.0064, -0.0003] |
+| `lmins` | 0.9258 | -0.0028 | [-0.0078, +0.0022] |
+
+Matched insertion discount, candidate minus control: k=1 +0.0078 [0.0044, 0.0113] p 0.000; k=2 +0.0060
+[0.0006, 0.0114] p 0.029; k=4 +0.0097 [0.0019, 0.0172] p 0.012. Leave-one-out cross entropy: candidate
+2.2343 against control 2.2588 (reference `PsiHeldNllJob.BhUn7Sa3CW67`). Gate v2 clause row: candidate
+(i)floor PASS, (i)improvement PASS, (ii) PASS, ladders worse on 3 of 5 by point estimate and 1 of 5 by
+CI, ELIGIBLE False under both readings; verdict NO WINNER (no eligible arm) under both.
+
+**36. D6-PERIODIC/GAN-FROZEN completes: the frozen-scorer control against the periodic arm, all eight
+legs.** The registered schedule-only control (user-directed 2026-08-20): the D6-PERIODIC/GAN policy
+graph verbatim from theta_0^G, with round 1's scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`
+frozen at all eight legs, so scorer recency is the only intended experimental difference. Both arms
+finished 2026-08-22. Policy legs `T/ReturnnTrainingJob.kr1foUV6lecx` (reused), `.JVfEDCPIPWkq`,
+`.o2GFVkZZPNRT`, `.fEvotypkqDao`, `.91wIJ5JpsdIW`, `.2p2hpz7nk5vd`, `.ZgRzUxDRhajE`, `.ycoJLypxisD7`.
+The registered reproduction check passes by construction: frozen leg 1 and periodic leg 1 resolve to
+the SAME scoring job (`R/scoring/ScliteJob.LzKRDl102Jaf`), because leg 1 IS the banked periodic job.
+All 32 WER cells were traced to their own `ScliteJob` artifacts (reference word counts constant at
+54,402 / 50,948 across every cell, both arms on the same two reference STM jobs), the frozen arm reads
+`dsMKgPHQApyR` in all eight legs' on-disk configs with no per-leg refit anywhere in its 127-job
+closure, and every cell is plain sclite with no rescoring job in either closure.
 
 | leg | periodic, dev-clean / dev-other | frozen, dev-clean / dev-other | ahead |
 |---|---|---|---|
@@ -1476,289 +1308,26 @@ off the `output/` path.
 | 7 | 18.28 / 23.70 | 17.50 / 22.82 | frozen, 0.78 / 0.88 |
 | 8 | 18.82 / 24.56 | 17.61 / 22.66 | frozen, 1.21 / 1.90 |
 
-Reference levels on the same reading: the no-loop init theta_0^G is 13.89 / 18.34.
+Reference level on the same reading: the no-loop init theta_0^G is 13.89 / 18.34.
 
+**38. D8.4: the paired ranking-quality (eta) read on the operative theta_0^G bed.** Built after the
+user reopened D8. One instrument (`PsiAlignPairedCompareJob`, `archive/SAE_3a_spec_legacy.md`'s,
+reused unchanged except that its per-temperature cell now also carries the shared
+`mean_wer`/`oracle_wer`/`sel_wer` it already computed -- hash-neutral, and it lets the reader restate
+delta eta in its plain-WER form without recomputing the pairing on a second, differently-dropped bed),
+two arms differing in `model_pt` alone, both reranking the SAME frozen rollout dump at the SAME
+temperature; the reader (`D8EtaReadJob`) restates delta eta in its plain-WER form, refuses any bed that
+is not the registered one, and fails closed if the two forms disagree. Step zero answered on the code:
+`PsiScorerParityJob` does NOT discharge D8.4 -- it re-scores ONE arm's own rerank dump against that same
+dump's `recon` column, with no second arm, no selection, no eta and no null. Two beds are instantiated:
+the OPERATIVE theta_0^G dump (`F/ReturnnForwardJobV2.J9yA1eYnxwYA`, 512 utterances, G=12, T=0.7) as the
+primary, and the fork-epoch-2 dump (`.QbIYruVEI0fF`, 28,539 groups) as context only. Each dump joins its
+own unit store, since that is the stream its stored `recon` column is per frame of.
 
-
-**33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
-2026-08-21 on the §3d.A scale read (`SAE_3D_GTRACK.md` approach 5, verdict 11), registered by the
-planner in `PLAN_3E1.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
-eight segmented policy legs, the same round-robin 960 h shard per leg, shaped reward, temperature
-0.7, cosine offsets, fresh optimizer state per leg, and round 1's completed `d_min=2` scorer
-`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` held frozen at EVERY leg -- with exactly one
-experimental change: the policy init is theta_0^G960
-(`T/ReturnnTrainingJob.HuSkdbuVRg6d` sub-epoch 10, dev 13.11/16.82) instead of theta_0^G
-(`.2fb02hGUdHNj` ep10, dev 13.89/18.34). A fresh scorer refit on theta_0^G960's own decodes is
-deliberately NOT funded: holding the sibling's frozen scorer is what keeps this a one-argument init
-A/B readable against it at matched legs.
-
-Verified against the built graph rather than the diff, before any launch: the frozen scorer resolves
-to `dsMKgPHQApyR` at all eight legs; leg 1 is a new job `T/ReturnnTrainingJob.ohmLWWmr6Kxe` against
-the sibling's `.kr1foUV6lecx`; the alias namespace is `..._8se_gan960frozen/rK`, no collision; legs
-2-8 carry dump/pool/refit `None`; and of the 64 unfinished jobs a launch would fund the classes are 8
-ReturnnTrainingJob, 8 ExtractAvSubmodelJob, 17 ReturnnForwardJobV2, 16 SearchWordsDummyTimesToCTMJob
-and 16 ScliteJob, with ZERO psi_align/curate/scorer_diag work -- no refit is funded anywhere. The
-planner's anchor instruction has nothing to bind on this bed: `loop_config` takes only
-`psi_checkpoint` and `av_checkpoint`, so no KL snapshot or reference anchor exists to follow the
-init. One inherited-bookkeeping conflict is flagged to the planner rather than resolved: `build()`
-reuses `round1_artifacts()`, so leg 1's record carries dump/pool/refit that are the SCORER's
-provenance from theta_0^G decodes, which in this arm is not its own round 1. Those jobs are finished
-and fund nothing, but a downstream audit could misread them.
-
-**34. D8.0 feasibility read of the two frozen rollout dumps.** The CPU-only registered read
-(`config/sae_3e1_d8_0.py`, `speech_llm/sae/d8_feasibility.py`) that can close D8 before any rollout
-is generated on the 960 h bed. Per group it dedups the support on the D8 reader-normalized string,
-zeroes and counts candidates that are empty after the fold, structurally infeasible on their own
-audio at `d_min=2`, or unencodable, then reports distinct support, median effective sample size
-across the registered tau grid for the shaped, acoustic-only and LM-only scores, the provisional
-`tau_star` from the `|median ESS - 3|` rule, the within-group weight variance token count alone
-explains at `tau_star`, and the median spearman between shaped weights and each single-term weight
-vector. Rows are whitelisted by `kind`, so the reference rows and the gold-derived `wer` column are
-never read; the LM term is converted to per-unit currency (`lm_prior * n_tokens / n_units`) against
-each dump's OWN unit store before any weight. Only the theta_0^G artifact binds, on its T=0.7 slice.
-
-The v1 read returned NO-GO on that slice. The v2 reader adds one guard, pre-registered in the job
-docstring before it was run: a member the reader calls structurally infeasible whose STORED `recon`
-is finite is a contradiction, because the artifact's own scorer aligned that pair. When that count
-is nonzero on the binding slice the verdict is UNRESOLVED, never a no-go. Every slice also reports
-`distinct_support_scorer_free`, which applies only dedup and the empty-after-fold drop.
-
-| artifact | units store, median length | slice | law conflicts | distinct: exclusion / scorer-free | tau* | verdict | job |
-|---|---|---|---:|---|---:|---|---|
-| theta_0^G, 512 utts | `MergeUnitsPklJob.hJmZtbPDa2hd`, 169 | T=0.3 | 2,872/3,182 | 0 / 6 | 1.0 | reported | `S/d8_feasibility/D8FeasibilityReadJob.mDQ2LoAzrMTE` |
-| theta_0^G, 512 utts | same | T=0.5 | 4,199/4,693 | 0 / 10 | 0.05 | reported | same |
-| theta_0^G, 512 utts | same | **T=0.7 (binds)** | 5,096/5,730 | **0 / 12** | 0.05 | **UNRESOLVED** | same |
-| theta_0^G, 512 utts | same | T=0.9 | 5,211/6,457 | 1 / 13 | 1.0 | reported | same |
-| theta_0^G, 512 utts | same | T=1.0 | 4,228/6,604 | 4 / 13 | 0.5 | reported | same |
-| fork epoch, 28,539 utts | `MergeUnitsPklJob.ncxcd3vouD5E`, 674 | T=0.7 | 18/101,190 | 3 / 3 | 1.0 | reported-only | `S/d8_feasibility/D8FeasibilityReadJob.ulUbBcxIiJtf` |
-
-The superseded v1 reads are kept as the evidence that motivated the guard:
-`D8FeasibilityReadJob.iCuYuvkL6bwr` (theta_0^G, verdict NO-GO) and `.onK5ekDuoLLA` (fork epoch).
-
-**v3, the ruled operative-frame read** (clause-(a) ruling, `PLAN_3E1.md` D8 Status 2026-08-22).
-Exactly one thing changes: the structural-infeasibility exclusion is evaluated against `T_i` from
-the frozen raw 50 Hz store `S/quantize_states/PackUnitsJob.I0uzRMfUrKWC` -- the frame every
-D8.1a/D8.1b training aligns to -- instead of each dump's own joined store, with coverage over the
-slice's ids asserted rather than assumed. The per-unit prior currency still divides by the DUMP's
-own store, because that is the stream its stored `recon` is per frame of; the two joins are
-deliberately separate. The v2 law-conflict guard retires by construction and its count survives as
-the reported `operative_law_finite_score_exclusions`. A 5 % safety valve on the binding slice's
-exclusion rate returns UNRESOLVED instead of feeding clause (a).
-
-| artifact | slice | excluded / scored | distinct (feasible, greedy incl.) | tau* | median ESS at tau* | token R2 | rho(shaped, LM-only) | rho(shaped, acoustic-only) | verdict |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| theta_0^G, 512 utts | T=0.3 | 0 / 3,182 | 6 | 0.05 | 3.685 | 0.4133 | 1.0000 | 0.3000 | reported |
-| theta_0^G, 512 utts | T=0.5 | 0 / 4,693 | 10 | 0.05 | 5.308 | 0.2837 | 0.9833 | 0.2857 | reported |
-| theta_0^G, 512 utts | **T=0.7 (binds)** | **0 / 5,730** | **12 of 13** | 0.05 | 5.433 | 0.1741 | 0.9790 | 0.3132 | **GO** |
-| theta_0^G, 512 utts | T=0.9 | 0 / 6,457 | 13 | 0.05 | 2.392 | 0.0483 | 0.9785 | 0.5497 | reported |
-| theta_0^G, 512 utts | T=1.0 | 0 / 6,604 | 13 | 0.2 | 3.976 | 0.0354 | 0.9785 | 0.6593 | reported |
-| fork epoch, 28,539 utts | T=0.7 | 18 / 101,190 | 3 | 1.0 | 2.976 | 0.3928 | 0.5000 | 1.0000 | reported-only |
-
-Jobs: `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding) and
-`.W7TWfwoZtkaC` (fork epoch). The fork read's numbers are unchanged from v2 to the last digit,
-because that dump already joined the raw 50 Hz store; its 18 exclusions are the genuine rate the
-ruling prices the safety valve against.
-
-**35. D8.1a: the operative-bed candidate generation pass and the frozen weight artifact.** Released
-by the planner 2026-08-22 once the D7.2 verdict existed -- the registered condition was the verdict,
-not a pass. One group-12, T=0.7 sampled dump of theta_0^G over all 281,241 utterances of the 960 h
-bed, in the same ten round-robin shards D7.0 decoded in, `recon` under the pinned weight scorer
-`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` and `lm_prior` under the registered prior; then
-`D8MergeRolloutsJob` and `D8WeightJob`. Nothing from D8.1b or D8.3 is in this graph.
-
-Two construction facts worth stating because both are places a silent error would have survived.
-First, the dump does not call the existing `_reward_rank`: that builder attaches its reconstruction
-target from a whole `{seq_tag: units}` pickle, which the 960 h raw 50 Hz stream cannot be, so
-`forward_step._units_by_tag` now also accepts the packed store and the dump passes
-`units_store_path`. The two interfaces were checked against each other on the real artifacts BEFORE
-the config was written: over 2,000 shared tags the tc100 pickle `MergeUnitsPklJob.ncxcd3vouD5E` and
-the operative store `PackUnitsJob.I0uzRMfUrKWC` return byte-equal unit sequences with an identical
-median length of 671 and zero mismatches, which is also an independent re-confirmation of the premise
-behind D8.0's v3 operative-frame ruling. Second, the frame separation D8.0 needed does not exist
-here: because this dump is GENERATED against the operative store, the per-unit currency denominator
-and the structural-feasibility frame are the same object, and `D8WeightJob` asserts every scored tag
-is present in that one store rather than assuming it. The per-token-to-per-unit conversion still
-applies and is explicit (`recon + lam_lm * lm_prior * n_tokens / n_units`).
-
-`D8WeightJob` imports every statistic from `d8_feasibility` rather than reimplementing it, so "the
-same statistic as D8.0" is the same code; it re-applies the three no-go clauses verbatim, fixes
-`tau_star` by the registered rule, evaluates the pre-registered arm-selection rule, and freezes the
-per-utterance supports and weight vectors to `supports.jsonl` so both D8.1b arms provably read one
-weight artifact. `D8MergeRolloutsJob` asserts the shards are a partition -- no tag in two shards and
-the union exactly 281,241 -- so a lost shard cannot arrive as a smaller but well-formed corpus.
-
-**A second launch defect, caught at 49 % and fixed before it cost the read** (`b68dd1a`). The ten
-shards were running ~4.5 s/step and projecting 11.2-12.0 h against the hard 11.5 h wall: on a
-recent-step-rate projection two shards finished SHORT (-16 and -31 min) and four more sat inside
-twenty minutes of the wall. A `ReturnnForwardJobV2` that hits the wall dies with no output and no
-resume, the merge asserts the full 281,241-utterance partition, so any lost shard blocks the whole
-D8.1a read -- and a resubmission at the same size fails identically. `settings.py`'s
-`check_engine_limits` clamps every job in this setup to 11.5 h, so raising the time was never
-available, and re-sharding would have deviated from the registered ten-shard pass.
-
-The root cause was a constant that did not trace. `DUMP_MAX_SEQS` was 4, which is `_reward_rank`'s
-function DEFAULT -- the value its 128-utterance probes take. No corpus dump has ever used it: the
-reference full-corpus dump (`config_sae_3e1_d4p_v1`, 28,539 utterances at the same group 12, T=0.7,
-`dump_reward_parts=True`) uses 8. Headroom was checked before changing anything -- the shards were
-using 8.9 GB of a 96 GB GH200, so `max_seqs` was the binding constraint and not memory. Batching
-moves the wall clock and no number, the same property the reference rerank builder documents for its
-own batching arguments, so this changes what the dump costs and nothing it computes.
-
-At 8 the ten shards project 6.5-7.0 h, i.e. ~4.7 h of margin on every shard instead of two certain
-failures. The ten in-flight shards were cancelled deliberately, matched on their old hashes so
-nothing else was touched, and the ten new hashes relaunched; `D8WeightJob.1G2lPRnRmPks`,
-`D8MergeRolloutsJob.gXDwFsfvraDS` and `D8GreedyEquivalenceJob.xR1RduqgjFKe` moved with them --
-every hash below the dump, since the merge feeds both readers. The pre-relaunch equivalence pin
-`XTdRp3OO3LNf` is superseded and never ran.
-
-**The relaunch's margin is measured, not projected (2026-08-22).** A first read of the new shards
-at 4 % looked like a compounding slowdown -- each chunk ~7 % slower than the last, which would have
-eaten the margin. It is an artifact of the `laplace:.1000` sequence ordering: on the first launch's
-full curve the cost per completion-percent oscillates between ~140 s and ~590 s with a period of
-~7.4 % of the corpus, so the instantaneous full-run projection swings between 3.9 h and 16.4 h while
-the run-average is flat. Any window shorter than one period measures position in the saw-tooth
-rather than the run, so the 4 % read was the rising limb of the first tooth.
-
-The sound comparison is between the two launches at MATCHED completion, since they decode the same
-data in the same order. The new run reaches every checkpoint in 0.62 of the old run's time, and the
-ratio is stable -- 0.667 / 0.629 / 0.622 / 0.620 at 1 / 2 / 3 / 4 %. The five first-launch shards
-that reached ~50 % project to full runs of 11.08, 11.19, 11.28, 11.60 and 11.88 h. Stated
-precisely (the first wording of this line overstated its own table, corrected 2026-08-22): two of
-the five project PAST the 11.5 h clamp outright and the other three land 0.2-0.4 h under it, i.e.
-inside the projection's own swing. That still makes the cancellation necessary rather than
-cautious, because the merge asserts the full ten-shard partition -- two lost shards block the
-read, and the three marginal ones carry no usable margin. At 0.62 those become 6.9-7.4 h, i.e. ~4.1-4.6 h of margin,
-and the ten live shards' own estimates (7.2-7.7 h) agree. No action needed; the dump is left to run.
-
-One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
-40 s with "no key under prefix 'av.'". `av_checkpoint_prefix="av."` was copied from the d4p fork
-dump, whose policy is a combined outer-loop state dict; theta_0^G is a STANDALONE AV checkpoint whose
-keys start at `encoder.`. The D6-periodic arms are the reference and are explicit about it --
-`policy_prefix` is `None` for theta_0^G at leg 1 and only becomes `"av."` from leg 2. Dropping the
-argument moved the ten dump hashes, so the crashed dirs are orphans at the old hashes and nothing
-needed clearing.
-
-
-**The five pre-run weight-job fixes (2026-08-22).** Four of the five had one root cause: the weight
-job re-implemented D8.0's support construction instead of calling it. `_support` and `_slice` are now
-module-level `build_support` / `slice_statistics` in `d8_feasibility`; the D8.0 read job delegates to
-them unchanged and `D8WeightJob` calls the same functions, so "the same statistic as D8.0" is the
-same code rather than a second implementation that happens to agree. D8.0's 47 mechanics checks pass
-before and after the extraction, which is the regression guard.
-
-| fix | what was wrong | what it is now |
-|---|---|---|
-| (i) binding slice | the filter read `row["temperature"]`; the dump writes `T`, so it was dead code enforcing nothing | a fail-closed assert: an off-slice rollout row raises. Greedy rows carry `T=null` and belong to every slice of their utterance |
-| (ii) safety valve | the 5 % valve was a report field | enforced: over the valve returns UNRESOLVED and clause (a) never speaks. The order lives in `decide()`, testable without a dump, a store or a GPU |
-| (iii) `tau_star` | undefined-ESS fallback `or 0.0` let an undefined tau score \|0-3\|=3 and win a tie | `math.inf` via the shared code, matching D8.0 |
-| (iv) dedup survivor | silent first-seen file order; a greedy row folding into a rollout text was dropped with its recon | the ratified rule (already-normalized member, else earliest stored row), the score-differing collapse diagnostic, and a folded greedy keeps both `is_greedy` and `has_rollout` |
-| (v) non-finite recon | a structurally FEASIBLE member with non-finite recon entered the live support silently | its own loud category feeding the valve. One `-inf` score would otherwise take the group's whole posterior mass |
-
-Fix (v) also corrects an exclusion counter that double-counted repeated infeasible texts, because
-dedup now precedes exclusion. Both D8.0 dumps carry ZERO feasible-but-non-finite rows (checked
-directly: 31,232 and 371,007 whitelisted rows, all finite), so (v) is a pure guard there and D8.0's
-finished artifacts remain exactly reproducible.
-
-Two follow-up hand-backs from the same round, both hash-neutral (`e7fc5ef`; weight, merge and
-equivalence hashes all unmoved, so again no restart and the running shards untouched). The
-valve-before-clause ordering now lives once, in `valve_verdict`: its whole content is the order, and
-the `clauses` argument is the only difference between the two readers -- D8.0 binds on clause (a)
-alone, D8.1a on all three -- so the two cannot drift apart. And `D8WeightJob` now asserts that every
-whitelisted utterance produced a group: a tag with ONLY greedy rows produces no `(T, tag)` entry,
-because the slice keys come from the rollout rows, so it would leave the support with no exclusion
-recorded and no count anywhere. It cannot happen on this bed, which is exactly why it is an assert
-rather than a trusted invariant.
-
-`D8GreedyEquivalenceJob.xR1RduqgjFKe` implements the planner's ruling on the registration
-deviation: the dump
-regenerates greedy through `SaeGrpoModelV1` rather than reusing the D7 pool's 1-best, which is
-admissible only against a zero-mismatch normalized-text equivalence read over all 281,241
-utterances. It compares on the D8 reader's own fold -- the string the weight job actually dedups --
-reports coverage in its own buckets so zero mismatches cannot be reached on a subset, and reports
-rather than raises, because a real divergence between two decoders is a finding for the planner and
-not a crash. `scripts/d8_1a_weights_test.py` carries 46 synthetic-only checks covering every fix
-above, the shared ordering through both readers' clause sets, and the label firewall; it never reads the dump or the store, so it runs while the dump is
-still generating and cannot launder a real number into a passing check.
-
-RESULT TABLE (one row per read of the frozen weight artifact; `rho_ac` is spearman(shaped,
-acoustic-only) and `rho_lm` spearman(shaped, LM-only), both at `tau_star`).
-
-| convention | job | excluded / scored | median distinct | taus in ESS band | token R2 | tau_star | rho_lm | rho_ac | verdict / arms |
-|---|---|---|---|---|---|---|---|---|---|
-| corrected text path (operative) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.3462 | 0.9835 | GO / candidate_acoustic |
-| legacy mixed (sensitivity only, same job) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.2747 | 0.9835 | GO / candidate_acoustic |
-
-Pool-member provenance in the operative row: 281,241 of 281,241 members scored through the text
-path, 0 dump columns reused, 249,679 tags where the dump's regenerated greedy agrees anyway.
-`D8PoolScoresJob.1ivehCZ5q5ON` carries the full-bed pass with 0 degenerate rows.
-
-**37. D8.1b: the candidate-acoustic scorer refit.** The D7 exact-control recipe by import, with the
-one registered change -- each anchor visit draws its target from the anchor's frozen `acoustic_only`
-weight vector at `tau_star` 0.05 instead of always the greedy 1-best. Batches are the control's own,
-formed by the control's code before any draw. No control trains: the D7.1 exact control
-(`D7OnlineTrainJob.j16rTskXF1QU`) is reused as the one-hot special case.
-
-| arm | job | wall clock | shards / batches | anchors trained / held | realized greedy-draw fraction | internal-held per-frame NLL |
-|---|---|---|---|---|---|---|
-| D8.1b candidate-acoustic | `D8ScorerRefitJob.2bQzhz6U1yHp` | 13:52 | 10 / 2,361 | 267,175 / 14,062 | 0.25312 | 2.51389 |
-| D7.1 exact control (reused) | `D7OnlineTrainJob.j16rTskXF1QU` | 13:59 | 10 / 2,361 | 267,175 / 14,062 | n/a (always greedy) | 2.52588 |
-
-Draw diagnostics banked in `sampling.json`: 267,175 draws (one per anchor visit, one pass), mean
-11.273 members available, 68,164 drawn targets that encode identically to the control's, mean state
-length delta +1.379 against the control, 0 infeasible drawn members, donor cases
-`ordinary_window` 266,134 / `nearest_fallback` 1,041 with 0 infeasible donor pairs.
-
-D8.2 CLAUSE 1 (`D8AdmissionJob.C2HUHUtUjfhN`), on the 14,062 internal-held anchors over 2,328
-speaker clusters, 10,000 resamples at seed 42:
-
-| quantity | value |
-|---|---|
-| control pooled per-frame NLL | 2.525882 |
-| candidate pooled per-frame NLL | 2.513888 |
-| paired per-anchor delta, mean | -0.012475 |
-| paired delta, one-sided 95 percent upper bound | -0.011800 |
-| `delta_NI` (control-only, D7.2 convention verbatim) | 0.004826 |
-| clause 1 | PASSES |
-
-D8.2 CLAUSES 2-3 (`PsiGateClauseTableJob.xFSaHcqvUR2S`), paired on the 1,443 of 1,500 external rows
-scored by every arm, seed 42, 10,000 row-bootstrap resamples. Corruption-ladder spearman, candidate
-minus control:
-
-| ladder | candidate level | paired delta | 95 percent CI |
-|---|---|---|---|
-| `filler_sub` | 0.9493 | +0.0027 | [-0.0001, +0.0053] |
-| `lmsub` | 0.9617 | +0.0019 | [-0.0007, +0.0044] |
-| `del` | 0.9520 | -0.0012 | [-0.0046, +0.0021] |
-| `filler_ins` | 0.9769 | -0.0033 | [-0.0064, -0.0003] |
-| `lmins` | 0.9258 | -0.0028 | [-0.0078, +0.0022] |
-
-Matched insertion discount, candidate minus control: k=1 +0.0078 [0.0044, 0.0113] p 0.000;
-k=2 +0.0060 [0.0006, 0.0114] p 0.029; k=4 +0.0097 [0.0019, 0.0172] p 0.012. Leave-one-out cross
-entropy: candidate 2.2343 against control 2.2588.
-
-Gate v2 clause row: candidate (i)floor PASS, (i)improvement PASS, (ii) PASS, ladders worse on 3 of
-5 by point estimate and 1 of 5 by confidence interval, ELIGIBLE False under both the point and the
-CI reading. Verdict NO WINNER (no eligible arm) under both readings.
-
-Reading `sampling.json`: its `target` field says "own greedy pseudo-text, never a draw" and
-describes the INTERNAL-HELD evaluation only, not training. It is inherited from the D7 schema's
-held block and flattened into the top-level read here, where it reads as a contradiction of the
-arm's whole purpose. The held read must not depend on a training-time random variate and the
-control's held read is on the same texts, which is why the held targets are the greedy ones; every
-TRAINING target was drawn. The field is renamed in the next schema revision -- renaming it now
-would re-hash the finished job and orphan the artifact for a wording fix.
-
-**38. D8.4: the paired ranking-quality (eta) read on the operative theta_0^G bed.** PLAN_3E1's
-D8.4 registration, built after the user reopened D8: a clause battery gates spend but never closes
-a phase, so the phase question is answered by ranking quality measured in a fair paired comparison.
-One instrument (`PsiAlignPairedCompareJob`, PLAN_3A's, reused unchanged), two arms differing in
-`model_pt` alone, both reranking the SAME frozen rollout dump at the SAME temperature; the reader
-(`D8EtaReadJob`) restates delta eta in its plain-WER form and refuses any bed that is not the
-registered one. Bootstrap pins `n_boot=10000`, `seed=42`. Two beds are instantiated: the OPERATIVE
-theta_0^G dump (`ReturnnForwardJobV2.J9yA1eYnxwYA`, 512 utterances, G=12, T=0.7) as the primary,
-and the fork-epoch-2 dump (`ReturnnForwardJobV2.QbIYruVEI0fF`, 28,539 groups) as context only. The
-eta columns are the compare's own paired values on the shared groups; the full-set rank-only
-column quoted in the verdicts is a separate per-arm statistic and is not in this table.
+The first build reused the D8.2 graph's rerank pair, which consumes the FORK-EPOCH-2 dump; D8.0 had
+already moved its binding clause to `J9yA1eYnxwYA` precisely because that one carries the OPERATIVE
+policy, so the registration's own pin excluded the reused bed. The correction added two reranks on the
+operative dump's T=0.7 slice, and the primary verdict reads from that pair alone.
 
 | bed | rerank pair | groups offered | groups surviving | rows infeasible | candidate eta | control eta | paired delta eta [95 pct CI] |
 |---|---|---|---|---|---|---|---|
@@ -1767,23 +1336,28 @@ column quoted in the verdicts is a separate per-arm statistic and is not in this
 | operative, full-set rank-only column | same | 512 | 512 | (infeasible ranked last) | -0.1680 | -0.1548 | not computed as a pair |
 | fork epoch 2 (context) | `qVTVrRvyOjZ9` / `OiRBghBiTriv` | 28,539 | 28,531 | 38 of 399,546 (0.010 pct) | +0.2471 | +0.2503 | -0.0033 [-0.0164, +0.0096] |
 
-Bed feasibility, quoted from the REGISTERED PRODUCER `D8BedFeasibilityJob.9fCCv5HAPg4a`
-(`sae/d8_bed_feasibility.py` v2) in the producer's own figures and populations. Its conventions
-print ahead of every number: per-utterance frame ratios summarized on the shared key set and never
-taken as a ratio of corpus means, printed as right / left in the order the label names the two beds
-so a quarter-rate store reads 0.25 and NOT its reciprocal 4.00; nearest-rank quantiles with no
-interpolation; the crude length bound stated as OVER-predicting (dividing characters by the nominal
-1.5 characters per state overestimates the state count, because BPE merges pull the realized count
-below it) and offered only as a mechanism check, never as a replacement for the scorer's own
-feasibility test; observed infeasibility taken from each arm's own rerank report with the two arms
-ASSERTED equal; and the shared-key-set corpus mean distinguished from the per-bed mean, which is
-restricted to that bed's own utterances and is not a store comparison.
+Jobs: primary (re-pinned 50 Hz enc50 join) `S/psi_align_jobs/PsiAlignRerankJob.GNOktIsG251m` /
+`.JSZvokFxjNkJ` -> `S/psi_align_compare/PsiAlignPairedCompareJob.ACR10RHlnsop` ->
+`S/d8_eta/D8EtaReadJob.KwmHTXqiJMGr` (THE VERDICT, verdict 84). Failed-closed quarter-rate join
+`.8oYpO4IBeqHb` / `.sQGYUL22Kpg6` -> `PsiAlignPairedCompareJob.ffqCTOA3qssf` ->
+`S/d8_eta/D8EtaReadJob.S3NTCZAOfSnZ` (`error.run.1`; the refusal message is the result, verdict 83) --
+banked as the record and left in the graph at their finished hashes. Fork context
+`PsiAlignRerankJob.qVTVrRvyOjZ9` / `.OiRBghBiTriv` -> `PsiAlignPairedCompareJob.yrEq1ogcluJF`. Same
+dump, same draw, same banked per-rollout WERs across the two joins -- only the frame stream moved.
 
-THREE POPULATIONS APPEAR BELOW AND THEY ARE NOT THE SAME SET. The crude bound is evaluated on the
-T=0.7 rollout slice the bed is read at (6,144 rows for the operative beds, 342,468 for the fork
-bed). Observed infeasibility is the rerank's own count over ALL its rows at every temperature
-(31,744 operative, 399,546 fork). The frame ratios and shared-key-set means are over the 34,106
-utterances every store holds.
+Bed feasibility, quoted from the REGISTERED PRODUCER `S/d8_bed_feasibility/D8BedFeasibilityJob.9fCCv5HAPg4a`
+(v2, superseding `QTlLFcnka0Hy`) in the producer's own figures and populations. Its conventions print
+ahead of every number: per-utterance frame ratios summarized on the shared key set and never taken as a
+ratio of corpus means, printed as right / left in the order the label names the two beds so a
+quarter-rate store reads 0.25 and NOT its reciprocal 4.00; nearest-rank quantiles with no interpolation;
+the crude length bound stated as OVER-predicting (dividing characters by the nominal 1.5 characters per
+state overestimates the state count, because BPE merges pull the realized count below it) and offered
+only as a mechanism check; observed infeasibility taken from each arm's own rerank report with the two
+arms ASSERTED equal; and the shared-key-set corpus mean distinguished from the per-bed mean. THREE
+POPULATIONS APPEAR BELOW AND THEY ARE NOT THE SAME SET: the crude bound is on the T=0.7 rollout slice
+(6,144 rows operative, 342,468 fork), observed infeasibility is the rerank's own count over ALL rows at
+every temperature (31,744 operative, 399,546 fork), and the frame ratios and shared-key-set means are
+over the 34,106 utterances every store holds.
 
 | statistic | operative, sae3d quarter-rate join | operative, 50 Hz enc50 join | fork ep2, 50 Hz enc50 join |
 |---|---|---|---|
@@ -1794,28 +1368,97 @@ utterances every store holds.
 | observed infeasible, all rerank rows | 25,867 of 31,744 (81.486 pct) | 0 of 31,744 (0.000 pct) | 38 of 399,546 (0.010 pct) |
 | groups dropped | 498 | 0 | 8 |
 
-Per-utterance frame ratio, quarter-rate store over the 50 Hz store, on all 34,106 shared
-utterances: p05 0.25, p50 0.25, p95 0.25, min 0.25, max 0.26 -- the same stream decimated by four,
-with no utterance escaping the pattern. The two 50 Hz beds ratio to 1.00 throughout, which is the
-job's own check that they share a store. Every infeasibility count above is IDENTICAL across the
-two arms, asserted by the job rather than observed by eye, which is what carries the cause from
-either scorer's weights to the text-to-unit alignment. The bound over-predicts as its convention
-says it will (98.76 against 81.486 observed on the quarter-rate join).
+Per-utterance frame ratio, quarter-rate store over the 50 Hz store, on all 34,106 shared utterances:
+p05 0.25, p50 0.25, p95 0.25, min 0.25, max 0.26 -- the same stream decimated by four, with no
+utterance escaping the pattern. The two 50 Hz beds ratio to 1.00 throughout, the job's own check that
+they share a store. Every infeasibility count is IDENTICAL across the two arms, asserted by the job,
+which is what carries the cause from either scorer's weights to the text-to-unit alignment. Both
+scorers train against the same frozen 50 Hz store `PackUnitsJob.I0uzRMfUrKWC` (read from both training
+jobs' info files), which grounds the re-pin. The producer's revision bump re-hashes only the
+feasibility leaf: `D8EtaReadJob.KwmHTXqiJMGr` is byte-identical in hash before and after, and the
+producer has no dependents.
 
-D8.2 CLAUSE 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`), read for the record after the outcome was
-already reached: online (loop) against offline (G3) per-frame reconstruction on the candidate arm.
-512 of 512 rollouts round-tripped through the tokenizer; max absolute difference 2.384e-07 and mean
-4.657e-10 against a 2.0e-03 tolerance; 0.00 pct of rows floored at -log K. PASS.
+D8.2 clause 4 (`S/psi_align_jobs/PsiScorerParityJob.sRJ7LUmF4nMw`), read for the record after the
+outcome was already reached: online (loop) against offline (G3) per-frame reconstruction on the
+candidate arm -- 512 of 512 rollouts round-tripped, max absolute difference 2.384e-07, mean 4.657e-10
+against a 2.0e-03 tolerance, 0.00 pct floored. PASS.
 
-**39. D9.1: the evolved-point refit of the D8 recipe, and its support census.** D8's recipe
-transplanted to the evolved policy: a ten-shard 960 h rollout dump from the pinned checkpoint
-(`ReturnnForwardJobV2` x10, G=12, T=0.7, `max_seqs=8`), merged, with the pseudo-text pool built
-from THAT dump's own greedy rows rather than decoded separately (`D9PoolFromDumpJob`), tau PINNED
-at D8.1a's 0.05 rather than re-solved. Two refit arms were registered: arm 2, the 1-best refit
-(`D9OnlineTrainJob`, `online_weight=0`), and arm 3, the soft-EM refit (`D8ScorerRefitJob`) on the
-weight artifact. `D9WeightJob.uyKXr4ZiGj9R` is the gate between the dump and arm 3 and it rules
-NO-GO, so the table below is a census of the dump's support rather than a refit result. Every
-number is the weight job's own; the reader recomputes nothing.
+**39. D9: the evolved-point refit of the D8 recipe, its support census and the two-arm read.**
+
+PRE-SPEND PROVENANCE, traced end to end 2026-08-23, every link read from a job's own `info`:
+`T/ReturnnTrainingJob.rJWSC5xOsrf2/output/models/epoch.002.pt` -> `ExtractAvSubmodelJob.FSYsyEJm5VHX`
+(its `grpo_checkpoint` PARAMETER is that exact file, `submodel_prefix` `av.`) ->
+`F/ReturnnForwardJobV2.SgTOBGwxO6nF` (dev-clean) and `.9GwKJ97FtuG6` (dev-other) ->
+`SearchWordsDummyTimesToCTMJob.e3rgP2fFMD8f` / `.lyBmKhRT3pUZ` -> `ScliteJob.paK5JVk5SckU` = **12.68**
+and `ScliteJob.KTVFso7HriMn` = **17.57**, each read from its own `output/wer`. The recog does NOT
+consume the training checkpoint directly -- an `ExtractAvSubmodelJob` sits between -- so a check
+stopping at "the training job has an epoch.002.pt" would have proved nothing. ARM IDENTITY from the
+same source: the training job's INPUT list contains `PsiAlignTrainJob.DnBJxqz4sNQZ/output/model.pt`
+and its alias is `..._shaped_T0.7_lr2e5_psid2_contrast/training`, so the pin is the d2_contrast-shaped
+arm, not the incumbent-shaped one at the same schedule position -- the two sit adjacent in approach 9's
+table at 12.68/17.57 and 13.91/18.91, a real confusion risk. The pinned training job carries a `hold`
+file, so that arm is paused; D9 only reads a written checkpoint from it.
+
+D9.0 FRAME, settled by reading the checkpoint's own inputs rather than by choosing: the donor is STOCK
+(the pinned training job's INPUT list carries `DownloadHuggingFaceRepoJob.JcEANaYZr2oe/output/hub_cache`
+and no `ExportHfLmDirJob` output, so the dump must NOT pass `qwen_hub_dir=lbslm_donor()`); and the read
+bed is tc100, not the 960 h bed, which is the established frame (D6-PERIODIC's own refresh dumps a
+960 h-trained policy over tc100 with `tc100_units()`; D8.4's beds are tc100 on both sides), the
+registration's "960 h HF/Ogg bed" naming the refit frame, with "sized to D8.4's read" fixing the read at
+512 utterances x 12 rollouts at T=0.7. Machinery reused rather than rebuilt: the dump is `_reward_rank`
+with `psi_model_args` and `av_checkpoint_prefix="av."`; the incumbent census is a `PsiAlignRerankJob` on
+that dump with `DnBJxqz4sNQZ` at d_min=1 as trained; the one genuinely new piece is the STRUCTURAL
+census, exact rather than D8.4's crude character bound (feasible iff the realized state count times
+d_min=2 fits the frame count), because the D9.2 STOP clause rests on it predicting the refit census by
+construction.
+
+D9.0 GATE PASSES (`S/d9_feasibility/D9FeasibilityJob.oabVIcp22cy1`; dump
+`F/ReturnnForwardJobV2.t4sIOlpGVDcY`, incumbent rerank `S/psi_align_jobs/PsiAlignRerankJob.cysJQBiP9iW1`).
+The dump is 512 utterances x 12 rollouts at T=0.7 plus 512 greedy and 512 reference rows = 7,168, which
+is D8.4's read size exactly. The rerank reports 0 of 512 groups dropped at T=0.7 and 0 of 512 groups
+inside psi_align's own training set (a leakage guard worth having in print).
+
+| census | result |
+|---|---|
+| (a) incumbent finite scores, d_min=1 as trained | 7,168 rows, 0 infeasible, 0 groups dropped |
+| (b) structural alignability, d_min>=2, rollout rows | 6,144 of 6,144 (share 1.0000), 512 of 512 groups retained |
+
+Median row: 695 unit frames against 210 needed under the refit topology, so the bed clears the
+minimum-duration bound by better than a factor of three -- the opposite of D8.4's operative
+quarter-rate join, which lost 81.5 percent of rows and 498 of 512 groups, and the point of running the
+gate first was that D8.4 could not make this call until after its refits had been trained. WHAT THE
+GATE DOES NOT SAY: nothing about eta, nothing about whether a refit beats the incumbent, and nothing
+about D9.2's read set. It says the bed can carry the read.
+
+D9.1 (speech-llm `a42fa37`, `8df2580`): a ten-shard 960 h rollout dump from the pinned checkpoint
+(`F/ReturnnForwardJobV2` x10: `7pn7wCdqQ7Wb pfmSXPmED4Ov hhbi9TmvyRnc lzKuXw4bkFRF 5tXsjYhVMIMF
+0ZcqQ8rhgO0N UMJyglLRiKkf AHhdYqA5ukeE yVygb8dep7HF ueKzHy0j1OjW`, G=12, T=0.7, `max_seqs=8`), merged at
+`S/d8_weights/D8MergeRolloutsJob.C4G6qGzjEIrx`, with the pseudo-text pool built from THAT dump's own
+greedy rows (`S/d9_refit/D9PoolFromDumpJob.RhwBlgMhqHbA`), tau PINNED at D8.1a's 0.05 rather than
+re-solved. Two refit arms were registered: arm 2, the 1-best refit
+(`S/d9_refit/D9OnlineTrainJob.nJQy199AQZQu`, `online_weight=0`), and arm 3, the soft-EM refit
+(`S/d8_train/D8ScorerRefitJob.XvPF118rphQP`) on the weight artifact.
+
+TWO BUILD DECISIONS, both ratified by the planner. (1) THE POOL IS BUILT FROM THE DUMP'S OWN GREEDY
+ROWS. In D8 the support's greedy member was the D7 pool 1-best decoded through a different decoder
+path, and the dump's regenerated greedy disagreed with it on 31,562 of 281,241 utterances (verdict 70);
+D9 has no pre-existing pool, so building it from the dump makes the two agree BY CONSTRUCTION, makes
+the same string arm 2's target and arm 3's greedy support member, and saves the ten-shard greedy decode
+(~115 GPU-hours). The price, stated rather than enjoyed: D8's convention-sensitivity line is VACUOUS
+here -- both conventions read the same row for every tag -- so its empty flip list is a tautology and
+not a passed check, and the weight job's report says so in print. (2) ARM 2 IS `D7OnlineTrainJob` AT
+WEIGHT 0, i.e. D8's control recipe, on the reading that "the incumbent refit recipe" means the recipe
+D8's own A/B calls the one-hot special case of the drawn target; under the other reading (a fresh
+`PsiAlignTrainJob`) arms 2 and 3 would differ in recipe as well as target.
+
+TAU IS PINNED, NOT SOLVED: `D8WeightJob` solves the registered |median ESS - 3| rule on whatever bed it
+is given, so running it unchanged here would re-derive the constant the registration pins.
+`D9WeightJob` pins it at D8.1a's `tau_star` = 0.05 and prints the bed's OWN solution beside it (1.0), so
+a bed that disagrees with the pin is visible in the artifact instead of hidden by it.
+
+`S/d9_refit/D9WeightJob.uyKXr4ZiGj9R` is the gate between the dump and arm 3 and it rules NO-GO on
+clause (a), so the table below is a census of the dump's support rather than a refit result. Every
+number is the weight job's own.
 
 | statistic | value | registered bar | reading |
 |---|---|---|---|
@@ -1831,14 +1474,28 @@ number is the weight job's own; the reader recomputes nothing.
 Distinct-support distribution over the 281,241 groups, which is the finding rather than the median:
 1 member 92,995 (33.1 pct); 2 members 61,989 (22.0 pct); 3 members 37,445; 4 members 26,418; then
 18,194 / 12,931 / 9,517 / 7,308 / 5,145 / 3,759 / 2,696 / 1,808 / 1,036 at 5 through 13. Mean 3.12,
-max 13, against 13 candidates offered per group (12 rollouts plus greedy).
+max 13, against 13 candidates offered per group. Arm 3 refused to start on the registered guard
+("D8.1b requires a GO weight artifact; this one reads 'NO-GO'") and stays in that error state by
+ruling.
 
-D9.2, the two-arm read (`D9EtaReadJob.A7QvXl7VR7wl`), amended by replacement from the registered
-three-arm read after arm 3 was closed: arm 2 against arm 1 on the ONE shared D9.0 draw (512
-utterances, G=12, T=0.7), the two arms differing in `model_pt` alone, D8.4 machinery and constants
-verbatim (`bootstrap_delta_eta`, n_boot 10000, seed 42). The STOP clause passed on its own terms:
-D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable, and BOTH arms scored
-7,168 of 7,168 rows finite with 0 groups dropped, so no drop had to be explained or averaged over.
+Arm 2's own-infeasible drop set is EMPTY, which is the STRICTEST reading of D7's bound, not a loosened
+one: D7's constant names four rows of D7's OWN pseudo-text bed, and `D9OnlineTrainJob` registers this
+bed's set after MEASURING it with the production text side and feasibility law before the value was
+fixed -- 0 of 281,241 rows own-infeasible, tightest row `6065-109178-0010` at 77.9 pct of its frame
+budget (612 of 786), D7's four named rows at 23-32 pct here. The audio side is literally the same store
+(`PackUnitsJob.I0uzRMfUrKWC`) in both beds, so the whole difference is the text -- a fact about the
+pinned checkpoint's decode, not about the recipe. D7's constant and every D7/D8 hash are untouched
+(`D7OnlineTrainJob.WA1bqjXQtzeZ`/`j16rTskXF1QU`, `D8WeightJob.juRpzTNHKCSq`,
+`D8ScorerRefitJob.2bQzhz6U1yHp`, `D9WeightJob.uyKXr4ZiGj9R`, re-read from the loaded graphs after the
+edit).
+
+D9.2, the two-arm read (`S/d9_refit/D9EtaReadJob.A7QvXl7VR7wl`; refit rerank
+`S/psi_align_jobs/PsiAlignRerankJob.X7sDGLPgDFWm`, incumbent rerank `.cysJQBiP9iW1` (D9.0's own),
+compare `S/psi_align_compare/PsiAlignPairedCompareJob.dMSa5z0knjLI`; speech-llm `c147014`): arm 2
+against arm 1 on the ONE shared D9.0 draw, the two arms differing in `model_pt` alone, D8.4 machinery
+and constants verbatim. Arm 2 finished at 2,421 steps with held NLL/frame 2.2550. The STOP clause
+passed on its own terms: D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable, and
+BOTH arms scored 7,168 of 7,168 rows finite with 0 groups dropped.
 
 | quantity | refit_1best (arm 2) | incumbent (arm 1) | paired |
 |---|---|---|---|
@@ -1848,2377 +1505,798 @@ D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable, and BO
 | audio-free null margin (arm-internal, never differenced) | -0.0844 | -0.0456 | not a pair |
 | rows scored / non-finite / groups dropped | 7,168 / 0 / 0 | 7,168 / 0 / 0 | 512 shared groups |
 
-Shared mean WER 0.1508, shared oracle 0.1391, headroom 0.0116; the reader recomputes delta eta
-from the WER identity and gets the same -0.0310.
+Shared mean WER 0.1508, shared oracle 0.1391, headroom 0.0116; the reader recomputes delta eta from the
+WER identity and gets the same -0.0310. ONE BUILD DECISION, cheap to reverse and ratified: D9.2's config
+PINS arm 2's finished model by path instead of importing D9.1's build, because that build constructs
+arm 3 and an error job in the graph makes the manager hit sisyphus's interactive "Clear jobs in error
+state?" prompt and exit -- importing it would have made D9.2 unrunnable without clearing the very job
+the ruling protects. The pin is checked at graph-build time against D9.1's OWN alias
+(`alias/sae/3e1/d9_1/refit_1best`), so a re-hashed arm 2 fails loudly rather than being read stale, and
+it points at the `work/` job directory, never an `output/` alias.
 
-Two implementation facts about this arm, both recorded because they were failures that taught
-something rather than noise. First, arm 2 is `D9OnlineTrainJob`, a subclass of D7's training job
-registering THIS bed's own-infeasible drop set, which is EMPTY: D7's guard names four rows of D7's
-own pseudo-text bed and fired closed on a bed that has none. Measured on this bed with the
-production text side before the value was fixed: 0 of 281,241 rows own-infeasible, tightest row at
-77.9 pct of its frame budget, D7's four named rows at 23-32 pct. The audio store is the same
-(`PackUnitsJob.I0uzRMfUrKWC`) in both beds, so the whole difference is the text. Second, the
-`d8_train` source-identity guard then fired on arm 3 because that job had been constructed by a
-manager holding the pre-edit graph; it was re-created through the console with empty output and
-work directories, destroying nothing.
+WALL CLOCK FROM MEASUREMENT: D8.1a's finished shards ran 3,516 steps in 7:00 h at `max_seqs=8`, 41 GB
+resident against 64 requested; D9.0's 512-utterance dump of THIS policy ran 256 steps in 21:23 at
+`max_seqs=2`, i.e. 2.51 s per utterance against D8.1a's 0.895 s at four times the batch, the ratio the
+launch-bound cost model predicts -- so the shards project near 7 h against the 11.5 h cap at D8.1a's
+proven batching.
 
+## Conclusions
 
-## Verdicts
+Numbering is the log's own and is cited by the approach entries; corrections and overturns are kept
+under the conclusion they correct, with the current reading named.
 
-1. **The co-trained scorer did NOT go text-blind — the hypothesis is refuted by its own instrument.**
-   The usage gate RISES from 0.3331 at ep0 to a peak 0.6210 at ep6 (+86 %) and never falls below ep0
-   at any epoch, so the replay arm's 18.79 -> 46.71 needs a different explanation.
-2. **What it did instead is lose its conditional entirely**: CE_true jumps 5.7444 -> 6.2045 after ONE
-   sub-epoch and reaches 6.2938 at ep6, i.e. past the unit marginal 6.0072 and past uniform
-   ln 500 = 6.2146 — by ep6 the scorer is worse than a coin on gold pairs while its text-contrast
-   grows. Co-training damage is scorer DRIFT off the gold domain, not text-blindness; a future gate
-   on trainability must read CE_true, which the usage gate alone would have passed.
-3. **Ranking noise is refuted a second time, now within-group and at the loop's operating point**:
+1. **The co-trained scorer did NOT go text-blind -- the hypothesis is refuted by its own instrument**
+   (1). The usage gate RISES from 0.3331 at ep0 to a peak 0.6210 at ep6 (+86 %) and never falls below
+   ep0, so the replay arm's 18.79 -> 46.71 needs a different explanation.
+2. **What it did instead is lose its conditional entirely** (1). CE_true jumps 5.7444 -> 6.2045 after
+   ONE sub-epoch and reaches 6.2938 at ep6, past the unit marginal 6.0072 and past uniform
+   ln 500 = 6.2146 -- by ep6 the scorer is worse than a coin on gold pairs while its text-contrast
+   grows. Co-training damage is scorer DRIFT off the gold domain, not text-blindness; a future
+   trainability gate must read CE_true, which the usage gate alone would have passed.
+   - UNPROVEN CAUSAL STEP (2026-08-09 audit): "co-training causes the collapse" is not established.
+     No frozen-scorer control ever ran on the 100 h bed; the 10 h matched pair went the other way
+     (frozen Goodharted 14.47/17.09, joint won 13.15/16.13); the two 100 h jointAR siblings lack the
+     collapse signature. Temporal order (CE_true crossed the unit marginal after one sub-epoch while
+     dev WER was still 18.79) supports scorer-first but is not attribution. Also, approach 1's "the
+     only trainable-scorer run on record" is inaccurate -- the 100 h recon-only and hinge-only arms
+     were also jointAR; the replay arm is the only one with per-epoch scorer forensics.
+3. **Ranking noise is refuted a second time, within-group and at the loop's operating point** (3).
    psi_g_tc100 spearman 0.4959 (recon) / 0.5558 (shaped), frac_pos 0.93/0.95 over 512 groups, with no
-   difference between all groups and the WER-spread-bearing subset.
-4. **Directional bias is confirmed but is mostly NOT contamination.** All three scorers pay for the
-   filler at matched WER, including the never-contaminated gold-text control (beta 0.1673 on "to").
-   Only the differential — psi_g_tc100 minus gold_enc50, +0.075 on "to", +0.063 pooled — is
+   difference between all groups and the WER-spread-bearing subset. (Transcription: the shaped
+   frac_pos is 0.9450 on the all-groups convention used elsewhere; 0.9452 is the spread subset.)
+4. **Directional bias is confirmed but is mostly NOT contamination** (3). All three scorers pay for
+   the filler at matched WER, including the never-contaminated gold-text control (beta 0.1673 on
+   "to"). Only the differential -- psi_g_tc100 minus gold_enc50, +0.075 on "to", +0.063 pooled -- is
    attributable to the shared pseudo-text; roughly 70 % of the effect is a psi_align FAMILY property,
-   so a round-0 text repair (D2) can address at most the smaller part and the family term needs the
-   plan's other lever (null-word down-weighting / matching-aware contrastive term).
-5. **Corpus size is not the axis**: psi_g_seed, with 10x less of the same pseudo-text, has the LARGER
-   bias (0.2664 vs 0.2425) and the worse ranking (0.4696 vs 0.4959) — more pseudo-text helps slightly
-   in both directions.
-6. **Group blindness is real but partial, and is the binding constraint on "to"**: only 23 % of the
-   groups that carry "to" hold a "to"-free member (9 % for the suspect set as a whole), so in ~77 %
-   of live groups no scorer of any quality can steer off the filler. This is not the plan's
-   "coverage ~ 0" fork, but it caps what any scorer-side repair can buy and makes the sampling-side
-   contingency (temperature / G sweep) a co-requirement rather than an alternative.
-7. **A curated refresh has an admissible external selector**: the base-LM prior in its live
-   units-normalized form clears the D0(e) covariance bar at 0.5020 [0.4737, 0.5308], and the suspect
-   count itself is weakly admissible at 0.1855 [0.1510, 0.2186]. psi's own duration channel is not a
-   selector (CI straddles zero), which also confirms psi's ranking is not a length artifact.
-8. **The filler is cheap to INSERT, not cheap to write — and the effect is token-specific but
-   scorer-invariant** (5). Inserting "to" costs 0.0274 nats/frame against 0.0859 for an LM-drawn word
-   in the same slot (discount 0.0584 [0.0537, 0.0634], growing to 0.2201 at k=4), while writing it
-   OVER a word costs the same as any frequent word (discount +0.0036). The never-contaminated
-   gold-text scorer shows the same insertion discount (0.0590 [0.0539, 0.0639]) and the same
-   substitution non-effect, on the same pairs.
-   WRONG in part (2026-08-07 verifier): "token-specific but scorer-invariant" does not survive the
-   audit — the LM control is drawn with no length matching (~2.7 emitting BPE states per draw vs 1
-   for "to"), 53–81 % of the discount is state-count-attributable, the surviving residual
-   (0.011–0.027 nats/frame) is scorer-DEPENDENT, and what is scorer-invariant is the lattice's
-   ~0.03 nats/frame price per inserted emitting state.
-9. **D1's pre-registered power check therefore FAILS: no filler statistic separates psi_align^G from
-   the 10 h-true scorer** (4, 5). All three arms agree on the insertion discount, the substitution
-   discount and the suspect state mass (1.90–2.19 %) to within their CIs; `ce_loo` does separate them
-   (2.72 / 3.02 / 3.13) but in the direction of the pseudo-text DOMAIN, since the held text is that
-   decoder's own output. The direction of §3e.1 has to change: with the family share measured at ~70 %
-   by D0(c) and at ~100 % here, a round-0 text repair cannot be the load-bearing fix, and gate v2 (i)'s
-   improvement clause is not neutral between a text-repair candidate and the incumbent.
-   - **WRONG (2026-08-08, approach 10):** the power check fails only for the frequency-drawn control —
-     on the state-matched one psi_align^G separates from the gold-text control decisively and in the
-     expected direction (0.0172 vs 0.0031, paired -0.0141 [-0.0174, -0.0108] on the shared 1442), so
-     the instrument has power and it was the CONTROL that was blunt; the family-share reading from
-     D0(c) is untouched.
+   so a round-0 text repair can address at most the smaller part.
+5. **Corpus size is not the axis** (3). psi_g_seed, with 10x less of the same pseudo-text, has the
+   LARGER bias (0.2664 vs 0.2425) and the worse ranking (0.4696 vs 0.4959).
+6. **Group blindness is real but partial, and is the binding constraint on "to"** (3). Only 23 % of
+   the groups carrying "to" hold a "to"-free member (9 % for the suspect set as a whole), so in ~77 %
+   of live groups no scorer of any quality can steer off the filler. Not the plan's "coverage ~ 0"
+   fork, but it caps what any scorer-side repair can buy and makes the sampling-side contingency a
+   co-requirement rather than an alternative.
+7. **A curated refresh has an admissible external selector** (3). The base-LM prior in its live
+   units-normalized form clears the D0(e) bar at 0.5020 [0.4737, 0.5308]; the suspect count is weakly
+   admissible at 0.1855. psi's own duration channel is not a selector (CI straddles zero), which also
+   confirms psi's ranking is not a length artifact.
+8. **The filler is cheap to INSERT, not cheap to write -- token-specific but scorer-invariant** (5).
+   Inserting "to" costs 0.0274 nats/frame against 0.0859 for an LM-drawn word in the same slot
+   (discount 0.0584 [0.0537, 0.0634], 0.2201 at k=4), while writing it OVER a word costs the same as
+   any frequent word (+0.0036).
+   - WRONG IN PART (2026-08-07 audit; CURRENT): "scorer-invariant" does not survive -- the LM control
+     is drawn with no length matching (~2.7 emitting BPE states per draw vs 1 for "to"), 53-81 % of
+     the discount is state-count-attributable, the surviving residual (0.011-0.027 nats/frame) is
+     scorer-DEPENDENT, and what is scorer-invariant is the lattice's ~0.031-0.035 nats/frame price per
+     inserted emitting state. The cheap-insertion exploit is therefore open to EVERY minimal-state
+     word -- contamination chose which word, not whether.
+9. **D1's pre-registered power check FAILS: no filler statistic separates psi_align^G from the 10 h
+   true scorer** (4, 5). All three arms agree on the insertion discount, the substitution discount and
+   the suspect state mass (1.90-2.19 %) within their CIs; `ce_loo` separates them (2.72 / 3.02 / 3.13)
+   but in the direction of the pseudo-text DOMAIN.
+   - WRONG (2026-08-08, approach 10; CURRENT): the power check fails only for the frequency-drawn
+     control -- on the state-matched one psi_align^G separates from the gold-text control decisively
+     and in the expected direction (0.0172 vs 0.0031, paired -0.0141 [-0.0174, -0.0108] on the shared
+     1442), so the instrument has power and it was the CONTROL that was blunt. The ~70 % family-share
+     reading from D0(c) is untouched.
+   - NUMBER CORRECTION: gold_enc50's held ce_loo is **3.1385** (`PsiHeldNllJob.ag5DZ3A2Gd1K`); the
+     3.1274 in approach 4's table is the probe job's 1442-pair value transcribed into the 1493-pair
+     table. The row's derived columns already use 3.1385, so ordering is unaffected and this
+     conclusion's "3.13" reads 3.14. UNRESOLVED: the table cell was never corrected.
 10. **The mechanism is an insertion/deletion asymmetry of the lattice, not a text defect** (5).
-   Deleting a word costs 0.3336 nats/frame and inserting the filler 0.0274 — a factor 12 — so against
-   any real alternative the policy has (commit to a word, or leave it out) padding is nearly free,
-   which is exactly the insertion-driven degradation the G-track `recon` arm showed. The only existing
-   counterweight is the LM prior at `lm_prior_norm="units"` — of order 0.01 nats/frame for this token
-   at the bed's 338 frames per utterance, estimated from the LM-corpus unigram rate rather than
-   measured contextually — which is consistent with `recon` diverging where `shaped` plateaued.
+   Deleting a word costs 0.3336 nats/frame and inserting the filler 0.0274 -- a factor 12 -- so
+   against any real alternative the policy has, padding is nearly free. The only existing counterweight
+   is the LM prior at `lm_prior_norm="units"`, of order 0.01 nats/frame for this token at the bed's 338
+   frames per utterance, estimated from the LM-corpus unigram rate rather than measured contextually.
 11. **Raising the sampling temperature buys contrast but degrades the oracle** (6). T=0.7 -> 0.9 lifts
-   steerable coverage 0.1949 -> 0.3382, but conversion falls (steerable/coverage 0.835 -> 0.642) and
-   the ORACLE WER rises 0.1071 -> 0.1496, i.e. the best of twelve samples gets worse, so T=0.9 is not
-   the free operating-point move the presumptive read treated it as.
+   steerable coverage 0.1949 -> 0.3382 but conversion falls (0.835 -> 0.642) and the ORACLE WER rises
+   0.1071 -> 0.1496, so T=0.9 is not the free operating-point move the presumptive read treated it as.
 12. **The asymmetry is arithmetic and its size is frames per state, which no D2 arm but `d2_states`
-   can reach** (5, 8). Deleting a word orphans T/U = 4.88 frames per state removed and the emission
-   term charges every one of them (+0.2558 of del_1's +0.2461 nats/frame), while an inserted word is
-   absorbed in half a frame by the skip arc (+0.0184 emission, +0.0065 transition), so the price
-   ratio carries a structural factor 2 T/U = 9.77 — the filler sits at that floor (12.16) and an
-   average LM word 3.1x above it (3.89). Neither a repaired corpus nor an in-batch contrast against
-   whole other texts changes T/U, which is why `d2_states` (2 T/U 9.77 -> 3.92) is the arm that tests
-   the diagnosis rather than a symptom.
-   WRONG in part (2026-08-07 verifier): each number reproduces, but the sentence switches statistic
-   bases (+0.2461 is the pooled per-frame NLL delta, not the table's per-utterance del_1 0.3336, and
-   the 12.16/3.89 ratios are on the ce_loo basis where the NLL basis gives 9.88/4.24), "3.1x above
-   it" inverts the comparison (3.89 is BELOW the 9.77 floor; 3.1 is filler/LM), "charges every one"
-   over-counts (the emission delta +0.2558 exceeds the deletion total, the NLL-minus-emission
-   residual being transitions PLUS alignment entropy and negative for deletion), and per
-   removed/added STATE the del/ins ratio is 5.3–7.4 — below the claimed floor — so "the filler sits
-   at the floor" is a state-count artifact (2 states vs the mean deleted word's 3.76); what
-   survives, verified numerically, is the d2_states prediction itself: deletion orphans a
-   chars_per_state-INVARIANT frame count (18.3 vs 18.4 across cps 1.5/0.5) while an inserted word's
-   state count scales ~2.5x, so the price ratio falls ~2.5x under the arm and no corpus or
-   contrastive arm moves it.
-13. **All four D2 arms finished and NONE separates from the incumbent — on any statistic, not just the
-    one the winner rule names** (8). The insertion discount moves 0.0584 -> 0.0595 / 0.0558 / 0.0619,
-    every step smaller than the 0.005 bootstrap half-width; the filler payment itself barely moves
-    (beta_to at matched WER 0.2425 -> 0.2232 for the repaired corpus, a 8 % cut, and UP for both
-    contrastive arms); steerable coverage moves by at most three of 467 live groups; and the incumbent
-    has the HIGHEST in-group spearman (0.4959) and the lowest sel_wer (0.1380) of the five. Read
-    literally the approach-9 rule returns NO WINNER, and the length-matched statistic is unlikely to
-    overturn that: beta_to and steerable coverage need no length matching, and neither orders any
-    candidate ahead of the incumbent (`RolloutMechanismJob` reports beta as a point estimate with no
-    interval, so this is a statement about which way the estimates point, not a significance claim).
-    - Follows from this, and it is the phase's direction: D0 predicted ~70 % of the filler payment is
-      family-level and unreachable by text repair, and D2 now shows the remaining ~30 % is not reached
-      either — not by rate-matching, not by an in-batch contrastive term, and not by a 2.5x finer state
-      rate. What D2 refutes is "round-0 repair is enough"; the D3 control it was meant to select for
-      has no candidate to freeze that differs from the incumbent in any measured way.
-    - **WRONG in part (2026-08-08, approach 10):** "no candidate differs in any measured way" holds
-      only for the confounded discount and for the rollout statistics — on the state-matched discount
-      three of four arms reduce the filler's insertion advantage with paired CIs excluding zero
-      (`d2_contrast` -0.0090, `d2_both` -0.0075, `d2_states` -0.0047 at k=1), and the mechanism-level
-      arms do it while `d2_rate`, the pure text repair, does NOT (-0.0018, n.s.). The refutation of
-      "round-0 repair is enough" stands and is now sharper — the corpus arm is the one that fails —
-      but "no winner" does not: see conclusion 15.
-14. **`d2_states` splits the two insertion statistics in exactly the direction the state-count confound
-    predicts** (8, 12). It is the only arm to improve ALL FIVE corruption ladders (filler_ins
-    0.6552 -> 0.8540, lmins 0.8620 -> 0.9178) — insertion severity becomes far better ordered — yet
-    its frequency-drawn insertion discount is 2.5x the incumbent's (0.1475 vs 0.0584), which is what a
-    control pool of ~2.7-state words must do once every word's state count is cut. Neither reading can
-    be checked against the other from the shipped outputs, so the length-matched control pool
-    (`PLAN_3E1` D1 build item (b)) was built and read the same day — approach 10.
-    - **Resolved (2026-08-08, approach 10):** the ladder was right and the discount was artifact. Under
-      the state-matched control `d2_states` charges +0.0125 against the incumbent's +0.0172 — a real
-      reduction, not a 2.5x blow-up — so the entire apparent regression was the frequency-drawn pool
-      averaging 8.16 states against its four-state filler.
-15. **On the statistic the amended rule actually names, D2 HAS a winner, and it is the mechanism arm**
-    (9, 10). Eligibility on the pre-registered clauses leaves `d2_contrast` and `d2_states`
-    (`d2_rate` is worse on three of the five ladders paired; `d2_both` sits 0.0135 below the
-    pre-loop `text_explained_loo` floor); both reduce the state-matched insertion discount with paired
-    CIs excluding zero, so the no-winner clause does not fire, and the larger reduction is
-    `d2_contrast`'s — 0.0172 -> 0.0082 at k=1 and 0.0561 -> 0.0323 at k=4, roughly half the incumbent's
-    filler advantage and within reach of `psi_g_seed`'s 0.0078. Its edge over `d2_states` is itself
-    significant only at k=4 (-0.0096 [-0.0187, -0.0007]), so the rule's argmax picks it while the two
-    are close; and the rollout tiebreaker disagrees mildly (beta_to 0.2469 vs the incumbent's 0.2425),
-    which is the one tension in the read — a controlled text-side edit on held pairs and an
-    observational partial effect on policy rollouts are not the same measurement, and only the first
-    is what the rule selects on. The winner does not depend on reading the `text_explained_loo` floor
-    as psi_g_tc100's own value: `d2_both` reduces less than `d2_contrast` either way, so admitting it
-    changes nothing.
-
+   can reach** (5, 8). Deleting a word orphans T/U = 4.88 frames per state removed while an inserted
+   word is absorbed in half a frame by the skip arc, so the price ratio carries a structural factor
+   2 T/U = 9.77.
+   - WRONG IN PART (2026-08-07 audit): each number reproduces but the sentence switches statistic
+     bases (+0.2461 is the pooled per-frame NLL delta, not the table's per-utterance del_1 0.3336; the
+     12.16/3.89 ratios are on the ce_loo basis where the NLL basis gives 9.88/4.24), "3.1x above it"
+     inverts the comparison (3.89 is BELOW the 9.77 floor; 3.1 is filler/LM), "charges every one of
+     them" over-counts (the emission delta +0.2558 exceeds the deletion total; the NLL-minus-emission
+     residual is transitions PLUS alignment entropy and is negative for deletion), and per
+     removed/added STATE the del/ins ratio is 5.3-7.4, below the claimed floor -- so "the filler sits
+     at the floor" is a state-count artifact (2 states vs the mean deleted word's 3.76). WHAT SURVIVES,
+     verified numerically: deletion orphans a chars_per_state-INVARIANT frame count (18.3 vs 18.4
+     across cps 1.5/0.5) while an inserted word's state count scales ~2.5x, so the price ratio falls
+     ~2.5x under `d2_states` and no corpus or contrastive arm moves it.
+13. **All four D2 arms finished and NONE separates from the incumbent on the frequency-drawn
+   statistics** (8). Every discount step is smaller than the 0.005 bootstrap half-width; beta_to moves
+   0.2425 -> 0.2232 for the repaired corpus and UP for both contrastive arms; steerable coverage moves
+   by at most three of 467 live groups; the incumbent has the HIGHEST in-group spearman (0.4959) and
+   the lowest sel_wer (0.1380). Read literally, approach 9's rule returns NO WINNER.
+   - WRONG IN PART (2026-08-08, approach 10; CURRENT): "no candidate differs in any measured way"
+     holds only for the confounded discount and the rollout statistics -- on the state-matched discount
+     three of four arms reduce the filler's insertion advantage with paired CIs excluding zero
+     (`d2_contrast` -0.0090, `d2_both` -0.0075, `d2_states` -0.0047 at k=1), and the mechanism-level
+     arms do it while `d2_rate`, the pure text repair, does NOT (-0.0018, n.s.). The refutation of
+     "round-0 repair is enough" stands and is sharper -- the corpus arm is the one that fails -- but
+     "no winner" does not: see conclusion 15.
+14. **`d2_states` splits the two insertion statistics exactly as the state-count confound predicts**
+   (8, 12). It is the only arm to improve ALL FIVE corruption ladders (filler_ins 0.6552 -> 0.8540,
+   lmins 0.8620 -> 0.9178) yet its frequency-drawn insertion discount is 2.5x the incumbent's.
+   - RESOLVED (2026-08-08, approach 10): the ladder was right and the discount was artifact. Under the
+     state-matched control `d2_states` charges +0.0125 against the incumbent's +0.0172 -- a real
+     reduction -- so the entire apparent regression was the frequency-drawn pool averaging 8.16 states
+     against its four-state filler.
+15. **On the statistic the amended rule names, D2 HAS a winner, and it is the mechanism arm** (9, 10).
+   Eligibility leaves `d2_contrast` and `d2_states` (`d2_rate` is worse on three of five ladders
+   paired; `d2_both` sits 0.013413 below the pre-loop `text_explained_loo` floor); both reduce the
+   state-matched insertion discount with paired CIs excluding zero, and the larger reduction is
+   `d2_contrast`'s (0.0172 -> 0.0082 at k=1, 0.0561 -> 0.0323 at k=4). Its edge over `d2_states` is
+   significant only at k=4 (-0.0096 [-0.0187, -0.0007]). The rollout tiebreaker disagrees mildly
+   (beta_to 0.2469 vs the incumbent's 0.2425), which is the one tension: a controlled text-side edit on
+   held pairs and an observational partial effect on policy rollouts are not the same measurement, and
+   only the first is what the rule selects on. The winner does not depend on reading the
+   `text_explained_loo` floor as psi_g_tc100's own value.
+   - OPEN (2026-08-08 audit): `d2_states`' k=1 zero-exclusion FLIPS with the bootstrap seed (t-test
+     p=0.046), so "both CIs excluding zero" overstates at k=1 (solid at k=2/k=4), and
+     d2_contrast-over-d2_states at k=4 excludes zero by only 0.0003-0.0006. The winner also turns on
+     two unpinned clauses -- see Open findings.
 16. **The external LM prior is filler-NEGATIVE at matched WER, and the only audio-conditioned view is
-    the one that pays** (11). `lm_prior_units` clears both D4 bars — it ranks (0.5020) and it charges
-    for the suspect count rather than paying for it (-0.0937, CI excluding zero), refuting the plan's
-    premise that an external LM would favour the filler; `ar_recon`, the G-track AR's own reward and
-    the only view here that conditions on audio, ranks barely at all (0.0944) and PAYS for "to"
-    (+0.0716, CI excluding zero), so it is inadmissible and the two views a refresh round may curate
-    with — `lm_prior_units` and `neg_n_suspect` — are both text-side, which is a residual the plan's
-    "not audio-free" clause anticipated and no measurement on this bed can currently remove.
-17. **The frozen repaired scorer moves the filler on the G-track and, at sub-epoch 2, the WER with
-    it — but bar 2's SHARE normalization is blind to the move** (9). At sub-ep 2 `d2_contrast` beats
-    the incumbent on both arms (shaped 13.91 -> 12.68 / 18.91 -> 17.57; recon 31.46 -> 27.04 /
-    36.89 -> 32.89) while cutting dev-clean "to" insertions 3539 -> 3043 and 3817 -> 2096, yet the
-    shaped arm's suspect share barely moves (0.871 -> 0.862) because total insertions fall in
-    proportion, and the recon arm's share falls (0.556 -> 0.408) only because a non-word fragment
-    ("st", 856) takes the vacated mass — two of four sub-epochs, so this is a read, not the verdict.
-    - Sub-ep 3 supplies the verdict this deferred: see (31).
-18. **The incumbent AR reward's ranking replicates from the D0 sample to the whole bed, and its
-    argmax pick is worse than a random one** (12). On all 28 539 utterances at T=0.7, G=12 its
-    within-group spearman is 0.0959 against the D0 512-utterance `ar_recon` read of 0.0944, but
-    eta = -0.1103 — picking by the reward gives 17.72 % WER against a random pick's 17.06 % and an
-    oracle's 11.08 % — while greedy decoding scores 13.86 % and the gold text earns a margin of
-    0.0001 over the samples, so no refresh round may curate with the reward itself.
+   the one that pays** (11). `lm_prior_units` clears both D4 bars (0.5020; -0.0937 CI excluding zero),
+   refuting the plan's premise that an external LM would favour the filler; `ar_recon` ranks barely at
+   all (0.0944) and PAYS for "to" (+0.0716, CI excluding zero), so the two admissible views are both
+   text-side -- a residual the plan's "not audio-free" clause anticipated and no measurement on this
+   bed can remove.
+17. **The frozen repaired scorer moves the filler on the G-track and, at sub-epoch 2, the WER with it
+   -- but bar 2's SHARE normalization is blind to the move** (9). At sub-ep 2 `d2_contrast` beats the
+   incumbent on both arms while cutting "to" insertions 3539 -> 3043 and 3817 -> 2096, yet the shaped
+   arm's suspect share barely moves (0.871 -> 0.862) because total insertions fall in proportion, and
+   the recon arm's share falls (0.556 -> 0.408) only because a non-word fragment ("st", 856) takes the
+   vacated mass. Superseded as a verdict by conclusion 31.
+18. **The incumbent AR reward's ranking replicates from the D0 sample to the whole bed, and its argmax
+   pick is worse than a random one** (12). On all 28 539 utterances at T=0.7, G=12 its within-group
+   spearman is 0.0959 against the D0 512-utterance read of 0.0944, but eta = -0.1103 -- picking by the
+   reward gives 17.72 % WER against a random pick's 17.06 % and an oracle's 11.08 % -- while greedy
+   decoding scores 13.86 % and the gold text earns a margin of 0.0001 over the samples. No refresh
+   round may curate with the reward itself.
 19. **Two-view curation reaches 79 % of the bed, but its picks are dirtier than the anchor they join**
-    (12). 22 667 of 28 539 groups yield a candidate with both advantages positive (83 219 members
-    qualify, one kept per utterance) for a 51 206-row pool at a 55.7 % anchor share, yet the curated
-    half's suspect rates run above the anchor's ("to" 0.0462 vs 0.0275, "buy" 0.0031 vs 0.0001):
-    within-group selection can only take the least-bad of twelve samples, and on this bed all twelve
-    are worse than the repaired round-0 text it is added to.
-20. **The collapse is pure over-generation, and a suspect-SHARE bar is blind to it** (13). Recall does
-    not fall — %Corr RISES 89.07 -> 91.55 (dev-clean) and 87.31 -> 88.92 (dev-other) while %Del falls
-    4.46 -> 2.14 and %Ins goes 5.98 -> 38.26 at hyp/ref 1.015 -> 1.361 — so the policy still finds the
-    reference words and pads around them; the suspect set's share of insertions is flat at 0.045-0.066
-    across the whole trajectory because the added mass is generic function words (the, and, of, to,
-    a), which is why any bar normalized by total insertions cannot see a 6.4x insertion blow-up and
-    D4' must read insertion COUNTS instead.
+   (12). 22 667 of 28 539 groups yield a candidate with both advantages positive (83 219 members
+   qualify, one kept per utterance) for a 51 206-row pool at a 55.7 % anchor share, yet the curated
+   half's suspect rates run above the anchor's ("to" 0.0462 vs 0.0275, "buy" 0.0031 vs 0.0001).
+   Qualification: "all twelve are worse than the repaired round-0 text" is an aggregate reading,
+   literally true in ~56-72 % of groups.
+20. **The collapse is pure over-generation, and a suspect-SHARE bar is blind to it** (13). %Corr RISES
+   89.07 -> 91.55 (dev-clean) and 87.31 -> 88.92 (dev-other) while %Del falls 4.46 -> 2.14 and %Ins
+   goes 5.98 -> 38.26 at hyp/ref 1.015 -> 1.361; the suspect set's share of insertions is flat at
+   0.045-0.066 because the added mass is generic function words. Any bar normalized by total insertions
+   cannot see the insertion blow-up, so D4' must read insertion COUNTS. Qualifications: the 6.4x is
+   dev-clean only (dev-other 5.07x, pooled 5.66x); the ep0 insertion baseline is 56.5 % ten runaway
+   repetition-loop utterances against 2.1 % at ep4, so the collapse trades rare loops for broad diffuse
+   padding; the five named function words carry only ~18 % of insertion mass.
 21. **The scorer's preference migrates from gold to its own padded output, on top of an already-dead
-    conditional** (14). The gold column reproduces conclusion 2 exactly (5.7444 -> 6.2045 after one
-    sub-epoch), and on those same rows `self_pref` goes -0.0139 -> +0.1267 with the best-scoring
-    column moving from gold at ep0 to the arm's own ep4 decodes at ep4 — the co-collapse the phase
-    asked about — but every ep >= 1 row sits at or above BOTH floors, so the within-row spread
-    (<= 0.14 nats) orders texts under a scorer that carries essentially no information about the units.
-    - WRONG in part (2026-08-09 verifier): "at or above BOTH floors" holds only for the unit
-      marginal — 20 of the 24 ep >= 1 cells sit BELOW uniform ln 500 (max shortfall 0.1187) and the
-      ep4 within-row spread is 0.14205, not <= 0.14; the inference survives in the weaker form
-      "above the unit marginal and within 0.12 nats of uniform".
+   conditional** (14). `self_pref` goes -0.0139 -> +0.1267 with the best-scoring column moving from
+   gold at ep0 to the arm's own ep4 decodes at ep4 -- the co-collapse the phase asked about.
+   - WRONG IN PART (2026-08-09 audit; CURRENT): "at or above BOTH floors" holds only for the unit
+     marginal -- 20 of the 24 ep >= 1 cells sit BELOW uniform ln 500 (max shortfall 0.1187) and the ep4
+     within-row spread is 0.14205, not <= 0.14. The inference survives in the weaker form "above the
+     unit marginal and within 0.12 nats of uniform".
 22. **With the rollouts held identical, the reward's ranking utility goes NEGATIVE after one
-    sub-epoch** (15). Pinning the policy at theta_0 so every cell re-ranks the same samples, eta at
-    the arm's operating T=0.7 falls +0.2246 -> -0.1185 at ep1 and -0.2792 at ep4 (sel_wer
-    0.0905 -> 0.1288 against an unchanged mean 0.1076), while `std_wg` GROWS 0.018 -> 0.026 — so this
-    is not a dead band but a reward that actively prefers the padded sample, and the loop's own
-    gradient condition (spearman > 0 and sel_wer < mean_wer) fails from ep1 on.
-    - Follows from this, and it is the phase's direction: this bed's update rule IS D5(b)'s continuous
-      joint psi, so D5(b) is no longer asking whether continuous joint psi collapses but how fast it
-      does on the 960 h theta_0' bed — one sub-epoch is the number to beat, and such an arm needs a
-      within-loop read of eta or CE_true, not an end-of-arm WER, to be informative at all.
-23. **The label-free selection rule and the health screen disagree on this arm, and the screen is
-    what makes the fork defensible** (16). Dev reward ranks sub-ep 3 first and sub-ep 2 third, i.e.
-    it is anti-correlated with WER over the four available sub-epochs; the minimal-state count vetoes
-    3 and 4 at +32 % and +38 %, leaving sub-ep 2 — which WER then confirms at 5.34 / 9.50, the arm's
-    best. **All three update-rule arms therefore fork from `vhyvv2waeU16` sub-epoch 2.**
-    - The plan's own named statistic would have missed it: words per utterance moves only
-      +2.11 % / +2.31 % on the same checkpoints, inside any band that is not itself post-hoc. Reading
-      the exploit CLASS by absolute count is what carries the screen, which extends D5(a)-1's
-      counts-not-shares ruling — length is blind here too, not just the share.
-24. **The joint arm's psi CE and its reward agree numerically from step 1** (17), so the trainable
-    channel is scoring the same quantity the frozen reward reads: `psi_ce` 2.94-3.48 against
-    `reward_recon` -2.95 to -3.48 on the same steps. This is a wiring check, not a result.
-25. **The joint rule does not fit this bed's node at the parent's settings, on either axis, so
-    D5(b)-b cannot be a single-knob arm here** (17). Measured over 76 steps: **12.39 s/step against
-    the parent's 4.81, a 2.57x slowdown**, which projects a sub-epoch at **11.2 h against the 11.5 h
-    SLURM cap** — no room for the recog, and `ReturnnTrainingJob` resumes per sub-epoch, so a
-    sub-epoch that misses the cap never completes at all. It did not get that far: **CUDA OOM at
-    step ~72**, GPU 1 at 95 GiB, because the parent already peaks at 80.9 of 95 GiB at
-    `max_seqs` 8 / `group_size` 12 and the CE channel's alignment-DP autograd graph over all 96
-    rollouts has nowhere to live.
-    - Every fix trades against the property the control depends on: `partition_epoch` buys the time
-      but ends the 1:1 sub-epoch comparison the plan pinned; `max_seqs`/`group_size` buy the memory
-      but change the optimizer trajectory or the GRPO group; checkpointing the DP recurrence buys the
-      memory at the price of one more DP forward, i.e. it spends the axis that is already binding.
-      Reported, not chosen.
-    - **WRONG (2026-08-11)**: halving `batch_size` to 1e6 with `accum_grad_multiple_step` 2 — a fix
-      this list did not consider, and which preserves the effective batch, the group, the update count
-      and the 1:1 sub-epoch comparison — makes the arm fit on both axes: memory flat at 48.1 of 95 GiB
-      and sub-epochs of 35982 s and 33252 s against the parent's 15693 s, i.e. 2.29x and 2.12x, inside
-      the 11.5 h cap.
-26. **The excess-mass suspect derivation is empty on this bed, so the two-view curation rule has no
-    second view here without a plan amendment** (18). At D0's pre-registered `min_excess` 0.002 no
-    word qualifies; the largest excess is "and" at 0.00135, and 0.001 admits that one word alone.
-    The instrument is not broken, it is out of range: it prices a *rate* difference against the LM
-    corpus, and this policy decodes at 5.34/9.50, so the ~140 extra "and" tokens the minimal-state
-    exploit contributes are 0.13 % of a 106 k-token corpus. `neg_n_suspect` — the weaker of the two
-    G-track views at 0.186 — therefore cannot be one, and the only other cleared view,
-    `lm_prior_units`, is the audio-free one the rule forbids to curate alone.
+   sub-epoch** (15). eta at T=0.7 falls +0.2246 -> -0.1185 at ep1 and -0.2792 at ep4 (sel_wer
+   0.0905 -> 0.1288 against an unchanged mean 0.1076) while `std_wg` GROWS 0.018 -> 0.026 -- not a dead
+   band but a reward that actively prefers the padded sample; the loop's own gradient condition
+   (spearman > 0 and sel_wer < mean_wer) fails from ep1 on. Direction: this bed's update rule IS
+   D5(b)'s continuous joint psi, so D5(b) asks how fast it collapses, not whether -- one sub-epoch is
+   the number to beat, and such an arm needs a within-loop read of eta or CE_true to be informative.
+23. **The label-free selection rule and the health screen disagree, and the screen is what makes the
+   fork defensible** (16). Dev reward ranks sub-ep 3 first and sub-ep 2 third, i.e. anti-correlated
+   with WER over the four sub-epochs; the minimal-state count vetoes 3 and 4 at +32 % and +38 %,
+   leaving sub-ep 2, which WER confirms at 5.34 / 9.50. **All three update-rule arms fork from
+   `vhyvv2waeU16` sub-epoch 2.** The plan's own named statistic would have missed it: words per
+   utterance moves only +2.11 % / +2.31 %. Reading the exploit CLASS by absolute count is what carries
+   the screen.
+24. **The joint arm's psi CE and its reward agree numerically from step 1** (17): `psi_ce` 2.94-3.48
+   against `reward_recon` -2.95 to -3.48 on the same steps. A wiring check, not a result.
+25. **The joint rule does not fit this bed's node at the parent's settings** (17). Measured over 76
+   steps: 12.39 s/step against the parent's 4.81 (2.57x), projecting a sub-epoch at 11.2 h against the
+   11.5 h SLURM cap; it did not get that far -- CUDA OOM at step ~72, GPU at 95 GiB, because the parent
+   already peaks at 80.9 of 95 GiB at `max_seqs` 8 / `group_size` 12 and the CE channel's alignment-DP
+   autograd graph over all 96 rollouts has nowhere to live. Every considered fix trades against the
+   property the control depends on.
+   - WRONG (2026-08-11; CURRENT): halving `batch_size` to 1e6 with `accum_grad_multiple_step` 2 -- a
+     fix this list did not consider, preserving the effective batch, the group, the update count and
+     the 1:1 sub-epoch comparison -- makes the arm fit on both axes: memory flat at 48.1 of 95 GiB and
+     sub-epochs of 35982 s and 33252 s against the parent's 15693 s (2.29x, 2.12x), inside the cap.
+26. **The excess-mass suspect derivation is empty on this bed** (18). At `min_excess` 0.002 no word
+   qualifies (largest "and" 0.001345). The instrument is not broken, it is out of range: it prices a
+   rate difference against the LM corpus, and this policy decodes at 5.34/9.50, so the ~140 extra "and"
+   tokens are 0.13 % of a 106 k-token corpus. `neg_n_suspect` therefore cannot be a curation view here.
+   Superseded in scope by conclusion 30.
 27. **The round-0 gold scorer on the best bed under-charges INSERTIONS by ~6x and discounts the
-    minimal-state class inside that, before any refresh** (18). An inserted word costs +0.069 against
-    +0.405 for a substitution and +0.430 for a deletion, and within insertions the minimal-state word
-    is +0.021 cheaper than a frequency-matched LM word at the same slot (CI [+0.0164, +0.0250],
-    frac>0 0.563). The sign FLIPS for substitutions (-0.016, CI excluding zero), so this is not a
-    generic filler affinity: the scorer prices writing a filler over a word correctly and prices
-    adding one almost not at all. Insertions are also where the corruption ladder is least monotone
-    (0.658 against 0.735-0.784).
-    - Bears on D5's attribution question: the price is wrong at ep0 of the loop, so this bed's
-      insertion exploit needs no scorer drift to explain it. What the frozen arm contributes on top
-      of that is what D5(a)/(b) still have to separate.
-28. **The G-track refresh round completes and moves the gate statistic further than any D2 arm, but
-    only under the CI reading of the ladder floor** (12). The state-matched insertion discount falls
-    0.0172 -> 0.0064 at k=1 (paired -0.0108 [-0.0140, -0.0077], p 0.000) and the gap widens with k
-    (-0.0422 at k=4) at no held cost (ce_loo 2.7198 -> 2.7168 against H_uni 6.0324); no ladder is
-    significantly worse, but four are nominally lower, so the point reading elects nobody and the CI
-    reading elects `r1`. Recording the numbers only -- the verdict is the planner's.
-    - Curation is worth about a fifth of the reduction: the same recipe on the uncurated corpus
-      already reaches 0.0082, and it buys that at a hair better held ce_loo (2.7139) than `r1`.
-    - The contrastive term is not what did it. contrast/utt is 0.8971 in its first active epoch
-      (ep5, once the alignment prior has annealed off), 0.0452 by ep6 and exactly 0.0000 from ep21
-      on, so the last third of the refit is pure NLL on the curated corpus.
-    - **It moves the text-side preference and not the topology.** On the same held set the insertion
-      ASYMMETRY goes 0.3062 (incumbent) -> 0.2968 (`d2_contrast`) -> 0.2827 (`r1`), a 7.7 % shift
-      against the discount's 63 %, so after the refresh the filler is no longer specially cheap to
-      insert while inserting anything at all is still ~7x cheaper than deleting. The degradation
-      this ladder exists to stop is over-generation of generic words (20), which the asymmetry
-      prices and the discount does not -- the gate's pre-registered statistic is the one the refresh
-      can move. (Point estimates: the clause table pairs the discount, not the asymmetry.)
-29. **On the best bed psi ranks its own rollouts well, but its advantage over the audio-free null
-    does not clear the pre-registered margin** (18). Within-group spearman is +0.3407 against the
-    0.17 bar and the length-only null is -0.0074, so the ranking is not length; the audio margin is
-    +0.0229 [-0.0036, +0.0522] (P(>0) 0.953) and gap_true +0.0089 against +0.0248, so two of the
-    three G3 bars FAIL on 28538 groups.
-    - Bears on the second-view problem (26): the one audio-conditioned signal this bed offers is
-      itself unproven against an audio-free null at 95 %, which is a stronger reason than
-      self-amplification to keep it out of a curation view.
-    - The reward the loop optimizes IS the number these bars measure: the row-level parity check is
-      exact, max |online - offline| 0.000e+00 on 512 of 512 round-tripped rollouts with no row
-      floored, so nothing in the id round trip, the batching or the flooring has drifted.
-30. **This bed has no admissible audio-conditioned curation view, by measurement rather than by
-    exhaustion** (18). On 647 live groups psi's own score is filler-POSITIVE at matched WER --
-    partial beta +0.2254 [+0.0817, +0.3239] for the watch class, +0.2029 [+0.0558, +0.3000] once
-    shaped -- so it fails clause (f) outright: at equal WER it prefers the member carrying more of
-    them. `lm_prior_units` is the only signal that clears both clauses (spearman 0.5171, beta
-    -0.3018 [-0.4703, -0.1661]) and it is the audio-free one the rule forbids to curate alone;
-    `n_tokens` ranks WER negatively (-0.1589) and `lm_prior_tokens`' affinity CI spans zero.
-    - Supersedes the reading in (26) that the second view was merely missing: the audio-conditioned
-      candidate exists and is disqualified, which is a stronger result and a worse one.
-    - The (f) block reads the label-derived watch class, which is its monitor role -- it evaluates a
-      view, it does not select with one. `neg_n_suspect` scores 0.4229 in (e) on that same class and
-      is barred from selecting for exactly that reason.
+   minimal-state class inside that, before any refresh** (18). An inserted word costs +0.069 against
+   +0.405 for a substitution and +0.430 for a deletion, and within insertions the minimal-state word is
+   +0.021 cheaper than a frequency-matched LM word at the same slot (CI [+0.0164, +0.0250], frac>0
+   0.563). The sign FLIPS for substitutions (-0.016, CI excluding zero), so this is not generic filler
+   affinity. Insertions are also where the ladder is least monotone (0.658 against 0.735-0.784). Bears
+   on D5's attribution question: the price is wrong at ep0 of the loop, so this bed's insertion exploit
+   needs no scorer drift to explain it.
+28. **The G-track refresh round moves the gate statistic further than any D2 arm, but only under the CI
+   reading of the ladder floor** (12). The state-matched discount falls 0.0172 -> 0.0064 at k=1 (paired
+   -0.0108 [-0.0140, -0.0077], p 0.000), the gap widens with k (-0.0422 at k=4) at no held cost; no
+   ladder is significantly worse but four are nominally lower, so the point reading elects nobody and
+   the CI reading elects `r1`. Curation is worth about a fifth of the reduction (the uncurated recipe
+   already reaches 0.0082, at a hair better held ce_loo 2.7139). The contrastive term is not what did
+   it: contrast/utt is 0.8971 in its first active epoch (ep5), 0.0452 by ep6 and exactly 0.0000 from
+   ep21 on, so the last third of the refit is pure NLL. **It moves the text-side preference and not the
+   topology**: the insertion ASYMMETRY goes 0.3062 -> 0.2968 -> 0.2827, a 7.7 % shift against the
+   discount's 63 %, so after the refresh the filler is no longer specially cheap to insert while
+   inserting anything at all is still ~7x cheaper than deleting. The degradation this ladder exists to
+   stop is over-generation of generic words (20), which the asymmetry prices and the discount does not.
+29. **On the best bed psi ranks its own rollouts well, but its advantage over the audio-free null does
+   not clear the pre-registered margin** (18). Within-group spearman +0.3407 against the 0.17 bar with
+   the length-only null at -0.0074, but the audio margin is +0.0229 [-0.0036, +0.0522] (P(>0) 0.953)
+   and gap_true +0.0089 against +0.0248 -- two of three G3 bars FAIL on 28538 groups. The row-level
+   parity check is exact (max |online - offline| 0.000e+00 on 512 of 512), so nothing in the id round
+   trip, the batching or the flooring has drifted.
+30. **This bed has no admissible audio-conditioned curation view, by measurement rather than
+   exhaustion** (18). On 647 live groups psi's own score is filler-POSITIVE at matched WER -- partial
+   beta +0.2254 [+0.0817, +0.3239], +0.2029 [+0.0558, +0.3000] once shaped -- so it fails clause (f)
+   outright. `lm_prior_units` is the only signal clearing both clauses (spearman 0.5171, beta -0.3018
+   [-0.4703, -0.1661]) and it is the audio-free one the rule forbids to curate alone; `n_tokens` ranks
+   WER negatively (-0.1589) and `lm_prior_tokens`' affinity CI spans zero. Supersedes conclusion 26's
+   reading that the second view was merely missing: the audio-conditioned candidate exists and is
+   disqualified. The (f) block reads the label-derived watch class in its monitor role only.
 31. **A refit scorer's WER advantage is one sub-epoch wide and does not survive the next one** (9).
-    Against the incumbent's own trajectory on the shaped arm `d2_contrast` runs 13.57 / 19.69 ->
-    12.68 / 17.57 -> 13.54 / 18.56 where the incumbent runs 13.42 / 18.75 -> 13.91 / 18.91 -> 13.49 /
-    18.81: WORSE at sub-ep 1, better by 1.23 / 1.34 at sub-ep 2 -- which is the incumbent's own worst
-    sub-epoch -- and level on dev-clean by sub-ep 3. Both arms wobble inside a 13.4-13.9 band, so
-    (17)'s sub-ep 2 read was taken against a bump and the repair has not bought a durable WER point.
-    - The recon arm keeps a real gap (32.94 / 37.91 against 33.54 / 39.74, on 5623 insertions against
-      8724) but both arms there are diverging, so it prices a slower divergence, not a fix.
-    - What the cancellation left unmeasured is the only thing that would settle it: the incumbent
-      COLLAPSES at sub-ep 4 (13.49 -> 17.99, substitutions 2894 -> 5301) and the repaired arm is held
-      at sub-ep 3, so whether the repair delays that collapse is unknown.
-    - The repaired arm's own sub-ep 3 regression is insertions and deletions, not substitutions
-      (3616 -> 3929, 412 -> 582, 2868 -> 2857) -- the same shape the best bed shows (`SAE_0d.md` c13).
+   `d2_contrast` runs 13.57/19.69 -> 12.68/17.57 -> 13.54/18.56 where the incumbent runs
+   13.42/18.75 -> 13.91/18.91 -> 13.49/18.81: WORSE at sub-ep 1, better by 1.23/1.34 at sub-ep 2 --
+   the incumbent's own worst sub-epoch -- and level on dev-clean by sub-ep 3. Both arms wobble inside a
+   13.4-13.9 band, so conclusion 17's sub-ep 2 read was taken against a bump. The recon arm keeps a
+   real gap (32.94/37.91 against 33.54/39.74, 5623 insertions against 8724) but both arms there are
+   diverging, so it prices a slower divergence, not a fix. What the cancellation left unmeasured is the
+   only thing that would settle it: the incumbent COLLAPSES at sub-ep 4 (13.49 -> 17.99, substitutions
+   2894 -> 5301) and the repaired arm is held at sub-ep 3.
 32. **One sub-epoch of co-training is the largest WER gain anywhere on this bed, and the next one
-    destroys it** (17). The joint arm runs 5.12 / 9.27 at sub-ep 1 where its matched frozen control
-    runs 6.56 / 11.15 -- better by 1.44 / 1.88, and better than the parent's all-time best 5.34 / 9.50
-    -- then 17.35 / 21.97 at sub-ep 2 where the control runs 6.89 / 11.31. Both moves are the insertion
-    channel: 385 / 630 at sub-ep 1, far BELOW the frozen band's 1182-1415 / 1592-1794, then 6114 / 6450
-    at about 16x that, while substitutions move far less (2029 -> 2952 dc). The collapse D4's
-    offline-only shape was built around is therefore real and now carries the frozen control it was
-    missing, but it is a cliff after one good step rather than a decay, which argues for GATING a
-    discrete refresh rather than against refitting.
-    - The pre-registered CE_true alarm (+0.1 nats) is unread: psi is extracted at both sub-epochs but
-      the held-NLL forensics have not run, so the scorer-side mechanism is still open.
-    - Sub-ep 3 is in flight, so whether the arm recovers or stays collapsed is unmeasured.
-
-**33. Round 1's uncurated refit fits the frozen held set materially better than the incumbent but
-fails the gate on one ladder** (19). Held ce_loo 2.7614 -> 2.6432 with text_explained_loo up +0.1182
-and the two INSERTION ladders' paired spearman up +0.0434 [+0.0340, +0.0531] (filler) and +0.0288
-[+0.0194, +0.0384] (LM word) and the within-group spearman on the fork dump up +0.3399 -> +0.3621,
-while `lmsub` falls -0.0058 [-0.0091, -0.0025] -- the single clause v2 (iv) reads as "not decreased"
--- so the clause table returns NO WINNER under both the point and the CI reading, and whether an unweighted ladder rule should let a 0.006 substitution loss outweigh a
-0.043 insertion gain is a gate-design question for the planner, not one an executor may resolve.
-
-**34. Re-pricing a trained scorer's arcs cannot move insertion, and the topology it was meant to gate
-is free** (20). The strongest of twelve settings lifts the k=1 insertion price 1.09x (+0.0693 ->
-+0.0755) against the gate's 2x and a 4-nat skip bias only 1.03x, because a duration charge falls on
-the clean text's own short states as heavily as on an inserted word's and the paired delta keeps only
-the difference -- which is the argument for rung 2's TEXT-CONDITIONED prices and rung 3's hard
-constraint rather than a price both sides pay -- while the feasibility statistic that gates rung 3
-clears by a wide margin: 6.64 frames per content state, 3 infeasible rows in 59 878 at d_min=2 and 7
-at d_min=3, so the plan's ceiling ("mean T/U ~4.9 caps d_min ~2 for the tail") was derived on a
-tighter number than this corpus shows and d_min=3 is a live dial.
-
-**35. The minimum-duration topology passes every D6 clause and repairs round 1's failing one, but the
-acceptance rule's winner test asks a question the phase deliberately rescales** (20). d_min=2 clears
-all four bars -- spearman +0.3621 -> +0.4357, held ce_loo 2.6432 -> 2.1620, k=1 insertion price 2.86x
-the incumbent's growing in k, and `filler_ins` monotonicity 0.658 -> 0.853, from last place to first --
-and it also lifts the `lmsub` ladder to 0.9572, above both the comparator's 0.9479 (the single clause
-that made c33 a no-winner) and psi0_gold's 0.9538, while online/offline parity on the wider graph holds
-to 5e-07; yet the clause table returns NO WINNER because its winner test wants the state-matched
-insertion discount to FALL and this arm is neutral on it (+0.0047 [-0.0009, +0.0101], p=0.096) -- a
-delta-ce_loo LEVEL, and every edit price on this arm is ~2.8x the incumbent's, so the same measurement
-read as a share of what an insertion costs falls 11.3 % -> 7.1 %. Which reading binds is the planner's
-to pin; it is also what decides eligibility, since the arm is eligible under the CI reading (0 ladders
-worse) and not under the point one (2 worse, both CIs spanning zero).
-
-**36. The corruption margin hurts on its own and drags the topology down with it, which refutes the
-registered expectation that rungs 2+3 together are the shape** (20). Alone it fails clause (iv)
-(`filler_ins` monotonicity 0.692, still under the sub/del band) and multiplies the matched insertion
-discount six-fold (+0.0094 -> +0.0578, CI excluding zero); added to the topology arm it costs three
-ladders at CIs excluding zero and drives the discount to +0.3150. The mechanism is in the probe rows:
-the term raised the price of exactly the LM-drawn control words it trains against (`lmins_m` 2.9x)
-more than the filler's (2.4x), so it learned its own negative distribution rather than insertion in
-general -- and the combined arm's ins/del ratio of 0.699 is the closest to parity anywhere in this log.
-  CORRECTION 2026-08-12: the last clause originally read that the 0.699 ratio "is indiscriminate
-  inflation rather than discrimination", which the combined arm's re-rank (measured after this
-  conclusion was written) does not support -- it ranks rollouts BEST of every arm here, spearman
-  +0.4441 and eta +0.3392 against d_min=2's +0.4357 / +0.3296, so rung 2 mis-prices the filler against
-  a matched control while still improving the statistic the loop actually consumes.
-
-**37. The min-duration topology transfers as a FIT but fails the G-track gate on the substitution
-ladder** (21b). `r1_mindur` fits the frozen held set far better than either comparator (ce_loo 2.3774
-against `r1`'s 2.7168 and `psi_g_tc100`'s 2.7198) and wins both insertion ladders by a wide margin
-(filler_ins +0.0849, lmins +0.0488 against `r1`, CIs excluding zero), but it is significantly worse on
-filler substitution (-0.0136, CI -0.0194 to -0.0077) and so is ineligible on both readings of the
-"not worse on any ladder" clause; the round closes with NO WINNER against either incumbent, which
-separates fitting the held set from being safe to hand the loop.
-
-**38. Running psi's alignment recursion on the GPU instead of in python costs nothing in fit and
-makes a per-round refit affordable** (21b, replicated). The same d_min=2 refit -- same corpus, same
-hyperparameters, only the forward-backward recursion moved into RETURNN's CUDA fast-Baum-Welch
-kernel -- reaches best held_nll 2.3160 at epoch 23 against the python path's 2.3186 at epoch 23, in
-0.78 h against 5.94 h (94 s against 713 s per epoch, 7.6x), which is what turns "refit the scorer
-once per loop round" from a half-day into an hour and is the premise Z4's schedule is built on.
-
-**39. The min-duration scorer as the live reward PASSES its pre-registered confirmation outright, and
-the separation widens to the end of the run** (21a, complete at eight of eight sub-epochs). The
-control's sub-epoch-3 regression does not merely shrink -- the swap-in arm never regresses at all,
-improving past the fork point (5.34/9.50) to 4.68/8.64 one sub-epoch later and holding 4.73/9.31 at
-sub-epoch 10 against the control's 6.46/11.41, with dev-other insertions less than half the control's
-(933 against 1964). The insertion exploit the whole D6 ladder was built to close is closed in the
-live loop, on the reward side alone, with no change to the policy, the data or the schedule.
-
-**40. The homophone arm clears its admission floor, but the reachable mass is thin and concentrated**
-(23). 7.68 % of corpus tokens sit in a class against the 5 % floor, so the arm is admissible; a
-uniform draw rewrites only 4.02 %, eight classes carry 60.5 % of all rewrites, and 131 of the 139
-classes the corpus uses have just two members, so what HOM can vary is close to a handful of frequent
-function-word pairs rather than broad spelling diversity.
-41. **The periodic arm has never once refreshed its scorer** (22). Its gate returned KEEP at rounds
-    2, 3 and 5 and the two-consecutive-failure stop rule fired at round 4 -- where the binding
-    confidence-interval reading of the clauses actually PASSED and was overridden -- so legs 2 to 8
-    all run the round-1 scorer, and the arm's comparison against the one-shot swap-in measures the
-    shard rule and the Adam restarts, not refresh frequency.
-42. **WRONG after the six-leg read: on the label-free init a refit at every boundary is the first loop arm to go below the no-loop
-    init at a matched sub-epoch, and it is still not the best scorer there** (26). At sub-epoch 2 it
-    reaches 12.85 / 17.89 against theta_0^G's 13.89 / 18.34, where both frozen-scorer arms sat at or
-    above the init -- but the frozen REPAIRED scorer reaches 12.68 / 17.57 at the same point, so
-    what the two scored legs support is "a scorer that is not the contaminated one helps", not yet
-    "recency helps"; six legs are outstanding and no replication spread exists on this bed.
-    CORRECTION 2026-08-20: only two legs were available here. The six-leg prefix makes that gain
-    transient and is replaced by conclusion 54.
+   destroys it** (17). 5.12/9.27 at sub-ep 1 against the matched frozen control's 6.56/11.15 -- better
+   than the parent's all-time best 5.34/9.50 -- then 17.35/21.97 at sub-ep 2 and 41.8/50.9 at sub-ep 3.
+   Both moves are the insertion channel: 385/630 at sub-ep 1, far BELOW the frozen band's
+   1182-1415/1592-1794, then 6114/6450, then 21,406 on dev-other, while substitutions move far less.
+   The collapse D4's offline-only shape was built around is real and now carries the frozen control it
+   was missing, but it is a cliff after one good step rather than a decay, which argues for GATING a
+   discrete refresh rather than against refitting. The scorer-side mechanism is now measured too
+   (approach 17): gold-pair ce_loo degrades 2.6343 -> 2.7928 -> 2.9771 while own-decode ce_loo improves
+   2.6270 -> 2.4726 -> 2.2994 over the same three sub-epochs.
+33. **Round 1's uncurated refit fits the frozen held set materially better than the incumbent but
+   fails the gate on one ladder** (19). Held ce_loo 2.7614 -> 2.6432, `text_explained_loo` up +0.1182,
+   the two INSERTION ladders' paired spearman up +0.0434 [+0.0340, +0.0531] (filler) and +0.0288
+   [+0.0194, +0.0384] (LM word), within-group spearman on the fork dump +0.3399 -> +0.3621, while
+   `lmsub` falls -0.0058 [-0.0091, -0.0025] -- the single clause v2 (iv) reads as "not decreased" -- so
+   the clause table returns NO WINNER under both readings. Whether an unweighted ladder rule should let
+   a 0.006 substitution loss outweigh a 0.043 insertion gain is a gate-design question for the planner.
+34. **Re-pricing a trained scorer's arcs cannot move insertion, and the topology it was meant to gate
+   is free** (20). The strongest of twelve settings lifts the k=1 insertion price 1.09x (+0.0693 ->
+   +0.0755) against the gate's 2x and a 4-nat skip bias only 1.03x, because a duration charge falls on
+   the clean text's own short states as heavily as on an inserted word's. The feasibility statistic
+   gating rung 3 clears by a wide margin: 6.64 frames per content state, 3 infeasible rows in 59 878 at
+   d_min=2 and 7 at d_min=3, so the plan's ceiling ("mean T/U ~4.9 caps d_min ~2 for the tail") was
+   derived on a tighter number than this corpus shows and d_min=3 is a live dial.
+35. **The minimum-duration topology passes every D6 clause and repairs round 1's failing one, but the
+   acceptance rule's winner test asks a question the phase deliberately rescales** (20). d_min=2 clears
+   all four bars -- spearman +0.3621 -> +0.4357, held ce_loo 2.6432 -> 2.1620, k=1 insertion price
+   2.86x the incumbent's growing in k, `filler_ins` monotonicity 0.658 -> 0.853 from last place to
+   first -- and lifts `lmsub` to 0.9572, above both the comparator's 0.9479 (the single clause that made
+   c33 a no-winner) and psi0_gold's 0.9538, while online/offline parity holds to 5e-07. Yet the clause
+   table returns NO WINNER because its winner test wants the state-matched insertion discount to FALL
+   and this arm is neutral on it (+0.0047 [-0.0009, +0.0101], p=0.096) -- a delta-ce_loo LEVEL, and
+   every edit price on this arm is ~2.8x the incumbent's, so read as a share of what an insertion costs
+   the same measurement falls 11.3 % -> 7.1 %. Which reading binds is the planner's to pin; it also
+   decides eligibility (eligible under CI with 0 ladders worse, not under point with 2 worse, both CIs
+   spanning zero).
+36. **The corruption margin hurts on its own and drags the topology down with it, refuting the
+   registered expectation that rungs 2+3 together are the shape** (20). Alone it fails clause (iv)
+   (`filler_ins` monotonicity 0.692) and multiplies the matched insertion discount six-fold
+   (+0.0094 -> +0.0578, CI excluding zero); added to the topology arm it costs three ladders at CIs
+   excluding zero and drives the discount to +0.3150. The mechanism is in the probe rows: the term
+   raised the price of exactly the LM-drawn control words it trains against (`lmins_m` 2.9x) more than
+   the filler's (2.4x), so it learned its own negative distribution rather than insertion in general.
+   - CORRECTION 2026-08-12: the original closing clause called the combined arm's 0.699 ins/del ratio
+     "indiscriminate inflation rather than discrimination", which its re-rank (measured after the
+     conclusion was written) does not support -- it ranks rollouts BEST of every arm here, spearman
+     +0.4441 and eta +0.3392 against d_min=2's +0.4357 / +0.3296. Rung 2 mis-prices the filler against
+     a matched control while still improving the statistic the loop consumes.
+37. **The min-duration topology transfers as a FIT but fails the G-track gate on the substitution
+   ladder** (21b). `r1_mindur` fits the frozen held set far better than either comparator (ce_loo
+   2.3774 against `r1`'s 2.7168 and `psi_g_tc100`'s 2.7198) and wins both insertion ladders by a wide
+   margin (filler_ins +0.0849 [0.0635, 0.1058], lmins +0.0488 [0.0362, 0.0616] against `r1`), but it is
+   significantly worse on filler substitution (-0.0136 [-0.0194, -0.0077]) and so is ineligible on both
+   readings; NO WINNER against either incumbent, which separates fitting the held set from being safe
+   to hand the loop. Against `psi_g_tc100` it is also CI-worse on the del ladder (-0.0097 [-0.0158,
+   -0.0039]) and filler_sub (-0.0146), while its matched insertion discount is CI-LOWER at k=4 (-0.0182
+   [-0.0276, -0.0085], p=0.000; k=1 n.s.) -- the topology's insertion-pricing gain grows with k while
+   eligibility fails on the substitution/deletion side.
+38. **Running psi's alignment recursion on the GPU instead of in python costs nothing in fit and makes
+   a per-round refit affordable** (21b, replicated). The same d_min=2 refit -- same corpus, same
+   hyperparameters, only the forward-backward moved into RETURNN's CUDA fast-Baum-Welch kernel --
+   reaches best held_nll 2.3160 at epoch 23 against the python path's 2.3186 at epoch 23, in 0.78 h
+   against 5.94 h (94 s against 713 s per epoch, 7.6x).
+39. **The min-duration scorer as the live reward PASSES its pre-registered confirmation outright, and
+   the separation widens to the end of the run** (21a, eight of eight sub-epochs). The control's
+   sub-epoch-3 regression does not merely shrink -- the swap-in arm never regresses at all, improving
+   past the fork point (5.34/9.50) to 4.68/8.64 one sub-epoch later and holding 4.73/9.31 at sub-epoch
+   10 against the control's 6.46/11.41, with dev-other insertions less than half the control's (933
+   against 1964). The insertion exploit the whole D6 ladder was built to close is closed in the live
+   loop, on the reward side alone, with no change to the policy, the data or the schedule.
+40. **The homophone arm clears its admission floor, but the reachable mass is thin and concentrated**
+   (23). 7.68 % against the 5 % floor; a uniform draw rewrites only 4.02 %, eight classes carry 60.5 %
+   of all rewrites, and 131 of the 139 classes the corpus uses have just two members.
+41. **The periodic arm has never once refreshed its scorer** (22). Its gate returned KEEP at rounds 2,
+   3 and 5 and the two-consecutive-failure stop rule fired at round 4 -- where the binding CI reading of
+   the clauses actually PASSED and was overridden -- so legs 2 to 8 all run the round-1 scorer, and the
+   arm's comparison against the one-shot swap-in measures the shard rule and the Adam restarts, not
+   refresh frequency.
+42. **WRONG after the six-leg read** (26). As written: "on the label-free init a refit at every
+   boundary is the first loop arm to go below the no-loop init at a matched sub-epoch, and it is still
+   not the best scorer there" -- at sub-epoch 2 it reaches 12.85/17.89 against theta_0^G's 13.89/18.34,
+   where both frozen-scorer arms sat at or above the init, but the frozen REPAIRED scorer reaches
+   12.68/17.57 at the same point.
+   - CORRECTION 2026-08-20: only two legs were available when this was written. The six-leg prefix
+     makes that gain transient; REPLACED by conclusion 54.
 43. **Sampling already proposes spelling variety, but almost never proposes the spelling that is
-    missing** (25). 23.43 % of homophone-bearing groups already hold two spellings of one class, so
-    the reward has within-group variance to steer on there today, while only 0.82 % ever contain a
-    spelling the scorer's training corpus does not have -- so the direction an SFT support change
-    uniquely reaches is the repair direction, not the diversity one.
-44. **The homophone arm clears its admission bar overall and in the diversity direction, and fails
-    it in the repair direction** (25). The contextual term outweighs the reconstruction term at
-    ratio 1.26 over all swaps and 1.27 on swaps between attested spellings, but only 0.82 on swaps
-    into a spelling the scorer never trained on, so the bar passes where sampling already supplies
-    the variance and fails where the augmentation would be the only lever; per-class the split is
-    real rather than uniform (knot/not 3.70 and too/two 3.88 against wood/would 0.49 and
-    their/there/they're 0.54), and every delta is ~0.01 nats/unit in absolute size, which is small
-    enough that the within-group reward spread has to be read before any of it is called steerable.
+   missing** (25). 23.43 % of homophone-bearing groups already hold two spellings of one class, so the
+   reward has within-group variance to steer on there today, while only 0.82 % ever contain a spelling
+   the scorer's training corpus does not have -- so the direction an SFT support change uniquely
+   reaches is the repair direction, not the diversity one.
+44. **The homophone arm clears its admission bar overall and in the diversity direction, and fails it
+   in the repair direction** (25). Ratio 1.26 over all swaps and 1.27 on attested-spelling swaps, but
+   0.82 on swaps into a spelling the scorer never trained on; per class the split is real rather than
+   uniform (knot/not 3.70 and too/two 3.88 against wood/would 0.49 and their/there/they're 0.54), and
+   every delta is ~0.01 nats/unit in absolute size, small enough that the within-group reward spread has
+   to be read before any of it is called steerable.
 45. **No short-spelling bias in the reconstruction term** (25). Every in-class substitution is
-    penalized, and swaps to a SHORTER spelling are penalized MORE than swaps to a longer one
-    (median -0.0135 against -0.0073), which is the opposite ordering from the per-state
-    orthographic-length price the arm was registered to watch for.
-
+   penalized, and swaps to a SHORTER spelling are penalized MORE than swaps to a longer one (median
+   -0.0135 against -0.0073) -- the opposite ordering from the per-state orthographic-length price the
+   arm was registered to watch for.
 46. **The homophone init costs 3.11 dev-other WER, and essentially all of it is the augmentation
-    reproducing itself rather than a degraded model** (27). theta_0^G_hom reads 16.67 / 21.45
-    against theta_0^G's 13.89 / 18.34, and 96.7 % of the extra errors are substitutions within a
-    homophone class -- the SFT learned the resampling distribution, at a plain-WER price of 78 % of
-    what full reproduction of the uniform draw would cost. Outside the classes the two inits are
-    within noise of each other (+53 errors, confidence interval -70 to +173).
-    CORRECTION 2026-08-18: as first written this compared the realized rate to the 4.04 % of TRAIN
-    tokens the augmentation rewrote, which is not like-for-like against a dev reference-token rate;
-    the comparable figure is 4.58 % of reference tokens, and "96.7 %" is the share of NET extra
-    errors (92.2 % of extra substitutions). The conclusion itself is unchanged.
-47. **That price is not accommodated by the arm's pre-registered primary read** (27). The arm is
-    registered to stay within 0.3 dev-other WER of D6-PERIODIC/GAN at every matched leg; its init
-    starts 3.11 behind, so leg 1 fails that clause unless one GRPO leg closes ten times the margin.
-    Whether the arm still runs is the planner's and the user's call, not a fact this log settles.
-
-48. **The reward's language-model prior knows which spelling is right; the reconstruction term is a
-    near-direction-blind preference for the text already sampled, and at lam_lm 1.0 the two cancel
-    exactly where correction is needed** (28). The prior prefers the reference spelling on 90.6 % of
-    swaps toward it and only 1.6 % of swaps away from it — sharply direction-sensitive and correct.
-    Reconstruction prefers the swap on 17.9 % toward and 25.4 % away, i.e. it mostly opposes changing
-    the sampled text whichever way the change runs. Their sum therefore rejects wrong spellings well
-    (0.063) and is a coin flip on right ones (0.529). Raising lam_lm is the mechanical fix and is
-    what the arm's own audio-free-null GUARD forbids.
-49. **That coin flip is one homophone class, not a property of the reward** (28). `buy`/`by`/`bye`
-    is 67.6 % of the toward-reference swaps at composed 0.446; the rest read 0.702. Why that class
-    behaves so differently is UNEXPLAINED — the corpus-coverage hypothesis was tested and refuted —
-    and it is 68 % of the sample any inference from this read rests on. Dropping it is a post-hoc
-    slice and licenses no claim about the arm; the registered leg-4 rate bar is what discriminates a
-    0.70-edge mechanism from a 0.45-edge one.
-
-50. **On the distribution that matters the composed reward is NOT at chance -- it points at the
-    correct spelling 82.5 % of the time** (29). Measured on the homophone policy's own errors rather
-    than the plain policy's, the toward-reference rate is 0.825 with every one of the eight
-    damage-carrying classes above chance, and the away direction is correctly rejected at 0.140.
-    Conclusions 48-49's 0.529 is superseded as a prediction for this arm: it was measured on a
-    near-orthogonal class distribution, and the correctly-weighted number sits near the top of the
-    0.51-0.90 bracket rather than at its floor.
+   reproducing itself rather than a degraded model** (27). 16.67/21.45 against 13.89/18.34, with 96.7 %
+   of the extra NET errors substitutions within a homophone class, at a plain-WER price of 78 % of what
+   full reproduction of the uniform draw would cost. Outside the classes the two inits are within noise
+   (+53 errors, CI [-70, +173]).
+   - CORRECTION 2026-08-18: as first written this compared the realized rate to the 4.04 % of TRAIN
+     tokens the augmentation rewrote, which is not like-for-like against a dev reference-token rate; the
+     comparable figure is 4.58 % of reference tokens, and "96.7 %" is the share of NET extra errors
+     (92.2 % of extra substitutions). The conclusion itself is unchanged.
+47. **That price is not accommodated by the arm's pre-registered primary read** (27). The arm must stay
+   within 0.3 dev-other WER of D6-PERIODIC/GAN at every matched leg; its init starts 3.11 behind, so leg
+   1 fails that clause unless one GRPO leg closes ten times the margin. Whether the arm still runs is
+   the planner's and the user's call.
+48. **The reward's LM prior knows which spelling is right; the reconstruction term is a
+   near-direction-blind preference for the text already sampled, and at lam_lm 1.0 the two cancel
+   exactly where correction is needed** (28). The prior prefers the reference spelling on 90.6 % of
+   swaps toward it and only 1.6 % of swaps away; reconstruction prefers the swap on 17.9 % toward and
+   25.4 % away, i.e. it mostly opposes changing the sampled text whichever way the change runs. Their
+   sum rejects wrong spellings well (0.063) and is a coin flip on right ones (0.529). Raising lam_lm is
+   the mechanical fix and is what the arm's own audio-free-null GUARD forbids.
+49. **That coin flip is one homophone class, not a property of the reward** (28). `buy`/`by`/`bye` is
+   67.6 % of the toward-reference swaps at composed 0.446; the rest read 0.702. Why that class behaves
+   so differently is UNEXPLAINED -- the corpus-coverage hypothesis was tested and refuted -- and it is
+   68 % of the sample any inference from this read rests on. Dropping it is a post-hoc slice.
+50. **On the distribution that matters the composed reward is NOT at chance -- it points at the correct
+   spelling 82.5 % of the time** (29). Measured on the homophone policy's own errors rather than the
+   plain policy's, with every one of the eight damage-carrying classes above chance and the away
+   direction correctly rejected at 0.140. Conclusions 48-49's 0.529 is SUPERSEDED as a prediction for
+   this arm: it was measured on a near-orthogonal class distribution, and the correctly-weighted number
+   sits near the top of the 0.51-0.90 bracket rather than at its floor.
 51. **Refitting the scorer on the policy's own decodes ENTRENCHES the spelling error rather than
-    equalizing it, and the registration's mechanism claim has the wrong sign** (29). Holding dump
-    and swaps fixed, the reconstruction term's toward-reference rate falls 0.684 -> 0.357 when the
-    scorer is this arm's own refit instead of the plain arm's; the paired counts are 6:1 against
-    (3480 vs 598) and 95 of 121 classes move. The composed reward survives at 0.825 only because
-    the language-model prior at 0.970 outweighs it -- and that prior is an audio-free reader, so the
-    composed rate sits 14.5 points BELOW the text-only null. Length-matching refutes the cheaper
-    explanation: the entrenchment is -0.284 at equal character count, so it is spelling-specific
-    learning and not an orthographic-length price, and the plain scorer's genuine equal-length
-    discrimination (0.752) is what the refit collapses (0.469). In the deployed reward the cost is
-    -0.069, not -0.327. This is a quantified instance of the standing
-    G-track diagnosis -- a scorer refit on its own policy's output rewards that policy's correlated
-    errors -- and it is not specific to the homophone arm, since every arm in the D6-PERIODIC family
-    refits the same way. The open risk it names is compounding: each round refits on decodes the
-    previous round's entrenched scorer helped produce.
-52. **Periodic outer updates avoid the catastrophic continuous-joint failure, but they do not beat
-    a good frozen scorer on the D-track** (17, 21, 22). The closest continuously trainable-scorer
-    arm reads 5.12/9.27, 17.35/21.97 and 41.78/50.88 over three banked sub-epochs, with dev-other
-    insertions growing 630 -> 21,406. Fresh periodic is 4.97/8.88, 4.65/9.02 and 5.28/9.27 at its
-    first three legs, so holding the scorer fixed within each leg avoids same-step collapse. But it
-    then worsens to 7.42/12.68 by leg 5, never beats the one-shot scorer's 8.64 best, and trails
-    both the matched one-shot scorer and the original frozen control at that point. This comparison
-    establishes a useful timescale, not a single-variable causal effect: the joint arm also differs
-    in scorer topology, data partitioning, batching and optimizer continuity.
-53. **Carrying scorer weights across periodic refits is harmful on this bed** (24). Fresh and warm
-    are close through leg 3, but warm reaches 12.18/19.33 at leg 5 against fresh 7.42/12.68. The
-    separation is an insertion failure: warm dev-other insertions grow from 479 to 5,874 while
-    substitutions stay near 3.6k. The trajectories are not ended, but the completed prefix rejects
-    warm inheritance as a stabilizer at this operating point.
-54. **The plain GAN periodic gain is small, transient, and does not establish a recency benefit**
-    (26). Leg 2 improves the no-loop init by only 0.45 dev-other, missing the registered 0.5 bar,
-    and the arm worsens to 18.38/24.01 by leg 6. At the three matched points it is not decisively
-    better than the frozen repaired scorer; later deterioration is substitution-led. No same-init
-    continuously trainable-scorer arm exists, so D5(b)-b is not a causal control for this variant.
+   equalizing it, and the registration's mechanism claim has the wrong sign** (29). Holding dump and
+   swaps fixed, the reconstruction term's toward-reference rate falls 0.684 -> 0.357 under this arm's
+   own refit; paired counts 6:1 against (3480 vs 598) and 95 of 121 classes move. The composed reward
+   survives at 0.825 only because the LM prior at 0.970 outweighs it -- and that prior is an audio-free
+   reader, so the composed rate sits 14.5 points BELOW the text-only null. Length-matching refutes the
+   cheaper explanation (-0.284 at equal character count), so it is spelling-specific learning and not an
+   orthographic-length price. In the deployed reward the cost is -0.069, not -0.327. A quantified
+   instance of the standing G-track diagnosis -- a scorer refit on its own policy's output rewards that
+   policy's correlated errors -- and not specific to the homophone arm, since every arm in the
+   D6-PERIODIC family refits the same way. The open risk it names is compounding: each round refits on
+   decodes the previous round's entrenched scorer helped produce.
+52. **Periodic outer updates avoid the catastrophic continuous-joint failure, but they do not beat a
+   good frozen scorer on the D-track** (17, 21, 22). The closest continuously trainable-scorer arm reads
+   5.12/9.27, 17.35/21.97 and 41.78/50.88 over three banked sub-epochs, with dev-other insertions
+   growing 630 -> 21,406. Fresh periodic is 4.97/8.88, 4.65/9.02 and 5.28/9.27 at its first three legs,
+   so holding the scorer fixed within each leg avoids same-step collapse; it then worsens to 7.42/12.68
+   by leg 5, never beats the one-shot scorer's 8.64 best, and trails both the matched one-shot scorer
+   and the original frozen control at that point. A useful timescale, not a single-variable causal
+   effect: the joint arm also differs in scorer topology, data partitioning, batching and optimizer
+   continuity.
+53. **Carrying scorer weights across periodic refits is harmful on this bed** (24). Fresh and warm are
+   close through leg 3, but warm reaches 12.18/19.33 at leg 5 against fresh 7.42/12.68. The separation
+   is an insertion failure: warm dev-other insertions grow from 479 to 5,874 while substitutions stay
+   near 3.6k. The trajectories are not ended, but the completed prefix rejects warm inheritance as a
+   stabilizer at this operating point.
+54. **The plain GAN periodic gain is small, transient, and does not establish a recency benefit** (26).
+   Leg 2 improves the no-loop init by only 0.45 dev-other, missing the registered 0.5 bar, and the arm
+   worsens to 18.38/24.01 by leg 6. At the three matched points it is not decisively better than the
+   frozen repaired scorer; later deterioration is substitution-led. No same-init continuously
+   trainable-scorer arm exists, so D5(b)-b is not a causal control for this variant.
 55. **The live GAN+HOM loop rapidly removes the augmentation's spelling damage despite the fixed-dump
-    scorer-entrenchment diagnostic** (26, 27, 29). Its class-internal dev-other substitutions fall
-    from 1,827 at init to 130 after one leg and 105 after three; total WER improves from 16.67/21.45
-    to 12.80/18.08 and catches the plain periodic trajectory at leg 3. Thus conclusion 51 remains a
-    valid statement about the reconstruction scorer on controlled swaps, but it does not predict the
-    realized policy direction under the composed reward, whose Qwen3 language-model term dominates
-    homophone spelling. The midpoint and final registered reads remain outstanding.
-56. **WRONG in its description of the registered surface (2026-08-20 verifier): “D7's registered
-    eight-donors-per-chapter-stratum construction is impossible.”** The external band and donor-
-    capacity law were not registered; K=4 means two donors per chapter stratum. **Correction:**
-    D7.0a proves that the original external donor statistic is not executable as written. Only
-    276/1,500 immutable sources meet even the all-eligible raw K=4 degree requirement, so full-
-    `E_all` K=4 is impossible; zero meet the conservative eight-donors-per-stratum diagnostic. The
-    latter does not establish exact second-quartile support because the rank, boundary and tie laws
-    are themselves unregistered. Later filters can only shrink a chosen surface. This triggered the
-    prospective D7-v2 amendment, now frozen on 2026-08-21: training retains K=4 balanced Q2
-    negatives, while the external donor-gap instrument uses one no-band nuisance-minimized donor,
-    one table and donor load at most three on a coverage-gated `E_D`. Conclusion 57 records the
-    prospective D7.0b read of that surface; D7.1 was never authorized before a pass.
+   scorer-entrenchment diagnostic** (26, 27, 29). Its class-internal dev-other substitutions fall from
+   1,827 at init to 130 after one leg and 105 after three; total WER improves from 16.67/21.45 to
+   12.80/18.08 and catches the plain periodic trajectory at leg 3. Conclusion 51 remains a valid
+   statement about the reconstruction scorer on controlled swaps but does not predict the realized
+   policy direction under the composed reward, whose Qwen3 LM term dominates homophone spelling. The
+   midpoint and final registered reads remain outstanding.
+56. **WRONG in its description of the registered surface (2026-08-20 audit)**: "D7's registered
+   eight-donors-per-chapter-stratum construction is impossible." The external band and donor-capacity
+   law were not registered; K=4 means two donors per chapter stratum.
+   - CORRECTION (CURRENT): D7.0a proves that the original external donor statistic is not executable as
+     written. Only 276/1,500 immutable sources meet even the all-eligible raw K=4 degree requirement, so
+     full-`E_all` K=4 is impossible; zero meet the conservative eight-donors-per-stratum diagnostic. The
+     latter does not establish exact second-quartile support, because the rank, boundary and tie laws
+     are themselves unregistered. Later filters can only shrink a chosen surface. This triggered the
+     prospective D7-v2 amendment (frozen 2026-08-21).
 57. **D7-v2 / D7.0b fails its preregistered training-support floor and is structurally unresolved**
-    (31). The feature census passed every frozen checksum and found 28,538 feasible scorer rows,
-    136,966 Q2 edges and 17,748 rows with at least two raw outgoing donors in both chapter strata.
-    The exact common-set 2-in/2-out optimizer could admit only 56 rows from two speakers, versus the
-    required 6,778 rows and 201 speakers. An independent iterative necessary-core calculation leaves
-    at most 120 rows from four speakers, proving that the floor cannot be met by this registered graph
-    rather than merely exposing a poor optimizer solution. The assignment job therefore stopped
-    before external matching, and the loss preflight did not run. Per the frozen gate, this result
-    permanently closes the offline-graph branch; it does not constrain the corrected online D7.
-58. **USER-DIRECTED correction of active D7: retire offline donor graphs and test the reverse loss
-    with online negatives on the full 960 h bed.** This does not reinterpret conclusion 57 or claim
-    an experimental win. The corrected D7-GAN-SEQDISC uses all 281,241 theta_0^G-greedy pseudo-pairs,
-    one dynamically resampled same-speaker duration-windowed donor per anchor, and no chapter/Q2,
-    nuisance, capacity or regularity constraint. The matched full-bed scorer A/B is the next method
-    read; a policy leg becomes eligible for separate launch authorization only after its label-free
-    fixed-final gate.
-59. **The D8.0 binding clause cannot be read on either frozen dump: its exclusion rule is not the
-    law those dumps were scored under** (34). Clause (a) excludes structurally infeasible
-    candidates at `d_min=2`, but both dumps predate the standing min-duration topology, and the
-    theta_0^G artifact additionally joins a ~12.5 Hz pooled unit store (median length 169) rather
-    than the raw 50 Hz store the pinned weight scorer uses (median 674). On its binding T=0.7 slice
-    the reader calls 5,096 of 5,730 scored members infeasible while the artifact's own scorer
-    returned finite scores for them — including all 512 greedy rows — so the exclusion is a property
-    of the instrument, not of the policy. The same law costs the fork-epoch dump 18 of 101,190
-    members. The registered read therefore returns UNRESOLVED, not the NO-GO the exclusion alone
-    would produce.
-    - **SUPERSEDED IN SCOPE (2026-08-22 ruling, verdict 62):** the frame diagnosis is confirmed,
-      but "cannot be read on either frozen dump" is too strong -- the clause is readable on the
-      existing dumps once the exclusion is joined to the operative raw 50 Hz store, with no new
-      dump and no scorer forward.
-60. **Which reading clause (a) takes decides it outright, in opposite directions** (34). On the
-    binding slice the median distinct support is 0 of 13 with the exclusion applied and 12 of 13
-    without it, against a threshold of 3. No intermediate outcome exists, so the clause cannot be
-    reported as a measurement until the plan fixes the reading; this is a specification question,
-    not a noisy statistic.
-    - **SUPERSEDED (2026-08-22 ruling, verdict 62):** neither offered reading was accepted -- the
-      dedup-only count ignores the registered exclusion, and the as-run exclusion is the wrong
-      frame. Under the ruled third reading the two collapse into one number, 12, because the
-      operative-frame exclusion is empty on this slice.
-61. **On the one artifact whose scorer law the reader nearly matches, no D8 clause fires** (34).
-    The fork-epoch dump gives median distinct support 3 under both readings, every grid tau inside
-    the [1.5, 8] ESS band, token count explaining 0.39 of within-group weight variance at
-    `tau_star = 1.0`, and shaped-versus-acoustic-only spearman 1.0 against shaped-versus-LM-only
-    0.5. Its policy, bed and scorer are all wrong for D8.1a, so this reports and binds nothing;
-    the arm-selection rule reads only D8.1a statistics.
-    - **CONFIRMED at v3 (2026-08-22):** unchanged to the last digit, because this dump already
-      joined the raw 50 Hz store. Its 18 exclusions in 101,190 members are the genuine rate the
-      ruling prices the 5 % safety valve against.
-62. **Read in the operative frame, the D8.0 binding clause PASSES with room** (34). On the
-    theta_0^G T=0.7 slice the median distinct feasible support with the greedy member included is
-    **12 of 13** against a threshold of 3, and the operative-law exclusion removes **0 of 5,730**
-    scored members -- zero on every one of the five slices, against 5,096 under the pooled-store
-    join. That is the frame diagnosis closed by construction: the entire v2 exclusion was the
-    instrument. Verdict GO; D8 does not close at D8.0.
-63. **Reported at D8.0, binding nowhere: the shaped weights track the LM-only weights closely on
-    the operative policy** (34). Median spearman between shaped and LM-only weight vectors is
-    0.9790 on the binding slice and 0.978-1.000 across all five, while shaped versus
-    acoustic-only runs 0.2857-0.6593; both are now columns of the v3 table in approach 34. The
-    registered arm-selection rule reads only D8.1a statistics on the operative bed and scorer, so
-    this selects nothing and funds nothing; it is logged because a value above the rule's 0.95 line
-    would, if it survived to D8.1a, leave only candidate-acoustic funded. Clauses (b) and (c) fire
-    nowhere at v3: at least one grid tau sits inside the [1.5, 8] ESS band on every slice, and
-    token count explains 0.035-0.413 of within-group weight variance at `tau_star`.
-    (Correction 2026-08-22: the shaped-versus-acoustic-only low end was first transcribed as 0.30;
-    the T=0.5 slice reads 0.2857. Direction-neutral -- the verdict binds nowhere either way.)
-
-64. **The D7 own-infeasible drop set is exactly the four registered train-role rows, confirmed
-    per arm from each arm's own artifact** (32). Both `monitors.json` files carry
-    `own_infeasible_dropped = {"train": ["3488-85273-0024", "3889-130125-0028", "4492-8904-0032",
-    "8424-284526-0028"]}` with `anchor_rows = {"train": 267175, "internal_held": 14062}`, digit-identical
-    to the offline end-to-end dropcheck on the same pool inputs and to each other. This closes the
-    check that was deferred at relaunch; nothing was inferred from the runs merely starting.
-
-65. **D7.1 reached its fixed final endpoint on both arms, and its two banked held statistics point
-    in opposite directions** (32). The candidate's internal-held mean `L_online` is 0.007541 against
-    the control's 0.010225, i.e. 26 % lower, which is the direction the online same-speaker negative
-    is meant to produce; its internal-held per-frame NLL is 2.5319 against the control's 2.5259, i.e.
-    0.0060 higher. Both are single point values from the arms' own `monitors.json`, computed on one
-    donor draw per held anchor, so neither is the D7.2 statistic: the registered admission recomputes
-    `L_online` with 32 stateless donor draws per eligible held anchor under a paired speaker-cluster
-    bootstrap, and adds the 1,500-row Acceptance gate v2 and scorer parity. What D7.1 establishes is
-    only that the A/B ran matched to its endpoint and produced two fixed-final scorers.
-
-
-66. **D7.2 FAILS on clause 2, so D7 closes without a policy leg** (32). The registered gate passes
-    only if all four clauses hold. Clause 1 passes decisively, clause 4 passes exactly on both arms,
-    and clause 3 shows both arms clearing the external floor -- but the candidate's internal-held
-    per-frame NLL is 2.531898 against the control's 2.525882, and clause 2 requires it to be no
-    greater. The number is not a surprise from a new instrument: it reproduces what D7.1 banked to
-    3.62e-9, and it was flagged to the planner as the standing risk before D7.2 was run, with the gate
-    ruled unmoved. The outcome does not depend on the one convention still open, the point-versus-CI
-    eligibility reading of clause 3, because clause 2 fails under either. Per the registered gate no
-    sampler or temperature rescue may be selected from this result. This licenses not funding the
-    D7.3 policy leg at this operating point; it is not evidence that an online same-speaker negative
-    cannot work.
-
-67. **The online same-speaker negative did exactly what it was built to do, and the cost landed on
-    the insertion channel** (32). Its own objective moves decisively: the paired candidate-minus-
-    control mean `L_online` is -0.00269867 with a two-sided bootstrap interval of
-    [-0.0027472, -0.0026505] over 2,274 speaker clusters, and 99.25 % of the 14,008 eligible anchors
-    move the right way, so this is a population-wide shift and not a tail. It also transfers off its
-    own bed: on the frozen external gold-dev rows the candidate's usage gate is +5.3587 against the
-    control's +5.0509, i.e. it separates a true pairing from a length-matched deranged one more
-    sharply on data neither arm trained on, while both arms' plain per-frame NLL there is 2.4595 to
-    four digits. What it costs is the length/insertion channel: the matched insertion discount is
-    significantly LARGER for the candidate at every k (+0.0072 / +0.0082 / +0.0205 at k=1/2/4, all
-    CIs excluding zero), on the same axis the D1/D2 lattice reading identified as open to every
-    minimal-state word. Sharper same-speaker discrimination and a worse insertion exploit are the
-    same trade here, which is what a future design has to break rather than re-tune.
-
-
-68. **Scorer refresh has no established durable benefit: the frozen control WINS the final leg on
-    both splits** (36). The registered requirement is explicit -- "a durable/actionable recency
-    benefit requires periodic leg 8 to beat frozen leg 8 on both dev-clean and dev-other" -- and at
-    leg 8 periodic is 18.82 / 24.56 against frozen's 17.61 / 22.66, i.e. worse by 1.21 and 1.90.
-    That is the gate's named "frozen final-leg win" case, which it pre-registers as meaning refresh
-    has no established durable benefit here. The early legs do show the transient the gate
-    anticipated and refuses to fund: periodic leads at legs 2, 3 and 4 (by 0.55 / 0.55 at its best),
-    then loses from leg 5 onward and never recovers. Per the registered wording that establishes a
-    transient effect at those operating points and does not select an endpoint or license continued
-    refresh. This licenses not funding scorer refresh at this operating point; it is not evidence
-    that a refreshed scorer cannot help.
-
-69. **The bigger fact both arms share: the eight-leg loop degrades badly after leg 3, and NEITHER
-    arm ends better than its own no-loop init** (36). Periodic runs 12.85 -> 18.82 dev-clean and
-    17.89 -> 24.56 dev-other from its best leg to its last; frozen runs 13.40 -> 17.61 and
-    18.44 -> 22.66. Against theta_0^G's no-loop 13.89 / 18.34, leg 8 is worse by 4.93 / 6.22
-    (periodic) and 3.72 / 4.32 (frozen). Only legs 2 and 3 of either arm ever beat the init on
-    dev-clean, and no leg of either arm beats it on dev-other by more than 0.45. The recency
-    question that D6-PERIODIC/GAN-FROZEN was built to answer is therefore settled inside a regime
-    where the loop itself is losing ground after leg 3, which is the standing problem the arm was
-    not designed to address and which no frozen-versus-periodic contrast can fix.
-
+   (31). 56 admitted rows from two speakers against the required 6,778 rows and 201 speakers, with an
+   independent necessary-core calculation bounding any exact solution at 120 rows from four speakers --
+   so the floor cannot be met by this registered graph, rather than merely exposing a poor optimizer
+   solution. The intended fail-closed scientific gate, not a scheduler or convergence failure. Per the
+   frozen gate this permanently closes the offline-graph branch; it does not constrain the corrected
+   online D7.
+58. **USER-DIRECTED correction of active D7: retire offline donor graphs and test the reverse loss with
+   online negatives on the full 960 h bed.** This does not reinterpret conclusion 57 or claim an
+   experimental win. The corrected D7-GAN-SEQDISC uses all 281,241 theta_0^G-greedy pseudo-pairs, one
+   dynamically resampled same-speaker duration-windowed donor per anchor (reciprocal duration ratio
+   0.8-1.25, closest-duration fallback only when that window is empty), and no chapter/Q2, nuisance,
+   capacity or regularity constraint. A policy leg becomes eligible for separate launch authorization
+   only after its label-free fixed-final gate.
+59. **The D8.0 binding clause cannot be read on either frozen dump: its exclusion rule is not the law
+   those dumps were scored under** (34). Clause (a) excludes structurally infeasible candidates at
+   `d_min=2`, but both dumps predate the standing min-duration topology, and the theta_0^G artifact
+   additionally joins the ~12.5 Hz pooled unit store `MergeUnitsPklJob.hJmZtbPDa2hd` (median length 169)
+   rather than the raw 50 Hz store
+   the pinned weight scorer uses (median 674/695). On its binding T=0.7 slice the reader calls 5,096 of
+   5,730 scored members infeasible while the artifact's own scorer returned finite scores for them --
+   including all 512 greedy rows -- so the exclusion is a property of the instrument. The same law costs
+   the fork-epoch dump 18 of 101,190 members. The registered read returns UNRESOLVED, not the NO-GO the
+   exclusion alone would produce.
+   - SUPERSEDED IN SCOPE (2026-08-22 ruling, verdict 62): the frame diagnosis is confirmed, but "cannot
+     be read on either frozen dump" is too strong -- the clause is readable on the existing dumps once
+     the exclusion is joined to the operative raw 50 Hz store, with no new dump and no scorer forward.
+60. **Which reading clause (a) takes decides it outright, in opposite directions** (34). On the binding
+   slice the median distinct support is 0 of 13 with the exclusion applied and 12 of 13 without it,
+   against a threshold of 3. No intermediate outcome exists.
+   - SUPERSEDED (2026-08-22 ruling): neither offered reading was accepted -- the dedup-only count
+     ignores the registered exclusion and the as-run exclusion is the wrong frame. Under the ruled third
+     reading the two collapse into one number, 12, because the operative-frame exclusion is empty here.
+61. **On the one artifact whose scorer law the reader nearly matches, no D8 clause fires** (34). The
+   fork-epoch dump gives median distinct support 3 under both readings, every grid tau inside the
+   [1.5, 8] ESS band, token count explaining 0.39 of within-group weight variance at `tau_star` = 1.0,
+   and shaped-versus-acoustic-only spearman 1.0 against shaped-versus-LM-only 0.5. Its policy, bed and
+   scorer are all wrong for D8.1a, so this reports and binds nothing. CONFIRMED at v3 unchanged to the
+   last digit, because that dump already joined the raw 50 Hz store.
+62. **Read in the operative frame, the D8.0 binding clause PASSES with room** (34). Median distinct
+   feasible support with the greedy member included is **12 of 13** against a threshold of 3, and the
+   operative-law exclusion removes **0 of 5,730** scored members -- zero on every one of the five
+   slices, against 5,096 under the pooled-store join. The entire v2 exclusion was the instrument.
+   Verdict GO; D8 does not close at D8.0.
+63. **Reported at D8.0, binding nowhere: the shaped weights track the LM-only weights closely on the
+   operative policy** (34). Median spearman between shaped and LM-only weight vectors is 0.9790 on the
+   binding slice and 0.978-1.000 across all five, while shaped versus acoustic-only runs 0.2857-0.6593.
+   The registered arm-selection rule reads only D8.1a statistics, so this selects and funds nothing; it
+   is logged because a value above the 0.95 line would, if it survived to D8.1a, leave only
+   candidate_acoustic funded. Clauses (b) and (c) fire nowhere at v3. (Correction 2026-08-22: the
+   shaped-versus-acoustic-only low end was first transcribed as 0.30; the T=0.5 slice reads 0.2857.)
+   The D8.0 forewarning rho 0.9790 against D8.1a's 0.3462 is a bed/policy difference, not a
+   contradiction.
+64. **The D7 own-infeasible drop set is exactly the four registered train-role rows, confirmed per arm
+   from each arm's own artifact** (32), digit-identical to the offline dropcheck and to each other.
+65. **D7.1 reached its fixed final endpoint on both arms, and its two banked held statistics point in
+   opposite directions** (32). Candidate internal-held mean `L_online` 0.007541 against the control's
+   0.010225 (26 % lower, the direction the online same-speaker negative is meant to produce); its
+   internal-held per-frame NLL is 2.5319 against 2.5259, i.e. 0.0060 higher. Both are single point
+   values from one donor draw per held anchor, so neither is the D7.2 statistic. What D7.1 establishes
+   is only that the A/B ran matched to its endpoint and produced two fixed-final scorers.
+66. **D7.2 FAILS on clause 2, so D7 closes without a policy leg** (32). Clause 1 passes decisively,
+   clause 4 passes exactly on both arms, clause 3 shows both arms clearing the external floor -- but the
+   candidate's internal-held per-frame NLL is 2.531898 against the control's 2.525882 over 8,642,253
+   frames, and clause 2 requires it to be no greater. Not a surprise from a new instrument: it
+   reproduces what D7.1 banked to 3.62e-9 and was flagged to the planner as the standing risk before
+   D7.2 ran, with the gate ruled unmoved. The outcome does not depend on the one convention still open
+   (clause 3's point-versus-CI eligibility reading), because clause 2 fails under either. Per the
+   registered gate no sampler or temperature rescue may be selected. This licenses not funding the D7.3
+   policy leg at this operating point; it is not evidence that an online same-speaker negative cannot
+   work.
+67. **The online same-speaker negative did exactly what it was built to do, and the cost landed on the
+   insertion channel** (32). Paired candidate-minus-control mean `L_online` -0.00269867, two-sided
+   bootstrap [-0.0027472, -0.0026505] over 2,274 speaker clusters, 99.25 % of 14,008 eligible anchors
+   moving the right way -- a population-wide shift, not a tail. It transfers off its own bed: the
+   candidate's usage gate on the frozen external gold-dev rows is +5.3587 against +5.0509 while both
+   arms' plain per-frame NLL there is 2.4595 to four digits (though the widening decomposes to +0.30712
+   from the deranged NULL against +0.00071 from the true side -- the candidate mostly prices the null
+   worse, not the truth better). What it costs is the length/insertion channel: the matched insertion
+   discount is significantly LARGER for the candidate at every k. Sharper same-speaker discrimination
+   and a worse insertion exploit are the same trade here.
+68. **Scorer refresh has no established durable benefit: the frozen control WINS the final leg on both
+   splits** (36). The registered requirement is explicit, and at leg 8 periodic is 18.82/24.56 against
+   frozen's 17.61/22.66 (worse by 1.21 and 1.90) -- the gate's named "frozen final-leg win" case. The
+   early legs do show the transient the gate anticipates and refuses to fund: periodic leads at legs 2,
+   3 and 4 (by 0.55/0.55 at its best), then loses from leg 5 onward and never recovers. This licenses
+   not funding scorer refresh at this operating point; it is not evidence that a refreshed scorer cannot
+   help.
+69. **The bigger fact both arms share: the eight-leg loop degrades badly after leg 3, and NEITHER arm
+   ends better than its own no-loop init** (36). Periodic runs 12.85 -> 18.82 dev-clean and
+   17.89 -> 24.56 dev-other from its best leg to its last; frozen runs 13.40 -> 17.61 and
+   18.44 -> 22.66. Against theta_0^G's 13.89/18.34, leg 8 is worse by 4.93/6.22 (periodic) and
+   3.72/4.32 (frozen). Only legs 2 and 3 of either arm ever beat the init on dev-clean, and no leg of
+   either beats it on dev-other by more than 0.45. The recency question is therefore settled inside a
+   regime where the loop itself is losing ground after leg 3.
 70. **D8.1a's regenerated greedy is NOT the D7 pool's 1-best: 31,562 of 281,241 utterances differ
-    (11.2 %), so the registered deviation is NOT admissible** (35). The registration says D8.1a's
-    support reuses the D7 pool's greedy 1-best at identical hash; the launched dump instead
-    regenerates it through `SaeGrpoModelV1._greedy_argmax_decode` on the same checkpoint, and the
-    planner ruled that admissible ONLY against a zero-mismatch read over the whole bed. The read is
-    `D8GreedyEquivalenceJob.xR1RduqgjFKe` and it reports NOT EQUIVALENT. Coverage is exact and rules
-    out a subset artifact: 281,241 of 281,241 compared, 0 only-in-dump, 0 only-in-pool, 0 duplicate
-    greedy rows. The differences are lexical rather than formatting -- the comparison is already on
-    the D8 reader's own normalized fold, the same string the weight job dedups and encodes -- and
-    fall on hard or rare words ("barny to unless" against "barnett unless"; "sowing wood" against
-    "saucing wood"). Per the registration the D8.1a verdict is therefore NOT ACCEPTED on the
-    present support, and what to do about it is the planner's call, not a fallback the implementer
-    may pick. The merged dump itself is unaffected and complete (281,241 utterances, 3,937,374 rows:
-    greedy 281,241 + rollouts 3,374,892 + true 281,241, and 281,241 x 12 = 3,374,892 exactly).
+   (11.2 %), so the registered deviation is NOT admissible** (35). Coverage is exact and rules out a
+   subset artifact: 281,241 of 281,241 compared, 0 only-in-dump, 0 only-in-pool, 0 duplicate greedy
+   rows. The differences are lexical rather than formatting -- already on the D8 reader's own normalized
+   fold -- and fall on hard or rare words ("barny to unless" against "barnett unless"; "sowing wood"
+   against "saucing wood"). Per the registration the D8.1a verdict is NOT ACCEPTED on that support.
+   Nothing was auto-escalated; any number `D8WeightJob.1G2lPRnRmPks` produced rests on a support that
+   failed its admissibility read and must not be read as a D8.1a result.
+71. **D8.1a piece 3: the pool scoring pass reproduces the dump's forward configuration exactly, and the
+   mixed convention it licenses is NOT small** (35). BINDING half: `recon` reproduces the dump's stored
+   greedy column to 4.77e-07 maximum absolute difference against a 1e-3 tolerance, median exactly 0, no
+   degenerate row and no text mismatch -- so the text-path pass IS the dump pass, and verdict PARITY
+   licenses scoring the 31,562 differing utterances. MEASURED half: `lm_prior` differs on 64 of 64 tags
+   (median absolute 0.0967, maximum 0.5310) and `n_tokens` differs on 64 of 64 (maximum 3) -- for the
+   SAME string the dataset text pipeline and the decode's own token path never agree on the
+   tokenization, not rarely but always. Signed, the shaped numerator `lm_prior * n_tokens` is higher
+   through the text path on 64 of 64 tags (median +9.17 nats, mean +9.53, range +6.94..+17.69). So the
+   mixed convention is a systematic, one-sided difference in exactly the column the shaped score depends
+   on. RESOLVED 2026-08-22 (ruling latest+3): the mixed convention is rejected; every column of the pool
+   member now comes from the text path on all 281,241 tags.
+72. **The decode path's extra token is the generation's terminal token, and it explains 58 of 64 tags
+   but not all of them** (35). The text path's `n_tokens` equals the plain tokenization of the pool
+   string on 64 of 64 tags -- an exact anchor -- so the decode path's surplus is a clean subtraction:
+   exactly one token on 58 tags, `<|endoftext|>` (id 151643), appended by the generation and never by
+   the text path; two on 3 tags and three on 3 tags, reported unexplained rather than absorbed. It feeds
+   no clause, no weight and no verdict. What it makes legible: under the corrected convention all twelve
+   rollouts pay the terminal token's prior cost while the pool member does not -- the member-versus-
+   rollout gap definition (a) always implied, now with a measured size (~+9.5 nats) and a named cause.
+73. **D8.1a is COMPLETE and its verdict is GO, funding ONE arm: `candidate_acoustic`** (35, RESULT
+   TABLE). All three no-go clauses pass with margin and the exclusion rate is 18 of 3,170,676 scored
+   members against the 5 percent valve, with no feasible-but-non-finite `recon`; all 281,241 groups are
+   frozen to `supports.jsonl`. The arm-selection rule fires on its second clause: spearman(shaped,
+   acoustic-only) 0.9835 > 0.95, so `candidate_shaped` is NOT funded -- not because it failed but
+   because at this operating point it is not a different experiment. spearman(shaped, LM-only) is
+   0.3462, far below the same bar, so the shaped score is NOT free English; that was the other way the
+   shaped arm could have been struck out and it was not.
+74. **The pool-member scoring convention is IMMATERIAL to the D8.1a decision, by measurement rather
+   than by argument** (35). The pre-registered sensitivity line recomputed the whole read under the
+   superseded mixed convention from the same artifacts: no no-go clause flips, the valve does not flip,
+   the verdict does not flip, the funded-arm set does not flip. The only moving statistic is
+   spearman(shaped, LM-only); spearman(shaped, acoustic-only) is identical under both to four decimals
+   (ranks cannot move under the probe's <=4.77e-07 recon deltas). What it does NOT license: the
+   correction was still necessary, because the ~9.5-nat one-sided offset in the shaped numerator
+   (verdicts 71-72) was real and its immateriality could only be established by making the measurement.
+75. **D8.1b candidate-acoustic is COMPLETE, and the realized draw reproduces the frozen weights** (37).
+   Realized greedy-draw fraction 0.25312 against the 0.25266 mean weight the frozen artifact places on
+   the greedy member -- agreement to 5e-04 on a quantity nothing tuned. Three quarters of visits trained
+   on a non-greedy target, so the arm is not the control in disguise, and 0 drawn members were
+   infeasible, so the training bed and the weight artifact agree about the store.
+76. **The registered per-step-cost parity with the control HOLDS, measured** (37). Forming batches from
+   the control's items before any draw makes the shard membership, the batch partition and the step
+   count the control's by construction, and the wall clock (13:52 against 13:59 and the D7 online
+   candidate's 13:58 over identical shards and batches) confirms the drawn targets did not move the cost.
+77. **DESCRIPTIVE, NOT AN ADMISSION READ: the candidate's fixed-final internal-held per-frame NLL is
+   below the control's** (37). One deterministic read on the held greedy targets, scored the same way
+   for both arms and reported because the authorization asks for it. It decides NOTHING: D8.2 owns the
+   registered admission, a PAIRED estimator with a speaker-cluster bootstrap and a control-defined
+   `delta_NI`. A raw difference of 0.012 between two unpaired aggregates is not that statistic and must
+   not be quoted as evidence of non-inferiority in either direction.
+78. **D8.2 clause 1 PASSES, and by a margin that does not depend on the margin** (37). The one-sided
+   bound is not merely below `delta_NI`, it is below ZERO -- so the clause would also pass at D7's
+   stricter zero margin and the data-defined margin never became load-bearing. Both arms' pooled
+   aggregates reproduced their banked values before the clause was read. SCOPE: this is per-frame NLL on
+   the held GREEDY targets, i.e. absolute fit on the incumbent's own distribution; it is one of FOUR
+   clauses and decides D8.2 with none of them.
+79. **D8.2 clause 2 FAILS -- the mechanism's claimed win is absent** (37). No ladder has a bootstrap 95
+   percent lower bound above zero: the two positive point estimates straddle zero and `filler_ins` is
+   significantly WORSE. Spreading the training target over the sampled group did not improve
+   discrimination on any registered corruption family, and degraded filler-insertion discrimination.
+80. **D8.2 clause 3 FAILS -- gate v2 returns NO WINNER because the candidate is ineligible** (37). It
+   passes the (i) floor, (i) improvement and (ii) clauses and improves the matched insertion discount
+   significantly at every k and leave-one-out cross entropy, yet is INELIGIBLE under both the point and
+   the CI reading on the ladder-not-below clause verdict 79 measures. The incumbent control is eligible
+   but cannot improve on itself, so the table returns NO WINNER with no arm admitted.
+81. **D8.2 does not pass, and the registered consequence is that D8 CLOSES WITHOUT A POLICY LEG** (37).
+   Clause 1 passes, clauses 2 and 3 fail, and clause 4 was not needed to reach the outcome but was read
+   rather than skipped, because no clause is decided on another's expected result. WHAT THIS LICENSES
+   AND WHAT IT DOES NOT: the posterior-weighted refit is not funded to a policy leg AT THIS OPERATING
+   POINT (group 12, T=0.7, tau_star 0.05, acoustic-only weights). It is NOT a finding that soft
+   multi-hypothesis targets cannot work, and the registered no-rescue rule exists precisely so that the
+   tau, group size or weight view that happens to look better here cannot be selected from this table.
+   Localization worth carrying: the arm improved absolute fit and insertion pricing while failing to
+   improve ranking -- it learned the target distribution better without learning to discriminate
+   corruption better, the failure mode the acoustic-only arm was registered to expose.
+82. **D8.2 clause 4 PASSES -- the online and offline scorer paths are the same function** (38). Read
+   after clauses 2 and 3 had already closed D8.2; an implementation-identity check, not a quality one,
+   and it changes nothing about verdict 81.
+83. **D8.4 CANNOT BE READ ON THE REGISTERED OPERATIVE BED AS PINNED -- 91 percent of that bed is
+   unscoreable by the psi alignment family, and this is a property of the bed, not a wiring error**
+   (38). The reader fails closed on its own guard at 46 shared groups against the pin of 512. The cause
+   is measured, not inferred: both arms independently report identical infeasibility counts, so it is a
+   property of the text-to-unit alignment and not of either scorer's weights, and the quarter-rate store
+   carries a quarter of the frames per utterance on the IDENTICAL 34,106 utterances, so under the
+   standing d_min >= 2 topology most operative rollouts have more symbol states than the available
+   frames can host and score exactly zero probability. The 46 surviving groups give delta eta +0.0043
+   [-0.1020, +0.1257], INDISTINGUISHABLE on 9 percent of the registered bed, which discharges the read
+   in neither direction. The wiring was verified against the registration before this verdict was
+   written (`config_sae_3e1_d8_0_v1.py:54-61` pins `GTRACK_DUMP` = `ReturnnForwardJobV2.J9yA1eYnxwYA` and
+   `GTRACK_UNITS` = `MergeUnitsPklJob.hJmZtbPDa2hd`, exactly the pair D8.4 consumed, and the two arms
+   differ in `model_pt` alone). Descriptive and NOT a verdict on ranking: the full-set
+   rank-only column reports eta -0.1680 candidate against -0.1548 control, against the same candidate's
+   +0.3086 on the fork bed. This licenses "the registered D8.4 comparison cannot be made on this bed as
+   pinned" and nothing about either arm's ranking quality. Stands as written; the bed was re-pinned by
+   ruling and re-read as verdict 84.
+84. **D8.4 ANSWERS THE REOPENED D8 QUESTION -- the candidate-acoustic scorer and the exact D7 control
+   are INDISTINGUISHABLE at ranking, and the tie resolves to the control** (38). Paired delta eta
+   -0.0293 [-0.0697, +0.0085] straddles zero, so under the pre-registered three-way rule the verdict is
+   INDISTINGUISHABLE and resolves to the control under the standing incumbent-tie rule; the guard passes
+   at 512 of 512 shared groups. The plain-WER form recomputes the same number and the reader refuses if
+   the two forms disagree. Both scorers are fixed-final, so this read selects nothing. CONTEXT, never
+   gating: the paired delta spearman, the arm-internal nulls (never differenced) and the fork-bed pair,
+   which agrees in direction, also straddles zero, and is a different policy. WHAT THIS LICENSES: "the
+   posterior-weighted refit does not rank better than the control at this operating point" -- a
+   MEASUREMENT of the real target quantity and not a constructed clause battery, the distinction the
+   user's reopening rested on. It does NOT license "the candidate is worse": the interval contains zero
+   and the tie resolves to the incumbent by rule, not by evidence of inferiority.
+85. **The evolved policy's within-group sampling has largely collapsed, and that is what closed D9.1's
+   arm 3** (39). The median group carries 2.0 distinct-scoring support members against 13 candidates
+   offered, with a third of groups at exactly one. Clause (a) reads NO-GO and arm 3, the soft-EM refit,
+   is not funded -- a tempered posterior over a median-two-string support would be the 1-best refit at
+   extra cost, which is the degeneration the clause names. THE THINNESS IS THE POLICY'S, not an
+   instrument artifact: the scorer-free variant and the rollouts-only variant both read 2.0, so it is
+   neither the scorer nor the greedy member's inclusion, and both convention readings report the clause
+   fired. THE BED IS SOUND: every group carries live support, the valve is idle, and clauses (b) and (c)
+   pass. DESCRIPTIVE, ADOPTING NOTHING -- one dump from one checkpoint at one temperature; it licenses
+   no claim about the loop family without a temperature sweep that is neither registered nor run.
+86. **D9.2 answers the evolved-point question -- the 1-best refit and the incumbent are
+   INDISTINGUISHABLE, and the tie resolves to the incumbent by rule** (39). The interval straddles zero
+   and the plain-WER form recomputes the same delta eta; both scorers are fixed-final, so this read
+   selects nothing, and under the registered gate a refit arm is adopted only on an interval excluding
+   zero in its favour -- arm 2 is NOT ADOPTED. THE STOP CLAUSE PASSED ON ITS OWN TERMS, worth recording
+   as a pass rather than a silence: D9.0's structural census predicted every rollout row alignable and
+   both arms scored 7,168 of 7,168 rows finite with 0 groups dropped. WHAT LIMITS THIS READ, stated
+   because a tie is exactly where power matters: the shared oracle headroom is 0.0116 against D8.4's
+   0.0600, five times smaller, and eta divides by it -- so the interval is 0.247 wide against D8.4's
+   0.078. The verdict is "not distinguishable on this bed"; it licenses "the refit is not adopted",
+   never "the two scorers rank equally well", and a future arm wanting to be distinguished here would
+   need a much larger effect than D8.4 needed. WHAT IT LICENSES per the registration: jointly with D8.4
+   and D6-PERIODIC, "scorer refitting is not funded on this loop family at cold or evolved operating
+   points" -- never "refitting could not work elsewhere". The phase closes only on the USER's word.
+## Open findings and unresolved verifier feedback
 
+Conventions and pins still open, then measured caveats that qualify a banked number. Resolved
+hand-backs are not repeated here.
 
-71. **D8.1a piece 3: the pool scoring pass reproduces the dump's forward configuration exactly,
-    and the mixed convention it licenses is NOT small.** Overlap probe
-    `D8PoolOverlapProbeJob.GerShND5ibtT`, on the 64 lexicographically first tags where the dump's
-    regenerated greedy and the D7 pool 1-best already agree, scored through the substituted-text
-    bed in the dump's own forward configuration. BINDING half: `recon` reproduces the dump's stored
-    greedy column to 4.77e-07 maximum absolute difference against a 1e-3 tolerance, median exactly
-    0, with no degenerate row and no text mismatch -- so the text-path pass IS the dump pass, and
-    verdict PARITY licenses scoring the 31,562 differing utterances. MEASURED half, which binds
-    nothing but is the reason the probe was required: `lm_prior` differs on 64 of 64 tags (median
-    absolute 0.0967, maximum 0.5310) and `n_tokens` differs on 64 of 64 tags (maximum 3). So for the
-    SAME string, the dataset text pipeline and the decode's own token path never agree on the
-    tokenization -- not rarely, always. CONSEQUENCE: the weight job's mixed convention, which reuses
-    the dump's stored greedy columns on the 249,679 agreeing utterances and text-path scores on the
-    31,562 differing ones, is not a small perturbation between two nearly identical measurements; it
-    is a systematic difference in the `lm_prior` column, which is exactly the column the shaped
-    score depends on and the same phenomenon the collapse diagnostic surfaced. Whether that is
-    acceptable, or whether both halves should come from one convention, is a normative choice and
-    therefore the planner's; nothing has been spent on the differing pass while it is open.
-    RESOLVED 2026-08-22 (planner ruling latest+3): the mixed convention is rejected; every column of
-    the pool member now comes from the text path on all 281,241 tags.
+**A. Unpinned conventions that change a winner or an eligibility call.**
+- CLAUSE-3 POINT-VERSUS-CI ELIGIBILITY (D7.2, and every acceptance round after it). The gate table
+  deliberately leaves the reading to the planner and prints both (`elig_pt False` / `elig_CI True` for
+  the D7 candidate). It decided nothing for D7, because clause 2 fails under either, but it recurs at
+  the next acceptance round. The user's blessing is still pending (SAE.md queue item 2).
+- THE D2 WINNER RULE TURNS ON TWO UNPINNED CLAUSES (2026-08-08 audit, never closed). (a) Clause (ii) is
+  algebraically clause (i)'s improvement comparison sign-flipped (H_uni is bit-identical across arms),
+  so `d2_both`, a changed-text candidate, is eliminated by exactly the comparison the gate v2 floor-only
+  amendment ruled inadmissible -- and that is the only thing removing it (the argmax is unchanged at
+  k=1/k=4 if it is admitted; at the omitted k=2 `d2_both` out-reduces `d2_contrast`, n.s.). (b) The
+  ladder floor's "not below" is CI-read in this log and point-read in the rule text; under the point
+  reading only `d2_states` is eligible and THE WINNER FLIPS to `d2_states`. Pins were proposed and need
+  the user's blessing; `config_sae_3e1_d3_v1.py:37-38` hard-codes `WINNER='d2_contrast'` provisionally.
+  Also: `d2_states` is admitted through the improvement halves of (i)/(ii) on ce_loo numbers approach 8
+  itself marks (*) cps-incomparable -- only the absolute floors bind for it.
+- CONCLUSION 16's `psi_len_only` verdict ("no -- (e)") is the one selector verdict that depends on the
+  unblessed CI-convention pin; the other four are convention-independent.
 
-72. **The decode path's extra token is the generation's terminal token, and it explains 58 of 64
-    tags but not all of them.** `D8PoolTokenMechanismJob.rVkoJpPoBGG8`, on the same 64 probe tags,
-    tokenizing each pool string with the bed's own tokenizer artifact. The text path's `n_tokens`
-    equals the plain tokenization of the pool string on 64 of 64 tags -- an exact anchor, so the
-    decode path's surplus is a clean subtraction. That surplus is exactly one token on 58 tags,
-    which is `<|endoftext|>` (id 151643), appended by the generation and never by the text path; it
-    is two on 3 tags and three on 3 tags, and those 6 are reported unexplained rather than absorbed
-    into the terminal-token account. Disclosure discharging ruling part 3: it feeds no clause, no
-    weight and no verdict, and the corrected law does not rest on it. What it makes legible is that
-    under the corrected convention all twelve rollouts pay the terminal token's prior cost while the
-    pool member does not -- the member-versus-rollout gap definition (a) always implied, now with a
-    measured size and a named cause.
+**B. Statistics whose reproducibility or labelling is still off.**
+- APPROACH 10's D2 PAIRED-CI ENDPOINTS are not reproducible from any pinned seed (17 of 24 differ in
+  the 4th decimal, max 0.0007); no seed or resample count was pinned for statistics computed outside
+  any job. Verdict-neutral except the two boundary calls recorded under conclusion 15. The clause-table
+  job fixed this going forward; the logged endpoints were never re-issued.
+- APPROACH 4's gold_enc50 held ce_loo cell reads 3.1274; the artifact
+  (`PsiHeldNllJob.ag5DZ3A2Gd1K`) says **3.1385**. UNRESOLVED CONTRADICTION in the table; the row's
+  derived columns already use 3.1385 and the ordering is unaffected.
+- APPROACH 8's TABLE IS COLUMN-MIXED: `beta_to` and `spearman` are the lambda=0 `recon` reads while
+  `steerable` is the lambda=1 `shaped` read (the incumbent's shaped `beta_to` at lambda=1 is 0.2284).
+  The relabel was handed back and is not reflected above.
+- "ARM-INVARIANT" LABELS OVERREACH in two places. Approach 3's selector block: `psi_len_only` and
+  `neg_n_oov` are recomputed per arm by each `PsiAlignRerankJob`; only `lm_prior_units`,
+  `neg_n_suspect` and `n_tokens` come from the shared dump by construction (n_oov coincides because the
+  arms share the lexicon config, and `psi_len_only` genuinely differs, hence its logged range); the
+  selector CIs run on 509/505/438 groups after degenerate-group filtering against 512 in the ranking
+  block. Approach 11's caption is false for `psi_len_only` -- its (e) is psi_g_tc100's value and its (f)
+  is d2_both's. Every arm's (e) CI straddles zero, so conclusion 7 stands either way.
+- `S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u` (D7.2 clause 3) PRINTS A FALSE REASON:
+  `clauses.txt` says "NO WINNER (reduction CI includes zero)" in both places because that string was
+  hard-coded rather than derived. The OUTCOME is correct under both readings but for two different
+  reasons: on the point reading no arm is eligible at all, and on the CI reading the candidate is the
+  argmax and its k=1 paired CI [+0.0039, +0.0106] excludes zero on the WRONG side. The numbers in the
+  same file and in `clauses.json` are correct and were verified bit-exactly. Fixed in code (speech-llm
+  `fc30dc1`) but the FINISHED artifact still carries the false line -- do not quote it.
+- CROSS-SCORER LAMBDA IS NOT COMPARABLE: `d2_states`' recon scale differs (within-group variance ratio
+  k = 0.0091 against the incumbent's 0.0131), so a scalar lambda cannot be carried across scorers --
+  match operating points on prior share instead.
 
-73. **D8.1a is COMPLETE and its verdict is GO, funding ONE arm: `candidate_acoustic`.**
-    `D8WeightJob.juRpzTNHKCSq` on the operative bed at T=0.7, under the corrected text-path
-    convention over all 281,241 pool members. All three no-go clauses pass with margin -- median
-    distinct support 13.0 against the 3.0 floor, `tau` values 0.05 and 0.1 inside the [1.5, 8.0] ESS
-    band, median token count R2 0.0620 against the 0.5 ceiling -- and the exclusion rate is 18 of
-    3,170,676 scored members (0.0006 percent against the 5 percent safety valve), by
-    `empty_after_fold` 7 and `infeasible` 11, with no feasible-but-non-finite `recon`. `tau_star` is
-    0.05 and all 281,241 groups are frozen to `supports.jsonl`. The arm-selection rule then fires on
-    its second clause: spearman(shaped, acoustic-only) is 0.9835 > 0.95, so the two arms are
-    operationally identical and only `candidate_acoustic` trains. `candidate_shaped` is NOT funded,
-    and not because it failed -- because at this operating point it is not a different experiment.
-    spearman(shaped, LM-only) is 0.3462, far below the same bar, so the shaped score is NOT free
-    English; that was the other way the shaped arm could have been struck out and it was not.
+**C. Reads that exist only as scratch or are not wired.**
+- THE JOINT REPRICING READ (2026-08-08, planner scratch on the D0 dump, never emitted from a job and
+  therefore not citable): at T=0.7 the live lambda=1 sits far below every scorer's ranking optimum
+  (incumbent at lambda=8: spearman 0.5558 -> 0.6778, beta_to 0.2284 -> 0.1112, sel_wer 0.1316 ->
+  0.1222, steerable 0.1949 -> 0.2034, prior share ~46 %), the optimum is arm-invariant at prior share
+  ~0.45, at matched operating points NO D2 candidate beats the incumbent on any rollout statistic, and
+  beta_to reaches zero only at lambda ~22-27 at prior share ~88 % (inadmissible). Must be reproduced as
+  a logged table by the clause-table job before any of it is used.
+- THE ORDERED `std_within_group` READ IS STILL NOT WIRED (no job, config entry or alias). Two existing
+  routes, one a trap: `RolloutMechanismJob` emits `std_within_group` over a hardcoded
+  ("recon", "shaped") tuple, so the lm term ALONE -- the half the order names -- is missing (a banked
+  full-bed instance, `RolloutMechanismJob.UJ0DfPXTH8Cq`, reads recon 0.0218 / shaped 0.0239 over 28,539
+  groups); `RewardShapeSweepJob`'s `compose()` reads the dump's RAW `lm_prior` column, which is per
+  generated TEXT TOKEN while the shaped arms train per UNIT FRAME, and `n_tokens` varies within a group
+  while `n_units` does not, so it is NOT a within-group constant rescale and that route answers in the
+  wrong units without the `scorer_diag` conversion. Standing dump-column trap, now with two consumers.
+- RECORDED BUT NOT IN APPROACH 18's TABLE (from the D4' dump's own (a) block): on the best bed at
+  T=0.7 the within-group suspect-count contrast is nearly ABSENT -- coverage 0.0037 for any suspect
+  against the G-track's 0.092-0.233, mean within-group count std 0.0116 -- while the ranking prize is
+  real (mean_wer 0.0562, oracle 0.0414, greedy 0.0541 over 28539 groups). The minimal-state exploit
+  therefore sits in a near-total GRPO dead band at the fork's operating point: no in-loop reward term
+  can steer it, which is the quantitative case for the offline refresh path and against adding reward
+  terms on this bed.
 
-74. **A35: the pool-member scoring convention is IMMATERIAL to the D8.1a decision, by measurement
-    rather than by argument.** The pre-registered sensitivity line recomputed the whole read under
-    the superseded mixed convention from the same artifacts: no no-go clause flips, the safety valve
-    does not flip, the verdict does not flip, and the funded-arm set does not flip. The only moving
-    statistic is spearman(shaped, LM-only), 0.2747 legacy against 0.3462 corrected, and both sit far
-    below the 0.95 bar; spearman(shaped, acoustic-only) is 0.9835 under both to four decimals. This
-    discharges ruling part 4 in the direction that costs nothing, and it is worth stating what it
-    does NOT license: the correction was still necessary, because the ~9.5-nat one-sided offset in
-    the shaped numerator (verdicts 71-72) was real and its immateriality could only be established
-    by making the measurement, never assumed from its size.
+**D. Measured caveats that qualify a banked number.**
+- THE OOV-COUNT NULL IS INERT on the D0 bed: `n_oov` is 0 for all 6144 rows because the psi inventory
+  carries no UNK state, so `neg_n_oov` is undefined rather than uninformative.
+- THE (c) COVARIATE is the rollout's own WER, which controls the filler's direct insertion cost but not
+  the composition of the remaining errors; the gold-text control arm, not the absolute beta, is what
+  carries the contamination claim.
+- D8.1a's SAMPLING SEED IS UNPINNED, as in the reference machinery, so artifact reproducibility rests
+  on the frozen `supports.jsonl` -- a disclosed property, not a defect. Batching moves the wall clock
+  and the deterministic columns not at all, but the SAMPLED rollouts are a fresh draw from the
+  registered distribution; no number from D8.1a's first launch was ever banked.
+- D7.1 PRECISION NOTES: held `L_online` averages over 14,008 rows (the 54 singleton anchors contribute
+  no online term), the same denominator in both arms; control shards 6/9 and candidate shard 9 report
+  `u_to_z` exactly 0.0, which is fine for a satisfied hinge but matters if `u_to_z` is ever read as a
+  live signal.
+- D6-PERIODIC/GAN960-FROZEN carries an inherited-bookkeeping conflict, flagged and not resolved: leg 1's
+  record carries dump/pool/refit entries that are the SCORER's provenance from theta_0^G decodes, which
+  in this arm is not its own round 1. Those jobs are finished and fund nothing, but a downstream audit
+  could misread them.
+- THE FROZEN-VERSUS-PERIODIC CONTRAST IS NOT SINGLE-VARIABLE against the best frozen G-track row:
+  topology (d_min=1 vs 2), scorer corpus and policy-optimizer continuity all differ, and d_min=1 was
+  historical rather than a winning hyperparameter. THE MISSING CONTROLLED ARM freezes periodic round
+  1's own d_min=2 scorer across otherwise identical periodic legs; it does not exist.
+- NO ENDPOINT EXISTS in this log for D6-PERIODIC (fresh D-track, 5 of 8 legs), D6-PERIODIC-WARM (5 of
+  8), D6-PERIODIC/GAN+HOM (3 of 8) or D6-PERIODIC/GAN960-FROZEN; the next leg of each was pending for
+  node maintenance at the last read, with no error markers.
+- UNVERIFIABLE (the measuring trial jobs were deleted): approach 12's ~9.5 h whole-bed estimate and the
+  1.68x `max_seqs`-8 gain survive only as config-comment claims. The 11.5 h cap, the 4 -> 8 `max_seqs`
+  change, the no-resume property and the actual 5:17:30 runtime all verify and are consistent with both.
+- D8.1a's ten `all_bed*` jobs carry `error.run.1` markers from duplicate workers; all ten are FINISHED
+  with complete outputs (`finished.tar.gz` present) and every downstream job read them successfully.
+  Recorded only so a later reader does not treat them as failures.
 
-75. **A37: D8.1b candidate-acoustic is COMPLETE, and the realized draw reproduces the frozen
-    weights.** `D8ScorerRefitJob.2bQzhz6U1yHp`: 267,175 draws, one per anchor visit over one pass,
-    with a realized greedy-draw fraction of 0.25312 against the 0.25266 mean weight the frozen
-    artifact places on the greedy member -- agreement to 5e-04 on a quantity nothing tuned. Three
-    quarters of visits trained on a non-greedy target, so the arm is not the control in disguise,
-    and 0 drawn members were infeasible, so the training bed and the weight artifact agree about the
-    store. The registered persistence set is written: fixed-final checkpoint in the control's own
-    format with role hashes, the sampler seed/state contract and its RNG key construction, ten
-    per-shard loss records, and the internal-held read.
+## Entry points and shared code
 
-76. **A37: the registered per-step-cost parity with the control HOLDS, measured.** The candidate ran
-    13:52 against the control's 13:59 and the D7 online candidate's 13:58, over an identical 10
-    shards, 2,361 batches, 267,175 trained and 14,062 held anchors. This is what the batching pin
-    was for: forming batches from the control's items before any draw makes the shard membership,
-    the batch partition and the step count the control's by construction, and the wall clock
-    confirms the drawn targets did not move the cost.
+`config/sae_3e1_d0.py`, `_usage.py`, `_d1d2.py`, `_d3.py`, `_d4.py`, `_d4p.py`, `_d5a.py`, `_d5b.py`,
+`_fork.py`, `_d6.py` (builds D4' and the swap-in too), `_d6periodic.py`, `_d6periodic_warm.py`,
+`_d6periodic_gan960_frozen.py`, `_hom.py`, `_d7_gan_seqdisc.py`, `_d8_0.py`, `_d8_1a.py`, `_d8_1b.py`,
+`_d8_2.py`, `_d8_4.py`, `_d9_1.py`, `_d9_2.py`. D7 tracked canonical configs
+`config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace
+wrappers only delegate).
 
-77. **A37 (DESCRIPTIVE, NOT AN ADMISSION READ): the candidate's fixed-final internal-held per-frame
-    NLL is 2.51389 against the control's 2.52588.** One deterministic read on the held greedy
-    targets, scored the same way for both arms and reported because the authorization asks for it.
-    It decides NOTHING: D8.2 owns the registered admission, which is a PAIRED estimator with a
-    speaker-cluster bootstrap and a data-defined non-inferiority margin `delta_NI` that must be
-    computed from the CONTROL's own held spread BEFORE any candidate number is read. A raw
-    difference of 0.012 between two unpaired aggregates is not that statistic and must not be
-    quoted as evidence of non-inferiority in either direction.
+Code: `sae/scorer_diag.py`, `text_repair.py`, `psi_align_jobs.py`, `psi_align.py`, `curate.py`,
+`gate_table.py`, `refresh_gate.py`, `d7_census.py`, `d7_v2.py`, `d7_online.py`, `d8_feasibility.py`,
+`d8_weights.py`, `d8_pool_scores.py`, `d8_train.py`, `d8_admission.py`, `d8_eta.py`,
+`d8_bed_feasibility.py`, `psi_align_compare.py`, `d9_refit.py`, `fork_screen.py`, `psi_forensics.py`,
+`homophone_probe.py`, plus focused tests. `test_psi_align.py`'s CUDA/python lattice parity test carries
+two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21
+(`log/parity_test.1445759.out`).
 
-78. **A37: D8.2 clause 1 PASSES, and by a margin that does not depend on the margin.** The paired
-    candidate-minus-control internal-held per-frame NLL over 14,062 held anchors in 2,328 speaker
-    clusters has mean -0.012475 and a speaker-cluster bootstrap one-sided 95 percent upper bound of
-    -0.011800, against `delta_NI` 0.004826 computed from the control alone by D7.2's convention
-    verbatim. The bound is not merely below `delta_NI`, it is below ZERO -- so the clause would also
-    pass at D7's stricter zero margin, and the data-defined margin never became load-bearing. Both
-    arms' pooled aggregates reproduced their banked values before the clause was read, so the
-    checkpoints describe the scorers their training reports describe. SCOPE, because this is a fit
-    statistic and nothing more: it is per-frame NLL on the held GREEDY targets, scored identically
-    for both arms, and it speaks to absolute fit on the incumbent's own distribution. It is one of
-    FOUR registered clauses and decides D8.2 alone with none of them; discrimination, the external
-    1,500-row gate and scorer parity are clauses 2-4 and are unread.
+Cross-arm error anatomy at matched points: `S/scorer_diag/PolicyAnatomyJob.Cda1gPFxLM2V` (periodic
+family), `.pxqfrYx23Rth` (swap-in vs control), `.eMeWgTsMWSRM` (D5(a)-1).
 
-79. **A37: D8.2 clause 2 FAILS -- the mechanism's claimed win is absent.** Clause 2 requires the
-    candidate-minus-control corruption-ladder spearman on the external rows to have a row-bootstrap
-    95 percent LOWER bound above zero. No ladder has one: the two positive point estimates
-    (`filler_sub` +0.0027, `lmsub` +0.0019) both have intervals straddling zero, and of the three
-    negative ones `filler_ins` is significantly WORSE at -0.0033 [-0.0064, -0.0003]. So spreading
-    the training target over the sampled group did not improve discrimination on any registered
-    corruption family, and degraded filler-insertion discrimination.
-
-80. **A37: D8.2 clause 3 FAILS -- gate v2 returns NO WINNER because the candidate is ineligible.**
-    The candidate passes the gate's (i) floor, (i) improvement and (ii) clauses, and improves the
-    matched insertion discount significantly at every k (+0.0078 p 0.000, +0.0060 p 0.029, +0.0097
-    p 0.012) and leave-one-out cross entropy (2.2343 against 2.2588). It is nonetheless INELIGIBLE
-    under both the point and the CI reading, on the ladder-not-below clause that verdict 79
-    measures. The incumbent control is eligible but cannot improve on itself, so the table returns
-    NO WINNER with no arm admitted.
-
-81. **A37: D8.2 does not pass, and the registered consequence is that D8 CLOSES WITHOUT A POLICY
-    LEG.** The gate reads "D8.2 passes for a candidate only if all four hold" and "failure at any
-    rung closes D8 without a policy leg; no tau, temperature, support or coefficient rescue is
-    selected from results." Clause 1 passes (verdict 78), clauses 2 and 3 fail (verdicts 79-80),
-    and clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) is still running and is not needed to reach
-    the outcome -- it is built and will be read rather than skipped, because no clause is decided
-    on another's expected result. WHAT THIS LICENSES AND WHAT IT DOES NOT: the posterior-weighted
-    refit is not funded to a policy leg AT THIS OPERATING POINT (group 12, T=0.7, tau_star 0.05,
-    acoustic-only weights). It is NOT a finding that soft multi-hypothesis targets cannot work, and
-    the registered no-rescue rule exists precisely so that the tau, group size or weight view that
-    happens to look better here cannot be selected from this table. The verdict is the planner's.
-    Localization worth carrying: the arm improved absolute fit and insertion pricing while failing
-    to improve ranking -- it learned the target distribution better without learning to discriminate
-    corruption better, which is the failure mode the acoustic-only arm was registered to expose.
-
-82. **A38: D8.2 clause 4 PASSES -- the online and offline scorer paths are the same function.** The
-    candidate arm's own rollout dump, re-scored through the online (loop) path, reproduces that
-    dump's stored offline (G3) `recon` column to a maximum absolute per-frame difference of
-    2.384e-07 against a 2.0e-03 tolerance, mean 4.657e-10, with 512 of 512 rollouts round-tripped
-    and no row floored at -log K. This was read after clauses 2 and 3 had already closed D8.2
-    (verdict 81) because no clause here is decided on another's expected result. It changes
-    nothing about that outcome: clause 4 is an implementation-identity check, not a quality one.
-
-83. **A38: D8.4 CANNOT BE READ ON THE REGISTERED OPERATIVE BED -- 91 percent of that bed is
-    unscoreable by the psi alignment family, and this is a property of the bed, not a wiring
-    error.** `D8EtaReadJob.S3NTCZAOfSnZ` fails closed on its own registered guard: the primary
-    pair carries 46 shared groups where the registered fairness pin is n >= 512. The cause is
-    measured, not inferred. Both arms independently report the identical 25,867 infeasible rows of
-    31,744 and 498 dropped groups, so infeasibility is a property of the text-to-unit alignment and
-    not of either scorer's weights. The operative unit store carries 146.8 frames per utterance
-    against the fork store's 585.7 on the IDENTICAL 34,106 utterances -- a median ratio of 3.99 --
-    so under the standing `d_min` >= 2 topology most operative rollouts have more symbol states
-    than the available frames can host and score exactly zero probability. WHAT THIS LICENSES AND
-    WHAT IT DOES NOT: it licenses "the registered D8.4 comparison cannot be made on this bed as
-    pinned", and nothing about either arm's ranking quality. The 46 surviving groups give
-    delta eta +0.0043 [-0.1020, +0.1257], which is INDISTINGUISHABLE on 9 percent of the
-    registered bed and therefore discharges the read in neither direction. The wiring was verified
-    against the registration before this verdict was written: `config_sae_3e1_d8_0_v1.py:54-61`
-    pins `GTRACK_DUMP` = `ReturnnForwardJobV2.J9yA1eYnxwYA` and `GTRACK_UNITS` =
-    `MergeUnitsPklJob.hJmZtbPDa2hd`, which is exactly the pair D8.4 consumes, and the two arms
-    differ in `model_pt` alone. Descriptive and NOT a verdict on ranking: the full-set rank-only
-    column, which keeps all 512 groups by ranking the infeasible candidates last, reports eta
-    -0.1680 for the candidate and -0.1548 for the control, against the same candidate's +0.3086 on
-    the fork bed. No fallback is chosen here and nothing is escalated; the bed question is the
-    planner's.
-
-84. **A38: D8.4 ANSWERS THE REOPENED D8 QUESTION -- the candidate-acoustic scorer and the exact D7
-    control are INDISTINGUISHABLE at ranking, and the tie resolves to the control.**
-    `D8EtaReadJob.KwmHTXqiJMGr` on the re-pinned operative bed, with the guard passing at 512 of
-    512 shared groups: paired delta eta (candidate minus control) **-0.0293 [-0.0697, +0.0085]**,
-    which straddles zero, so under the pre-registered three-way rule the verdict is
-    INDISTINGUISHABLE and resolves to the control under the standing incumbent-tie rule. Per arm,
-    eta is +0.4220 candidate against +0.4513 control. The same number in plain WER on the shared
-    groups: selection WER 0.1417 candidate against 0.1400 control, delta +0.0018 over a headroom
-    of 0.0600 (shared mean 0.1670, shared oracle 0.1071), which is -0.0293 -- the reader recomputes
-    this identity rather than restating it, and refuses if the two forms disagree. Both scorers are
-    fixed-final, so this read selects nothing; `n_boot=10000`, `seed=42` as registered.
-    CONTEXT, never gating: paired delta spearman -0.0114 [-0.0234, -0.0004], candidate +0.4815
-    against control +0.4929; every null is arm-internal and is not differenced (candidate
-    length-only -0.2798, OOV-count +0.0254, audio-free margin +0.1172; control -0.2662, +0.0254,
-    +0.1259). The fork-bed context pair agrees in direction and also straddles zero
-    (-0.0033 [-0.0164, +0.0096] over 28,531 groups) but is a different policy and is never the
-    verdict. WHAT THIS LICENSES AND WHAT IT DOES NOT: it licenses "the posterior-weighted refit
-    does not rank better than the control at this operating point", which is a MEASUREMENT of the
-    real target quantity and not a constructed clause battery -- the distinction the user's
-    reopening rested on. It does NOT license "the candidate is worse": the interval contains zero
-    and the tie resolves to the incumbent by rule, not by evidence of inferiority. The phase closes
-    only on the USER's word over this number, with the D8.3 authorization question attached.
-
-85. **A39: the evolved policy's within-group sampling has largely collapsed, and that is what
-    closed D9.1's arm 3.** Over all 281,241 groups of the 960 h dump at the registered sampling
-    settings (G=12, T=0.7), the median group carries **2.0** distinct-scoring support members
-    against 13 candidates offered; 92,995 groups (33.1 pct) carry exactly ONE, and 55.1 pct carry
-    at most two. Mean 3.12, max 13. Clause (a) of the weight artifact therefore reads NO-GO and
-    arm 3, the soft-EM refit, is not funded -- the tempered posterior over a median-two-string
-    support would be the 1-best refit at extra cost, which is the degeneration the clause names.
-    THE THINNESS IS THE POLICY'S, not an instrument artifact: the scorer-free variant and the
-    rollouts-only variant both read 2.0, so it is neither the scorer nor the greedy member's
-    inclusion, and both convention readings report the clause fired. THE BED IS SOUND: all 281,241
-    groups carry live support, the exclusion valve is idle at 0.0000 pct against 5 pct, clause (b)
-    puts every grid tau in the ESS band and clause (c) reads token R2 0.4403 against 0.5.
-    DESCRIPTIVE, ADOPTING NOTHING -- it is a measurement of one dump from one checkpoint at one
-    temperature, and it licenses no claim about the loop family without a temperature sweep that
-    is not registered and not run. Its reach beyond D9 is the planner's reading
-    (`PLAN_3E1.md` D9 Status 2026-08-24), not this verdict's.
-
-86. **A39: D9.2 answers the evolved-point question -- the 1-best refit and the incumbent are
-    INDISTINGUISHABLE, and the tie resolves to the incumbent by rule.** Paired delta eta
-    -0.0310 [-0.1545, +0.0923] over 512 of 512 shared groups, the interval straddling zero; per
-    arm, eta +0.1993 for the refit against +0.2303 for the incumbent. The same number in plain
-    WER on the shared groups: selection WER 0.1484 refit against 0.1481 incumbent, delta +0.0004,
-    which the reader recomputes into the same delta eta rather than restating it. Both scorers are
-    fixed-final, so this read selects nothing. Under the registered gate a refit arm is adopted
-    only on an interval excluding zero in its favour, so arm 2 is NOT ADOPTED.
-    THE STOP CLAUSE PASSED ON ITS OWN TERMS and is worth recording as a pass rather than a
-    silence: D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable at the refit
-    topology, and both arms scored 7,168 of 7,168 rows finite with 0 groups dropped, so nothing was
-    dropped and no drop had to be surfaced.
-    WHAT LIMITS THIS READ, stated because the verdict is a tie and a tie is exactly where power
-    matters: the shared oracle headroom on this bed is 0.0116 (mean 0.1508, oracle 0.1391) against
-    D8.4's 0.0600, five times smaller, and eta divides by it -- so the interval here is 0.247 wide
-    against D8.4's 0.078, three times wider. This bed resolves much less than D8.4's did. The
-    verdict is therefore "not distinguishable on this bed", and it licenses "the refit is not
-    adopted", never "the two scorers rank equally well".
-    WHAT IT LICENSES per the registration: jointly with D8.4 and D6-PERIODIC, "scorer refitting is
-    not funded on this loop family at cold or evolved operating points" -- never "refitting could
-    not work elsewhere". The phase closes only on the USER's word over this number.
-
-## Catalog
-
-`T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
-`S/` = `work/speech_llm/sae/`.
-
-| artifact | path |
-|---|---|
-| D9.2 THE VERDICT, INDISTINGUISHABLE resolving to the incumbent (verdict 86) | `S/d9_refit/D9EtaReadJob.A7QvXl7VR7wl` (`eta_read.json`, `eta_read.txt`); refit rerank `S/psi_align_jobs/PsiAlignRerankJob.X7sDGLPgDFWm`, incumbent rerank `S/psi_align_jobs/PsiAlignRerankJob.cysJQBiP9iW1` (D9.0's own), compare `S/psi_align_compare/PsiAlignPairedCompareJob.dMSa5z0knjLI`; code `sae/d9_refit.py`, `sae/d8_eta.py`, `configs/config_sae_3e1_d9_2_v1.py`, `config/sae_3e1_d9_2.py`, `scripts/d9_2_eta_read_test.py` (23/23) at speech-llm `c147014` |
-| D9.1 arm 2, the 1-best refit that D9.2 reads (approach 39) | `S/d9_refit/D9OnlineTrainJob.nJQy199AQZQu` (`model_final.pt`, `train.txt`, `monitors.json`); 2,421 steps, held NLL/frame 2.2550; code `sae/d9_refit.py`, `sae/d7_online.py`, `configs/config_sae_3e1_d9_1_v1.py` at speech-llm `8df2580` |
-| D9.1 weight artifact, NO-GO on clause (a) -- the mode-collapse census (verdict 85) | `S/d9_refit/D9WeightJob.uyKXr4ZiGj9R` (`weights.json`, `weights.txt`, `supports.jsonl`); pool `S/d9_refit/D9PoolFromDumpJob.RhwBlgMhqHbA`, merge `S/d8_weights/D8MergeRolloutsJob.C4G6qGzjEIrx` over ten `F/ReturnnForwardJobV2` shards; arm 3 `S/d8_train/D8ScorerRefitJob.XvPF118rphQP` stays in its guard-fired error state by planner ruling |
-| D8.4 bed-feasibility reader v2, the registered producer for approach 38's store statistics | `S/d8_bed_feasibility/D8BedFeasibilityJob.9fCCv5HAPg4a` (`bed_feasibility.json`, `bed_feasibility.txt`; adds the shared-key-set corpus means and names the ratio direction, on the planner's 2026-08-23 true-up); v1 `QTlLFcnka0Hy` superseded; code `sae/d8_bed_feasibility.py`, `scripts/d8_bed_feasibility_test.py` (12/12) at speech-llm `be2019a` |
-| D8.4 THE VERDICT, INDISTINGUISHABLE resolving to control (verdict 84) | `S/d8_eta/D8EtaReadJob.KwmHTXqiJMGr` (`eta_read.json`, `eta_read.txt`) |
-| D8.4 primary pair RE-PINNED to the 50 Hz enc50 join (2026-08-23 closing ruling) | `S/psi_align_jobs/PsiAlignRerankJob.GNOktIsG251m` (candidate) and `.JSZvokFxjNkJ` (control) on `MergeUnitsPklJob.ncxcd3vouD5E`; compare `S/psi_align_compare/PsiAlignPairedCompareJob.ACR10RHlnsop`; read `S/d8_eta/D8EtaReadJob.KwmHTXqiJMGr`; code `configs/config_sae_3e1_d8_4_v1.py`, `sae/d8_eta.py` at speech-llm `2c5990d` |
-| D8.4 paired ranking-quality read, FAILED CLOSED on the bed guard (verdict 83) | `S/d8_eta/D8EtaReadJob.S3NTCZAOfSnZ` (`error.run.1`; the refusal message is the result); primary compare `S/psi_align_compare/PsiAlignPairedCompareJob.ffqCTOA3qssf`, operative reranks `S/psi_align_jobs/PsiAlignRerankJob.8oYpO4IBeqHb` (candidate) and `.sQGYUL22Kpg6` (control); context compare `S/psi_align_compare/PsiAlignPairedCompareJob.yrEq1ogcluJF`, fork candidate rerank `S/psi_align_jobs/PsiAlignRerankJob.qVTVrRvyOjZ9`; code `sae/d8_eta.py`, `sae/psi_align_compare.py`, `configs/config_sae_3e1_d8_4_v1.py`, `config/sae_3e1_d8_4.py`, `scripts/d8_eta_test.py` (12/12) at speech-llm `359dbeb` |
-| D8.2 clause 4, online-vs-offline scorer parity PASS (verdict 82) | `S/psi_align_jobs/PsiScorerParityJob.sRJ7LUmF4nMw` (`parity.json`, `parity.txt`) |
-| D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
-| D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
-| D8.2 clauses 2-3, gate v2 table over the 1,500 external rows (verdicts 79-81) | `S/gate_table/PsiGateClauseTableJob.xFSaHcqvUR2S` |
-| D8.2 clause 1, paired admission with per-anchor evidence (verdict 78) | `S/d8_admission/D8AdmissionJob.C2HUHUtUjfhN` (`admission.json`, `admission.txt`, `per_anchor.jsonl` with 14,062 rows carrying paired deltas and speaker-cluster ids); code `sae/d8_admission.py`, `configs/config_sae_3e1_d8_2_v1.py`, `config/sae_3e1_d8_2.py`, `scripts/d8_admission_test.py` (4/4) at speech-llm `2bdb188` |
-| D8.1b candidate-acoustic scorer refit (approach 37, verdicts 75-77) | `S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`; control reused at `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`; code `sae/d8_train.py`, `configs/config_sae_3e1_d8_1b_v1.py`, `config/sae_3e1_d8_1b.py`, `scripts/d8_draw_test.py` (11/11) at speech-llm `aadf92b` |
-| D8.1a corrected-convention pool scoring and weight artifact (COMPLETE, verdicts 73-74) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
-| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
-| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
-| D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
-| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py`, 47 synthetic-only checks at v3, all passing (the `889750c` commit message says 32, which was the v1 count) (speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 `3843918`) |
-| D7 own-infeasible-anchor drop law and its verification | speech-llm `e2a421b`; `scripts/d7_make_items_dropcheck.{py,json}` |
-| D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
-| D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
-| D7.0 parity diagnostic (approach 32): the read-only GPU reproduction of the preflight's parity clause | `scripts/d7_parity_diag.py`, output `log/d7_parity_diag.1446568.out` |
-| D6-PERIODIC/GAN960-FROZEN graph (approach 33) | `config/sae_3e1_d6periodic_gan960_frozen.py` -> `configs/config_sae_3e1_d6periodic_gan960_frozen_v1.py`; init `T/ReturnnTrainingJob.HuSkdbuVRg6d` ep10; frozen scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; legs 1/2/8 `T/ReturnnTrainingJob.ohmLWWmr6Kxe`, `.liehXoiGoRI0`, `.V1WEV1giQXZA` |
-| corrected D7-GAN-SEQDISC graph (approach 32) | `config/sae_3e1_d7_gan_seqdisc.py`; pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu`; preflight `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI`; fixed-final control/candidate `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`, `.WA1bqjXQtzeZ` |
-| D7.2 admission, all four clauses | clauses 1-2 `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI`; clause 3 `S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u` over `S/psi_align_jobs/PsiHeldNllJob.6bf5GyPGHuAi`, `.QDKOlbGXdEOA`, `PsiTextProbeJob.o6d4bN6EBB2O`, `.C3vgGM2guvS0`; clause 4 `S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6` behind `PsiAlignRerankJob.kkEEVosPO80P`, `.OiRBghBiTriv` (speech-llm `c40655d`) |
-| D7.1 fixed-final scorers, both arms complete | control `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU/output/model_final.pt`; candidate `S/d7_online/D7OnlineTrainJob.WA1bqjXQtzeZ/output/model_final.pt`; per-arm `monitors.json`, `sampling.json`, `train.txt` beside each |
-| D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
-| its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
-| D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |
-| its warm-started refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.2TDm8VwIZzjv`, `.frtMcQ6wvR4s`, `.ENcr81sGwHfp`, `.3tMeo1Meuceg`, `.ZeEsJq6JOdNx`, `.34mTYfJioAsm`, `.3JLOhu5PSKwj` |
-| BOTH ARMS RELAUNCHED 2026-08-18 with no acceptance step (user ruling). The ids above are the ungated arms; the gated run's legs 2-5, its boundary fits for rounds 3-6, and every clause table and verdict job were deleted the same day, so approach 22's table is the only record of what that acceptance step decided. Surviving from the gated run: leg 1 and both arms' round-2 fits, whose hashes the change did not move. | -- |
-| all three arms' error anatomy at matched points | `S/scorer_diag/PolicyAnatomyJob.Cda1gPFxLM2V` |
-| D6-PERIODIC/GAN legs 1-8 (approach 26), G-track sub-ep 1-8 | `T/ReturnnTrainingJob.kr1foUV6lecx`, `.AuzMGgyskdJT`, `.KD73Hc4eGDfW`, `.E6s3lUUaodzw`, `.J9m38fxEwXl4`, `.AS1g33qDo28i`, `.QTQuYQnppmSs`, `.cR8Q29Pmfuhy` |
-| its per-boundary refits (rounds 1-8; no gate on this track, each one serves the next leg) | `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`, `.7jHYVGToyWPR`, `.M2Z0M9UpKW98`, `.rdkbJsLOLEJW`, `.YPyCrmgjglsj`, `.jMaYmBUAffMb`, `.NM6sQa0D9uQM`, `.wPujQSh4PLSd` |
-| D6-PERIODIC/GAN+HOM loop legs 1-4 currently materialized (approach 26; first three finished) | `T/ReturnnTrainingJob.JocWKAmYroFJ`, `.dp0XmU5Mm9V5`, `.tpby6E3kTeSE`, `.JBaqJExxDKGz` |
-| its comparators at matched sub-epochs, both held: frozen contaminated psi_align^G and the frozen repaired scorer | `T/ReturnnTrainingJob.2fb02hGUdHNj` is the init they all start from; the two arms' own WER rows are in `SAE_3A.md` approach 10 and this log's approach 9 |
-| HOM-0a class statistics (approach 23); its `classes.json` carries every class with per-member LM and corpus counts | `S/homophone/HomophoneClassStatsJob.our76yheSD0c` |
-| HOM augmented corpus (uniform in-class resampling, seed 0, train split only); `word_hyps.json` is the SFT-ready drop-in | `S/homophone/HomophoneAugmentJob.k2OwZiTcKpEG` |
-| theta_0^G_hom, the HOM arm's policy init: theta_0^G's own builder with that corpus as targets and every other argument shared (launched 2026-08-18 on the user's greenlight) | `T/ReturnnTrainingJob.EabxlDlT0oji` (corpus dataset `work/i6_core/datasets/huggingface/TransformAndMapHuggingFaceDatasetJob.157IDJgBOv9H`) |
-| HOM-0b swap measurement (approach 25), 8000 utterances, <= 4 single-word swaps each | `S/homophone_probe/HomophoneSwapScoreJob.gN7mZ0EcPhsS` |
-| HOM-0b read against the pre-registered bar | `S/homophone_probe/HomophoneSensitivityJob.xB5RvcgLVgtD` |
-| HOM direction read (approach 28): which spelling each reward term points at, reference joined back to the same swaps | `S/homophone_probe/HomophoneDirectionJob.Uo4UAJp5Ue42` |
-| HOM round-1 diagnostic on the arm's own dump (approach 29): refit `S/psi_align_jobs/PsiAlignTrainJob.ACP3LqKDUSQ0`, swaps under own/plain scorer `S/homophone_probe/HomophoneSwapScoreJob.IG6wFl5QWnld` / `.iRCxGqNRxQha`, direction `S/homophone_probe/HomophoneDirectionJob.deNc7xXnCfSu`, sign test `S/homophone_probe/HomophoneScorerDeltaJob.JKbbRWimojlI` |
-| HOM-0c coverage on the label-free init's G=12 T=0.7 full-bed dump (`F/ReturnnForwardJobV2.lQMOR5n2ntcS`) | `S/homophone_probe/HomophoneCoverageJob.F76iJ8j0AQi1` |
-| the round-1 artifacts both reads run on: dump, refit corpus, scorer | `F/ReturnnForwardJobV2.66pIzBzffnK2`, `S/curate/GreedyPoolJob.Yv6qBpz0UC0U`, `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` |
-| D6 swap-in arm, best bed (approach 21a) | `T/ReturnnTrainingJob.YUh6Gzvavctf` |
-| its last three sub-epochs, half micro-batch | `T/ReturnnTrainingJob.qQeSijpUKP2k` |
-| both arms' error anatomy at every matched point | `S/scorer_diag/PolicyAnatomyJob.pxqfrYx23Rth` |
-| its frozen control, same fork, sub-ep 3–10 | `T/ReturnnTrainingJob.vhyvv2waeU16` |
-| D6 G-track min-duration refit (approach 21b), best epoch 23 | `S/psi_align_jobs/PsiAlignTrainJob.TicugJYx52p2` |
-| its clause tables (vs the `r1` incumbent / vs `psi_g_tc100`) | `S/gate_table/PsiGateClauseTableJob.qYRE7JWyUcJQ`, `.H9QbX4VgXAwf` |
-| its re-rank and text probe | `S/psi_align_jobs/PsiAlignRerankJob.BRfnFlMK1job`, `S/psi_align_jobs/PsiTextProbeJob.mSJzvpTBW0Y3` |
-| its comparator, the G-track round-1 refit | `S/psi_align_jobs/PsiAlignTrainJob.cRIigmxPtt75` |
-| round-1 uncurated corpus (59 878 rows) | `S/curate/UncuratedPoolJob.1RgS3KEtkdEy` |
-| round-1 uncurated refit (approach 19) | `S/psi_align_jobs/PsiAlignTrainJob.Be8yVs7MaLrS` |
-| D6 rung 1 price-steering sweep | `S/psi_align_jobs/PsiPriceSteerJob.4Eqth3bY2Zc2` |
-| D6 rung 2 corruption-margin refit | `S/psi_align_jobs/PsiAlignTrainJob.zjUitbvGbDg3` |
-| D6 rung 3 min-duration refit (d_min=2) | `S/psi_align_jobs/PsiAlignTrainJob.wlruSpBK1EDP` |
-| the same refit on the CUDA forward-backward backend (conclusion 38) | `S/psi_align_jobs/PsiAlignTrainJob.QhaW4lUpbkl6` |
-| D6 rungs 2+3 combined refit | `S/psi_align_jobs/PsiAlignTrainJob.HVjMgYBlJ4tp` |
-| D4' round-1 clause table (no winner, c33) | `S/gate_table/PsiGateClauseTableJob.hRgVjm5bYRKI` |
-| D4' round-1 re-rank on the fork dump | `S/psi_align_jobs/PsiAlignRerankJob.DU9JY7WG9b0y` |
-| D6 clause table (c35, c36) | `S/gate_table/PsiGateClauseTableJob.JdrWdaCm7UeG` |
-| co-trained replay arm (on hold, ep1–7 kept) | `T/ReturnnTrainingJob.KBTADeS7Qp1G` |
-| frozen AR every loop arm starts from (ep0) | `T/ReturnnTrainingJob.ExCoQDKtXAGH/output/models/epoch.050.pt` |
-| ep0 usage cells (reused, finished) | `F/ReturnnForwardJobV2.GBuKgHp3GNlz` (true) / `.HKsuKQJdUwGA` (shuffled) |
-| usage trajectory | `S/scorer_diag/ArUsageTrajectoryJob.9Ughq5htDaXx` |
-| D0 rollout set (theta_0^G, 512 utts, G=12, 5 T) | `F/ReturnnForwardJobV2.J9yA1eYnxwYA` |
-| D0 bed units (enc50_raw) | `S/quantize_states/AssignUnitsJob.X8DBup0jQlhR` |
-| D0 re-rankings (scorer: `PsiAlignTrainJob`) | `S/psi_align_jobs/PsiAlignRerankJob.QdHRXsev2Txh` (psi_g_tc100 ← `.kSYy0ADBgPGo`), `.2AUBSd8Y0oq0` (psi_g_seed ← `.SUAAuCS2o3pz`), `.bZCAVAKWQq3I` (gold_enc50 ← `.IN3zmmGpH4Bv`) |
-| LM-corpus rate reference | `S/scorer_diag/LmWordCountsJob.SqAFPqiRBD9k` over `i6_core/tools/download/DownloadJob.g4jClO48cAvP` |
-| suspect vocabulary | `S/scorer_diag/SuspectVocabJob.7LSZhTXKculV` |
-| D0 table | `S/scorer_diag/RolloutMechanismJob.vsl00qaCHQbP` |
-| D0 coverage/steerability vs T | `S/scorer_diag/CoverageTemperatureJob.JAP5gJQE0PwP` |
-| frozen external held pair set (1500 dev pairs) | `S/scorer_diag/FrozenHeldPairsJob.E8UaEwRF65HW` |
-| D1 held NLL (gate v2 i/ii) | `S/psi_align_jobs/PsiHeldNllJob.J1A028bt3Faw` (psi_g_tc100), `.WrmDwFU9dVvV` (psi_g_seed), `.ag5DZ3A2Gd1K` (gold_enc50) |
-| D1 probe battery | `S/psi_align_jobs/PsiTextProbeJob.eNVc8JTbm7n8` (psi_g_tc100), `.qo8IB8MLA8ES` (psi_g_seed), `.rY39iGv8bhhi` (gold_enc50) |
-| D2 LM per-line multiplicity reference | `S/text_repair/LmLineStatsJob.l9ZJSEj8tP0S` |
-| D2 repaired pseudo-text | `S/text_repair/RepairPseudoTextJob.o086K9a8uXDa` |
-| D2 corpora (control / repaired) | `S/text_repair/TextHfDirJob.UEAxxdGitOHu` / `.7Msi4BxlykgV` |
-| D2 candidate scorers | `S/psi_align_jobs/PsiAlignTrainJob.HTy12IMDmYdB` (d2_rate), `.DnBJxqz4sNQZ` (d2_contrast), `.9pTbjjx29yVc` (d2_both), `.hxK0HTBZQSJa` (d2_states) |
-| D2 held NLL, same arm order | `S/psi_align_jobs/PsiHeldNllJob.XvvciDyN3LyS`, `.Z8quArGjzAj3`, `.1okicjOpTszW`, `.9D2ywKhnL5ZH` |
-| D2 probe battery, same arm order | `S/psi_align_jobs/PsiTextProbeJob.wkAV3KfAUwW9`, `.g3p5aA7nBONQ`, `.8LGrp6IuVyzD`, `.eRBqqPfUtf6k` |
-| D2 re-rankings (carry `rollouts.jsonl`), same arm order | `S/psi_align_jobs/PsiAlignRerankJob.jRvegq7Bf7lu`, `.zAzQGZbtxrw9`, `.DQQLmfIhPTOe`, `.DVcQhryzLU2j` |
-| D2 parity, same arm order | `S/psi_align_jobs/PsiScorerParityJob.bBjvefspGS4L`, `.0U0yG8pdt6fB`, `.O7WiXL0OfmvA`, `.g5gIUiLRMqLg` |
-| D2 cross-arm D0-dump re-read (beta, spearman, sel_wer) | `S/scorer_diag/RolloutMechanismJob.uDTs6ZlhOFQa` |
-| state-matched probe battery (approach 10; carries `items.json`) | `S/psi_align_jobs/PsiTextProbeJob.WBXWwmZIK7HY` (psi_g_tc100), `.4KpANAZV864A` (psi_g_seed), `.a8WsW4jjddcq` (gold_enc50), `.jQPGx36tCccz` (d2_rate), `.cMO136SC9uUu` (d2_contrast), `.rNCJA9Y987bY` (d2_both), `.lcbBuAIimK11` (d2_states) |
-| D2 steerable coverage vs T, per candidate | `S/scorer_diag/CoverageTemperatureJob.Ku9zNUNDK12D` |
-| D3 control arms (frozen `d2_contrast` psi) | `T/ReturnnTrainingJob.rJWSC5xOsrf2` (shaped), `.L6FwOOpffNL4` (recon) |
-| D6-PERIODIC/GAN-FROZEN schedule-only control | round-1 scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; policy legs `T/ReturnnTrainingJob.kr1foUV6lecx` (reused), `.JVfEDCPIPWkq`, `.o2GFVkZZPNRT`, `.fEvotypkqDao`, `.91wIJ5JpsdIW`, `.2p2hpz7nk5vd`, `.ZgRzUxDRhajE`, `.ycoJLypxisD7` |
-| D4 entry point | `config/sae_3e1_d4.py` |
-| D4 (b) selector affinity, 5 arms | `S/scorer_diag/RolloutMechanismJob.jYDxg98sWJIj` |
-| D4 (c) clause table, 7 finished arms | `S/gate_table/PsiGateClauseTableJob.x0d7dYpOdilI` |
-| D4 round-1 dump (theta_0^G, 28539 utts, G=12, T=0.7) | `F/ReturnnForwardJobV2.lQMOR5n2ntcS` |
-| D4 round-1 chain (curate -> refit -> gates -> clauses) | `S/curate/CuratePairsJob.0Xs8AhGwRn80`, `S/psi_align_jobs/PsiAlignTrainJob.cRIigmxPtt75`, `.PsiHeldNllJob.Q24MX1AhUGFK`, `.PsiTextProbeJob.UEVRWgPseI16`, `S/gate_table/PsiGateClauseTableJob.5oMRtYKrhE3C` |
-| D5(a) entry point | `config/sae_3e1_d5a.py` |
-| D5(a)-1 anatomy | `S/scorer_diag/PolicyAnatomyJob.eMeWgTsMWSRM` |
-| D5(a)-2 allegiance grid | `S/scorer_diag/AllegianceGridJob.kR0YA9kfUd4s` |
-| D5(a)-3 rerank sweep, ep0-ep4 (each carries `rollouts.jsonl`) | `F/ReturnnForwardJobV2.p9y6xUfCZ4sW`, `.4nTgyBPY2SlM`, `.dEOPiBW4ADQM`, `.aoynOYDHBqLs`, `.9px8IEReJyUG` |
-| fork/D5(b) code | `sae/fork_screen.py`, `sae/psi_forensics.py` (+ their two test modules, 11 tests) |
-| fork/D5(b) entry points | `config/sae_3e1_fork.py`, `config/sae_3e1_d5b.py` |
-| fork parent (the frozen control, running) | `T/ReturnnTrainingJob.vhyvv2waeU16`, sub-ep 2 = `output/models/epoch.002.pt` |
-| fork screen | `S/fork_screen/ForkPointScreenJob.avOkAB1TUN3d` |
-| joint-psi arm, first launch (OOM in sub-ep 1; superseded, conclusion 25) | `T/ReturnnTrainingJob.eYhb6alu9OIQ` |
-| joint-psi arm (D5(b)-b, at `batch_size` 1e6 / accum 2; stopped on hold after sub-ep 3, ep1–3 kept) | `T/ReturnnTrainingJob.jQmmGy2yGtGR` |
-| — its sub-ep 1 / sub-ep 2 WERs (dev-clean, dev-other) | `ScliteJob.{onJeeX0UOiRy,RYa3OTRBO2Uf}` / `.{1qm9kIUcj2y6,49zgvrMKwznh}` |
-| frozen gold-pair forensics set (1500 seed-dev pairs, enc50 units) | `S/psi_forensics/HfSplitTextJob.hITA2tWgTklY` -> `S/scorer_diag/FrozenHeldPairsJob` |
-| bed psi (ep0 of the forensics, frozen in the parent) | `S/psi_align_jobs/PsiAlignTrainJob.IN3zmmGpH4Bv` |
-| D4' entry point | `config/sae_3e1_d4p.py` |
-| D4' suspect set, re-derived on this bed | `S/scorer_diag/SuspectVocabJob.UG1VLQjflE7G` |
-| D4' round-1 dump (fork policy, tc100, G=12, T=0.7, psi-ranked) | `F/ReturnnForwardJobV2.QbIYruVEI0fF` |
-| D4' filler watch (minimal-state, monitor-only) | `S/scorer_diag/FillerWatchJob.3x3IRoxcQSha` |
-| D4' selector admissibility on this bed's dump | `S/scorer_diag/RolloutMechanismJob.UJ0DfPXTH8Cq` |
-| D4' incumbent battery (psi0_gold: held, probes, rerank, parity) | `S/psi_align_jobs/PsiHeldNllJob.yMQGlcL3OVVj`, `.PsiTextProbeJob.pBrTx11FPZvS`, `.PsiAlignRerankJob.pJONTykQhQaS`, `.PsiScorerParityJob.gRkOlabxfLVY` |
-
-Both configs pin their inputs by absolute path + `hash_overwrite` instead of importing
-`config_sae_3a_enc50_units_v1` / the replay arm's graph: those graphs belong to the running
-`sae_3a_gan_loop` manager and to a training job on hold, and sisyphus has no cross-process lock, so
-an import would put a second manager over jobs another one owns.
-
-`config/sae_3e1_d1d2.py` follows the same pinning rule and shares no job with the running loop
-manager. `config/sae_3e1_d3.py` does NOT: it builds its arms through
+Manager hygiene, kept because it constrains how these graphs may be run: both D0/D1-D2 configs pin
+their inputs by absolute path + `hash_overwrite` instead of importing the running loop's graph, since
+sisyphus has no cross-process lock. `config/sae_3e1_d3.py` does NOT: it builds its arms through
 `config_sae_3a_gan_loop_960h_v1.baseline` so the control differs from the arms it controls in the
-scorer alone, which pulls in the finished 960 h unit and dataset graph — run exactly one of the two
+scorer alone, which pulls in the finished 960 h unit and dataset graph -- run exactly one of the two
 managers. D3's cost on that bed is ~5.3 h per sub-epoch on 4 GPUs, i.e. ~85 GPU-h for two arms at four
-sub-epochs, against the ladder's "~9–18 GPU-h" estimate.
-
-Two measurement caveats a later reader needs. The OOV-count null is INERT on this bed — `n_oov` is 0
-for all 6144 rows because the psi inventory carries no UNK state, so `neg_n_oov` is undefined rather
-than uninformative. And the (c) covariate is the rollout's own WER, which controls the filler's
-direct insertion cost but not the composition of the remaining errors; the gold-text control arm, not
-the absolute beta, is what carries the contamination claim.
-
-## Verifier feedback
-
-- 2026-08-07: full audit clean — every logged number in all three tables reproduces from the
-  cited job outputs (usage trajectory row-by-row; all 15 scorer-arm statistics; selector CIs;
-  suspect vocab to five decimals), and the statistics code is verified: the group-centred
-  partial beta recovers planted effects and stays zero when the count acts only through WER;
-  the shaped rebuild (sum / n_units) exactly matches live `lm_prior_norm="units"` semantics
-  including the dump's per-token norm; the derangement is asserted fixed-point-free and the ep0
-  reuse is hash-asserted.
-- 2026-08-07: conclusion 3's frac_pos 0.95 (shaped) is 0.9450 on the all-groups convention used
-  everywhere else (0.9452 is the spread-subset value) — transcription slip, direction-neutral.
-- 2026-08-07: the "(arm-invariant)" label on the selector block overreaches: `psi_len_only` and
-  `neg_n_oov` are recomputed per arm by each `PsiAlignRerankJob` (each arm's own zero-emission
-  forward / own lexicon encoding); only lm_prior_units / neg_n_suspect / n_tokens come from the
-  shared dump by construction — n_oov coincides because the arms share the lexicon config, and
-  psi_len_only genuinely differs across arms (hence its logged range). Conclusion 7's
-  length-artifact reading survives (the CI straddles zero in every arm). Minor: the selector CIs
-  run on 509/505/438 groups after degenerate-group filtering, vs 512 in the ranking block.
-- 2026-08-07: conclusion 7 is necessary-not-sufficient for a curated refresh — no filler-affinity
-  statistic exists for the selector itself (the partial effect of suspect count on
-  lm_prior_units at matched WER; `_bias` runs only on the two reward keys). An external word LM
-  plausibly PAYS for a high-frequency function word, so this one arm-invariant row from the same
-  dump is required before lm_prior_units is admitted as a curation view; registered as a D4
-  admissibility condition in `PLAN_3E1.md`.
-- 2026-08-07 (D1/D2 audit, numbers): approaches 4–7 reproduce from the cited job outputs to the
-  printed precision (probe battery incl. paired CIs; coverage_T to <1e-12; the repair's exact
-  joint rate solve; the frozen held draw re-executed byte-identically, disjointness from all
-  three training corpora confirmed) — except two cells: gold_enc50 held ce_loo is 3.1385
-  (`PsiHeldNllJob.ag5DZ3A2Gd1K`; the logged 3.1274 is the probe job's 1442-pair value
-  transcribed into the 1493-pair table — the row's derived columns already use 3.1385, so
-  ordering is unaffected and conclusion 9's "3.13" reads 3.14), and the insertion-ladder
-  spearman range "0.66–0.86" is psi_g_tc100 only — across arms it is 0.55–0.87 (psi_g_seed
-  filler_ins 0.5516), which strengthens, not weakens, the ins-vs-sub/del contrast.
-- 2026-08-07 (D1/D2 audit, code): conclusion 8 flipped — correction under it. The LM insertion
-  control is drawn frequency-proportional with NO state-length matching
-  (`psi_align_jobs.py:1804-1812`); "to" is one emitting BPE state vs ~2.7 for the mean draw, and
-  53–81 % of the 0.0584 discount is state-count-attributable. The lattice reading (c10) survives
-  SHARPENED: all three scorers charge the same ~0.031–0.035 nats/frame per inserted emitting
-  state, so the cheap-insertion exploit is open to EVERY minimal-state word — contamination chose
-  which word, not whether. The decisive equal-state contrast ("to" vs IN/IT/HE) is not computable
-  from the dumps (`per_item` stripped before `probes.json`, `:1887`); a length-matched control
-  pool (1-emitting-state words, ~18 % of current pool mass) with per-item dump is registered as a
-  D1 amendment in `PLAN_3E1.md` and is required for any D2 admission read. c9's power-check
-  failure itself stands on the paired design.
-- 2026-08-07 (D1/D2 audit, gate): the held set's provenance (the §1d decoder's own dev output)
-  domain-confounds gate v2 (i)'s improvement clause — held ce_loo orders the three arms by
-  training-text domain match (2.72/3.02/3.14), not quality, so a repaired-text candidate would be
-  structurally rejected against the unrepaired incumbent; amendment registered in `PLAN_3E1.md`
-  (floor-only for changed-text candidates), flagged for the user's blessing.
-- 2026-08-07 (approach 8/9 + c12 audit): c12's numbers all reproduce from `probes.json`
-  (`ce_emis` + `nll` per corruption; there is no transition field — the "transition" is the
-  NLL-minus-emission residual, i.e. transitions plus alignment entropy) but the sentence
-  misreads them — correction under c12; the surviving core is the d2_states prediction,
-  verified: orphaned frames are chars_per_state-invariant while inserted-word state counts
-  scale ~2.5x. Approach 8 is verified: d2_states wiring correct (cps 0.5, contaminated control
-  corpus, weight 0), 2 T/U 9.7652/3.9180 reproduce (states are per BPE token,
-  min(8, max(1, round(chars/cps))), plus n_words+1 SIL; pooled sum T / sum U), the byte-equal
-  claim is text-column + id-order equality (`text_repair.py:376-381`, asserted, 0 diffs), and
-  there is NO feasibility shift at cps 0.5 — 1500/1500 held pairs feasible (worst U/2T 0.365),
-  probe-common 1442 with identical membership (the 58 exclusions are <=4-word utterances where
-  k=4 is undefined, not lattice-infeasible); only the rollout set's feasibility under 0.5
-  remains unchecked. Approach 9's rule is PROSE-ONLY (`WINNER = None`; `PsiHeldNllJob` reports
-  clause i/ii but nothing combines the rule), its ~0.005 threshold is the incumbent's own LEVEL
-  CI half-width (0.00485) while the rule thresholds a between-arm REDUCTION — the right
-  instrument is the paired cross-arm difference CI on the shared 1442 utterances, computed
-  nowhere — "corruption-ladder spearman" names none of the five ladders, and under cps 0.5 the
-  filler-vs-control state-count ratio is preserved (1.855 vs 1.866) so the unmatched discount
-  moves mechanically with the per-state price; the plan's winner-rule amendment (state-matched
-  pool, intersection reads, paired difference CI) is the operative rule.
-- 2026-08-08 (approach 10 audit, numbers): every published cell reproduces — matched-discount
-  levels and paired point estimates bit-for-bit from items.json (which reproduces every
-  probes.json aggregate to <1e-12), the ladders-worse column 3/1/3/0/0/0 under the paired-CI
-  convention, pool facts 6472/57/51 and mean states 2.6985/8.1603 re-derived independently from
-  bpe.codes + the LM counts, and the frequency-drawn side of all seven arms bit-identical to the
-  pre-extension jobs (0 differing leaves — the rng split is proven, not claimed).
-- 2026-08-08: the logged paired-CI ENDPOINTS are not reproducible from any pinned seed (17 of 24
-  differ in the 4th decimal, max 0.0007) — verdict-neutral except two boundary calls: d2_states'
-  k=1 zero-exclusion flips with the bootstrap seed (t-test p=0.046; c15's "both ... CIs excluding
-  zero" overstates it at k=1, solid at k=2/k=4), and d2_contrast-over-d2_states at k=4 excludes
-  zero by only 0.0003-0.0006. No seed or resample count is pinned for statistics computed outside
-  any job — the clause-table job below fixes this.
-- 2026-08-08 (winner-rule application): the arithmetic reproduces but the winner turns on two
-  UNPINNED clauses — (a) clause (ii) is algebraically clause (i)'s improvement comparison
-  sign-flipped (H_uni bit-identical across arms), so d2_both, a changed-text candidate, is
-  eliminated by exactly the comparison the gate v2 (i) floor-only amendment ruled inadmissible,
-  and it is the only thing removing d2_both (argmax unchanged at k=1/k=4 if admitted; at the
-  omitted k=2 d2_both out-reduces d2_contrast, n.s.); (b) the ladder floor's "not below" is
-  CI-read in the log but point-read in the rule text, and under the point reading only d2_states
-  is eligible — the winner flips to d2_states. Pins proposed in `PLAN_3E1.md` (need the user's
-  blessing); the hard-coded WINNER='d2_contrast' in `config_sae_3e1_d3_v1.py:37-38` is
-  provisional until then. Also: d2_states is admitted through the improvement halves of (i)/(ii)
-  on ce_loo numbers approach 8 itself marks (*) cps-incomparable — only the absolute floors bind
-  for it.
-- 2026-08-08 (rollout columns): approach-8 D2 table verified exact incl. sel_wer (incumbent
-  0.1380 strictly lowest), parity 0.0 x4, G3 bars (margins 0.1464-0.1540, CIs overlapping), and
-  suspect state mass — but the table is COLUMN-MIXED: beta_to and spearman are the lambda=0
-  recon reads while steerable is the lambda=1 shaped read (incumbent shaped beta_to at lambda=1
-  is 0.2284); implementer: relabel the columns. d2_both's floor shortfall is 0.013413 exact (the
-  logged 0.0135 is rounded-cell arithmetic).
-- 2026-08-08: the d2_states rollout-feasibility caveat is RESOLVED — all three rerank dumps
-  (incumbent, d2_contrast, d2_states) carry an identical 31744-row census (512 groups at every
-  T, zero missing/non-finite; lm_prior bit-identical across arms), so cross-arm differences are
-  the scorer alone. Carry-over caution: d2_states' recon scale differs (within-group var ratio
-  k = 0.0091 vs the incumbent's 0.0131), so a scalar lambda is NOT comparable across scorers —
-  match operating points on prior share.
-- 2026-08-08 (joint repricing read, planner scratch on the D0 dump — implementer to reproduce as
-  a logged table with the clause-table job): at T=0.7 the live lambda=1 is far below every
-  scorer's ranking optimum — incumbent at lambda=8: spearman 0.5558 -> 0.6778, beta_to 0.2284 ->
-  0.1112, sel_wer 0.1316 -> 0.1222, steerable 0.1949 -> 0.2034, prior share ~46 %; the optimum is
-  arm-invariant at prior share ~0.45 (lambda 7.9 / 8.2 / 9.5 for incumbent / d2_contrast /
-  d2_states); at matched operating points NO D2 candidate beats the incumbent on any rollout
-  statistic; beta_to reaches zero only at lambda ~22-27 at prior share ~88 % (inadmissible).
-- 2026-08-08 (build items to the implementer): a small CPU job reading the seven items.json plus
-  the four held.json that prints the eligibility clause table and the paired cross-arm discount
-  CIs with pinned seed/resamples (the winner rule is still computed nowhere); register
-  items.json as an output; note in the log that the matched draw is frequency-weighted inside a
-  concentrated pool (top-10 words = 73 % of draw mass) and that the cps-0.5 pool excludes
-  single-letter words (23.9 % of the cps-1.5 control mass) — d2_states is state-matched but not
-  lexicon-matched.
-- 2026-08-09: approach 1's parenthetical "the only trainable-scorer run on record" is
-  inaccurate — the 100 h recon-only and hinge-only arms were also jointAR (config default
-  `freeze_ar=False`, aliases `grpo_100h_seed10h_jointAR_*`); the replay arm is the only one
-  with per-epoch scorer forensics, not the only trainable one. Conclusions c1-c2 stand (they
-  describe that run's mechanism), but the causal generalization "co-training causes the
-  collapse" is UNPROVEN: no frozen-scorer control ever ran on the 100 h bed, the 10 h matched
-  pair went the other way (frozen Goodharted 14.47/17.09, joint won 13.15/16.13), and the two
-  100 h jointAR siblings lack the collapse signature. Temporal order (CE_true crossed the unit
-  marginal after one sub-epoch while dev WER was still 18.79) supports scorer-first but is not
-  attribution. D5 (the freeze_ar=True control, `PLAN_3E1.md`) is registered to settle it.
-- 2026-08-09 (approaches 11-15 + c16-c22 full audit; five independent recomputes from raw
-  artifacts): every logged table cell reproduces to the last digit. Approach 11: seed=42 /
-  n_boot=10000 are hashed job inputs, both ladder-floor readings printed, winners
-  d2_states(point)/d2_contrast(CI) recompute; all 20 selector cells recompute at the pinned
-  seed; the 719 av.* / 82 psi.* import claim verified by key-level name+shape bijection
-  against theta_0^G's AV SFT checkpoint. Approach 13: all 80 anatomy cells recompute from the
-  sclite.dtl counts (convention C/ref, D/ref, I/ref confirmed); all ten report dirs pinned,
-  finished 08-04/05, checkpoint lineage ep0 = the replay arm's own av_checkpoint_path, ep1-4 =
-  its epochs 1-4. Approach 14: all 30 grid cells + unrounded self_pref/follow recompute; the
-  gold column is the SAME five forward jobs as approach 1's CE_true (one instrument, not two
-  agreeing); every cell scored an identical 428,064-unit stream. Approach 15: all 45 cells
-  recompute; the five rollouts.jsonl carry a byte-identical 6400-row census (policy-pinned is
-  literal); ep0 is the finished Jul-31 job reused by hash; eta = ratio of across-group means
-  (not a mean of per-group ratios). Approach 12: dump/curation numbers exact incl. the 5.48%
-  mask figure bit-exact (2664/48646); refit confirmed from-scratch d2_contrast (info differs
-  from the audited d2_contrast job in hf_data_dir alone; mid-run ep10/30, downstream gate jobs
-  not yet in existence).
-- Prose defects, none flipping a conclusion's direction: c21's "at or above BOTH floors" is
-  false for 20/24 cells (correction under c21); approach 14's "three utterances carrying
-  accents that the corpus reader cannot decode" is wrong as written — nothing is dropped,
-  accents are ASCII-folded in place, 12 fold events over 7 distinct utterances (ep3 alone has
-  3); approach 11's table caption "arm-invariant rows" is false for psi_len_only — its (e) is
-  psi_g_tc100's value and its (f) is d2_both's (every arm's (e) CI straddles zero so the
-  verdict stands; implementer: relabel the row); approach 10's D2 paired-CI endpoints remain
-  the old unpinned draws and differ from the pinned clause-table job in the last digit on
-  several endpoints (verdict-invariant; the 08-08 finding, pinned values now on record).
-- Reading qualifications: c20's 6.4x is dev-clean only (dev-other 5.07x, pooled 5.66x); the
-  ep0 insertion baseline is 56.5% ten runaway repetition-loop utterances vs 2.1% at ep4 — the
-  collapse trades rare loops for broad diffuse padding; the five named function words carry
-  only ~18% of insertion mass, so monitors must read TOTAL insertion counts (as the D4'
-  amendment requires). c19's "all twelve are worse than the repaired round-0 text" is an
-  aggregate reading, literally true in ~56-72% of groups. c16's psi_len_only "no -- (e)" is
-  the one selector verdict that depends on the unblessed CI-convention pin; the other four are
-  convention-independent.
-- Unverifiable (the measuring trial jobs were deleted): the ~9.5 h whole-bed estimate and the
-  1.68x max_seqs-8 gain survive only as config-comment claims; the 11.5 h cap, the 4 -> 8
-  max_seqs change, the no-resume property and the actual 5:17:30 runtime all verify and are
-  consistent with both.
-- 2026-08-10 (spot-check of the decision-critical cells of approaches 16-18 — NOT the full
-  audit, which remains open): the fork-screen table reproduces exactly (reward argmax =
-  sub-ep 3, d_cls +32.20 %/+38.47 % vetoes, FORK sub-ep 2); the suspect derivation is empty
-  as logged (largest excess "and" 0.001345, 0.001 admits one word); the D4' admissibility
-  table reproduces cell-for-cell ((c)/(f) betas incl. psi +0.2254/+0.2029 with CIs, (e)
-  spearmans, n_groups 342/24/292/647); the joint arm's OOM is in the job log (step ~72-75,
-  95 GiB card, sampled step times 12-21 s). c31 and the c28/c29 statistics are unaudited.
-- 2026-08-10, new information from the D4' dump's own (a) block (in the job output, not yet
-  in the log — implementer may want it in approach 18's table): on this bed at T=0.7
-  within-group suspect-count contrast is nearly ABSENT — coverage 0.0037 (any suspect, vs
-  the G-track's 0.092-0.233), mean within-group count std 0.0116, while the ranking prize is
-  real (mean_wer 0.0562, oracle 0.0414, greedy 0.0541 over 28539 groups). The minimal-state
-  exploit therefore sits in a near-total GRPO dead band at the fork's operating point: no
-  in-loop reward term can steer it, which is the quantitative case for the offline refresh
-  path and against adding reward terms on this bed.
-- 2026-08-12: D6 clause table spot-verified from `PsiGateClauseTableJob.JdrWdaCm7UeG` —
-  c35's cells reproduce (d_min=2 matched discount paired +0.0047 [-0.0009, +0.0101]
-  p=0.096; lmsub 0.9572; both verdict rows NO WINNER as logged). Clause (i)'s picked-WER
-  half is missing from approach 20's table — read from the rerank jobs: sel_wer d6_mindur
-  0.05028 / combined 0.05015 / margin 0.05097 / r1_uncurated 0.05219 / psi0_gold 0.05228;
-  d_min=2 PASSES that half. Caveat: the min-duration arms score 28531 of 28538 groups (7
-  unscorable under the topology), so their random/oracle baselines differ slightly
-  (0.05477/0.04116 vs 0.05613/0.04133) — cross-arm sel_wer is not perfectly paired,
-  ordering unaffected.
-- 2026-08-12: c32's two open bullets are now stale — the reads finished: sub-ep 3 is
-  41.8 / 50.9 (`ScliteJob.yVyM2WLvkXxG` / `.4mnMvy9mUVI7`, epoch 3 via
-  `ExtractAvSubmodelJob.a1d9LlyUDSED`), and the forensics give gold-pair ce_loo
-  2.6343 / 2.7928 / 2.9771 at sub-eps 1/2/3 (`PsiHeldNllJob.LTg9xnjtl8Zs` / `.SFOP6DaI3Zpv`
-  / `.vJnzFU0eRSyl`) against own-decode ce_loo 2.6270 / 2.4726 / 2.2994
-  (`.8DHdEHY7HZ2b` / `.2WmXVQYlCjnF` / `.uEc3jigALnmE`) — the D5 gate verdict these decide
-  is recorded in `PLAN_3E1.md`.
-- 2026-08-17: c37 VERIFIED from `PsiGateClauseTableJob.qYRE7JWyUcJQ` / `.H9QbX4VgXAwf`
-  (clauses.txt, paired n=1442): every quoted number reproduces exactly — ce_loo
-  2.3774 / 2.7168 / 2.7198, filler_ins +0.0849 [0.0635, 0.1058] and lmins +0.0488
-  [0.0362, 0.0616] vs `r1`, filler_sub -0.0136 [-0.0194, -0.0077], NO WINNER under both
-  readings against both comparators. New information from the vs-`psi_g_tc100` table:
-  `r1_mindur` is CI-worse on the del ladder too (-0.0097 [-0.0158, -0.0039]) and on
-  filler_sub -0.0146, while its matched insertion discount is CI-LOWER at k=4 (-0.0182
-  [-0.0276, -0.0085], p=0.000; k=1 n.s.) — the topology's insertion-pricing gain grows
-  with k while eligibility fails on the substitution/deletion side. Plan verdict recorded
-  in `PLAN_3E1.md` D6 Status same day.
-- 2026-08-17: HOM-0a rerun (`HomophoneClassStatsJob.our76yheSD0c`) verified — share
-  7.68 % against the untouched 5 % floor, PASS; planner eyeball of the full 142-class
-  list: no strikes (weakest admitted member "ad" at 8,084 LM occurrences vs the 8,033
-  floor; no typos, no single-char, "to" classless as pinned). New information from the
-  class list: the repair-channel reading is confirmed and quantified — corpus-zero
-  members carrying dominant LM mass (by, sea, right, side, air, fair, they're) total
-  ~0.5-0.6 % of corpus tokens, and they're=0 is a decoder commitment, not an alphabet
-  artifact (apostrophe forms it's/i'll/there's all attested). HOM-0b/0c reading
-  amended pre-run in `PLAN_3E1.md` (bars untouched): swaps reported split repair-type
-  vs diversity-type, top-8 per-class medians beside the aggregate.
-- 2026-08-17 (HOM augmentation machinery): HomophoneAugmentJob.k2OwZiTcKpEG verified by
-  an independent token-level diff of the augmented corpus against the source — every
-  reported number reproduces exactly (38923 rewrites; repair 5627 / diversity 33296;
-  top-8 classes; day/dey 557), zero out-of-class or case violations, dev splits
-  byte-identical, and the realized draw is within ~1.6 sd of the analytic expectation
-  from the ratified classes.json (E[rewrites] 38706, E[repair] 5560) — the sampler is
-  the draw 0a's arithmetic assumed. Class list consumed from the ratified artifact
-  (stats-job hash unchanged); the SFT stays unwired, gated on 0b. New fact for 0b:
-  in/inn alone carries 19% of rewrites — 0b/0c reporting amended pre-run in
-  PLAN_3E1.md (in/inn's median named explicitly; aggregate-without-in/inn beside the
-  gated aggregate; day/dey added to the named watch); admission bars untouched.
-- 2026-08-18 (D6-PERIODIC-WARM, approach 24, code verification): every submitted claim
-  verified at source and artifact. Commit 5773910 on haotian_modality_matching_jupiter
-  carries the three files; `PsiAlignTrainJob.run()` loads the warm state dict
-  (psi_align_jobs.py:615) BEFORE the [UNK] unigram pin (:621), the guards assert the
-  inventory plus six topology keys against the checkpoint's own cfg dict, and any
-  mismatch the guards miss fails loudly in strict `load_state_dict`. Hash neutrality
-  proven from the artifact itself: the new round-2 warm refit
-  (`PsiAlignTrainJob.2TDm8VwIZzjv`, alias sae/3e1/d6periodic_warm/r2/refit) lists
-  `PsiAlignTrainJob.wlruSpBK1EDP/output/model.pt` as its `init_model` INPUT — the graph
-  built under the NEW code resolved the PRE-change hash; wlruSpBK1EDP and JWV3InILYF5v
-  finished on disk, no respawned refit dirs, shared leg 1
-  (`ReturnnTrainingJob.5FqdnhWTOf1f`) finished. Planner re-ran the warm-start test:
-  passes, warm held NLL 1.1869 vs cold 2.2609 after one epoch, source best 1.4341,
-  output unigram re-pinned on the fit corpus (matches all submitted numbers).
-- 2026-08-18 (same submission, rulings — normative text in PLAN_3E1.md D6-PERIODIC
-  Status): warm source = the INCUMBENT's model, ratified; four-clause gate KEPT with a
-  registered non-read — accept counts are never compared across the warm arm and the
-  sibling; binding read = plain WER trajectory at matched parent sub-epochs vs the
-  sibling, legs 2 on, with the sibling's round-1 replication spread as the minimum
-  meaningful difference; leg-1 hash sharing and the skipped parity re-run ratified; the
-  matched-point anatomy job NOT funded unless the trajectory separates beyond the floor.
-- 2026-08-18 (bookkeeping): the periodic-vs-one-shot rounds 2-5 differences and the
-  "refresh buys nothing over the one-shot" reading are not yet a logged conclusion, so
-  the implementer's tightened reading needs no correction marker here; when that
-  conclusion is written it must carry the round-1 replication floor (submitted
-  0.29 dev-clean / 0.24 dev-other, to be verified with the batch report) beside the
-  per-round differences.
-- 2026-08-18 (second submission same day: HOM-0b/0c code, the 0c read, the periodic
-  gate trace, the dump-column finding). Commits 4537617 and cb6a9a8 verified on
-  haotian_modality_matching_jupiter; all 19 homophone-probe tests re-run by the
-  planner, pass. 0c artifact verified: HomophoneCoverageJob.F76iJ8j0AQi1 (alias
-  sae/3e1/hom/hom_0c) reads exactly the named dump and pool, and every submitted
-  number reproduces (26,584 bearing; 6,228 = 23.43 % covered; 217 = 0.82 % including
-  a pool-zero member). The 0c artifact substitution is RATIFIED as a frame repair --
-  the registered dump has DUMP_GROUP_SIZE=1 (config verified) and cannot express
-  within-group coverage by construction; plan definition amended by replacement and
-  the scoping reading recorded in PLAN_3E1.md (diversity already reachable by
-  sampling; repair in the dead band, reachable only by an SFT-side support change).
-- 2026-08-18 (finding 1 verified from the four verdict jsons): r2 and r3 fail (iii')
-  at CI, the dry rule enters force at r4 (dry_started_here true), r4 passes all four
-  clauses under CI and is overridden with accepted=False, r5 fails (iii') and (iv');
-  conclusions 41 and 42 check against the artifacts, both accurate as written. The
-  periodic-arm verdict, the warm-read amendment, and a pre-registered warm-source
-  fork (registered while the round-2 warm verdict does not exist; its refit was at
-  epoch 26/30 at check time) are in PLAN_3E1.md D6-PERIODIC Status, 2026-08-18.
-- 2026-08-18 (finding 2, handed audit closed): SAE_3A approach 9's lam_lm sweep rows
-  are NOT invalidated -- the parts dump (config_sae_2s_rewardrank_parts_v1 sets no
-  reward_kwargs at all) and the arms live at sweep time both ran the legacy per-token
-  norm, so the sweep was internally consistent at its own operating point, and the
-  standing shaped setting (lam_lm 1.0, per-unit) was derived, not swept. The live
-  mismatch is forward-looking only: dumps still emit per-token lm_prior columns while
-  shaped arms train per-unit-frame (verified at rewardrank_avunits:130, reward.py:67,
-  psi_loop:113); the 0b numerator-anchored comparison is the correct fix. Implementer
-  follow-ups, their lane: audit any post-per-unit-switch consumer of dump lm_prior
-  columns beyond 0b; thread the arm's reward_kwargs into future dumps or document the
-  column as per-token. Same-day bullet in SAE_3A.md; trap saved to planner memory.
-- 2026-08-18 (third round: 0b results, consumer audit, user warm ruling). 0b verified
-  from HomophoneSensitivityJob.xB5RvcgLVgtD/output/hom_0b.json: every submitted number
-  reproduces (aggregate 0.0134/0.0106 ratio 1.2636 PASS; diversity 1.274 n=22,584;
-  repair 0.816 n=501; all six per-class ratios; sign structure -0.0135/-0.0073), plus
-  one banked fact beyond the message: the SIGNED medians are negative for both terms in
-  both directions -- even lm_prior penalizes repair swaps on median -- which hardens the
-  mechanism-reversal reading. Conclusions 43-45 check against the artifacts as written;
-  gate verdict (aggregate PASS, arm admitted, SFT licensed), the ordered
-  std_within_group read, and the user surfacing are in PLAN_3E1.md HOM Status. Commits
-  9fa9ecc (terminator fix; diagnosis matches the artifact distribution 1724/2000 at -1,
-  2000/2000 at 0) and 1216064 (dump-norm documentation at both production sites)
-  verified.
-- 2026-08-18 (finding-2 consumer audit spot-verified at all five cited lines):
-  curate.py:43 converts to per-unit; scorer_diag.py:291 names the raw view
-  lm_prior_tokens, :363 and :853 convert with the n_units-constant rationale in
-  comments; PsiAlignRerankJob shaped_weight lam_lm 0.075 is a per-token weight on the
-  per-token column -- internally consistent throughout, matching the audit conclusion.
-- 2026-08-18 (user ruling on the warm source, relayed): reading B -- the gate-controlled
-  incumbent -- stands under every verdict; my pre-registered rejection fork is REPLACED
-  in PLAN_3E1.md, and a dry-contingency decision rule (no further legs at two
-  consecutive rejections; user's resource call; planner recommends stop) is registered
-  in its place. Label-free-clause correction recorded there too: (ii) reads gold held
-  text; code fix directed after the pending round-2 verdict job lands.
-- 2026-08-18 (gate-removal teardown verified): commit 3257edc on the branch; kept
-  hashes finished on disk (ReturnnTrainingJob.5FqdnhWTOf1f, PsiAlignTrainJob.JWV3InILYF5v,
-  .2TDm8VwIZzjv); the approach-22 table matches the planner's PRE-deletion first-hand
-  artifact reads clause for clause and verdict for verdict, and its leg-1 row is
-  consistent with the earlier 0.29/0.24 replication submission; the Catalog's relaunch
-  note and new id rows are in place. All superseded rulings annotated in PLAN_3E1.md.
-- 2026-08-18 (two dirs survived the teardown; one holds a bankable verdict):
-  PsiRefreshAcceptJob.lWmT0OpDXfSp and .uXG53BObiW55 were still on disk at planner
-  check, contrary to the teardown report. uXG53BObiW55 is FINISHED: the warm round-2
-  candidate was ALSO REJECTED under the binding CI reading -- (i) pass, (ii) pass,
-  (iii) point fail / CI PASS, (iv) point fail / CI FAIL -- i.e. a warm-started
-  continuation failed the clause table too, on the corruption ladder rather than the
-  insertion price. Worth one banked line in approach 24 before these dirs are
-  re-deleted (the deletion itself stays user-directed).
-- 2026-08-18 (correction to the approach-22 closing sentence): "the spread across them
-  is this bed's run-to-run noise and nothing else" overstates -- the five legs are
-  successive segments of one trajectory at different schedule positions (leg k trains
-  from leg k-1's checkpoint on a decaying cosine), so the across-leg range conflates
-  schedule evolution with noise. The run-to-run measure is the five PAIRED matched-
-  point deltas against the one-shot arm at the same global sub-epoch (planner-computed
-  from the two logged tables): dev-clean 0.29/0.03/0.32/0.36/0.19, dev-other
-  0.24/0.30/0.32/1.30/0.11; floor and reading rule registered in PLAN_3E1.md. The
-  table's numbers are untouched; the sentence is the implementer's to amend.
-- 2026-08-18 (answers): refresh_gate.py constant/docstring fix -- yes, at leisure, the
-  module is still the D4-prime machinery's. HOM SFT hold ENDORSED; recorded with the
-  user surfacing in PLAN_3E1.md HOM Status.
-- 2026-08-18 (fourth round: HOM SFT launch verified; the user's greenlight was given in
-  the implementer's session and is recorded as relayed in PLAN_3E1.md HOM Status).
-  Commit b44952e verified: theta_0^G_hom is theta0g_av_sft called with hf_data_dir as
-  the single moving argument (plain-function kwarg, no job-ctor change; theta_0^G hash
-  2fb02hGUdHNj unmoved — finished marker and every checkpoint mtime untouched since
-  2026-08-04). The running job (ReturnnTrainingJob.EabxlDlT0oji, alias
-  ...seed10h_layer15_gtrack_pseudo_tc100_hom/training, SLURM 1405194) trains on
-  TransformAndMapHuggingFaceDatasetJob.157IDJgBOv9H (alias sae/2s/data/
-  hom_worddecode_tc100_q3), which attaches HomophoneAugmentJob.k2OwZiTcKpEG's
-  word_hyps.json to the base train-clean-100 ogg dataset — one derivation step
-  downstream of the augment job (the submission's phrasing compressed this; substance
-  holds). Byte-verified independently with a planner-seeded sample and then the FULL
-  corpus: zero text mismatches over all 28,539 train utterances vs the augmented json,
-  no changed utterance serves source text, dev splits byte-identical; the dataset
-  builder hard-asserts bidirectional uid coverage (data.py:88-125). Checkpoint pinned
-  at the last epoch, dev recogs select nothing — quarantine holds. The implementer's
-  disclosed sis_env/create_files trap (markers renamed, resubmitted) left no live
-  error marker and moved no hash.
-- 2026-08-18 (fifth round, theta_0^G_hom read): approach 27's numbers all reproduce from the
-  concrete job dirs -- 13.89/18.34 vs 16.67/21.45 at ep10 (ScliteJob.4xgsEBkQtPsg/.KKjjg7A3vT52
-  and the dev-clean pair), +3.11 dev-other, both arms scored on the identical dev-other stm
-  (2,864 utts, 50,948 ref words), runtimes 2:12:25 vs 2:11:17, and a config diff of the two
-  training jobs that moves FOUR lines only (the three dataset dirs plus the model path). No
-  dev-WER selection can have entered: learning_rate_control constant, keep_best_n ranks
-  pseudo-label dev CE, ep10 = num_epochs, and ep10 is also each arm's best scored epoch, so
-  last-epoch and best-epoch rules give the same gap. Three reading notes: ep2 was also scored
-  for both arms (degenerate, above 100 % WER) and is silently absent from the logged curve;
-  the hom arm's ep10 dev-other EQUALS its ep8 (21.45), so the +3.11 is carried by the
-  baseline's own ep8->ep10 gain and is not an epoch-10 effect; and a parallel non-sclite
-  scorer exists on this arm (JoinRobustMetricsJob.6il1r3BMTMEj, with normalized WER_clean /
-  WER_cap columns) whose numbers must never be quoted -- plain sclite only, standing rule.
-- 2026-08-18 (same round, class-internal read INDEPENDENTLY RECOMPUTED from the two arms'
-  sclite.pra alignments, parser validated against sclite's own per-utterance (#C #S #D #I)
-  headers with zero mismatches over 2,864 utterances): every claimed figure is exact --
-  +1,587 errors, 1,534 class-internal (96.7 %), 25.18 % vs 5.24 % of substitutions, all seven
-  top confusions to the unit, 3.586 %/0.575 %. Four framing corrections, none flipping
-  conclusion 46's direction: (i) the "within-class substitution rate 3.59 %/0.58 %" uses ALL
-  dev-other reference tokens as denominator -- over the class-bearing tokens the name implies
-  (4,461) the same counts read 40.96 % vs 6.57 %, an 11x difference a reader will mis-assume;
-  (ii) "close to the 4.04 % the augmentation rewrote" compares train pseudo-label tokens with
-  dev-other reference tokens -- the like-for-like expectation under full reproduction of the
-  uniform draw is 4.58 % of reference tokens (2,331 substitutions), so the realized 3.59 % is
-  78 % of it and the SFT UNDER-reproduces the draw by about a fifth; (iii) 96.7 % is the share
-  of NET extra errors -- against extra substitutions it is 92.2 %, with +130 non-class
-  substitutions added and offset by 20 fewer deletions and 57 fewer insertions; (iv) the plain
-  arm's 5.2 % baseline is 65 % a single pair (by->buy 190 of 293), so it is not a broad
-  background rate. "Outside the classes within noise" is quantitatively upheld: +53 errors,
-  paired bootstrap CI [-70, +173], straddling zero against a total-error CI of [+1,438, +1,735].
-- 2026-08-18 (same round -- THE ARM'S MECHANISM QUESTION, answered on existing artifacts;
-  planner join, NOT yet a job, so no number below may be cited anywhere until it is emitted
-  from one, per the standing scratchpad rule). HOM-0b is reference-BLIND by construction: its
-  verdict is `lm_dominates` = median|delta lm_prior| > median|delta recon|
-  (homophone_probe.py:411-417, :454), abs() on both sides, so a reward whose prior term moved
-  more while pointing at the WRONG spelling returns the identical PASS; its signed medians are
-  signed against the policy's own sampled spelling, not against truth. The gold text sits
-  INSIDE the very dump 0b consumed (the 28,539 `kind:"true"` rows of
-  ReturnnForwardJobV2.66pIzBzffnK2) and is discarded by the kind filter at :260, so the
-  correctness read is a pure CPU join, zero GPU. Joined (crude bag-of-words reference
-  membership, not position-aligned; 0 missing references over the 23,085 swaps): in the one
-  informative cell -- 1,550 swaps where the sampled spelling is ABSENT from the reference and
-  the swap target is PRESENT, i.e. the swap repairs it -- the LM prior points at the reference
-  in 89.5 % of cases (median +0.0127) while recon points at it in 18.2 % (median -0.0120), and
-  the ARM'S OWN composed reward at its registered lam_lm 1.0 points at the reference in 53.2 %:
-  chance. Repair-type inside that cell is n=27 (25.9 %), i.e. untestable at this sample size.
-  Standing caveats for whoever builds the job: gold read, so it reports and can never select;
-  the base texts are theta_0^G's samples, not theta_0^G_hom's; 8.8 % of swaps fall in a
-  neither-spelling-in-reference cell the test cannot classify.
-- 2026-08-18 (ordered std_within_group read -- status and one trap). Still NOT wired: no job,
-  config entry or alias exists. Two existing routes, one of them a trap. RolloutMechanismJob
-  (scorer_diag.py:412-420) already emits std_within_group but over a HARDCODED
-  ("recon", "shaped") tuple at :540-541, so the lm term ALONE -- the half the order names -- is
-  missing even though `_lm_prior_units` is already computed at :364; a banked full-bed instance
-  (RolloutMechanismJob.UJ0DfPXTH8Cq) reads recon 0.0218 / shaped 0.0239 over 28,539 groups at
-  0.041 h CPU-only. RewardShapeSweepJob would answer it as a mini_task and carries an
-  audio-free (w_recon 0, lam_lm 1) cell, BUT its compose() reads the dump's RAW lm_prior column,
-  which is per generated TEXT TOKEN while the shaped arms train per UNIT FRAME -- and n_tokens
-  varies within a group while n_units does not, so this is NOT a within-group constant rescale
-  and the sweep route needs the scorer_diag conversion (:361-364) or it answers in the wrong
-  units. This is the standing dump-column trap, now with a second consumer.
-- 2026-08-18 (sixth round: HOM loop arm launched on the user's override; commit 282eeb3).
-  Hash-neutrality for the LIVE D6-PERIODIC/GAN arm CONFIRMED, and for the right reason:
-  neither file the commit touches contains a `class` statement, so the standing
-  "defaulted ctor kwarg moves every instance's hash" trap cannot fire -- `build` at
-  config_sae_3e1_d6periodic_gan_v1.py:261 and the four other functions that gained `tag` are
-  plain module-level builders, and all 19 occurrences of `tag` terminate in add_alias,
-  tk.register_output, or an f-string consumed only by those. Behavioural confirmation: the
-  post-commit whole-graph alias pass at 17:32:41 rewrote 48 symlinks, every one of them the
-  new arm's; all 16 live-arm symlinks keep their pre-commit 2026-08-17 12:17:55 mtime and
-  resolve to the same hashes, and the untagged round-1 unit re-derives identically under
-  post-commit code (transitive, via hom_0b_swaps' own input list). TWO SCOPE CORRECTIONS:
-  (i) only SIX of the sixteen named artifacts exist on disk (legs kr1foUV6lecx / AuzMGgyskdJT
-  / KD73Hc4eGDfW, refits dsMKgPHQApyR / 7jHYVGToyWPR / M2Z0M9UpKW98) -- for the other ten
-  "unmoved" means the graph still predicts the id, not that finished compute was preserved;
-  (ii) the neutrality has NOT been road-tested, because the live arm's manager started 3h41m
-  before the commit and is driving its pre-commit in-memory graph -- the first real test is
-  the next restart of config/sae_3e1_d6periodic_gan.py, which is a watch item for whoever
-  restarts it. Also for the leg-1 A/B: hom leg 1 will carry a different psi_checkpoint
-  (ACP3LqKDUSQ0 vs dsMKgPHQApyR) as well as a different init, since its refit is downstream
-  of its own decodes -- a consequence of the one swapped argument, not a second design
-  choice, but it cannot be stated as a single differing input.
-- 2026-08-18 (ops, found during the same round and handed to the implementer): the HOM arm's
-  manager (log/sae_3e1_hom.manager.pid 822401) is DEAD while all four other live-arm managers
-  run. Not a crash -- manager.log is 0 bytes, which at --log_level 30 is a clean run, and the
-  graph was built correctly first (171 -> 292 jobs, aliases written) -- the signature is a
-  manager killed with its parent. Consequence: GreedyPoolJob.g37LQXi9ABH3,
-  PsiAlignTrainJob.ACP3LqKDUSQ0 and ReturnnTrainingJob.JocWKAmYroFJ have no job dir, so when
-  the running round-1 dump (ReturnnForwardJobV2.95rhVVVmPWlo, slurm 1406706_1) lands nothing
-  submits them and the arm stalls with no error marker. Recorded because a silently stalled
-  arm reads exactly like a slow one.
-- 2026-08-18 (CORRECTION to the bullet immediately above, same day, implementer-supplied and
-  accepted): the forensics were right and the CAUSE AND CONSEQUENCE WERE WRONG. The manager
-  did not die -- the implementer killed it deliberately at 17:38, four minutes after starting
-  it, to stop an eight-leg spend from dispatching while the user's funding decision was
-  reopened by the composed-reward finding. A deliberate stop and a parent-kill produce a
-  BYTE-IDENTICAL signature (clean exit, 0-byte log at --log_level 30, graph already built),
-  so that signature can never establish cause -- ask whose hold it is. My "deadline" was also
-  wrong: job dirs are content-addressed, so a manager started after the running dump lands
-  picks up the refit and loses no compute; the only cost of waiting is delay. What I framed
-  as an outage to repair was a correctly-held spend, and restarting it would have started the
-  two days of GPU the user was being asked to authorize. The dump was deliberately left
-  running because that artifact is wanted under either decision.
-- 2026-08-18 (funding state made explicit, ratified): `config_sae_3e1_hom_v1.LOOP_FUNDED`
-  now carries the decision -- at False the graph still builds the admission reads, the init
-  and the direction read, and leg 1 cannot be submitted by ANY manager. RATIFIED as the
-  standing pattern for a held spend: funding state belongs in the config where it is readable
-  and reviewable, never implied by which manager process happens to be alive.
-- 2026-08-18 (ordered build (a) DELIVERED and independently reproducing; HomophoneDirectionJob,
-  commit 67da952, hash Uo4UAJp5Ue42): the planner scratch read is reproduced EXACTLY at the
-  bag-of-words join (n=1550, lm_prior 0.895, recon 0.182, composed 0.532) AND the
-  position-aligned join I asked for as a stretch is feasible -- the swap rows already record
-  `position`, so a minimal-edit alignment yields the reference word at the swapped position --
-  and it agrees (n=1421, lm_prior 0.906, recon 0.179, composed 0.529). The finding therefore
-  stands on the better join, and its numbers are now job-emitted rather than scratch, so they
-  may enter a conclusion once the artifact is read off disk.
-- 2026-08-18 (weighting defect QUANTIFIED against the artifacts; HomophoneDirectionJob
-  .Uo4UAJp5Ue42 finished 18:01 and its per-class table was re-derived independently through the
-  job's own alignment logic with the top-8 truncation removed -- 81 classes carry at least one
-  toward-reference swap). The mismatch is larger than I stated: the measurement's per-class
-  share vector overlaps the PLAIN arm's dev-other class-internal profile at total variation
-  0.880 and the HOM arm's at 0.197 -- near-orthogonal to the distribution it is being used to
-  predict. buy/by/bye is 67.63 % of the measurement, 66.55 % of the plain arm's class-internal
-  substitutions (195/293) and 8.65 % of the hom arm's (158/1827). COVERAGE, the decisive
-  column: 78.8 % of the hom arm's damage sits outside the eight classes the job reports, and
-  31.1 % sits in classes with ZERO toward-reference swaps in the measurement -- be/bee (155)
-  and knot/not (155) among them. The single largest hom class, in/inn at 18.0 % of the damage,
-  is measured on FOUR swaps. Damage-weighted composed rates: 0.555 over the reported eight
-  (21.2 % of the damage mass), 0.637 over all 81 (68.9 % mass) -- the latter driven by in/inn
-  reading 1.000 off those four observations. So the aggregate 0.529 is, to a good
-  approximation, one confusion pair's number.
-- 2026-08-18 (CORRECTION to my own claim in the bullet above and in PLAN_3E1: "no number from
-  the plain-policy read may be quoted as a prediction of this arm's recovery" was too strong,
-  and I had not considered the slice that refutes it). The same job's AWAY-from-reference
-  cell (n=19,328) covers 99.7 % of the hom damage mass -- because the plain policy spells
-  those classes correctly, every class is represented in the corrupting direction -- and
-  sign-reversed it reads composed 0.900. It answers a different conditional (does the reward
-  resist corrupting a correct spelling, rather than prefer repairing a wrong one) over a
-  different utterance population, so it is not interchangeable with the toward cell; but it is
-  arguably the LESS biased estimator for this arm, because the hom arm's errors are
-  augmentation-induced and therefore land on a near-random subset of class-bearing utterances,
-  whereas the toward cell is selected for utterances where the plain policy itself was
-  confused. NET STATE: the plain dump BRACKETS the hom arm's per-swap edge between about 0.51
-  and 0.90, biased in known and opposite directions at the two ends. That bracket spans chance
-  to strong, so it is uninformative for the funding question -- which is a stronger reason to
-  run the read on the hom arm's own dump than the one I gave, not a weaker one.
-- 2026-08-20 (periodic-family on-disk audit): read every available WER from the concrete sclite
-  work artifacts and independently reconstructed each completed dev-other S/D/I count from
-  `sclite.pra`, checking it against the reported WER. Completed prefixes are fresh D-track 5/8,
-  warm D-track 5/8, plain GAN 6/8 and GAN+HOM 3/8; the next leg of each exists in Slurm but is
-  pending because nodes are reserved for maintenance. All four managers are live and none of the
-  four next jobs has an error marker, so no arm has an endpoint yet. The fresh periodic prefix
-  avoids D5(b)-b's catastrophic continuous-joint insertion collapse but later loses to both the
-  one-shot scorer and matched frozen control through insertions; warm inheritance compounds that
-  failure. Plain GAN's one improvement is transient and later loss is substitution-led. GAN+HOM
-  removes its induced class-internal errors in one leg and catches plain GAN by leg 3. The D5(b)-b
-  comparison is only a timescale control because scorer topology, partitioning, batching and
-  optimizer continuity also differ; there is no continuously trained scorer with the GAN or HOM
-  initialization.
-- 2026-08-20 (baseline presentation correction, user-directed): the periodic tables now expose
-  exactly two primary anchors per initialization family before the live trajectories. For the 10 h
-  adapted-donor init these are theta_0' AV SFT 11.43/15.54 and the best prior frozen-scorer loop
-  4.68/8.64; for GAN init they are theta_0^G AV SFT 13.89/18.34 and the best prior frozen-scorer
-  loop 12.68/17.57. GAN+HOM has no same-init frozen loop, so its 16.67/21.45 AV-SFT checkpoint is
-  reported as its own anchor and the plain-GAN frozen result is labeled cross-init context only.
-  Clarification after source-level comparison: the plain-GAN frozen result is itself a reference,
-  not a scorer-schedule-only control, because scorer topology and corpus plus policy-optimizer
-  continuity differ. The missing controlled arm freezes periodic round 1's own d_min=2 scorer while
-  retaining periodic's segmented-leg graph.
-- 2026-08-20 (why the frozen G-track reference is d_min=1, source/history audit): git history and
-  the original D2 builder establish chronology rather than selection. D2 landed 2026-08-07 with
-  topology intentionally identical to psi_g_tc100 so d2_contrast changed one objective term;
-  PsiAlignTrainJob had no min_dur interface in that revision. D6 introduced the structural
-  minimum-duration repair on 2026-08-11, after D2 was complete, and D3 inherited its frozen winner.
-  Therefore d_min=1 has no empirical superiority claim over d_min=2 here, and topology is the main
-  scientific confound in the frozen-versus-periodic WER comparison; corpus and Adam continuity
-  remain additional confounds.
-- 2026-08-20 (matched frozen control): merely rebuilding D2/D3 with d_min=2 would leave the
-  scorer-corpus and policy-optimizer-continuity confounds. Source, resolved-config and graph checks
-  pass for the isolated schedule-only control: leg 1 reuses
-  `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read periodic round 1's exact d_min=2 scorer
-  `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Thus scorer
-  recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 was verified running at
-  15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
-  D6-PERIODIC/GAN-FROZEN.
-- 2026-08-20 (D7.3 gate correction): the former absolute 13.89/17.84 clause was unsupported for a
-  one-leg causal read. Conditional on required scorer parity, the exact matched control is
-  `ReturnnTrainingJob.kr1foUV6lecx` at 14.45/19.69; the GAN initialization (13.89/18.34) and prior
-  frozen-loop result (12.68/17.57) are report-only utility anchors. The prospective scientific gate
-  is improvement over that exact matched control on both dev splits; any durability or absolute
-  utility decision remains a separately preregistered next stage, with gold sealed until then.
-- 2026-08-21 (D7.0a independently verified; D7-v2 frozen): PASS. The reconstructed Sisyphus graph contains exactly
-  one finished label-free mini-task and no live scorer, assignment, training, reference or WER graph
-  dependency. Code commit `a0a22b4` predates execution and contains only the tracked canonical
-  config, census implementation and focused tests; the artifact source hash matches it and all 9
-  tests pass. Independently regenerating both graphs from the four pinned inputs without importing
-  D7 code matches every emitted edge and all input, population,
-  tuple and file hashes: 4,911 external edges (`7855557c...d2f3`) and 632,913 intended-scorer edges
-  (`3a6038ab...4376`). Representative boundary, just-outside-duration, different-speaker, self-edge
-  and directed-asymmetry examples all behave as specified. The artifact contains no downstream
-  filter, band, capacity, assignment, scorer or gold field.
-
-  The scientific verdict is narrower than Conclusion 56 originally claimed. The external band was
-  unregistered: 276/1,500 is the optimistic all-eligible raw K=4 support, while zero rows meet the
-  conservative eight-donors-per-stratum diagnostic. Exact second-quartile support was undefined
-  before the amendment, so D7.0a establishes that full-`E_all` K=4 cannot be measured rather than an
-  eight-per-stratum theorem.
-
-  A planner-side maximum-matching replay of the immutable external raw edge table gives 1,267,
-  1,328 and 1,331 admitted edgeful sources at donor capacities one, two and three; a deterministic
-  cap-three raw matching contains 669 same-chapter and 662 different-chapter edges. Capacity three
-  is therefore the smallest tested load cap that preserves every raw edgeful source. Before any D7
-  scorer read, D7-v2 freezes: the original K=4 (2+2), row-local Q2, ten-table regular construction
-  for training with an executable ordinal rank/tie law; and a separate external K=1, M=1, no-band,
-  max-cardinality/minimum-nuisance cap-three matching. External admission requires at least 435/725
-  dev-clean and 465/775 dev-other sources plus 32/40 and 27/33 source speakers, retains fixed
-  725/1500 and 775/1500 split weights, and never shrinks the all-1,500-row Acceptance gate. This
-  prospectively authorized the D7.0b read whose closed verdict follows.
-- 2026-08-21 (D7-v2 / D7.0b structural verdict, independently verified): FAIL. The label-free
-  feature job completed and its manifest reproduces all frozen role sizes, hashes and checksums:
-  28,538 feasible scorer rows, 569,785 hard training edges, 136,966 Q2 edges and 17,748 rows with at
-  least two raw outgoing donors in both chapter strata. The assignment code encodes, for every
-  admitted vertex and each chapter stratum, both incoming and outgoing edge counts exactly equal to
-  `2*a_i`; its zero-gap MILP returned 56 admitted rows from two speakers before the registered
-  6,778-row/201-speaker check raised.
-
-  Independently streaming the emitted Q2 table and repeatedly removing every vertex with fewer than
-  two incoming or two outgoing edges in either stratum leaves 120 rows from four speakers. Every
-  feasible common 2-in/2-out solution must lie inside that necessary core, so even a different exact
-  optimizer is bounded far below the floor. This is the intended fail-closed scientific gate, not a
-  scheduler, timeout or convergence failure. The assignment stopped before external matching; no
-  loss-preflight directory, scorer training, policy training, reference-text or WER consumer exists.
-  The registered K=4/Q2/common-regular operating point is structurally closed, while the reverse
-  matching loss itself remains unmeasured. Per the prospective rule, no solver retry, floor
-  relaxation or third graph amendment is authorized; that offline-graph branch remains closed.
-- 2026-08-21 (post-D7-v2 user correction; active D7 registration): the user rejects the offline
-  graph as the
-  wrong abstraction and directs ordinary online random negatives on the full loop population. Local
-  interface verification supports that separation: the existing enc50 960 h chain already binds
-  exactly 281,241 train-clean-100/train-clean-360/train-other-500 utterances and their packed K=500
-  raw-50 Hz units, whereas every D6 periodic scorer refresh decodes/refits only the 28,539-row
-  train-clean-100 pool. Corrected D7 therefore generates one scorer-independent theta_0^G greedy
-  pseudo-text
-  per 960 h utterance and samples K=1 donors dynamically from role-local same-speaker pools with
-  reciprocal duration ratio 0.8--1.25, using closest-duration fallback only when that window is
-  empty. It does not depend on §3d.A's currently blocked packed CTC decoder. The executed offline
-  D7-v2 result remains closed as conclusion 57, while its active specification is superseded.
-  D7.3 policy compute remains held.
-- 2026-08-21 (corrected D7 implementation verified; approach 32 / Catalog / State audited): PASS —
-  build faithful to the registered specification; no experimental number exists yet. Confirmed
-  against code, the live manager graph, on-disk artifacts and the scheduler: all four Catalog job
-  ids match the manager's own graph (aliases the manager wrote at 16:37; work dirs legitimately
-  absent while the decode chain runs); the ten decode shards are GPU `ReturnnForwardJobV2`s on the
-  frozen theta_0^G epoch-10 checkpoint, with `d7_greedy` a thin wrapper that calls the pre-existing
-  argmax stepping (`forward_step.py` `_greedy_argmax_decode`, the same function behind the D6
-  greedy dumps; it never reads the dataset's text stream) and the same tokenizer/lowercase/
-  ascii-fold conventions; the pseudo-text transform replaces the train text with two-sided
-  coverage asserts and a zero-empty assert; the bound unit store is the frozen raw-50 Hz K=500
-  `PackUnitsJob.I0uzRMfUrKWC`; the seed-42 5% holdout reproduces the D7-v2/PsiAlign row-order
-  convention exactly (verbatim toy re-run, identical held sets); every training constant
-  (contrastive weight 1.0 / 1 negative, batch cells 24M, max batch 256, lr/decay/warmup, default
-  architecture, `d_min=2`, CUDA backend, bpe512 codes and lexicon artifacts) is byte-identical to
-  the round-1 refit `PsiAlignTrainJob.dsMKgPHQApyR` job record; the loss algebra implements the
-  registered per-frame softplus donor-minus-own term with the stateless keyed draw (three CPU unit
-  tests pass); D7.1 is hard-gated on the D7.0 preflight PASS artifact plus index-hash binding;
-  fixed-final only, D7.2/D7.3 absent from the graph; the fixed-final checkpoint dict satisfies
-  `PsiScorerParityJob.from_checkpoint`; no funded GPU job was cancelled or displaced at launch.
-  Caveats a reader of D7.1 numbers must know (rewritten 2026-08-21 after the fix verification
-  below; the resolved resume-RNG, donor-infeasibility and parity-gap caveats are absorbed):
-  (i) prior weight is 0 from step 0, a forced deviation from the refit's 4-epoch prior anneal,
-  entailed by carrying `L_U->z` across a single pass (definition pinned in `PLAN_3E1.md`);
-  (ii) the ~0.035% max-generation-length truncation tail of the argmax decoder is the decoder's
-  established operating point, not a D7 deviation — and the equivalence check ran once the shards
-  finished: the D7 merge agrees with `ReturnnForwardJobV2.66pIzBzffnK2` on the 28,539 shared
-  tc100 utterances at 0.459% word distance, argmax ties under different batching, no length or
-  content bias (approach 32).
-  Fix verification 2026-08-21 (speech-llm commit 1d10945, verifier-reproduced): the shard-resume
-  payload now carries torch CPU+CUDA RNG state, restored after the start-of-run reseed with
-  refusals on a changed dropout device or CUDA device count — diff-verified, and the
-  stream-continuity test carries a negative control that fails without the restore; donor
-  structural infeasibility is counted via `_min_frames` in the train sampling diagnostics, the
-  fixed-final held diagnostics and the preflight `candidate_stats`, pairing kept (conservative
-  direction unchanged); the CUDA/python lattice parity test gained two `d_min=2` skip-arc cases
-  and was EXECUTED on a GH200 (`log/parity_test.1445759.out`: the test's own ok line, 1 passed —
-  exit 0 alone cannot distinguish passed from skipped there), pinning backend agreement at 1e-3
-  on scores, gamma and both gradients in D7's own topology; all five CPU unit tests pass in the
-  verifier's own run under the project env; all four D7 job hashes and the merge are unmoved by
-  the fix commit.
-- 2026-08-21 (parity fix verified; first D7.1 run root-caused; amendment registered): commit
-  `91c437a` is diff-verified faithful to the registered operational parity rule — losses keep
-  exact equality; F is the max over 2 extra re-runs of the CONTROL model of the max abs gradient
-  difference against its own first run, each `grads` call restoring the saved CPU+CUDA RNG state
-  and zeroing grads on the fixed first batch, gradients snapshotted as fresh flattened CPU
-  copies; PASS iff cross <= 3F and F <= 1e-4, with the F > 1e-4 case failing as the distinct
-  backend-too-noisy defect; the report carries F and cross. Hash-neutral by construction:
-  `source_identity` is an instance attribute, not a constructor argument, so no job hash can
-  move. After the user's restart the preflight PASSED on its own artifact
-  (`D7OnlinePreflightJob.ZxfANwBZYpaI/output/preflight.json`: verdict PASS, losses exactly equal
-  at 9.983121871948242, F 7.391e-06, cross 4.053e-06 — same order as the diagnostic's 5.5e-06/
-  2.6e-06, confirming noise-floor calibration was the right form; candidate gradient delta
-  0.02046 confirms candidate-only gradient flow). BOTH D7.1 trainings
-  (`D7OnlineTrainJob.j16rTskXF1QU` / `.WA1bqjXQtzeZ`) then failed closed at 21:32 in
-  `_make_items` on the SAME row — own pseudo-text infeasible on own audio under d_min=2
-  (`3889-130125-0028`: 481 states, min feasible 400 frames, T=356) — identical raise in both
-  arms, so the matched-arm property held even in failure. Verifier census over all 281,241 pool
-  rows with the production law (`scripts/d7_own_infeasible_census.{py,json}`): exactly 4
-  own-infeasible rows, all train-role, zero internal-held; all four are runaway-repetition
-  greedy texts. The incumbent recipe's own artifact defines the handling —
-  `PsiAlignTrainJob.dsMKgPHQApyR` trained after "pairs: 28538 (27111 train / 1427 held out),
-  1 dropped as U > 2T" — so the raise was an implementation over-strengthening of the
-  exact-control-recipe-verbatim contract. Drop-and-count amendment with a named-four-row bound
-  registered in `PLAN_3E1.md` D7 Status (including the D8 bed-wide-greedy-feasibility
-  consequence); one implementer edit in `_make_items` plus one further user-run d7 manager
-  restart (clearing both train error markers) are pending.
-- 2026-08-22 (round verification: D7 drop law, D8.0, both VERIFIED; clause-(a) ruling issued).
-  D7 drop law (`e2a421b`) verified end to end against the amendment, by diff read and agent
-  reproduction: named four-row constant with a train-role pre-assert (d7_online.py:32-42,
-  352-354), drop-and-continue keeps rows out of shards/held so no unit NLL, `L_U->z` or
-  `L_online` visit exists for them, realized-set-equality raise (:378-383), naming per role in
-  the train.txt report line and in monitors.json (`own_infeasible_dropped`, counts,
-  `anchor_rows`), donor path untouched (reads index/store only; all four rows present in their
-  speaker lists). The dropcheck artifact reproduces independently: full load drops exactly the
-  four, 267,175 train / 14,062 held (= index 267,179 - 4 / 14,062; ten shard sizes sum to
-  267,175); the preflight's shard-0 load keeps 26,743 rows and drops none. Hash neutrality
-  proven at the sisyphus level: no `__init__` signature or config change, `source_identity` is
-  an instance attribute and not hashed, `j16rTskXF1QU`'s info lists only the unchanged ctor
-  args. The proposed `-co` restart is safe: the only error-state jobs in the graph are the two
-  train dirs, both with empty work/ and output/ (no checkpoint to discard); pool and preflight
-  are finished and untouched by `-co`. All five D7 unit tests pass in the verifier's own run.
-  Two implementer follow-ups, their lane: `scripts/d7_parity_diag.py:25` still unpacks the old
-  4-tuple and crashes if rerun; the cited commit `4dc65a3` is the pre-amend twin of branch head
-  `a3dd6c7` (same message, D8 files byte-identical; the amend dropped an out-of-scope
-  config_sae_1g_v1 hunk) — cite `a3dd6c7`.
-  D8.0 verified: the v2 guard's docstring (d8_feasibility.py:51-61) and logic (:325-327,
-  :499-509) match; a full offline re-run of the v2 reader reproduces EVERY field of all five
-  slices of the binding artifact exactly (group counts, distinct histograms, law conflicts,
-  collapse counts, tau_star, clause booleans, median ESS to 1e-9) and re-derives all three
-  verdict branches (theta v2 UNRESOLVED / theta v1 NO-GO / fork REPORTED-ONLY); whitelist
-  discipline confirmed at source (rows enter only via kind in {rollout, greedy}, `wer` never
-  read, no reference input); the v1 jobs are preserved as superseded evidence; the store joins
-  and medians confirm verdict 59's frame diagnosis (dump-joined pooled store median 169 vs raw
-  50 Hz 674/695), and the raw store covers all 512 binding-slice tags — so the registered v3
-  read (clause-(a) ruling, `PLAN_3E1.md` D8 Status 2026-08-22) is executable offline with no
-  new dump. ONE DISCREPANCY, label only: "exercised on 256 groups / 25 groups" counts collapse
-  CLASSES, not groups — 256 classes across 237 groups at T=0.7 and 25 across 24 at T=1.0; the
-  job docstring at d8_feasibility.py:45 shares the mislabel (code :274-279 increments per
-  class); numbers real, unit label wrong — implementer to fix both wordings. Reading notes:
-  `a3dd6c7` is timestamped seconds AFTER the v2 jobs finished — pre-registration is carried by
-  the hashed `reader_revision=v2` job parameter and the in-job verdict rule, not by commit
-  order; approach 34's table omits the artifact's T=0.5 slice (conflicts 4,199/4,693, distinct
-  0 / scorer-free 10, tau* 0.05) — add the row; the commit message's "5,096 of 6,656" is the
-  pre-dedup member count, the log's 5,730 post-dedup denominator is the correct one.
-- 2026-08-22 (D8.0 v3 round VERIFIED; clause-(a) GO confirmed; two conservative deviations
-  ratified). The v3 reader (speech-llm `3843918`) implements the 2026-08-22 ruling clause by
-  clause, confirmed in code and by a fully independent recompute of the binding slice from the
-  raw dump rows and the raw 50 Hz store (own join/dedup/median logic, project primitives only):
-  512 groups, 5,730 distinct scored classes, ZERO empty/unencodable/infeasible members against
-  the operative T_i, with-greedy median 12.0 (rollouts-only also 12.0) — exactly the artifact,
-  so clause (a) is GO at threshold 3, and the verdict first existed in the job's own output as
-  required. The margin is structural, not marginal: raw-store median 695 frames over the slice
-  vs the pooled 169/174 that drove v1's 88.9% exclusion, tightest single-utterance margin 65
-  frames. The fork v3 read matches v2 field for field, and its operative exclusion 18/101,190 =
-  0.0178% is digit-identical to v2's law-conflict count — the measured genuine rate the 5%
-  valve was priced against. All four v1/v2 job dirs untouched; only the two v3 jobs are new;
-  aliases repointed. Verdict hygiene checked: 59/60 originals unchanged with accurate
-  corrections below, 61's confirmation true, 62 rests on the tables. TWO RATIFICATIONS of
-  implementation-over-ruling deviations, both conservative: the safety-valve denominator counts
-  ALL excluded scored members (superset of operative-infeasible — trips earlier), and the
-  coverage assert spans all 34,106 dump ids (superset of the slice — fails closed sooner);
-  both stand as the operational form. Hand-backs, implementer's lane: verdict 63's
-  "shaped-versus-acoustic-only runs 0.30-0.66" — the T=0.5 value is 0.2857, so the range reads
-  ~0.29-0.66, and that clause rests on the JSON rather than a table column (add the
-  acoustic-spearman column or cite the artifact in the verdict); the State's "operative v3
-  below" pointer needs the commit `3843918` (the Catalog copy was completed by the verifier as
-  an objectively dangling reference); trivia: the commit message says 32 mechanics checks, the
-  script now prints 47, all passing. Consequence recorded for D8.1a, no action now: the binding
-  slice's rho(shaped, LM-only) 0.9790 sits above the registered 0.95 arm-selection bar — if
-  D8.1a reproduces it, candidate-shaped is not funded and only candidate-acoustic trains, per
-  the registered rule; the D8.0 value is provisional and selects nothing.
-
-- 2026-08-22 (D7.1 completion round VERIFIED; hand-backs closed). Every approach-32 D7.1 claim
-  confirmed against the raw job artifacts: both arms' `monitors.json` carry
-  `own_infeasible_dropped` = exactly the four registered train-role rows (no held drops, key
-  absent), `anchor_rows` 267,175 / 14,062, digit-identical to the offline dropcheck and to each
-  other; NLL 2.52588->2.5259 (control) / 2.53190->2.5319 (candidate), mean `L_online`
-  0.0102246->0.010225 / 0.0075412->0.007541; the train-side sampling files are byte-equal across
-  arms and all ten per-shard row/frame counts and step boundaries are bit-identical arm to arm.
-  An exhaustive recursive diff of the two arms' monitors finds ONE non-metric difference:
-  `online_weight` 0.0 vs 1.0 — the A/B is single-variable at the artifact level, not just by
-  intent. Single 14-minute run each (13:59/13:58), no resubmit, `.cleared.0001` failure dirs
-  preserved; both `model_final.pt` present; the four dropped anchors were all ordinary_window
-  donor cases (census 266,138 -> 266,134, fallback untouched), so the donor law was untouched by
-  the drop. Both manager logs end at sisyphus's "All calculations are done" EOFError, confirming
-  the corrected STALLED-artifact reading in State. Verdicts 64-65 rest on the tables and are
-  accurate; the 26% claim recomputes (0.7376x). Precision notes, no action needed: held
-  `L_online` averages over 14,008 rows — the 54 singleton anchors contribute no online term —
-  matching the gate's own "per eligible held anchor" wording, same denominator both arms;
-  control shards 6/9 and candidate shard 9 report `u_to_z` exactly 0.0 (fine for a satisfied
-  hinge, worth knowing if `u_to_z` is ever read as a live signal). Hand-backs from the previous
-  round verified closed: the rho(shaped, acoustic-only) column matches the artifacts at every
-  digit (0.3000/0.2857/0.3132/0.5497/0.6593; fork 1.0000), verdict 63's corrected range
-  0.2857-0.6593 is the exact min/max, the State pin names `3843918`, and the mechanics test
-  reproduces 47/47 PASS live at branch head. The D7.2 clause-2 flag is acknowledged in
-  `PLAN_3E1.md` D7 Status: the gate does not move, and a failure closes D7 without a policy leg
-  per the registered law — D7.2 is authorized to build and run as registered, no new word needed.
-
-- 2026-08-22 (D7.2 closure round VERIFIED; D7 CLOSED on clause 2; D8.1a-b released by ruling).
-  All four clause artifacts confirmed against the claims. The gate table was independently
-  recomputed BIT-EXACTLY from the upstream per-utterance dumps (all five ladder CIs, all three
-  insertion-discount levels, paired differences, both CI endpoints and p-values, at the recorded
-  seed 42 / 10,000 resamples in the job's own call order), so clause 3's numbers are beyond
-  transcription doubt. The admission artifact's donor-diversity histogram recomputes exactly
-  (median 3.0, mean 3.4208, 4,022 single-donor anchors of 14,008); the clause-2 comparison
-  stands at 2.531898 > 2.525882 over 8,642,253 frames, cross-checked against the D7.1 training
-  reports at 3.62e-9 agreement (the "~1e-9" in State/approach 32 is slightly optimistic; the
-  job's own assert is 1e-6). Label firewall traced through all nine admission inputs: the
-  pseudo-text store's train split has the gold text column REMOVED upstream and the gold
-  dev/test splits are never opened. Parity is exactly 0.0 on 512/512 rows in both arms; the ten
-  D7.2 jobs are finished with no error marker and neither D7.1 fixed final was rerun. Verdicts
-  66-67 rest on confirmed numbers; the closure reading (licenses not funding D7.3, not evidence
-  the method cannot work) matches the registered gate-decision-vs-measurement rule. Hand-backs,
-  implementer's lane: (i) `gate_table.py:250` hard-codes "NO WINNER (reduction CI includes
-  zero)" as the fallback reason, which is FALSE here — under the CI reading the candidate's k=1
-  paired CI [+0.0039, +0.0106] excludes zero on the wrong side, and under the point reading no
-  arm is eligible at all; the no-winner OUTCOME is correct under both readings, but the printed
-  reason and the approach-32 sentence inheriting it ("because the k=1 reduction CI includes
-  zero") need correcting before anyone quotes them; (ii) trivia: "~1e-9" -> 3.62e-9.
-  Observations recorded, no gate touched: the candidate's usage-gate widening (+0.3078)
-  decomposes to +0.30712 from the length-matched deranged NULL against +0.00071 from the true
-  side — the candidate mostly prices the null worse, not the truth better — which sharpens
-  verdict 67's transfer sentence without flipping it; the substitution discount (computed,
-  registered to decide nothing) is also worse for the candidate at every k with CIs excluding
-  zero; 448 of 448,256 donor draws are structurally impossible and contribute exactly 0 to both
-  arms by documented design (`d7_online.py:446-451`). Process finding promoted to a registered
-  D8 requirement (`PLAN_3E1.md` D8 Status): the admission job persists NO per-anchor arrays, so
-  its paired mean, negative share and bootstrap bound cannot be re-derived from surviving
-  artifacts — harmless here because the gate closed on clause 2's deterministic comparison, but
-  the D8.2 admission job must dump per-anchor deltas and cluster ids before any D8.2 number is
-  read. The clause-3 point-versus-CI eligibility convention stays DUAL-REPORTED per the user's
-  still-pending blessing (PLAN.md queue item 2); it decided nothing here and is not pinned by
-  the planner.
-
-- 2026-08-22 (D8.1a build/launch VERIFIED at code and graph level; five pre-run weight-job fixes
-  required, one registration deviation ruled; hand-backs closed). The gate_table reason fix
-  (`fc30dc1`) is correct — three derived branches, the wrong-side case keyed on a positive CI
-  lower bound — and the approach-32 correction states both true reasons; "3.62e-9" is in all
-  three places. D8.1a as launched: every config constant traces to the registration or the
-  reused reference builders (none untraceable); the ten data shards are genuinely reused
-  finished D7.0 jobs summing to 281,241; the pinned scorer, group 12, T=0.7, lam_lm 1.0 and
-  the per-token-to-per-unit conversion are all confirmed at file:line; `D8WeightJob` reads no
-  reference text, WER column or gold field; the merge partition assert is real; the packed-store
-  read path is fail-closed (searchsorted with exact-match confirmation, sound byte-order
-  argument). The claimed interface equivalence was INDEPENDENTLY reproduced STRONGER than
-  stated: over the whole 34,106-tag shared population (not a 2,000-tag sample) the tc100 pickle
-  and the operative store return byte-equal unit sequences with zero mismatches (population
-  median length 674; the logged 671 was a draw-dependent sample statistic). Graph state
-  confirmed: ten new shards RUNNING (ETA ~8 h), ten crashed 41-second orphans at the old hashes
-  with the av_checkpoint_prefix root cause confirmed by config diff and error text, merge and
-  weight jobs registered and waiting, NO training job created. HAND-BACKS, all in the not-yet-run
-  `D8WeightJob` and required to land BEFORE it first executes (hash-neutral if its hash permits;
-  if any fix moves the hash, say so in State and the planner will request the one manager
-  restart): (i) the binding-temperature filter is DEAD CODE — `d8_weights.py:187` reads key
-  "temperature" but the dump writes "T", so the registered binding-slice restriction is
-  unenforced; make it a fail-closed assert that every scored row's T equals 0.7; (ii) the ruled
-  5 % safety valve is computed as a report field but not enforced — an exclusion rate above 5 %
-  must return UNRESOLVED instead of feeding clause (a), as at D8.0; (iii) tau_star's
-  undefined-ESS fallback is `or 0.0` against D8.0's `or math.inf`, letting an undefined-ESS tau
-  score |0-3|=3 and win a tie — match D8.0; (iv) the dedup survivor is silent first-seen file
-  order, not the RATIFIED rule (normalized-form member, else earliest stored row), and a greedy
-  row folding into a rollout text is dropped with its recon and no score-differing-collapse
-  count — implement the ratified rule and the D8.0-style collapse diagnostic; (v) a non-finite
-  recon on a STRUCTURALLY FEASIBLE member is silently excluded — count and report it as its own
-  category feeding the valve (a feasible member with -inf recon under the operative store is
-  exactly the v1 anomaly class and must be loud), and fix the exclusion counters double-counting
-  repeated infeasible texts. REGISTRATION DEVIATION RULED (PLAN_3E1.md D8 Status 2026-08-22):
-  the registered support reuses the D7 pool's greedy 1-best at identical hash, but the launched
-  dump REGENERATES greedy through a different code path (`SaeGrpoModelV1`/`_greedy_argmax_decode`
-  vs the D7 `SpeechLmV3` path, same checkpoint and max_gen_len); the regenerated greedy is
-  admissible ONLY against a zero-mismatch normalized-text equivalence read vs the pool's texts
-  over all 281,241 utterances once the dump finishes — the D8.1a verdict is not accepted before
-  that read exists. Recorded, no action: the dump artifact will carry gold-text "true" rows and
-  a WER column for ~28.5k tc100 utterances exactly as the registration anticipates (the weight
-  job provably never reads them); the sampling seed is unpinned as in the reference machinery,
-  so artifact reproducibility rests on the frozen `supports.jsonl` — a disclosed property, not
-  a defect.
-
-- 2026-08-22 (five weight-job fixes VERIFIED IN, hash-neutrality independently confirmed;
-  equivalence job sound; three small hand-backs). All five fixes are implemented as claimed,
-  each verified at file:line and exercised by tests I re-ran myself at branch head `3af12bd`
-  (mechanics 47/47, weights test 39/39; the weights test is confirmed synthetic-only — its only
-  file I/O is a tempfile). The shared extraction is real: `build_support`/`slice_statistics`
-  are module-level in `d8_feasibility`, the D8.0 read job delegates unchanged, `D8WeightJob`
-  calls the same functions, and no statistic reimplementation remains in `d8_weights.py`.
-  Hash-neutrality was verified INDEPENDENTLY, not from the implementer's measurement: a fresh
-  graph build from the fixed tree returns `D8WeightJob.lF7OF4pQu66m`,
-  `D8MergeRolloutsJob.XPXsAbeeZWVE` and all ten shard hashes unchanged. The restart evidence
-  is clean — every shard dir has exactly one submission (SLURM 1452448-58, submitted 02:32,
-  all RUNNING), nothing rewritten after the 02:58 restart, and the new
-  `D8GreedyEquivalenceJob.XTdRp3OO3LNf` is in the graph (240 jobs, 13 unfinished on disk). The
-  equivalence job compares the dump greedy against the SAME `word_hyps.json` artifact the D7
-  pool consumed (identical hash; the pool's input, which is the correct object), on the D8
-  reader's own fold, and its EQUIVALENT verdict requires compared == 281,241 — unreachable on
-  a subset. The D8.0 fix-effect claim reproduces exactly: 31,232 and 371,007 whitelisted rows,
-  zero non-finite recon, zero missing, and zero rows carrying a "temperature" key — which
-  independently proves the old filter was dead code. Precision notes: the T assert protects
-  D8.1a only (the D8.0 read path passes no binding temperature — correct, that dump is
-  deliberately multi-T); one benign `or 0.0` survives in report formatting
-  (`d8_weights.py:431`), so the commit's blanket wording is not literal. All three hand-backs
-  CLOSED same day (speech-llm `e7fc5ef`, verifier-checked): exactly three watchers live, each
-  on a live manager, and the dead manager's watch log stopped growing (last stale line
-  03:07:54, none after); the weight job asserts every whitelisted utterance produced a group
-  and names vanished tags; `valve_verdict` in `d8_feasibility` now holds the
-  valve-before-clause ordering once, with the `clauses` argument the only difference between
-  the D8.0 read (clause a alone) and D8.1a (all three) — both readers call it. Verified by
-  re-running both suites (47/47, 46/46 — the D8.1a suite grew by seven covering exactly these)
-  and by a second independent graph rebuild: weight `lF7OF4pQu66m`, merge `XPXsAbeeZWVE`,
-  equivalence `XTdRp3OO3LNf` all unmoved at `e7fc5ef`, so the running shards were again
-  untouched. Ruling noted in PLAN_3E1.md D8 Status: the equivalence read staying a sibling output
-  rather than a `D8WeightJob` dependency is ACCEPTED as a process gate — the planner is the
-  only consumer of the verdict and acceptance requires the read — so no hash-moving rewiring
-  is spent on it.
-
-- 2026-08-22 (D6-PERIODIC/GAN-FROZEN completion VERIFIED; gate verdict confirmed; no hand-backs).
-  All 32 WER cells of approach 36's table traced to their own `ScliteJob` artifacts and
-  CONFIRMED digit for digit (reference word counts constant at 54,402 / 50,948 across every
-  cell, both arms on the same two reference STM jobs, so no eval-set drift). Leg-1 identity is
-  exact: both arms resolve to `ScliteJob.LzKRDl102Jaf`/`.bdTjc72qi0Jt` over the shared
-  `ReturnnTrainingJob.kr1foUV6lecx`, by alias tree and by dependency walk independently. The
-  frozen arm reads `PsiAlignTrainJob.dsMKgPHQApyR` in ALL EIGHT legs' on-disk configs (not a
-  sample), and its 127-job transitive closure contains no per-leg refit — exactly two
-  `PsiAlignTrainJob`s, the round-1 refit and the diagnostic-only psi_align^G — against the
-  periodic arm's eight distinct refits; policy chaining is correct in both arms (leg 1 from
-  theta_0^G epoch 10, legs 2-8 from the previous leg's own epoch 1). Every cell is plain sclite
-  through the identical four-job chain with no rescoring or postprocessing job anywhere in
-  either closure. The init reference 13.89/18.34 reproduces from three independent
-  decode+score pairs on the exact theta_0^G checkpoint with bit-identical error counts.
-  Verdict 68 applies the registered gate verbatim (the frozen final-leg win is the gate's
-  named no-established-benefit case; the legs 2-4 transient is the registered non-licensing
-  case), and verdict 69's arithmetic checks out in every clause. The approach-26 stale-text
-  correction is applied as described. One reader note, no action: a DISTINCT frozen variant
-  `config_sae_3e1_d6periodic_gan960_frozen_v1` (the GAN960 arm, still running) exists beside
-  the `_frozen` config verified here — anyone re-reading these numbers should confirm which of
-  the two they mean.
-
-- 2026-08-22 (user question on D7 paired-data performance; existing evidence surfaced). The
-  clause-4 parity vehicles already computed full label-as-evaluation ranking tables for BOTH D7
-  fixed finals over the fork-epoch dump (28,531 groups, T=0.7; WER enters as evaluation only,
-  never a gate input — parity was the only clause-4 statistic): candidate
-  (`PsiAlignRerankJob.kkEEVosPO80P`) spearman 0.3889, selection WER 5.126 %, eta 0.258; control
-  (`.OiRBghBiTriv`) 0.3878, 5.136 %, 0.250; mean WER 5.477 %, oracle 4.116 % shared. The two
-  arms rank near-identically; the tiny candidate lead has no null spread behind it and selects
-  nothing. Caveats pinned: this bed is the BEST-BED fork policy's tc100 rollouts, not the
-  operative theta_0^G policy, and the tables' G3 bar lines are cross-bed diagnostics
-  (gap_true is per-arm-units; the 0.0248 bar was registered for 3a-bed scorers). Policy-leg
-  performance (WER of a leg trained on the candidate reward) remains the one genuinely
-  unmeasured quantity — D7.3 closed by the registered gate.
-
-- 2026-08-22 (D8.1a wall-clock relaunch VERIFIED as justified and clean; one stale-hash
-  hand-back). The cancellation of the ten 49%-complete shards is within the delete rule: the
-  11.5 h clamp is real and unraisable (`settings.py:119-120`, `min(11.5, ...)` inside
-  `check_engine_limits`), a wall-hit forward job leaves no output and has no resume, the merge
-  requires the full partition, and a same-size resubmission fails identically — the first
-  launch could not answer its question. The corrected constant now traces to the RIGHT
-  reference: `config_sae_3e1_d4p_v1.DUMP_MAX_SEQS = 8` is the corpus-scale dump value (line 40,
-  applied at its full-corpus call), while 4 was `_reward_rank`'s probe-scale function default —
-  my build-round check accepted 4 as "traceable" and missed that it traced to the wrong
-  operating regime; lesson recorded in memory. Execution verified: all ten announced new shard
-  hashes RUNNING under manager pid 2554047 (~15 min in), the old shards cancelled matched on
-  their old hashes with no error markers and nothing else touched, and an independent graph
-  rebuild at `b68dd1a` reproduces weight `1G2lPRnRmPks` and merge `gXDwFsfvraDS`. HAND-BACK
-  CLOSED (885fc732c, verified in the diff): the greedy-equivalence hash also moved — the
-  rebuild gives `D8GreedyEquivalenceJob.xR1RduqgjFKe` (its merge input moved, so it must) —
-  and State and approach 35 now name it everywhere, mark `XTdRp3OO3LNf` superseded-and-
-  never-ran, and label the pre-relaunch hash-neutrality pins PRE-RELAUNCH. The
-  matched-completion margin addition (86af44b79) is ACCEPTED: the saw-tooth mechanism is the
-  known laplace:.1000 ordering periodicity, matched-completion comparison is the sound
-  estimator on it, and the arithmetic checks out (0.62 x 11.08-11.88 h = 6.9-7.4 h); it
-  independently confirms the cancellation and retires short-window projection as a check on
-  this bed. One precision correction, no verdict moved: "every one of them was at or past the
-  11.5 h clamp" overstates its own table — three of the five deepest shards project
-  11.08/11.19/11.28 h, i.e. UNDER the clamp by 0.2-0.4 h; the cancellation stands because the
-  merge needs all ten shards, two (11.60/11.88 h) project past the clamp outright, and the
-  other three sit inside the projection's own swing of it (correction absorbed in d0b7abbae).
-  Precision note, nothing to change: "batching moves no number"
-  is exact for the deterministic columns (greedy text, recon and prior per text) but the
-  SAMPLED rollouts are a fresh draw from the registered distribution under the unpinned seed —
-  acceptable because the registration pins the distribution, not the draw, and reproducibility
-  rests on the frozen `supports.jsonl` as already disclosed; no number from the first launch
-  was ever banked, so nothing is invalidated. The greedy-equivalence read remains the
-  instrument that would catch any batching-induced greedy drift.
-
-- 2026-08-22 (d0b7abbae VERIFIED; no hand-backs). The clamp correction implements the precision
-  feedback exactly. The GAN960-FROZEN leg-overlap State entry is confirmed on disk, not from the
-  message: leg 2 `liehXoiGoRI0` wrote `epoch.001.pt` at 08:33:24.604 (`.opt.pt` complete at
-  .949), leg 3 `VEE2CPJ5jHn0` was set up and submitted after it (create_files 08:33:28.4, submit
-  08:33:29.04), its config's `av_checkpoint_path` (returnn.config:59) points at exactly that
-  file, and its RETURNN log loads it at 08:33:58.748 — 34 s after both files were complete. Leg 1
-  `ohmLWWmr6Kxe` has its finished marker; legs 2 and 3 concurrently RUNNING in squeue. Verdict:
-  the overlap is the per-epoch checkpoint dependency working as designed, not a race; concurrent
-  chained legs on this arm need no alarm as long as the successor's load timestamp postdates a
-  complete checkpoint pair, which is the check to repeat if it ever looks off.
-
-- 2026-08-22 (D8.1a equivalence round VERIFIED; verdict 70 accepted; fork RULED in PLAN_3E1.md).
-  Verified read-only (the verifier session's shell is still down on the /tmp outage).
-  `greedy_equivalence.json` confirms every verdict-70 claim: NOT EQUIVALENT, 31,562 mismatches,
-  compared 281,241 of 281,241 expected, greedy rows in dump 281,241, and the three coverage
-  lists (`only_in_dump`, `only_in_pool`, `duplicate_greedy_rows`) all empty — so the failure is
-  content, not coverage. Sampled `mismatches.jsonl` rows reproduce both quoted examples verbatim
-  (100-121669-0006 "barny to"/"barnett", -0011 "sowing"/"saucing") and show the single-rare-word
-  lexical character throughout; the row arithmetic is exact (281,241 x 12 = 3,374,892;
-  + greedy + true = 3,937,374). The registered consequence chain was applied correctly and
-  nothing was auto-escalated: the deviation's conditional acceptance voided itself, the State
-  quarantines `D8WeightJob.1G2lPRnRmPks`'s output as a non-result, and the fork came to the
-  planner exactly as ruling (1) pre-registered. The double-outage handling is within the rerun
-  rules: both killed downstream jobs are stateless deterministic reads with no consumers,
-  cleared and rerun once writes returned — correctly never applied to a training job. The fork
-  is RULED in `PLAN_3E1.md` D8 Status (2026-08-22 latest+1): support restored to the
-  registration's own reader rule (2) — the D7 pool greedy at identical hash becomes an explicit
-  weight-job input, dump `kind=="rollout"` whitelist, the dump's regenerated greedy quarantined
-  as the divergence record, same-string scoring law for the differing minority, both-sides
-  coverage asserts, new weight-job hash to be stated, and the three-together read then applies
-  to the corrected artifact.
-  SAE_1g.md corrections verified absorbed in the same pass: the State item-3 dual figures, the
-  verdict-22 second correction (0.9366-0.9499 s), the verdict-23 rewrite (within 4e-5, dated
-  correction note), and the approach-14 two-reruns reconciliation, which correctly rules the
-  legacy rerun a process mistake saved by timing and restates the consumer rule. All deferred
-  items DISCHARGED 2026-08-22 evening, shell restored (replaces the deferred list, same date):
-  the timestamp read settles the rerun narrative in approach 14's favor (rerun finished
-  12:25:39, earliest cell started 12:29:31); the suite re-runs and entropy cross-check results
-  are in the SAE_1g.md feedback entry; every exp_logs commit is pushed (the implementer's
-  570bcb9b7/b0ab4f527 carried the log entries, the planner's 65182acd8 the PLAN_3E1 ruling).
-  Post-outage health, planner-observed 20:58: GAN960-FROZEN is fine — manager pid 3514914
-  alive 23.5 h, legs 2/3 (`liehXoiGoRI0`/`VEE2CPJ5jHn0`) finished with markers, the current leg
-  RUNNING under slurm (1457982_1, 1.2 h in). The D8 manager pid 2554047 and the `sae_3e1_hom`
-  manager pid 1992923 are DEAD; for D8 nothing is lost (dump, merge, and equivalence outputs
-  all finished and verified before the read, and the corrected weight job needs a fresh start
-  anyway), but whether `sae_3e1_hom` still had pending work is the implementer's check.
-- 2026-08-22 (ruling-execution round: pieces 1-2 VERIFIED, collapse proposal RULED, piece-3
-  execution notes registered). Piece 1/2 line review of speech-llm `54929cf` confirms the
-  build matches the latest+1 ruling: pool artifacts are hash-carried ctor inputs with the
-  member-count, missing-member, duplicate-greedy and rollout-width asserts all present; the
-  same-string law is implemented as reuse-on-normalized-equality with a raise (naming the
-  count) on any differing tag lacking a scored pool member; the quarantined dump greedy can
-  never be a fallback. `scripts/d8_support_test.py` re-run by the verifier: 21/21. Withholding
-  the weight hash until piece 3's producing job exists is correct sequencing, not a gap. The
-  collapse proposal's SUBSTANCE is verified independently from
-  `D8MergeRolloutsJob.gXDwFsfvraDS` (planner scan of all 3,937,374 rows): lm_prior genuinely
-  is tokenization-dependent where recon is text-determined, at tens of thousands of collapse
-  classes with nats-scale shaped-numerator spreads in every population variant tried. The
-  proposal's exact printed figures reproduce under NEITHER the rollout-only population
-  (155,890 classes / 17,874 lm_prior-differ / 17,713 spread>0.01 / max 65.0) nor the
-  with-quarantined-greedy population (198,172 / 84,649 / 74,410 / 65.0) — not blocking, since
-  no verdict rests on them, but the banked diagnostic must state its population rule. The
-  ruling (PLAN_3E1.md D8 Status, latest+2): survivor rule unchanged for D8.1a (arm-shared,
-  registered); diagnostic extended report-only inside the already-moving weight hash;
-  piece 3 binds to the dataset-text-pipeline score definition (D7.1-control parity) with the
-  non-degeneracy check and a 64-tag overlap probe whose recon must match the dump's stored
-  greedy columns within tolerance while its lm_prior/n_tokens deltas measure the tokenization
-  gap. Separately, at the user's request, the matched-4g count-4 pseudo-pair decode was
-  audited against gold like the 1g.2 legacy audit: same collapsed babble (length ratio 0.366,
-  deletion 0.634, AH +0.423, zero of 890 utterances below 0.50 PER, TV distance 0.683 vs
-  legacy 0.689) — recorded in the SAE_1g context by its numbers here only because the audit
-  ran in this round; the SAE-init recommendation is unchanged by fitting order.
-- 2026-08-22 (collapse-extension build VERIFIED; one small hand-back on the superseded-figures
-  cause line). The latest+2 extension (speech-llm `2f9fd1e`) is exactly the ruling: the
-  collector defaults OFF so the closed D8.0 read stays byte-identical, the survivor rule is
-  untouched, the aggregation feeds no clause and no valve, and the artifact states its own
-  population ("collapse classes whose survivor is a live member of the operative
-  post-exclusion support; the pool greedy member is included") and units ("before the per-unit
-  divisor"). Suite re-run by the verifier: 27/27. Piece-3 requirements (a)/(b)/(c) are
-  transcribed faithfully in State. The round's hand-back — the first causal explanation of the
-  superseded figures (a contiguity assumption) was disproven by the planner's full-file scan
-  (zero split tags among 281,241) — is ABSORBED and CLOSED same day, with the true cause
-  established and cross-verified to the digit: (i) raw-versus-normalized text grouping
-  (regrouping on the normalized string reproduces the planner's population exactly: 198,172
-  classes, 74,410 above 0.01 nats, max 65.0) and (ii) an exact-versus-1e-6 threshold on the
-  lm_prior comparison (planner re-scan at 1e-6 on the normalized grouping: 77,570, the
-  implementer's figure to the digit; exact: 84,649, the planner's original; the gap is the
-  7,079 classes State names). The banked diagnostic (speech-llm `9ba1fb5`) now states its
-  grouping rule in its own output and reports the lm_prior-differs count under BOTH the exact
-  inequality and the 1e-6 tolerance; suite re-run 27/27. Every scan of this quantity is now
-  mutually explained and the forensic account is complete.
-- 2026-08-22 (piece-3 build design REVIEWED: sound, nothing blocking; two pins before build). The
-  design satisfies the latest+2 binding notes by construction: substituting the pool 1-best into
-  the dataset `text` column via `TransformAndMapHuggingFaceDatasetJob` is the D7.1-control text
-  path itself (the idiom at `sae/data.py:459-473`), the forward configuration stays the dump's
-  own, and the overlap probe runs first and alone, as the ruling sequences. Verified against
-  source rather than taken from the design text: the job class hashes the transform and every
-  argument bound into it — only `non_hashed_load_dataset_opts` and `non_hashed_map_opts` are
-  popped (`i6_core/datasets/huggingface.py:228-230`) — so BOTH routes of the open mapping
-  decision are genuinely hash-carried; and the cost projection is consistent with the dump's own
-  measured rate (28k utterances/shard in 6.9-7.4 h scales to ~7.8-8.3 h for the 31,562, four
-  shards ~2 h each). Two pins before build: (i) the overlap probe's tag-selection rule and text
-  source are unstated — pin a deterministic rule (population: the 249,679 agreeing tags; e.g.
-  lexicographically first 64, or a fixed-seed draw with the seed stated) and name the substituted
-  string's source artifact in the probe job's docstring before it runs, per the
-  pre-registration-lives-with-the-code rule; (ii) on the open decision the planner's non-binding
-  preference is the `tk.Path` route (graph and job-pickle hygiene at 31,562 entries), chosen with
-  eyes open that sisyphus hashes a Path by producer identity rather than content — admissible
-  here because `D8GreedyEquivalenceJob.xR1RduqgjFKe` is a deterministic stateless read and is the
-  ruling's own designated artifact; if the inlined-mapping route is chosen instead, the mapping
-  must be derived deterministically from that same artifact. The weight-hash-before-restart
-  sequencing in State is correct and stands.
-- 2026-08-22 (piece-3 probe round VERIFIED; the hold was right; ruling issued as latest+3).
-  Every headline statistic of verdict 71 reproduces bit-for-bit from
-  `D8PoolOverlapProbeJob.GerShND5ibtT/output/overlap_probe.json` (recon max 4.76837e-07 / p50
-  exactly 0 against tolerance 1e-3; lm_prior deltas 64/64, p50 0.0966562, max 0.5309954;
-  n_tokens 64/64, max 3; degenerate rows 0; text mismatches 0; verdict PARITY; rows lex-sorted
-  100-121669-0000 .. 100-121674-0039). Both verifier pins are honoured in the committed module
-  docstring (speech-llm `7c1a2fa`): lexicographically-first-64 rule with no seed, pool
-  hypotheses artifact as the single text source with mismatches.jsonl partition-only, and the
-  `tk.Path` route. The build-time gate is real: the differing shards, scores job and weight job
-  are constructed only after `_probe_passes` reads PARITY from the on-disk artifact
-  (config_sae_3e1_d8_1a_v1.py:230-346), so nothing could have been submitted early. The
-  verifier's SIGNED read of the probe rows — which the verdict's absolute statistics do not
-  carry and which decides the held question — is banked in the latest+3 ruling: the shaped
-  numerator `lm_prior * n_tokens` is higher through the text path on 64 of 64 tags (median
-  +9.17 nats, mean +9.53, range +6.94..+17.69), driven by the decode path always spending more
-  tokens (delta -1 median, -3 minimum, negative 64/64). Holding the differing pass on that was
-  the correct escalation: the mixed convention is one-sided and three orders above the collapse
-  diagnostic's materiality line, and the ruling (PLAN_3E1.md D8 Status latest+3) rejects it —
-  text-path prior columns for the member on all 281,241 tags (full-bed pass, or the built four
-  shards plus an exactly-validated text-only prior scorer), recon reuse stays valid, mechanism
-  line required, convention-sensitivity line pre-registered in the three-together read, and
-  `qBb5teJvluqB` is superseded by construction with the state-the-hash-before-restart
-  requirement unchanged.
-- 2026-08-22 (latest+3 execution VERIFIED; launch real; mechanism named; nothing blocking).
-  Option (i) with the stated refusal of option (ii) is sound and inside the ruling. The
-  successor hash `D8WeightJob.juRpzTNHKCSq` was stated before the restart per the standing
-  requirement, and the unchanged probe hash is correct — the probe's inputs did not move, so
-  the licensing artifact is the finished one. On disk at check: all ten `all_bed` jobs exist
-  under the live `sae_3e1_d8_1a` manager with beds finishing and forward dirs materializing
-  progressively (six of ten present), which is normal graph growth, not a missing launch.
-  Suites re-run by the verifier: `d8_convention_test.py` 7/7, `d8_support_test.py` 27/27. Line
-  review of speech-llm `3123090` confirms State: `corrected_text_path` takes every member
-  column from the pass with no reuse branch left to get wrong; `legacy_mixed` exists only to be
-  compared against; and the pre-registered sensitivity recomputes the no-go clauses, the
-  valve, the verdict and the funded-arm set under both conventions and returns UNRESOLVED
-  naming the flips — a faithful and self-enforcing implementation of ruling part 4. Ruling
-  part 3 is discharged: `D8PoolTokenMechanismJob.rVkoJpPoBGG8` names the mechanism — the
-  decode path appends the generation's terminal token `<|endoftext|>` (id 151643), which the
-  text path never appends; 58 of 64 probe tags are exactly that one token, and the 6 tags with
-  a larger surplus are reported unexplained rather than absorbed — non-blocking, since the
-  corrected law does not rest on the mechanism. Made legible by the naming, for the record:
-  under the corrected law all twelve rollouts pay the terminal token's prior cost and the
-  member does not — the member-versus-rollout gap that definition (a) always implied, now with
-  a measured size (~+9.5 nats in the shaped numerator), uniform across classes, disclosed, and
-  anchored on D7.1 control-consumption parity; the banked sensitivity block and artifacts let
-  the member-weight shift be read directly at verdict time.
-- 2026-08-23 (D8.1a completion round VERIFIED IN FULL; verdicts 72-74 ACCEPTED; GO accepted and
-  D8.1b authorized in `PLAN_3E1.md` D8 Status). The decisive check is a fresh independent
-  implementation of the registered definitions streamed over all 281,241 frozen groups of
-  `D8WeightJob.juRpzTNHKCSq/output/supports.jsonl`: every gate statistic reproduces to the last
-  digit — median distinct 13, median shaped ESS at all five taus (2.982409 and 5.32854 inside
-  the band, the rest outside), tau_star 0.05 by the nearest-to-target rule, median per-group
-  spearman 0.34615384615384615 (shaped-LM) and 0.9835164835164836 (shaped-acoustic), median
-  token R-squared 0.06203486419535191 with 278,215 defined groups, and live members 3,170,658 =
-  3,170,676 scored minus the 18 exclusions (7 empty_after_fold + 11 infeasible), valve idle at
-  5.7e-06. The spearman convention is verified at source: per-group rho with average-rank ties
-  aggregated by median, `d8_feasibility.py:145-172`, so the tie-handling trap is closed. The
-  sensitivity block matches the ruling's watched list, finds no flip, and the acoustic spearman
-  being bit-identical under both conventions is self-consistent (ranks cannot move under the
-  probe's <=4.77e-07 recon deltas). Provenance: convention corrected_text_path, 281,241 members
-  text-path scored, reused 0 — the latest+3 law implemented with no reuse branch. Housekeeping
-  accepted: the ten `all_bed` error markers are the known duplicate-worker artifact
-  (spot-checked: `finished.tar.gz` present, marker renamed `.backup.stray-worker-after-cleanup`),
-  every downstream read succeeded. Reconciliation note in the ruling: the D8.0 forewarning
-  rho 0.9790 (fork-epoch, 512 groups, non-binding) versus 0.3462 here is a bed/policy
-  difference, not a contradiction; the registered rule reads D8.1a statistics alone. Verdict
-  74's closing sentence is endorsed as written: the convention correction was necessary even
-  though it proved immaterial, because immateriality was establishable only by measurement.
-- 2026-08-23 (D8.1b launch VERIFIED; conforms to the authorization; one convention pinned).
-  `D8ScorerRefitJob.2bQzhz6U1yHp` is on disk and running under the live `sae_3e1_d8_1b`
-  manager; the reused D7.1 exact control `D7OnlineTrainJob.j16rTskXF1QU` carries its finished
-  marker, so no control retrains, as authorized. Line review of speech-llm `aadf92b`: the
-  recipe is the control's code by IMPORT (constants, item construction, batching, model, store
-  loaders from `d7_online`), the one change is the target draw from the frozen `acoustic_only`
-  vector at tau_star 0.05, the funded view is a module constant that refuses shaped by
-  construction, and the refusal gate is real — the job raises unless the weight artifact reads
-  GO, funds exactly `candidate_acoustic`, and reports no sensitivity flips
-  (`d8_train.py:235-250`), plus a source-drift guard after graph construction. Suite re-run by
-  the verifier: `d8_draw_test.py` 11/11. The pre-launch feasibility numbers reproduce from the
-  frozen artifact under the verifier's own stream (median acoustic ESS 3.1945, median 13
-  positive members, greedy-member weight median 0.1795 / mean 0.2527, so ~75 % of visits draw a
-  non-greedy target — the arm is a real A/B); the "0.63 % one-hot groups" figure is exact under
-  the single-positive-member convention (0.631 %; thresholded readings give 0.643-2.567 %), now
-  pinned here since State did not name it — informational only, it feeds nothing. To read at
-  completion, per the authorization: the fixed-final persistence set (role hashes, sampler
-  seed/state contract, loss curves, internal-held reads), and `sampling.json`'s realized
-  greedy-draw fraction against the predicted ~0.25. D8.2's admission start remains a plan
-  decision after the refit finishes.
-- 2026-08-23 (D8.1b completion VERIFIED; verdicts 75-77 ACCEPTED; two hand-backs, neither
-  touching a number; D8.2 authorized in `PLAN_3E1.md` D8 Status). Verified from the banked
-  artifacts: `sampling.json`'s 67,628 greedy draws over 267,175 visits give exactly the quoted
-  0.25312, which meets the frozen artifact's mean greedy weight (verifier's own stream: 0.2527)
-  to 4.6e-04; 0 infeasible drawn members and 0 infeasible donor pairs; the 68,164
-  identical-encoding drawn targets exceed the greedy draws by 536, which is coherent (non-greedy
-  texts can encode identically); `internal_held_per_frame_nll` 2.513888 matches verdict 77 and
-  the control's 2.52588 matches D7.2's banked 2.525882; the persistence set is complete and
-  content-bound (`monitors.json`: fixed_final, role hashes for train and internal-held, code
-  identity over five modules, input sha256s including the frozen weight artifact,
-  preflight_sha256, ten per-shard loss records summing to 2,361 steps; per-shard greedy-draw
-  fractions converge to the banked total). Verdict 77's descriptive-only fencing of the held
-  read is exactly right and is preserved in the ruling. HAND-BACK (bookkeeping): the Approach
-  section now carries TWO entries numbered 36 — D6-PERIODIC/GAN-FROZEN (line ~1093, verdicts
-  68-69) and D8.1b (line ~1332, verdicts 75-77) — so the "A36" citations are ambiguous;
-  renumber D8.1b's entry to 37 and repoint verdicts 75-77. HAND-BACK (artifact self-description):
-  `sampling.json` carries `target = "own greedy pseudo-text, never a draw"` inside the artifact
-  whose purpose is drawn targets — presumably it describes the HELD-evaluation target
-  convention inherited from the D7 schema, but as banked it reads as a contradiction; state its
-  meaning in the approach entry and rename the field in the next schema revision. Neither
-  hand-back touches a banked number.
-- 2026-08-23 (D8.2 launch VERIFIED; the delta_NI pin is discharged by test, which is stronger
-  than the ruling asked). `D8AdmissionJob.C2HUHUtUjfhN` on disk under the live `sae_3e1_d8_2`
-  manager. Line review of speech-llm `2bdb188`: `speaker_clusters` and `cluster_bootstrap`
-  reproduce D7.2's construction, `delta_NI` is computed FIRST from the control values alone at
-  the D7 seed before any candidate arithmetic (`d8_admission.py:242-247`), a resample count
-  other than D7.2's raises as a new registration, `per_anchor.jsonl` persists the paired deltas
-  and cluster ids as registered, and the eligible anchor sets are asserted identical across
-  arms. `scripts/d8_admission_test.py` re-run by the verifier: 4/4, including the bit-identity
-  requirement against D7.2's inline bootstrap and the control-only dependence assert. Clauses
-  2-4 are D7.2's construction by code reuse with the candidate substituted; all four clauses
-  built, none gated on another's expected outcome; the control is reused at its existing hash.
-  The D8.2 verdict is the planner's read once `admission.json` and the clause table land.
-- 2026-08-23 (D8.2 result round VERIFIED IN FULL; verdicts 78-81 ACCEPTED; D8 CLOSED in
-  `PLAN_3E1.md` D8 Status). Clause 1 is verified at the strongest level available: the
-  verifier recomputed mean (-0.012475352516886666), delta_NI (0.004825604859880695), the
-  one-sided upper bound (-0.011799971482361846) and the negative share (0.6555255297966149)
-  BIT-EXACTLY from the persisted `per_anchor.jsonl` with a fresh implementation of the pinned
-  bootstrap — the per-anchor persistence registration is thereby proven functional, and the
-  bound sits below zero, so the data-defined margin never became load-bearing. Clause 2's five
-  ladder rows and clause 3's NO WINNER reproduce from `PsiGateClauseTableJob.xFSaHcqvUR2S`
-  (filler_ins -0.003326 [-0.006376, -0.000277]; best lower bound filler_sub -0.000056, still
-  below zero; insertion-discount improvements at every k as quoted; ce_loo 2.2342825843 vs
-  reference 2.2588296056 from `PsiHeldNllJob.BhUn7Sa3CW67`, clauses i/ii true — the candidate
-  fails ONLY ladder-not-below, under both the point and CI readings). The closure wording
-  verdict 81 quotes is the registered gate text verbatim (`PLAN_3E1.md:1986`). Verdict 81's
-  fencing and localization are endorsed as written. Both earlier hand-backs are ABSORBED:
-  D8.1b is renumbered approach 37 with verdicts repointed, and the admission artifact names
-  `held_target` explicitly, resolving the sampling.json `target` ambiguity at the successor
-  schema. Clause 4 remains to be read for the record when `PsiScorerParityJob.sRJ7LUmF4nMw`
-  finishes; it cannot move the closed verdict.
-- 2026-08-23 (D8.4 launch round; build ACCEPTED IN STRUCTURE, one REQUIRED correction; ruling
-  in `PLAN_3E1.md` D8 Status 2026-08-23 latest). Verified: the step-zero answer is right on
-  the class (parity re-scores one arm against its own `recon`; no second arm, no eta); the
-  module docstring carries the registered reporting rule verbatim with the pinned
-  `bootstrap_delta_eta` at `n_boot=10000`/`seed=42`; the candidate rerank
-  (`PsiAlignRerankJob.qVTVrRvyOjZ9`) is on disk and running against
-  `D8ScorerRefitJob.2bQzhz6U1yHp/output/model_final.pt`. REQUIRED correction, found on the
-  running job's own info file: the rerank pair consumes `ReturnnForwardJobV2.QbIYruVEI0fF`
-  (alias `forkep2_tc100full_g12_T0.7`), the fork-epoch-2 policy -- but the registration and
-  the module's own docstring pin the OPERATIVE theta_0^G-family policy, and the D8.0 re-scope
-  already moved its binding clause to `ReturnnForwardJobV2.J9yA1eYnxwYA`
-  (`gtrack_p10_tc100_n512_g12_parts`, n=512, G=12, T=0.7 slice, WER column banked) for
-  exactly this reason. The primary verdict moves to a second rerank pair on that dump; the
-  launched fork-policy pair completes as the same-bed-as-precedent context column (comparable
-  to the banked D7 rerank etas 0.258/0.250). The "fairness pins were already satisfied by the
-  D8.2 graph" State claim is corrected by this entry.
-- 2026-08-23 later (bed correction VERIFIED EXECUTED; hand-back ABSORBED). Both operative-bed
-  reranks confirmed on disk with single-variable wiring: `PsiAlignRerankJob.8oYpO4IBeqHb`
-  (candidate `D8ScorerRefitJob.2bQzhz6U1yHp` final) and `.sQGYUL22Kpg6` (control
-  `D7OnlineTrainJob.j16rTskXF1QU` final), both consuming
-  `ReturnnForwardJobV2.J9yA1eYnxwYA/output/rollouts.jsonl` at temperatures [0.7] and differing
-  in `model_pt` alone. The verdict re-keying to the operative pair, the wrong-bed refusal in
-  the reader, the per-dump unit-store join, and the State's plain self-correction are all as
-  ruled. Awaiting results: the two operative reranks, the fork-pair candidate rerank, then the
-  compares and `D8EtaReadJob.S3NTCZAOfSnZ`.
-- 2026-08-23 closing (D8.4 fail-closed round VERIFIED; ruling = bed re-pin, in `PLAN_3E1.md` D8
-  Status 2026-08-23 closing; ONE required correction). Every number in approach 38 and verdicts
-  82-83 reproduces on disk: the reader's refusal traceback (46 shared groups vs bed 512), both
-  compares' JSONs (primary +0.004347 [-0.10196, +0.12570] on 46 groups; fork context -0.003273
-  [-0.016366, +0.009597] on 28,531 groups, etas 0.24705/0.25033), identical infeasibility across
-  arms on BOTH beds (25,867/31,744 and 498 dropped in each operative arm; 38/399,546 and 8 in
-  each fork arm), the full-set rank-only columns (-0.16804/-0.15476 operative; +0.30862 fork
-  candidate), and clause-4 parity (512/512 round-tripped, max 2.384e-07, mean 4.657e-10, 0 pct
-  floored, tol 2e-3). The verifier independently reproduced the bed-feasibility mechanism from
-  the two stores directly: identical 34,106-key sets, mean frames/utt 146.8 vs 585.7,
-  per-utterance ratio in [3.79, 4.00] median 3.99, and all 512 dump utterances covered by BOTH
-  stores; also verified that both scorers train against the same frozen 50 Hz enc50 store
-  (`PackUnitsJob.I0uzRMfUrKWC`, from both training jobs' info files), which grounds the ruling.
-  The fail-closed guard, the no-fallback discipline, and the three proposals-without-choosing
-  are endorsed as exactly right. REQUIRED correction: the store statistics quoted in verdict 83
-  (146.8/585.7, ratio 3.99, chars per frame, the crude bound) have no registered producer --
-  no job, no checked-in script -- and the standing derived-statistics rule requires a
-  registered reader that prints its convention; register one and point the approach-38
-  feasibility paragraph at it. The ruling adopts proposal 1 (re-pin the primary pair's units
-  join to `MergeUnitsPklJob.ncxcd3vouD5E`, same dump, same draw; clause (a) scoped to
-  stored-column reads); proposals 2 and 3 declined. Verdict 83 itself stands as written.
-- 2026-08-23 (re-pin execution round VERIFIED; the D8.4 verdict LANDED and its numbers are
-  verified; one required TRUE-UP on the feasibility figures). Execution verified on disk: both
-  re-pinned reranks (`GNOktIsG251m`/`JSZvokFxjNkJ`) consume `J9yA1eYnxwYA` at temperatures
-  [0.7] joined to `ncxcd3vouD5E`, differing in `model_pt` alone (info files); the
-  `bed_feasibility` alias resolves to exactly the cited `D8BedFeasibilityJob.QTlLFcnka0Hy`;
-  `d8_bed_feasibility_test.py` re-run by the verifier, 10/10; the clause-(a) scoping is in
-  `d8_eta.py`'s docstring; the module's conventions block is exemplary. The feasibility
-  artifact then landed and the load-bearing facts all reproduce from it: identical
-  infeasibility across arms asserted (25,867/498 quarter-rate; 38/8 fork; 0/0 on the re-pinned
-  join), per-utterance ratio table on the 34,106 shared keys (median 0.2507, bounds
-  [0.25, 0.2642] -- reciprocals of the quoted 3.99 [3.79, 4.00]), full coverage, bound
-  over-predicts as stated. REQUIRED TRUE-UP (does not block the verdict; the mechanism and
-  verdict 83 are unaffected): the approach-38 paragraph says the figures are "restated from
-  that job", but three quoted figures are not what the job prints -- the 146.8/585.7 corpus
-  means are not in the job's output at all (it prints per-bed means 158.2/631.2/633.8 and the
-  ratio table; extend the job to print the shared-key-set corpus means it is cited for, a leaf
-  re-run with no dependents), the fork chars-per-frame p05 is 0.2222 in the job vs 0.24
-  quoted, and the operative crude-bound prediction is 98.76 pct on the job's stated
-  T=0.7-slice convention (6,068 of 6,144) vs 97.2 pct quoted from the ad-hoc all-rows read --
-  and observed 81.5 pct is over all 31,744 rerank rows, a different population the paragraph
-  should name. Quote the producer's own figures and name its reciprocal ratio convention.
-  VERDICT VERIFIED: `D8EtaReadJob.KwmHTXqiJMGr` finished with the guard passing at 512 of 512;
-  the verifier recomputed the eta identity from the reader's JSON (selection WER delta
-  +0.0018 / headroom 0.0600 = delta eta -0.0293, matching `delta_eta_from_wer_identity`);
-  `n_boot=10000`/`seed=42` as registered; the printed text carries the registered three-way
-  rule and the incumbent-tie resolution verbatim. INDISTINGUISHABLE, resolves to control;
-  planner reading and recommendation in `PLAN_3E1.md` D8 Status 2026-08-23 verdict; the
-  closure question is with the USER.
-- 2026-08-23 (verdict-banking and true-up round VERIFIED; hand-back ABSORBED). Verdict 84 is
-  faithful to the reader's artifact, including its licenses fence (indistinguishable, not
-  inferior; tie resolved by the incumbent rule, not by evidence). The true-up is discharged
-  beyond the requirement: producer v2 (`D8BedFeasibilityJob.9fCCv5HAPg4a`, finished on disk)
-  prints the shared-key-set corpus means -- verified 146.80 / 585.72 in its JSON -- and the
-  rewritten approach-38 paragraph now quotes the producer's own figures, names the three
-  populations, and states the ratio direction. The claim that the revision bump cannot reach
-  the verdict is structurally sound (the feasibility producer is a leaf with no dependents;
-  the reader consumes the compare, not the producer). Nothing further is required on D8.4;
-  the phase waits on the USER's closure word. [2026-08-23 later: the closure word arrived via
-  the D9 funding message; D8 is CLOSED in the plan, control retained, D8.3 unfunded.]
-- 2026-08-23 (D9 pre-spend provenance round VERIFIED; D9.0 scoping RULED in the plan). The
-  implementer's five-link chain (epoch.002.pt -> `ExtractAvSubmodelJob.FSYsyEJm5VHX` ->
-  two `ReturnnForwardJobV2` recogs -> two CTM conversions -> `ScliteJob.paK5JVk5SckU` /
-  `.KTVFso7HriMn`) is accepted; the planner independently re-read both endpoints --
-  the submodel job's `grpo_checkpoint` PARAMETER is the exact pinned file and both sclite
-  `output/wer` files print 12.68 / 17.57. The submodel-in-between observation is
-  load-bearing and the right standard: a check stopping at "epoch.002.pt exists" would not
-  have tied the checkpoint to the banked WERs. The arm-identity confirmation (training
-  INPUT list carries `DnBJxqz4sNQZ`; alias names psid2_contrast) closes the real
-  adjacent-row confusion risk in approach 9's table. The flagged D9.0 scoping conflict was
-  a genuine registration defect of the planner's (a three-arm census cannot precede D9.1);
-  ruled as the implementer proposed, formalized in the D9 Experiments clause by
-  replacement: gate on incumbent census + structural d_min>=2 census, read-set rule
-  applied at D9.2, structural-census violations a STOP. D9.0 build may proceed.
-- 2026-08-23 (D9.0 gate round VERIFIED; PASS accepted; D9.1 spend AUTHORIZED in the plan).
-  `D9FeasibilityJob.oabVIcp22cy1`'s report matches the State entry cell for cell; census
-  (a)'s source is the rerank job's own report (`PsiAlignRerankJob.cysJQBiP9iW1`: 0 of 512
-  groups dropped at T=0.7, and 0 of 512 groups inside psi_align's own training set -- a
-  leakage guard worth having in print); 7,168 = 512 x (12 rollouts + greedy + reference)
-  checks out; the structural census uses the DP's own exact `_min_frames` bound at the
-  refit topology, which is what lets the D9.2 STOP clause rest on it. Test suite re-run by
-  the verifier: 28/28. Three implementer constants ratified in the plan Status (numeric
-  PASS bar -- immaterial by measurement at share 1.0000; stock donor from the checkpoint's
-  own inputs; tc100 read bed as D8.4's read frame). The two run-caught call bugs
-  (segmentation kwargs not handed to the rerank; unconditional temperature filter dying on
-  T=None reference rows) were fixed with regression tests before the gate artifact was
-  produced -- no logged number rests on the buggy calls, so no correction entry is needed.
-- 2026-08-23 (D9.1 launch round VERIFIED; both flagged decisions RATIFIED in the plan --
-  pool-from-dump and recipe-matched arm 2; rationale in `PLAN_3E1.md` D9 Status). Verifier
-  checks beyond the State entry: the ten dump shards exist on disk and are submitted/running;
-  the five downstream job dirs (merge, pool, weights, two trainings) correctly do NOT exist
-  yet -- sisyphus materializes them as inputs finish, so "launched" here means the
-  compute-bearing shards, and a later reader should not expect eighteen dirs today.
-  `d9_refit_test` re-run by the verifier: 44/44. The claimed pre-existing
-  `d8_1a_weights_test` failure is CONFIRMED pre-existing: `pool_greedy` entered
-  `build_support` at speech-llm 54929cf (the 2026-08-22 pool-greedy ruling), the untracked
-  fixture was never updated, and a42fa37's `d8_weights.py` hunks are all inside
-  `D8WeightJob` (two added methods, one optional argument -- no constructor changes), which
-  also confirms the hash-safety claim structurally. Wall-clock projection method endorsed:
-  anchored to two measured step rates of this policy and D8.1a, not assumed.
-- 2026-08-24 (arm-3 NO-GO round VERIFIED; fallback RULED in `PLAN_3E1.md` D9 Status: option
-  (i) adopted -- D9.2 becomes the two-arm read; threshold edit rejected as post-hoc; a
-  diversity re-dump not funded). Verification performed: `D9WeightJob.uyKXr4ZiGj9R`'s report
-  and JSON support every State claim -- the distinct-support histogram sums to exactly
-  281,241 (92,995 at one, 61,989 at two -- the quoted 33.1/22.0/55.1 pct), mean 3.12, max 13;
-  the scorer-free and rollouts-only medians are both 2.0, confirming the clause is not an
-  artifact of the scorer or the greedy member's inclusion; every grid tau lands at median ESS
-  ~= 2.0 (the thin-support signature itself), token R2 0.4403, valve idle at 0.0000 pct; the
-  tau pin and the vacuous-sensitivity tautology are printed as ruled at launch.
-  `D8ScorerRefitJob.XvPF118rphQP`'s error is the registered guard's own message ("requires a
-  GO weight artifact; this one reads 'NO-GO'") -- failing closed as designed, left untouched,
-  which is the correct handling (planner owns fallback). Arm 2 confirmed running from its own
-  log. The implementer should bank the mode-collapse finding as a verdict resting on the
-  weight-job table (descriptive, adopting nothing) and may build D9.2's reader against the
-  amended two-arm registration once arm 2 finishes.
-- 2026-08-24 (D9.2 result round VERIFIED; verdict 86 accepted; the model-pin build decision
-  RATIFIED; recommendation to the USER recorded in `PLAN_3E1.md` D9 Status). Verification
-  performed: `D9EtaReadJob.A7QvXl7VR7wl/output/eta_read.txt` matches approach 39's table line
-  for line (delta eta, per-arm eta, the WER identity, spearman, the arm-internal nulls, the
-  7,168/0/0 row censuses); the eta/WER identity recomputes consistently from the printed
-  headroom (incumbent 0.1508 - 0.2303 x 0.0116 = 0.1481, refit 0.1485); the interval width
-  0.247 against D8.4's banked 0.078 checks against D8.4's banked interval; the reader prints
-  its convention, its STOP preflight, and the tie rule before the verdict, per the standing
-  pre-registration discipline. The pinned model path verified on disk: the refit rerank's
-  `model_pt` is the concrete `D9OnlineTrainJob.nJQy199AQZQu/output/model_final.pt` work-dir
-  path and `alias/sae/3e1/d9_1/refit_1best` resolves to that same job dir, so the
-  graph-build-time staleness assertion is anchored to the right object (and no `output/`
-  alias symlink is load-bearing). Verdicts 85 and 86 are correctly scoped: 85 is descriptive
-  with its reach explicitly delegated to the plan, 86 carries the power caveat inside the
-  verdict rather than in a footnote. Verifier re-run: `d9_2_eta_read_test` 23/23. Nothing
-  further on D9.2; the phase waits on the USER's word.
+sub-epochs, against the ladder's "~9-18 GPU-h" estimate. `sae_3e1_d8_4` REPLACES `sae_3e1_d8_2` (its
+graph is a strict superset); two managers over the shared reranks would double-submit them.
