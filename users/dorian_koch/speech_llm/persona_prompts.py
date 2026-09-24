@@ -226,7 +226,9 @@ class PodcastWindowContext(Job):
                         ch = self.assistant_channel
                     other = "b" if ch == "a" else "a"
                     turns = json.loads(r["turns_json"])
-                    wins = select_windows(turns, float(r["duration_sec"]), **self.window_select)
+                    wins = select_windows(
+                        turns, float(r["duration_sec"]), **self.window_select, seed_key=str(r["item_id"])
+                    )
                     if not wins:
                         continue
                     fr, n_fr = float(r["frame_rate"]), int(r["n_frames"])

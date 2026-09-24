@@ -1572,7 +1572,13 @@ class PodcastDialogueSlice(Job):
 
     # `drop_channel_collisions` is excluded only at its False default (the corpora built before it
     # existed keep their hash); set, it is HASHED -- it removes rows, i.e. changes the corpus.
-    __sis_hash_exclude__ = {"rqmt": None, "rows_per_part": 2000, "drop_channel_collisions": False}
+    # `min_intruder_sec` likewise, at its 0.0 default (= DuplexChat's slicing exactly).
+    __sis_hash_exclude__ = {
+        "rqmt": None,
+        "rows_per_part": 2000,
+        "drop_channel_collisions": False,
+        "min_intruder_sec": 0.0,
+    }
 
     def __init__(
         self,
@@ -1586,6 +1592,7 @@ class PodcastDialogueSlice(Job):
         max_duration_seconds: float = 600.0,
         min_dialogues_per_episode: int = 4,
         drop_channel_collisions: bool = False,
+        min_intruder_sec: float = 0.0,
         rows_per_part: int = 2000,
         code_version: int = 1,
         rqmt: dict | None = None,
@@ -1603,10 +1610,14 @@ class PodcastDialogueSlice(Job):
         # podcast_slice_main.channel_collision. Applied AFTER DuplexChat's filters and episode gate,
         # which stay exactly theirs; every dropped row is recorded in rejected.jsonl.
         self.drop_channel_collisions = bool(drop_channel_collisions)
+        # > 0: drop a third speaker's interjection shorter than this before DuplexChat's extractor
+        # (podcast_slice_main.drop_short_intruders; user 2026-09-24, the default for corpus builds from
+        # then on). Their extractor is unchanged; it no longer sees those segments. Hashed when set.
+        self.min_intruder_sec = float(min_intruder_sec)
         self.rows_per_part = int(rows_per_part)
         self.code_version = int(code_version)
         self.out_dir = self.output_path("codes", directory=True)
-        # No GPU: this only reads arrow and calls a pure-Python filter. Memory is one episode's
+        # CPU job, no GPU: this only reads arrow and calls a pure-Python filter. Memory is one episode's
         # codes at a time (~4 MB for 2.7 h) plus the rows accumulating toward one part.
         self.rqmt = rqmt or {"cpu": 4, "mem": 16, "time": 4}
 
@@ -1665,7 +1676,12 @@ class PodcastDialogueSlice(Job):
                 "--rows_per_part",
                 self.rows_per_part,
             ]
-            + (["--drop_channel_collisions"] if getattr(self, "drop_channel_collisions", False) else []),
+            + (["--drop_channel_collisions"] if getattr(self, "drop_channel_collisions", False) else [])
+            + (
+                ["--min_intruder_sec", self.min_intruder_sec]
+                if float(getattr(self, "min_intruder_sec", 0.0)) > 0
+                else []
+            ),
             log_label="Podcast dialogue slice",
             extra_env={"PYTHONPATH": _moshi_pythonpath()},
         )
@@ -1827,7 +1843,7 @@ def host_channel(ep, host_centroid):
     return "a" if sims[0] >= sims[1] else "b"
 
 
-WINDOW_SELECT_KEYS = ("min_sec", "max_sec", "min_turns", "max_stretch_sec", "turn_min_sec")
+WINDOW_SELECT_KEYS = ("min_sec", "max_sec", "min_turns", "max_stretch_sec", "turn_min_sec", "start_jitter_sec")
 
 
 def select_windows(
@@ -1839,6 +1855,8 @@ def select_windows(
     min_turns: int,
     max_stretch_sec: float,
     turn_min_sec: float = 1.0,
+    start_jitter_sec: float = 0.0,
+    seed_key: str = "",
 ) -> list[tuple[float, float]]:
     """Cut one dialogue row into non-overlapping training windows. Pure function of the turns.
 
@@ -1853,6 +1871,17 @@ def select_windows(
     it, continue from its end; if there is none, move to the next cut point. Cut points are run
     starts plus the row's start and end, so a window never starts mid-turn. Deterministic.
     `analysis/window_select.py` (PRECUT) measures exactly this on the corpus.
+
+    ``start_jitter_sec`` > 0 (user 2026-09-24; default for corpus builds from then on): after tiling,
+    move each window's start EARLIER by u ~ U(0, room), room = min(start_jitter_sec, the silence
+    before the cut point, the start itself, max_sec - length). "Silence" = time since the latest
+    END of any diarized turn that starts before the cut point (0 when another speaker is still
+    talking), so the new start never lands inside a turn and only real pre-turn silence is added.
+    Without it t = 0 of every window is exactly someone's turn onset, which trains an unpredictable
+    "start talking at once" prior. u is drawn from sha256(f"{seed_key}:{window index}"), so the
+    function stays pure: every caller must pass the same ``seed_key`` (the dialogue row's item_id).
+    The jittered start may overlap the previous window's tail by <= u seconds of that silence.
+    Validity is unchanged: the added span holds no speech, so turn counts and stretches are the same.
     """
     import numpy as np
 
@@ -1893,6 +1922,21 @@ def select_windows(
             i = int(np.searchsorted(cuts, b))
         else:
             i += 1
+    if start_jitter_sec > 0 and out:
+        import hashlib
+
+        t_start = np.array([t[1] for t in ts])
+        t_end = np.array([t[2] for t in ts])
+        jittered = []
+        for wi, (a, b) in enumerate(out):
+            before = t_end[t_start < a]
+            silence = a - float(before.max()) if before.size else a
+            room = min(float(start_jitter_sec), max(0.0, silence), a, max_sec - (b - a))
+            if room > 0:
+                h = hashlib.sha256(f"{seed_key}:{wi}".encode()).digest()
+                a = a - room * (int.from_bytes(h[:8], "big") / 2.0**64)
+            jittered.append((a, b))
+        out = jittered
     return out
 
 
@@ -2117,7 +2161,9 @@ class PodcastCodesTrainData(Job):
                             yield row
 
         def _windowed(r, ch, other, words):
-            wins = select_windows(_json.loads(r["turns_json"]), float(r["duration_sec"]), **ws)
+            wins = select_windows(
+                _json.loads(r["turns_json"]), float(r["duration_sec"]), **ws, seed_key=str(r["item_id"])
+            )
             if not wins:
                 n["nowindow"] += 1
                 return
