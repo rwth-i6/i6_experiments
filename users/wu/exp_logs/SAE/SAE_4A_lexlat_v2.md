@@ -165,6 +165,12 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - (R3) Emissions: per phone, the JS divergence between phi's mean unit distribution and the gold phi's (marginalised over position, duration and eta on the set), both directly and after the Hungarian match.
     - (R4) Frame-level unit-to-phone accuracy against the MFA dev-other alignment, if one exists, with the majority-unit oracle as the ceiling. If no alignment exists, this is reported as not built.
   - Reporting rules sit in the job docstring. The battery explains the lift and non-lift reads (L2-0, A14 (i)) and says what EM is missing. It never selects or gates.
+  - **A15-E, emission-matched map** (added 2026-09-24, before any battery result).
+    - Why: the build test found that R1's decode-based Hungarian map recovers only 16 of permphi's 40 true labels. permphi's Hungarian PER reads 0.819, inside the chance band, although its emissions are gold's under a fixed permutation. Matched R4 through that map reads 0.18, against 0.59 through the true permutation. So a decode-based map can miss a phi that is phonetic up to relabelling.
+    - The emission map: a one-to-one Hungarian assignment of the phi's 40 symbols to gold-phi phones, on the per-phone JS cost between R3's mean unit distributions. Also reported, per symbol, the many-to-one nearest gold phone with its JS, and how many gold phones are claimed by no symbol.
+    - Through the emission map: T3 (primary, relabel), R3 matched and R4 matched.
+    - Positive control: the emission map recovers permphi's true permutation (count of correct labels). The gold phi maps to the identity.
+    - Descriptive, no gate, never selects. Rules go in the job docstring.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
