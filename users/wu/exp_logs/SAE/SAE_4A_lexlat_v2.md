@@ -16,7 +16,7 @@ Reads 2026-09-24 (Results):
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only (2026-09-23). The last training round runs here (2026-09-24): only work in progress, meaning A14, A17 and A16 (b) as registered (Constraints).
 
 NEXT:
-1. A17 (i)/(ii) are live (see above). A17 (iii) (G-dur, r30-dur, r70-dur) is being added to the keyinit config, one four-GPU pack with the gold-key control; review, then launch. A16 (b) stage 0 read J SEES THE KEY, clearing the margin by 0.009 (Results; `reports/audit_a16b_stage0_2026-09-24.md` pending). The stage-1 search launches after the audit. The stage-1 key search, with cluster-then-decipher starts, is being built in parallel; it runs on J SEES THE KEY. Stage-2 key arms follow under their gates (A17 (i) BASIN INSUFFICIENT withdraws them; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds them). Literature: `reports/lit_segmentation_gap_2026-09-24.md`.
+1. A17 (i)/(ii) are live (see above). A17 (iii) (G-dur, r30-dur, r70-dur) is being added to the keyinit config, one four-GPU pack with the gold-key control; review, then launch. A16 (b) stage 0 read J SEES THE KEY, audited but fragile (margin 0.009; Results). Stage 1 (with swap moves and relabel starts) is being built; review, then launch. The stage-1 key search, with cluster-then-decipher starts, is being built in parallel; it runs on J SEES THE KEY. Stage-2 key arms follow under their gates (A17 (i) BASIN INSUFFICIENT withdraws them; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds them). Literature: `reports/lit_segmentation_gap_2026-09-24.md`.
 2. At each watcher wake, the executor checks. Every read is audited, then written up for the handoff.
 
 ## Objective
@@ -608,13 +608,20 @@ Source: `A14ObjectiveFloorReadJob.PiYQ1OCFD4ot` (`output/report.txt`, `a14_floor
     - that S rewards accuracy inside the basin. Gold-init PER rose from 0.19 to 0.35 while S fell, and r30 ends 0.006 below gold.
   - So a perfect search would stop at about PER 0.35-0.5 before the joint run.
 
-### A16 (b) stage 0 read (2026-09-24): J SEES THE KEY (audit pending)
+### A16 (b) stage 0 read (2026-09-24): J SEES THE KEY (audited CONFIRMED_WITH_CORRECTIONS)
 
 Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 held-out utterances, train side 28254 utterances. Launch: `reports/exec_a16b_stage0_2026-09-24.md`.
 - Ladder, held-out J (seed means): gold -4.818, K30 -5.610, K70 -6.334, K100 -6.560; monotone.
 - Best A10/A11 comparison key: a10_durfrz_s01, -4.971, a gap of 0.153 against a margin of 0.144 (the random-key range). The best random key's gap is 1.64. No verdict key is VOID. The decisive comparison clears the margin by 0.009.
 - The A10/A11 argmax keys span -4.97 to -5.18, above K30 (70 % of units correct) and below gold. The r30 argmax key reads -4.822 and r70 -5.548 (report only). Fitted pi(SIL) is 0.061-0.074 for the A10 phis.
-- Open, for the audit and for key-agreement reporting: whether J is monotone in key accuracy across key families or only along the random-reassignment ladder. The A10 keys decode at chance yet outscore K30.
+- Audit (`reports/audit_a16b_stage0_2026-09-24.md`): the verdict is what the registered rule gives. J is computed the same way for every key. The gold key uses only the 2821 fit utterances. The held-out 260 are disjoint from them, and no labels reach any non-gold key.
+  - Fragile:
+    - Gold beats the best EM key only on the trigram term (+0.239); the emission term (-0.080) and the duration term (-0.005) favour the EM key.
+    - On the train side, which is report-only, the margin clause fails: 0.1416 against 0.1466.
+    - A fresh draw of 20 random keys would reverse it about 40 % of the time.
+    - J does not separate gold from r30, whose keys differ in 91 units (-0.004 held out).
+  - Correction: the A10 keys are not chance-level. They are clusters with wrong names, direct agreement 0.06-0.11 against 0.03 for random keys.
+  - What the verdict licenses: the stage-1 search is funded, as registered. It does not license that J's maximum is at or near gold. Whether a non-gold key beats J(gold) cannot be determined from stage 0; stage 1 and the relabel starts answer it.
 - Key agreement with the gold key (`KeyAgreementReportJob.HZxcl9qgT1im`, report only, label-using):
 
   | key | held-out J | identity agreement, frame | many-to-one, frame |
