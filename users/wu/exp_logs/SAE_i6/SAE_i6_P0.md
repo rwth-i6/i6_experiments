@@ -14,10 +14,9 @@ Watcher (re-arm first on resume; from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1583423 config/sae_i6_p0_screen.py 60`.
 G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 fixed in `ctrl_20_rc` only (Runs).
 Blocking ctrl_20 (19:15): g2p training (the posterior-hmm copy of the same hash took 4.8 h, so expect about 22:00),
-then the phone-prior chain (g2p apply running at 22:06); and the VAD job `RLrgIh6lFv9m` (Slurm 4337501, started 18:59, cn-604, 8 h limit = 02:59; projected
-to end 23:10-01:20, `reports/exec_vad_runtime_2026-09-24.md`). A third waiter wakes when its output/ fills or at
-01:00. If output/ is still empty at 01:00 and the job still uses CPU, let it run; on a timeout, restart with `-cio`
-(time doubles). A second background
+then the phone-prior chain (g2p apply running at 22:06); and the VAD job `RLrgIh6lFv9m` (Slurm 4337501,
+8 h limit = 02:59). It entered its HDF-writing phase at 22:08 and its counts pass G0.R0 (Results); it should end
+well before the limit. A second background
 waiter watches for `work/i6_core/returnn/training/ReturnnTrainingJob.GiT88bxzoZbZ/output/models/epoch.001*`
 or an `error.*` there; re-arm it too on resume.
 NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
@@ -159,6 +158,15 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
 
 ## Results
+
+### G0.R0 input graph (read as the jobs finish)
+
+- Pin clause: FAIL, and the audio label was accepted (Deviations).
+- VAD clause (amended): PASS. Source: `BlankfreeVadHdfJob.RLrgIh6lFv9m` `output/counts_vs_expected.json`
+  (2026-09-24 22:08). Utterances and original frames equal the banked counts exactly on dev-clean, dev-other
+  and train (2703/968057, 2864/919980, 28539/18088388). Kept frames 831360 / 781125 / 15427887 against
+  831372 / 781130 / 15427853, a relative difference of at most 1.4e-5 (tolerance 0.5 %).
+- HLG size, prior ppl and rho: not yet read.
 
 ### G0.V priority-1 tests (2026-09-24; CPU on the desktop, sae env; GPU parity T1.8 not yet run)
 
