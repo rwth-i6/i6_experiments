@@ -3,27 +3,26 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, 1.06 h.
-- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), one four-GPU pack, 11.5 h; A14 (ii), one gpupack node, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
-- 3023733 `config/sae_4a_lexlat_v2_relabel_s.py`: A16 (a), 8 forwards in one gpupack job 1990055 (`reports/exec_a16a_launch_2026-09-24.md`). A16 (a2) (`config/sae_4a_lexlat_v2_priorscale_s.py`, 2186ad57, review `reports/review_a16a2_launch_2026-09-24.md`) shares (a)'s jobs: start it only after 3023733 exits.
-
-Complete: A11, A15, A15-E, em_ext, ladder, decphi, D18. Sub-4-GPU tasks pack 4 per node (`gpupack_engine.py`).
+- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
+- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
+- 3023733 `config/sae_4a_lexlat_v2_relabel_s.py`: A16 (a), gpupack job 1990055 (`reports/exec_a16a_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
-- A10: EM phis beat gold on S, but decode at chance.
+- A10: the EM phis beat gold on S, but decode at chance.
 - D18: training phi lowers the objective by co-adaptation.
-- A11: G4a.L2.2 CANNOT_TELL, because no null finisher is rate-eligible. The selected S is 3.536, and the decodes sit at chance.
-- A15/A15-E (audited, corrected): the EM phis are mislabelled (1-6 of 40 symbols agree with the emission map) and merged. They carry real structure (R4 emis 0.29-0.31, above a random-partition bound of 0.12), but even relabelled they sit below r70 (0.34) at about the manner-class level (7-class oracle 0.287), and fit gold worse than r100. So L2-1 fails on labelling AND is short on content.
+- A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
+- A15/A15-E (audited, corrected): the EM phis are mislabelled and merged. Relabelled, they carry real structure, but at about manner-class level (R4 emis 0.29-0.31 against a 7-class oracle of 0.287 and r70's 0.34), and they fit gold worse than r100. So L2-1 fails on labelling AND on content.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
+Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
-BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (review PASS; launch after 3023733 exits, expecting exactly 39 unfinished jobs). A15-F 8972c436 built (CPU, < 1 h, no review needed); reading-rule amendment being coded (`reports/impl_a15f_content_2026-09-24.md`), then launch.
+Ready:
+- A16 (a2), 2186ad57, review PASS (`reports/review_a16a2_launch_2026-09-24.md`). It shares (a)'s jobs, so launch only after 3023733 exits; exactly 39 jobs should then be unfinished.
+- A15-F, 8972c436 (CPU, under 1 h, no review needed). Its rule amendment is being coded (`reports/impl_a15f_content_2026-09-24.md`), then launch.
 
 NEXT:
-1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
-2. At the wave and A14 wakes, the executor checks, including the CUDA_VISIBLE_DEVICES isolation and where the 53 CPU report jobs route. The A14 (i) and (ii) reads get audited before any direction change.
-3. A11: whether the tables carry A10's profile is A15-F (vi).
+1. Read A16 (a), (a2) and A15-F against their registered rules. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
+2. At the wave and A14 wakes, the executor checks, including where the 53 CPU report jobs route. The A14 reads are audited before any direction change.
 
 ## Objective
 
