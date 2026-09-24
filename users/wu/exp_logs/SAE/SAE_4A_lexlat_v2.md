@@ -256,8 +256,16 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
           - Each clustering is deciphered into symbols by class-level moves on train-side J, from 8 random class keys.
           - The best 16 keys by train J enter the unit-level search.
           - Each selected key's family is reported.
+        - Added before any stage-1 result (2026-09-24, `reports/impl_a16b_stage1_2026-09-24.md`):
+          - The search adds symbol-swap moves and 7 relabel starts (the A10/A11 partitions with deciphered maps; stage-0 agreement read).
+          - Every informed start (argmax, relabel, cluster) runs under two schedules. The full schedule starts at T0, the data-calibrated median |best move|; the warm one starts at T0/100. Random starts run only the full schedule.
+          - The reason: the full T0 scrambled an argmax start in timing (J -5.005 -> -5.78).
+          - Selection pools both schedules.
       - Selection: the top 4 by held-out J, label-free.
       - Null: the same search on the destroyed corpus. The real and null J rises are both reported.
+        - Amended before any stage-1 result: the stage-1 null corpus permutes the run-collapsed unit segments within each utterance, each segment keeping its length.
+        - The reason: the frame-level permutation leaves only 1-frame runs. Its keys sit at 2.3-2.5 Hz, and repair reached only 2.52 Hz against the 5.80 floor, so in-band null keys barely exist. The run-level null destroys only the order the trigram exploits, and keeps the hard band.
+        - The frame-level corpus stays as stage 0's report-only statistic.
       - Reported, never gating or selecting: each selected key's unit agreement with the gold key.
     - **Stage 2, S-EM from a key (A10 recipe verbatim except the init; durinit for every arm).** phi's emission rows start from the key's smoothed unit counts.
       - Control, launched as soon as it is built (disclosed analysis only): the gold key as the init. It calibrates the conversion from key to phi, and it also asks whether the A14 (ii) gap survives without supervised durations.
