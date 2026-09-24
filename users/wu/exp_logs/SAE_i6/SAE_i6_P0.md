@@ -2,24 +2,22 @@
 
 ## State
 
-LIVE (2026-09-24): manager pid 1554133 on `config/sae_i6_p0_screen.py` (input graph + ctrl_20
-`ReturnnTrainingJob.GiT88bxzoZbZ`; log `log/sae_i6_p0_screen.manager.log`), launched after the launch
-review (`reports/review_p0_launch_2026-09-24.md`: screen PASS_WITH_NOTES) and the settings/env review
-(`reports/review_p0_settings_time_2026-09-24.md`: PASS_WITH_NOTES); code at recipe/i6_experiments
-`2ae4445f0`. FROZEN until the P0 trainings end: the package's `model/`, `training/`, `analysis/`
-(RETURNN imports them live, unhashed). Watcher (re-arm first on resume; from the setup dir):
-`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1554133 config/sae_i6_p0_screen.py 60`.
-G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 to be FIXED (user decision
-2026-09-24, see Runs: `ctrl_20_rc`).
-In flight: implementer building the fix in a detached worktree `/work/asr4/hwu/tmp_dev/silfix`
-(never the live tree), delivering `/work/asr4/hwu/tmp_dev/silfix.patch` + `silfix_config.diff` and
-`reports/impl_silfix_2026-09-24.md`. If the report is absent on resume, re-dispatch.
-NEXT: (a) fix report -> code-reviewer (hash check, default path bit-identical, all consumers,
-D_sil interaction) -> apply the patch to the live tree only if the default path is bit-identical ->
-commit. (b) once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch
-(<= 1800 s) and peak GPU memory (<= 40 GiB), the step-1 triple, and the ep1 PER against G0.R1 ->
-pass: stop the screen manager, then start `config/sae_i6_p0.py` with `ctrl_20_rc` (never both at
-once); fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
+LIVE (2026-09-24 18:32): manager pid 1583423 on `config/sae_i6_p0_screen.py` (input graph + ctrl_20
+`ReturnnTrainingJob.GiT88bxzoZbZ`; log `log/sae_i6_p0_screen.manager.log`). Restarted with `-co` after
+the w2v2 forward fix (Deviations: RETURNN in `recipe/`); the two failed forwards reran. Reviews:
+launch `reports/review_p0_launch_2026-09-24.md`, settings `reports/review_p0_settings_time_2026-09-24.md`,
+GPU routing `reports/review_gpu_route_2026-09-24.md` (all PASS_WITH_NOTES). Code at recipe/i6_experiments
+`51f4def2d` (T1.6 fix as the hashed option `sil_run_collapse`, default path bit-identical,
+`reports/review_silfix_2026-09-24.md`). FROZEN until the P0 trainings end: the package's `model/`,
+`training/`, `analysis/` (RETURNN imports them live, unhashed).
+Watcher (re-arm first on resume; from the setup dir):
+`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1583423 config/sae_i6_p0_screen.py 60`.
+G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 fixed in `ctrl_20_rc` only (Runs).
+NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
+peak GPU memory (<= 40 GiB), the step-1 triple and the ep1 PER against G0.R1. Pass: stop the screen
+manager, then start `config/sae_i6_p0.py` (164 jobs incl. `ctrl_20_rc` `llSFybyKXkbL`; never both
+managers at once). Fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
+Six trainings against the gpu_48gb cap of 5 (all request > 24 GB).
 
 ## Objective
 
@@ -140,6 +138,18 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   pins: i6_core 4537aaf (pin ca161b7 is an ancestor; three later commits: JAX checkpoint support in
   ReturnnTrainingJob, a new ExtractOovWordsFromTextJob, an optional prettify), sisyphus a567fa7 (pin ddcd028 plus later fixes); RETURNN for jobs
   is cloned at the pinned commit with the shipped patch.
+- RETURNN in the setup's `recipe/` (2026-09-24): `recipe/returnn` is a symlink to the pinned clone
+  (`CloneGitRepositoryJob.KQ3NuCaDE6QH`, 00171dfe + patch). It used to be an upstream master
+  clone (5f752be49), which the job config's sys.path sends DataLoader workers to. Two w2v2 forwards died
+  because the worker could not unpickle the parent's config (`reports/debug_w2v2_forward_2026-09-24.md`).
+  The reference used one checkout for both. No id moved and no finished output is affected
+  (`reports/review_returnn_pin_2026-09-24.md`: PASS_WITH_NOTES).
+- GPU partition (user rule 2026-09-24; `settings.py` `gpu_route_partition`, CLI `./gpu_route`): a GPU
+  task needing <= 24 GB goes to whichever of gpu_24gb (A10) and gpu_48gb (L40S) has more GPUs usable
+  for it now (a free GPU counts only on a node with enough free CPUs and memory; capped by QoS
+  headroom). Larger tasks, i.e. every training, go to gpu_48gb, and a training keeps its GPU type
+  across resubmits. Forwards may therefore run on A10 or L40S. Hash-neutral. Open note: a
+  flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
 
 ## Results
 
