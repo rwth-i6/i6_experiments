@@ -3,7 +3,7 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- em (`config/sae_4a_lexlat_v2_em.py`): wave graph complete. Manager 4111121 exited once nothing was left to run. A18 (a) bridge flag committed (b9f676f5); its launch review is pending (`reports/review_a18a_bridge_launch_2026-09-24.md`), then the executor restarts the manager.
+- 2739483 `config/sae_4a_lexlat_v2_em.py`: wave complete; A18 (a) bridge pack 63nbj6Jgiegj (SLURM 1998206) and the cold_ctl forwards (1998211), started 19:20 (`reports/exec_a18a_bridge_launch_2026-09-24.md`).
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack e9xZa5ElF16P pending (SLURM 1989249); A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
 - 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
@@ -16,7 +16,7 @@ Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A1
 
 NEXT:
 1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
-2. A18 (`reports/review_a18_bridge_2026-09-24.md`): (a) on a PASS launch review, the executor restarts the em manager and a watcher is armed. Flip A18B_PAIRED_ROWS once A17 (i) finishes; flip the second bridge flag only after the first bridge's shared cold_ctl jobs finish.
+2. A18: read (a) by G4a.L2.4 when its pack finishes. Flip A18B_PAIRED_ROWS once A17 (i) finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
 3. A19 read when its pack finishes (verdicts in A19).
 4. At each watcher wake the executor checks; every read is audited, then recorded.
 
