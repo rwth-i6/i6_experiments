@@ -4,13 +4,13 @@
 
 Watcher command `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; **re-arm all watchers first after any resume.**
 
-LIVE manager: D18 pid 2271415 `config/sae_4a_lexlat_d18.py` (launched 2026-09-24, review `reports/review_d18_launch_2026-09-24.md`, launch `reports/exec_d18_launch_2026-09-24.md`; three gpupack packs). The D14, D15 and D17 graphs are complete. Logs `log/<config name>.manager.log`.
+LIVE managers: none. The D14, D15, D17 and D18 graphs are complete. Logs `log/<config name>.manager.log`.
 
 Standing rulings: 2026-09-21 this phase is the main line, no bar moves to make a gate pass; 2026-09-23 every main-line method is pure unsupervised and GAN-free, GAN-lineage and supervised inits are analysis only. G4a.9 = CANNOT_TELL as written. Audited, no open item: E60 (PLATEAU), D10e (untrained phi drove the collapse; a gold phi anchors), D12 = ROOM, D13 (gold-init lower on every term, logged read).
 
-READ 2026-09-24: D14 (k2 term HELPS and is LEXICON-SPECIFIC; the decoded-label phi is within 0.003 of gold; gold phi FROZEN BETTER at ep8); D15 warm TRIGRAM NEEDED, cold NOT NEEDED and not LEXICON-SPECIFIC; D17 sup arms HELPS AT THE EDGE, k2lat arms NO EFFECT, every arm still collapses. D16 and D16r read TWO BASINS (audited). Cold-line escape work lives in `SAE_4A_lexlat_v2.md`.
+READ 2026-09-24: D14 (k2 term HELPS and is LEXICON-SPECIFIC; the decoded-label phi is within 0.003 of gold; gold phi FROZEN BETTER at ep8); D15 warm TRIGRAM NEEDED, cold NOT NEEDED and not LEXICON-SPECIFIC; D17 sup arms HELPS AT THE EDGE, k2lat arms NO EFFECT, every arm still collapses. D16 and D16r read TWO BASINS (audited). D18 (descriptive): every arm is still descending. On one common objective, the frozen-phi arms are worse by 0.11-0.12 despite better PER, so training phi lowers the objective by co-adaptation. At beta 0, the objective prefers the worse-PER rp arm. Cold-line escape work lives in `SAE_4A_lexlat_v2.md`.
 
-NEXT: at the D18 wake, dispatch the executor with the job dir; then enter the B1-B4 reads beside the D14, D15 and D17 PER reads, explaining the PER differences and ties. They never decide. In parallel, `SAE_4A_lexlat_v2.md` NEXT.
+NEXT: none in this phase. The objective-vs-phi finding feeds `SAE_4A_lexlat_v2.md` A14 (ii) and A15; see that file's NEXT.
 
 Open user forks: 1. k2 form on the cold line (random-pronunciation null; rung 10000): D15 (c) and lexlat_v2 bear on it. 2. D12 = ROOM: the word-aggregate arm waits on the user's go. 3. Double-counted text prior: D15 is the chosen ablation; the beta-2 control and the P3-divided graph are not run.
 
@@ -1048,3 +1048,20 @@ Every D14, D15 and D17 arm, the banked counterparts they are read against (`5XNG
 - **B4, duration and rate.** From the same decodes: the mean emitted non-SIL segment length in retained frames (review note: rVAD removes mostly non-phone frames, so a phone's length is about the same in both frame units; converting with the pooled original/retained ratio would read about 17% long), and the emitted non-SIL rate on original frames. For D17 add phi's E[d] per type (already registered). References: prior m 4.41 retained frames; the MFA 4.14 dev-other mean, a diagnostic.
 
 One registered reader job family computes B1, B3 and B4; B2 reuses the D16 cell forward. The launch waits until the source packs' managers finish, so no job runs under two managers.
+
+**Read (2026-09-24; descriptive, no gate; `reports/extract_d18_read_2026-09-24.md`, finish check `reports/exec_d18_finish_2026-09-24.md`).** Readers: BeyondPerReadJob `HjaozIiyUULt`/`TgVm9wCM6kV1`/`z7bFhZ9HCcUu` (B1, B3, B4), CommonObjectiveReadJob `H4yWhTvb82yn`/`NE7p2t7F4pMu`/`akb9aS1PQZO0` (B2; dev-other 2864 utterances, 33 speakers). B2 intervals are 95% speaker-clustered. The replicate pair supphi_k2lat_rep - supphi_k2lat reads L +0.0032 [+0.0021, +0.0042], which sets the noise scale.
+- **B1: no arm has converged.** Every D14, D15 and D17 arm reads STILL DESCENDING at its last kept epoch. Warm dJ runs from -0.026 to -0.043 over ep4 to ep8, against a spread of 0.0067; the cold spread is 0.0013. Each ep8 PER is therefore a snapshot of a run that is still moving.
+- **B2: the objective and PER disagree on training phi.**
+  - Freezing phi lowers PER, yet on the common objective the frozen arm is worse: decphi_k2lat_frz - decphi_k2lat L +0.107 [+0.096, +0.117], and supphi_k2lat_frz - supphi_k2lat_rep +0.120 [+0.107, +0.133]. Almost all of it is l_tau (+0.113 and +0.125); lexlat_k2 ties.
+  - So a trained phi lowers the objective by co-adapting to the recognizer, not by a better transcription. This is the same direction as A10 in `SAE_4A_lexlat_v2.md`, where EM phis beat the gold phi on S while their decodes sit at chance.
+- **B2: the k2 term and the lexicon agree with PER.** k2lat - plain L -0.038 (lexlat_k2 -0.072, l_tau +0.032), with frz -0.045. k2lat - k2shuf L -0.067 [-0.076, -0.058]. decphi_k2lat - supphi_k2lat_rep L +0.000006 [-0.0022, +0.0022], a tie, matching the PER tie within 0.003.
+- **B2: without the trigram, the objective's optimum moves away from the better-PER solution.**
+  - Warm rp - rep: +0.040 at beta 1, -0.025 at beta 0, while PER reads 0.2180 against 0.1808.
+  - Cold rp - rep: +0.060 at beta 1, -0.160 at beta 0.
+  - The beta-0 objective prefers the arm that is worse in PER.
+- **B2, D17: duration control lowers L by 0.015-0.030 against plain (sup and sup_k2lat, all intervals exclude 0), while every D17 arm collapses in PER.** The cold band pair (rep vs pack2) ties on L: -0.0047 [-0.0098, +0.0008].
+- **B3: every arm uses all 39 types.**
+  - Decoded-unigram JS against gold is 0.0015-0.0032 for all but k2shuf, which reads 0.0123.
+  - The bigram JS against gold orders as PER does at ep8: decphi_k2lat_frz 0.0175, supphi_k2lat_frz 0.0192, decphi_k2lat 0.0235, decphi_frz 0.0249, decphi_plain 0.0395, decphi_k2shuf 0.0626. p0 reads 0.0231.
+- **B4: mean non-SIL segment length is 4.24-4.52 retained frames**, against the prior's 4.41 and MFA's 4.14. k2shuf is longest at 4.935, and p0 reads 4.711. In D17, the durfrz arms' E[d] stays pinned at 4.4138, and the durinit arms drift to 4.61-4.68 at ep8 (per-type range 3.3-6.5).
+- Note: BeyondPerReadJob finished before the B2 forwards. By design it computes only B1, B3 and B4, and B2 comes from CommonObjectiveReadJob alone.
