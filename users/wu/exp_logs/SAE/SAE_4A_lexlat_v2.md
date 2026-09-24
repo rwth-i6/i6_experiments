@@ -13,7 +13,7 @@ Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat go
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
 
 NEXT:
-1. Stage-1 key search: the review blocked it (the null's cluster starts hang in rate repair). The fix is with the implementer (`reports/impl_a16b_stage1_fix_2026-09-24.md`); then re-review, launch and watch.
+1. Stage-1 key search: fix committed (1a64a51d, `reports/impl_a16b_stage1_fix_2026-09-24.md`), in re-review (`reports/review_a16b_stage1_fix_2026-09-24.md`); then launch and watch.
 2. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim exists (user, 2026-09-24).
 3. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 4. At each watcher wake, the executor checks; every read is audited, then recorded.
