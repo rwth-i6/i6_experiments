@@ -2,32 +2,27 @@
 
 ## State
 
-LIVE (2026-09-24 18:32): manager pid 1583423 on `config/sae_i6_p0_screen.py` (input graph + ctrl_20
-`ReturnnTrainingJob.GiT88bxzoZbZ`; log `log/sae_i6_p0_screen.manager.log`). Restarted with `-co` after
-the w2v2 forward fix (Deviations: RETURNN in `recipe/`); the two failed forwards reran. Reviews:
-launch `reports/review_p0_launch_2026-09-24.md`, settings `reports/review_p0_settings_time_2026-09-24.md`,
-GPU routing `reports/review_gpu_route_2026-09-24.md` (all PASS_WITH_NOTES). Code at recipe/i6_experiments
-`51f4def2d` (T1.6 fix as the hashed option `sil_run_collapse`, default path bit-identical,
-`reports/review_silfix_2026-09-24.md`). FROZEN until the P0 trainings end: the package's `model/`,
-`training/`, `analysis/` (RETURNN imports them live, unhashed).
-Watcher (re-arm first on resume; from the setup dir):
-`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1583423 config/sae_i6_p0_screen.py 60`.
-G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 fixed in `ctrl_20_rc` only (Runs).
-Blocking ctrl_20 (23:05): g2p and the VAD job are done. Only the phone-prior chain remains:
-`PhonemizeWithSilJob.NpoY1pGJWNUJ` (Slurm 4342305, cpu_modern, started 22:15, 6 h limit), then `SampleLinesJob`,
-then `PhoneNgramPriorJob` (its output gives the G0.R0 prior ppl and rho). A second background
-waiter watches for `work/i6_core/returnn/training/ReturnnTrainingJob.GiT88bxzoZbZ/output/models/epoch.001*`
-or an `error.*` there; re-arm it too on resume.
-NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
-peak GPU memory (<= 40 GiB), the step-1 triple and the ep1 PER against G0.R1. The user's word
-(2026-09-24): if the first sub-epoch looks reasonable, start all P0 arms at once and read the ep1 PER
-afterwards. Full launch review: `reports/review_p0_full_launch_2026-09-24.md` (PASS_WITH_NOTES); follow its
-section 3 switch sequence and start PLAIN (no `-co`). Pass: stop the screen
-manager, then start `config/sae_i6_p0.py` (164 jobs incl. `ctrl_20_rc` `llSFybyKXkbL`; never both
-managers at once). Fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
-Six trainings against the gpu_48gb cap of 5 (all request > 24 GB).
-Push: the user's word (2026-09-24) is to push `haotian_cycle_consistency_unsupervised` once the baseline
-is well tested, i.e. ctrl_20 passes G0.R1 and the audit is done. Not before.
+LIVE (2026-09-25 01:30). Two managers; re-arm both watchers first on resume (from the setup dir):
+`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh <pid> config/<name>.py 60`
+- pid 1583423, `sae_i6_p0_screen` (the input graph plus ctrl_20 `ReturnnTrainingJob.GiT88bxzoZbZ`, sub-epoch 1 done
+  at 00:52; about 1 h per sub-epoch).
+- pid 1611995, `sae_i6_p0_supinit` (gold phi and p0 only, a 65-job subset of the full graph with the same hashes;
+  review `reports/review_supinit_launch_2026-09-25.md` PASS_WITH_NOTES).
+Code at recipe/i6_experiments `51f4def2d`. The package's `model/`, `training/` and `analysis/` stay FROZEN
+until the P0 trainings end.
+Cost screen and prior (Results): time FAIL (3237 s), memory PASS (34.3 GiB); G0.R0 prior ppl FAIL (9.6018
+vs 9.561056). Attributed to JUPITER's phonemised corpus dropping 788k lines; not a port defect in the
+code. The window-noise and composition split is being measured (`analysis/prior_gap/`).
+USER DECISION PENDING: the prior for the reproduction arms. (a) Import JUPITER's `g2p.lexicon`
+(`ApplyG2PModelJob.myTIGtmrUIFq`), plus window and prior.npz for the T0 check; this is an exact reproduction,
+and ctrl_20 reruns. (b) Keep the i6 prior as the disclosed bed. Also (c): fix the Sequitur numpy defect
+(Deviations) and rebuild. The fix must come after p0 has ended, with a single manager running.
+NEXT after the decision: stop BOTH managers, then start `config/sae_i6_p0.py` plainly (no `-co`), per
+`reports/review_p0_full_launch_2026-09-24.md` section 3. Never run the full manager next to either
+of the others. Check `error.create_files.*` on the first ReturnnConfig job. Read p0's PER against G0.R3 when
+it lands. Read ctrl_20's ep1 PER when the screen's forward and PER jobs finish.
+Push: per the user (2026-09-24), push `haotian_cycle_consistency_unsupervised` only after ctrl_20 passes
+G0.R1 and the audit is done.
 
 ## Objective
 
@@ -160,6 +155,13 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   headroom). Larger tasks, i.e. every training, go to gpu_48gb, and a training keeps its GPU type
   across resubmits. Forwards may therefore run on A10 or L40S. Hash-neutral. Open note: a
   flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
+- Phone text (found 2026-09-25; decision pending with the user): the i6 phonemised LM corpus keeps 40,418,258
+  lines, where JUPITER's kept 39,630,169 (G0.R0 prior clause, Results). g2p defect in the environment,
+  not yet fixed: Sequitur's `adjustHigherOrder` calls `np.sometrue`, which numpy 2.4.6 removed.
+  `TrainG2PModelJob.pD4nbqFLWtbi` therefore aborted ramp-ups 2 and 3 early (at iterations 41 and 25), yet
+  reported success. Final dev symbol error 5.53 %, string error 22.79 %. Only the pronunciations of g2p words
+  are touched (about 0.25 % of word tokens). Fix: `num.any` in the env's `sequitur.py`, then clear the
+  g2p job; every job down to the prior reruns under the same hashes.
 
 ## Results
 
@@ -170,7 +172,39 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   (2026-09-24 22:08). Utterances and original frames equal the banked counts exactly on dev-clean, dev-other
   and train (2703/968057, 2864/919980, 28539/18088388). Kept frames 831360 / 781125 / 15427887 against
   831372 / 781130 / 15427853, a relative difference of at most 1.4e-5 (tolerance 0.5 %).
-- HLG size, prior ppl and rho: not yet read.
+- Prior clause: FAIL. The held-out ppl (order 3) is 9.601838 against a banked 9.561056 (+0.041; tolerance
+  +-0.02). Source: `PhoneNgramPriorJob.qJxXHgXLe31S/output/prior.json`: 1,000,000 lines counted, 10,000 held,
+  82,740,447 tokens, SIL token rate 0.1383. Debugger attribution (`reports/debug_prior_ppl_2026-09-25.md`):
+  the fit, sample and held-out code and parameters equal the reference, and the difference is in the text.
+  JUPITER's `PhonemizeWithSilJob.DbFgvZOGZQ8F` kept 39,630,169 of 40,418,261 LM lines: it dropped 788,092
+  lines whose words had no pronunciation, because its g2p lexicon held only about half of the 773,673
+  non-bliss types (inferred; the cause is not in the logs). i6 kept 40,418,258 lines. `SampleLinesJob`
+  draws from the line count, so the two windows share no lines. The split of the gap between corpus
+  makeup and window noise is being measured (`analysis/prior_gap/`). This can be reproduced exactly only
+  by importing JUPITER's `g2p.lexicon` (`ApplyG2PModelJob.myTIGtmrUIFq`); no JUPITER artefact is on i6.
+- rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
+  `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
+- HLG size: not yet read (built only by the full config).
+
+### Cost screen and G0.R1 step 1 (ctrl_20 sub-epoch 1, 2026-09-25, `ReturnnTrainingJob.GiT88bxzoZbZ`)
+
+- Wall time: FAIL. 3237 s of training in sub-epoch 1 (`work/learning_rates` `epoch_train_time_secs`; 57 steps;
+  99.7 % computing time), 3537 s from job start to the checkpoint. The bound is 1800 s. This is 1.8x the bound,
+  about 18 h of training for 20 sub-epochs.
+- Peak GPU memory: PASS. `nvidia-smi` on the node after sub-epoch 1 reads 35,091 MiB (34.3 GiB) of 46,068 MiB,
+  at 100 % utilisation (read through `srun --overlap`; `log/gpumem_probe.4348532.out`). The reference batch
+  shape is unchanged (88,000 frames, 128 seqs). At this shape a 32 GB V100 cannot host the run.
+- Step 1 (RETURNN "step 0", `log.run.1:670`), audio-label tolerances: l_tau -0.352 (banked -0.350 +-0.005, PASS);
+  prior per token -5.637 (banked -5.657 +-0.01, FAIL); expected tokens 63.854 (banked 63.821 +-3 %, PASS). The
+  recognizer is flat-initialised, so the miss is expected from the flatter prior. It is confounded with the
+  audio label, which changes the units and eta.
+- Decision (orchestrator, 2026-09-25). The time miss has a known cause (the float64 lattice GEMM on Ada;
+  the GPU is saturated), and no other i6 pool fits this batch. The prior-dependent arms (ctrl_20_s1, k2lat,
+  ctrl_20_rc) stay held until the user decides on the prior, and weighs the cost there. gold phi and p0
+  are released on their own entry point, `config/sae_i6_p0_supinit.py` (manager started 2026-09-25 01:27).
+  gold phi does not depend on the prior. p0 carries it in its hash and loads it, but its values enter
+  no loss, pick, dump or PER (`reports/review_supinit_launch_2026-09-25.md`), so p0's PER holds under either
+  prior. ctrl_20 keeps running.
 
 ### G0.V priority-1 tests (2026-09-24; CPU on the desktop, sae env; GPU parity T1.8 not yet run)
 
