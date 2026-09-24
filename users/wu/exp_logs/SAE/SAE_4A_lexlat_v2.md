@@ -141,6 +141,23 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - **TIE** otherwise.
     - The 0.01 is A7's floor. The r30, r70 and r100 inits are reported only.
   - Cost: 8 GPUs on two nodes, about 2.2 h for (i) and about 3 h for (ii). (i) runs as a 4-GPU pack, and (ii) runs through gpupack.
+- **A15 (user request 2026-09-24, "results analysis of L2-1 result vs gold vs gold 70 noise, how do they perform wrt text preference (gold vs swap) and raw accuracy"; registered before any job; disclosed label-using analysis, descriptive, no gate) Phi competence battery.** It compares the reverse models directly, apart from any recognizer.
+  - **Phis:**
+    - the six A10 restarts at sub-epoch 48, plus durinit s1 and durfrz s1 at sub-epochs 4 and 12, which gives a trajectory;
+    - the L2-0 fits: gold `16v7R6ztSq1u`, r30, r50, r70, r100 and permphi;
+    - phi_c, D14's decphi, and one random-init phi as the floor;
+    - the reverse blocks of rt_r0 and rt_r70 at ep8, i.e. phi after joint training with a lifted theta.
+  - **Set:** the 500-utterance D4 dev-other set, which is disjoint from every phi's fit.
+  - **Text preference.** Each is the per-frame log p_phi(z | string, eta), marginalised over segmentations: gold minus the alternative. Speaker-clustered 95 % intervals.
+    - (T1) Utterance swap: gold against a same-speaker deranged gold string (D10b's form).
+    - (T2) Phone-identity swap: gold against gold with phone labels permuted. Three levels: 1 random pair, 5 random pairs, and a full random permutation of the 39 non-SIL phones. 5 permutation seeds each, reported as a mean and a range.
+    - (T3) Relabelled gold: the phi's Hungarian symbol-to-phone map (from R1's decode) is applied to gold, and the result is set against T1's deranged string. This asks whether the phi is phonetic up to relabelling. For permphi, its own permutation is also scored.
+  - **Raw accuracy.**
+    - (R1) The genmarg decode under the phone trigram, as in A10's diagnostics: direct PER, Hungarian PER, NMI(symbol, phone), E[d].
+    - (R2) The same decode under a uniform phone prior, which is phi's content without the text prior's help.
+    - (R3) Emissions: per phone, the JS divergence between phi's mean unit distribution and the gold phi's (marginalised over position, duration and eta on the set), both directly and after the Hungarian match.
+    - (R4) Frame-level unit-to-phone accuracy against the MFA dev-other alignment, if one exists, with the majority-unit oracle as the ceiling. If no alignment exists, this is reported as not built.
+  - Reporting rules sit in the job docstring. The battery explains the lift and non-lift reads (L2-0, A14 (i)) and says what EM is missing. It never selects or gates.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
