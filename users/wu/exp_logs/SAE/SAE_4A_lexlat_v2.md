@@ -284,8 +284,16 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - **SEGMENTATION-CARRIED** if G-dur S >= 3.289. The A14 (ii) basin then depended on supervised durations.
       - **LABELS SUFFICE** if G-dur and r70-dur are both < 3.289.
       - **PARTIAL-LABELS NEED SEGMENTS** if G-dur < 3.289 and r70-dur >= 3.289.
-    - Reported beside, never gating: generative PER (direct, Hungarian, NMI) at 0, 4, 12 and 48. Also the boundary precision, recall and F1 (20 ms tolerance) of each phi's Viterbi segmentation against MFA on the 260 set, for these arms and the four A14 (ii) arms.
+    - Reported beside, never gating: generative PER (direct, Hungarian, NMI) at 0, 4, 12 and 48. Also the boundary precision, recall and F1 (20 ms tolerance) of each phi's Viterbi segmentation against MFA on the 260 set, for these arms and the four A14 (ii) arms. Added before any result: the segment rate (Hz), the over-segmentation and the strict R-value, beside the MFA reference rate.
     - SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds A16 (b) stage-2 key arms. The next cost work then goes to a label-free segmentation init, such as a self-supervised phone segmenter or the key's own run segmentation, before any key arm is funded.
+    - Literature (`reports/lit_segmentation_gap_2026-09-24.md`), which changes the handoff recommendation:
+      - Oracle boundaries beat unsupervised ones by 14-22 PER at the first iteration on TIMIT (Chen et al. 2019; Yeh et al. 2019).
+      - Swapping only the boundaries costs 5.5 PER on LibriSpeech (Tseng et al. 2024).
+      - Resegmenting with the text model in the loop closes most of the gap (Tseng 8.9 vs 6.4; Wang 2026). Resegmenting without text does not (Ondel et al. 2016).
+      - The output rate predicts failure better than boundary F1: runs at 25-28 Hz fail, against a true rate of 10-12 Hz (Liu et al. 2022). A2's rate band already guards this.
+      - Merging runs of units overcounts boundaries by 2.6-3.3 times (Kamper 2022). So the key's own run segmentation is the weakest fallback.
+      - The best-supported label-free replacement is resegmentation under the trigram, which our HSMM EM already does, with a self-supervised segmenter only as its init.
+      - No published work compares MFA and rate-matched durations in an EM HSMM, and every published segmenter tuned its settings on labels.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
