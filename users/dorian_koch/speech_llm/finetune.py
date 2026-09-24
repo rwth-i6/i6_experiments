@@ -526,6 +526,20 @@ def _render_personaplex_lora_config(
             f"floor_weight: {_yaml_float(hp['floor_weight'])}\n"
             f"floor_quiet_ms: {_yaml_float(hp.get('floor_quiet_ms', 200.0))}\n" + perf
         )
+    # Synthetic knowledge dialogues at a stratified in-batch share (2026-09-25, ablation ab_epad1_know30): rendered
+    # ONLY when set, like text_epad_weight. ``knowledge_data`` is a ``KnowledgeDialogueCodes`` output (a tk.Path in
+    # hparams, so the run depends on it); the launcher refuses it together with floor_weight / length bucketing.
+    if hp.get("knowledge_data") is not None:
+        share = float(hp["knowledge_share"])
+        if not 0.0 < share < 1.0:
+            raise ValueError(f"{who}: knowledge_share must be in (0, 1), got {share}")
+        if hp.get("floor_weight") is not None or hp.get("length_bucket_pool"):
+            raise ValueError(f"{who}: the knowledge mix has no floor weight and no length bucketing")
+        kd = hp["knowledge_data"]
+        kd = kd.get() if hasattr(kd, "get") else str(kd)
+        perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + perf
+    elif hp.get("knowledge_share") is not None:
+        raise ValueError(f"{who}: knowledge_share without knowledge_data")
     scope_block = (
         'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
     )
