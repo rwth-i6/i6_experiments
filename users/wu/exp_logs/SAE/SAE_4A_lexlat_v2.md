@@ -4,21 +4,19 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
-- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
+- 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
 
 Reads 2026-09-24 (Results):
-- L2-0: rho*_lift 0.7, audited.
-- A10: the EM phis beat gold on S, but decode at chance.
-- D18: training phi lowers the objective by co-adaptation.
-- A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
-- A15/A15-E + A15-F: the EM phis (and A11's table) are mislabelled and merged, but their content is partly phone-level. Within the right class they pick the right phone at 0.54-0.62, above every reference and their sharp nulls. Their errors cross classes (class share 0.50-0.56 against gold 0.73). They sit close to and below r70 (R4 emis 0.29-0.31 against 0.34). The manner-class reading is overturned.
-- A16 (a), A16 (a2), audited: verdicts OBJECTIVE LABEL-BLIND OR WRONG and NO LAMBDA <= 3 stand; the "model error" inference is withdrawn. dS only measures the trigram after co-adaptation. Gold (2821 utterances, supervised) differs from the EM phis in data and criterion, and the gold-EM gap (0.07-0.20) sits in the channel, not the prior. Trigram re-weighting is ruled out; a permutation-only label search is unsupported.
+- L2-0: rho*_lift 0.7, audited. A10: the EM phis beat gold on S, but decode at chance. D18: co-adaptation. A11: CANNOT_TELL (no rate-eligible null).
+- A15/A15-E + A15-F, audited: the EM phis are mislabelled and merged, but partly phone-level (within-class 0.54-0.62, class share 0.50-0.56 against gold 0.73), a little below r70.
+- A16 (a)/(a2), audited: the verdicts stand, and the "model error" inference is withdrawn (data and criterion confound; the gap sits in the channel). Trigram re-weighting is ruled out.
+- A14 (ii), audited: PHONETIC BASIN LOWER (S_g 3.216 against 3.299, PER 0.35). At matched data, S's lower basin is phonetic, so random-init EM is search-limited. r70 init reaches the basin; r100 does not. The gold arm kept supervised durations.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 NEXT:
-1. A14 (ii) (same data and criterion, gold init) decides A16 (b)'s class: PHONETIC BASIN LOWER licenses search moves (unit split, merge, reassign) or pipeline init; NON-PHONETIC PREFERRED licenses an objective change (word-level prior on the lexlat line, or a channel capacity or sharpness constraint). Its read is audited first. Analysis-only controls if still ambiguous: `reports/audit_a16_combined_2026-09-24.md` claim 4.
-2. At the wave and A14 wakes, the executor checks, including where the 53 CPU report jobs route. The A14 reads are audited before any direction change.
+1. A16 (b) (registered): build stage 0 (J, gold key, key ladder) and stage 1 (key search); build the key-to-phi init and the stage-2 gold-key control (durinit), review it, and launch it. Run stage 0; J SEES THE KEY funds stage 1.
+2. At the wave and A14 (i) wakes, the executor checks. The A14 (i) read is audited before any direction change.
 
 ## Objective
 
@@ -213,6 +211,43 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Merges cannot be repaired by relabelling states, which is capped at the optimal-relabelling accuracy. Going further needs unit-type moves (reassign a unit type, or split and merge), each accepted only if S improves.
     - No published result is at our noise level.
   - **(b) An unsupervised label search**, designed after (a) and a literature read on substitution-cipher decipherment (homophonic, noisy, under an n-gram LM). It is registered as its own amendment before any job. It must be label-free and GAN-free, and select only on held-out S.
+  - **(b) registered (2026-09-24, after the A14 (ii) read and its audit, before any A16 (b) job; an L2-1 extension under the 2026-09-23 latitude; pure unsupervised, GAN-free): unit-type key search, then S-EM from the key (pipeline decipherment).**
+    - Premise:
+      - A14 (ii) (audited) found that at matched data and criterion, S's lower basin is phonetic. At sub-epoch 48, S is gold-init 3.216, r30 3.210 and r70 3.271, against random-init 3.30-3.40.
+      - The r70 init reaches that basin (PER 0.61 -> 0.49); r100 does not (0.83 -> 0.86, S 3.378). So random-init EM is search-limited.
+      - r70's corruption is random, so its per-unit argmax phone stays right (L2-0 N1). The missing piece is therefore a label-free unit-to-symbol key.
+      - The literature's fix for this failure is a discrete key search on count tables, followed by the joint EM from the key (literature bullet above).
+      - Not licensed by A14 (ii), and so tested here: that search can reach the basin from no labels. Also untested: whether the gold arm's supervised durations carried part of the gap. The audit found that the A14 (ii) gold init replaced durinit.
+    - **Key objective J(k)**, CPU, count tables.
+      - A key k maps each of the 500 units to one of the 40 symbols. The unit sequences of the A10 train stream are mapped through k, and runs are collapsed into segments.
+      - J(k), per frame, sums:
+        - log P(collapsed symbol string) under the same trigram `RtzbESkOedsT`;
+        - the maximum-likelihood emission log-likelihood of each unit given its symbol, with counts from the train side;
+        - the general-knowledge duration log-prior of the segment lengths (A9; d_min >= 2 is standing).
+      - A key whose emitted rate lies outside [5.80, 14.49] Hz is void (A2).
+      - J is read held out, on the CV holdout of the train stream.
+    - **Stage 0, J's floor (CPU; disclosed label-using analysis; gates stage 1).** Keys:
+      - the gold key: each unit's majority phone on the train-side alignment that the L2-0 fits used, never D4;
+      - a key ladder: the gold key with 30, 70 and 100 % of units reassigned uniformly at random, 5 seeds each;
+      - the argmax keys of the six A10 sub-epoch-48 phis and of A11's selected table phi;
+      - 20 random keys.
+      - Every key is also scored on the structure-destroyed corpus (units permuted within each utterance), and the rise of each over its destroyed score is reported.
+      - **J SEES THE KEY** if held-out J is strictly monotone on the ladder (gold > K30 > K70 > K100, seed means), AND J(gold) exceeds the best A10/A11 and random key by more than max(0.01 nats per frame, the range over the 20 random keys).
+      - Otherwise **J BLIND**. Stage 1 is not funded, and J's terms are reported for the objective work.
+    - **Stage 1, key search (CPU, one node, restarts in parallel; funded on J SEES THE KEY).**
+      - Moves: reassign one unit type's symbol, via annealed ICM/Gibbs sweeps on train-side J. Split and merge happen only as unit-set moves.
+      - Starts: 64 random keys and the 7 A10/A11 argmax keys.
+      - Selection: the top 4 by held-out J, label-free.
+      - Null: the same search on the destroyed corpus. The real and null J rises are both reported.
+      - Reported, never gating or selecting: each selected key's unit agreement with the gold key.
+    - **Stage 2, S-EM from a key (A10 recipe verbatim except the init; durinit for every arm).** phi's emission rows start from the key's smoothed unit counts.
+      - Control, launched as soon as it is built (disclosed analysis only): the gold key as the init. It calibrates the conversion from key to phi, and it also asks whether the A14 (ii) gap survives without supervised durations.
+        - GOLD KEY REACHES BASIN if S at 48 < S_min - 0.01 = 3.289. If not, stage 2's key arms are held until a conversion that reaches the basin is found.
+      - Key arms: the stage-1 top 4, as one four-GPU pack.
+        - **KEY BASIN** if the best key arm by S at 48 (260 set, paired as in A14 (ii)) has S < 3.289; else **NO KEY BASIN**.
+        - Reported, never gating: direct and Hungarian PER, NMI, and A15-F's measures at 0-48.
+      - KEY BASIN sends the selected phi to the lift test (A14 (i)'s form) and to L2-2.
+    - Cost: stage 0 takes minutes on CPU; stage 1 is one node for about 1-3 h; stage 2 is one GPU for about 3 h (the control) and one four-GPU pack for about 3 h.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -485,3 +520,32 @@ Source: `PhiContentReadJob.vySKYIh5RAaB` (`output/table.txt`, `table.json`); lau
   - Their poor relabelled fit is set by sharpness. A sharp phi without content scores -10, so the comparison with the flat r100 (-5.26) does not measure content.
   - This matches the audit's alternative (f): the symbols are partly phone-specific and partly cross-class mixtures.
 - **Overturned (2026-09-24).** The A15 read's corrected bullet "at about the manner-class level", and the audit's broad-class reading, do not survive A15-F. R4 had matched the 7-class oracle, but the class split shows phone-level distinctions within classes, with the errors across classes. Also overturned: the relabelled-fit comparison with r100 as evidence of missing content, which was sharpness-confounded. Still standing: mislabelled, merged, and below r70 on R4.
+
+### A14 (ii) read (2026-09-24): PHONETIC BASIN LOWER (analysis only, supervised init; audited CONFIRMED_WITH_CORRECTIONS)
+
+Source: `A14ObjectiveFloorReadJob.PiYQ1OCFD4ot` (`output/report.txt`, `a14_floor.json`). Extraction: `reports/extract_a14ii_read_2026-09-24.md`. Audit: `reports/audit_a14ii_read_2026-09-24.md`. The four restarts ran the A10 recipe on the same stream, one GPU each.
+- **Verdict.** S_g = 3.216 (gold init, sub-epoch 48, 260 set, paired 260/260) against S_min = 3.299 (durinit s1). The difference is -0.083, with a speaker-paired interval of [-0.094, -0.072], and 222 of 260 utterances are lower. The gold-init Hungarian PER at 48 is 0.353 (the map is the identity, so the direct PER is the same). Both clauses of PHONETIC BASIN LOWER hold.
+- **By init** (reported only):
+
+  | init | S at 0 | S at 48 | PER at 0 | PER at 48 |
+  |---|---|---|---|---|
+  | gold | 3.474 | 3.216 | 0.193 | 0.353 |
+  | r30 | 3.719 | 3.210 | 0.240 | 0.394 |
+  | r70 | 4.411 | 3.271 | 0.608 | 0.495 |
+  | r100 | 4.690 | 3.378 | 0.826 | 0.860 |
+  | A10 random (6) | | 3.30-3.40 | | chance band |
+
+- **Audit.**
+  - Provenance holds: the gold sub-epoch-48 forward loads `fTBdXD0SwBaA` epoch 48, which starts from gold `16v7R6ztSq1u`.
+  - S is computed identically for all arms.
+  - The PER is computed as in A10.
+  - Correction: the gold init replaced durinit, so the gold arm kept its supervised durations. The implementer disclosed this; the A14 text did not. A16 (b)'s gold-key control reruns the comparison with durinit.
+  - The margin is about the six-restart seed range (0.10), and the gold init has one seed. Three phonetic inits (gold, r30, r70) all end below S_min.
+- **Reading.**
+  - At matched data and criterion, S's lower basin is phonetic, so the random-init restarts are search-limited. This settles the gold-versus-EM confound left open by A16 (a2).
+  - An init with 70 % random label noise reaches the basin; one with 100 % does not.
+  - Not licensed:
+    - that S's global minimum is phonetic;
+    - that search can reach the basin from no labels;
+    - that S rewards accuracy inside the basin. Gold-init PER rose from 0.19 to 0.35 while S fell, and r30 ends 0.006 below gold.
+  - So a perfect search would stop at about PER 0.35-0.5 before the joint run.
