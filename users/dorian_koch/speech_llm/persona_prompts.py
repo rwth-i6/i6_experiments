@@ -936,6 +936,9 @@ class PersonaProfileGen(Job):
 
     Output: ``episode_id, label, text`` (``PERSONA_MINIMAL`` + profile), ``profile``, ``n_words``, ``n_windows``,
     ``n_windows_used``, ``max_ngram_overlap``, ``spec``, ``llm_name``; ``summary.json``.
+
+    ``episodes``: profile only these episodes (all their windows, so each profile is what the full run would
+    write for that key); None = every episode (not hashed then, so existing jobs keep their hash).
     """
 
     def __init__(
@@ -946,9 +949,11 @@ class PersonaProfileGen(Job):
         llm_name: str = "openai/gpt-oss-120b",
         max_words: int = 3000,
         temperature: float = 0.6,
+        episodes: list[str] | None = None,
     ):
         assert spec in PROFILE_SPECS, spec
         self.context_data = context_data
+        self.episodes = sorted(set(episodes)) if episodes else None
         self.spec = spec
         self.spec_digest = profile_spec_digest(spec)
         self.llm_name = llm_name
@@ -962,9 +967,10 @@ class PersonaProfileGen(Job):
     def hash(cls, parsed_args):
         """The spec's CONTENT is part of the hash (Sisyphus hashes only ``__init__`` arguments, so an attribute
         alone would not be): an edited instruction is a different job."""
-        return super(PersonaProfileGen, cls).hash(
-            {**parsed_args, "spec_digest": profile_spec_digest(parsed_args["spec"])}
-        )
+        d = {**parsed_args, "spec_digest": profile_spec_digest(parsed_args["spec"])}
+        if d.get("episodes") is None:
+            d.pop("episodes", None)
+        return super(PersonaProfileGen, cls).hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -989,6 +995,14 @@ class PersonaProfileGen(Job):
 
         cols = ["id", "item_id", "episode_id", "t0", "assistant_label", "assistant_text", "user_label", "user_text"]
         ctx = load_from_disk(self.context_data.get_path()).select_columns(cols)
+        if self.episodes:
+            keep = set(self.episodes)
+            eps = ctx["episode_id"]
+            missing = keep - set(eps)
+            if missing:
+                raise RuntimeError(f"{len(missing)} requested episodes not in the context: {sorted(missing)[:5]}")
+            ctx = ctx.select([i for i, e in enumerate(eps) if e in keep])
+            print(f"[profiles] restricted to {len(keep)} episodes: {len(ctx)} windows", flush=True)
         exc = speaker_excerpts(ctx, self.max_words)
         keys = sorted(exc)
         spec, llm_name, temp = PROFILE_SPECS[self.spec], self.llm_name, self.temperature
