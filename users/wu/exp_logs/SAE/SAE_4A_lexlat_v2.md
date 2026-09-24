@@ -6,7 +6,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
-- 1192448 `config/sae_4a_lexlat_v2_keyinit.py`: pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii)), submitted 09:54 (`reports/exec_keyinit_launch_2026-09-24.md`).
+- 2267039 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 12:10 for the A18 (b) lift pack ZUZypSQn7qc0, waiting on it): pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii); pending on a maintenance reservation).
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 key search `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758), submitted 11:46 (`reports/exec_a16b_stage1_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged, partly phone-level. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); every basin-reaching arm kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009).
@@ -16,7 +16,7 @@ Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last train
 NEXT:
 1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launched (pid 1895908, see LIVE). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
 2. A19 trigram-only ladder: built (bf5b2972, pack DzrmcjOQ4I3r), in review (`reports/review_a19_triladder_2026-09-24.md`); launch needs the user's shim `config/sae_4a_lexlat_v2_triladder.py`.
-3. A18 review PASS_WITH_NOTES (`reports/review_a18_bridge_2026-09-24.md`); keyinit manager restart adding the (b) lift pack ZUZypSQn7qc0 (`reports/exec_a18b_keyinit_restart_2026-09-24.md`). Flip A18B_PAIRED_ROWS once A17 (i) is finished. Launch order: the two bridges share 9 cold_ctl jobs, so flip the second bridge flag only after the first bridge's cold_ctl jobs finish; start the keyarms manager only after keysearch_s1 ends.
+3. A18 review PASS_WITH_NOTES (`reports/review_a18_bridge_2026-09-24.md`); the (b) lift pack is in the keyinit graph (see LIVE). Flip A18B_PAIRED_ROWS once A17 (i) is finished. Launch order: the two bridges share 9 cold_ctl jobs, so flip the second bridge flag only after the first bridge's cold_ctl jobs finish; start the keyarms manager only after keysearch_s1 ends.
 4. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 5. At each watcher wake, the executor checks; every read is audited, then recorded.
 
