@@ -6,7 +6,6 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 - 721657 `config/sae_4a_lexlat_v2_phicontent.py`: A15-F, one gpupack pack 1990124 (`reports/exec_a15f_launch_2026-09-24.md`).
-- 943255 `config/sae_4a_lexlat_v2_priorscale_s.py`: A16 (a2), 3 gpupack packs (`reports/exec_a16a2_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
@@ -15,6 +14,7 @@ Reads 2026-09-24 (Results):
 - A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
 - A15/A15-E (audited, corrected): the EM phis are mislabelled and merged. Relabelled, they carry real structure, but at about manner-class level (R4 emis 0.29-0.31 against a 7-class oracle of 0.287 and r70's 0.34), and they fit gold worse than r100. So L2-1 fails on labelling AND on content.
 - A16 (a): OBJECTIVE LABEL-BLIND OR WRONG. S prefers each EM phi's own labelling over the emission map by 0.12-0.31 (6/6); the permphi control is valid (-0.60).
+- A16 (a2): NO LAMBDA <= 3. S ranks the EM phis above gold (by 0.07-0.20) and above their relabellings at lambda 1-3; the gap does not close.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
@@ -422,3 +422,25 @@ Source: `RelabelSReadJob.Y9RU2PSbVfuu` (`output/table.txt`); launch `reports/exe
 - Identity S reproduces the banked values within 2.6e-4.
 - Reading: at lambda = 1, S prefers each EM phi's own (wrong) labelling over the emission-map labelling, by 0.12-0.31 nats per frame, on 250-259 of 260 utterances. By the registered branch, the label signal must come from the prior term; A16 (a2) (the prior weight) tests that first.
 - Caveat: the emission-map labelling is one-to-one over a merged, manner-level partition (A15 read), and it is not refit. So it is a weak stand-in for the right labelling, and A15-F bears on that. The read does not show that S would reject a phone-level phi with the right labels. permphi shows the opposite for a gold-quality phi.
+
+### A16 (a2) read (2026-09-24): NO LAMBDA <= 3 (analysis only, label-using)
+
+Source: `PriorScaleSReadJob.ttn9rEAZ1VQd` (`output/table.txt`, `per_utterance.tsv`); launch `reports/exec_a16a2_launch_2026-09-24.md`. Set: A13's 260 utterances, paired over all 260 at every lambda. At lambda = 1 the banked S reproduces within 2e-6.
+- **Gold never ranks first.** S(gold) - S(EM phi), identity labels, over the six A10 sub-epoch-48 phis: +0.074 to +0.175 at lambda 1, +0.071 to +0.158 at lambda 2, +0.091 to +0.202 at lambda 3. Every interval is above 0. The gap does not close as lambda rises.
+- **The ladder stays strictly monotone at every lambda.** Gold, r30, r70, r100:
+
+  | lambda | gold | r30 | r70 | r100 |
+  |---|---|---|---|---|
+  | 1 | 3.474 | 3.719 | 4.411 | 4.690 |
+  | 2 | 4.055 | 4.255 | 4.782 | 5.016 |
+  | 3 | 4.601 | 4.731 | 5.072 | 5.243 |
+
+  The ladder steps shrink with lambda (r30 - gold: 0.246, 0.201, 0.130).
+- **phi_c, the cold line's phi,** is 3.499 at lambda 1 and 4.062 at lambda 2. At lambda 3 it is 4.559, below gold's 4.601.
+- **A weighted prior makes S prefer the EM phis' own labels more, not less.** The (a) dS (emis minus identity) is +0.12 to +0.31 at lambda 1, +0.15 to +0.41 at lambda 2 and +0.15 to +0.44 at lambda 3, and 6/6 are above -0.01 at each. permphi's control strengthens: -0.60, -0.79, -0.85.
+- **Reading.** Yin et al.'s fix, the literature value lambda = 3, does not remove the model error seen at lambda = 1. S at any lambda up to 3 ranks the EM phis above gold, and above their own emission relabellings.
+  - With an up-weighted trigram, the EM phis' own symbol sequences fit it better than the relabelled ones. So EM has matched phone-trigram statistics with a labelling that is acoustically wrong.
+  - lambda is not tuned further from this read (A16 (a2) rule).
+- **Open, for the audit:**
+  - The gold phi was fitted on the 2821-utterance split, while the EM phis trained on the train stream. Part of their S advantage may therefore be density fit from more data, not a preference for wrong content. No same-data gold phi exists to separate the two.
+  - The per-frame emission term (500-way, about 3.3 nats per frame) dwarfs the phone prior (about 7 phones per second against 50 frames). That scale mismatch is a candidate mechanism, not established.
