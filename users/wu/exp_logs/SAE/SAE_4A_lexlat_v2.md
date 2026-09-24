@@ -261,6 +261,9 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - **Stage 2, S-EM from a key (A10 recipe verbatim except the init; durinit for every arm).** phi's emission rows start from the key's smoothed unit counts.
       - Control, launched as soon as it is built (disclosed analysis only): the gold key as the init. It calibrates the conversion from key to phi, and it also asks whether the A14 (ii) gap survives without supervised durations.
         - GOLD KEY REACHES BASIN if S at 48 < S_min - 0.01 = 3.289. If not, stage 2's key arms are held until a conversion that reaches the basin is found.
+        - Launch notes (review `reports/review_keyinit_launch_2026-09-24.md`):
+          - The reader uses the unrounded bar, 3.29903 - 0.01 = 3.28903, and the A17 (iii) reader uses the same bar.
+          - The key-to-phi construction's hidden pre-activation scale (PREACT_ON = 2.0) is an untraced free constant. The built emission does not depend on it, but it sets the weight scale EM starts from. It affects only this control arm, and a failed control must name it as a possible cause.
       - Key arms: the stage-1 top 4, as one four-GPU pack.
         - **KEY BASIN** if the best key arm by S at 48 (260 set, paired as in A14 (ii)) has S < 3.289; else **NO KEY BASIN**.
         - Reported, never gating: direct and Hungarian PER, NMI, and A15-F's measures at 0-48.
