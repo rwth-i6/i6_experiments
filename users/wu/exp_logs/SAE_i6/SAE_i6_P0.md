@@ -9,8 +9,7 @@ review (`reports/review_p0_launch_2026-09-24.md`: screen PASS_WITH_NOTES) and th
 `2ae4445f0`. FROZEN until the P0 trainings end: the package's `model/`, `training/`, `analysis/`
 (RETURNN imports them live, unhashed). Watcher (re-arm first on resume; from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1554133 config/sae_i6_p0_screen.py 60`.
-In prep: GPU test run for G0.V, script `/work/asr4/hwu/sae_i6_tests/gpu_2026-09-24/run_tests_gpu.sbatch`
-(code-review before submit).
+G0.V: GPU tests green (Results); pending only the user's explicit acceptance of the in-train-step xfails.
 NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch
 (<= 1800 s) and peak GPU memory (<= 40 GiB), the step-1 triple, and the ep1 PER against G0.R1 ->
 pass: stop the screen manager, then start `config/sae_i6_p0.py` (never both at once); fail: stop
@@ -168,3 +167,18 @@ per word of the FULL phonemised corpus (2,784,159,269 / 778,025,128), not the pr
 with the objective note; the artefact test checks the numerator on the P0 outputs.
 Open for G0.V: the gpu- and k2-marked tests (T1.8, CUDA parity of log_z_hlg / log_z_h) on a gpu_48gb
 node.
+
+### G0.V gpu- and k2-marked tests (2026-09-24, one L40S)
+
+Slurm 4334384 on gpu_48gb (cn-508; NVIDIA L40S, capability 8.9; torch 2.7.1, CUDA 12.6), full suite:
+506 passed, 11 skipped, 12 strict xfail (the same 12 as the CPU run, no XPASS), 0 failed, 120 s.
+Skips: 7 `artefact` tests (P0 outputs not yet built) and 4 ffmpeg-pin tests (they need the
+reference-cluster ffmpeg); none for CUDA or k2. T1.8 GPU parity passed; the CPU-vs-CUDA parity of
+log Z_HLG and log Z_H on the T1.19 fixture passed at tau 1 and 2 (agreement about 1e-15, tolerance
+1e-5). First confirmed k2 kernels (sm_86 build) on sm_89. RETURNN-importing tests ran on the training
+clone (00171dfe + the shipped patch). Report: `reports/exec_gpu_tests_2026-09-24.md`; logs in
+`/work/asr4/hwu/sae_i6_tests/gpu_2026-09-24/`.
+G0.V: every clause is met. Several strict xfails sit inside the train step: the SIL-run split (T1.6)
+and the `_logmm` floor (T1.4c, T1.5). They count as banked behaviour only through the orchestrator's
+decision "the code defines the bed" (`SAE_i6_ref_objective.md` section 10). The user has not yet
+accepted them explicitly.
