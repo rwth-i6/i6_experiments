@@ -1578,6 +1578,7 @@ class PodcastDialogueSlice(Job):
         "rows_per_part": 2000,
         "drop_channel_collisions": False,
         "min_intruder_sec": 0.0,
+        "pre_roll_sec": 0.0,
     }
 
     def __init__(
@@ -1593,6 +1594,7 @@ class PodcastDialogueSlice(Job):
         min_dialogues_per_episode: int = 4,
         drop_channel_collisions: bool = False,
         min_intruder_sec: float = 0.0,
+        pre_roll_sec: float = 0.0,
         rows_per_part: int = 2000,
         code_version: int = 1,
         rqmt: dict | None = None,
@@ -1614,6 +1616,9 @@ class PodcastDialogueSlice(Job):
         # (podcast_slice_main.drop_short_intruders; user 2026-09-24, the default for corpus builds from
         # then on). Their extractor is unchanged; it no longer sees those segments. Hashed when set.
         self.min_intruder_sec = float(min_intruder_sec)
+        # > 0: start each row up to this much earlier, into the silence before the dialogue only
+        # (podcast_slice_main.pre_roll_start; user 2026-09-24). Hashed when set.
+        self.pre_roll_sec = float(pre_roll_sec)
         self.rows_per_part = int(rows_per_part)
         self.code_version = int(code_version)
         self.out_dir = self.output_path("codes", directory=True)
@@ -1681,7 +1686,8 @@ class PodcastDialogueSlice(Job):
                 ["--min_intruder_sec", self.min_intruder_sec]
                 if float(getattr(self, "min_intruder_sec", 0.0)) > 0
                 else []
-            ),
+            )
+            + (["--pre_roll_sec", self.pre_roll_sec] if float(getattr(self, "pre_roll_sec", 0.0)) > 0 else []),
             log_label="Podcast dialogue slice",
             extra_env={"PYTHONPATH": _moshi_pythonpath()},
         )

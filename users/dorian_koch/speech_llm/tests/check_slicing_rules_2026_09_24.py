@@ -22,7 +22,15 @@ start earlier by u <= the silence before the cut point, seeded by the row id. Ch
      both select_windows callers pass seed_key=item_id (else PodcastWindowContext would recompute
      different windows than the converter wrote).
   6. Shown able to fail: a drop rule without the dominant-speaker test drops the main speaker's
-     backchannel ([1] fails); a jitter without the silence cap adds speech ([3] fails).
+     backchannel ([1] fails); a jitter without the silence cap adds speech ([3] fails); a pre-roll
+     without the silence cap reaches into the previous segment ([7] fails).
+  7. Row pre-roll (``PodcastDialogueSlice(pre_roll_sec=)``, ``pre_roll_start``): on random segment lists
+     the new start only adds silence (>= PRE_ROLL_MARGIN_SEC after the latest earlier segment end, never
+     < 0, u <= pre_roll_sec), no move when segments overlap the start, deterministic per key; the REAL
+     slicer on an episode whose dialogues follow 3 s / 8 s of silence moves both starts back by
+     0 < u <= 1 s, keeps the codes the exact frame slice, re-bases turns and words to the new start,
+     records ``pre_roll_sec`` in channel_info and summary.json, and ``--pre_roll_sec 0`` is
+     bit-identical to no flag.
 
 Setup root, setup .venv, CPU, ~30 s:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_slicing_rules_2026_09_24.py
@@ -51,7 +59,7 @@ from i6_experiments.users.dorian_koch.speech_llm.podcast_ingest import (  # noqa
     select_windows,
 )
 from moshi_family.podcast_mimi_encode import part_features  # noqa: E402
-from moshi_family.podcast_slice_main import drop_short_intruders  # noqa: E402
+from moshi_family.podcast_slice_main import PRE_ROLL_MARGIN_SEC, drop_short_intruders, pre_roll_start  # noqa: E402
 
 (DUPLEXCHAT,) = sorted(glob.glob("work/i6_core/tools/git/CloneGitRepositoryJob.*/output/DuplexChat/src"))[:1]
 sys.path.insert(0, DUPLEXCHAT)
@@ -328,6 +336,8 @@ ex = ast.literal_eval(
 assert ex.get("min_intruder_sec", "missing") == 0.0, ex
 run_src = ast.get_source_segment(src, next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "run"))
 assert '"--min_intruder_sec"' in run_src, "run() does not forward min_intruder_sec"
+assert ast.literal_eval(kw["pre_roll_sec"]) == 0.0 and ex.get("pre_roll_sec", "missing") == 0.0, ex
+assert '"--pre_roll_sec"' in run_src, "run() does not forward pre_roll_sec"
 assert "start_jitter_sec" in WINDOW_SELECT_KEYS
 pp = open("recipe/i6_experiments/users/dorian_koch/speech_llm/persona_prompts.py").read()
 for name, text in (("podcast_ingest", src), ("persona_prompts", pp)):
@@ -369,4 +379,121 @@ for name, fn, arg in (
         print(f"[6] mutant {name} caught: {str(e)[:80]}")
     else:
         raise AssertionError(f"guard is vacuous: mutant {name} passed")
+
+
+# ---- 7. row pre-roll ------------------------------------------------------------------------------------
+def check_preroll(fn):
+    """[7] on an implementation ``fn(start, segments, pre_roll_sec, seed_key) -> new start``."""
+    r = np.random.default_rng(3)
+    moved = 0
+    for k in range(2000):
+        segs, t = [], float(r.uniform(0, 3))
+        for _ in range(int(r.integers(1, 8))):
+            d = float(r.uniform(0.2, 6))
+            segs.append(seg("AB"[int(r.integers(2))], t, t + d))
+            t += d + float(r.choice([r.uniform(-1, 0), r.uniform(0, 0.3), r.uniform(0.3, 3)]))
+        start = max(0.0, t)
+        new = fn(start, segs, 1.0, f"k{k}")
+        assert new == fn(start, segs, 1.0, f"k{k}"), "not deterministic"
+        assert fn(start, segs, 0.0, f"k{k}") == start, "pre_roll 0 must be a no-op"
+        ends = [s["end"] for s in segs if s["start"] < start - 1e-9]
+        prev_end = max(ends) if ends else 0.0
+        assert -1e-9 <= start - new <= 1.0 + 1e-9 and new >= -1e-9, (start, new)
+        if new < start:
+            moved += 1
+            assert new >= prev_end + PRE_ROLL_MARGIN_SEC - 1e-9 or not ends, (start, new, prev_end)
+        if ends and prev_end >= start:
+            assert new == start, "moved although a segment overlaps the start"
+    assert moved > 200, moved
+    return moved
+
+
+moved = check_preroll(pre_roll_start)
+
+# the real slicer: two dialogues after 3 s (episode start) and 8 s of silence
+SHIFT, GAP2 = 3.0, 8.0
+blockA = alt(12, 5.0, t0=SHIFT)
+blockB = alt(12, 5.0, t0=SHIFT + 60 + GAP2)
+DUR3 = SHIFT + 60 + GAP2 + 60 + 2
+F3 = int(DUR3 * FR)
+ep3 = dict(ep)
+ep3.update(
+    item_id="ep3",
+    episode_id="ep3",
+    duration_sec=DUR3,
+    n_frames=F3,
+    diar_turns_json=json.dumps(blockA + blockB),
+    asr_json=json.dumps(
+        {
+            "backend": "test",
+            "model": "test",
+            "channels": [
+                {
+                    "channel": c,
+                    "speaker": spk,
+                    "words": words_in([(x["start"], x["end"]) for x in blockA + blockB if x["speaker"] == spk]),
+                }
+                for c, spk in ((0, "A"), (1, "B"))
+            ],
+        }
+    ),
+)
+codes3 = rng.integers(0, 2048, (2, K, F3)).astype(np.int16)
+ep3["codes_a"], ep3["codes_b"] = codes3[0].reshape(-1), codes3[1].reshape(-1)
+ep3_dir = os.path.join(tmp, "episodes3")
+Dataset.from_dict({n: [v] for n, v in ep3.items()}, features=feats).save_to_disk(
+    os.path.join(ep3_dir, "parts", "part_00000")
+)
+
+
+def run_slicer_on(in_dir, tag, *extra):
+    global ep_dir
+    keep, ep_dir = ep_dir, in_dir
+    try:
+        return run_slicer(tag, *extra)
+    finally:
+        ep_dir = keep
+
+
+r_none, s_none = run_slicer_on(ep3_dir, "pre_none")
+r_zero, s_zero = run_slicer_on(ep3_dir, "pre_zero", "--pre_roll_sec", "0")
+r_pre, s_pre = run_slicer_on(ep3_dir, "pre_on", "--pre_roll_sec", "1.0")
+assert r_zero == r_none and s_zero == s_none, "--pre_roll_sec 0 must be bit-identical to no flag"
+assert len(r_none) == len(r_pre) == 2, (len(r_none), len(r_pre))
+for a0, b0 in zip(r_none, r_pre):
+    ci = json.loads(b0["channel_info"])
+    u = ci["pre_roll_sec"]
+    dstart = ci["dialogue_start_sec"]
+    assert 0 < u <= 1.0 and dstart in (SHIFT, SHIFT + 60 + GAP2), ci
+    t0 = float(b0["span_start_sec"])
+    assert t0 <= float(a0["span_start_sec"]) - 0.5 / FR or u < 1 / FR, (t0, a0["span_start_sec"])
+    prev_end = 0.0 if dstart == SHIFT else SHIFT + 60
+    assert t0 >= prev_end + PRE_ROLL_MARGIN_SEC - 1 / FR, (t0, prev_end)
+    f0 = int(round(t0 * FR))
+    assert np.array_equal(np.asarray(b0["codes_a"], dtype=np.int16), codes3[0][:, f0 : f0 + b0["n_frames"]].reshape(-1))
+    tr = json.loads(b0["turns_json"])
+    assert abs(tr[0]["start"] - (dstart - t0)) < 2e-3, (tr[0], dstart, t0)
+    wa = json.loads(b0["words_a"])
+    assert min(w["start"] for w in wa) >= dstart - t0 - 1e-3, "a word landed in the silence pre-roll"
+pr = s_pre["pre_roll"]
+assert s_pre["filters"]["pre_roll_sec"] == 1.0 and pr["n_extended"] == 2 and pr["words_in_pre_roll"] == 0, pr
+print(
+    f"[7] pre-roll: {moved}/2000 random starts moved, all into silence >= {PRE_ROLL_MARGIN_SEC} s after the "
+    f"previous segment; real slicer: row starts {[r['span_start_sec'] for r in r_none]} -> "
+    f"{[round(r['span_start_sec'], 2) for r in r_pre]}, codes/turns/words re-based, summary {pr}; 0 == no flag"
+)
+
+
+def preroll_no_silence_cap(start, segments, pre_roll_sec, seed_key):
+    """MUTANT: moves the start back by pre_roll_sec regardless of the previous segment."""
+    return max(0.0, start - pre_roll_sec) if pre_roll_sec > 0 else start
+
+
+try:
+    check_preroll(preroll_no_silence_cap)
+except AssertionError as e:
+    print(f"[6] mutant preroll_no_silence_cap caught: {str(e)[:80]}")
+else:
+    raise AssertionError("guard is vacuous: mutant preroll_no_silence_cap passed")
+
 print("OK")
