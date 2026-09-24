@@ -7,13 +7,13 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): pack ge1MKcAPmZIV finished (gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 queued (SLURM 2001624, est. start 09-25 05:50); its 3 paired rows wait on it.
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered.
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023).
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) passed; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
-2. Keyinit reads (GOLD KEY REACHES BASIN, A17 (iii)) being extracted. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
+1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2's gates (A17 (i), A17 (iii), gold-key control) have all passed. Start the keyarms manager only after keysearch_s1 ends.
+2. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
@@ -773,6 +773,35 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
   - Stage 2 of A16 (b) is not withdrawn.
   - No tau = 1 amendment to stage 2.
   - A18 (d) is not triggered: gold-EM lifts, and the drift is not below 0.05.
+
+### Gold-key control and A17 (iii) read (2026-09-24): GOLD KEY REACHES BASIN; LABELS SUFFICE (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.ge1MKcAPmZIV` (4 arms, 48 sub-epochs, no NaN), `KeyInitControlReadJob.JH7zzrX3Egfm`, `A17SegmentationReadJob.lg4fTnb7deS8`, `SegmentationBoundaryJob.g52gIGtUHpkr`. Extraction: `reports/extract_keyinit_reads_2026-09-24.md`. Audit: `reports/audit_keyinit_reads_2026-09-24.md`.
+  - The audit recomputed S from the per-utterance genmarg files (260/260 paired), with the same code and A10 files as A14 (ii).
+  - The readers and the boundary job each wrote once across the 22:16 manager restart.
+- Durations: all four inits hold exactly the general-knowledge durinit values (phones 4.4138, SIL 26.0). No MFA-fitted duration leaks. The gold key's phi (`PhiFromKeyInitJob.f0jaGuiJVe6A`) takes only `key.json` and unsupervised unit frame counts.
+- S at 48 (260 set), against the bar 3.28903:
+  - gold_key 3.20704 (-0.082): **GOLD KEY REACHES BASIN**;
+  - G-dur 3.22387 (-0.065) and r70-dur 3.26568 (-0.023): **LABELS SUFFICE**;
+  - r30-dur 3.21151, report only.
+- Generative PER on D4 (500 utterances), direct / Hungarian / NMI at 0 / 4 / 12 / 48:
+
+  | Arm | ep0 | ep4 | ep12 | ep48 | A14 (ii) twin at 48 (MFA durations) |
+  |---|---|---|---|---|---|
+  | gold_key | .327/.385/.740 | .284/.334/.747 | .322/.367/.717 | .346/.391/.695 | |
+  | G-dur | .197/.197/.836 | .297/.297/.751 | .324/.324/.730 | .345/.345/.710 | .353/.353/.703 |
+  | r30-dur | .248/.248/.803 | .327/.327/.725 | .350/.350/.705 | .368/.368/.685 | .394/.394/.671 |
+  | r70-dur | .605/.622/.452 | .430/.453/.609 | .435/.459/.606 | .442/.466/.606 | .495/.508/.566 |
+
+- Boundaries against MFA (20 ms, MFA 11.90 Hz): F1 at 48 is 0.776-0.799 for all four arms, as for their A14 twins (0.777-0.800; A14 r100 0.660). All run at 10.0-10.5 Hz, under-segmenting by 0.12-0.16. At 0, gold_key already has F1 0.813.
+- Corrections:
+  - The G-dur and r70-dur emission heads still carry the MFA-fitted segment structure (JS 0.21 and 0.16 nats per phone type against the type marginal; G-dur's init F1 is 0.834). So LABELS SUFFICE licenses only "the A14 (ii) basin did not need MFA-fitted durations".
+  - The clean no-segmentation evidence is the gold-key control: durinit durations and cell-independent emissions, and a larger margin.
+  - Not holding the key arms rests on r70-dur's 0.023 margin, one seed and no seed spread. The A10 restarts span 0.10 in S.
+- Reading:
+  - A key-to-phi conversion from type-level counts reaches the basin with no supervised segmentation. It ends at generative PER 0.35, about where the MFA-duration gold arm ends.
+  - S and PER agree between basins (0.34-0.47 against 0.86 for r100) but not inside one. G-dur's PER rises by 0.148 while S falls, as in A17 (ii).
+  - The durinit arms end 0.008-0.053 below their A14 twins in PER, on one seed and descriptive only.
+- Consequences as registered: neither the gold-key control nor A17 (iii) holds the stage-2 key arms, which wait only on stage 1. The PREACT_ON caveat is moot, since the control passed.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
