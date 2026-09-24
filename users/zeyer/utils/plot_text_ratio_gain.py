@@ -19,7 +19,7 @@ from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob
 
 class PlotTextRatioGainJob(Job):
     # v2: legend anchored further below the x-axis label (the module code is not part of the hash)
-    __sis_version__ = 3  # legend anchor -0.28, save pad 0.05
+    __sis_version__ = 4  # y-label anchored at 0.44 (its top character left the canvas)
 
     """
     :param ladders: connected series, each ``{"label", "color", "marker", "points": [
@@ -139,7 +139,8 @@ class PlotTextRatioGainJob(Job):
             resolved["groups"].append(out_group)
         ax.set_xscale("log")
         ax.set_xlabel(self.xlabel, fontsize=self.fontsize + 1.5)
-        ax.set_ylabel(self.ylabel, fontsize=self.fontsize + 1.5)
+        # centered, the label is a bit longer than the axis and its top character leaves the canvas
+        ax.set_ylabel(self.ylabel, fontsize=self.fontsize + 1.5, y=0.44)
         ax.tick_params(labelsize=self.fontsize + 1)
         ax.grid(True, which="both", alpha=0.3)
         if self.note:
