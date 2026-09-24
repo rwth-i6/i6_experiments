@@ -3,17 +3,16 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 2739483 `config/sae_4a_lexlat_v2_em.py`: wave complete; A18 (a) bridge pack 63nbj6Jgiegj (SLURM 1998206) and the cold_ctl forwards (1998211), started 19:20 (`reports/exec_a18a_bridge_launch_2026-09-24.md`).
-- 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): pack ge1MKcAPmZIV finished (gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 queued (SLURM 2001624, est. start 09-25 05:50); its 3 paired rows wait on it.
-- 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
+- 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): A18 (b) lift pack ZUZypSQn7qc0 RUNNING (SLURM 2001624); its 3 paired rows wait on it.
+- Finished graphs (23:08-23:30): em (A18 (a) bridge done, BridgeReadJob.v6SONiAZL7rH), keysearch_s1 (clean: failed 0, loop_error null; top 4 in `KeySearchSelectJob.g9wsznNnqmyO`, `reports/exec_keysearch_s1_finish_2026-09-24.md`).
 
 Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023).
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2's gates (A17 (i), A17 (iii), gold-key control) have all passed. Start the keyarms manager only after keysearch_s1 ends.
-2. A18: read (a) by G4a.L2.4 when its pack finishes; (b) when ZUZypSQn7qc0 finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
+1. Stage 2 launch: BRIDGE_KEYARMS flip (`reports/impl_keyarms_bridge_flip_2026-09-24.md`), then code review, then keyarms manager. Keyarms must share no unfinished job with keyinit (ZUZypSQn7qc0). Stage-1 key read (extracted `reports/extract_keysearch_s1_2026-09-24.md`) under audit.
+2. A18: (a) read being extracted (`reports/extract_a18a_bridge_read_2026-09-24.md`); (b) when ZUZypSQn7qc0 finishes.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
