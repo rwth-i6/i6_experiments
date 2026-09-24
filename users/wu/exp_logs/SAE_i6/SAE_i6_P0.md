@@ -24,6 +24,8 @@ peak GPU memory (<= 40 GiB), the step-1 triple and the ep1 PER against G0.R1. Pa
 manager, then start `config/sae_i6_p0.py` (164 jobs incl. `ctrl_20_rc` `llSFybyKXkbL`; never both
 managers at once). Fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
 Six trainings against the gpu_48gb cap of 5 (all request > 24 GB).
+Push: the user's word (2026-09-24) is to push `haotian_cycle_consistency_unsupervised` once the baseline
+is well tested, i.e. ctrl_20 passes G0.R1 and the audit is done. Not before.
 
 ## Objective
 
