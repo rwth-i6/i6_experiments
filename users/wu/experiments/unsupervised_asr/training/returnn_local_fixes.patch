@@ -1,0 +1,60 @@
+diff --git a/returnn/torch/engine.py b/returnn/torch/engine.py
+index 76f06ada..d1660e9a 100644
+--- a/returnn/torch/engine.py
++++ b/returnn/torch/engine.py
+@@ -611,10 +611,15 @@ class Engine(EngineBase):
+ 
+         elapsed = time.monotonic() - epoch_start_time
+         elapsed_computation_percentage = elapsed_computation_time / elapsed
+-        total_padding_ratio = NumbersDict.constant_like(1.0, total_data_size_packed) - (
+-            total_data_size_packed / total_data_size_padded
+-        )
+-        assert 0.0 <= total_padding_ratio.min_value() <= total_padding_ratio.max_value() <= 1.0
++        # A data key that is declared in extern_data but never populated has packed == padded == 0,
++        # and 0/0 raised here -- killing the epoch AFTER the checkpoint was written, in a statistic
++        # that is only ever printed. Skip such keys instead. (Hit by the SAE 960h GRPO loop, whose
++        # "text" stream is blanked by the label quarantine.)
++        _padded_nonempty = {k: v for k, v in total_data_size_padded.items() if v}
++        total_padding_ratio = {
++            k: 1.0 - total_data_size_packed[k] / v for k, v in _padded_nonempty.items()
++        }
++        assert all(0.0 <= v <= 1.0 for v in total_padding_ratio.values())
+         pad_str = ", ".join(f"{k}: {v:.1%}" for k, v in total_padding_ratio.items())
+         print(
+             f"Epoch {self.epoch}: Trained {step_idx} steps, {hms(elapsed)} elapsed "
+diff --git a/returnn/torch/updater.py b/returnn/torch/updater.py
+index 85b4b06b..879d9a3e 100644
+--- a/returnn/torch/updater.py
++++ b/returnn/torch/updater.py
+@@ -292,7 +292,13 @@ class Updater:
+         :param str filename: File from which to load the optimizer state.
+         """
+         print("Load optimizer %s" % filename, file=log.v4)
+-        optimizer_state = torch.load(filename, map_location=self._device)
++        # This is our own optimizer checkpoint, so a full unpickle is intended. torch>=2.6 defaults
++        # to weights_only=True, which rejects e.g. functools.partial inside the optimizer state and
++        # breaks resume; older torch has no such kwarg.
++        try:
++            optimizer_state = torch.load(filename, map_location=self._device, weights_only=False)
++        except TypeError:
++            optimizer_state = torch.load(filename, map_location=self._device)
+         assert isinstance(optimizer_state, dict), f"optimizer_state is not a dict but {type(optimizer_state)}"
+         if "optimizer" not in optimizer_state and "param_groups" in optimizer_state and "state" in optimizer_state:
+             # Old format, convert to new format.
+diff --git a/returnn/util/task_system.py b/returnn/util/task_system.py
+index 13fae2df..e013f892 100644
+--- a/returnn/util/task_system.py
++++ b/returnn/util/task_system.py
+@@ -480,7 +480,11 @@ def assign_obj_attribs(obj, d: Dict[str, Any]):
+ 
+ 
+ def make_numpy_ndarray_fromstring(s, dtype, shape):
+-    return numpy.fromstring(s, dtype=dtype).reshape(shape)
++    # numpy >= 1.22 removed fromstring's binary mode (unconditional ValueError), so under the
++    # current env this function could only ever crash; frombuffer + copy restores fromstring's
++    # exact semantics (fresh, writable, owning array). Counterpart of Pickler.save_ndarray
++    # ((obj.tobytes(), dtype, shape)); keep both in sync.
++    return numpy.frombuffer(s, dtype=dtype).copy().reshape(shape)
+ 
+ 
+ SharedMemNumpyConfig = {
