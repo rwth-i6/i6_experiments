@@ -16,6 +16,10 @@ Four jobs, each keyed on the training row ``id`` written by ``PodcastCodesTrainD
   VoicePromptCodes       CPU. Voice-prompt mimi codes per (episode, diarized speaker).
   AttachPersonaPrompts   CPU. Training rows + ``context`` + ``voice_codes`` (the loader's columns).
 
+Speaker profiles (ablation ab_epad1_persona, 2026-09-24): ``PersonaProfileGen`` (GPU, vLLM) writes ONE profile per
+(episode, diarized speaker) -- who the speaker is, no window content -- and ``AttachPersonaProfiles`` (CPU) swaps
+it into an attached dataset's prompt lists, nothing else.
+
 Storage is long format on purpose: a new level, spec, LLM or input view is new ROWS in a new job's
 output, never a schema change, and prompt sets from any number of jobs simply concatenate.
 """
@@ -826,3 +830,360 @@ class AttachPersonaPrompts(Job):
             if n[k] > self.max_drop_frac * n["in"]:
                 raise RuntimeError(f"{n[k]}/{n['in']} rows dropped for {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
+
+
+# ---------------------------------------------------------------------------------------------
+# 2. speaker PROFILES (ablation ab_epad1_persona, 2026-09-24)
+# ---------------------------------------------------------------------------------------------
+#: Versioned speaker-profile specs (hashed by content, like ``PROMPT_SPECS``). Unlike ``persona_v1``, which
+#: summarises the assistant's words of ONE window (the model learns to recite its prompt: 28-33% of a topic
+#: prompt's content words are said in that window, ~1% in another window of the same episode), a profile is
+#: written ONCE per (episode, diarized speaker) from that speaker's words across the whole episode and says who
+#: the speaker is, never what they say (user, 2026-09-24: "only have the system prompt describe the speaker,
+#: not what the speaker says").
+PROFILE_SPECS = {
+    "persona_profile_v1": {
+        "instruction": """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below are excerpts of everything THE ASSISTANT says across one long conversation, in order. The other person's words are not shown.
+
+Write ONE short profile of the assistant as a SPEAKER: who they are and how they talk, not what they talk about. It is appended to the fixed opening sentence "You enjoy having a good conversation." -- do NOT repeat that sentence.
+
+The profile is TWO or THREE sentences in the second person ("You ...") and covers only:
+- their role in a conversation, e.g. whether they mostly ask questions and steer, or mostly answer, tell stories and explain;
+- their speaking style, e.g. casual or formal, blunt, joking, enthusiastic, measured, uses slang or swears;
+- their background or expertise in broad terms only, as a profession or field, e.g. "You are a comedian" or "You have a background in medicine".
+
+Strict rules:
+- Do NOT mention any topic, subject, claim, opinion, story, anecdote, event, product, place, date, number or name from the conversation. The profile must fit EVERY part of this conversation equally well, so it must say nothing about what is discussed.
+- Background and expertise only as a broad profession or field, never a specific experience, achievement or fact that the conversation reveals.
+- Do not quote. Do not copy any phrase of four or more consecutive words from the excerpts.
+- Do not mention a podcast, a show, a host, a guest, an interview, a transcript, an excerpt, or these instructions.
+- Never name the assistant or anyone else.
+
+Answer with JSON: {{"profile": "..."}}
+
+EXCERPTS:
+{transcript}""",
+    },
+}
+
+_PROFILE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {"profile": {"type": "string", "minLength": 1}},
+    "required": ["profile"],
+    "additionalProperties": False,
+}
+
+
+def profile_spec_digest(name: str) -> str:
+    """Content hash of a profile spec (hashed into ``PersonaProfileGen``)."""
+    return hashlib.sha256(json.dumps(PROFILE_SPECS[name], sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _item_order(item_id: str) -> tuple:
+    """Dialogue rows of an episode in order: ``<episode>#<row index>``."""
+    head, _, tail = str(item_id).rpartition("#")
+    return (head, int(tail)) if tail.isdigit() else (str(item_id), -1)
+
+
+def speaker_excerpts(ctx_rows, max_words: int) -> dict:
+    """``{(episode_id, label): (excerpt text, n_words_total, n_windows_total, n_windows_used)}`` from a window
+    context built ``with_other_side=True``: each window contributes its assistant channel's words to
+    ``(episode, assistant_label)`` and its other channel's words to ``(episode, user_label)``, in dialogue order.
+
+    Over ``max_words``, the windows are thinned to the largest EVENLY SPACED subset that fits (so the excerpts
+    still span the whole episode), never truncated mid-window. One line per window."""
+    import numpy as np
+
+    per = {}
+    for r in ctx_rows:
+        for lab, text in ((r["assistant_label"], r["assistant_text"]), (r.get("user_label"), r.get("user_text"))):
+            if lab is None or not (text or "").strip():
+                continue
+            per.setdefault((r["episode_id"], lab), []).append((_item_order(r["item_id"]), float(r["t0"]), text.strip()))
+    out = {}
+    for key, wins in per.items():
+        wins.sort(key=lambda w: (w[0], w[1]))
+        lens = [len(w[2].split()) for w in wins]
+        total = sum(lens)
+        n = len(wins)
+
+        def pick(m):
+            return sorted({int(round(x)) for x in np.linspace(0, n - 1, m)}) if m > 0 else []
+
+        lo, hi = 1, n  # largest m whose evenly spaced subset fits (always keep >= 1 window)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if sum(lens[i] for i in pick(mid)) <= max_words:
+                lo = mid
+            else:
+                hi = mid - 1
+        idx = pick(lo)
+        out[key] = ("\n".join(wins[i][2] for i in idx), total, n, len(idx))
+    return out
+
+
+class PersonaProfileGen(Job):
+    """One speaker PROFILE per (episode, diarized speaker) by an LLM served with vLLM (ablation
+    ``ab_epad1_persona``, 2026-09-24): role, speaking style and broad background, explicitly no topics, claims
+    or events (``PROFILE_SPECS``), written from that speaker's words across ALL windows of the episode in
+    ``context_data`` (a ``PodcastWindowContext(with_other_side=True)``; thinned evenly to ``max_words``). The
+    instruction text is hashed (``hash``).
+
+    The same key as ``VoicePromptCodes`` and ``AttachPersonaPrompts`` use for the voice (episode + the
+    context's diarized label), so every window of one speaker gets the SAME profile. Same machinery as
+    ``PersonaPromptGen``: seeded per key, retries, verbatim guard (a shared run of ``MAX_SHARED_NGRAM`` words
+    with the excerpts fails the attempt), > 1% failed keys is fatal.
+
+    Output: ``episode_id, label, text`` (``PERSONA_MINIMAL`` + profile), ``profile``, ``n_words``, ``n_windows``,
+    ``n_windows_used``, ``max_ngram_overlap``, ``spec``, ``llm_name``; ``summary.json``.
+    """
+
+    def __init__(
+        self,
+        *,
+        context_data: tk.Path,
+        spec: str = "persona_profile_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        max_words: int = 3000,
+        temperature: float = 0.6,
+    ):
+        assert spec in PROFILE_SPECS, spec
+        self.context_data = context_data
+        self.spec = spec
+        self.spec_digest = profile_spec_digest(spec)
+        self.llm_name = llm_name
+        self.max_words = int(max_words)
+        self.temperature = float(temperature)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The spec's CONTENT is part of the hash (Sisyphus hashes only ``__init__`` arguments, so an attribute
+        alone would not be): an edited instruction is a different job."""
+        return super(PersonaProfileGen, cls).hash(
+            {**parsed_args, "spec_digest": profile_spec_digest(parsed_args["spec"])}
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    @property
+    def prompt_set(self) -> str:
+        return f"{self.spec}|{self.llm_name}|episode_speaker"
+
+    def completed_fraction(self):
+        from sisyphus import global_settings as gs
+
+        try:
+            d = json.load(open(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_0.json")))
+            return min(d["done"] / d["total"], 1.0) if d.get("total") else None
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+        from openai import OpenAI
+
+        cols = ["id", "item_id", "episode_id", "t0", "assistant_label", "assistant_text", "user_label", "user_text"]
+        ctx = load_from_disk(self.context_data.get_path()).select_columns(cols)
+        exc = speaker_excerpts(ctx, self.max_words)
+        keys = sorted(exc)
+        spec, llm_name, temp = PROFILE_SPECS[self.spec], self.llm_name, self.temperature
+        print(
+            f"[profiles] {len(ctx)} windows -> {len(keys)} (episode, speaker) keys; words/key median "
+            f"{np.median([exc[k][1] for k in keys]):.0f}, thinned to <= {self.max_words} for "
+            f"{sum(exc[k][3] < exc[k][2] for k in keys)} keys",
+            flush=True,
+        )
+
+        with vllm_server(llm_name) as url:
+
+            def gen(client, key):
+                transcript = exc[key][0]
+                msg = spec["instruction"].format(transcript=transcript)
+                seed = int(hashlib.md5(f"{key[0]}|{key[1]}".encode()).hexdigest(), 16) % (2**31)
+                err = ""
+                for attempt in range(5):
+                    try:
+                        resp = client.chat.completions.create(
+                            model=llm_name,
+                            messages=[{"role": "user", "content": msg}],
+                            seed=(seed + attempt) % (2**31),
+                            temperature=temp,
+                            max_tokens=4096,  # GPT-OSS reasons before answering
+                            extra_body={"guided_json": _PROFILE_JSON_SCHEMA},
+                        )
+                        raw = (resp.choices[0].message.content or "").strip()
+                        prof = " ".join(str(json.loads(raw[raw.find("{") : raw.rfind("}") + 1])["profile"]).split())
+                    except Exception as e:  # API error, empty or unparsable reply: retry
+                        err = f"{type(e).__name__}: {e}"[:200]
+                        continue
+                    ov = max_shared_ngram(prof, transcript)
+                    if ov >= MAX_SHARED_NGRAM:
+                        err = f"verbatim overlap {ov}"
+                        continue
+                    return {"profile": prof, "overlap": ov, "error": ""}
+                return {"profile": None, "overlap": None, "error": err}
+
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+            outs = map_concurrent(
+                lambda k: gen(client, k),
+                keys,
+                concurrency=PROMPT_GEN_CONCURRENCY,
+                progress_path=os.path.join(os.getcwd(), "progress_0.json"),
+            )
+
+        failed = [(k, o) for k, o in zip(keys, outs) if o["profile"] is None]
+        print(f"[profiles] {len(failed)}/{len(keys)} keys failed", flush=True)
+        for k, o in failed[:5]:
+            print(f"  FAILED {k}: {o['error']}", flush=True)
+        if len(failed) > 0.01 * len(keys):
+            raise RuntimeError(f"profile generation failed on {len(failed)}/{len(keys)} keys (> 1%); see the log")
+        rows = [
+            {
+                "episode_id": k[0],
+                "label": k[1],
+                "text": f"{PERSONA_MINIMAL} {o['profile']}",
+                "profile": o["profile"],
+                "n_words": exc[k][1],
+                "n_windows": exc[k][2],
+                "n_windows_used": exc[k][3],
+                "max_ngram_overlap": int(o["overlap"]),
+                "spec": self.spec,
+                "llm_name": llm_name,
+            }
+            for k, o in zip(keys, outs)
+            if o["profile"] is not None
+        ]
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+        lens = [len(r["profile"].split()) for r in rows]
+        summary = {
+            "prompt_set": self.prompt_set,
+            "spec_digest": self.spec_digest,
+            "keys": len(keys),
+            "failed": len(failed),
+            "profile_words_median": float(np.median(lens)) if lens else None,
+            "profile_words_p90": float(np.percentile(lens, 90)) if lens else None,
+            "examples": [r["text"] for r in rows[:5]],
+        }
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(f"[profiles] {summary}", flush=True)
+
+
+def profile_prompt_lists(row: dict, episode_id: str, profiles: dict, levels: tuple) -> tuple:
+    """``(context, context_other)`` of one attached row with every non-minimal level replaced by the speaker's
+    profile: ``PERSONA_MINIMAL`` for ``minimal``, ``profiles[(episode, voice label)]`` otherwise; ``None`` for a
+    side whose profile is missing (the other side only when ``other_ok``)."""
+    a = profiles.get((episode_id, row["voice_label"]))
+    ctx = None if a is None else [PERSONA_MINIMAL if lv == "minimal" else a for lv in levels]
+    oth = []
+    if row.get("other_ok"):
+        b = profiles.get((episode_id, row["voice_label_other"]))
+        oth = None if b is None else [PERSONA_MINIMAL if lv == "minimal" else b for lv in levels]
+    return ctx, oth
+
+
+class AttachPersonaProfiles(Job):
+    """An ``AttachPersonaPrompts(per_read=True, with_other_side=True)`` dataset with ONLY its prompt lists
+    replaced: ``context`` / ``context_other`` become ``levels`` (``minimal`` = ``PERSONA_MINIMAL``, any other name =
+    that side's ``PersonaProfileGen`` profile, keyed by the row's episode (from ``context_data``) + its voice
+    label). Codes, alignments, voices, other side, row order: unchanged. The loader draws one list element
+    uniformly per read, so ``("profile", "minimal", "profile")`` keeps p3's mix (``general, minimal, topic``,
+    sorted by name) of 1/3 minimal and 2/3 an LLM prompt AT THE SAME LIST POSITIONS: with the same rows the
+    loader's random stream is unchanged, so every read that drew the minimal prompt in ab_epad1 draws it here
+    too, and every read that drew general/topic gets the profile (ablation ``ab_epad1_persona``).
+
+    ``keep_all_rows=False`` (training): a row without its assistant profile is dropped, an ``other_ok`` row
+    without the other side's profile becomes unswappable; counted, > ``max_drop_frac`` is an error.
+    ``keep_all_rows=True`` (self-play inputs, which pick rows by index among ``other_ok``): every row stays; an
+    ``other_ok`` row missing either profile is an error, a row that is not ``other_ok`` and lacks its profile
+    keeps ``PERSONA_MINIMAL`` in the profile slots (never picked by self-play; counted).
+    """
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        context_data: tk.Path,
+        profiles: tk.Path,
+        prompt_set: str,
+        levels: tuple = ("profile", "minimal", "profile"),
+        keep_all_rows: bool = False,
+        max_drop_frac: float = 0.05,
+    ):
+        assert levels and "minimal" in levels and any(lv != "minimal" for lv in levels), levels
+        self.data = data
+        self.context_data = context_data
+        self.profiles = profiles
+        self.prompt_set = prompt_set
+        self.levels = tuple(levels)
+        self.keep_all_rows = bool(keep_all_rows)
+        self.max_drop_frac = float(max_drop_frac)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 4, "mem": 24, "time": 2})
+
+    def run(self):
+        from datasets import Dataset, load_from_disk
+
+        ep_of = dict(
+            zip(
+                *[
+                    load_from_disk(self.context_data.get_path()).select_columns(["id", "episode_id"])[c]
+                    for c in ("id", "episode_id")
+                ]
+            )
+        )
+        profiles = {(r["episode_id"], r["label"]): r["text"] for r in load_from_disk(self.profiles.get_path())}
+        src = load_from_disk(self.data.get_path())
+        assert "context_other" in src.column_names, "needs an AttachPersonaPrompts(with_other_side=True) dataset"
+        levels = list(self.levels)
+        n = {"in": 0, "out": 0, "noprofile": 0, "other_noprofile": 0, "kept_minimal": 0}
+
+        def rows():
+            for r in src:
+                n["in"] += 1
+                ctx, oth = profile_prompt_lists(r, ep_of[r["id"]], profiles, self.levels)
+                if oth is None:
+                    if self.keep_all_rows:
+                        raise RuntimeError(f"{r['id']}: other_ok row without the other side's profile")
+                    n["other_noprofile"] += 1
+                    r = {
+                        **r,
+                        "other_ok": False,
+                        "voice_codes_other": [],
+                        "voice_n_frames_other": 0,
+                        "alignments_other": [],
+                    }
+                    oth = []
+                if ctx is None:
+                    if not self.keep_all_rows:
+                        n["noprofile"] += 1
+                        continue
+                    if r["other_ok"]:
+                        raise RuntimeError(f"{r['id']}: other_ok row without its assistant profile")
+                    n["kept_minimal"] += 1
+                    ctx = [PERSONA_MINIMAL for _ in levels]
+                n["out"] += 1
+                yield {
+                    **r,
+                    "context": ctx,
+                    "context_level": levels,
+                    "context_set": self.prompt_set,
+                    "context_other": oth,
+                }
+
+        out = Dataset.from_generator(rows, features=src.features, cache_dir=os.path.abspath("hf_gen_cache"))
+        print(f"[attach-profiles] {n}; levels {levels}", flush=True)
+        for k in ("noprofile", "other_noprofile"):
+            if n[k] > self.max_drop_frac * n["in"]:
+                raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
+        out.save_to_disk(self.out_dir.get_path())
+        json.dump(
+            {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
+        )
