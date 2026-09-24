@@ -12,9 +12,12 @@ next_step phase file"; new analyses are allowed, including GPU). Nothing here is
 - Live dependency in `SAE_4A_lexlat_v2.md`: the stage-2 key arms (pack G0Vzzokj5PQC) feed AN-5.
 
 NEXT:
-1. AN-0 pre-check (about 1 GPU-minute): implementer, then code review, then executor through gpupack.
-2. On AN-0's read: AN-1 (login node) and the AN-2/3/4 gpupack forwards as re-scoped by AN-0; AN-5 when stage 2
-   finishes.
+1. AN-0 pre-check under Amendment R1 (lambda grid 1/2/4.4/10, plain and rate-neutral forms, gold-row guard,
+   restore statistic; made at the launch review, before any result): implementer re-build
+   (`reports/impl_rename_an0_r1_2026-09-25.md`), then a bounded re-review, then executor through gpupack.
+2. AN-1 ran (login node); its read waits on the audit `reports/audit_rename_an1_2026-09-25.md`. AN-2/AN-4 are
+   built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
+   AN-3 as re-scoped by AN-0; AN-5 when stage 2 finishes.
 3. After the reads are audited, bring the decision table's proposal to the user.
 
 ## Objective
@@ -86,11 +89,35 @@ argmax_s m(u|s) pi(s) with pi the expected symbol frame share from the same E-st
 frame agreement with the gold key, weighted by train unit counts as in A20 (decode PER cannot see renaming, E15).
 Constants: 0.01 is A7's floor; 0.05 is 5 x A7's floor.
 
-- **AN-0 (GPU, about 1 minute; label-using) Pre-check for AN-3.** The gold-key phi under the 5-pair derangement,
-  seed 1; one E-step on 300 fixed train utterances at lambda in {1, 10} (A12's smoothing, 0.9 table + 0.1
-  uniform), one closed-form M-step, table discarded; rho as in AN-3. If rho < 0.05 at lambda = 10, no LM-weighted
-  E-step moves a whole symbol even in a right context: TP-A1's mechanism is dead, AN-3's grid is dropped, and the
-  pack runs AN-2 and AN-4 only. Otherwise AN-3 runs as below.
+**Amendment R1 (2026-09-25, at the AN-0 launch review `reports/review_rename_an0_launch_2026-09-25.md`, before
+any AN-0, AN-2 or AN-3 result).** The reviewer's 24-utterance probe on the undeployed gold-key phi (not a
+registered row) showed that `prior_weight` scales the per-token prior cost and so acts as a token penalty:
+expected tokens per frame 0.236 / 0.215 / 0.159 / 0.067 and gold identity after one step 0.980 / 0.973 / 0.955 /
+0.518 at lambda 1 / 2 / 4.4 / 10. A read at lambda = 10 is therefore decided by segmentation collapse, not by
+names, and the plain P_LM^lambda form confounds names with rate in AN-2 and AN-3 as well. Amended:
+- Two lambda forms everywhere lambda appears: *plain* (P_LM^lambda) and *rate-neutral* (P_LM^lambda times
+  exp((lambda - 1) H_LM) per token, i.e. the LM log-probability scaled about its mean; H_LM is the frozen trigram's
+  mean per-token log-loss on its own uniform-window text, text-only and label-free, printed by the job). This is
+  the ASR convention of an LM scale paired with an insertion term. It is built by modifying the prior table passed
+  to the lattice, not the lattice code.
+- Gold-row guard: each (lambda, form) of AN-0 and AN-3 also runs the undeployed gold-key phi through the same step.
+  The (lambda, form) is VALID only if the gold row's key identity after the step is at least 0.95 (a step that
+  damages right names by more than the 0.05 restoring bar cannot show restoration). Tokens per frame and SIL share
+  are printed for every row.
+- Primary AN-0/AN-3 statistic: restore = the train-unit-weighted frame share whose key moves from a wrong name to
+  its correct name. rho (net identity change) and many-to-one are reported beside.
+- Gold-key derangements draw only from non-SIL symbols that hold units in the gold key (OY and ZH hold none; a swap
+  onto an empty uniform row is not a rename).
+- S_1 before and after a step use the same smoothing.
+
+- **AN-0 (GPU, a few minutes; label-using) Pre-check for AN-3.** The gold-key phi under the 5-pair derangement,
+  seed 1; one E-step on 300 fixed train utterances at lambda in {1, 2, 4.4, 10} in both forms (A12's smoothing,
+  0.9 table + 0.1 uniform), one closed-form M-step, table discarded; restore, rho and the gold-row guard as in
+  R1. **AN-0 OPEN** if restore >= 0.05 at some VALID (lambda <= 4.4, either form); **AN-0 DEAD** if restore < 0.05
+  at every VALID lambda in {2, 4.4} and at least one of them is VALID: no LM-weighted E-step moves a whole symbol
+  even in a right context, TP-A1's mechanism is dead, AN-3's grid is dropped, and AN-2 and AN-4 run alone;
+  **AN-0 CANNOT TELL** if neither 2 nor 4.4 is VALID in either form (then TP-A1 is not dropped on AN-0 and AN-3
+  runs with the guard). lambda = 10 is reported only.
 - **AN-1 (CPU, key level) Objective screen.** J variants on all stage-1 finals, the A20 (a)/(b)/(c) keys, gold,
   K30/K70/K100, and 3 random non-SIL derangements of each selected key's (a) names:
   - V1: emission without d_min absorption (on the unabsorbed symbol string).
@@ -119,18 +146,21 @@ Constants: 0.01 is A7's floor; 0.05 is 5 x A7's floor.
     **S NAME-BLIND ON FOUND PARTITIONS** if S_1(b) lies inside the random-rename band on at least 3 of 4; else MIXED.
   - The basin's lead at lambda = min over the six finals minus max over the durinit basin set. **LAMBDA KEEPS THE
     BASIN** if the lead is positive at every lambda in the grid; **LAMBDA FAVOURS FINALS** if it shrinks
-    monotonically with lambda and turns negative by 10.
+    monotonically with lambda and turns negative by 10. Read on the rate-neutral form (R1); the plain form is
+    reported beside, since its token penalty favours the lower-rate phis whatever their names.
 - **AN-3 (GPU E-steps plus CPU M-step; label-using) Does the EM operator restore names?** From each deranged
   gold-key phi and each stage-1 key phi (a): one exact E-step (`blankfree_emtable.e_step_batch`, 1,000 fixed train
   utterances, tau = 1, A12's smoothing, lambda in {1, 2, 4.4, 10}), one closed-form M-step to a type-level table,
   then discard. Measure rho (the change in key identity), the change in many-to-one agreement, and S_1 after the
   step. Readings on the 5-pair derangements (3 seeds); the full derangements are the many-wrong-names bound; the
   1-pair rows and stage-1 keys are reported beside:
-  - **LOCKED AT 1** if rho < 0.01 at lambda = 1 on all 3 seeds.
-  - **LAMBDA OPENS at L** if rho >= 0.05 on all 3 seeds at lambda = L with many-to-one falling by at most 0.05.
-    Opening only at 10 is reported and brings no proposal (no label-free lambda0 above 4.4).
-  - **MANY-WRONG LOCKED** if rho < 0.05 at every lambda on the full derangements (then no lambda helps the stage-2
-    regime).
+  - Both lambda forms and the gold-row guard of R1; only VALID (lambda, form) cells are read.
+  - **LOCKED AT 1** if restore < 0.01 at lambda = 1 on all 3 seeds.
+  - **LAMBDA OPENS at L (form)** if restore >= 0.05 on all 3 seeds at lambda = L in that form with many-to-one
+    falling by at most 0.05. Opening only at 10 is reported and brings no proposal (no label-free lambda0 above
+    4.4).
+  - **MANY-WRONG LOCKED** if restore < 0.05 at every VALID cell on the full derangements (then no lambda helps the
+    stage-2 regime).
 - **AN-4 (GPU forwards; label-free statistics, PER reported) Term anatomy of S.** Per utterance on the 260 set:
   E_q[log P_LM] per frame as -dS_lambda/dlambda by a symmetric difference at lambda = 1 +/- 0.05, and per phone;
   E_q[log p_phi(x | y)] per frame from seg_post and the segment scores; H(q) per frame by subtraction from -S;
@@ -164,7 +194,9 @@ utterances (about 16 GPU-minutes); 1-2 GPU-h in all, limited by job count. AN-1 
   AN-5 reads PARTIAL or cannot separate partition from names.
 - **TP-A1 (label-free) LM-led E-step continuation.** The E-step's LM exponent (`prior_weight`) is 4.4 at the start
   and falls linearly to 1 over the first 12 iterations (Form 1) or sub-epochs (Form 2), then stays at 1; the final
-  objective is S unchanged. The duration term is not scaled: under durinit it carries no name information, and the
+  objective is S unchanged. The form (plain or rate-neutral, R1) is the one AN-0/AN-3 open in; with the plain form
+  the schedule also lowers the segment rate early (R1's probe: tokens per frame -33 % at 4.4), which the read must
+  report. The duration term is not scaled: under durinit it carries no name information, and the
   lever is the Knight/Yin P_LM^lambda form. lambda0 = 4.4 is A9's general-knowledge mean phone length in frames,
   from the frame-dependence argument (supervised ASR compensates dependent frames with an LM scale of about 16,
   Wegmann and Gillick 2010; cipher EM succeeds when the channel starts flat and the LM leads, Ravi and Knight 2008,
