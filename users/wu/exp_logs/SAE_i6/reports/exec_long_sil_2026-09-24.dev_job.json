@@ -1,0 +1,111 @@
+{
+ "cap_rec_frames": 17,
+ "band_W": 25,
+ "stride": 3,
+ "frame_s": 0.02,
+ "max_utts": null,
+ "results": {
+  "dev-clean": {
+   "post_vad": {
+    "utterances": 2703,
+    "utts_with_long_run": 9,
+    "share_utts_with_long_run": 0.003329633740288568,
+    "long_runs": 10,
+    "long_runs_by_kind": {
+     "leading": 1,
+     "internal": 7,
+     "trailing": 2,
+     "all": 0
+    },
+    "excess_rec_frames": 47,
+    "rec_frames_total": 278002,
+    "excess_share_of_rec_frames": 0.00016906353191703657,
+    "sil_rec_frames": 16617,
+    "max_run_rec_frames": 28,
+    "max_run_utt": "1919-142785-0025"
+   },
+   "pre_vad": {
+    "utterances": 2703,
+    "utts_with_long_run": 61,
+    "share_utts_with_long_run": 0.022567517573066964,
+    "long_runs": 67,
+    "long_runs_by_kind": {
+     "leading": 4,
+     "internal": 57,
+     "trailing": 6,
+     "all": 0
+    },
+    "excess_rec_frames": 293,
+    "rec_frames_total": 323593,
+    "excess_share_of_rec_frames": 0.0009054583999035826,
+    "sil_rec_frames": 56468,
+    "max_run_rec_frames": 41,
+    "max_run_utt": "1919-142785-0025"
+   },
+   "pre_vad_implementer_replication": {
+    "utts": 2703,
+    "utts_with_gap_gt_1s": 35,
+    "gaps_gt_1s": 39,
+    "gaps": 191118,
+    "max_gap_s": 1.5899999999999999,
+    "share_utts_with_gap_gt_1s": 0.012948575656677765
+   },
+   "utts_without_mfa": 0,
+   "utts_without_mfa_examples": [],
+   "vad_source": "/work/asr4/hwu/setups/u/hwu/setups/librispeech-960/2026-09-24-unsupervised/i6_experiments/users/wu/experiments/unsupervised_asr/data/vad/BlankfreeVadHdfJob.RLrgIh6lFv9m",
+   "mfa_dir": "/work/asr4/hwu/setups/u/hwu/setups/librispeech-960/2026-09-24-unsupervised/i6_experiments/users/wu/experiments/unsupervised_asr/data/hf_hub/DownloadHuggingFaceSnapshotJob.D3VATm9g18Ji/output/snapshot"
+  },
+  "dev-other": {
+   "post_vad": {
+    "utterances": 2864,
+    "utts_with_long_run": 35,
+    "share_utts_with_long_run": 0.012220670391061452,
+    "long_runs": 38,
+    "long_runs_by_kind": {
+     "leading": 11,
+     "internal": 23,
+     "trailing": 4,
+     "all": 0
+    },
+    "excess_rec_frames": 321,
+    "rec_frames_total": 261293,
+    "excess_share_of_rec_frames": 0.0012285059301244197,
+    "sil_rec_frames": 21392,
+    "max_run_rec_frames": 32,
+    "max_run_utt": "5543-27761-0002"
+   },
+   "pre_vad": {
+    "utterances": 2864,
+    "utts_with_long_run": 114,
+    "share_utts_with_long_run": 0.039804469273743016,
+    "long_runs": 137,
+    "long_runs_by_kind": {
+     "leading": 18,
+     "internal": 103,
+     "trailing": 15,
+     "all": 1
+    },
+    "excess_rec_frames": 859,
+    "rec_frames_total": 307624,
+    "excess_share_of_rec_frames": 0.0027923699061191583,
+    "sil_rec_frames": 63226,
+    "max_run_rec_frames": 54,
+    "max_run_utt": "7601-101619-0001"
+   },
+   "pre_vad_implementer_replication": {
+    "utts": 2864,
+    "utts_with_gap_gt_1s": 62,
+    "gaps_gt_1s": 76,
+    "gaps": 174687,
+    "max_gap_s": 2.1100000000000003,
+    "share_utts_with_gap_gt_1s": 0.02164804469273743
+   },
+   "utts_without_mfa": 0,
+   "utts_without_mfa_examples": [],
+   "vad_source": "/work/asr4/hwu/setups/u/hwu/setups/librispeech-960/2026-09-24-unsupervised/i6_experiments/users/wu/experiments/unsupervised_asr/data/vad/BlankfreeVadHdfJob.RLrgIh6lFv9m",
+   "mfa_dir": "/work/asr4/hwu/setups/u/hwu/setups/librispeech-960/2026-09-24-unsupervised/i6_experiments/users/wu/experiments/unsupervised_asr/data/hf_hub/DownloadHuggingFaceSnapshotJob.D3VATm9g18Ji/output/snapshot"
+  }
+ },
+ "notes": [],
+ "seconds": 3.6
+}
