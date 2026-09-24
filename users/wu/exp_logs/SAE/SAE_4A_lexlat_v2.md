@@ -4,15 +4,16 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): A18 (b) lift pack ZUZypSQn7qc0 RUNNING (SLURM 2001624); its 3 paired rows wait on it.
-- Finished graphs (23:08-23:30): em (A18 (a) bridge done, BridgeReadJob.v6SONiAZL7rH), keysearch_s1 (clean: failed 0, loop_error null; top 4 in `KeySearchSelectJob.g9wsznNnqmyO`, `reports/exec_keysearch_s1_finish_2026-09-24.md`).
+- 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
+- Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299). A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849). A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023). Stage 1: all finals beat gold on J (selected -4.55 against -4.818) through the name-free emission term; clusters with wrong names (identity 0.07-0.14), no better than random-start finals. A18 (a): LOWER, OBJECTIVE ONLY (PER 0.842, em_s13 genPER 0.857).
+Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. Next-step proposals: `SAE_4A_rename.md`.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 2 launch: BRIDGE_KEYARMS flip (`reports/impl_keyarms_bridge_flip_2026-09-24.md`), then code review, then keyarms manager. Keyarms must share no unfinished job with keyinit (ZUZypSQn7qc0). Launch under review (`reports/review_keyarms_launch_2026-09-24.md`). The A18 (c) hold rule is not in the graph: check it by hand when A18 (b) reads, before the key arms finish. A20 oracle-name J check: implementer.
-2. A18 (b): read when ZUZypSQn7qc0 finishes.
+1. A18 (b): read when ZUZypSQn7qc0 finishes. Then apply the A18 (c) hold rule at once, which the review's condition requires: if (b)'s gold-key arm reads NO LIFT and S_cand >= 3.19704 on the same tags, the implementer sets BRIDGE_KEYARMS False and the keyarms manager is restarted before the key arms finish. Re-enable only if S_cand < 3.19704.
+2. Owed report: A15-F measures on the key arms (review finding), registered as AN-5 in `SAE_4A_rename.md`.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
@@ -841,6 +842,26 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
   - J prefers these keys over gold through the name-free emission term. The name-dependent trigram term only ties gold.
 - Licensed: gold is not J's maximiser, and J's found optima are clusters with wrong names. Not licensed: that no near-gold key beats -4.55, since no search started from gold, r30 or K30; and nothing about stage-2 S or PER.
 - Stage 2 runs as registered (the agreement is label-using, report only). A20 asks whether J's trigram term rewards the right names on these partitions.
+
+### A20 read (2026-09-24): NAME-BLIND by the registered rule; J penalises the gold-matching names on the found partitions (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `KeyOracleNameReadJob.QD3S2xcmg0Wt` (login node, 70 s; code 6e6156ca after registration 59121ec0a). Extraction: `reports/extract_a20_oracle_names_2026-09-24.md`. Audit: `reports/audit_a20_oracle_names_2026-09-24.md` (independent J implementation; every row matched to 5 decimals; the in-job same-scale check gives |dJ| = 0 on 22 keys).
+- Held-out J (260 set, 137,933 frames, nats per frame):
+
+  | key | J(a) found | J(b) oracle 1:1 | J(b)-J(a) | J(c)-J(a) | identity (a) / (b) / m2o |
+  |---|---|---|---|---|---|
+  | selected_1 | -4.5525 | -5.1258 | -0.573 | -0.577 | 0.114 / 0.465 / 0.564 |
+  | selected_2 | -4.5647 | -5.0006 | -0.436 | -0.474 | 0.143 / 0.473 / 0.579 |
+  | selected_3 | -4.5671 | -4.9889 | -0.422 | -0.574 | 0.124 / 0.394 / 0.489 |
+  | selected_4 | -4.5755 | -5.0104 | -0.435 | -0.489 | 0.065 / 0.428 / 0.515 |
+  | gold | -4.8180 | | | | |
+
+  - J(b)-J(a) sits entirely in the trigram term; emission, duration, absorption and the partition are unchanged (SIL maps to SIL in all four). The A10/A11 argmax finals (7 rows, one more than registered; report only) give -0.39 to -0.62.
+  - Found keys fit the trigram better than gold at a matched rate: lm -0.948 at 9.20 Hz against gold's -0.990 at 9.47 Hz.
+- Verdict: 0 of 4 above 0.01, so **NAME-BLIND** as registered. Every difference is at least 0.42 below the margin.
+- Correction (audit): the registered gloss "the trigram term does not reward the right names" is wrong in direction. The trigram term *penalises* the gold-matching 1:1 names on these partitions by 0.42-0.57, and on the gold partition it penalises scrambled names by 0.69-1.09 (unregistered control), so it does see names. The found keys are swap-optimal (the final sweep over all 780 name pairs moved nothing), and a label-free name-swap climb from (b) moves away from gold (identity 0.39-0.47 to 0.13-0.26).
+- Why no 1:1 naming is near right (audit): 10-15 gold phones each hold 2-4 symbols, 14-18 phones are no symbol's majority (B, CH, G, JH, M, OY, P, TH, UH, ZH in all four), and after (b) 15-22 symbols holding 25-47 % of frames carry leftover names.
+- Unregistered (audit, train side): the emission term's 0.20-0.23 margin over gold splits into 0.10-0.17 from less d_min absorption (relabelled frames 9.3-10.6 % against gold's 13.6 %) and 0.06-0.10 from higher symbol entropy; H(S)-H(U) alone separates found keys from gold by only 0.03-0.07.
+- Licensed: a rename step under J would not help, because J ranks the right names lower. At key level the objective, not the search, rejects gold-agreeing names, and the name-free emission term (mostly absorption) selects partitions that split and merge phones. Not licensed: that the cost work belongs to the name signal alone, since (b) cannot separate a name deficit from a partition deficit; and nothing about S or phi-level renaming (stage 2 and `SAE_4A_rename.md`).
 
 ### A18 (a) bridge read, G4a.L2.4 (2026-09-24): LOWER, OBJECTIVE ONLY (audited CONFIRMED_WITH_CORRECTIONS)
 - Source: pack `PackedBlankfreeTrainJob.63nbj6Jgiegj` (SLURM 1998206; 4 arms, kept 1/2/4/8, no NaN) and `BridgeReadJob.v6SONiAZL7rH`. cold_ctl is `UdhhxiGIMBob`, which has the same config and code as dec_joint apart from `reverse_checkpoint_path`. Extraction: `reports/extract_a18a_bridge_read_2026-09-24.md`. Audit: `reports/audit_a18a_bridge_read_2026-09-24.md`.
