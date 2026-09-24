@@ -3,13 +3,16 @@
 The server keeps ONE model loaded and serves conversation after conversation. PersonaPlex's LM is
 streaming-detached from its LMGen, so a reset that does not reach it silently continues the previous
 conversation's KV cache and positions (the 2026-08-01 -> 09-22 reset bug, check_ppx_reset.py).
-This drives the server's own session code, ``live_server.LiveCore.begin`` + ``step_codes``, on a
+This drives the server's own session code, ``live_server.LiveCore.begin_sync`` (what the server runs on
+its model thread since 2026-09-24) + ``step_codes``, on a
 tiny random PersonaPlex LM (real LMModel + LMGen, greedy, float64):
 
   1. SECOND SESSION == FRESH. Session 1 (prompt A, 30 frames of codes), then session 2 (prompt B, other
      codes) on the same core must equal session 2 on a freshly built core, token for token.
   2. THE PROMPT IS IN. Two sessions with different role prompts and the same input differ.
-  3. CAN FAIL. A core whose ``begin`` skips ``lm_gen.reset_streaming()`` must violate check 1.
+  3. CAN FAIL. A core whose ``begin_sync`` skips ``lm_gen.reset_streaming()`` must violate check 1.
+  4. SYNC == ASYNC. ``begin_sync`` (model thread, no disconnect check) gives the same session as the async
+     ``begin`` it duplicates.
 
 moshi_family venv, CPU, seconds (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && PYTHONPATH=recipe/speech_llm/full_duplex:recipe \
@@ -84,6 +87,12 @@ class _NoResetCore(LiveCore):
         self.lm_gen.text_prompt_tokens = encode_system_prompt(self.text_tokenizer, text_prompt)
         await self.lm_gen.step_system_prompts_async(self.mimi, is_alive=is_alive)
 
+    def begin_sync(self, voice, text_prompt):
+        from moshi_family.personaplex.components import encode_system_prompt
+
+        self.lm_gen.text_prompt_tokens = encode_system_prompt(self.text_tokenizer, text_prompt)
+        self.lm_gen.step_system_prompts(self.mimi)
+
 
 def make_core(cls=LiveCore):
     g = LMGen(
@@ -102,9 +111,12 @@ def codes(seed, n=30):
     return torch.as_tensor(np.random.default_rng(seed).integers(0, 2048, size=(1, 8, n)))
 
 
-def session(core, prompt, seed):
+def session(core, prompt, seed, use_async=False):
     with contextlib.redirect_stdout(open(os.devnull, "w")):
-        asyncio.run(core.begin(None, prompt))
+        if use_async:
+            asyncio.run(core.begin(None, prompt))
+        else:
+            core.begin_sync(None, prompt)
         out = core.step_codes(codes(seed))
     return torch.cat(out, dim=-1).numpy()
 
@@ -129,6 +141,15 @@ def main():
 
     assert not second_equals_fresh(_NoResetCore), "check 1 cannot fail: it passes without the reset"
     print("[ok] 3 without lm_gen.reset_streaming() check 1 fails (the guard can fail)")
+
+    core = make_core()
+    session(core, "You enjoy having a good conversation.", 1)
+    s = session(core, "You are a pirate.", 2)
+    core = make_core()
+    session(core, "You enjoy having a good conversation.", 1, use_async=True)
+    a = session(core, "You are a pirate.", 2, use_async=True)
+    assert np.array_equal(s, a), "begin_sync and begin give different sessions"
+    print("[ok] 4 begin_sync (the server's model-thread path) == the async begin, token for token")
     print("\nALL CHECKS PASSED")
 
 
