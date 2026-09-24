@@ -7,6 +7,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, Slurm 1989235-38/40/41, 1.06 h.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) as one four-GPU pack, 1989249, 11.5 h; A14 (ii) as one gpupack node, 1989248, 4 h.
 - 3741311 `config/sae_4a_lexlat_v2_phibattery.py`: A15, 25 forwards in gpupack 1989344/1989362, then 21 CPU battery jobs (`reports/exec_a15_launch_2026-09-24.md`).
+- 1705981 `config/sae_4a_lexlat_v2_phiemis.py`: A15-E (a1758b29), 21 maps in gpupack 1989528/1989530 (`reports/exec_a15e_launch_2026-09-24.md`).
 
 Launch record: `reports/exec_a14_wave_launch_2026-09-24.md`. The em_ext, ladder, decphi and D18 graphs are complete.
 
@@ -23,7 +24,7 @@ Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-onl
 BUILT: ladder; L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5); A13 (22602b90); wave and A14 (9974004e, tests af912d60; review `reports/review_a14_wave_launch_2026-09-24.md`); A15 (a6392d82, T3 89713d1a; `reports/impl_a15_phibattery_2026-09-24.md`), in launch review (`reports/review_a15_launch_2026-09-24.md`).
 
 NEXT:
-1. A15-E is being built (`reports/impl_a15e_phiemis_2026-09-24.md`); it needs a review, then its own manager. At the A15 wake, the executor checks the 1-slot routing of the battery jobs. Then the extractor, my analysis, an auditor, and the report to the user (their request: L2-1 against gold and r70 on text preference and raw accuracy).
+1. At the A15 and A15-E wakes, the executor checks the 1-slot routing of the battery jobs. Then the extractor, my analysis, an auditor, and the report to the user (their request: L2-1 against gold and r70 on text preference and raw accuracy).
 2. At the wave and A14 wakes, the executor checks. Also check that gpupack members get distinct CUDA_VISIBLE_DEVICES, and where the 53 CPU report jobs route (login expected).
 3. A11: the executor reads stage B at the em_table wake; G4a.L2.2 reads after the nulls.
 4. The A14 (i) read decides whether an EM phi lifts; A14 (ii) decides objective against search. Audit both before any direction change.
