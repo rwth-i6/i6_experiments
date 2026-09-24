@@ -18,7 +18,7 @@ Reads 2026-09-24 (Results):
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (in review). BUILDING: A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
+BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (review PASS; launch after 3023733 exits, expecting exactly 39 unfinished jobs). BUILDING: A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
 
 NEXT:
 1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
