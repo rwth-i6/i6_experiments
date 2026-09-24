@@ -2,60 +2,31 @@
 
 ## State
 
-Phase opened 2026-09-20 on the user's direction: every cold arm so far stopped at one epoch
-(4 sub-epochs, 228 updates); the hyperparameter audit (`SAE_4A_attrib.md`, "Hyperparameter
-review") read that budget as a claim-scoping defect. This phase funds 50 and 100 sub-epochs with a
-learning-rate and temperature schedule for three arms: the lattice-prior bed alone (control),
-lattice prior + back-translation auxiliary (jointly trained), and coverage term + lattice prior.
-Built and reviewed 2026-09-20 (commits 75c41af schedule knobs + config, e2b3f59 pack job, 83bd84c
-BT port on the blank-free topology; reviews `reports/sae_budget_review2_2026-09-20.md`,
-`sae_budget_pack_review_2026-09-20.md`, `sae_budget_bt_review_2026-09-20.md`, all PASS or
-PASS_WITH_CONCERNS; design review APPROVE_WITH_AMENDMENTS, amendments applied below).
-**Node A RUNNING** since 2026-09-20 13:43: `PackedBlankfreeTrainJob.ks7CbtlvpcIL`
-(alias `sae/4a/budget_pack/node_a/training`, Slurm 1907749_1, node jpbo-008-46; arms ctrl_50,
-odmprior_50, ctrl_100, odmprior_100). **Node B RUNNING** since ~14:02: `.reEI2Nd0S77A`
-(Slurm 1908003_1, jpbo-015-35; bt_50, odmbt_50, bt_100, odmbt_100). **Node C RUNNING** since
-~14:02: `.4QzmftNlbErt` (Slurm 1908002_1, jpbo-015-24; nosched_ctrl_50/100, nosched_odmprior_50/100
-= constant LR, original 4-sub-epoch anneal held at 2: the schedule-vs-budget control, design review
-item 3). Wiring commit ea487f0 (`reports/sae_budget_wiring_2026-09-20.md`; 12 arms, paired
-PairedPerDeltaJob reads registered per kept epoch: each arm vs ctrl_N, nosched vs its scheduled twin,
-ctrl_N ep4 vs banked priorshuf ep4). One manager `sae_4a_budget_pack` pid 2945974
-(`log/sae_4a_budget_pack.manager.20260920T135909.log`), watcher
-`bash ~/.claude/skills/sis/sis_watch.sh 2945974 config/sae_4a_budget_pack.py 600` (re-arm first
-after any session resume). First 11.5 h kills expected 2026-09-21 ~01:14 (A) / ~01:33 (B, C); the
-100-arms resume then (first real test of the pack resume path: check each node's log.run.2 for
-"skipped" on the finished 50-arms and each 100-arm's start epoch). Do not edit the blank-free
-modules while nodes run (re-imported on resume). Job dirs:
-`work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.{ks7CbtlvpcIL,reEI2Nd0S77A,4QzmftNlbErt}`.
-**11.5 h wall, 2026-09-21 ~01:14–01:33 local (all three nodes TIMEOUT as expected).** The pack's
-resume path half-worked on its first real test: node A's auto-resubmit (Slurm 1921159) skipped the
-finished ctrl_50 / odmprior_50 correctly, then both 100-arms died in ~40 s resuming from epoch 067:
-RETURNN `Updater.load_optimizer` calls `torch.load` on `epoch.067.opt.pt`, and torch 2.7.1's
-`weights_only=True` default rejects the `functools.partial` inside the optimizer state
-(`reports/exec_budget_resume_2026-09-21.md`). Fixed in the local RETURNN checkout
-`recipe/returnn/returnn/torch/updater.py:295` (`weights_only=False`, uncommitted, hash-neutral;
-verified on the real epoch.067.opt.pt with the arm's env, `reports/impl_returnn_opt_load_fix_2026-09-21.md`).
-Node A's error marker + submit_log cleared; the manager resubmitted it as Slurm 1921418
-(`reports/exec_budget_resume2_2026-09-21.md`). Nodes B (1921334) and C (1921332) never errored
-(their resubmits had not started) and load the patched module on start. All three resubmits are
-PENDING "ReqNodeNotAvail, Reserved for maintenance"; the 50-arms (ctrl_50, odmprior_50 on A; B/C
-unknown until their logs) are finished on disk and their reads can run. The 100-arms lose the
-maintenance wait, not progress. Watcher re-armed on 2945974 (same command as above).
-**The six N = 50 arms are READ (Results, "G4a.4 read of the six N = 50 arms"): FAIL for all,
-PER 0.889–0.905 at ep50, no treatment or schedule effect beyond 0.016.** Open: the six N = 100 arms
-(pending resume behind the maintenance reservation), read at ep100 as pre-registered.
-**KILLED by the user 2026-09-21** ("Kill the 100ep trainings, they are not progressing";
-`reports/exec_pause_lexlat_kill_budget_2026-09-21.md`): the three pending resubmits were cancelled
-(node A `PackedBlankfreeTrainJob.ks7CbtlvpcIL` Slurm 1921418, ctrl_100 / odmprior_100 at epoch
-067; node B `.reEI2Nd0S77A` Slurm 1921334, bt_100 at 066 / odmbt_100 at 065; node C `.4QzmftNlbErt`
-Slurm 1921332, nosched_ctrl_100 / nosched_odmprior_100 at 067) and manager 2945974 stopped. On
-the user's second order the six *_100 arm subtrees (work/ and output/ inside the three packed job
-dirs) were deleted (`reports/exec_delete_budget_n100_2026-09-21.md`, about 0.46 GB); the six *_50
-arm subtrees are kept intact (epochs 1 / 4 / 10 / 25 / 50; ctrl_50 ep1 / 4 / 10 are frozen inputs of
-the prior-phase probes and the lexlat census), no setup-level output symlink pointed into the
-deleted trees. The N = 100 arms are never read at ep100; the phase's result is the
-N = 50 read (FAIL, all six arms) plus the N = 20 decision recorded in `SAE_4A_prepro.md`. Nothing
-of this phase is live. CLOSED.
+**CLOSED 2026-09-21; nothing of this phase is live.** Opened 2026-09-20 on the user's direction
+(every cold arm had stopped at one epoch, 4 sub-epochs, 228 updates; `SAE_4A_attrib.md`
+"Hyperparameter review" read that budget as a claim-scoping defect) to fund 50 and 100 sub-epochs
+with a learning-rate and temperature schedule (Design).
+
+Build: commits 75c41af (schedule knobs + config), e2b3f59 (pack job), 83bd84c (BT port on the
+blank-free topology), ea487f0 (wiring, 12 arms, paired reads; `reports/sae_budget_wiring_2026-09-20.md`);
+reviews `reports/sae_budget_review2_2026-09-20.md`, `sae_budget_pack_review_2026-09-20.md`,
+`sae_budget_bt_review_2026-09-20.md` (PASS or PASS_WITH_CONCERNS).
+
+Runs, job dirs `work/speech_llm/sae/emc/blankfree_pack_jobs/PackedBlankfreeTrainJob.{ks7CbtlvpcIL,reEI2Nd0S77A,4QzmftNlbErt}`:
+- node A `.ks7CbtlvpcIL` (alias `sae/4a/budget_pack/node_a/training`): ctrl_50, odmprior_50,
+  ctrl_100, odmprior_100; last Slurm 1921418 (cancelled).
+- node B `.reEI2Nd0S77A`: bt_50, odmbt_50, bt_100, odmbt_100; last Slurm 1921334 (cancelled).
+- node C `.4QzmftNlbErt`: nosched_ctrl_50/100, nosched_odmprior_50/100 (constant LR, original
+  4-sub-epoch anneal held at 2; design review item 3); last Slurm 1921332 (cancelled).
+Manager `sae_4a_budget_pack` pid 2945974 (`log/sae_4a_budget_pack.manager.20260920T135909.log`)
+stopped; its watcher is not to be re-armed.
+
+Outcome: the six N = 50 arms are read, FAIL (Results). The six N = 100 arms were killed by the user
+and are never read at ep100 (Results, amendment). Their subtrees are deleted
+(`reports/exec_delete_budget_n100_2026-09-21.md`); the six *_50 subtrees are kept (epochs 1 / 4 /
+10 / 25 / 50) because ctrl_50 ep1 / 4 / 10 are frozen inputs of the prior-phase probes and the
+lexlat census. The phase result is the N = 50 FAIL plus the N = 20 decision (Results;
+`SAE_4A_prepro.md`).
 NEXT: nothing. The owed ep1 wall time per arm can be read off the kept learning_rates files if a
 cost comparison is ever needed.
 
@@ -184,6 +155,11 @@ schedule is not what holds the arms in the band and the design-review item 3 que
 nothing here is schedule-bound. The N = 100 arms (resuming after the maintenance window, Design)
 remain pre-registered and are read at ep100 as written; their ep25 rows (interim table below)
 already sit in the same band. Not audited (FAIL by a wide margin; the PASS-audit rule does not apply).
+
+[Amended 2026-09-21: the N = 100 arms were killed by the user before their resume ran ("Kill the
+100ep trainings, they are not progressing"; `reports/exec_pause_lexlat_kill_budget_2026-09-21.md`),
+at epoch 067 (ctrl_100, odmprior_100, nosched_ctrl_100, nosched_odmprior_100), 066 (bt_100) and 065
+(odmbt_100). They are never read at ep100; their training objective past ep50 is read below.]
 
 ### Interim kept-checkpoint reads (2026-09-20 19:30, arms at sub-epoch 30-33; gate reads at the final sub-epoch only)
 

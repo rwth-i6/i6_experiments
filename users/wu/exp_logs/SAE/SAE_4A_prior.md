@@ -3,100 +3,24 @@
 ## State
 
 Phase opened 2026-09-20 on the user's approval, replacing the context-dependent reverse model
-(`SAE_4A_cdrev.md`, deferred without limit). Every job of this phase is FINISHED and read; no
-manager or watcher of this phase is live. No training arm of this phase ran.
-- Step 0 (prior-gap diagnostic, `PriorGapAnalysisJob.2RkbKYl0v1XK`): read and audited CONFIRMED
-  (Results, Step 0; conventions in Design). Word-UNIGRAM row deferred (needs a prior_gap.py edit;
-  not on any path).
-- Step 0b (does a neural phone LM learn the lexicon?): CLOSED 2026-09-21 on its third clause.
-  First pass, rerun (a) 3.3 M / (b) 10.9 M on the 1 M-line window, and instance (c) 25.5 M on
-  10.09 M lines (`NeuralPhoneLmTrainJobV2.vkNGAOeLgNsy`, `PriorGapAnalysisJob.OO0iAEVLKgOO`) all
-  land between the 4-gram (1.666) and the bar (2.01): gaps 1.71 / 1.861 / 1.849 / 1.809, none
-  tracks the lexicon on the strict subset (Results, "Rerun result"). No phone LM trained on this
-  text is the scorer; the exact lexicon must be made batchable.
-- Training arm (Design "Training arm", G4a.7, design review A1–A5 applied): score-function arm NOT
-  funded by falsifier (ii) (r(gold) > max_g in 100 / 100 / 97 % at ep1 / 4 / 10, rule >= 95 %;
-  audited CONFIRMED, `reports/audit_sf_probe_2026-09-21.md`); soft arm not funded (scorer is a
-  partial proxy, Step 0b closed). G4a.7 unread.
-- Banked for the successor: lexicon-scorer survey (`reports/survey_lexicon_scorer_2026-09-20.md`:
-  exact Viterbi, 23–38 live states/position, trie 151,731 words, ~0.1 s/utt pure Python) and
-  literature (`reports/lit_lexicon_in_objective_2026-09-21.md`: precedent only at grapheme level with
-  curriculum, exact FB intractable above ~200 word types; constraints: lexicon on late, declared
-  pruning budget, per-frame normalisation + anti-deletion guard, frequency-stratified read,
-  shuffled-pronunciation null). User directive 2026-09-20 (`SAE.md`) item 3 is met in its negative
-  branch: the phone LM was trained to the data-and-capacity limit and does not reach the gate.
-- REOPENED 2026-09-21 by user ruling (section "Training arm, reopened by user ruling"): the 3.3 M
-  neural phone LM, instance (a), is the approved scorer; the soft (straight-through) arm is funded
-  at N = 20 (four arms: soft_20, soft_20_s1, soft_20_r03, softshuf_20 against the frozen prepro
-  ctrl_20 / ctrl_20_s1). The lexlat successor is PAUSED by the user after its E1 cost failure
-  (`SAE_4A_lexlat.md`). Build round 1 in progress (implementer; report
-  `reports/impl_soft_arm_r1_2026-09-21.md`). No job of the reopened arm has run.
-  Round 1 built (speech-llm f99f9f6: `sae/emc/soft_scorer.py`, `soft_scorer_jobs.py`
-  (`SoftLamProbeJob.wAJQ26T7iZzX`), default-off `soft_*` block in the model definition and train
-  step, `configs/config_sae_4a_soft_pack_v1.py` + shims `config/sae_4a_soft_{probe,pack}.py`,
-  22 tests; census unchanged; the pack hash does not exist until LAM_01 / LAM_03 are filled from
-  the probe). Scorer resolved on disk to `NeuralPhoneLmTrainJob.xObXEwRpvmzd` selected epoch 10
-  (ppl 5.0906, 3.31 M params), the checkpoint `PriorGapAnalysisJob.5wNIQs2lpC5P` scored; the
-  spec's "V2" class name above was wrong (that job is the 25.5 M instance (c)). Code review
-  PASS_WITH_CONCERNS (`reports/review_soft_arm_r1_2026-09-21.md`): scorer, reward conventions
-  (unigram = the bed's own prior file, SIL dropped, > 512 masked, BOS/no-EOS as prior_gap),
-  straight-through gradient path, sign, default-off plumbing, four arms and pairings, labels all
-  confirmed; two reading notes adopted here: (i) the null arm permutes BOTH halves of the reward
-  (scorer and unigram), so r_null(y) = r(sigma^-1 y) keeps the reward's statistics, and
-  softshuf_20's `soft_reward_mean` is a different statistic from the real arms' and is never read
-  in the same column; (ii) the "−0.67 → +0.95" band is the dev-other greedy statistic of Step 0b,
-  while the monitor is on the tempered max-plus TRAIN string: direction only, the like-for-like
-  read is the prior-gap rerun. **Probe launch FAILED**: `SoftLamProbeJob.wAJQ26T7iZzX` (Slurm
-  1925281, manager 3986319 exited) died in the term's backward asking for 224.61 GiB
-  (`reports/exec_soft_probe_launch_2026-09-21.md`); an autograd blow-up in the new code, debugger
-  dispatched (`reports/debug_soft_probe_oom_2026-09-21.md`). Nothing of this arm is live.
-  OOM diagnosed (`reports/debug_soft_probe_oom_2026-09-21.md`: a gather over an expanded view of
-  the per-segment table, whose backward allocates the expanded [B, U_max, K·d_cap·(S+1)] float64
-  shape) and fixed value-identically in speech-llm 0474d7f (23 tests; backward peak 1.14× the
-  table on the GH200 against 65× before; probe hash unchanged); probe rerun FINISHED (Slurm 1925609,
-  77 s; Results "Soft-arm lam probe"): median gradient ratio 0.306148, **LAM_01 = 0.326639** fixed,
-  artefact gap 0.0138 nats/token (ceiling 0.3). User override (section end, 2026-09-21): sf_20
-  with G = 8 takes the fourth slot instead of soft_20_r03; implementer building round 2
-  (`sae/emc/sf_scorer.py`, `SfLamProbeJob`, pack config update; `reports/impl_sf_arm_r2_2026-09-21.md`).
-  sf round 2 BUILT (speech-llm ff4f005, DONE_WITH_CONCERNS): `sf_scorer.py` (G = 8 FFBS draws,
-  A1 reward via the soft-arm primitives, centred advantages, A4 Fisher path score on un-expanded
-  tables, A5 per frame), `SfLamProbeJob.OHrcN9pEuXni` (shim `config/sae_4a_sf_lam_probe.py`; the
-  older `sae_4a_sf_probe.py` is the finished falsifier graph), default-off `sf_*` block (soft / sf
-  mutually exclusive), 34 tests; census unchanged, `SoftLamProbeJob.wAJQ26T7iZzX` unmoved. Pack
-  config now carries LAM_01 = 0.326639 (LAM_03 = 0.979918 recorded, no arm), sf_20 in the fourth
-  slot, pairings sf_20 − ctrl_20 and sf_20 − soft_20, the disclosed read via SampledRewardProbeJob
-  with this scorer at ep10 / ep20; monitor `sf_reward_mean` is the decode string's value and
-  `sf_reward_mean_sample` the draws' mean. The pack hash exists only once LAM_SF_01 is filled.
-  Code review of round 2 DONE_WITH_CONCERNS (`reports/review_sf_arm_r2_2026-09-21.md`): sampler
-  is the banked `sample_blankfree_paths` at the step's own tau, seeded per (epoch, step); path
-  score equals the banked `path_score` with both gathers on un-expanded tables; reward detached,
-  advantages centred per utterance, per-frame divisor the same `retained` l_tau uses, sign
-  correct; reward primitives imported unedited and applied to the sampled strings; hashes
-  structurally unmovable (model files enter via `Import`); pairing orientation correct; probe
-  mirrors the soft probe. Adopted reading rule: `sf_reward_mean` scores the greedy-argmax collapse
-  while `soft_reward_mean` scores the max-plus string, so the two monitor columns are never read
-  side by side for the sf_20 − soft_20 contrast (the gate reads PER). Not checked by the review:
-  census counts re-derived, tests executed, GPU memory / time of the extra sampler pass (the
-  probe reads it). sf lam probe FINISHED (Slurm 1926336, manager 295756 exited; Results
-  "Sampled-arm lam probe"): median gradient ratio 2.20294, **LAM_SF_01 = 0.0453938** fixed; the
-  sampler explores at ep4 (8 / 8 distinct strings, within-group reward spread 9.7 nats against the
-  1.0 dead band), peak 23.6 GiB. Implementer filling the constant and reporting the pack hash
-  (`reports/impl_soft_pack_fill_2026-09-21.md`). Constant filled in speech-llm ecf846c; pack hash
-  **`PackedBlankfreeTrainJob.MXKoywbfon8O`** (196 jobs; slots sorted alphabetically sf_20 / soft_20
-  / soft_20_s1 / softshuf_20, GPU assignment only; census unchanged, both probes unmoved).
-  LIVE (`reports/exec_soft_pack_launch_2026-09-21.md`): pack manager pid 409858
-  (`log/sae_4a_soft_pack.manager.20260921T092744Z.log`, must stay alive for the 196-job graph),
-  Slurm 1926421 PENDING on a maintenance reservation, scheduled start 2026-09-21 17:00 UTC
-  (jpbo-078-23, exclusive 4 GPU, 11.5 h); watcher `bash ~/.claude/skills/sis/sis_watch.sh 409858
-  config/sae_4a_soft_pack.py 600` (re-armed 2026-09-21 as background id b5adkh067; re-arm first
-  after any resume). Pack RUNNING since 2026-09-21 15:06 UTC (`reports/extract_soft_pack_ep1_2026-09-21.md`):
-  all four arms past sub-epoch 4 by 16:08 UTC; wall seconds per sub-epoch sf_20 717 / soft_20 849 /
-  soft_20_s1 852 / softshuf_20 849 (1.19–1.42 x 601 s, all under the 2.00 bar, so sf_20 stays in
-  the pack); ep1 dev loss sf 1.517 / soft 1.430 / soft_s1 1.435 / softshuf 1.520; ep4 dev
-  reward_mean sf −0.510 / soft −0.451 / soft_s1 −0.408 / softshuf −1.799 (the shuffled null prices
-  its own strings far below the structured arms, as a destroyed-structure control should), retained
-  rate 10.2–10.9 Hz, tau 2.0, lam soft 0.327 / sf 0.0454; peak RSS 52 GB. ep1 posteriors dumped,
-  PER summaries not yet produced (decode / scoring jobs follow the forward).
+(`SAE_4A_cdrev.md`, deferred without limit). Active: the soft / sf pack of the reopened training arm (section "Training arm, reopened by user
+ruling"). Scorer: the approved 3.3 M instance (a), `NeuralPhoneLmTrainJob.xObXEwRpvmzd` selected
+epoch 10. Arms sf_20 / soft_20 / soft_20_s1 / softshuf_20 against the frozen prepro ctrl_20 /
+ctrl_20_s1; LAM_01 = 0.326639, LAM_SF_01 = 0.0453938 (Results, lam probes). Earlier steps are
+closed and read in Results: Step 0 audited CONFIRMED; Step 0b closed on its third clause
+(overturned for funding by the user ruling); falsifier (ii) stands as a prediction for sf_20. The
+lexlat successor is PAUSED by the user after its E1 cost failure (`SAE_4A_lexlat.md`); survey and
+literature for it are banked (Results, falsifier (ii)).
+
+Run pointer: pack hash **`PackedBlankfreeTrainJob.MXKoywbfon8O`** (196 jobs;
+`reports/exec_soft_pack_launch_2026-09-21.md`): pack manager pid 409858
+(`log/sae_4a_soft_pack.manager.20260921T092744Z.log`, must stay alive for the 196-job graph),
+Slurm 1926421 (jpbo-078-23, exclusive 4 GPU, 11.5 h); watcher `bash ~/.claude/skills/sis/sis_watch.sh 409858
+config/sae_4a_soft_pack.py 600` (re-armed 2026-09-21 as background id b5adkh067; re-arm first
+after any resume). The ep1 efficiency clause passed with all four arms kept (Results "Soft pack,
+ep1 read"); interim ep10 read: no arm beats its control (Results "Soft pack, interim read"). G4a.7
+unread. Open from the code reviews: census counts not re-derived, tests not executed by the
+reviewer (Training arm, reopened: "Build and review notes").
 NEXT: when the pack starts: executor reads step-1 loss per arm and sec per sub-epoch at ep1, check sec per sub-epoch at ep1 per arm against 2.00 × 601 s (sf_20 dropped from the
 pack rather than delaying it if it alone exceeds); reads at kept epochs 1 / 4 / 10 / 20 against
 G4a.7 with the paired margin rule; sf_20's UNINFORMATIVE read at ep10 / ep20.
@@ -506,6 +430,9 @@ with a phone-LM scorer is therefore not reconsidered; the score-function arm sta
 (falsifier (ii)). Not audited: the read is a mechanical comparison against a pre-registered
 threshold on a registered job's output; the direction it selects was pre-registered as the fallback.
 
+User directive 2026-09-20 (`SAE.md`) item 3 is met in its negative branch: the phone LM was
+trained to the data-and-capacity limit and does not reach the gate (moved from State).
+
 Bar recomputed from the run's own rows: 2.012 (pre-registered 2.01). Neither instance meets it;
 neither tracks the lexicon on the strict subset (tolerance 0.30). Reading against the pre-registered
 expectation: both now beat the 6-gram in perplexity (5.42) and the 6-gram in gap (1.62), but the gap
@@ -614,6 +541,10 @@ frequency-stratified word-error read, and a shuffled-pronunciation null (same tr
 pronunciations permuted across words) as the destroyed-structure control. Nobody has published the
 trigram-only vs trigram-plus-lexicon ablation in this setting.
 
+Lexicon-scorer survey for the successor (`reports/survey_lexicon_scorer_2026-09-20.md`): exact
+Viterbi, 23–38 live states per position, trie 151,731 words, about 0.1 s per utterance in pure
+Python.
+
 ## Training arm, reopened by user ruling (2026-09-21)
 
 User ruling 2026-09-21 (verbatim intent): "I approve the previous 3.3M transformer LM scoring,
@@ -682,6 +613,41 @@ per step: one extra DP pass (the checkpointed backward recomputation carries the
 at ep1 against the same 2.00 × 601 s stop rule as the soft arms; if sf_20 alone exceeds it, the
 pack runs without it rather than delaying the three soft arms.
 
+Build and review notes (moved from State). Round 1 (soft arm) built in speech-llm f99f9f6
+(`reports/impl_soft_arm_r1_2026-09-21.md`: `sae/emc/soft_scorer.py`, `soft_scorer_jobs.py`,
+default-off `soft_*` block, `configs/config_sae_4a_soft_pack_v1.py` + shims
+`config/sae_4a_soft_{probe,pack}.py`, 22 tests; census unchanged). **Scorer correction:** the scorer
+resolves on disk to `NeuralPhoneLmTrainJob.xObXEwRpvmzd` selected epoch 10 (ppl 5.0906, 3.31 M
+params), the checkpoint `PriorGapAnalysisJob.5wNIQs2lpC5P` scored; the spec's "V2" class name
+above is wrong (`NeuralPhoneLmTrainJobV2` is the 25.5 M instance (c)). Code review r1
+PASS_WITH_CONCERNS (`reports/review_soft_arm_r1_2026-09-21.md`) confirmed scorer, reward
+conventions (unigram = the bed's own prior file, SIL dropped, > 512 masked, BOS/no-EOS as
+prior_gap), straight-through gradient path, sign, default-off plumbing, arms, pairings and labels.
+Adopted reading rules: (i) the null arm permutes BOTH halves of the reward (scorer and unigram), so
+r_null(y) = r(sigma^-1 y) keeps the reward's statistics, and softshuf_20's `soft_reward_mean` is a
+different statistic from the real arms' and is never read in the same column; (ii) the
+"−0.67 → +0.95" band is the dev-other greedy statistic of Step 0b while the monitor is on the
+tempered max-plus TRAIN string: direction only, the like-for-like read is the prior-gap rerun.
+Round 2 (sf arm) built in speech-llm ff4f005 (`reports/impl_sf_arm_r2_2026-09-21.md`,
+DONE_WITH_CONCERNS: `sf_scorer.py`, G = 8 FFBS draws, A1 reward via the soft-arm primitives,
+centred advantages, A4 Fisher path score on un-expanded tables, A5 per frame;
+`SfLamProbeJob.OHrcN9pEuXni`, shim `config/sae_4a_sf_lam_probe.py` (the older
+`sae_4a_sf_probe.py` is the finished falsifier graph); default-off `sf_*` block, soft / sf mutually
+exclusive; 34 tests; census unchanged, `SoftLamProbeJob.wAJQ26T7iZzX` unmoved). Monitor
+`sf_reward_mean` is the decode string's value, `sf_reward_mean_sample` the draws' mean. Code review
+r2 DONE_WITH_CONCERNS (`reports/review_sf_arm_r2_2026-09-21.md`) confirmed the sampler (banked
+`sample_blankfree_paths` at the step's own tau, seeded per (epoch, step)), the path score (banked
+`path_score`, both gathers on un-expanded tables), detached reward, per-utterance centring, the
+same `retained` divisor as l_tau, sign, unedited reward primitives, structurally unmovable hashes
+and pairing orientation. Adopted reading rule: `sf_reward_mean` scores the greedy-argmax collapse
+while `soft_reward_mean` scores the max-plus string, so the two monitor columns are never read side
+by side for the sf_20 − soft_20 contrast (the gate reads PER). **Not checked by either review:**
+census counts re-derived, tests executed (GPU memory / time of the sampler pass was read by the
+probe). Constants filled in speech-llm ecf846c (`reports/impl_soft_pack_fill_2026-09-21.md`;
+LAM_03 = 0.979918 recorded, no arm): pack hash `PackedBlankfreeTrainJob.MXKoywbfon8O`, 196 jobs,
+slots sorted alphabetically sf_20 / soft_20 / soft_20_s1 / softshuf_20 (GPU assignment only),
+census unchanged, both probes unmoved.
+
 ### Soft-arm lam probe (`SoftLamProbeJob.wAJQ26T7iZzX`, FINISHED 2026-09-21, Slurm 1925609, 77 s; `output/summary.txt`, `probe.json`; `reports/exec_soft_probe_rerun_2026-09-21.md`)
 
 ctrl_20 ep4 seed 0 (`PackedBlankfreeTrainJob.5EIGJJ1MkcO9/output/ctrl_20/models/epoch.004.pt`), 3 batches at 88,000 padded frames / max_seqs 128, A5 per-frame convention.
@@ -696,6 +662,12 @@ ctrl_20 ep4 seed 0 (`PackedBlankfreeTrainJob.5EIGJJ1MkcO9/output/ctrl_20/models/
 | strings scored per batch / tokens per string | 121.3 / 134.6 |
 
 Read: the term's raw gradient is about 0.3 of l_tau's, so the 0.1× arm runs at lam 0.327; the straight-through artefact is 20× under its ceiling at the start. The first (OOM) attempt is recorded in State; the rerun is the same hash after a value-identical fix.
+
+First (OOM) attempt, moved from State: Slurm 1925281 died in the term's backward asking for
+224.61 GiB (`reports/exec_soft_probe_launch_2026-09-21.md`); cause a gather over an expanded view
+of the per-segment table, whose backward allocates the expanded [B, U_max, K·d_cap·(S+1)] float64
+shape (`reports/debug_soft_probe_oom_2026-09-21.md`); fixed value-identically in speech-llm 0474d7f
+(23 tests; backward peak 1.14× the table on the GH200 against 65× before; probe hash unchanged).
 
 ### Sampled-arm lam probe (`SfLamProbeJob.OHrcN9pEuXni`, FINISHED 2026-09-21, Slurm 1926336, 2 min 40 s; `output/summary.txt`; `reports/exec_sf_probe_launch_2026-09-21.md`)
 
@@ -720,6 +692,15 @@ arms run at the same 0.1× target. The sampler explores at ep4: eight distinct s
 utterance and a within-group reward spread of 9.7 nats, far above the dead band, so the
 "sampler does not explore" UNINFORMATIVE clause is not triggered at the start. Memory 23.6 GiB
 against the 96 GiB device; step time in the pack is read at ep1 against the 2.00 × 601 s clause.
+
+### Soft pack, ep1 read (`PackedBlankfreeTrainJob.MXKoywbfon8O`, RUNNING since 2026-09-21 15:06 UTC; `reports/extract_soft_pack_ep1_2026-09-21.md`; moved from State)
+
+All four arms past sub-epoch 4 by 16:08 UTC. Wall seconds per sub-epoch sf_20 717 / soft_20 849 /
+soft_20_s1 852 / softshuf_20 849 (1.19–1.42 × 601 s, all under the 2.00 bar, so sf_20 stays in the
+pack). ep1 dev loss sf 1.517 / soft 1.430 / soft_s1 1.435 / softshuf 1.520; ep4 dev reward_mean
+sf −0.510 / soft −0.451 / soft_s1 −0.408 / softshuf −1.799 (the shuffled null prices its own
+strings far below the structured arms, as a destroyed-structure control should); retained rate
+10.2–10.9 Hz, tau 2.0, lam soft 0.327 / sf 0.0454; peak RSS 52 GB.
 
 ### Soft pack, interim read at kept epoch 10 of 20 (`PackedBlankfreeTrainJob.MXKoywbfon8O`, RUNNING, sub-epoch 12–14 at 2026-09-21 18:25 UTC; `reports/extract_soft_pack_gaps_2026-09-21.md`, every file traced to this pack by its checkpoint chain)
 
