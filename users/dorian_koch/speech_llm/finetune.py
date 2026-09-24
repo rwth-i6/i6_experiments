@@ -797,6 +797,7 @@ aug_gain_prob: {float(hp.get("aug_gain_prob", 0.0))}
 stored_user_augment: {"true" if hp.get("stored_user_augment") else "false"}
 aug_noise_prob: {float(hp.get("aug_noise_prob", 0.0))}
 aug_echo_reverb_prob: {float(hp.get("aug_echo_reverb_prob", 0.0))}
+aug_clip_peak: {hp.get("aug_clip_peak", "null")}
 token_corrupt_audio_prob: {float(hp.get("token_corrupt_audio_prob", 0.0))}
 text_pad_target_share: {hp.get("text_pad_target_share", "null")}
 pack_to_window: {str(bool(hp.get("pack_to_window", False))).lower()}

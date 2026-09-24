@@ -123,7 +123,10 @@ def run_checks(fast_train_hparams, render_perf):
     n0 = len(FAILURES)
     try:
         print("[1] epochs")
-        check(runs.POLICY_LATEST == runs.POLICY_2026_09_23 == runs.RULE_FAST_TRAIN, "POLICY_LATEST = RULE_FAST_TRAIN")
+        check(
+            runs.RULE_FAST_TRAIN == runs.POLICY_2026_09_23 and runs.POLICY_LATEST >= runs.RULE_FAST_TRAIN,
+            "RULE_FAST_TRAIN = 2026-09-23, and POLICY_LATEST includes it",
+        )
         for fam, preset in finetune.FAST_TRAIN_PRESETS.items():
             check(
                 fast_train_hparams(runs.POLICY_2026_09_22, fam) == {}
