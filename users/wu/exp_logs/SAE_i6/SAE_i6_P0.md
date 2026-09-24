@@ -14,7 +14,10 @@ Watcher (re-arm first on resume; from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1583423 config/sae_i6_p0_screen.py 60`.
 G0.V: GPU tests green (Results); T1.4c/T1.5 accepted by the user; T1.6 fixed in `ctrl_20_rc` only (Runs).
 Blocking ctrl_20 (19:15): g2p training (the posterior-hmm copy of the same hash took 4.8 h, so expect about 22:00),
-then the phone-prior chain; and the VAD job `RLrgIh6lFv9m` (started 18:59, cn-604). A second background
+then the phone-prior chain (g2p apply running at 22:06); and the VAD job `RLrgIh6lFv9m` (Slurm 4337501, started 18:59, cn-604, 8 h limit = 02:59; projected
+to end 23:10-01:20, `reports/exec_vad_runtime_2026-09-24.md`). A third waiter wakes when its output/ fills or at
+01:00. If output/ is still empty at 01:00 and the job still uses CPU, let it run; on a timeout, restart with `-cio`
+(time doubles). A second background
 waiter watches for `work/i6_core/returnn/training/ReturnnTrainingJob.GiT88bxzoZbZ/output/models/epoch.001*`
 or an `error.*` there; re-arm it too on resume.
 NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
