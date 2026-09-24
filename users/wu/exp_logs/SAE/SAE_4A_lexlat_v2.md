@@ -6,13 +6,13 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 2467260 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 22:16 to load A18B_PAIRED_ROWS, `reports/exec_keyinit_restart_a18b_2026-09-24.md`): A18 (b) lift pack ZUZypSQn7qc0 RUNNING (SLURM 2001624); its 3 paired rows wait on it.
 - Finished graphs (23:08-23:30): em (A18 (a) bridge done, BridgeReadJob.v6SONiAZL7rH), keysearch_s1 (clean: failed 0, loop_error null; top 4 in `KeySearchSelectJob.g9wsznNnqmyO`, `reports/exec_keysearch_s1_finish_2026-09-24.md`).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023). Stage 1: all finals beat gold on J (selected -4.55 against -4.818) through the name-free emission term; clusters with wrong names (identity 0.07-0.14), no better than random-start finals.
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299). A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849). A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14). A17 (i): BASIN SUFFICIENT (gold-EM, r30-EM 0.20; r100-EM 0.839). A17 (ii): OBJECTIVE DRIFT (+0.102, at the bar); A18 (d) not triggered. GOLD KEY REACHES BASIN (3.207); A17 (iii) LABELS SUFFICE (r70-dur margin 0.023). Stage 1: all finals beat gold on J (selected -4.55 against -4.818) through the name-free emission term; clusters with wrong names (identity 0.07-0.14), no better than random-start finals. A18 (a): LOWER, OBJECTIVE ONLY (PER 0.842, em_s13 genPER 0.857).
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
 1. Stage 2 launch: BRIDGE_KEYARMS flip (`reports/impl_keyarms_bridge_flip_2026-09-24.md`), then code review, then keyarms manager. Keyarms must share no unfinished job with keyinit (ZUZypSQn7qc0). Launch under review (`reports/review_keyarms_launch_2026-09-24.md`). The A18 (c) hold rule is not in the graph: check it by hand when A18 (b) reads, before the key arms finish. A20 oracle-name J check: implementer.
-2. A18: (a) read being extracted (`reports/extract_a18a_bridge_read_2026-09-24.md`); (b) when ZUZypSQn7qc0 finishes.
+2. A18 (b): read when ZUZypSQn7qc0 finishes.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
@@ -841,6 +841,26 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
   - J prefers these keys over gold through the name-free emission term. The name-dependent trigram term only ties gold.
 - Licensed: gold is not J's maximiser, and J's found optima are clusters with wrong names. Not licensed: that no near-gold key beats -4.55, since no search started from gold, r30 or K30; and nothing about stage-2 S or PER.
 - Stage 2 runs as registered (the agreement is label-using, report only). A20 asks whether J's trigram term rewards the right names on these partitions.
+
+### A18 (a) bridge read, G4a.L2.4 (2026-09-24): LOWER, OBJECTIVE ONLY (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.63nbj6Jgiegj` (SLURM 1998206; 4 arms, kept 1/2/4/8, no NaN) and `BridgeReadJob.v6SONiAZL7rH`. cold_ctl is `UdhhxiGIMBob`, which has the same config and code as dec_joint apart from `reverse_checkpoint_path`. Extraction: `reports/extract_a18a_bridge_read_2026-09-24.md`. Audit: `reports/audit_a18a_bridge_read_2026-09-24.md`.
+  - The audit recomputed the read from the per-utterance crosseval files (285/285 utterances, 164 speakers).
+  - It checked dec_joint's phi against em_s13 `epoch.012.pt`: identical. dec_frz's phi is unchanged at every kept epoch.
+- Verdict: dec_joint minus cold_ctl at ep8 is -0.1158 nats per frame, CI [-0.1257, -0.1035]. With B = 0.0093 the margin is 0.01, so the read is **LOWER**. PER stays in the chance band, so this is **OBJECTIVE ONLY**, not CODE BROKEN.
+- Terms against cold_ctl:
+  - l_tau -0.240, which carries the whole drop; the frozen phi (dec_frz) gives 85 % of it;
+  - lexlat_k2 +0.092, so the lexicon term worsens;
+  - 3 x rate +0.033.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8, recomputed on all 2,864 utterances:
+  - dec_joint 0.862 / 0.854 / 0.846 / 0.842;
+  - dec_distil 0.854 / 0.853 / 0.847 / 0.846;
+  - dec_frz 0.862 / 0.859 / 0.843 / 0.846;
+  - dec_joint_s2 0.863 / 0.855 / 0.843 / 0.846;
+  - cold_ctl 0.888 / 0.886 / 0.855 / 0.849.
+  - At ep8, dec_joint minus cold_ctl is -0.007, the size of the seed spread (0.004).
+- em_s13's own generative PER (dec_frz, phi frozen): direct 0.857, Hungarian 0.859, NMI 0.076. That is at the worst edge of the A10 band.
+- Correction: cold_ctl lacks A9's durinit, a relaxation made before any result, when A18 was built. Its effect on the drop is unmeasured, but PER alone rules out CODE BROKEN.
+- Reading: the label-free wave phi behaves like the A10 phis under joint training (A14 (i)). It lowers the objective through l_tau and carries no phonetic content. The basin phis of A17 (i) reach 0.20 under the same kind of run.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
