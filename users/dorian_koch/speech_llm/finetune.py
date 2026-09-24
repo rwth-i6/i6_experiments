@@ -517,6 +517,15 @@ def _render_personaplex_lora_config(
         if not hp.get("emit_epad"):
             raise ValueError(f"{who}: text_epad_weight needs emit_epad=True")
         perf = f"text_epad_weight: {_yaml_float(hp['text_epad_weight'])}\n" + perf
+    # Context weight at floor-available frames (2026-09-24, ablation ab_epad1_floor): rendered ONLY when set,
+    # like text_epad_weight. The launcher asserts onset_floor and no text lead.
+    if hp.get("floor_weight") is not None:
+        if not hp.get("onset_floor") or hp.get("text_lead_frames"):
+            raise ValueError(f"{who}: floor_weight needs onset_floor=True and no text_lead_frames")
+        perf = (
+            f"floor_weight: {_yaml_float(hp['floor_weight'])}\n"
+            f"floor_quiet_ms: {_yaml_float(hp.get('floor_quiet_ms', 200.0))}\n" + perf
+        )
     scope_block = (
         'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
     )
