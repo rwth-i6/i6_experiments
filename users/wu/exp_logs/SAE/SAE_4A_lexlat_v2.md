@@ -6,7 +6,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: all 6 wave packs finished 04:48; 32 downstream forwards pending (SLURM 1989952, 1989953).
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack e9xZa5ElF16P pending (SLURM 1989249); A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
-- 2267039 `config/sae_4a_lexlat_v2_keyinit.py`: pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
+- 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
 - 2494198 `config/sae_4a_lexlat_v2_triladder.py`: A19 pack DzrmcjOQ4I3r (SLURM 1995148, 4 GPU, 11.5 h), started 12:43 (`reports/exec_a19_triladder_launch_2026-09-24.md`).
 
