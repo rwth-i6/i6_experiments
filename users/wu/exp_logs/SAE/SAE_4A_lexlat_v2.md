@@ -5,6 +5,7 @@
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, 1.06 h.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), one four-GPU pack, 11.5 h; A14 (ii), one gpupack node, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
+- 3023733 `config/sae_4a_lexlat_v2_relabel_s.py`: A16 (a), 8 forwards in one gpupack job 1990055 (`reports/exec_a16a_launch_2026-09-24.md`). A16 (a2) (`config/sae_4a_lexlat_v2_priorscale_s.py`, 2186ad57, review `reports/review_a16a2_launch_2026-09-24.md`) shares (a)'s jobs: start it only after 3023733 exits.
 
 Complete: A11, A15, A15-E, em_ext, ladder, decphi, D18. Sub-4-GPU tasks pack 4 per node (`gpupack_engine.py`).
 
@@ -17,7 +18,7 @@ Reads 2026-09-24 (Results):
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT: A16 (a) 1e637fe3, in review (`reports/review_a16a_launch_2026-09-24.md`). BUILDING: A16 (a2), prior-weighted S (`reports/impl_a16a2_priorscale_s_2026-09-24.md`); A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
+BUILT: A16 (a) 1e637fe3 (launched), A16 (a2) 2186ad57 (in review). BUILDING: A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
 
 NEXT:
 1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
