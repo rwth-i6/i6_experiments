@@ -12,13 +12,12 @@ Reads 2026-09-24 (Results):
 - D18: training phi lowers the objective by co-adaptation.
 - A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
 - A15/A15-E + A15-F: the EM phis (and A11's table) are mislabelled and merged, but their content is partly phone-level. Within the right class they pick the right phone at 0.54-0.62, above every reference and their sharp nulls. Their errors cross classes (class share 0.50-0.56 against gold 0.73). They sit close to and below r70 (R4 emis 0.29-0.31 against 0.34). The manner-class reading is overturned.
-- A16 (a): OBJECTIVE LABEL-BLIND OR WRONG. S prefers each EM phi's own labelling over the emission map by 0.12-0.31 (6/6); the permphi control is valid (-0.60).
-- A16 (a2): NO LAMBDA <= 3. S ranks the EM phis above gold (by 0.07-0.20) and above their relabellings at lambda 1-3; the gap does not close.
+- A16 (a), A16 (a2), audited: verdicts OBJECTIVE LABEL-BLIND OR WRONG and NO LAMBDA <= 3 stand; the "model error" inference is withdrawn. dS only measures the trigram after co-adaptation. Gold (2821 utterances, supervised) differs from the EM phis in data and criterion, and the gold-EM gap (0.07-0.20) sits in the channel, not the prior. Trigram re-weighting is ruled out; a permutation-only label search is unsupported.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 NEXT:
-1. Audit of the combined A15-F / A16 (a) / (a2) reading (`reports/audit_a16_combined_2026-09-24.md`); then register A16 (b). With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
+1. A14 (ii) (same data and criterion, gold init) decides A16 (b)'s class: PHONETIC BASIN LOWER licenses search moves (unit split, merge, reassign) or pipeline init; NON-PHONETIC PREFERRED licenses an objective change (word-level prior on the lexlat line, or a channel capacity or sharpness constraint). Its read is audited first. Analysis-only controls if still ambiguous: `reports/audit_a16_combined_2026-09-24.md` claim 4.
 2. At the wave and A14 wakes, the executor checks, including where the 53 CPU report jobs route. The A14 reads are audited before any direction change.
 
 ## Objective
@@ -421,6 +420,7 @@ Source: `RelabelSReadJob.Y9RU2PSbVfuu` (`output/table.txt`); launch `reports/exe
 - Identity S reproduces the banked values within 2.6e-4.
 - Reading: at lambda = 1, S prefers each EM phi's own (wrong) labelling over the emission-map labelling, by 0.12-0.31 nats per frame, on 250-259 of 260 utterances. By the registered branch, the label signal must come from the prior term; A16 (a2) (the prior weight) tests that first.
 - Caveat: the emission-map labelling is one-to-one over a merged, manner-level partition (A15 read), and it is not refit. So it is a weak stand-in for the right labelling, and A15-F bears on that. The read does not show that S would reject a phone-level phi with the right labels. permphi shows the opposite for a gold-quality phi.
+- Audit correction (2026-09-24, `reports/audit_a16_combined_2026-09-24.md`, CONFIRMED_WITH_CORRECTIONS): the verdict stands as registered, but it does not show a preference for wrong content. Relabelling keeps the emission and duration terms, so dS measures only the trigram's reaction to a renaming. After co-adaptation, a positive dS is expected by construction. The one-to-one map also forces 12-20 of 40 symbols onto phones they do not resemble. No right-labelled negative control (r70 or r30 under their own maps) was run.
 
 ### A16 (a2) read (2026-09-24): NO LAMBDA <= 3 (analysis only, label-using)
 
@@ -443,8 +443,13 @@ Source: `PriorScaleSReadJob.ttn9rEAZ1VQd` (`output/table.txt`, `per_utterance.ts
 - **Open, for the audit:**
   - The gold phi was fitted on the 2821-utterance split, while the EM phis trained on the train stream. Part of their S advantage may therefore be density fit from more data, not a preference for wrong content. No same-data gold phi exists to separate the two.
   - The per-frame emission term (500-way, about 3.3 nats per frame) dwarfs the phone prior (about 7 phones per second against 50 frames). That scale mismatch is a candidate mechanism, not established.
+- **Audit correction (2026-09-24, `reports/audit_a16_combined_2026-09-24.md`, CONFIRMED_WITH_CORRECTIONS).** The numbers and the verdict stand. The Reading's "model error" does not follow, and it is withdrawn.
+  - Gold and the EM phis differ in data (2821 utterances, supervised, against about 10x the utterances under S itself) and in criterion. So gold is not the same-data gold model of Yin et al.'s model-error test. The L2-0 ladder does hold data and criterion fixed, and there S rewards correct labels at every lambda.
+  - The lambda slopes (audit-derived, not banked) put the prior term's cost per frame at about 0.58 for gold and for the EM phis alike. The gold-EM gap therefore sits in the channel (emission, duration, entropy), where data and criterion act. The trigram does not score gold's posterior better. Up-weighting it cannot close the gap, and between lambda 2 and 3 it widens it.
+  - Whether S's minimum is phonetic is the registered question of A14 (ii) (same data, same criterion, gold init), which is live and unread.
+  - Licensed now: re-weighting the phone trigram is ruled out, and a permutation-only label search on S is unsupported. Search moves versus an objective change stays open until A14 (ii) reads.
 
-### A15-F read (2026-09-24): content resolution and sharp nulls (descriptive, label-using, no gate)
+### A15-F read (2026-09-24): content resolution and sharp nulls (descriptive, label-using, no gate; audited CONFIRMED, `reports/audit_a16_combined_2026-09-24.md`)
 
 Source: `PhiContentReadJob.vySKYIh5RAaB` (`output/table.txt`, `table.json`); launch `reports/exec_a15f_launch_2026-09-24.md`; build `reports/impl_a15f_content_2026-09-24.md`. Set: D4 dev-other, 500 utterances. Rules as amended at build.
 - **Oracle bounds (iii), primary class assignment.** Groups map to phones one-to-one by the label oracle.
