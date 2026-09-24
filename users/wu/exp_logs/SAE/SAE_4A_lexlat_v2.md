@@ -10,12 +10,12 @@ Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited. A10: the EM phis beat gold on S, but decode at chance. D18: co-adaptation. A11: CANNOT_TELL (no rate-eligible null).
 - A15/A15-E + A15-F, audited: the EM phis are mislabelled and merged, but partly phone-level (within-class 0.54-0.62, class share 0.50-0.56 against gold 0.73), a little below r70.
 - A16 (a)/(a2), audited: the verdicts stand, and the "model error" inference is withdrawn (data and criterion confound; the gap sits in the channel). Trigram re-weighting is ruled out.
-- A14 (ii), audited: PHONETIC BASIN LOWER (S_g 3.216 against 3.299, PER 0.35). At matched data, S's lower basin is phonetic, so random-init EM is search-limited. r70 init reaches the basin; r100 does not. The gold arm kept supervised durations.
+- A14 (ii), audited: PHONETIC BASIN LOWER (S_g 3.216 against 3.299, PER 0.35). At matched data, S's lower basin is phonetic, so random-init EM is search-limited. r70 init reaches the basin; r100 does not. Every basin-reaching arm (gold, r30, r70) kept durations fitted on MFA segments, so A17 (iii) tests label information without supervised segmentation.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 NEXT:
-1. A17 (registered; the user challenged the in-basin drift): (i) lift test of the EM-degraded phonetic phis; (ii) tau = 1 without annealing. BASIN INSUFFICIENT withdraws A16 (b) stages 1-2. A16 (b) (registered): build stage 0 (J, gold key, key ladder) and stage 1 (key search); build the key-to-phi init and the stage-2 gold-key control (durinit), review it, and launch it. Run stage 0; J SEES THE KEY funds stage 1.
+1. A17 (i)/(ii) are built (6a16612d) and in code review (`reports/review_a17_launch_2026-09-24.md`); launch on approval. A17 (iii) (segmentation: G-dur, r30-dur, r70-dur) is being added to the keyinit config and shares a four-GPU pack with the A16 (b) gold-key control; review, then launch. BASIN INSUFFICIENT withdraws A16 (b) stages 1-2; SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds the stage-2 key arms. A16 (b) stage 0 is being amended (overlong segments as repeated segments; posterior-argmax keys); then launch it (CPU). J SEES THE KEY funds stage 1. The literature on segmentation gaps is pending (`reports/lit_segmentation_gap_2026-09-24.md`).
 2. At the wave and A14 (i) wakes, the executor checks. The A14 (i) read is audited before any direction change.
 
 ## Objective
@@ -271,6 +271,15 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Reported beside: S at matched sub-epochs against A14 (ii), and the r70 arm.
     - ANNEALING-DOMINATED amends A16 (b) stage 2 to tau = 1 for key inits before its key arms run. The gold-key control then runs in both forms.
   - The 0.05 and 0.10 thresholds exceed the bed's same-config PER spread (0.01-0.03).
+  - **(iii) Does the basin need supervised segmentation?** (registered 2026-09-24, before any A17 or A16 (b) result)
+    - Trigger: the user reported (2026-09-24) that a colleague finds a similar approach works well under gold segmentation but not without it. The A14 config shows that every A14 (ii) arm kept its init phi's durations, which were fitted on the MFA segments. So the three arms that reached the basin (gold, r30, r70) all carried supervised segmentation. r100 carried the same segments with random labels and did not reach it, so segments alone do not suffice. Label information without segments is untested.
+    - Arms: the A10 durinit recipe, verbatim except the init (seed 1, 48 sub-epochs, tau 4 then 1). Emission rows come from the gold, r30 or r70 phi; the duration logits are replaced by the general-knowledge durinit values. These are G-dur, r30-dur and r70-dur. They share one four-GPU pack with A16 (b)'s gold-key control, which takes type-level key counts plus durinit.
+    - Read S at 48 on the 260 set, paired as in A14 (ii), against 3.289:
+      - **SEGMENTATION-CARRIED** if G-dur S >= 3.289. The A14 (ii) basin then depended on supervised durations.
+      - **LABELS SUFFICE** if G-dur and r70-dur are both < 3.289.
+      - **PARTIAL-LABELS NEED SEGMENTS** if G-dur < 3.289 and r70-dur >= 3.289.
+    - Reported beside, never gating: generative PER (direct, Hungarian, NMI) at 0, 4, 12 and 48. Also the boundary precision, recall and F1 (20 ms tolerance) of each phi's Viterbi segmentation against MFA on the 260 set, for these arms and the four A14 (ii) arms.
+    - SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds A16 (b) stage-2 key arms. The next cost work then goes to a label-free segmentation init, such as a self-supervised phone segmenter or the key's own run segmentation, before any key arm is funded.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
