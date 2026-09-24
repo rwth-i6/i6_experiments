@@ -2072,6 +2072,40 @@ def py():
                 },
             },
         ),
+        # Textogram on the ASR's own spm10k subwords (AZ 2026-09-24, camera-ready): trainable embedding
+        # (10k one-hot channels would rebuild the conv front-end 126x wider), fixed 20 frames per token =
+        # the winner's ~22 frames per word (1.13 tokens per word measured); label caps / 3.4 vs phonemes.
+        (
+            "pseudo-enc-textogram-spm-trainemb-fixdur20-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
+            {
+                "pseudo_enc_units": "spm",
+                "pseudo_enc_frozen_table": None,
+                "pseudo_enc_duration_table": None,
+                "pseudo_enc_duration_sigma": None,
+                "pseudo_enc_duration_scale": None,
+                "pseudo_enc_duration_range": (20, 20),
+                "pseudo_enc_lerp": False,
+                "max_phon_len": 90,
+                "batch_size_phon": 1_800,
+                "extra_config_updates": {
+                    "optimizer.class": rf.build_dict(Muon)["class"],
+                    "packed_tensors": True,
+                    "torch_distributed": {"reduce_type": "grad_explicit"},
+                    "batch_size": None,
+                    "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 1_800},
+                    "batching": "random",
+                    "torch_cuda_graph": {
+                        "batch_size_bound": 500,
+                        "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 90},
+                        "warmup_steps": 0,
+                        "compile": True,
+                    },
+                    "optimizer.weight_decay": 0.027,
+                    "specaugment_num_spatial_mask_factor": 50,
+                    "specaugment_steps": (1850, 5550, 9250),
+                },
+            },
+        ),
         (
             "pseudo-enc-logmel-mfatable-realdur2-lerp-dur05-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
             {"pseudo_enc_duration_scale": 0.5},
@@ -3214,21 +3248,26 @@ def _build_tables(prefix: str):
     _textogram_chars = (
         "pseudo-enc-textogram-chars-onehotchan-fixdur4-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp"
     )
-    _lognormal = "log-normal, \\\\ per-phoneme median"
+    _lognormal = "log-normal, \\\\ per-phoneme \\\\ median"
 
     # mean sampled duration per phone (frames, count-weighted over the MFA table's phones) of each
     # duration model, from the same table the sampling reads (AZ 2026-09-23); the caption states the
     # real mean of the alignment for comparison
-    def _mean_dur(distribution: str, scale=None, sigma=None, duration_range=None):
-        # counted on the phoneme sequences the training sees (AZ): 20k random LS LM lines through the
-        # winner's PhoneSeqGenerator settings (random pronunciation, [space] with p=0.15 between words),
-        # durations sampled per phoneme with the model's rule; [space] / [start] / [end] excluded
+    _dur_jobs = {}
+
+    def _dur_job(distribution: str, scale=None, sigma=None, duration_range=None, units: str = "phonemes"):
+        # counted on the unit sequences the training sees (AZ): 20k random LS LM lines through the
+        # winner's PhoneSeqGenerator settings (random pronunciation, [space] with p=0.15 between words)
+        # or the character textogram's rule, durations sampled per unit with the model's rule
         from i6_core.text.processing import TakeNRandomLinesJob
         from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
         from i6_experiments.users.zeyer.datasets.pseudo_enc_duration_stats import SamplePseudoEncMeanDurationJob
         from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_duration_table
         from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_phone_info
 
+        key = (distribution, scale, sigma, duration_range, units)
+        if key in _dur_jobs:
+            return _dur_jobs[key]
         job = SamplePseudoEncMeanDurationJob(
             corpus_text=TakeNRandomLinesJob(get_librispeech_normalized_lm_data(), 20_000).out,
             phone_info=get_glow_tts_phone_info(train=True, add_silence_between_words=0.15),
@@ -3237,6 +3276,7 @@ def _build_tables(prefix: str):
             scale=scale,
             sigma=sigma,
             duration_range=duration_range,
+            units=units,
         )
         name = (
             f"{distribution}"
@@ -3245,8 +3285,19 @@ def _build_tables(prefix: str):
         )
         if duration_range is not None:
             name += f"-{duration_range[0]}-{duration_range[1]}"
+        if units != "phonemes":
+            name += f"-{units}"
         tk.register_output(f"datasets/LibriSpeech/pseudo_enc_mean_duration/{name}.json", job.out_stats)
-        return job.out_mean
+        _dur_jobs[key] = job
+        return job
+
+    def _mean_dur(distribution: str, scale=None, sigma=None, duration_range=None):
+        # mean frames per phoneme; [space] / [start] / [end] excluded
+        return _dur_job(distribution, scale, sigma, duration_range).out_mean
+
+    def _mean_seq_frames(distribution: str, scale=None, sigma=None, duration_range=None, units: str = "phonemes"):
+        # mean frames per injected LM sentence, all symbols incl. silence (ls-representation "seq. len.")
+        return _dur_job(distribution, scale, sigma, duration_range, units).out_mean_seq_frames
 
     def _ls_dur(name: str, distribution: str, jitter: str, scale: str, mean_dur) -> Dict[str, Any]:
         return _ls(name, distribution=distribution, jitter=jitter, scale=scale, mean_dur=mean_dur)
@@ -3276,41 +3327,68 @@ def _build_tables(prefix: str):
     )
     # The text representation: frozen MFA log-mel table vs trained embedding vs one-hot channels
     # (textogram), with the units and the duration model each uses.
+    # seq_frames: mean frames per injected LM sentence under each row's units and durations (AZ 2026-09-24)
+    _sf_lognormal = _mean_seq_frames("lognormal", 0.7, 0.45)
+    _sf_uniform = _mean_seq_frames("uniform", duration_range=(5, 10))
+    _sf_fixed6 = _mean_seq_frames("fixed", duration_range=(6, 6))
+    _sf_chars4 = _mean_seq_frames("fixed", duration_range=(4, 4), units="chars")
+    # reference for the caption: every symbol at the alignment's mean duration (real silence mean incl.)
+    _dur_job("real_mean")
     _table(
         "ls-representation",
-        ["acoustics", "units", "durations", *ls_wer_other],
+        ["acoustics", "units", "durations", "seq_frames", *ls_wer_other],
         [
-            _ls(win, acoustics="mean \\\\ log-mel", units="phonemes", durations="log-normal \\\\ per phoneme"),
+            _ls(
+                win,
+                acoustics="mean \\\\ log-mel",
+                units="phonemes",
+                durations="log-normal \\\\ per phoneme",
+                seq_frames=_sf_lognormal,
+            ),
             _ls(
                 f"{win}-unidur",
                 acoustics="mean \\\\ log-mel",
                 units="phonemes",
                 durations="uniform \\\\ 5 to 10",
+                seq_frames=_sf_uniform,
             ),
             _ls(
                 f"{win}-trainemb",
                 acoustics="trainable \\\\ log-mel",
                 units="phonemes",
                 durations="log-normal \\\\ per phoneme",
+                seq_frames=_sf_lognormal,
             ),
             _ls(
                 f"{win}-trainemb-unidur",
                 acoustics="trainable \\\\ log-mel",
                 units="phonemes",
                 durations="uniform \\\\ 5 to 10",
+                seq_frames=_sf_uniform,
             ),
             # the one-hot + alignment-durations run (launched 2026-09-22 22:10, ~Thu evening) is a
             # camera-ready row (icassp2027/TODO-camera-ready.md): no placeholder rows in the submission (AZ)
             _ls(
-                _textogram, acoustics="extra one-hot \\\\ channels", units="phonemes", durations="uniform \\\\ 5 to 10"
+                _textogram,
+                acoustics="extra one-hot \\\\ channels",
+                units="phonemes",
+                durations="uniform \\\\ 5 to 10",
+                seq_frames=_sf_uniform,
             ),
             _ls(
                 "pseudo-enc-textogram-onehotchan-fixdur6-nolerp-packed-single-gumbel-muon-nep38-specaug50-stepcomp",
                 acoustics="extra one-hot \\\\ channels",
                 units="phonemes",
                 durations="fixed 6",
+                seq_frames=_sf_fixed6,
             ),
-            _ls(_textogram_chars, acoustics="extra one-hot \\\\ channels", units="characters", durations="fixed 4"),
+            _ls(
+                _textogram_chars,
+                acoustics="extra one-hot \\\\ channels",
+                units="characters",
+                durations="fixed 4",
+                seq_frames=_sf_chars4,
+            ),
         ],
     )
     # The remaining ablations (nolerp, sil0, silbound) are one sentence in the paper (AZ 2026-09-22):
@@ -4732,7 +4810,7 @@ def _train_tts_encoder(
     # vocab the CTC alignment and its table are indexed by. It reuses the phoneme stream and all its
     # plumbing, so only the vocab dim and the map_seq differ; renaming the stream would rehash
     # every existing packed arm.
-    if pseudo_enc_array_table is not None or pseudo_enc_instance_table is not None:
+    if pseudo_enc_array_table is not None or pseudo_enc_instance_table is not None or pseudo_enc_units == "spm":
         phon_dim = Dim(spm_dim.dimension + 1, name="subword_units")
         phon_extern = {k: v for k, v in phon_extern.items() if k != "vocab"}
         phon_extern["sparse_dim"] = phon_dim
@@ -7071,8 +7149,8 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
     )
     start_layer = config.int("pseudo_enc_start_layer", -1)
     assert start_layer >= 0, "pseudo-enc single-stream: layer-split injection only"
-    assert config.typed_value("pseudo_enc_units", "phonemes") in ("phonemes", "chars"), (
-        "pseudo-enc single-stream: phonemes or chars (both on the phonemes stream)"
+    assert config.typed_value("pseudo_enc_units", "phonemes") in ("phonemes", "chars", "spm"), (
+        "pseudo-enc single-stream: phonemes, chars or spm (all on the phonemes stream)"
     )
     data = extern_data[config.typed_value("default_input")]
     data_spatial_dim = data.get_time_dim_tag()

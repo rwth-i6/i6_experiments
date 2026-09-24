@@ -19,6 +19,20 @@ from sisyphus import Job, Task, tk
 # rows of the duration table that are not phones: silence, utterance bounds, unknown, blank
 NON_PHONE_LABELS = ("[space]", "[start]", "[end]", "[UNKNOWN]", "[blank]")
 
+# the character textogram's inventory, mirroring ``_CHAR_UNITS`` in the recipe; the space is the last id
+CHAR_UNITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ'"
+
+
+def _char_units_seq(line: str):
+    """character unit ids of ``line`` as the recipe's ``_char_units_map_seq`` builds them:
+    the space id at both ends and at every word boundary, characters outside the inventory dropped"""
+    sil = len(CHAR_UNITS)
+    ids = [sil]
+    for word in line.upper().split():
+        ids.extend(CHAR_UNITS.index(ch) for ch in word if ch in CHAR_UNITS)
+        ids.append(sil)
+    return ids
+
 
 def _medians_for(labels: Sequence[str], medians, distribution: str):
     """the per-label medians the model samples from, as :class:`PseudoSpeechEncoder` builds them"""
@@ -42,6 +56,8 @@ def _sample_durations(rng, m, distribution: str, scale, sigma, duration_range):
     if distribution in ("lognormal", "lognormal_global"):
         base = m * scale * np.exp(sigma * rng.standard_normal(m.shape))
         return np.maximum(np.floor(base + 0.5), 1.0)
+    if distribution == "real_mean":
+        return m  # the alignment's mean per label, no sampling (a reference, not a model setting)
     lo, hi = duration_range
     if distribution == "uniform":
         return rng.integers(lo, hi + 1, size=m.shape).astype("float64")
@@ -55,24 +71,36 @@ class SamplePseudoEncMeanDurationJob(Job):
     as the training generates them (``phone_info`` = the training's ``PhoneSeqGenerator`` options).
 
     ``out_mean``: mean frames per phone ([space] / [start] / [end] excluded);
+    ``out_mean_seq_frames``: mean frames per text line, i.e. the injected sequence length;
+    ``distribution="real_mean"``: every symbol gets the alignment's mean duration (the reference length);
     ``out_stats``: also the mean over all symbols incl. [space], the symbol counts, and the alignment's real mean.
+
+    ``units="chars"``: the character textogram's sequences instead (letters + apostrophe, the space
+    entry at both ends and every word boundary, as ``_char_units_map_seq`` in the recipe), so only
+    ``distribution`` ``"uniform"`` / ``"fixed"`` apply and ``phone_info`` / ``duration_table`` are unused.
     """
+
+    __sis_version__ = 2  # out_mean_seq_frames added
 
     def __init__(
         self,
         *,
         corpus_text: tk.Path,
-        phone_info: Dict[str, Any],
-        duration_table: tk.Path,
+        phone_info: Optional[Dict[str, Any]],
+        duration_table: Optional[tk.Path],
         distribution: str,
         scale: Optional[float] = None,
         sigma: Optional[float] = None,
         duration_range: Optional[Tuple[int, int]] = None,
         num_lines: int = 20_000,
         seed: int = 1,
+        units: str = "phonemes",
     ):
         super().__init__()
-        assert distribution in ("lognormal", "lognormal_global", "uniform", "fixed")
+        assert distribution in ("lognormal", "lognormal_global", "uniform", "fixed", "real_mean")
+        assert units in ("phonemes", "chars")
+        assert units == "phonemes" or distribution in ("uniform", "fixed"), "chars have no duration table"
+        self.units = units
         self.corpus_text = corpus_text
         self.phone_info = phone_info
         self.duration_table = duration_table
@@ -83,6 +111,7 @@ class SamplePseudoEncMeanDurationJob(Job):
         self.num_lines = num_lines
         self.seed = seed
         self.out_mean = self.output_var("mean_frames.txt")
+        self.out_mean_seq_frames = self.output_var("mean_seq_frames.txt")
         self.out_stats = self.output_path("stats.json")
 
     def tasks(self):
@@ -105,16 +134,30 @@ class SamplePseudoEncMeanDurationJob(Job):
                 return type(v)(_resolve(x) for x in v)
             return v
 
-        gen = PhoneSeqGenerator(**_resolve(self.phone_info))
-        gen.random_seed(self.seed)
-        labels = gen.get_class_labels()
+        if self.units == "chars":
+            labels = list(CHAR_UNITS) + ["[space]"]
+            to_ids = _char_units_seq
+            med_per_id = np.ones(len(labels), dtype="float64")  # unused by uniform / fixed
+            real_mean = None
+        else:
+            gen = PhoneSeqGenerator(**_resolve(self.phone_info))
+            gen.random_seed(self.seed)
+            labels = gen.get_class_labels()
 
-        npz = np.load(self.duration_table.get_path())
-        tab_labels = [str(x) for x in npz["labels"]]
-        med_by_label = dict(zip(tab_labels, _medians_for(tab_labels, npz["medians"], self.distribution)))
-        means_by_label = dict(zip(tab_labels, npz["means"].astype("float64")))
-        counts_by_label = dict(zip(tab_labels, npz["counts"].astype("float64")))
-        med_per_id = np.array([med_by_label[lab] for lab in labels], dtype="float64")
+            def to_ids(line):
+                return gen.seq_to_class_idxs(gen.generate_seq(line), dtype="int32")
+
+            npz = np.load(self.duration_table.get_path())
+            tab_labels = [str(x) for x in npz["labels"]]
+            means_by_label = dict(zip(tab_labels, npz["means"].astype("float64")))
+            if self.distribution == "real_mean":
+                med_by_label = means_by_label
+            else:
+                med_by_label = dict(zip(tab_labels, _medians_for(tab_labels, npz["medians"], self.distribution)))
+            counts_by_label = dict(zip(tab_labels, npz["counts"].astype("float64")))
+            med_per_id = np.array([med_by_label[lab] for lab in labels], dtype="float64")
+            w = np.array([counts_by_label[lab] * (lab not in NON_PHONE_LABELS) for lab in tab_labels])
+            real_mean = float(sum(means_by_label[lab] * wi for lab, wi in zip(tab_labels, w)) / w.sum())
         is_phone = np.array([lab not in NON_PHONE_LABELS for lab in labels])
 
         path = self.corpus_text.get_path()
@@ -130,7 +173,7 @@ class SamplePseudoEncMeanDurationJob(Job):
         n_phone = n_all = 0
         counts = np.zeros(len(labels), dtype="int64")
         for line in lines:
-            ids = gen.seq_to_class_idxs(gen.generate_seq(line), dtype="int32")
+            ids = np.asarray(to_ids(line), dtype="int32")
             dur = _sample_durations(
                 rng, med_per_id[ids], self.distribution, self.scale, self.sigma, self.duration_range
             )
@@ -142,14 +185,16 @@ class SamplePseudoEncMeanDurationJob(Job):
             counts += np.bincount(ids, minlength=len(labels))
 
         mean_phone = sum_phone / max(n_phone, 1)
-        w = np.array([counts_by_label[lab] * (lab not in NON_PHONE_LABELS) for lab in tab_labels])
-        real_mean = float(sum(means_by_label[lab] * wi for lab, wi in zip(tab_labels, w)) / w.sum())
+        mean_seq = sum_all / max(len(lines), 1)
         self.out_mean.set(mean_phone)
+        self.out_mean_seq_frames.set(mean_seq)
         with open(self.out_stats.get_path(), "w") as f:
             json.dump(
                 {
                     "mean_frames_phones": mean_phone,
                     "mean_frames_all_symbols": sum_all / max(n_all, 1),
+                    "mean_frames_per_seq": mean_seq,
+                    "units": self.units,
                     "num_lines": len(lines),
                     "num_phones": n_phone,
                     "num_symbols": n_all,
