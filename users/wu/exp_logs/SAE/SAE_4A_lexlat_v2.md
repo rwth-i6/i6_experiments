@@ -13,7 +13,7 @@ Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat go
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
 
 NEXT:
-1. Stage-1 key search (`KeySearchJob.AzM1NoHpOnFJ`) is in code review (`reports/review_a16b_stage1_launch_2026-09-24.md`); then launch and watch.
+1. Stage-1 key search: the review blocked it (the null's cluster starts hang in rate repair). The fix is with the implementer (`reports/impl_a16b_stage1_fix_2026-09-24.md`); then re-review, launch and watch.
 2. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim is still missing (user).
 3. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
 4. At each watcher wake, the executor checks; every read is audited, then recorded.
@@ -265,6 +265,10 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
         - Amended before any stage-1 result: the stage-1 null corpus permutes the run-collapsed unit segments within each utterance, each segment keeping its length.
         - The reason: the frame-level permutation leaves only 1-frame runs. Its keys sit at 2.3-2.5 Hz, and repair reached only 2.52 Hz against the 5.80 floor, so in-band null keys barely exist. The run-level null destroys only the order the trigram exploits, and keeps the hard band.
         - The frame-level corpus stays as stage 0's report-only statistic.
+      - Amended before any stage-1 result (review `reports/review_a16b_stage1_launch_2026-09-24.md`):
+        - The null's context clustering is degenerate (one class holds 321 of 500 units). Its 8 cluster starts sit at 5.665-5.683 Hz, and their rate repair stalls near 5.69 Hz.
+        - Rate repair is now bounded by a stall rule, a proposal cap and the job deadline. A start still outside the band is VOID-ON-RATE, for real and null starts alike.
+        - VOID runs never fail the job. Selection takes eligible real runs only and removes duplicate keys, and the VOID counts are reported.
       - Reported, never gating or selecting: each selected key's unit agreement with the gold key.
     - **Stage 2, S-EM from a key (A10 recipe verbatim except the init; durinit for every arm).** phi's emission rows start from the key's smoothed unit counts.
       - Control, launched as soon as it is built (disclosed analysis only): the gold key as the init. It calibrates the conversion from key to phi, and it also asks whether the A14 (ii) gap survives without supervised durations.
