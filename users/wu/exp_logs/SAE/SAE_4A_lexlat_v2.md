@@ -235,6 +235,10 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - Every key is also scored on the structure-destroyed corpus (units permuted within each utterance), and the rise of each over its destroyed score is reported.
       - **J SEES THE KEY** if held-out J is strictly monotone on the ladder (gold > K30 > K70 > K100, seed means), AND J(gold) exceeds the best A10/A11 and random key by more than max(0.01 nats per frame, the range over the 20 random keys).
       - Otherwise **J BLIND**. Stage 1 is not funded, and J's terms are reported for the objective work.
+      - Amended before any stage-0 result (2026-09-24, `reports/impl_a16b_stage0_2026-09-24.md`):
+        - Overlong runs are split into ceil(d/D_k) same-symbol segments in both the LM term and the duration term, following S's topology.
+        - An A10/A11 phi's key is the argmax of m(u|s)·pi(s). pi is fitted label-free as the mixture weights that maximise the likelihood of the train-side unit counts under a fixed m. The trigram-unigram-times-mean-duration prior occupancy is rejected: it put 0.487 on SIL against a gold frame share of 0.058, and inflated the SIL units in the keys gold must beat.
+        - Conservative comparison: each phi contributes the better of its posterior key and its likelihood-only key.
     - **Stage 1, key search (CPU, one node, restarts in parallel; funded on J SEES THE KEY).**
       - Moves: reassign one unit type's symbol, via annealed ICM/Gibbs sweeps on train-side J. Split and merge happen only as unit-set moves.
       - Starts: 64 random keys and the 7 A10/A11 argmax keys.
