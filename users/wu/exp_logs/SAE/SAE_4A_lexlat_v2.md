@@ -3,7 +3,6 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 2099342 `config/sae_4a_lexlat_v2_em_table.py`: A11 selection rerun after fix 46968ade/9bada5fb (`reports/exec_a11_selection_rerun_2026-09-24.md`; the pid may change there). Stage B finished.
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, 1.06 h.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), one four-GPU pack, 11.5 h; A14 (ii), one gpupack node, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 
@@ -13,6 +12,7 @@ Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
 - A10: EM phis beat gold on S, but decode at chance.
 - D18: training phi lowers the objective by co-adaptation.
+- A11: G4a.L2.2 CANNOT_TELL, because no null finisher is rate-eligible. The selected S is 3.536, and the decodes sit at chance.
 - A15/A15-E (audit pending): the EM phis are phonetic at about r70's emission-matched frame accuracy (0.29-0.31 against 0.34), but mislabelled and merged. So L2-1 fails on labelling, not content.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
@@ -23,7 +23,7 @@ NEXT:
 1. Audit of the A15 read (`reports/audit_a15_read_2026-09-24.md`), then apply the corrections and report to the user.
 2. Literature on decipherment (`reports/lit_decipherment_relabel_2026-09-24.md`) and A16 (a) together shape A16 (b). A16 (a) takes a review only if it needs GPU or runs over 1 h.
 3. At the wave and A14 wakes, the executor checks, including the CUDA_VISIBLE_DEVICES isolation and where the 53 CPU report jobs route. The A14 (i) and (ii) reads get audited before any direction change.
-4. A11: read the selection and diagnostics (G4a.L2.2 CANNOT_TELL expected per the fix test: no eligible null).
+4. A11 read: CANNOT_TELL (no rate-eligible null); decodes at chance. Whether the tables carry A10's mislabelled content (A15-E on a table phi) waits on A16 (b)'s design.
 
 ## Objective
 
@@ -265,6 +265,18 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
   - NMI(symbol, phone) is 0.079-0.113.
   - E[d]: durinit 6.0-6.2, uniform 6.2-6.3, durfrz held at 4.41.
 - **What it says, untested interpretation:** EM from random init finds phis that the stage-1 held-out likelihood prefers to the gold phi, and whose decodes carry no phonetic content. A5's bar, which needs a statistic that separates competent from sharp-wrong phis, is the same question. The A14 analysis tests whether the objective or the search is responsible.
+
+**A11 / A12 read (EM count table): G4a.L2.2 = CANNOT_TELL (NO ELIGIBLE NULL).** Source: `EmTableSelectionJob.RyEwer4kERuw` (`output/report.txt`, `selection.json`) and diagnostics `EmTableDiagnosticsJob.JjdvpYwqYyfH`, both finished; `reports/exec_a11_selection_rerun_2026-09-24.md`.
+- Rate clause: all 12 real stage-B finishers are eligible (6.88-7.38 Hz). None of the 12 frame-permuted null finishers is (1.63-4.09 Hz, against the band [5.80, 14.49]). So the family reads CANNOT_TELL, as A12 provides.
+- Selected: real_c_s16 (durinit, tau 1), S 3.536 on the 285 CV holdout, paired over 285 of 285 utterances. The real finishers span S 3.536-3.608. The exact reruns of b_s04 and b_s07 reproduce S, so the identity band is 0. Every finisher stopped at iteration 2 or 3 (gain < 0.01).
+- Report only:
+  - The nulls' S is 5.80-5.81 on their permuted holdout and 5.66-5.81 on the real holdout.
+  - The selected S minus the best run-preserving null (runnull_a_s03) is -1.696 on its own holdout and -1.648 on the real holdout.
+  - The stage-A Spearman between S at iteration 10 and at the end is 0.28 / 0.10 / 0.59 for real arms a / b / c, against 0.94 / 0.72 / 0.93 for the nulls.
+- Report only, label-using (D4 dev-other, 500 decoded, none impossible):
+  - Real: direct PER 0.844-0.863, Hungarian 0.850-0.872, NMI(symbol, phone) 0.070-0.094, NMI(symbol, unit) 0.458-0.490.
+  - Nulls: direct PER 0.848-0.900, NMI(symbol, phone) 0.128-0.318, NMI(symbol, unit) 0.013-0.042.
+  - The decodes sit at chance, as A10's do. The symbols track the units but not the phones under their own labels. A15-E was not run on the tables, so whether they carry A10's mislabelled phonetic content is open.
 
 **L2-0 ladder read: a fitted phi lifts a random theta; rho*_lift = 0.7; G4a.L2.3 = CANNOT_TELL (audit CONFIRMED_WITH_NOTES, `reports/audit_l20_ladder_2026-09-24.md`).** Sources: packs P `WX41NC734WLo`, R1 `mZaZk7Ptt5Sg` and R2 `UdhhxiGIMBob`, and the reader `LadderCompetenceDisjointReadJob.EktNvNSRrXKj`, all COMPLETED; read in `reports/extract_l20_ladder_read_2026-09-24.md`.
 - **Audit.**
