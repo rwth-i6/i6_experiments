@@ -2,23 +2,30 @@
 
 ## State
 
-Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE: 2099342 `config/sae_4a_lexlat_v2_em_table.py` (A11 stage B, 5 four-GPU jobs); 2271415 `config/sae_4a_lexlat_d18.py` (D18, `SAE_4A_lexlat.md`). The em_ext, ladder and decphi graphs are complete; those managers exited normally (`reports/debug_manager_exit_2026-09-24.md`).
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
+- 2099342 `config/sae_4a_lexlat_v2_em_table.py`: A11 stage B, 5 four-GPU jobs.
+- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, Slurm 1989235-38/40/41, 1.06 h.
+- 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) as one four-GPU pack, 1989249, 11.5 h; A14 (ii) as one gpupack node, 1989248, 4 h.
+
+Launch record: `reports/exec_a14_wave_launch_2026-09-24.md`. The em_ext, ladder, decphi and D18 graphs are complete.
 
 Submission layer (user: "change now", 2026-09-23): sub-4-GPU tasks are packed 4 per exclusive node by `gpupack_engine.py`; light CPU classes run on the login node. Live-verified: concurrent members get distinct CUDA_VISIBLE_DEVICES, and 541 members ran with rc 0 (`reports/exec_first_pack_verify_2026-09-24.md`). Isolation relies on the variable alone; nvidia-smi shows all 4 GPUs.
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, G4a.L2.3 CANNOT_TELL, audited.
 - A10: wave durinit, 12 sub-epochs. EM phis beat gold on S, but their decodes are at chance.
-- A14 registered.
+- A14 and A15 registered.
+- D18 (`SAE_4A_lexlat.md`): on one common objective, the frozen-phi arms are worse by 0.11-0.12 despite better PER. So training phi lowers the objective by co-adaptation, the same direction as A10.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; parallelise everything; L2-1 extensible, user: "try hard enough on L2-1 in case the initial round is not successful"; extensions are amendments from A11 on.
 
-BUILT: ladder; L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5); A13 (22602b90). BUILDING: wave settings plus A14 (i) and (ii) (`reports/impl_a14_wave_2026-09-24.md`).
+BUILT: ladder; L2-1 to A9 (3dc01561); A10 (c49559ce); A11+A12 (e8bf63a8, 93c06db5); A13 (22602b90); wave and A14 (9974004e, tests af912d60; review `reports/review_a14_wave_launch_2026-09-24.md`); A15 (a6392d82, T3 89713d1a; `reports/impl_a15_phibattery_2026-09-24.md`), in launch review (`reports/review_a15_launch_2026-09-24.md`).
 
 NEXT:
-1. Implementer returns; code-reviewer checks the wave, A14 (i) and A14 (ii) launches (static, with job counts by GPU rqmt and route); the executor launches them. Wave: 24 one-GPU restarts in gpupack. A14 (i): one 4-arm pack. A14 (ii): 4 restarts, 48 sub-epochs.
-2. A11: executor reads stage B at the em_table wake; G4a.L2.2 reads after the nulls.
-3. A14 (i) read decides whether an EM phi lifts. A14 (ii) decides objective against search. Audit both before any direction change.
+1. A15 review returns, then the executor launches `config/sae_4a_lexlat_v2_phibattery.py` (21 battery jobs, gpupack 1 slot; 25 one-GPU decodes). Then the extractor, my analysis, an auditor, and the report to the user (their request: L2-1 against gold and r70 on text preference and raw accuracy).
+2. At the wave and A14 wakes, the executor checks. Also check that gpupack members get distinct CUDA_VISIBLE_DEVICES, and where the 53 CPU report jobs route (login expected).
+3. A11: the executor reads stage B at the em_table wake; G4a.L2.2 reads after the nulls.
+4. The A14 (i) read decides whether an EM phi lifts; A14 (ii) decides objective against search. Audit both before any direction change.
 
 ## Objective
 
