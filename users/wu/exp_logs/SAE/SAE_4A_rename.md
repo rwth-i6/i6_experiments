@@ -11,10 +11,13 @@ next_step phase file"; new analyses are allowed, including GPU). Nothing here is
   below before any job.
 - Live dependency in `SAE_4A_lexlat_v2.md`: the stage-2 key arms (pack G0Vzzokj5PQC) feed AN-5.
 
+LIVE (watcher as in `SAE_4A_lexlat_v2.md` State): 4060887 `config/sae_4a_rename_an0.py`, AN-0
+`RenameEmStepJob.sXyLgUqfPBPv` (gpupack 2005126; `reports/exec_rename_an0_launch_2026-09-25.md`).
+
 NEXT:
-1. AN-0 pre-check under Amendment R1 (lambda grid 1/2/4.4/10, plain and rate-neutral forms, gold-row guard,
-   restore statistic; made at the launch review, before any result): implementer re-build
-   (`reports/impl_rename_an0_r1_2026-09-25.md`), then a bounded re-review, then executor through gpupack.
+1. AN-0 under Amendment R1 (lambda grid 1/2/4.4/10, plain and rate-neutral forms, gold-row guard, restore
+   statistic; made at the launch review, before any result). Re-review `reports/review_rename_an0_r1_2026-09-25.md`
+   APPROVE_WITH_CONDITIONS; launched. On finish: extract, audit, record.
 2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
    AN-3 as re-scoped by AN-0; AN-5 when stage 2 finishes.
 3. After the reads are audited, bring the decision table's proposal to the user.

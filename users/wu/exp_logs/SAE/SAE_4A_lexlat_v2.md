@@ -3,7 +3,7 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- `config/sae_4a_lexlat_v2_keyinit.py`: manager EXITED 2026-09-25. A18 (b) lift pack ZUZypSQn7qc0 FINISHED. The genmarg decode of a18_r30_dur at ep8 (`ReturnnForwardJobV2.GTAGKejuQTxD`) failed a code assertion: re-added score -3.6e15 against -306.5 (`reports/exec_keyinit_error_2026-09-25.md`). Debugger: `reports/debug_keyinit_genmarg_2026-09-25.md`. The lift read `uRzbIh0EfQXG` waits.
+- 4063254 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 2026-09-25 01:36, `reports/exec_keyinit_rerun_2026-09-25.md`): A18 (b) lift pack ZUZypSQn7qc0 FINISHED. The genmarg decode of a18_r30_dur at ep8 (`ReturnnForwardJobV2.GTAGKejuQTxD`) hit a one-off wrong value on node jpbo-028-30, an environment fault (`reports/debug_keyinit_genmarg_2026-09-25.md`). It was resubmitted unchanged (pack 2005128). The lift read `uRzbIh0EfQXG`, over all 4 arms, waits on it.
 - 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
