@@ -2,19 +2,19 @@
 
 ## State
 
-No manager, watcher or Slurm job is live; no training has run. Done: env; i6 `settings.py` (absolute
-IMPORT_PATHS, `FFMPEG_PIN_ACCEPT` label after the pin FAIL); package amendments (ctrl_20_s1, p0 PER read,
-report-only VAD counts; `reports/impl_p0_amendments_2026-09-24.md`); configs `config/sae_i6_p0_screen.py`
-(75 jobs: inputs + ctrl_20 `ReturnnTrainingJob.GiT88bxzoZbZ`) and `config/sae_i6_p0.py` (139 jobs);
-tests P1-P3 + gaps: 503 passed, 12 strict xfail, 0 failed (oracle review PASS_WITH_NOTES). Package
-code/test/config changes are UNCOMMITTED until the launch review passes.
-In flight at the last save: the launch code review (`code-reviewer`), writing
-`reports/review_p0_launch_2026-09-24.md`. If that file is absent on resume, re-dispatch the review of
-the current state (settings.py, the amendments, the screen launch).
-NEXT: review PASS -> commit package changes -> launch `config/sae_i6_p0_screen.py` per the sis skill's
-section for this setup (manager + watcher) -> cost screen at ctrl_20 sub-epoch 1 (<= 1800 s per
-sub-epoch, <= 40 GiB) + step-1 triple + ep1 PER -> run gpu-marked tests on a gpu_48gb node -> release
-`config/sae_i6_p0.py`.
+LIVE (2026-09-24): manager pid 1554133 on `config/sae_i6_p0_screen.py` (input graph + ctrl_20
+`ReturnnTrainingJob.GiT88bxzoZbZ`; log `log/sae_i6_p0_screen.manager.log`), launched after the launch
+review (`reports/review_p0_launch_2026-09-24.md`: screen PASS_WITH_NOTES) and the settings/env review
+(`reports/review_p0_settings_time_2026-09-24.md`: PASS_WITH_NOTES); code at recipe/i6_experiments
+`2ae4445f0`. FROZEN until the P0 trainings end: the package's `model/`, `training/`, `analysis/`
+(RETURNN imports them live, unhashed). Watcher (re-arm first on resume; from the setup dir):
+`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1554133 config/sae_i6_p0_screen.py 60`.
+In prep: GPU test run for G0.V, script `/work/asr4/hwu/sae_i6_tests/gpu_2026-09-24/run_tests_gpu.sbatch`
+(code-review before submit).
+NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch
+(<= 1800 s) and peak GPU memory (<= 40 GiB), the step-1 triple, and the ep1 PER against G0.R1 ->
+pass: stop the screen manager, then start `config/sae_i6_p0.py` (never both at once); fail: stop
+and decide. Check `error.create_files.*` on the first ReturnnConfig job.
 
 ## Objective
 

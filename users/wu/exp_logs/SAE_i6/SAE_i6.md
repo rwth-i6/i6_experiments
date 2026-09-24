@@ -31,4 +31,4 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 
 ## Phase pointers
 
-- **P0 port and verification** — OPEN, nothing run — `SAE_i6_P0.md`.
+- **P0 port and verification** — OPEN, cost screen running (input graph + ctrl_20) — `SAE_i6_P0.md`.
