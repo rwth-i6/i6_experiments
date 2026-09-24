@@ -258,6 +258,7 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Recipe: A14 (i)'s, verbatim, with 8 sub-epochs and both models trainable.
     - phi comes from the A14 (ii) sub-epoch-48 checkpoints: gold-EM (PER 0.353), r30-EM (0.394), r70-EM (0.495), and r100-EM (0.860) as the negative control. One four-GPU pack.
     - Read per arm: dev-other greedy PER at ep8 in A4's bands (LIFT < 0.50, PARTIAL < 0.8164, else NO LIFT).
+    - Reported beside, never gating (user request 2026-09-24): the jointly trained phi's generative PER (genmarg decode of D4; direct, Hungarian, NMI) at ep8.
     - **BASIN SUFFICIENT** if gold-EM or r30-EM reads LIFT or PARTIAL and r100-EM reads NO LIFT. **BASIN INSUFFICIENT** if gold-EM, r30-EM and r70-EM all read NO LIFT. VOID if r100-EM lifts.
     - BASIN INSUFFICIENT withdraws A16 (b) stages 1-2 before any funding, and the next cost work goes to the objective.
   - **(ii) Annealing damage against objective drift.**
