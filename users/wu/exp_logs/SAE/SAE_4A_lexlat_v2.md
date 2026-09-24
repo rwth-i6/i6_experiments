@@ -6,6 +6,7 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 - 3023733 `config/sae_4a_lexlat_v2_relabel_s.py`: A16 (a), gpupack job 1990055 (`reports/exec_a16a_launch_2026-09-24.md`).
+- 721657 `config/sae_4a_lexlat_v2_phicontent.py`: A15-F, one gpupack pack 1990124 (`reports/exec_a15f_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
@@ -18,7 +19,7 @@ Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-onl
 
 Ready:
 - A16 (a2), 2186ad57, review PASS (`reports/review_a16a2_launch_2026-09-24.md`). It shares (a)'s jobs, so launch only after 3023733 exits; exactly 39 jobs should then be unfinished.
-- A15-F, 8972c436 (CPU, under 1 h, no review needed). Its rule amendment is being coded (`reports/impl_a15f_content_2026-09-24.md`), then launch.
+
 
 NEXT:
 1. Read A16 (a), (a2) and A15-F against their registered rules. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
