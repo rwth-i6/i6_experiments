@@ -1,14 +1,16 @@
 # Availability-based GPU partition routing (2026-09-24)
 
-Status: DONE_WITH_CONCERNS. Routing is in `settings.py` and the CLI is `./gpu_route`. This is the third
+Status: DONE_WITH_CONCERNS. Routing is in `settings.py` and the CLI is `./gpu_route`. This is the fourth
 round: the original spec, then the burst fix, then the four review fixes
-(`reports/review_gpu_route_2026-09-24.md`, findings 1-4). All 31 unit tests pass. The P0 graph keeps every
+(`reports/review_gpu_route_2026-09-24.md`, findings 1-4), then the headroom-aware tie rule
+(`reports/review_p0_full_launch_2026-09-24.md`). All 33 unit tests pass. The P0 graph keeps every
 job id. I did not touch the live manager (pid 1554133): it keeps the old static routing until it is
 restarted. Nothing was committed, launched or moved.
 
-## Files (sha256 prefixes after round 3)
+## Files (sha256 prefixes after round 4)
 
-- `settings.py` (43585da6c5949df6, 459 lines; baseline 115 lines, reviewed round-2 version a8228ad5b2f0ed32).
+- `settings.py` (ea461de836245e08, 460 lines; round 3 was 43585da6c5949df6, reviewed round 2 was a8228ad5b2f0ed32,
+  and the baseline had 115 lines).
   - Contains the routing block (`GPU_ROUTE_*`, `_gr_*`, `gpu_route_partition`).
   - In `check_engine_limits`, only the gpu_mem <= 24 branch changed. It now sets
     `-p gpu_route_partition(task, gpu, cpu, mem)` and `--comment=flex24`.
@@ -17,7 +19,7 @@ restarted. Nothing was committed, launched or moved.
   - Each round wrote `settings.py.new`, checked it (py_compile, sisyphus import, tests, graph build), then
     `mv`'d it over (an atomic rename).
 - `gpu_route` (957c59f7209cff3a): stdlib-only CLI. It loads `settings.py` and contains `plan_rebalance`.
-- `gpu_route_test.py` (2e9bb9c655034599): 31 unittest cases with mocked sinfo/squeue/sacct.
+- `gpu_route_test.py` (9d106cbf931d2abd): 33 unittest cases with mocked sinfo/squeue/sacct.
 - `~/.claude/skills/sis/SKILL.md`, section `2026-09-24-unsupervised`: a 5-line entry, updated for round 3.
 
 ## Behaviour
@@ -35,7 +37,12 @@ Only a GPU task with gpu_mem <= 24 is routed. Everything else is as before.
     - mem is rounded up to whole GB, the same way sisyphus passes `--mem`.
   - **competing:** GPUs of other users' pending jobs with reason Priority or Resources.
   - **headroom:** QoS cap (gpu_24gb 6, gpu_48gb 5) minus my PD/CF/R/CG GPUs and my reservations.
-  - A tie goes to gpu_48gb.
+  - Pick (round 4, `_gr_pick`): rank by score, then by whether my QoS headroom is > 0, then gpu_48gb.
+    A partition where my headroom is <= 0 is never picked while the other one has headroom. That
+    exclusion is applied first, so it also holds when the capped partition has the higher score (for
+    example 0 against -1 from competing). The brief gives both the ranking and this rule, and a plain
+    ranking alone would break the rule in that case. When neither partition has headroom, the order is
+    score, then gpu_48gb.
   - The CLI also shows `idle`, the raw count of idle GPUs.
 - **Reservations.** Each pick reserves the task's gpu/cpu/mem in the cached snapshot.
   - The reservation goes on the first node of P where the task fits. If none fits, it is "unplaced" on P and
@@ -120,13 +127,28 @@ Only a GPU task with gpu_mem <= 24 is routed. Everything else is as before.
   `--rebalance --dry-run` would move 1: 4335683 gpu_24gb->gpu_48gb. That makes 5 on gpu_48gb, which is
   the cap. I moved nothing.
 
+- Round 4 checks:
+  - The 33 tests pass on 3.10 before and after the swap, and on 3.11.
+  - The two new tests fail against the round-3 settings, as they should:
+    - 48gb mine 5/5 with 0 fit and 24gb mine 0/6 with 0 fit: both score 0, and the task goes to
+      gpu_24gb;
+    - scores 0 (headroom 0) against -1 (headroom 6) give gpu_24gb.
+  - py_compile passed. The sisyphus import passed before and after the swap.
+  - Graph build: ids sha1 61a1419117f432e2 is identical to the baseline settings. All rqmt except
+    sbatch_args are identical.
+  - The build is not a burst test. It resolves 164 jobs one by one over several minutes, so the 60 s
+    snapshot and its reservations refresh several times during one build.
+  - Live, with none of my GPU jobs queued: gpu_24gb idle 2, fit 0, mine 0/6, score 0; gpu_48gb idle 4,
+    fit 4, mine 0/5, score 4; pick gpu_48gb.
+
 ## Concerns / undetermined
 
 1. Reservations are per process: the watcher's console reserves only in its own cache. A task whose
    submission is deferred keeps its reservation until the next refresh. An array task reserves once, not
    once per task id.
-2. Once headroom on gpu_48gb is used up, flexible jobs go to gpu_24gb even when fit there is 0. Both
-   scores are then <= 0, and the formula compares them without any wait estimate.
+2. Once headroom on gpu_48gb is used up, flexible jobs go to gpu_24gb even when fit there is 0. Round 4
+   makes this intended: they wait for any A10 instead of for my own trainings. It is still not a
+   wait-time estimate.
 3. The worker's `get_rqmt` at job start can run one squeue/sinfo (and for trainings one sacct) on the
    compute node. This affects only `requested_resources` in the usage file.
 4. Another user's pending job that lists both partitions counts as competing on both.

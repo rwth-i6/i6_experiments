@@ -22,7 +22,8 @@ or an `error.*` there; re-arm it too on resume.
 NEXT: once ctrl_20 has written its sub-epoch 1 checkpoint, read wall time per sub-epoch (<= 1800 s),
 peak GPU memory (<= 40 GiB), the step-1 triple and the ep1 PER against G0.R1. The user's word
 (2026-09-24): if the first sub-epoch looks reasonable, start all P0 arms at once and read the ep1 PER
-afterwards. Full launch review: `reports/review_p0_full_launch_2026-09-24.md`. Pass: stop the screen
+afterwards. Full launch review: `reports/review_p0_full_launch_2026-09-24.md` (PASS_WITH_NOTES); follow its
+section 3 switch sequence and start PLAIN (no `-co`). Pass: stop the screen
 manager, then start `config/sae_i6_p0.py` (164 jobs incl. `ctrl_20_rc` `llSFybyKXkbL`; never both
 managers at once). Fail: stop and decide. Check `error.create_files.*` on the first ReturnnConfig job.
 Six trainings against the gpu_48gb cap of 5 (all request > 24 GB).
