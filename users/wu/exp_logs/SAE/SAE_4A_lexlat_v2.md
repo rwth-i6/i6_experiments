@@ -12,11 +12,11 @@ Reads 2026-09-24 (Results):
 - A16 (a)/(a2), audited: the verdicts stand, and the "model error" inference is withdrawn (data and criterion confound; the gap sits in the channel). Trigram re-weighting is ruled out.
 - A14 (ii), audited: PHONETIC BASIN LOWER (S_g 3.216 against 3.299, PER 0.35). At matched data, S's lower basin is phonetic, so random-init EM is search-limited. r70 init reaches the basin; r100 does not. Every basin-reaching arm (gold, r30, r70) kept durations fitted on MFA segments, so A17 (iii) tests label information without supervised segmentation.
 
-Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
+Rulings: pure unsupervised, GAN-free, supervised inits analysis-only (2026-09-23). The last training round runs here (2026-09-24, Constraints): no training beyond the listed runs; forwards and analysis only.
 
 NEXT:
-1. A17 (i)/(ii) are built (6a16612d) and in code review (`reports/review_a17_launch_2026-09-24.md`); launch on approval. A17 (iii) (segmentation: G-dur, r30-dur, r70-dur) is being added to the keyinit config and shares a four-GPU pack with the A16 (b) gold-key control; review, then launch. BASIN INSUFFICIENT withdraws A16 (b) stages 1-2; SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds the stage-2 key arms. A16 (b) stage 0 is being amended (overlong segments as repeated segments; posterior-argmax keys); then launch it (CPU). J SEES THE KEY funds stage 1. The literature on segmentation gaps is pending (`reports/lit_segmentation_gap_2026-09-24.md`).
-2. At the wave and A14 (i) wakes, the executor checks. The A14 (i) read is audited before any direction change.
+1. A17 (i)/(ii) passed review (`reports/review_a17_launch_2026-09-24.md`), and the executor is launching them. A17 (iii) (G-dur, r30-dur, r70-dur) is being added to the keyinit config, one four-GPU pack with the gold-key control; review, then launch. That is the final training launch. A16 (b) stage 0 (CPU) is being amended; then launch it. Its J verdict, A17's verdicts and the literature (`reports/lit_segmentation_gap_2026-09-24.md`) are handoff reads, not funding triggers here.
+2. At each watcher wake, the executor checks. Every read is audited, then written up for the handoff.
 
 ## Objective
 
@@ -28,6 +28,7 @@ Break the cold line's private code without labels and without a GAN. The record:
 - Objective, prior `RtzbESkOedsT`, treatment graph `cdcxYJMjiYj5` at rung 1000, both model classes, tau = 2 for the joint runs, D10e pack constants: unchanged from `SAE_4A_lexlat.md`.
 - No full joint cold restarts (every cold arm of the campaign sits in the chance band 0.83-0.91 at every seed); no recognizer-neutral (alpha = 0) arm from a cold start (it hands the posterior to an untrained phi, the collapse driver); no neural-refit split-merge search. Count-table repair moves on phi are the only split-merge form funded, and only by amendment on L2-1 SIGNAL + BELOW.
 - Selection statistics are held-out and label-free; dev-other enters only reports.
+- **Last training round here (user ruling 2026-09-24, quota; the project continues elsewhere through the porting work).** The training runs are limited to these: the wave (4111121), A14 (i), A17 (i)/(ii), and the keyinit pack (A16 (b) gold-key control plus A17 (iii)). Forward and analysis jobs on them, and CPU analysis such as A16 (b) stage 0, may still run. No new training is implemented or started. A16 (b) stage 1 and the stage-2 key arms, the tau = 1 form of the gold-key control, and any follow-up such as a segmentation init are not run here. Their registered gates and the verdicts read here are the handoff.
 
 ## Gates (pre-registered 2026-09-23, before any job)
 
