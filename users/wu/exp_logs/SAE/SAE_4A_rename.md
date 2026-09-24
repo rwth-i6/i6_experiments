@@ -15,8 +15,7 @@ NEXT:
 1. AN-0 pre-check under Amendment R1 (lambda grid 1/2/4.4/10, plain and rate-neutral forms, gold-row guard,
    restore statistic; made at the launch review, before any result): implementer re-build
    (`reports/impl_rename_an0_r1_2026-09-25.md`), then a bounded re-review, then executor through gpupack.
-2. AN-1 ran (login node); its read waits on the audit `reports/audit_rename_an1_2026-09-25.md`. AN-2/AN-4 are
-   built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
+2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
    AN-3 as re-scoped by AN-0; AN-5 when stage 2 finishes.
 3. After the reads are audited, bring the decision table's proposal to the user.
 
@@ -281,4 +280,23 @@ Every proposal's best case is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), 
 
 ## Results
 
-(none yet)
+### AN-1 (2026-09-25): NOT GOLD FIRST under V1, V2, V12; NOT VISIBLE under V2, V12 (audited CONFIRMED_WITH_CORRECTIONS)
+
+Job `KeyObjectiveScreenJob.erCoRAmZID5a` (login node, 198 s). Extraction `reports/extract_rename_an1_2026-09-25.md`;
+audit `reports/audit_rename_an1_2026-09-25.md` re-scored all 218 real-corpus keys with independent code (terms
+match to 4e-15; its V0 equals A20's J and stage 1's J_final). Held-out, nats per frame, 187 competitors.
+- GOLD FIRST: gold's margin over the best competitor and its rank of 188 are V1 -0.139 (134th), V2 -0.123 (48th),
+  V12 -0.058 (6th). The K30 > K70 > K100 ladder holds on seed means under every variant.
+- NAMES VISIBLE: J_V(b) - J_V(a) is -0.56 to -0.83 under V2 and V12, so 0 of 4 keys pass. The class-prior term does
+  not reverse the trigram's preference for the found names on the found partitions (A20).
+- V3 (4- and 5-gram) was not built, so the negative covers V1, V2 and V12 only.
+- Correction (audit): the registered V2 formula did not fix its divisor. As built, V2's occupancy sum is divided
+  by all frames, so a SIL frame scores 0 against about -3.1 to -3.5 for a non-SIL frame, and the term rewards SIL
+  share. All 4 keys that beat gold under V12 carry SIL share 0.083-0.093 against gold's 0.074. Under the other
+  admissible reading (divide by non-SIL frames), V12 puts gold 1st of 188 by +0.0076. That is below the 0.01
+  floor, so the reading is still NOT GOLD FIRST, by 0.0024. On the unabsorbed string, V12's margin is -0.082 (all
+  frames) or -0.019 (non-SIL frames).
+- Decision table: no row fires, so TP-C is not brought. Any later use of V2 or V12 must first fix the divisor to
+  non-SIL frames, or a key search gains by inflating SIL. The near miss is a measurement at one divisor chosen
+  after the result, not a pass. Even there, names stay invisible, so a V12 search would still not rename toward
+  gold on found partitions.
