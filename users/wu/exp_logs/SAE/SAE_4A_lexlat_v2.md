@@ -7,17 +7,15 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65, A17 (ii) runs (SLURM 1991971).
 - 1773072 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 18:55 after a sisyphus assertion crash, `reports/exec_keyinit_manager_exit_2026-09-24.md`): pack ge1MKcAPmZIV running (SLURM 1992898; gold-key control plus A17 (iii)); A18 (b) lift pack ZUZypSQn7qc0 waits on it; 9 forwards pending (SLURM 1992872).
 - 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758).
-- A19 graph complete (manager exited 21:10); read `A19TriLadderReadJob.5ny4LPLFrIXw` under audit (`reports/extract_a19_read_2026-09-24.md`).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs.
+Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); basin-reaching arms kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009). G4a.L2.2: SIGNAL (em_s13), NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT (0.820-0.842 against cold_ctl 0.849); A18 hold rule CANNOT_TELL, so (a) runs. A19: SAME LADDER (trigram-only r30/50/70 lift, 0.26-0.33; k2 adds 0.08-0.14).
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
 1. Stage 1 ends: check status_counts.real.failed = 0 and loop_error null, then the key-agreement read; stage 2 under its gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required). Start the keyarms manager only after keysearch_s1 ends.
 2. A18: read (a) by G4a.L2.4 when its pack finishes. Flip A18B_PAIRED_ROWS once A17 (i) finishes. Start keyarms (BRIDGE_KEYARMS) only after the 9 shared cold_ctl jobs and keysearch_s1 finish (`reports/review_a18a_bridge_launch_2026-09-24.md`).
-3. A19 read when its pack finishes (verdicts in A19).
-4. At each watcher wake the executor checks; every read is audited, then recorded.
+3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
 
@@ -734,6 +732,23 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
   - At matched sub-epoch 12, em_s13 is 0.0107 below durinit s1, so the clause fails narrowly.
   - The registered clause assumes the candidate has an S at 48, and em_s13 has none. The rule reads CANNOT_TELL, so it gives no ground for withholding ("really sure it cannot lift").
   - (a) continues. It had started at 21:00, before this read was taken.
+
+### A19 read (2026-09-24): SAME LADDER (audited CONFIRMED)
+- Source: `A19TriLadderReadJob.5ny4LPLFrIXw`, pack `PackedBlankfreeTrainJob.DzrmcjOQ4I3r` (SLURM 1995148, 1 h 25 min), and 8 `PairedPerDeltaJob`s. Extraction: `reports/extract_a19_read_2026-09-24.md`. Audit: `reports/audit_a19_read_2026-09-24.md`, which re-scored every arm on all 2,864 dev-other utterances.
+- Single delta verified: each tri arm's config differs from its rt twin only in the 17 k2 lines and the output path. The tri logs have no k2 lines, while each rt log has 496. Step 0 is identical, with the same phi fits.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm | PER | ep8 band | tri minus rt, ep1 / ep8 | phi genPER ep8 (direct / Hungarian / NMI) |
+  |---|---|---|---|---|
+  | tri_r30 | 0.203 / 0.282 / 0.298 / 0.268 | LIFT | +0.017 / +0.085 | 0.260 / 0.260 / 0.788 |
+  | tri_r50 | 0.210 / 0.277 / 0.300 / 0.263 | LIFT | +0.020 / +0.077 | 0.257 / 0.257 / 0.784 |
+  | tri_r70 | 0.335 / 0.368 / 0.354 / 0.329 | LIFT | +0.081 / +0.138 | 0.316 / 0.357 / 0.725 |
+  | tri_r100 | 0.831 / 0.899 / 0.903 / 0.898 | NO LIFT | -0.014 / +0.043 | 0.874 / 0.876 / 0.068 |
+
+- rho*_tri = 0.7, the ladder is monotone and not VOID, and no reading changes the verdict. Seven of the eight paired rows read K2 HELPS; r100 at ep1 reads TRIGRAM ENOUGH.
+- Reading: the phone trigram alone lets a phi with up to 70 % of its fit tokens substituted lift a random theta. The k2 term is not needed for the lift, but it improves the ep8 result by 0.08-0.14 PER.
+- Without k2, r30 and r50 are best at ep1 (about 0.20), worsen to about 0.30 by ep4, and recover partly to 0.26-0.27 by ep8. This matches D10e's trigram-only drift from p0.
+- M is taken from the k2 runs' seed pair. The ep1 labels for r30 and r50 are therefore the least robust (report only).
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
