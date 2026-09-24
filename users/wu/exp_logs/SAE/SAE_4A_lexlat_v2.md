@@ -15,7 +15,7 @@ Reads 2026-09-24 (Results):
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 NEXT:
-1. A16 (b) (registered): build stage 0 (J, gold key, key ladder) and stage 1 (key search); build the key-to-phi init and the stage-2 gold-key control (durinit), review it, and launch it. Run stage 0; J SEES THE KEY funds stage 1.
+1. A17 (registered; the user challenged the in-basin drift): (i) lift test of the EM-degraded phonetic phis; (ii) tau = 1 without annealing. BASIN INSUFFICIENT withdraws A16 (b) stages 1-2. A16 (b) (registered): build stage 0 (J, gold key, key ladder) and stage 1 (key search); build the key-to-phi init and the stage-2 gold-key control (durinit), review it, and launch it. Run stage 0; J SEES THE KEY funds stage 1.
 2. At the wave and A14 (i) wakes, the executor checks. The A14 (i) read is audited before any direction change.
 
 ## Objective
@@ -248,6 +248,28 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
         - Reported, never gating: direct and Hungarian PER, NMI, and A15-F's measures at 0-48.
       - KEY BASIN sends the selected phi to the lift test (A14 (i)'s form) and to L2-2.
     - Cost: stage 0 takes minutes on CPU; stage 1 is one node for about 1-3 h; stage 2 is one GPU for about 3 h (the control) and one four-GPU pack for about 3 h.
+
+- **A17 (2026-09-24, after the A14 (ii) read, before any A16 (b) or A17 result; disclosed analysis only, supervised inits) Is the phonetic basin worth reaching, and what degrades gold under EM?**
+  - Trigger (user challenge, 2026-09-24): "the EM degrades the gold phi a lot, why is our conclusion still that EM could find an optimum".
+    - In A14 (ii), gold-init PER goes 0.193 -> 0.300 (sub-epoch 4) -> 0.328 (12) -> 0.353 (48) while S falls. So S's optimum near gold is not gold, and A14 (ii) licenses only the ranking between basins.
+    - Most of the damage comes in sub-epochs 1-4. The recipe's tau = 4 sub-epoch sends every init to S 4.71-4.92 at sub-epoch 1 (gold 3.474 -> 4.814). After that, at tau = 1, PER drifts a further +0.05 (gold) and +0.04 (r30) over 44 sub-epochs while S falls by about 0.05.
+    - So there are two defects: the search (random init never reaches the basin) and the objective inside the basin. A16 (b) addresses only the first, and its ceiling is a phi at about PER 0.35-0.5.
+  - **(i) Does an EM-degraded phonetic phi lift a random theta?**
+    - Recipe: A14 (i)'s, verbatim, with 8 sub-epochs and both models trainable.
+    - phi comes from the A14 (ii) sub-epoch-48 checkpoints: gold-EM (PER 0.353), r30-EM (0.394), r70-EM (0.495), and r100-EM (0.860) as the negative control. One four-GPU pack.
+    - Read per arm: dev-other greedy PER at ep8 in A4's bands (LIFT < 0.50, PARTIAL < 0.8164, else NO LIFT).
+    - **BASIN SUFFICIENT** if gold-EM or r30-EM reads LIFT or PARTIAL and r100-EM reads NO LIFT. **BASIN INSUFFICIENT** if gold-EM, r30-EM and r70-EM all read NO LIFT. VOID if r100-EM lifts.
+    - BASIN INSUFFICIENT withdraws A16 (b) stages 1-2 before any funding, and the next cost work goes to the objective.
+  - **(ii) Annealing damage against objective drift.**
+    - Recipe: A14 (ii)'s, but at tau = 1 from sub-epoch 1 (no tau = 4 sub-epoch), 12 sub-epochs, diagnostics at 0, 4, 8 and 12.
+    - Arms: gold and r70 inits, with each init's own durations, as in A14 (ii). One GPU each, through gpupack.
+    - Read the gold arm's drift, PER(12) - PER(0), against 0.193:
+      - **ANNEALING-DOMINATED** if the drift is < 0.05 (A14 (ii) shows +0.135 at 12);
+      - **OBJECTIVE DRIFT** if it is >= 0.10;
+      - **MIXED** otherwise.
+    - Reported beside: S at matched sub-epochs against A14 (ii), and the r70 arm.
+    - ANNEALING-DOMINATED amends A16 (b) stage 2 to tau = 1 for key inits before its key arms run. The gold-key control then runs in both forms.
+  - The 0.05 and 0.10 thresholds exceed the bed's same-config PER spread (0.01-0.03).
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
