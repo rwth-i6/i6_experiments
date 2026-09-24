@@ -5,21 +5,20 @@
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
-- 721657 `config/sae_4a_lexlat_v2_phicontent.py`: A15-F, one gpupack pack 1990124 (`reports/exec_a15f_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
 - A10: the EM phis beat gold on S, but decode at chance.
 - D18: training phi lowers the objective by co-adaptation.
 - A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
-- A15/A15-E (audited, corrected): the EM phis are mislabelled and merged. Relabelled, they carry real structure, but at about manner-class level (R4 emis 0.29-0.31 against a 7-class oracle of 0.287 and r70's 0.34), and they fit gold worse than r100. So L2-1 fails on labelling AND on content.
+- A15/A15-E + A15-F: the EM phis (and A11's table) are mislabelled and merged, but their content is partly phone-level. Within the right class they pick the right phone at 0.54-0.62, above every reference and their sharp nulls. Their errors cross classes (class share 0.50-0.56 against gold 0.73). They sit close to and below r70 (R4 emis 0.29-0.31 against 0.34). The manner-class reading is overturned.
 - A16 (a): OBJECTIVE LABEL-BLIND OR WRONG. S prefers each EM phi's own labelling over the emission map by 0.12-0.31 (6/6); the permphi control is valid (-0.60).
 - A16 (a2): NO LAMBDA <= 3. S ranks the EM phis above gold (by 0.07-0.20) and above their relabellings at lambda 1-3; the gap does not close.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 NEXT:
-1. Read A16 (a2) and A15-F against their registered rules; audit the combined A16 (a) / (a2) / A15-F reading before A16 (b) is registered. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
+1. Audit of the combined A15-F / A16 (a) / (a2) reading (`reports/audit_a16_combined_2026-09-24.md`); then register A16 (b). With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
 2. At the wave and A14 wakes, the executor checks, including where the 53 CPU report jobs route. The A14 reads are audited before any direction change.
 
 ## Objective
@@ -372,7 +371,7 @@ Conventions:
 - **Under their own labels, the EM phis sit near the content-free end.**
   - T1 is 0.08-0.34. Every interval excludes 0, but it is 12-50 times below gold and below r70's 0.57 for all six.
   - R4 direct is 0.07-0.12, against r100's 0.092 and random_init's 0.080. The R1 and R2 Hungarian PERs are at r100's level.
-- **Through the emission map, they carry real structure, but below r70 and at about the manner-class level** (corrected by the audit).
+- **Through the emission map, they carry real structure, but below r70 and at about the manner-class level** (corrected by the audit). [The manner-class part was overturned by the A15-F read below: within-class accuracy is 0.54-0.62, and the errors cross classes.]
   - R4 emis is 0.29-0.31 (non-SIL 0.26-0.29). That is below r70 through the same map: 0.342, non-SIL 0.310 (r70's 0.371 is its direct R4). JS emis is 0.50-0.55, against r70's 0.52.
   - SIL is identity-mapped in all six, which lifts both R4 columns. On non-SIL frames, own-label R4 is 0.029-0.082, at chance or the majority level.
   - The audit ran a scratch bound that is not banked. It assigns units to groups and maps groups to phones one-to-one, choosing the map from the MFA labels, which bounds any label-free map from above.
@@ -444,3 +443,40 @@ Source: `PriorScaleSReadJob.ttn9rEAZ1VQd` (`output/table.txt`, `per_utterance.ts
 - **Open, for the audit:**
   - The gold phi was fitted on the 2821-utterance split, while the EM phis trained on the train stream. Part of their S advantage may therefore be density fit from more data, not a preference for wrong content. No same-data gold phi exists to separate the two.
   - The per-frame emission term (500-way, about 3.3 nats per frame) dwarfs the phone prior (about 7 phones per second against 50 frames). That scale mismatch is a candidate mechanism, not established.
+
+### A15-F read (2026-09-24): content resolution and sharp nulls (descriptive, label-using, no gate)
+
+Source: `PhiContentReadJob.vySKYIh5RAaB` (`output/table.txt`, `table.json`); launch `reports/exec_a15f_launch_2026-09-24.md`; build `reports/impl_a15f_content_2026-09-24.md`. Set: D4 dev-other, 500 utterances. Rules as amended at build.
+- **Oracle bounds (iii), primary class assignment.** Groups map to phones one-to-one by the label oracle.
+  - Random 40-way partitions: R4 0.118 (max 0.129), within-class 0.370 (max 0.429).
+  - The 7-manner-class partition: R4 0.287, class share 0.767, within-class 0.374.
+  - The 13-class partition: R4 0.377, within-class 0.491.
+- **Class share and within-class accuracy, through the emission map:**
+
+  | phi | class share | within-class | R4 emis |
+  |---|---|---|---|
+  | A10 EM ×6 (sub-epoch 48) | 0.50-0.56 | 0.54-0.62 | 0.29-0.31 |
+  | trajectory phis (sub-epochs 4 and 12) | 0.53-0.56 | 0.52-0.55 | 0.29 |
+  | phi_c | 0.56 | 0.51 | 0.28 |
+  | A11 table real_c_s16 | 0.50 | 0.57 | 0.28 |
+  | r70 | 0.49 | 0.70 | 0.34 |
+  | r100 | 0.31 | 0.43 | 0.14 |
+  | gold | 0.73 | 0.81 | 0.59 |
+
+  On non-SIL frames, the EM phis read R4 0.26-0.29 and within-class 0.50-0.58.
+- **ABOVE MANNER LEVEL (amended rule): yes for every EM phi.** Within-class 0.54-0.62 exceeds all three references: the 7-class oracle 0.374, the random maximum 0.429, and each phi's own null maximum 0.35-0.39.
+  - The flag also reads yes for r100 (0.433, just above 0.429, no own null). So without an own null the flag is weak. The EM margins are wide.
+- **Sharp permuted-unit nulls (iv), the EM phi's value against the maximum over its 5 nulls:**
+  - T3 primary: 1.99-2.20 against 0.21-0.26.
+  - T3 relabel: 1.23-1.70 against -0.09 to +0.18.
+  - R4 emis: 0.29-0.31 against 0.10-0.12.
+  - Relabelled gold fit: -6.0 to -6.7 against -10.0 to -10.6.
+  Every EM gain exceeds its sharpness-matched null. The nulls leave 14-24 phones unclaimed.
+- **Relabelled fit per gold phone (v).** Claimed phones score -5.4 to -6.1, and unclaimed phones -7.7 to -8.8, which hold 16-36 % of frames. Gold scores -3.70.
+- **A11's selected table (vi) has the A10 profile.** 10 phones unclaimed, R4 emis 0.283, class share 0.50, within-class 0.565, ABOVE MANNER yes.
+- **Reading.** The EM phis are not a manner-class partition.
+  - Within a class, they pick the right phone at 0.54-0.62, well above the 7-class oracle's 0.37 and their own sharp nulls.
+  - Their errors cross classes: class share is 0.50-0.56, against gold 0.73 and the oracle 0.77. This is r70's class share (0.49) with lower within-class accuracy (r70 0.70). So their content is close to, and somewhat below, r70's.
+  - Their poor relabelled fit is set by sharpness. A sharp phi without content scores -10, so the comparison with the flat r100 (-5.26) does not measure content.
+  - This matches the audit's alternative (f): the symbols are partly phone-specific and partly cross-class mixtures.
+- **Overturned (2026-09-24).** The A15 read's corrected bullet "at about the manner-class level", and the audit's broad-class reading, do not survive A15-F. R4 had matched the 7-class oracle, but the class split shows phone-level distinctions within classes, with the errors across classes. Also overturned: the relabelled-fit comparison with r100 as evidence of missing content, which was sharpness-confounded. Still standing: mislabelled, merged, and below r70 on R4.
