@@ -7,17 +7,18 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
 - 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
 - 1192448 `config/sae_4a_lexlat_v2_keyinit.py`: pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii)), submitted 09:54 (`reports/exec_keyinit_launch_2026-09-24.md`).
+- 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 key search `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758), submitted 11:46 (`reports/exec_a16b_stage1_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged, partly phone-level. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); every basin-reaching arm kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009).
 
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
 
 NEXT:
-1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launching (`reports/exec_a16b_stage1_launch_2026-09-24.md`). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
-5. A19 trigram-only ladder: building (`reports/impl_a19_triladder_2026-09-24.md`), then review and launch; shim `config/sae_4a_lexlat_v2_triladder.py` (user).
-2. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim exists (user, 2026-09-24).
-3. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
-4. At each watcher wake, the executor checks; every read is audited, then recorded.
+1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launched (pid 1895908, see LIVE). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
+2. A19 trigram-only ladder: building (`reports/impl_a19_triladder_2026-09-24.md`), then review and launch; shim `config/sae_4a_lexlat_v2_triladder.py` (user).
+3. A18 builder (keyinit lift pack; L2-2 for the wave and key arms; stage1_keys() wiring in keyarms_v1) is with the implementer (`reports/impl_a18_bridge_2026-09-24.md`), then review. The keyarms setup shim exists (user, 2026-09-24).
+4. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
+5. At each watcher wake, the executor checks; every read is audited, then recorded.
 
 ## Objective
 
