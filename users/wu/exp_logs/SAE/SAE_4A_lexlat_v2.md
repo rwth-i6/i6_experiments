@@ -35,8 +35,8 @@ Break the cold line's private code without labels and without a GAN. The record:
     - A17 (iii) with the gold-key control;
     - A16 (b) as registered: the stage-1 key search, the stage-2 key arms, and the conditional tau = 1 form of the gold-key control, each under its own gate.
   - The user clarified that "working on" includes work being implemented. The first reading, which dropped A16 (b) stages 1-2, is withdrawn.
-  - Forward and analysis jobs on these runs may run.
-  - Nothing new is registered here; that includes a segmentation-init follow-up. Such lines go to the continuation as handoff items.
+  - Analysis on these runs is allowed without limit: forwards, readers, CPU analyses and audits, including new analyses registered here.
+  - Only new training is excluded, such as a segmentation-init or duration-shape run. Such runs go to the continuation as handoff items.
 
 ## Gates (pre-registered 2026-09-23, before any job)
 
