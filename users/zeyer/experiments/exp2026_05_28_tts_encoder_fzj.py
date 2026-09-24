@@ -3468,7 +3468,8 @@ def _build_tables(prefix: str):
                     mixing="mixed batches, \\\\ random order",
                 )
             ),
-            _ls(f"{win}-dualstream", injection="mean log-mel", mixing="separate batches \\\\ (audio or text)"),
+            # separate batches for the table (-dualstream) land after the deadline: camera-ready row
+            # (icassp2027/TODO-camera-ready.md), no pending rows in the submission (AZ 2026-09-24)
             _ls(f"{win}-nogumbel", injection="mean log-mel", mixing="mixed batches, \\\\ fixed ratio"),
             _ls(win, injection="mean log-mel", mixing="mixed batches, \\\\ random order"),
         ],
@@ -3561,6 +3562,10 @@ def _build_tables(prefix: str):
             ],
         ],
     )
+    # Figure: relative gain vs the used text : audio ratio, ours (from the recog results above) next to
+    # the literature with in-domain text and a clean no-text baseline (AZ 2026-09-24; numbers and the
+    # inclusion rules in projects/2026-05-28-tts-encoder.md). Filled = primary set, hollow = secondary.
+    _build_ratio_gain_figure(prefix, win=win, base=base)
     # Loquacious medium: the injected text (source weighting, text per step), per-source dev WERs.
     # Source share ~ hours^alpha of the large transcripts (alpha 1 = as they are, 0 = uniform);
     # P68 = the LS per-step ratio (~1:1 text:audio hours), P240 = 68/240 of that.
@@ -7533,3 +7538,233 @@ def _wrap_eval_with_empty_phonemes(
         "map_seq": functools.partial(_add_empty_phonemes_map_seq, phonemes_sparse_dim=phon_extern["sparse_dim"]),
         "map_outputs": map_outputs,
     }
+
+
+def _build_ratio_gain_figure(prefix: str, *, win: str, base: str):
+    """
+    The ratio-vs-gain figure (:class:`PlotTextRatioGainJob`, output ``figures/text-ratio-gain``):
+    relative WER reduction of the injection over the audio-only baseline at the same audio passes,
+    vs the used text : audio ratio. Ours from ``_table_results``; the literature as literals
+    (in-domain unpaired text only, no baseline > 20% WER on < 300 h paired, a no-text baseline that
+    differs only in the text; sources and numbers in projects/2026-05-28-tts-encoder.md, 2026-09-24).
+    """
+    from i6_experiments.users.zeyer.utils.plot_text_ratio_gain import PlotTextRatioGainJob
+
+    def _ls_cell(name: str, key: str, recog: str = "aed+ctc-batched"):
+        return (_table_results[f"{prefix}/aed/{name}/{recog}"].output, key)
+
+    def _loq_cell(name: str, key: str):
+        return (_table_results[f"{prefix}/loq/aed/{name}/aed+ctc-batched"].output, key)
+
+    def _ls_pair(inj: str, recog: str = "aed+ctc-batched", base_name: str = base):
+        return {
+            "primary": (_ls_cell(base_name, "test-other", recog), _ls_cell(inj, "test-other", recog)),
+            "secondary": (_ls_cell(base_name, "dev-other", recog), _ls_cell(inj, "dev-other", recog)),
+        }
+
+    def _loq_pair(base_name: str, inj: str):
+        return {
+            "primary": (_loq_cell(base_name, "test"), _loq_cell(inj, "test")),
+            "secondary": (_loq_cell(base_name, "dev"), _loq_cell(inj, "dev")),
+        }
+
+    def _gain(b: float, i: float) -> float:
+        return 100.0 * (b - i) / b
+
+    def _avg_gain(pairs) -> float:
+        return 100.0 * (1.0 - sum(i for _, i in pairs) / sum(b for b, _ in pairs))
+
+    inj = "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon"
+    # colors = where the text enters: whole encoder (input level) / shared upper encoder only / decoder;
+    # "+" after a name = an explicit modality-matching loss (AM3, KD); ours are whole-encoder
+    _c_whole, _c_partial, _c_decoder = "C0", "C1", "C4"
+    _old_base = "asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38"  # the earlier regime's audio-only baseline
+
+    def _old_pair_from_file(name: str):
+        """earlier-regime runs no longer in the graph (definitions commented out, outputs on disk):
+        the recog result file of the finished run, read at job run time, vs the regime's baseline"""
+        res = tk.Path(
+            "/e/home/jusers/zeyer1/jupiter/setups/2026-05-28-tts-encoder/output/exp2026_05_28_tts_encoder_fzj/aed"
+            f"/{name}/aed+ctc-batched/recog-1stpass-res.txt"
+        )
+        return {
+            "primary": (_ls_cell(_old_base, "test-other"), (res, "test-other")),
+            "secondary": (_ls_cell(_old_base, "dev-other"), (res, "dev-other")),
+        }
+
+    ladders = [
+        {
+            "label": "ours, LS 960 h",
+            "color": _c_whole,
+            "marker": "o",
+            "points": [
+                {"ratio": 1.6, **_ls_pair(f"{win}-lmsub0_65-textP1")},
+                {"ratio": 9.5, **_ls_pair(f"{win}-lmsub10-textP8")},
+                {"ratio": 22, **_ls_pair(f"{win}-lmsub25-textP19")},
+                {"ratio": 44, **_ls_pair(f"{win}-lmsub50-textP38")},
+                {"ratio": 86, **_ls_pair(win)},
+            ],
+        },
+        {
+            "label": "ours, Loquacious",
+            "color": _c_whole,
+            "marker": "s",
+            "points": [
+                {
+                    "ratio": 100,
+                    **_loq_pair(
+                        "base-small-nFullEp200-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                        f"{inj}-nep200-bs24m-specaug60-stepcomp-len40s-small-txtP340-txtSrcExp0",
+                    ),
+                },
+                {
+                    "ratio": 25,
+                    **_loq_pair(
+                        "base-medium1k-nFullEp162-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                        f"{inj}-nep162-bs24m-specaug60-stepcomp-len40s-medium1k-txtP181-txtSrcExp0",
+                    ),
+                },
+                {
+                    "ratio": 10,
+                    **_loq_pair(
+                        "base-medium-nFullEp65-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                        f"{inj}-nep130-bs24m-specaug60-stepcomp-len40s-txtSrcExp0",
+                    ),
+                },
+                {
+                    "ratio": 1,
+                    **_loq_pair(
+                        "base-large-srcExp0-nFullEp2_8-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s",
+                        f"{inj}-nep71-bs24m-specaug60-stepcomp-len40s-large-srcExp0-txtP79-txtSrcExp0",
+                    ),
+                },
+            ],
+        },
+    ]
+    groups = [
+        # whole encoder: the text enters at the encoder input, every encoder parameter sees it
+        {
+            "color": _c_whole,
+            "markers": ["^", "v", "D", "P", "*", "p", "h", "8", "<", ">"],
+            "points": [
+                # the earlier implementation's regime (Muon, nep38, padded) against its own baseline
+                {
+                    "label": "ours, LS GlowTTS",
+                    "ratio": 86,
+                    **_ls_pair("tts-enc-logmel-refcfg-single-muon-nep38", base_name=_old_base),
+                },
+                {
+                    "label": "ours, LS EncL24-DecL8",
+                    "ratio": 86,
+                    **_ls_pair(f"{win}-encL24-decL8", base_name=f"{base}-encL24-decL8"),
+                },
+                {"label": "ours, LS +LM", "ratio": 86, **_ls_pair(win, recog="ctc+aed+lm-labelsync-batched")},
+                {"label": "ours, LS CTC greedy", "ratio": 86, **_ls_pair(win, recog="ctc-greedy-batched")},
+                {
+                    "label": "tts4pretrain'21, LS 960 h (+SSL)",
+                    "ratio": 86,
+                    "primary": _gain(3.5, 3.2),
+                    "secondary": _gain(1.7, 1.6),
+                },
+                {
+                    "label": "FastInject'24+, LS 100 h",
+                    "ratio": 810,
+                    "primary": _gain(9.3, 7.7),
+                    "secondary": _gain(5.1, 4.1),
+                },
+                {
+                    "label": "Rossenbach'20 TTS, LS 960 h",
+                    "ratio": 2.1,
+                    "primary": _gain(7.37, 7.19),
+                    "secondary": _gain(2.66, 2.53),
+                },
+                {
+                    "label": "Textogram'22, telephony, transcripts",
+                    "ratio": 1,
+                    "primary": _gain(11.9, 10.5),
+                    "secondary": _gain(6.9, 6.2),
+                },
+                {"label": "D'Alterio'23, 120k h, transcripts", "ratio": 1, "primary": 0.53, "secondary": None},
+            ],
+        },
+        # shared upper encoder only: a speech-only lower encoder stays trained on paired data alone
+        {
+            "color": _c_partial,
+            "markers": ["^", "v", "D", "P", "*", "s", "X", "o", "p", "h"],
+            "points": [
+                # ours, earlier regime: the trained-embedding pseudo-encoder injected after encoder layer N
+                # (the first N layers see audio only; the earlier paper's method)
+                {
+                    "label": "ours, LS emb. after layer 4",
+                    "ratio": 86,
+                    **_ls_pair("pseudo-enc-layer4-noblank-muon-nep38", base_name=_old_base),
+                },
+                {
+                    "label": "ours, LS emb. after layer 8",
+                    "ratio": 86,
+                    **_old_pair_from_file("pseudo-enc-layer8-noblank-muon-nep38"),
+                },
+                # layers 12 / 16 (4.38 / 4.63, 4.30 / 4.52 vs 4.01 / 4.33) are below the baseline:
+                # no points with a gain < 0 in the figure (AZ), the method just does not work there
+                {
+                    "label": "J-TAED'25+, LS 960 h",
+                    "ratio": 86,
+                    "primary": _gain(5.47, 4.79),
+                    "secondary": _gain(2.30, 2.06),
+                },
+                {
+                    "label": "JOIST'23 full-ctx., 300M utt",
+                    "ratio": 333,
+                    "primary": _gain(4.8, 4.6),
+                    "secondary": _avg_gain([(11.9, 11.4), (8.2, 7.9), (36.1, 35.7), (19.3, 18.9), (22.6, 22.1)]),
+                },
+                {
+                    "label": "JOIST'23 streaming, 650M utt",
+                    "ratio": 154,
+                    "primary": _gain(6.2, 6.1),
+                    "secondary": _avg_gain([(13.9, 13.1), (9.4, 9.6), (37.9, 32.6), (21.6, 18.7), (24.4, 21.2)]),
+                },
+                {"label": "Peyser'23 JOIST, 200k h", "ratio": 58, "primary": 0.0, "secondary": (4.7 + 5.0 + 2.3) / 3},
+                {"label": "CTI'24, 490k h", "ratio": 192, "primary": _gain(4.1, 3.9), "secondary": None},
+                {
+                    "label": "CJJT'23 (JOIST + JEIT), 650M utt",
+                    "ratio": 154,
+                    "primary": _gain(6.2, 6.2),
+                    "secondary": _avg_gain([(14.1, 12.0), (37.4, 33.8), (21.4, 17.9), (24.6, 21.3)]),
+                },
+            ],
+        },
+        # decoder side: the encoder never sees the text
+        {
+            "color": _c_decoder,
+            "markers": ["p", "^"],
+            "points": [
+                {
+                    "label": "CJST'25, LS 960 h",
+                    "ratio": 86,
+                    "primary": _gain(4.94, 4.71),
+                    "secondary": _gain(2.22, 2.09),
+                },
+                {
+                    "label": "JEIT'23, 650M utt",
+                    "ratio": 154,
+                    "primary": _gain(6.2, 6.2),
+                    "secondary": _avg_gain([(14.1, 13.2), (37.4, 35.5), (21.4, 19.4), (24.6, 22.6)]),
+                },
+            ],
+        },
+    ]
+    # column-width figure for the paper: the caption carries the marker convention (no in-plot note)
+    job = PlotTextRatioGainJob(
+        ladders=ladders,
+        groups=groups,
+        xlabel="used text : audio",
+        figsize=(3.4, 2.9),
+        legend_ncol=2,
+        fontsize=5.0,
+        markersize=4.0,
+        show_secondary=False,  # one point per series: the primary set only (AZ)
+    )
+    tk.register_output("figures/text-ratio-gain.pdf", job.out_pdf)
+    tk.register_output("figures/text-ratio-gain.png", job.out_png)
+    tk.register_output("figures/text-ratio-gain.json", job.out_json)
