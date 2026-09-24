@@ -103,7 +103,10 @@ class MTRDuplexInference(Job):
 
     # ``retrieval_llm`` is excluded at its default so adding it leaves every existing (non-RAG) MTR
     # job's hash unchanged; a MoshiRAG run sets it and gets a distinct hash + the 2-GPU retrieval seam.
-    __sis_hash_exclude__ = {"retrieval_llm": None}
+    # ``engine_version`` (excluded at 1): bump to re-run a backend whose inference ENGINE changed while its arguments
+    # did not (the engine is run()-side code, so nothing else re-hashes). 2 = PersonaPlex after the 2026-08/09 port
+    # (ring-KV off-by-one and reset fixes); the 2026-06-30 personaplex_family cells ran on the pre-port stack.
+    __sis_hash_exclude__ = {"retrieval_llm": None, "engine_version": 1}
 
     def __init__(
         self,
@@ -121,7 +124,9 @@ class MTRDuplexInference(Job):
         lora_scaling: float = 2.0,
         retrieval_llm: str | None = None,
         rqmt: dict | None = None,
+        engine_version: int = 1,
     ):
+        self.engine_version = engine_version
         self.mtr_data = mtr_data
         self.dimension = dimension
         self.inference_venv = inference_venv
@@ -487,6 +492,7 @@ def mtr_benchmark_py(
     retrieval_llm: str | None = None,
     judge: str = "vllm",
     judge_model: str = "openai/gpt-oss-120b",
+    engine_version: int = 1,
 ):
     """Wire data -> multi-round inference -> eval and register the summary under
     ``benchmark/mtr/<backend_name>/<dimension>[_<scenario>]/scores``.
@@ -513,6 +519,7 @@ def mtr_benchmark_py(
         lora_rank=lora_rank,
         lora_scaling=lora_scaling,
         retrieval_llm=retrieval_llm,
+        engine_version=engine_version,
     )
     ev = MTRDuplexEval(
         submission_dir=inf.out_dir,

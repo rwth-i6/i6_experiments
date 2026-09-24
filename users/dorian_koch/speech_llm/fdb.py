@@ -52,6 +52,9 @@ FDB_MODEL_ORIGIN = {
     "moshika_rl_seamless_hf": ("hf", "kyutai/moshika-rl-seamless"),
     "personaplex": ("hf", "nvidia/personaplex-7b-v1"),
     "personaplex_family": ("hf", "nvidia/personaplex-7b-v1 (our lib)"),
+    # The same released weights re-run on the post-port lib engine (ring-KV + reset fixes), as the matched control
+    # for the PersonaPlex finetunes, which all run on that engine (2026-09-25).
+    "personaplex_family_postport": ("hf", "nvidia/personaplex-7b-v1 (our lib, post-port engine)"),
     "personaplex_b1": ("hf", "nvidia/personaplex-7b-v1"),
     "personaplex_b8": ("hf", "nvidia/personaplex-7b-v1"),
     "unmute": ("hf", "kyutai Unmute"),
@@ -94,6 +97,7 @@ FDB_MODEL_ORIGIN = {
     # PersonaPlex finetunes.
     "personaplex_ft": ("ours", "finetune of nvidia/personaplex-7b-v1"),
     "personaplex_lib_ft": ("ours", "finetune of nvidia/personaplex-7b-v1 (our lib)"),
+    "ppx_ft_p4_fulljre": ("ours", "LoRA r128 on nvidia/personaplex-7b-v1 (all JRE, one pass, EPAD 1.0)"),
 }
 
 
