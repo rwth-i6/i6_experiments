@@ -17,7 +17,7 @@ Reads 2026-09-24 (Results):
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT through A15-E (a1758b29). BUILDING: A16 (a), relabelled S (`reports/impl_a16a_relabel_s_2026-09-24.md`); A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
+BUILT: A16 (a) 1e637fe3, in review (`reports/review_a16a_launch_2026-09-24.md`). BUILDING: A16 (a2), prior-weighted S (`reports/impl_a16a2_priorscale_s_2026-09-24.md`); A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
 
 NEXT:
 1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
@@ -194,6 +194,24 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
       - **OBJECTIVE LABEL-BLIND OR WRONG** if dS > -0.01 for at least 4 of 6. The label signal must come from the prior term, and the next cost work goes there.
       - Otherwise **MIXED**.
     - The positive control must read dS < -0.3; otherwise the read is VOID.
+  - **(a2) Model error: does a weighted prior make the objective rank gold top?** (Added 2026-09-24, after the literature read, before any A16 result.) Analysis only, like (a).
+    - Why: the closest published analogue is Yin et al. 2019 (https://arxiv.org/pdf/1810.04297v3), a joint LM-GMM over unsupervised glyph clusters. It found "model error": the gold model does not get the highest score, because the strong emission term dominates the LM, and the fix was P(E)^3. That matches A10, where the EM phis beat gold on S (3.30-3.40 against 3.474).
+    - Statistic: S_lambda = -(1/T) log sum_y P_LM(y)^lambda P_phi(x | y), tau = 1, on (a)'s 260 set, for lambda in {1, 2, 3}. lambda = 1 is S and reuses the banked values.
+    - Phis:
+      - gold, r30, r70 and r100;
+      - the six A10 sub-epoch-48 phis under identity and under the emission relabelling;
+      - permphi under identity and under its true inverse;
+      - phi_c.
+    - Reading (descriptive, label-using, never a gate or a selection):
+      - MODEL ERROR REMOVED AT lambda: S_lambda(gold) is below min over the six EM phis (identity) of S_lambda by more than 0.01, AND S_lambda is monotone on the ladder (gold < r30 < r70 < r100). Report the smallest such lambda, or NO LAMBDA <= 3.
+      - Also report (a)'s dS at each lambda.
+    - lambda is never chosen from this read, because choosing it by gold's rank would be label-based selection. If (b) or a restart uses a weighted prior, it takes the literature value lambda = 3 fixed in advance. This read only says whether that value removes the model error seen at lambda = 1.
+  - **Literature read** (`reports/lit_decipherment_relabel_2026-09-24.md`, 2026-09-24). These points shape (b):
+    - Yin et al. 2019 separate model error from search error. The joint EM missed the gold score after 5,000 random restarts, and restarting it from a pipeline decipherment fixed that (Borg 0.35 -> 0.20 NED; 0.16 with a trigram, below the 0.22 optimal-mapping ceiling).
+    - Moves over whole symbol types beat point-wise EM on homophonic ciphers: Ravi & Knight 2011 get 95.2 % against 32.6 % for 3-gram EM (https://aclanthology.org/P11-1025.pdf). Nuhn, Schamper & Ney 2014 run a count-based beam search (https://aclanthology.org/D14-1184.pdf).
+    - An objective that scores only the LM of the outputs collapses to the majority guess (Liu, Chen & Deng 2017). So any many-to-one or unit-level key keeps the channel term, as S does.
+    - Merges cannot be repaired by relabelling states, which is capped at the optimal-relabelling accuracy. Going further needs unit-type moves (reassign a unit type, or split and merge), each accepted only if S improves.
+    - No published result is at our noise level.
   - **(b) An unsupervised label search**, designed after (a) and a literature read on substitution-cipher decipherment (homophonic, noisy, under an n-gram LM). It is registered as its own amendment before any job. It must be label-free and GAN-free, and select only on held-out S.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
