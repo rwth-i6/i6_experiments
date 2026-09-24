@@ -353,7 +353,31 @@ because every banked number came from it; this note is corrected to it, not the 
 - **The band holds every lattice state (S2):** `|s - 3t| <= 25` is enforced at every recognizer frame,
   including repeat frames, so a segment end is compared with `3(t_emit + 1)` and with every frame up to
   the next emission, not only with the emitting frame.
+- **SIL runs may split into several SIL tokens in the training lattice** (P0 test T1.6, strict xfail):
+  the train step builds its prior history while the topology is still "ctc" (`model/emc_model.py:367`)
+  and the blank-free model never rebuilds it (`model/blankfree_model.py:481`), so a new SIL token may
+  follow SIL (each extra SIL pays a prior term P(SIL | ., SIL) and its own segment), while a phone may
+  not follow itself. With a blank-free history the DP matches the strict run-collapse oracle exactly.
+  The string a path stands for is therefore not always B(a) on SIL; PER is unaffected (SIL is dropped),
+  the objective by an amount not yet measured on real batches (P0 queue). Every banked number ran with it.
+- **Aggregate-term targets (S9):** `c_text` is not raw text frequencies: the unigram target is the
+  Witten-Bell unigram (including its uniform interpolation mass) restricted to the 40 symbols, and the
+  bigram target is `uni[h] * P_WB(k | h)` with the diagonal removed and renormalised (projected onto the
+  run-collapse support); the unigram target is not projected (P0 T1.17 records the difference as L1
+  0.20 on a toy prior). The EMA runs over per-step normalised frequencies (`model/agg.py:36-39,
+  155-168`; `model/blankfree_model.py:483-487`).
 - **The lexicon term is a separate added loss (S7):** `lam_lex * (log Z_H - log Z_HLG) / S` computed by k2
   on the recognizer's emissions alone (no phone trigram, no reverse model inside it), added to the
-  unchanged lattice term; `SAE_i6_ref_lexicon.md` B4. Its own open numerical questions (pruned-G
-  normalisation, tropical epsilon removal, escape multiplicity, segment order; S3-S6) are P0 test items.
+  unchanged lattice term; `SAE_i6_ref_lexicon.md` B4. P0 oracle tests (`reports/impl_tests_k2_2026-09-24.md`,
+  tiny fixture) settled its numerics: (a) the whole graph score, word LM included, is divided by tau
+  (`model/lexlat_k2_train.py:444`), so `-L_lex` is a tempered, unnormalised word weight, NOT minus a log
+  posterior mass: `L_lex` reached +0.685 at tau 2 and +4.85 at tau 8 on the fixture (S5); (b) the graph
+  over-counts the single-route back-off LM (fixture median 0.28, max 1.03 nats per token; about half
+  from trailing back-off moves before acceptance, every G state being final with the `#0` loop at the
+  word boundary, `model/lexlat_k2.py:560, 790-794`; on real strings JUPITER measured a median 0.02-0.04,
+  `SAE_i6_ref_lexicon.md` B5); (c) `prune_lm_tables` leaves order >= 3 contexts unnormalised (fixture
+  max |sum - 1| 1.3e-4 at theta 5, 1.9e-2 at theta 2; `model/lexlat_k2.py:715-725`), which touches only
+  the official 4-gram at theta 5 (the default `k2_word_lm` and `off4` arms), not the unpruned in-house
+  graph of `k2lat_20_ma3000`; (d) tropical epsilon removal is exact for the production word-boundary
+  back-off placement and loses up to 2.72 nats per string only for the old all-states placement (S4);
+  (e) segment order and chunking do not matter (S6 refuted).

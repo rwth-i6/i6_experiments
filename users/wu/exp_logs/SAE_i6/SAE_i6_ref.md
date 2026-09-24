@@ -138,6 +138,13 @@ The package's default k2 arm `k2_word_lm` (official 4-gram HLG, max_active 1000,
 - ffmpeg build changes the audio without changing hashes -> `FfmpegPinCheckJob` (package README);
   the reference list is from an aarch64 build.
 - RETURNN resume under torch >= 2.6 needs `weights_only=False` (shipped patch).
+- `PhoneNgramPrior.per_token_log_probs(order=3)` double-counts log P(y0 | BOS, BOS) for one-token
+  strings (`model/prior.py:246`): affects only the order-3 held-out perplexity statistic and the
+  prior-gap reader, not training (the lattice reads the tables). Pinned by P0 tests.
+- The matmul reduction `_logmm` floors impossible products at about -708 instead of NEG_INF
+  (`model/lattice.py:673-674`): an infeasible utterance gets a finite log Z and loss instead of z_zero.
+  On the bed the only infeasible case (S = 1) is caught elsewhere. Pinned by P0 tests.
+- SIL runs may split into several SIL tokens in the training lattice (objective note section 10).
 
 ## 7. i6 port
 
