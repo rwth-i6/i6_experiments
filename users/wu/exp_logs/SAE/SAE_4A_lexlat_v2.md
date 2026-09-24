@@ -5,6 +5,7 @@
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
+- 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited. A10: the EM phis beat gold on S, but decode at chance. D18: co-adaptation. A11: CANNOT_TELL (no rate-eligible null).
@@ -15,7 +16,7 @@ Reads 2026-09-24 (Results):
 Rulings: pure unsupervised, GAN-free, supervised inits analysis-only (2026-09-23). The last training round runs here (2026-09-24, Constraints): no training beyond the listed runs; forwards and analysis only.
 
 NEXT:
-1. A17 (i)/(ii) passed review (`reports/review_a17_launch_2026-09-24.md`), and the executor is launching them. A17 (iii) (G-dur, r30-dur, r70-dur) is being added to the keyinit config, one four-GPU pack with the gold-key control; review, then launch. That is the final training launch. A16 (b) stage 0 (CPU) is being amended; then launch it. Its J verdict, A17's verdicts and the literature (`reports/lit_segmentation_gap_2026-09-24.md`) are handoff reads, not funding triggers here.
+1. A17 (i)/(ii) are live (see above). A17 (iii) (G-dur, r30-dur, r70-dur) is being added to the keyinit config, one four-GPU pack with the gold-key control; review, then launch. That is the final training launch. A16 (b) stage 0 (CPU) is being amended; then launch it. Its J verdict, A17's verdicts and the literature (`reports/lit_segmentation_gap_2026-09-24.md`) are handoff reads, not funding triggers here.
 2. At each watcher wake, the executor checks. Every read is audited, then written up for the handoff.
 
 ## Objective
