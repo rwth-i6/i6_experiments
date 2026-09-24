@@ -5,7 +5,6 @@
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), 4 GPU, 11.5 h; A14 (ii), gpupack, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
-- 3023733 `config/sae_4a_lexlat_v2_relabel_s.py`: A16 (a), gpupack job 1990055 (`reports/exec_a16a_launch_2026-09-24.md`).
 - 721657 `config/sae_4a_lexlat_v2_phicontent.py`: A15-F, one gpupack pack 1990124 (`reports/exec_a15f_launch_2026-09-24.md`).
 
 Reads 2026-09-24 (Results):
@@ -14,15 +13,16 @@ Reads 2026-09-24 (Results):
 - D18: training phi lowers the objective by co-adaptation.
 - A11: CANNOT_TELL, because no null is rate-eligible. Decodes sit at chance.
 - A15/A15-E (audited, corrected): the EM phis are mislabelled and merged. Relabelled, they carry real structure, but at about manner-class level (R4 emis 0.29-0.31 against a 7-class oracle of 0.287 and r70's 0.34), and they fit gold worse than r100. So L2-1 fails on labelling AND on content.
+- A16 (a): OBJECTIVE LABEL-BLIND OR WRONG. S prefers each EM phi's own labelling over the emission map by 0.12-0.31 (6/6); the permphi control is valid (-0.60).
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible.
 
 Ready:
-- A16 (a2), 2186ad57, review PASS (`reports/review_a16a2_launch_2026-09-24.md`). It shares (a)'s jobs, so launch only after 3023733 exits; exactly 39 jobs should then be unfinished.
+- A16 (a2), 2186ad57, review PASS: being launched (`reports/exec_a16a2_launch_2026-09-24.md`), after 3023733 exited.
 
 
 NEXT:
-1. Read A16 (a), (a2) and A15-F against their registered rules. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
+1. Read A16 (a2) and A15-F against their registered rules; audit the combined A16 (a) / (a2) / A15-F reading before A16 (b) is registered. With the literature (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, (b) also takes on content resolution (A12's planned-next items 2-3).
 2. At the wave and A14 wakes, the executor checks, including where the 53 CPU report jobs route. The A14 reads are audited before any direction change.
 
 ## Objective
@@ -405,3 +405,23 @@ Conventions:
   - The EM phis are mislabelled and carry more phone structure than any structureless partition. But they are not in permphi's case. Even relabelled, they sit below r70 on R4, at the manner-class level, with 19-40 % of non-SIL frames on unclaimed phones, and they fit gold worse than content-free r100.
   - So L2-1 fails at least on labelling and is also short of r70 on content. rt_perm's NO LIFT (0.87) shows that wrong labels suffice to block even a fully phonetic phi. It does not show that the EM content would suffice with the right labels.
   - Whether relabelling alone would help is untested: A16 (a) for the objective's preference, A15-F for the content resolution. A14 (i) tests the direct use.
+
+### A16 (a) read (2026-09-24): OBJECTIVE LABEL-BLIND OR WRONG (analysis only, label-using)
+
+Source: `RelabelSReadJob.Y9RU2PSbVfuu` (`output/table.txt`); launch `reports/exec_a16a_launch_2026-09-24.md`. Set: A13's 260 utterances, paired over all 260. Intervals: speaker-clustered bootstrap, 95 %.
+- dS = S(emis) - S(identity) is positive for all six A10 sub-epoch-48 phis, with every interval above 0:
+
+  | phi | dS | utterances with dS > 0 |
+  |---|---|---|
+  | uniform s1 | +0.219 | 257 / 260 |
+  | uniform s2 | +0.308 | 259 / 260 |
+  | durinit s1 | +0.242 | 258 / 260 |
+  | durinit s2 | +0.202 | 258 / 260 |
+  | durfrz s1 | +0.278 | 259 / 260 |
+  | durfrz s2 | +0.123 | 250 / 260 |
+
+  0/6 fall below -0.01. S(emis) is 3.52-3.64, against S(identity) 3.30-3.40 and gold 3.474.
+- The control is valid. permphi's true inverse moves S from 4.075 to 3.477, a dS of -0.598 [-0.615, -0.577], which is gold's level.
+- Identity S reproduces the banked values within 2.6e-4.
+- Reading: at lambda = 1, S prefers each EM phi's own (wrong) labelling over the emission-map labelling, by 0.12-0.31 nats per frame, on 250-259 of 260 utterances. By the registered branch, the label signal must come from the prior term; A16 (a2) (the prior weight) tests that first.
+- Caveat: the emission-map labelling is one-to-one over a merged, manner-level partition (A15 read), and it is not refit. So it is a weak stand-in for the right labelling, and A15-F bears on that. The read does not show that S would reject a phone-level phi with the right labels. permphi shows the opposite for a gold-quality phi.
