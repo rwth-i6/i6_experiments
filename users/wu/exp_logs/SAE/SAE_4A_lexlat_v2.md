@@ -6,24 +6,23 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs, 1.06 h.
 - 4152192 `config/sae_4a_lexlat_v2_a14.py`: A14 (i), one four-GPU pack, 11.5 h; A14 (ii), one gpupack node, 4 h (`reports/exec_a14_wave_launch_2026-09-24.md`).
 
-The A15 and A15-E graphs are complete, as are em_ext, ladder, decphi and D18. Packing: sub-4-GPU tasks run 4 per node through `gpupack_engine.py` (`reports/exec_first_pack_verify_2026-09-24.md`).
+Complete: A11, A15, A15-E, em_ext, ladder, decphi, D18. Sub-4-GPU tasks pack 4 per node (`gpupack_engine.py`).
 
 Reads 2026-09-24 (Results):
 - L2-0: rho*_lift 0.7, audited.
 - A10: EM phis beat gold on S, but decode at chance.
 - D18: training phi lowers the objective by co-adaptation.
 - A11: G4a.L2.2 CANNOT_TELL, because no null finisher is rate-eligible. The selected S is 3.536, and the decodes sit at chance.
-- A15/A15-E (audit pending): the EM phis are phonetic at about r70's emission-matched frame accuracy (0.29-0.31 against 0.34), but mislabelled and merged. So L2-1 fails on labelling, not content.
+- A15/A15-E (audited, corrected): the EM phis are mislabelled (1-6 of 40 symbols agree with the emission map) and merged. They carry real structure (R4 emis 0.29-0.31, above a random-partition bound of 0.12), but even relabelled they sit below r70 (0.34) at about the manner-class level (7-class oracle 0.287), and fit gold worse than r100. So L2-1 fails on labelling AND is short on content.
 
 Rulings (2026-09-23): pure unsupervised, GAN-free, supervised inits analysis-only; L2-1 extensible ("try hard enough on L2-1").
 
-BUILT through A15-E (a1758b29). BUILDING: A16 (a), relabelled S (`reports/impl_a16a_relabel_s_2026-09-24.md`).
+BUILT through A15-E (a1758b29). BUILDING: A16 (a), relabelled S (`reports/impl_a16a_relabel_s_2026-09-24.md`); A15-F, content resolution and the sharp null (`reports/impl_a15f_content_2026-09-24.md`).
 
 NEXT:
-1. Audit of the A15 read (`reports/audit_a15_read_2026-09-24.md`), then apply the corrections and report to the user.
-2. Literature on decipherment (`reports/lit_decipherment_relabel_2026-09-24.md`) and A16 (a) together shape A16 (b). A16 (a) takes a review only if it needs GPU or runs over 1 h.
-3. At the wave and A14 wakes, the executor checks, including the CUDA_VISIBLE_DEVICES isolation and where the 53 CPU report jobs route. The A14 (i) and (ii) reads get audited before any direction change.
-4. A11 read: CANNOT_TELL (no rate-eligible null); decodes at chance. Whether the tables carry A10's mislabelled content (A15-E on a table phi) waits on A16 (b)'s design.
+1. A15-F and A16 (a): review only if GPU or over 1 h, launch, extract, read against their registered rules. Together with the literature read (`reports/lit_decipherment_relabel_2026-09-24.md`), they shape A16 (b). If the content is at manner level, A16 (b) goes to content resolution (A12's planned-next items 2-3), not only a label search.
+2. At the wave and A14 wakes, the executor checks, including the CUDA_VISIBLE_DEVICES isolation and where the 53 CPU report jobs route. The A14 (i) and (ii) reads get audited before any direction change.
+3. A11: whether the tables carry A10's profile is A15-F (vi).
 
 ## Objective
 
@@ -169,7 +168,24 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - Through the emission map: T3 (primary, relabel), R3 matched and R4 matched.
     - Positive control: the emission map recovers permphi's true permutation (count of correct labels). The gold phi maps to the identity.
     - Descriptive, no gate, never selects. Rules go in the job docstring.
+  - **A15-F, content resolution and a sharp null** (added 2026-09-24, after the A15-E audit, before any A15-F job; source `reports/audit_a15_read_2026-09-24.md`).
+    - Why: the audit found that R4 emis (0.29-0.31) equals a 7-manner-class oracle partition (0.287), that r100 is no null for a sharp phi's T3, and that the relabelled gold fit is worse than r100's. Whether the EM content is phone-level or broad-class decides whether a label search (A16 (b)) can be enough.
+    - Inputs: the six A10 sub-epoch-48 phis, the two trajectory phis, phi_c, gold, r70, r100 and permphi, on A15's D4 set and eta. It uses a new module and leaves the A15-E code untouched.
+    - (i) Save each phi's per-symbol mean unit distribution m_phi (40 x 500), computed the way A15-E does.
+    - (ii) Split R4 emis by class. Report the share of frames whose matched phone is in the gold phone's manner class (7 fixed classes: vowel, stop, fricative/affricate, nasal, liquid, glide, SIL), and accuracy within class given the class is right. Also report per-phone R4 emis.
+    - (iii) Oracle partition bounds, as a registered reader:
+      - Random 40-way unit partitions, 200 draws, mean and max.
+      - Units assigned to their majority MFA class under 7 manner classes and under 13 place-and-voicing classes.
+      - In both, groups map to phones one-to-one, with the map chosen from the MFA labels.
+    - (iv) A sharp destroyed-structure null. Each A10 sub-epoch-48 phi gets its unit axis randomly permuted, 5 seeds, keeping its sharpness and symbol group sizes. It runs through the same emission map procedure, with T3 (primary, relabel), R4 emis and the relabelled gold fit.
+    - (v) The relabelled gold-string fit per gold phone, split by claimed and unclaimed phones (nearest-phone map).
+    - (vi) If the A11 selected table (real_c_s16) yields a per-symbol mean unit distribution (bucket-averaged under its own duration table), it gets the A15-E map and R4 emis. Otherwise it is reported as not built.
+    - Reading rules (descriptive, never a gate or a selection; they go in the job docstring):
+      - A phi's content counts as ABOVE MANNER LEVEL if its within-class accuracy exceeds the within-class accuracy of the 7-class oracle.
+      - An EM T3 or R4 gain counts only if it exceeds the maximum over its 5 permuted-unit nulls.
 - **A16 (2026-09-24, after the A15/A15-E read, before any A16 job) Is the labelling the missing piece, and can it be found without labels?** The A15-E read (Results) finds the A10 EM phis phonetic at about r70's emission-matched frame accuracy, but mislabelled and merged. An L2-1 extension under the user's latitude ruling.
+  - Premise corrected by the audit (2026-09-24, before any A16 result): even relabelled, the EM phis sit below r70, at about the manner-class level, and fit gold worse than r100 (Results, A15 read). A16 (a) still reads as registered. Its dS asks whether S prefers the emission-map labelling, which stays informative. A16 (b)'s design waits on A15-F as well.
+  - The emission map is chosen against the transcript-fitted gold phi. So any use of it, A16 (a) included, stays analysis-only and never relabels a phi that trains or is selected.
   - **(a) Does the label-free objective prefer the right labelling?** Analysis only: gold enters through the emission map, never a selection.
     - Held-out S (tau = 1, A13's 260-utterance set, the A10 S reader path) for each of the six A10 sub-epoch-48 phis, under two labellings: identity, and relabelled through its A15-E emission map (the phi's symbol axis permuted so that symbol h^-1(k) is read as phone k).
     - Positive control: permphi under identity and under its true inverse permutation. Its identity S is 4.075, and gold's is 3.474.
@@ -308,7 +324,7 @@ Question: how competent must phi be to anchor a recognizer, and which label-free
   - N1: the corruption is independent of the acoustics, so each phone's most likely unit stays right below rho 1. rho*_lift therefore does not carry over to an EM phi, whose errors are structured. A14 (i) tests an EM phi directly.
   - N2: the label-free statistics rate the sharp-wrong phi_c as competent as gold.
 
-### A15 and A15-E read (2026-09-24; descriptive, label-using, no gate; audit pending)
+### A15 and A15-E read (2026-09-24; descriptive, label-using, no gate; audited CONFIRMED_WITH_CORRECTIONS)
 
 Sources:
 - `reports/extract_a15_read_2026-09-24.md`: reader `PhiCompetenceBatteryReadJob.HWlC9YZ1U2GI`.
@@ -336,18 +352,33 @@ Conventions:
 - **Under their own labels, the EM phis sit near the content-free end.**
   - T1 is 0.08-0.34. Every interval excludes 0, but it is 12-50 times below gold and below r70's 0.57 for all six.
   - R4 direct is 0.07-0.12, against r100's 0.092 and random_init's 0.080. The R1 and R2 Hungarian PERs are at r100's level.
-- **Through the emission map, they are phonetic at about r70's frame accuracy.**
-  - R4 emis is 0.29-0.31, against r70's 0.342 (0.371 direct). JS emis is 0.50-0.55, against r70's 0.52.
-  - Fitting the map on the content-free r100 gains only +0.044 on R4 and +0.18 on T3, so the EM gains (about +0.2 on R4, +1.7 to +2.1 on T3) are far outside that null.
-  - T magnitudes grow with a phi's sharpness: r70 is flattened by uniform label noise, while the EM phis are sharp. So T ranks phis within one family, and R4 is the accuracy comparison across families.
+- **Through the emission map, they carry real structure, but below r70 and at about the manner-class level** (corrected by the audit).
+  - R4 emis is 0.29-0.31 (non-SIL 0.26-0.29). That is below r70 through the same map: 0.342, non-SIL 0.310 (r70's 0.371 is its direct R4). JS emis is 0.50-0.55, against r70's 0.52.
+  - SIL is identity-mapped in all six, which lifts both R4 columns. On non-SIL frames, own-label R4 is 0.029-0.082, at chance or the majority level.
+  - The audit ran a scratch bound that is not banked. It assigns units to groups and maps groups to phones one-to-one, choosing the map from the MFA labels, which bounds any label-free map from above.
+    - Random 40-way unit partitions (200 draws) reach mean 0.118 and max 0.129. So the EM R4 reflects real structure, not the map's selection.
+    - A partition that knows only 7 manner classes reaches 0.287, and one that knows 13 place and voicing classes reaches 0.377. So R4 cannot separate phone-level from broad-class content.
+    - Against a pure broad-class reading: the nearest-to-second-nearest gold phone gap is 0.12-0.17 bits (r70 0.036), and only 38-50 % of a symbol's 2nd and 3rd nearest phones share its nearest phone's manner class (gold 70 %). The data do not decide between the readings.
+  - r100 is flat, so it bounds the map's selection gain only for flat phis. It is not a null for a sharp phi's T3 gain, because T scales with sharpness. No sharp destroyed-structure control was run (A15-F).
+  - **Relabelled fit of the gold string** (pooled log p per frame, `PhiEmissionMapJob.*/output/per_utterance.json`):
+    - The EM phis score -6.03 to -6.74 under the emission labelling. That is worse than content-free r100 (-5.26) and r70 (-4.82), and near random_init (-6.54).
+    - permphi's relabelling restores -3.67, against gold's -3.65.
+    - The EM phis' T3 of about 2.0 comes from penalising the deranged string (-7.94 to -8.66), not from fitting the right one. T3 therefore ranks phis within a family only.
 - **The EM phis are mislabelled, and also merged.**
-  - T3 relabel (emis against identity) is +1.2 to +1.7 for every EM phi, against r70's -0.04 and r100's -0.01.
-  - Under nearest-phone matching, the 40 symbols claim only 21-29 gold phones. 11-19 phones go unclaimed, most often rare ones (AO, AW, OY, UH, TH, ZH), and in some restarts AE, IH or EH. SIL, N, T, W, AY and Z each take 3-4 symbols.
+  - T3 relabel (emis against identity) is positive for every EM phi (+1.2 to +1.7), against r70's -0.04 and r100's -0.01. Only the sign transfers across families.
+  - The emission map agrees with the own labels on only 1-6 of 40 symbols, with SIL among them in all six.
+  - Under nearest-phone matching, the 40 symbols claim only 21-29 gold phones. The 11-19 unclaimed phones hold 19-40 % of non-SIL frames: AO, AW, OY and UH in 6/6; AE, G, JH, SH, TH and ZH in 5/6; IH and EH in 4/6; AH, the most frequent non-SIL phone, in 3/6. SIL, N, T, W, AY, Z and M each take 3-4 symbols.
   - T2 full is 0.35-0.71, against r70's 0.64. Own labels still beat a random relabelling, so some symbols sit on or near their phones.
-- **Along the trajectory (durinit s1 and durfrz s1 at sub-epochs 4, 12 and 48), the partition sharpens while the labels drift.**
-  - T3 primary emis rises: 1.77, 2.08, 2.20 and 1.77, 1.92, 2.03.
-  - T1 under own labels falls: 0.150, 0.077, 0.078 and 0.230, 0.115, 0.116.
-  - R4 emis stays at 0.29-0.31. Held-out S improves over the same span (A10 read).
-- **Decode-based detectors miss this.** R1 and R2 Hungarian PER stay at chance for the EM phis, although r70, at similar emission-matched accuracy, decodes to 0.628. permphi shows the relabelling half cleanly: R1 0.819, R2 0.605, yet the emission map gets 40/40 and R4 emis reads 0.591. Why the EM phis' uniform-prior decodes stay at chance is not established. The merges are one candidate.
-- **phi_c, the cold line's phi, has the same profile**: own-label R4 0.099; emission-matched R4 0.284 and JS 0.563; 15 phones unclaimed. This qualifies audit note N2: phi_c is a mislabelled phonetic partition, not a content-free one.
-- **Interpretation (audit pending).** r70 lifts because its labels are right (its identity labelling is its best, T3 relabel -0.04) and its argmax is right on 0.371 of frames. Joint training then repairs it toward gold: rt_r70_ep8 reads T1 4.04, R4 0.564, R1 0.228. The EM phis have comparable matched accuracy but wrong labels, which is permphi's case, and rt_perm read NO LIFT (0.87). On this evidence, L2-1 fails on the symbol-to-phone labelling (plus merges), not on phonetic content. A14 (i) tests the direct use.
+- **Along the trajectory (durinit s1 and durfrz s1 at sub-epochs 4, 12 and 48), T3 and the relabelled fit rise, but R4 emis is flat.**
+  - T3 primary emis: 1.77, 2.08, 2.20 and 1.77, 1.92, 2.03 (sharpness-confounded).
+  - Relabelled gold fit: -7.36, -6.74, -6.32 and -7.51, -6.59, -6.43. JS emis falls slightly (0.549, 0.518, 0.511 and 0.567, 0.543, 0.531).
+  - R4 emis: 0.291, 0.288, 0.312 and 0.291, 0.286, 0.294.
+  - T1 under own labels falls from sub-epoch 4 to 12, then stays flat: 0.150, 0.077, 0.078 and 0.230, 0.115, 0.116.
+  - There is one seed per setting.
+- **Decode-based detectors cannot see this.** GenDecodeReportJob aligns decoded tokens to gold by identity-label edit alignment before its Hungarian step, so its map and NMI depend on the labels. permphi shows this: R1 0.819 and R2 0.605, while the emission map gets 40/40 and R4 emis reads 0.591. So chance-level decode PER says nothing about the EM phis' content, in either direction.
+- **phi_c, the cold line's phi, has the same profile, slightly weaker on every emission-map column**: R4 emis 0.284, JS 0.563, T3 1.75, relabel 1.07, 15 unclaimed, relabelled fit -6.80. This qualifies audit note N2: phi_c is a mislabelled partition with real structure, not a content-free one.
+- **Interpretation (audited, `reports/audit_a15_read_2026-09-24.md`, CONFIRMED_WITH_CORRECTIONS; the first-draft reading "not on content, permphi's case" was contradicted).**
+  - r70 lifts because its labels are right (identity is its best labelling, T3 relabel -0.04) and its argmax is right on 0.371 of frames. Joint training then repairs it toward gold: rt_r70_ep8 reads T1 4.04, R4 0.564, R1 0.228.
+  - The EM phis are mislabelled and carry more phone structure than any structureless partition. But they are not in permphi's case. Even relabelled, they sit below r70 on R4, at the manner-class level, with 19-40 % of non-SIL frames on unclaimed phones, and they fit gold worse than content-free r100.
+  - So L2-1 fails at least on labelling and is also short of r70 on content. rt_perm's NO LIFT (0.87) shows that wrong labels suffice to block even a fully phonetic phi. It does not show that the EM content would suffice with the right labels.
+  - Whether relabelling alone would help is untested: A16 (a) for the objective's preference, A15-F for the content resolution. A14 (i) tests the direct use.
