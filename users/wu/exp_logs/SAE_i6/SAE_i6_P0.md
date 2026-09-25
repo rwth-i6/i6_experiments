@@ -24,8 +24,8 @@ NEXT:
 - T3 is running (`reports/launch_p0_prior_t3_2026-09-25.md`):
   - Part A: Slurm 4365697 (cpu_modern).
   - Part B: 4365700 (V100, afterok A). Session loop b88umi6c7 fires when both have ended.
-  - read.py is being fixed to the registered reading (`reports/impl_p0_prior_t3_read_fix_2026-09-25.md`). Use it only
-    after that fix is reviewed.
+  - read.py now follows the registered reading; the review passed (`reports/review_p0_prior_t3_read_fix_2026-09-25.md`).
+    Ignore its Part A "EXACT" display column and check ppl against 9.561056344 by eye.
 - GAN (G0.GAN):
   - The env build hung in the unbounded `pip uninstall numpy` loop of `build_w2vu_env.sh`, and was cancelled at 19:38.
   - The fix was reviewed and committed (45c20acef). Rebuild: Slurm 4365689 on cn-32 since 19:51, log
