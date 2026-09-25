@@ -69,10 +69,11 @@ diagnostic, analysis only: never cold-start progress, a route or a fallback (`SA
   backward with gradient accumulation, the fix A13 planned and never applied. It is implementation-only and exact
   up to float64 rounding, pinned to the held path by a unit test (log Z 1e-9, gradient 1e-7). It is not a new
   operating point (design review, `reports/design_review_p1_2026-09-25.md`, item 1).
-- Open, CANNOT_TELL from i6: JUPITER's L2-0 inputs say "run-collapse may shorten a string", while the ported
-  `CorruptSeedGoldJob` never collapses runs. If JUPITER's job did, its r70 strings were slightly shorter. Bound on
-  i6: `corruption.json` `adjacent_repeats_corrupted` minus `adjacent_repeats_gold`, recorded per fit. JUPITER's
-  source (`blankfree_ladder_jobs.py`) is not in this repository.
+- Run collapse, RESOLVED (JUPITER source, `exp_logs/SAE/reports/reply_corruption_collapse_2026-09-25.md`, origin
+  f9becb0f6). JUPITER's `CorruptSeedGoldJob` never collapsed runs and asserted equal length, as the port does. The
+  seed gold itself keeps 1705 adjacent repeats. JUPITER's banked r70 (`CorruptSeedGoldJob.mnzDC7XJX00r`, seed 0,
+  2849 utterances, 351,312 tokens): realised rate 0.699905, adjacent repeats 1705 gold / 14293 corrupted. The draw
+  depends only on the seed, the tag and the seed gold strings, so equal i6 seed strings give identical counts.
 
 ### Gates (pre-registered 2026-09-25, before any job; amended the same day from the design review, before any job)
 
@@ -83,8 +84,9 @@ The registration text of each amended clause is kept under "Original".
   are a subset of the larger's and carry the same symbols. Each fit ends at epoch 8 without error. Amendment (A):
   each fit's dev NLL per frame at epoch 8 is above the i6 gold phi's 3.2742 (G0.R3) and rises with rho, r70 < r80
   < r90 (< r100 if run); this catches a fit wired to the gold strings or checkpoint. (B): the competence statistic S
-  on the 260 set for each phi (JUPITER: r70 4.411, r100 4.690), expected to rise with rho; the adjacent-repeat
-  counts (Design, Open).
+  on the 260 set for each phi (JUPITER: r70 4.411, r100 4.690), expected to rise with rho. The i6 r70 corruption
+  counts against JUPITER's (Design, run collapse): identical if the i6 seed gold strings equal JUPITER's; any
+  difference is traced to the seed strings.
   - Original: "Its final dev NLL is report-only (B)."
 - **G1.M memory and time (A for launching the arms).** A probe runs the FULL config of the most exposed arm, rt_r90
   (rt_r100 if it is run), on one L40S for all of sub-epoch 1, with the per-chunk backward. It records per-step peak
