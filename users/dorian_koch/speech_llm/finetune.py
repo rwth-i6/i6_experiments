@@ -557,6 +557,19 @@ def _render_personaplex_lora_config(
         perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + concat + perf
     elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
         raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
+    # Held-out validation loss (2026-09-25, p6): rendered ONLY when set, like text_epad_weight. ``job.eval_data`` (the
+    # SpeechFinetune constructor argument, so the run depends on it; never an hparam, check_hparams_destination) is a
+    # fixed ``heldout_set`` window set (e.g. ``PersonaHeldoutSet`` "heldout"), ``eval_every`` the cadence in
+    # optimizer steps (the launcher also evaluates step 0).
+    _eval_data = getattr(job, "eval_data", None)
+    if _eval_data is not None:
+        every = int(hp.get("eval_every") or 0)
+        if every <= 0:
+            raise ValueError(f"{who}: eval_data needs hparams eval_every > 0")
+        ed = _eval_data.get() if hasattr(_eval_data, "get") else str(_eval_data)
+        perf = f'eval_data: "{ed}"\neval_every: {every}\n' + perf
+    elif hp.get("eval_every") is not None:
+        raise ValueError(f"{who}: eval_every without eval_data")
     scope_block = (
         'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
     )

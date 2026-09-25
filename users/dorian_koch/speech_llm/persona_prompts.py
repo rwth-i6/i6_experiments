@@ -1527,6 +1527,10 @@ class PersonaContentPromptGen(Job):
         from openai import OpenAI
 
         spec, llm_name, temp = CONTENT_SPECS[self.spec], self.llm_name, self.temperature
+        # Request knobs (2026-09-25, p6's throughput work): absent from the v1 specs = the settings they ran with.
+        max_tokens = int(spec.get("max_tokens", 4096))
+        concurrency = int(spec.get("concurrency", PROMPT_GEN_CONCURRENCY))
+        effort_kw = {"reasoning_effort": spec["reasoning_effort"]} if spec.get("reasoning_effort") else {}
         calls, n_rows = self._calls()
         if self.shard is not None and self.num_shards is not None:
             calls = calls[self.shard :: self.num_shards]
@@ -1554,8 +1558,9 @@ class PersonaContentPromptGen(Job):
                             messages=[{"role": "user", "content": msg}],
                             seed=(seed + attempt) % (2**31),
                             temperature=temp,
-                            max_tokens=4096,  # GPT-OSS reasons before answering
+                            max_tokens=max_tokens,  # GPT-OSS reasons before answering
                             extra_body={"guided_json": _CONTENT_JSON_SCHEMA},
+                            **effort_kw,
                         )
                         raw = (resp.choices[0].message.content or "").strip()
                         body = strip_opener(json.loads(raw[raw.find("{") : raw.rfind("}") + 1])["prompt"])
@@ -1572,7 +1577,7 @@ class PersonaContentPromptGen(Job):
             outs = map_concurrent(
                 lambda c: gen(client, c),
                 calls,
-                concurrency=PROMPT_GEN_CONCURRENCY,
+                concurrency=concurrency,
                 progress_path=os.path.join(os.getcwd(), "progress_0.json"),
             )
 
@@ -1725,3 +1730,167 @@ class AttachContentPrompts(Job):
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )
+
+
+# ---------------------------------------------------------------------------------------------
+# 4. episode-level train / held-out split (p6, 2026-09-25)
+# ---------------------------------------------------------------------------------------------
+def episode_of(row_id: str) -> str:
+    """The episode of a training row id (``<episode>#<row>@<channel>#w<k>``)."""
+    return str(row_id).split("#", 1)[0]
+
+
+def split_train_episodes(episodes, *, fraction: float, seed: int, heldout=()) -> set:
+    """The TRAIN episodes: every episode not in ``heldout`` whose seeded unit value is ``< fraction``.
+
+    Deterministic per episode (``_seeded_unit(seed, "split|" + episode)``, never ``random``), so the split of an
+    episode does not depend on which other episodes the corpus has, and a larger ``fraction`` gives a SUPERSET of a
+    smaller one's train episodes (half is nested in all). ``heldout``: episodes forced to the held-out side whatever
+    their draw (the evaluation episodes)."""
+    assert 0.0 < float(fraction) <= 1.0, fraction
+    forced = set(heldout)
+    return {e for e in set(episodes) if e not in forced and _seeded_unit(seed, f"split|{e}") < float(fraction)}
+
+
+def window_spans(context_path: str, slice_dirs: list, ids=None) -> dict:
+    """``{window id: (episode, abs t0, abs t1)}`` in EPISODE time: a ``PodcastWindowContext`` row's ``t0``/``t1`` are
+    relative to its dialogue row, whose ``span_start_sec`` is in the corpus's dialogue slices. ``ids``: only these."""
+    from datasets import load_from_disk
+
+    ctx = load_from_disk(context_path).select_columns(["id", "item_id", "episode_id", "t0", "t1"])
+    rows = [r for r in ctx if ids is None or r["id"] in ids]
+    items = {r["item_id"] for r in rows}
+    start = {}
+    for d in slice_dirs:
+        for p in _parts(d):
+            part = load_from_disk(p).select_columns(["item_id", "span_start_sec"])
+            for it, s in zip(part["item_id"], part["span_start_sec"]):
+                if it in items:
+                    start[it] = float(s)
+    missing = items - set(start)
+    if missing:
+        raise RuntimeError(
+            f"{len(missing)} dialogue rows of {context_path} not in its slices (e.g. {sorted(missing)[:3]})"
+        )
+    return {
+        r["id"]: (r["episode_id"], start[r["item_id"]] + float(r["t0"]), start[r["item_id"]] + float(r["t1"]))
+        for r in rows
+    }
+
+
+def overlapping_ids(spans: dict, exclude: list) -> set:
+    """Ids of ``spans`` (``{id: (episode, t0, t1)}``) whose interval shares any time (> 0 s) with an ``exclude``
+    interval ``(episode, t0, t1)`` of the same episode."""
+    by_ep = {}
+    for ep, a, b in exclude:
+        by_ep.setdefault(ep, []).append((a, b))
+    return {i for i, (ep, a, b) in spans.items() if any(a < y and x < b for x, y in by_ep.get(ep, ()))}
+
+
+class EpisodeSplit(Job):
+    """The TRAINING rows of an attached corpus after an EPISODE split and a held-out-window exclusion (p6, 2026-09-25).
+
+    ``data``: any corpus whose rows carry ``id`` (and ``duration``). An episode trains when it is not in
+    ``heldout_episodes`` and its seeded draw is below ``train_fraction`` (``split_train_episodes``; 1.0 = every
+    episode but the forced ones). So no window of a held-out episode is ever trained on -- a window-level split
+    would put the same speakers and conversation on both sides.
+
+    ``exclude_windows`` (+ ``exclude_context`` / ``exclude_slice_dirs``, the corpus those windows come from, and
+    ``window_context`` / ``slice_dirs``, this corpus's): a fixed evaluation set of windows from ANOTHER slicing of the
+    same episodes (``PersonaHeldoutSet``). Every training row whose episode-time span overlaps one of them is dropped
+    too, so that set's audio stays unseen (``window_spans`` + ``overlapping_ids``).
+
+    Outputs: ``out_train`` (the kept rows, row order unchanged), ``out_episodes`` (json: train / held-out / forced
+    episodes, dropped overlap ids) and ``out_summary`` (episodes, rows and hours per side, the overlap drop)."""
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        train_fraction: float,
+        seed: int = 0,
+        heldout_episodes: list | None = None,
+        window_context: tk.Path | None = None,
+        slice_dirs: list | None = None,
+        exclude_windows: tk.Path | None = None,
+        exclude_context: tk.Path | None = None,
+        exclude_slice_dirs: list | None = None,
+    ):
+        assert 0.0 < float(train_fraction) <= 1.0, train_fraction
+        ex = (window_context, slice_dirs, exclude_windows, exclude_context, exclude_slice_dirs)
+        assert all(x is None for x in ex) or all(x is not None for x in ex), "the window exclusion needs all five"
+        self.data = data
+        self.train_fraction = float(train_fraction)
+        self.seed = int(seed)
+        self.heldout_episodes = sorted(set(heldout_episodes or []))
+        self.window_context = window_context
+        self.slice_dirs = list(slice_dirs) if slice_dirs is not None else None
+        self.exclude_windows = exclude_windows
+        self.exclude_context = exclude_context
+        self.exclude_slice_dirs = list(exclude_slice_dirs) if exclude_slice_dirs is not None else None
+        self.out_train = self.output_path("train", directory=True)
+        self.out_episodes = self.output_path("episodes.json")
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 4, "mem": 48, "time": 3})
+
+    def run(self):
+        from datasets import load_from_disk
+
+        ds = load_from_disk(self.data.get_path())
+        meta = ds.select_columns(["id", "duration"])
+        ids, dur = meta["id"], meta["duration"]
+        episodes = sorted({episode_of(r) for r in ids})
+        forced = set(self.heldout_episodes)
+        train_eps = split_train_episodes(episodes, fraction=self.train_fraction, seed=self.seed, heldout=forced)
+        heldout_eps = set(episodes) - train_eps
+        overlap, n_exclude = set(), 0
+        if self.exclude_windows is not None:
+            ex_ids = set(load_from_disk(self.exclude_windows.get_path()).select_columns(["id"])["id"])
+            n_exclude = len(ex_ids)
+            ex = window_spans(self.exclude_context.get_path(), self.exclude_slice_dirs, ids=ex_ids)
+            if len(ex) != len(ex_ids):
+                raise RuntimeError(f"{len(ex_ids) - len(ex)} excluded windows have no context row")
+            ex_eps = {e for e, _, _ in ex.values()}
+            cand = {r for r in ids if episode_of(r) in train_eps and episode_of(r) in ex_eps}
+            overlap = overlapping_ids(
+                window_spans(self.window_context.get_path(), self.slice_dirs, ids=cand), list(ex.values())
+            )
+        keep = [i for i, r in enumerate(ids) if episode_of(r) in train_eps and r not in overlap]
+        print(
+            f"[split] {len(ds)} rows / {len(episodes)} episodes -> train {len(keep)} rows / {len(train_eps)} episodes; "
+            f"held out {len(heldout_eps)} episodes (forced {len(forced & set(episodes))} of {len(forced)}); "
+            f"{len(overlap)} train rows dropped for overlapping {n_exclude} evaluation windows",
+            flush=True,
+        )
+        ds.select(keep).save_to_disk(self.out_train.get_path())
+
+        def side(idx):
+            return {"rows": len(idx), "hours": round(sum(float(dur[i]) for i in idx) / 3600.0, 2)}
+
+        summary = {
+            "train_fraction": self.train_fraction,
+            "seed": self.seed,
+            "episodes": {
+                "train": len(train_eps),
+                "heldout": len(heldout_eps),
+                "forced_in_corpus": len(forced & set(episodes)),
+            },
+            "train": side(keep),
+            "heldout_episodes_rows": side([i for i, r in enumerate(ids) if episode_of(r) in heldout_eps]),
+            "overlap_dropped": side([i for i, r in enumerate(ids) if r in overlap]),
+            "exclude_windows": n_exclude,
+        }
+        json.dump(
+            {
+                "train": sorted(train_eps),
+                "heldout": sorted(heldout_eps),
+                "forced_heldout": sorted(forced),
+                "overlap_dropped_ids": sorted(overlap),
+            },
+            open(self.out_episodes.get_path(), "w"),
+            indent=1,
+        )
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(f"[split] {summary}", flush=True)
