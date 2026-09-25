@@ -8,9 +8,15 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
   JUPITER's (`reports/review_g1g_core_phi_reads_2026-09-25.md`). Then commit, then the gold-phi D4 read on its own
   entry point `config/sae_i6_g0g.py` (V100). Fix 3 (`WAVE_*`) waits until the P0 trainings end, because the P0
   graph imports `reverse_model/phi_first.py`.
-- Task B (lift ladder): design review running (`reports/design_review_p1_2026-09-25.md`).
-NEXT: after both reviews, and with `reverse_model/ladder.py` committed (Task A wrote it), the Task B implementer
-writes the entry point and the memory probe. Then code review, the three phi fits and the probe.
+- Task B (lift ladder): design review done (`reports/design_review_p1_2026-09-25.md`). All four MUST items are
+  applied as gate amendments before any job: L40S with a per-chunk k2 backward, a full-sub-epoch rt_r90 probe
+  gating the arms, the G1.L rules (CANNOT_TELL, VOID, rt_r100 in the both-LIFT branch), and a P1-only entry point.
+  Two implementers are writing new files only:
+  - fits: `config/sae_i6_p1_fits.py` and `analysis/p1_nesting.py` (`reports/impl_p1_fits_2026-09-25.md`);
+  - arms: the per-chunk backward in a new `reverse_model/` module and `config/sae_i6_p1_ladder.py`, staged probe
+    then arms (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
+NEXT: code review of the fits, then launch the fits (their own manager). Code review of the per-chunk backward and
+the arms, then the rt_r90 probe on one L40S (G1.M), then rt_r70 and rt_r80.
 
 ## Objective
 
@@ -56,26 +62,64 @@ diagnostic, analysis only: never cold-start progress, a route or a fallback (`SA
 - Reads: dev-other greedy PER at ep1/2/4/8 per arm; the corruption report of each fit (`corruption.json`).
 - Known deviations inherited from P0 (Deviations there): the i6 prior and i6 phone text, the i6 HLG (182,215 words,
   not 151,731), the audio label, i6 hardware, and the i6 gold phi recipe refit (G0.R3).
+- The lattice keeps JUPITER's banked SIL split (`sil_run_collapse` off), not P0's rc base: Task B is a reproduction.
+- GPU: the arms run on `gpu_48gb` (L40S 46 GB), one arm per job, not JUPITER's 4-GPU pack. JUPITER's arms peaked
+  at 80-84 GB reserved at steps 1-2 on a 95 GB GH200 (A13), and the training path keeps every k2 chunk's graph
+  (`model/lexlat_k2_train.py:480-490`), so chunking cannot lower the peak. The arms therefore use a per-chunk k2
+  backward with gradient accumulation, the fix A13 planned and never applied. It is implementation-only and exact
+  up to float64 rounding, pinned to the held path by a unit test (log Z 1e-9, gradient 1e-7). It is not a new
+  operating point (design review, `reports/design_review_p1_2026-09-25.md`, item 1).
+- Open, CANNOT_TELL from i6: JUPITER's L2-0 inputs say "run-collapse may shorten a string", while the ported
+  `CorruptSeedGoldJob` never collapses runs. If JUPITER's job did, its r70 strings were slightly shorter. Bound on
+  i6: `corruption.json` `adjacent_repeats_corrupted` minus `adjacent_repeats_gold`, recorded per fit. JUPITER's
+  source (`blankfree_ladder_jobs.py`) is not in this repository.
 
-### Gates (pre-registered 2026-09-25, before any job)
+### Gates (pre-registered 2026-09-25, before any job; amended the same day from the design review, before any job)
+
+The registration text of each amended clause is kept under "Original".
 
 - **G1.F phi fits (A).** The realised substitution rate of r70 / r80 / r90 on all seed utterances is 0.700 / 0.800 /
-  0.900 +-0.005. The nesting holds. Each fit ends at epoch 8 without error. Its final dev NLL is report-only (B).
-- **G1.M memory and time (report; a deviation if anything moves).** Record peak allocated and reserved memory over
-  the first sub-epoch's steps 0-3, where near-uniform lattices peak, and the step time. A change of batch shape,
-  or of anything that moves a score or gradient, is a new operating point: it needs the design review and voids
-  the G1.R70 comparison. `lexlat_k2_chunk_seqs` below 4 is a launch granularity (k2 prunes per sequence) and moves
-  nothing.
-- **G1.R70 reproduction (A).** rt_r70's dev-other greedy PER at ep8 reads LIFT (< 0.50) and lies within 0.1909
-  +-0.02. (B): ep1 0.2533 +-0.03.
+  0.900 +-0.005. The nesting holds, read by a positions check (`analysis/`): each smaller rho's substituted positions
+  are a subset of the larger's and carry the same symbols. Each fit ends at epoch 8 without error. Amendment (A):
+  each fit's dev NLL per frame at epoch 8 is above the i6 gold phi's 3.2742 (G0.R3) and rises with rho, r70 < r80
+  < r90 (< r100 if run); this catches a fit wired to the gold strings or checkpoint. (B): the competence statistic S
+  on the 260 set for each phi (JUPITER: r70 4.411, r100 4.690), expected to rise with rho; the adjacent-repeat
+  counts (Design, Open).
+  - Original: "Its final dev NLL is report-only (B)."
+- **G1.M memory and time (A for launching the arms).** A probe runs the FULL config of the most exposed arm, rt_r90
+  (rt_r100 if it is run), on one L40S for all of sub-epoch 1, with the per-chunk backward. It records per-step peak
+  allocated memory (`torch_log_memory_usage` in `post_config`), the k2 monitor `lexlat_k2_peak_reserved_gib`,
+  `nvidia-smi` on the node, the step time and the sub-epoch wall time. PASS = no OOM, no k2 int32 error, no
+  `lexlat_k2_ABORT.json`, the sub-epoch 1 stability read completes, and peak allocated <= 40 GiB over the whole
+  sub-epoch. A passed probe may continue as rt_r90. On a miss, no arm launches; the miss goes to the debugger.
+  A change of batch shape, or of anything that moves a score or gradient, is a new operating point: it needs the
+  design review and voids the G1.R70 comparison. `lexlat_k2_chunk_seqs` and `expandable_segments` are launch
+  granularity and move nothing; both are disclosed if used.
+  - Original: "(report) Record peak allocated and reserved memory over the first sub-epoch's steps 0-3 ... and the
+    step time." A13 set its peaks at steps 1-2, but the longest batches came at steps 7-8.
+- **G1.R70 reproduction.** (A): rt_r70 reads LIFT (< 0.50) at ep8, and ep8 < ep1. (B): ep8 0.1909 +-0.02, ep1
+  0.2533 +-0.03. A B miss goes to the debugger before the verdict and may be attributed with evidence to the
+  disclosed deviations (prior, graph, audio label, refit, hardware). On an attributed miss G1.L is still read, and
+  the phase records that the i6 boundary is not comparable to JUPITER's at the 0.02 level.
+  - Original: "(A) ... reads LIFT (< 0.50) and lies within 0.1909 +-0.02. (B): ep1 0.2533 +-0.03." The window
+    0.171-0.211 also contains JUPITER's r0 / r30 / r50 (0.178 / 0.183 / 0.186), so a pass cannot single out r70,
+    while a miss could be an attributable bed effect that would void r80 and r90.
 - **G1.L boundary (the question; read only if G1.R70 passes).** Class at ep8 by JUPITER's A4 bands: LIFT < 0.50,
   PARTIAL < 0.8164, NO LIFT otherwise. rho*_lift on i6 is the largest rho in {0.7, 0.8, 0.9} that LIFTs with every
-  smaller one lifting. r30 and r50 LIFT on JUPITER and are not rerun here; r100 NO LIFTs on JUPITER.
-  - r80 not LIFT: boundary in (0.7, 0.8].
-  - r80 LIFT, r90 not: boundary in (0.8, 0.9].
-  - Both LIFT: boundary in (0.9, 1.0], resting on JUPITER's r100.
-  - PARTIAL at ep8 is reported with its ep1-8 trajectory. It is not read as LIFT.
-  - If G1.R70 fails, the r80 / r90 classes are reported but no boundary is claimed; the miss goes to the debugger.
+  smaller one lifting. r30 and r50 LIFT on JUPITER and are not rerun here.
+  - r80 not LIFT, r90 not LIFT: boundary in (0.7, 0.8].
+  - r80 LIFT, r90 not LIFT: boundary in (0.8, 0.9].
+  - Both LIFT (amended): rt_r100 is run on i6 (same recipe, rho 1.0). NO LIFT puts the boundary in (0.9, 1.0];
+    PARTIAL or LIFT voids the branch and goes to the debugger. Original: "resting on JUPITER's r100".
+  - Added: r80 not LIFT with r90 LIFT is CANNOT_TELL. Both rungs then get a second seed (corruption seed 1 and
+    theta init seed 1).
+  - Added: the first rung that does not LIFT gets the same second seed before the boundary is final. If the two seeds
+    disagree, that rung reads CANNOT_TELL.
+  - Added: an arm with `lexlat_k2_ABORT.json` or without an ep8 checkpoint reads VOID, never NO LIFT.
+  - PARTIAL at ep8 is reported with its ep1-8 trajectory. It is not read as LIFT; rho*_lift is defined at the
+    8-sub-epoch budget.
+  - If G1.R70 fails its Tier A, the r80 / r90 classes are reported but no boundary is claimed; the miss goes to the
+    debugger.
 - **Caveat (audit N1, carried).** The corruption is independent of the acoustics, so each phone's most likely unit
   stays right below rho 1. rho*_lift does not transfer to an EM phi, whose errors are structured.
 
