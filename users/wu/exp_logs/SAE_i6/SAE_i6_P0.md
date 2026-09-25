@@ -2,25 +2,29 @@
 
 ## State
 
-LIVE (2026-09-25 01:30). Two managers; re-arm both watchers first on resume (from the setup dir):
-`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh <pid> config/<name>.py 60`
-- pid 1583423, `sae_i6_p0_screen` (the input graph plus ctrl_20 `ReturnnTrainingJob.GiT88bxzoZbZ`, sub-epoch 1 done
-  at 00:52; about 1 h per sub-epoch).
-- pid 1611995, `sae_i6_p0_supinit` (gold phi and p0 only, a 65-job subset of the full graph with the same hashes;
-  review `reports/review_supinit_launch_2026-09-25.md` PASS_WITH_NOTES).
-Code at recipe/i6_experiments `51f4def2d`. The package's `model/`, `training/` and `analysis/` stay FROZEN
+LIVE (2026-09-25 09:50). One manager, the FULL P0 graph; re-arm its watcher first on resume (from the setup dir):
+`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1629803 config/sae_i6_p0.py 60`
+- pid 1629803, `sae_i6_p0` (pid file `log/sae_i6_p0.manager.pid`), started plain per
+  `reports/review_p0_full_launch_2026-09-24.md` section 3 after the user killed the screen manager.
+  Steps 2-6 passed. The pre-start graph read showed 0 error, and ctrl_20 `GiT88bxzoZbZ` running (Slurm 4346718, about
+  1 h per sub-epoch). The first new create_files (ctrl_20_rc `llSFybyKXkbL`, queued on gpu_48gb) finished
+  without error, and ctrl_20 is in squeue exactly once.
+- The screen and supinit managers are gone (their graphs are subsets of the full one).
+Code at recipe/i6_experiments `51f4def2d` (the package tree is unchanged at HEAD b20b65059). The package's `model/`, `training/` and `analysis/` stay FROZEN
 until the P0 trainings end.
 Cost screen and prior (Results): time FAIL (3237 s), memory PASS (34.3 GiB); G0.R0 prior ppl FAIL (9.6018
 vs 9.561056). Attributed to JUPITER's phonemised corpus dropping 788k lines; not a port defect in the
-code. The window-noise and composition split is being measured (`analysis/prior_gap/`).
-USER DECISION PENDING: the prior for the reproduction arms. (a) Import JUPITER's `g2p.lexicon`
-(`ApplyG2PModelJob.myTIGtmrUIFq`), plus window and prior.npz for the T0 check; this is an exact reproduction,
-and ctrl_20 reruns. (b) Keep the i6 prior as the disclosed bed. Also (c): fix the Sequitur numpy defect
-(Deviations) and rebuild. The fix must come after p0 has ended, with a single manager running.
-NEXT after the decision: stop BOTH managers, then start `config/sae_i6_p0.py` plainly (no `-co`), per
-`reports/review_p0_full_launch_2026-09-24.md` section 3. Never run the full manager next to either
-of the others. Check `error.create_files.*` on the first ReturnnConfig job. Read p0's PER against G0.R3 when
-it lands. Read ctrl_20's ep1 PER when the screen's forward and PER jobs finish.
+code. The window-noise and composition split is being measured by Slurm 4349993 (`analysis/prior_gap/`, output `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/prior_window_spread`). ctrl_20 ep1 PER 0.855180 passes.
+G0.R3 PASS (p0 PER 0.189626; gold phi 3.274249); the supinit manager ended DONE. Prior-gap analysis
+(Results, G0.R0): 5 i6 windows give 9.598 +-0.008; JUPITER lies outside their 95 % prediction interval (p about 0.015), so the gap is not window noise.
+Emulating JUPITER's line drop (3 seeds) gives 9.559 / 9.579 / 9.601, which brackets 9.561. Audit (`reports/audit_prior_gap_2026-09-25.md`): UNDETERMINED. The gap is not
+window noise, and it fits corpus makeup. A residual port effect of about +-0.02 in the sampling/fit code is not
+excluded; only a JUPITER artefact decides it. USER DECISION (2026-09-25): keep the i6 prior
+(`PhoneNgramPriorJob.qJxXHgXLe31S`, ppl 9.6018) as the bed, a disclosed deviation (Deviations: phone text). The
+G0.R0 prior clause stays a Tier-A FAIL. The G0.R1 step-1 prior clause is confounded. No g2p rebuild. The
+optional T0 check (JUPITER window plus prior.npz, fit must give 9.561056) stays open.
+NEXT: wait for the watcher. Then read the ctrl_20 PER at ep4/10/20 (G0.R1), the ctrl_20_s1, k2lat and ctrl_20_rc
+gates as they finish, and the HLG size (G0.R0). Never run a second manager on this config or a subset of it.
 Push: per the user (2026-09-24), push `haotian_cycle_consistency_unsupervised` only after ctrl_20 passes
 G0.R1 and the audit is done.
 
@@ -155,7 +159,7 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   headroom). Larger tasks, i.e. every training, go to gpu_48gb, and a training keeps its GPU type
   across resubmits. Forwards may therefore run on A10 or L40S. Hash-neutral. Open note: a
   flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
-- Phone text (found 2026-09-25; decision pending with the user): the i6 phonemised LM corpus keeps 40,418,258
+- Phone text (found 2026-09-25; the user decided the same day to keep the i6 prior as the bed): the i6 phonemised LM corpus keeps 40,418,258
   lines, where JUPITER's kept 39,630,169 (G0.R0 prior clause, Results). g2p defect in the environment,
   not yet fixed: Sequitur's `adjustHigherOrder` calls `np.sometrue`, which numpy 2.4.6 removed.
   `TrainG2PModelJob.pD4nbqFLWtbi` therefore aborted ramp-ups 2 and 3 early (at iterations 41 and 25), yet
@@ -179,8 +183,26 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   JUPITER's `PhonemizeWithSilJob.DbFgvZOGZQ8F` kept 39,630,169 of 40,418,261 LM lines: it dropped 788,092
   lines whose words had no pronunciation, because its g2p lexicon held only about half of the 773,673
   non-bliss types (inferred; the cause is not in the logs). i6 kept 40,418,258 lines. `SampleLinesJob`
-  draws from the line count, so the two windows share no lines. The split of the gap between corpus
-  makeup and window noise is being measured (`analysis/prior_gap/`). This can be reproduced exactly only
+  draws from the line count, so the two windows share no lines. Measured split (Slurm 4349993,
+  `analysis/prior_gap/prior_window_spread.py`, output in `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/prior_window_spread/`;
+  the seed-0 self-check reproduces 9.601838 exactly):
+  - Window noise: sample seeds 0-4 on the i6 text give 9.6018 / 9.6005 / 9.5882 / 9.5909 / 9.6080, mean 9.5979,
+    SD 0.0082. JUPITER sits 0.037 (4.5 SD) below, so the gap is not window noise.
+  - Emulation of JUPITER's drop (a random 50 % of the non-bliss types dropped, 3 seeds; 39.618-39.620 M lines
+    kept, against JUPITER's 39.630 M): 9.5785 / 9.6010 / 9.5592, mean 9.5796, SD 0.0209. This brackets 9.561.
+  - Bliss-only corpus (38.95 M lines): 9.4988, a lower bracket.
+  Reading: the gap is consistent with corpus makeup. Which types JUPITER lost moves the ppl by about 0.02.
+  UNRESOLVED AUDIT (`reports/audit_prior_gap_2026-09-25.md`, UNDETERMINED):
+  - JUPITER lies outside the 95 % prediction interval of the 5 i6 windows (p about 0.015; "4.5 SD" overstates it
+    at n = 5).
+  - JUPITER's banked window tokens (81,559,944 counted, 808,146 held) match the drop emulations, not the i6 windows.
+  - T2b cannot tell JUPITER from i6 apart (t = 1.45).
+  - JUPITER's loss was not a uniform half of the types: it lost at least 388,780 types but only 788,092 lines.
+  - The seed-0 self-check compares the port with itself only; JUPITER's sampling / Witten-Bell source is not on i6.
+  - So a residual port effect of about +-0.02 is not excluded. The decisive test is T0: the port's fit of JUPITER's
+    window must give 9.561056.
+  - The G0.R0 prior clause stays a Tier-A FAIL as pre-registered.
+  This can be reproduced exactly only
   by importing JUPITER's `g2p.lexicon` (`ApplyG2PModelJob.myTIGtmrUIFq`); no JUPITER artefact is on i6.
 - rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
   `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
@@ -198,6 +220,9 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   prior per token -5.637 (banked -5.657 +-0.01, FAIL); expected tokens 63.854 (banked 63.821 +-3 %, PASS). The
   recognizer is flat-initialised, so the miss is expected from the flatter prior. It is confounded with the
   audio label, which changes the units and eta.
+- ep1 dev-other greedy PER 0.855180 (banked 0.855 +-0.015 under the audio label, PASS). S/D/I = 34109 / 117437 / 56
+  over 177,275 phones. Emitted rate 3.255 /s (Tier B 3.30 +-0.3, PASS). Source: `BlankfreeGreedyPerJob.xGeNddosJKVH`
+  (`output/sae/4a/ctrl_20/ep1/dev-other/per.json`). This is on the i6 prior.
 - Decision (orchestrator, 2026-09-25). The time miss has a known cause (the float64 lattice GEMM on Ada;
   the GPU is saturated), and no other i6 pool fits this batch. The prior-dependent arms (ctrl_20_s1, k2lat,
   ctrl_20_rc) stay held until the user decides on the prior, and weighs the cost there. gold phi and p0
@@ -205,6 +230,17 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   gold phi does not depend on the prior. p0 carries it in its hash and loads it, but its values enter
   no loss, pick, dump or PER (`reports/review_supinit_launch_2026-09-25.md`), so p0's PER holds under either
   prior. ctrl_20 keeps running.
+
+### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
+
+- p0 (A): PASS. Dev-other greedy PER 0.189626 (banked 0.1894 +-0.02), S/D/I 8673 / 17916 / 7027 over 177,275
+  phones. Selected epoch 1 (banked: pass 1). Epoch 1 trained 353 steps in 39 s. Source
+  `output/sae/4a/analysis_only/p0/best/dev-other/per.txt`, training `ReturnnTrainingJob.Y1vbqR6KeJSx`.
+- gold phi (B, report-only under the audio label): PASS. `dev_loss_nll_per_frame` at epoch 8 is 3.274249
+  (banked 3.2888 +-0.02). Epochs 1-8: 3.4343 / 3.3285 / 3.2878 / 3.2845 / 3.2820 / 3.2731 / 3.2806 / 3.2742.
+  Training `ReturnnTrainingJob.Ac2eioZbRX7d`.
+- Reading: features, VAD, gold, the recognizer, the reverse model and the PER chain reproduce on the i6
+  audio generation. Together with ctrl_20's ep1 PER, this makes a port defect outside the text prior unlikely.
 
 ### G0.V priority-1 tests (2026-09-24; CPU on the desktop, sae env; GPU parity T1.8 not yet run)
 
