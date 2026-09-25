@@ -117,7 +117,8 @@ rm -rf "$PREFIX"/lib/python3.*/site-packages/numpy "$PREFIX"/lib/python3.*/site-
 SP="$(PYTHONNOUSERSITE=1 "$PY" -c 'import fairseq, os; print(os.path.dirname(fairseq.__file__))')"
 BUILD="$(mktemp -d)"
 ( cd "$BUILD"
-  "$PY" -m pip download fairseq==0.12.2 --no-deps --no-binary :all: --no-cache-dir -d . >/dev/null
+  "$PY" -c 'import socket,sys,urllib.request; socket.setdefaulttimeout(300); urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' https://files.pythonhosted.org/packages/source/f/fairseq/fairseq-0.12.2.tar.gz fairseq-0.12.2.tar.gz
+  echo "34f1b18426bf3844714534162f065ab733e049597476daa35fffb4d06a92b524  fairseq-0.12.2.tar.gz" | sha256sum -c --quiet - || die "fairseq-0.12.2.tar.gz sha256 mismatch"
   tar xf fairseq-0.12.2.tar.gz
   cd fairseq-0.12.2
   cat > build_ext_only.py <<'PY'
