@@ -8,8 +8,11 @@ LIVE (2026-09-25 13:00). One manager, pid 1646677, runs the FULL graph `config/s
 Trainings route to V100 (gpu_32gb) from 2026-09-25 (user; Deviations: GPU partition; Gates: hardware amendment).
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, finishes there at about 19:00.
 - ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): cancelled after their sub-epoch 3,
-  resuming at sub-epoch 4 on V100 (about 41 min per sub-epoch, ends about 01:00 on 2026-09-26).
-- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. The trie and HLG finished (Results, G0.R0: HLG
+  resumed at sub-epoch 4 on V100. About 44 min per sub-epoch including dev (about 44 s per step averaged); they end
+  about 01:30 on 2026-09-26.
+- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. Sub-epoch 8, the k2 on-set, falls at about 19:00.
+  End about 07:00 on 2026-09-26, assuming the banked GH200 k2 overhead of 1.25x (`SAE_i6_ref_lexicon.md`:246);
+  the overhead on V100 is not measured. The trie and HLG finished (Results, G0.R0: HLG
   clause FAIL, attributed). Job starts spend about 2 min per HDF input in the cache-manager (`cf`) timeout before
   reading directly; this is slow, not a failure.
 Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). The G0.R0 prior clause is a Tier-A FAIL,
