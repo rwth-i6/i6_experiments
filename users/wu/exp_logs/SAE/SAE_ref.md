@@ -352,3 +352,18 @@ Consequence, load-bearing for §3e.1 D6-PERIODIC/GAN+HOM and index queue 7: the 
 LIVE — homophone spellings are NOT reward-invariant; the scorer carries a per-state price on
 orthographic length (the minimal-state exploit's substrate) plus any spelling-specific emissions it
 learned.
+
+## Input defect: the phase-4A phone text lacks one alphabetical band of g2p words (found 2026-09-25)
+
+The g2p lexicon `work/i6_core/g2p/apply/ApplyG2PModelJob.myTIGtmrUIFq/output/g2p.lexicon` has 384,893
+entries for 773,673 non-bliss word types. Chunks 5-12 of its 16 are empty: 388,780 types from DITCHLIKE
+to RIVAW are missing, and none is missing outside that band. The cause is Sisyphus resubmitting finished
+local tasks (upstream PR #314, fix d9e1ede, which is not in the pinned ddcd028). The repeat runs truncated
+their chunk files (`i6_core/g2p/apply.py:82` opens with truncation) just before the merge ran.
+`PhonemizeWithSilJob.DbFgvZOGZQ8F` therefore dropped 788,092 LM lines (39,630,169 of 40,418,261 kept):
+every line that holds a band word, plus one empty line. No word failed g2p.
+Scope: this affects every phase-4A input built from that window: the phone prior (held-out ppl 9.561
+against 9.60 on the full text), the lexlat word set, trie and HLG (151,731 words against 182,215), and
+the rate target rho (9.662 Hz here, about 9.679 on the full text per the i6 debugger). It does not affect results compared within JUPITER, since all arms share the same prior. The port's
+prior code reproduces the banked prior byte for byte on this window (port T7), so 9.561 is not a target
+for a rebuild from the full text (i6 G0.R0). Diagnosis: `reports/debug_jupiter_prior_gap_2026-09-25.md`.
