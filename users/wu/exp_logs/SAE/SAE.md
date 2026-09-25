@@ -123,7 +123,10 @@ Older entries retain historical state; the current no-GAN, cold-start priority g
    **Cold-line successor (user decision 2026-09-23), own phase `SAE_4A_lexlat_v2.md`:** phi-first EM
    decipherment from a random reverse model with likelihood-selected restarts and a competence ladder,
    then a bridge into the joint run; pure unsupervised and GAN-free by ruling; gates G4a.L2.1-4
-   registered before any job.
+   registered before any job. Next-step proposal phase `SAE_4A_rename.md` (user request 2026-09-24):
+   what phi training needs so EM can correct wrong phone names; analyses only, training arms proposed.
+   Phi-init plan `SAE_4A_phiinit.md` (user request 2026-09-25; runs on i6, unfunded): coarse-to-fine named
+   alphabet with binary splits and a SIL anchor; oracle split arm first.
    **User directive 2026-09-20 (execute autonomously):** wav2vec-U 2.0 is the role model. (1) Fix
    the sub-epoch count for future arms from the label-free behaviour of the running budget arms
    (50 is suspected too long after the stall). (2) Paper-faithful silence handling: the bed masks

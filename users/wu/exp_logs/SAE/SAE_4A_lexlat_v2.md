@@ -3,22 +3,18 @@
 ## State
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
-- 4111121 `config/sae_4a_lexlat_v2_em.py`: the wave, 6 four-GPU packs.
-- 2080167 `config/sae_4a_lexlat_v2_a14.py`: A14 (i) pack pending, 4 GPU, 11.5 h; A14 (ii) finished.
-- 1096118 `config/sae_4a_lexlat_v2_a17.py`: A17 (i) pack T18RrTNTdg65 and A17 (ii) runs nVpD2O3xpfcJ, YtsRkvAl7Kl8 (SLURM 1991971), submitted 08:54 (`reports/exec_a17_launch_2026-09-24.md`).
-- 2267039 `config/sae_4a_lexlat_v2_keyinit.py` (restarted 12:10 for the A18 (b) lift pack ZUZypSQn7qc0, waiting on it): pack ge1MKcAPmZIV (SLURM 1992898; gold-key control plus A17 (iii); pending on a maintenance reservation).
-- 1895908 `config/sae_4a_lexlat_v2_keysearch_s1.py`: stage-1 key search `KeySearchJob.AzM1NoHpOnFJ` (SLURM 1994758), submitted 11:46 (`reports/exec_a16b_stage1_launch_2026-09-24.md`).
+- The keyinit manager finished on 2026-09-25. The r30 genmarg decode was rerun after a node fault (`reports/debug_keyinit_genmarg_2026-09-25.md`).
+- No live manager. Keyarms manager 3019650 exited normally on 2026-09-25 at 08:42 ("All output calculated"). The key-arm pack G0Vzzokj5PQC and the L2-2 bridge SCtv4DjzFQ50 are finished and read.
+- Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
-Reads 2026-09-24 (Results, all audited): L2-0 rho*_lift 0.7. A10 EM phis beat gold on S but decode at chance. A15/A15-F: EM phis mislabelled and merged, partly phone-level. A14 (ii) PHONETIC BASIN LOWER (S_g 3.216 against 3.299); every basin-reaching arm kept MFA durations, which A17 (iii) tests. A16 (b) stage 0: J SEES THE KEY, fragile (margin 0.009).
+Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. A18 (b): DURINIT BASIN LIFTS, all 4 label-built arms at 0.19-0.23. Next-step proposals: `SAE_4A_rename.md`.
 
-Rulings: pure unsupervised, GAN-free, supervised inits analysis-only. Last training round (2026-09-24): A14, A17, A16 (b) as registered, plus A18's joint runs on selected phis (Constraints).
+Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage-1 key search: re-review PASS_WITH_NOTES (`reports/review_a16b_stage1_fix_2026-09-24.md`); launched (pid 1895908, see LIVE). Before stage 2, check status_counts.real.failed = 0 and loop_error null.
-2. A19 trigram-only ladder: built (bf5b2972, pack DzrmcjOQ4I3r), in review (`reports/review_a19_triladder_2026-09-24.md`); launch needs the user's shim `config/sae_4a_lexlat_v2_triladder.py`.
-3. A18 review PASS_WITH_NOTES (`reports/review_a18_bridge_2026-09-24.md`); the (b) lift pack is in the keyinit graph (see LIVE). Flip A18B_PAIRED_ROWS once A17 (i) is finished. Launch order: the two bridges share 9 cold_ctl jobs, so flip the second bridge flag only after the first bridge's cold_ctl jobs finish; start the keyarms manager only after keysearch_s1 ends.
-4. Stage-2 key arms under their gates (A17 (i) BASIN INSUFFICIENT withdraws; A17 (iii) SEGMENTATION-CARRIED or PARTIAL-LABELS NEED SEGMENTS holds; GOLD KEY REACHES BASIN required).
-5. At each watcher wake, the executor checks; every read is audited, then recorded.
+1. Stage 2 recorded (Results): KEY BASIN on S only; the arms decode at chance. The A18 (c) bridge is recorded (Results): LOWER, OBJECTIVE ONLY, NO LIFT. Every registered run of this phase has now been read. The next training changes wait for the user's decision on the proposal in `SAE_4A_rename.md`.
+2. The owed A15-F measures on the key arms ran as AN-5 (`SAE_4A_rename.md`).
+3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
 
@@ -368,6 +364,21 @@ Source: `reports/design_review_lexlat_v2_2026-09-23.md` (B1-B6, N1-N7). Orchestr
     - The jointly trained phi's generative PER (direct, Hungarian, NMI) at ep8.
     - The ep1/2/4 PER.
   - Cost: one four-GPU pack, at most L2-0's request; steps are cheaper without k2.
+- **A20 (2026-09-24, after the stage-1 read, before any job; disclosed label-using analysis, CPU, no training) Does J reward the right names on the found partitions?**
+  - Trigger: the user asked whether EM has the freedom to rename. Stage 1 found keys whose clusters are sharper than K70's but whose names are wrong: identity 0.07-0.14 against K70's 0.30. J prefers them over gold through the name-free emission term.
+  - The question: is the name gap a search failure (J's trigram term would reward the right names, but no local move reaches them) or an objective failure (the trigram term does not see names on these partitions)?
+  - Keys: the 4 selected stage-1 keys and the 6 A10/A11 argmax finals. Gold and the K30/K70 ladder give the scale.
+  - For each key, three variants:
+    - (a) as found;
+    - (b) oracle 1:1 rename: symbol names permuted by the Hungarian assignment that maximises frame agreement with the gold key, with the partition unchanged;
+    - (c) oracle many-to-one rename: each symbol takes its majority gold phone.
+  - Read held-out J and its terms on the 260 set, computed as in stages 0-1.
+  - Reading, fixed before any result, on the 4 selected keys:
+    - **NAMES VISIBLE** if J(b) - J(a) > 0.01 nats per frame (A7's floor) on at least 3 of the 4. J then rewards the right names on the found partitions, and a global rename move (an assignment over names under J, or S for phi) is the cost work.
+    - **NAME-BLIND** if J(b) - J(a) <= 0.01 on at least 3 of the 4. The trigram term then does not reward the right names on these partitions, a rename step would not help, and the cost work goes to the objective's name signal.
+    - **MIXED** otherwise.
+  - Reported beside: each variant's term decomposition, J(c), the 1:1 identity agreement after (b) (it separates wrong names from merges), and the same rows for the A10/A11 finals.
+  - It gates nothing registered, and stage 2 runs regardless. Cost: one CPU job on the login node.
 
 ## L2-0: the reverse model's competence ladder (disclosed label-using diagnostic)
 
@@ -703,6 +714,249 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
     - add symbol-swap moves, which exchange two symbols' unit sets and change only the LM and duration terms;
     - add relabel starts, from each A10/A11 partition with its class-to-symbol map deciphered under J.
   - Deciphering the A10 partitions also answers a question for the handoff: whether J at the best relabelling of an EM partition reaches J(gold).
+
+### G4a.L2.2 wave read (2026-09-24): SIGNAL, NOT BEYOND PRIVATE CODE (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `GenMargSelectionJob.dPjElzqvLUYt`, over all 16 restarts, 4 nulls, 2 phi_c restarts and the seed 1/2 reruns. The wave ran durinit for 12 sub-epochs, and S was read at sub-epoch 12 on the 285-utterance CV holdout (the nulls on its permuted copy). Extraction: `reports/extract_wave_read_2026-09-24.md`. Audit: `reports/audit_wave_read_2026-09-24.md`, which recomputed the read from the per-restart files.
+- Selected restart: em_s13, S 3.3863 (next best em_s01, 3.3981). Its emitted rate is 7.58 Hz, and all 16 restarts are in band, so none is VOID.
+- Best null: null_s02, S 5.7133. Null range 0.0027, identity band 2.7e-5, so the margin is 0.01. The gap of 2.327 is SIGNAL, and em_s13 beats the best null on all 285 utterances.
+- Report only: the best phi_c restart (phic_s01, S 3.3441) is 0.042 below em_s13, so the read is NOT BEYOND PRIVATE CODE.
+- Reading: A7 expects SIGNAL from any segmental fit, so it shows no phonetic content. The wave's reads compute no generative PER. The selected phi's PER will come from A18 (a)'s dec_frz arm, whose phi stays frozen.
+- Audit corrections, none changing the verdict:
+  - report.txt quotes A7's funding rule as LIFT only; the registered rule is LIFT or PARTIAL.
+  - The bridge checks neither the verdict nor the rt_r0 condition. A18 (a) funds it whatever G4a.L2.2 reads, and rt_r0 read LIFT.
+- A18 (a) takes `KCj5mptWgBqb/output/em_s13/models/epoch.012.pt` (flag commit b9f676f5). Launched 19:20; pack SLURM 1998206 running since 21:00.
+
+### A14 (i) read (2026-09-24): EM PHI DOES NOT LIFT (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `A14LiftReadJob.GAKp6IJ5pA3l`, pack `PackedBlankfreeTrainJob.e9xZa5ElF16P` (SLURM 1989249, 1 h 55 min). All 8 sub-epochs ran with no NaN. Configs equal L2-0's rt_r70 except the phi path. Extraction: `reports/extract_a14i_read_2026-09-24.md`. Audit: `reports/audit_a14i_hold_2026-09-24.md`, which recomputed PER on all 2,864 dev-other utterances.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm (A10 phi at sub-epoch 48) | PER | ep8 band | ep8 minus cold_ctl [95 % CI] |
+  |---|---|---|---|
+  | cold_ctl (random phi) | 0.888 / 0.886 / 0.855 / 0.849 | NO LIFT | |
+  | durinit s1 | 0.864 / 0.852 / 0.834 / 0.840 | NO LIFT | -0.009 [-0.013, -0.005] |
+  | durinit s2 | 0.839 / 0.831 / 0.824 / 0.820 | NO LIFT | -0.029 [-0.032, -0.026] |
+  | durfrz s1 | 0.866 / 0.864 / 0.841 / 0.842 | NO LIFT | -0.006 [-0.010, -0.003] |
+  | durfrz s2 | 0.845 / 0.829 / 0.820 / 0.821 | NO LIFT | -0.028 [-0.032, -0.025] |
+
+- Reading: no arm leaves the chance band. The s2 arms sit 0.004 above the PARTIAL bar (0.8164), and every arm beats cold_ctl by a small margin with its interval excluding zero. So an EM phi moves a random theta slightly, but far from the 0.18-0.19 a gold or 30-70 %-corrupted phi reaches (L2-0).
+- The job reports no generative PER.
+- A18 hold rule for (a), applied after (a) was launched:
+  - A14 (i) reads NO LIFT on every arm.
+  - Comparing the arms' S at 48 with em_s13's S at its final sub-epoch 12: 3.2990 against 3.3810 on the 260 set, +0.082 with paired CI [+0.072, +0.092]. On the 285 set it is 3.3040 against 3.3863. The clause is met. em_s13's 260-set value is the auditor's calculation from per-utterance files; no job prints it.
+  - At matched sub-epoch 12, em_s13 is 0.0107 below durinit s1, so the clause fails narrowly.
+  - The registered clause assumes the candidate has an S at 48, and em_s13 has none. The rule reads CANNOT_TELL, so it gives no ground for withholding ("really sure it cannot lift").
+  - (a) continues. It had started at 21:00, before this read was taken.
+
+### A19 read (2026-09-24): SAME LADDER (audited CONFIRMED)
+- Source: `A19TriLadderReadJob.5ny4LPLFrIXw`, pack `PackedBlankfreeTrainJob.DzrmcjOQ4I3r` (SLURM 1995148, 1 h 25 min), and 8 `PairedPerDeltaJob`s. Extraction: `reports/extract_a19_read_2026-09-24.md`. Audit: `reports/audit_a19_read_2026-09-24.md`, which re-scored every arm on all 2,864 dev-other utterances.
+- Single delta verified: each tri arm's config differs from its rt twin only in the 17 k2 lines and the output path. The tri logs have no k2 lines, while each rt log has 496. Step 0 is identical, with the same phi fits.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm | PER | ep8 band | tri minus rt, ep1 / ep8 | phi genPER ep8 (direct / Hungarian / NMI) |
+  |---|---|---|---|---|
+  | tri_r30 | 0.203 / 0.282 / 0.298 / 0.268 | LIFT | +0.017 / +0.085 | 0.260 / 0.260 / 0.788 |
+  | tri_r50 | 0.210 / 0.277 / 0.300 / 0.263 | LIFT | +0.020 / +0.077 | 0.257 / 0.257 / 0.784 |
+  | tri_r70 | 0.335 / 0.368 / 0.354 / 0.329 | LIFT | +0.081 / +0.138 | 0.316 / 0.357 / 0.725 |
+  | tri_r100 | 0.831 / 0.899 / 0.903 / 0.898 | NO LIFT | -0.014 / +0.043 | 0.874 / 0.876 / 0.068 |
+
+- rho*_tri = 0.7, the ladder is monotone and not VOID, and no reading changes the verdict. Seven of the eight paired rows read K2 HELPS; r100 at ep1 reads TRIGRAM ENOUGH.
+- Reading: the phone trigram alone lets a phi with up to 70 % of its fit tokens substituted lift a random theta. The k2 term is not needed for the lift, but it improves the ep8 result by 0.08-0.14 PER.
+- Without k2, r30 and r50 are best at ep1 (about 0.20), worsen to about 0.30 by ep4, and recover partly to 0.26-0.27 by ep8. This matches D10e's trigram-only drift from p0.
+- M is taken from the k2 runs' seed pair. The ep1 labels for r30 and r50 are therefore the least robust (report only).
+
+### A17 (i)/(ii) read (2026-09-24): BASIN SUFFICIENT; OBJECTIVE DRIFT, at the bar (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `A17BasinLiftReadJob.q0C0J9o54cwW` (pack `PackedBlankfreeTrainJob.T18RrTNTdg65`) and `A17AnnealDriftReadJob.jcIFDGis10WJ` (runs `PhiFirstProbeTrainingJob.nVpD2O3xpfcJ`, `.YtsRkvAl7Kl8`). Extraction: `reports/extract_a17_reads_2026-09-24.md`. Audit: `reports/audit_a17_reads_2026-09-24.md`, which re-scored every (i) arm on all 2,864 dev-other utterances.
+- (i): the phi inits are A14 (ii)'s sub-epoch-48 checkpoints, and the configs differ from A14 (i) only in the phi path. All 8 sub-epochs ran without NaN. Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+
+  | Arm | PER | ep8 band | phi genPER, init -> ep8 (direct / Hungarian) |
+  |---|---|---|---|
+  | gold-EM | 0.284 / 0.255 / 0.253 / 0.200 | LIFT | 0.353 -> 0.232 / 0.232 |
+  | r30-EM | 0.323 / 0.283 / 0.224 / 0.201 | LIFT | 0.394 -> 0.239 / 0.239 |
+  | r70-EM | 0.434 / 0.432 / 0.412 / 0.362 | LIFT | 0.495 -> 0.393 / 0.432 |
+  | r100-EM | 0.869 / 0.859 / 0.836 / 0.839 | NO LIFT | 0.860 -> 0.858 / 0.858 |
+
+  - **BASIN SUFFICIENT.** r100-EM clears the NO LIFT bar by only 0.0225, but it does not lift. The A10 EM phis read 0.820-0.842 in A14 (i), so where the phi sits decides whether it lifts. Joint training also repairs the basin phis' generative PER, by 0.10-0.16.
+  - The basin phis kept their MFA durations, so A17 (iii) and A18 (b)'s paired rows decide whether the lift needs supervised segmentation.
+- (ii): tau = 1 from sub-epoch 1, otherwise A14 (ii)'s recipe; PER(0) is the init phi. Generative PER at 0 / 4 / 8 / 12, against A14 (ii) at the same sub-epochs:
+  - gold: 0.193 / 0.266 / 0.283 / 0.295 (A14 (ii): 0.193 / 0.300 / 0.317 / 0.328). S on the 260 set: 3.474 / 3.264 / 3.249 / 3.241.
+  - r70 (direct / Hungarian): 0.608/0.628, 0.385/0.413, 0.382/0.412, 0.393/0.421 (A14 (ii): 0.608/0.628, 0.477, 0.478, 0.482). S on the 260 set: 4.411 / 3.400 / 3.304 / 3.266.
+  - **OBJECTIVE DRIFT**: gold drift +0.1019 against the registered 0.193 (+0.1017 against the measured 0.1933). That is 0.0019 over the 0.10 bar, or 57 phones.
+  - The audit's bootstrap over the 500 utterances gives an SE of 0.0024-0.0031. MIXED therefore lies within sampling error, while ANNEALING-DOMINATED is excluded. Direct and Hungarian PER agree for gold.
+  - Reading: dropping the tau = 4 sub-epoch removes about a quarter of the gold damage at 12 (0.295 against 0.328). The rest comes at tau = 1 while S falls by 0.23, so S's optimum near gold is not gold.
+- Correction: no same-config PER repeat exists for (ii), because the sub-epoch-0 value comes from the same job. The 0.01-0.03 spread cited under A17 is the joint bed's, not phi EM's.
+- Consequences as registered:
+  - Stage 2 of A16 (b) is not withdrawn.
+  - No tau = 1 amendment to stage 2.
+  - A18 (d) is not triggered: gold-EM lifts, and the drift is not below 0.05.
+
+### Gold-key control and A17 (iii) read (2026-09-24): GOLD KEY REACHES BASIN; LABELS SUFFICE (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.ge1MKcAPmZIV` (4 arms, 48 sub-epochs, no NaN), `KeyInitControlReadJob.JH7zzrX3Egfm`, `A17SegmentationReadJob.lg4fTnb7deS8`, `SegmentationBoundaryJob.g52gIGtUHpkr`. Extraction: `reports/extract_keyinit_reads_2026-09-24.md`. Audit: `reports/audit_keyinit_reads_2026-09-24.md`.
+  - The audit recomputed S from the per-utterance genmarg files (260/260 paired), with the same code and A10 files as A14 (ii).
+  - The readers and the boundary job each wrote once across the 22:16 manager restart.
+- Durations: all four inits hold exactly the general-knowledge durinit values (phones 4.4138, SIL 26.0). No MFA-fitted duration leaks. The gold key's phi (`PhiFromKeyInitJob.f0jaGuiJVe6A`) takes only `key.json` and unsupervised unit frame counts.
+- S at 48 (260 set), against the bar 3.28903:
+  - gold_key 3.20704 (-0.082): **GOLD KEY REACHES BASIN**;
+  - G-dur 3.22387 (-0.065) and r70-dur 3.26568 (-0.023): **LABELS SUFFICE**;
+  - r30-dur 3.21151, report only.
+- Generative PER on D4 (500 utterances), direct / Hungarian / NMI at 0 / 4 / 12 / 48:
+
+  | Arm | ep0 | ep4 | ep12 | ep48 | A14 (ii) twin at 48 (MFA durations) |
+  |---|---|---|---|---|---|
+  | gold_key | .327/.385/.740 | .284/.334/.747 | .322/.367/.717 | .346/.391/.695 | |
+  | G-dur | .197/.197/.836 | .297/.297/.751 | .324/.324/.730 | .345/.345/.710 | .353/.353/.703 |
+  | r30-dur | .248/.248/.803 | .327/.327/.725 | .350/.350/.705 | .368/.368/.685 | .394/.394/.671 |
+  | r70-dur | .605/.622/.452 | .430/.453/.609 | .435/.459/.606 | .442/.466/.606 | .495/.508/.566 |
+
+- Boundaries against MFA (20 ms, MFA 11.90 Hz): F1 at 48 is 0.776-0.799 for all four arms, as for their A14 twins (0.777-0.800; A14 r100 0.660). All run at 10.0-10.5 Hz, under-segmenting by 0.12-0.16. At 0, gold_key already has F1 0.813.
+- Corrections:
+  - The G-dur and r70-dur emission heads still carry the MFA-fitted segment structure (JS 0.21 and 0.16 nats per phone type against the type marginal; G-dur's init F1 is 0.834). So LABELS SUFFICE licenses only "the A14 (ii) basin did not need MFA-fitted durations".
+  - The clean no-segmentation evidence is the gold-key control: durinit durations and cell-independent emissions, and a larger margin.
+  - Not holding the key arms rests on r70-dur's 0.023 margin, one seed and no seed spread. The A10 restarts span 0.10 in S.
+- Reading:
+  - A key-to-phi conversion from type-level counts reaches the basin with no supervised segmentation. It ends at generative PER 0.35, about where the MFA-duration gold arm ends.
+  - S and PER agree between basins (0.34-0.47 against 0.86 for r100) but not inside one. G-dur's PER rises by 0.148 while S falls, as in A17 (ii).
+  - The durinit arms end 0.008-0.053 below their A14 twins in PER, on one seed and descriptive only.
+- Consequences as registered: neither the gold-key control nor A17 (iii) holds the stage-2 key arms, which wait only on stage 1. The PREACT_ON caveat is moot, since the control passed.
+
+### A16 (b) stage 1 read (2026-09-24): J's optima are clusters with wrong names; gold is not J's maximiser (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `KeySearchJob.AzM1NoHpOnFJ` (status real ok 196, failed 0; null ok 172, VOID-ON-RATE 8; loop_error null; 15 null runs truncated), `KeySearchSelectJob.g9wsznNnqmyO`, and `KeyAgreementReportJob.Xk3Wxu9kJ38t` (report only, label-using). Extraction: `reports/extract_keysearch_s1_2026-09-24.md`. Audit: `reports/audit_keysearch_s1_2026-09-24.md`.
+- Stage 1's J matches stage 0 term by term on the 27 shared keys, so the values are comparable. The printed gold row is copied from stage 0, not recomputed.
+- Selected top 4, all cluster starts under the warm schedule: cluster_centroid_s01, cluster_centroid_s04, cluster_context_s01 and cluster_context_s04. Held-out J:
+  - selected: -4.5525 / -4.5647 / -4.5671 / -4.5755;
+  - references: gold -4.8180; best A10 argmax start -4.9714; K30 -5.6097; best null -5.8543.
+  - All 124 real finals beat gold. Every start family reaches -4.55 to -4.75. The real rise over the null is 1.29-1.30.
+- Decomposition of the 0.24-0.27 margin over gold: emission 0.20-0.22, trigram 0.01-0.04, duration < 0.01. Over all 124 finals the trigram term ties gold (mean -0.002). The emission term does not depend on symbol names.
+- Agreement with the gold key, frame-weighted, identity / many-to-one:
+
+  | Keys | Before search | After search |
+  |---|---|---|
+  | selected 4 | | 0.07-0.14 / 0.49-0.58 |
+  | A10/A11 argmax | 0.110 / 0.486 | 0.10-0.12 / 0.50-0.51 |
+  | random | 0.026 / 0.223 | 0.098 / 0.487 |
+  | K30 / K70 / K100 | 0.70/0.71, 0.30/0.35, 0/0.22 | |
+
+- The final keys are distinct: an unregistered audit check gives identity about 0.11 between finals, and 0.22 for same-start twins.
+- Reading:
+  - The search sharpens clusters: many-to-one agreement rises from 0.22 to 0.49 from random starts, above K70's 0.35. It does not find names: identity stays at 0.07-0.14, below K70's 0.30.
+  - The selected keys are no better than what the search reaches from random starts. The argmax starts gain 0.33-0.43 in J with no gain in agreement.
+  - J prefers these keys over gold through the name-free emission term. The name-dependent trigram term only ties gold.
+- Licensed: gold is not J's maximiser, and J's found optima are clusters with wrong names. Not licensed: that no near-gold key beats -4.55, since no search started from gold, r30 or K30; and nothing about stage-2 S or PER.
+- Stage 2 runs as registered (the agreement is label-using, report only). A20 asks whether J's trigram term rewards the right names on these partitions.
+
+### A20 read (2026-09-24): NAME-BLIND by the registered rule; J penalises the gold-matching names on the found partitions (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: `KeyOracleNameReadJob.QD3S2xcmg0Wt` (login node, 70 s; code 6e6156ca after registration 59121ec0a). Extraction: `reports/extract_a20_oracle_names_2026-09-24.md`. Audit: `reports/audit_a20_oracle_names_2026-09-24.md` (independent J implementation; every row matched to 5 decimals; the in-job same-scale check gives |dJ| = 0 on 22 keys).
+- Held-out J (260 set, 137,933 frames, nats per frame):
+
+  | key | J(a) found | J(b) oracle 1:1 | J(b)-J(a) | J(c)-J(a) | identity (a) / (b) / m2o |
+  |---|---|---|---|---|---|
+  | selected_1 | -4.5525 | -5.1258 | -0.573 | -0.577 | 0.114 / 0.465 / 0.564 |
+  | selected_2 | -4.5647 | -5.0006 | -0.436 | -0.474 | 0.143 / 0.473 / 0.579 |
+  | selected_3 | -4.5671 | -4.9889 | -0.422 | -0.574 | 0.124 / 0.394 / 0.489 |
+  | selected_4 | -4.5755 | -5.0104 | -0.435 | -0.489 | 0.065 / 0.428 / 0.515 |
+  | gold | -4.8180 | | | | |
+
+  - J(b)-J(a) sits entirely in the trigram term; emission, duration, absorption and the partition are unchanged (SIL maps to SIL in all four). The A10/A11 argmax finals (7 rows, one more than registered; report only) give -0.39 to -0.62.
+  - Found keys fit the trigram better than gold at a matched rate: lm -0.948 at 9.20 Hz against gold's -0.990 at 9.47 Hz.
+- Verdict: 0 of 4 above 0.01, so **NAME-BLIND** as registered. Every difference is at least 0.42 below the margin.
+- Correction (audit): the registered gloss "the trigram term does not reward the right names" is wrong in direction. The trigram term *penalises* the gold-matching 1:1 names on these partitions by 0.42-0.57, and on the gold partition it penalises scrambled names by 0.69-1.09 (unregistered control), so it does see names. The found keys are swap-optimal (the final sweep over all 780 name pairs moved nothing), and a label-free name-swap climb from (b) moves away from gold (identity 0.39-0.47 to 0.13-0.26).
+- Why no 1:1 naming is near right (audit): 10-15 gold phones each hold 2-4 symbols, 14-18 phones are no symbol's majority (B, CH, G, JH, M, OY, P, TH, UH, ZH in all four), and after (b) 15-22 symbols holding 25-47 % of frames carry leftover names.
+- Unregistered (audit, train side): the emission term's 0.20-0.23 margin over gold splits into 0.10-0.17 from less d_min absorption (relabelled frames 9.3-10.6 % against gold's 13.6 %) and 0.06-0.10 from higher symbol entropy; H(S)-H(U) alone separates found keys from gold by only 0.03-0.07.
+- Licensed: a rename step under J would not help, because J ranks the right names lower. At key level the objective, not the search, rejects gold-agreeing names, and the name-free emission term (mostly absorption) selects partitions that split and merge phones. Not licensed: that the cost work belongs to the name signal alone, since (b) cannot separate a name deficit from a partition deficit; and nothing about S or phi-level renaming (stage 2 and `SAE_4A_rename.md`).
+
+### A18 (a) bridge read, G4a.L2.4 (2026-09-24): LOWER, OBJECTIVE ONLY (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.63nbj6Jgiegj` (SLURM 1998206; 4 arms, kept 1/2/4/8, no NaN) and `BridgeReadJob.v6SONiAZL7rH`. cold_ctl is `UdhhxiGIMBob`, which has the same config and code as dec_joint apart from `reverse_checkpoint_path`. Extraction: `reports/extract_a18a_bridge_read_2026-09-24.md`. Audit: `reports/audit_a18a_bridge_read_2026-09-24.md`.
+  - The audit recomputed the read from the per-utterance crosseval files (285/285 utterances, 164 speakers).
+  - It checked dec_joint's phi against em_s13 `epoch.012.pt`: identical. dec_frz's phi is unchanged at every kept epoch.
+- Verdict: dec_joint minus cold_ctl at ep8 is -0.1158 nats per frame, CI [-0.1257, -0.1035]. With B = 0.0093 the margin is 0.01, so the read is **LOWER**. PER stays in the chance band, so this is **OBJECTIVE ONLY**, not CODE BROKEN.
+- Terms against cold_ctl:
+  - l_tau -0.240, which carries the whole drop; the frozen phi (dec_frz) gives 85 % of it;
+  - lexlat_k2 +0.092, so the lexicon term worsens;
+  - 3 x rate +0.033.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8, recomputed on all 2,864 utterances:
+  - dec_joint 0.862 / 0.854 / 0.846 / 0.842;
+  - dec_distil 0.854 / 0.853 / 0.847 / 0.846;
+  - dec_frz 0.862 / 0.859 / 0.843 / 0.846;
+  - dec_joint_s2 0.863 / 0.855 / 0.843 / 0.846;
+  - cold_ctl 0.888 / 0.886 / 0.855 / 0.849.
+  - At ep8, dec_joint minus cold_ctl is -0.007, the size of the seed spread (0.004).
+- em_s13's own generative PER (dec_frz, phi frozen): direct 0.857, Hungarian 0.859, NMI 0.076. That is at the worst edge of the A10 band.
+- Correction: cold_ctl lacks A9's durinit, a relaxation made before any result, when A18 was built. Its effect on the drop is unmeasured, but PER alone rules out CODE BROKEN.
+- Reading: the label-free wave phi behaves like the A10 phis under joint training (A14 (i)). It lowers the objective through l_tau and carries no phonetic content. The basin phis of A17 (i) reach 0.20 under the same kind of run.
+
+### A18 (b) lift read (2026-09-25): DURINIT BASIN LIFTS (analysis only, label-built inits; audited CONFIRMED_WITH_CORRECTIONS)
+- Job `DurinitBasinLiftReadJob.uRzbIh0EfQXG` on pack `ZUZypSQn7qc0`; extraction `reports/extract_a18b_lift_2026-09-25.md`; audit `reports/audit_a18b_lift_2026-09-25.md`. The auditor recomputed PER from each posteriors.hdf over all 2864 utterances, and the values match. Each arm starts from its own keyinit `ge1MKcAPmZIV` epoch.048 phi; the arms differ only in phi path and model dir.
+- Dev-other greedy PER at ep1/2/4/8 (ep8 class):
+  - gold-key 0.275/0.258/0.235/0.208 (LIFT)
+  - G-dur 0.275/0.237/0.232/0.193 (LIFT)
+  - r30-dur 0.290/0.264/0.228/0.206 (LIFT)
+  - r70-dur 0.355/0.345/0.278/0.228 (LIFT)
+- Jointly trained phi generative PER at ep8 (direct/Hungarian/NMI):
+  - gold-key 0.258/0.310/0.771
+  - G-dur 0.221/0.221/0.810
+  - r30-dur 0.243/0.243/0.787
+  - r70-dur 0.284/0.335/0.741
+  - The init phis (ep0) read 0.346, 0.345, 0.368 and 0.442 direct.
+- Paired rows at ep8, PER(durinit arm) - PER(A17 (i) MFA arm), 95 % speaker-clustered CI:
+  - G-dur vs gold-EM: -0.0073 [-0.0093, -0.0054]
+  - r30-dur vs r30-EM: +0.0051 [+0.0034, +0.0070]
+  - r70-dur vs r70-EM: -0.1344 [-0.1397, -0.1295]
+  - The first two have opposite signs and sit below the bed's seed spread (0.004-0.010), so they are ties. They show neither help nor harm from MFA durations. The r70 pair differs in more than durations: different EM endpoints, init genPER 0.442 against 0.495, one seed each.
+- A18 (c) hold rule: it does not fire, because the gold-key arm reads LIFT. BRIDGE_KEYARMS stays True.
+- Corrections (audit):
+  - The ep8 forwards of gold-key (`e9LrruCo4AdR`) and r70-dur (`9AUpBk28Ak7F`) ran on the faulty jpbo-028-30 GPU1, seconds after the fault that broke the r30 genmarg decode. No corruption was found, but they are not bit-verified. The verdict does not depend on them, since every arm sits 0.27-0.31 under the LIFT bar. The r70 paired row rests on `9AUpBk28Ak7F`.
+  - Scope: every init is built from labels. G-dur and r70-dur also carry MFA-fitted segment structure in their emission heads. The read shows that general-knowledge durations suffice once the init is near right. It says nothing about label-free phis, which so far all read NO LIFT (0.820-0.842).
+
+### A16 (b) stage 2 read (2026-09-25): KEY BASIN, on S only (audited CONFIRMED_WITH_CORRECTIONS)
+
+Read job `KeyArmsReadJob.STcxhF0w4kpq` on pack `PackedBlankfreeTrainJob.G0Vzzokj5PQC` (A10 recipe verbatim except
+the key init; durinit; one seed per key). Extraction `reports/extract_keyarms_read_2026-09-25.md`; audit
+`reports/audit_keyarms_read_2026-09-25.md`, which recomputed S from the per-utterance files (260 of 260 paired, as
+in A14 (ii)).
+- S at 48 on the 260 set: rank1 3.27275, rank2 3.29550, rank3 3.28529, rank4 3.33540. The bar is 3.289 (S_min
+  3.29903, A10 durinit_s01). The best arm, rank1, is below it, so the verdict is **KEY BASIN**. rank1 against S_min:
+  -0.026 [-0.037, -0.015].
+- Generative PER at 48 (`GenDecodeReportJob`), direct / Hungarian / NMI: rank1 0.858 / 0.861 / 0.077, rank2
+  0.847 / 0.798 / 0.099, rank3 0.849 / 0.842 / 0.096, rank4 0.872 / 0.873 / 0.068. This is the chance band, as for A10.
+- Name tracking on these arms is AN-5 in `SAE_4A_rename.md`: EM LOCKED, key identity 0.05-0.17 throughout.
+- A18 (c): rank1, the S-best arm, goes to L2-2. The bridge is under manager 3019650.
+- Corrections (audit):
+  - KEY BASIN licenses S only. It licenses neither the phonetic basin (A14 (ii) also needed PER below 0.50), nor
+    names, nor lift.
+  - rank1's margin (0.016) is below the A10 same-recipe seed spread of S (0.025-0.071), with one seed per key. The
+    four arms average 3.297, above the bar, so only the best of four clears it. rank3's 0.004 is within jitter
+    (below the bar only at sub-epochs 40, 45 and 48).
+  - log.run.1 is inside finished.tar.gz; it has no warnings.
+
+### A18 (c) bridge read, G4a.L2.4 (2026-09-25): LOWER, OBJECTIVE ONLY; the key arm does not lift (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.SCtv4DjzFQ50` (SLURM 2007225) and `BridgeReadJob.HWuOTb0Tefo1`. Extraction
+  `reports/extract_l22_keyarm_bridge_2026-09-25.md`; audit `reports/audit_l22_keyarm_bridge_2026-09-25.md` (recomputed from
+  the five per_utterance.json files and from the posteriors on all 2864 utterances; every number matches).
+- The bridged phi is rank1 `G0Vzzokj5PQC` epoch.048, verified identical. dec_frz's phi is unchanged at every kept epoch.
+  cold_ctl is A18 (a)'s own run `UdhhxiGIMBob`, which differs from dec_joint only in reverse_checkpoint_path.
+- Verdict: dec_joint minus cold_ctl at ep8 is -0.1609 nats per frame, CI [-0.1710, -0.1488], 285 utterances, 164
+  speakers. B = 0.0038, so the margin is 0.01 and the read is **LOWER**. The read is also LOWER under bootstrap seed 7
+  and frame weighting. PER stays in the chance band, so it is **OBJECTIVE ONLY**, not CODE BROKEN.
+- The whole drop is l_tau (-0.284), and the frozen phi alone gives 97 % of it. lexlat_k2 (+0.081) and 3 x rate (+0.042)
+  get worse. The other arms, reported only: dec_distil -0.165, dec_frz -0.106, dec_joint_s2 -0.165, all LOWER, OBJECTIVE
+  ONLY.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+  - dec_joint 0.862 / 0.852 / 0.840 / 0.843;
+  - dec_distil 0.857 / 0.854 / 0.844 / 0.843;
+  - dec_frz 0.861 / 0.857 / 0.850 / 0.846;
+  - dec_joint_s2 0.863 / 0.850 / 0.843 / 0.843;
+  - cold_ctl 0.888 / 0.886 / 0.855 / 0.849.
+  - The lowest of all 20 cells is 0.840. Every arm is NO LIFT at ep8 under A4's bands.
+- Lift test (A14 (i) form; the reader prints no verdict, so it is taken from A4's bands): dec_joint 0.843 = **NO LIFT**
+  (one phi, two theta seeds). The same-line gold-key arm lifts to 0.208 (A18 (b)).
+- The phi's generative PER at ep8 (direct / Hungarian / NMI): dec_joint 0.858 / 0.855 / 0.077, dec_frz 0.858 / 0.861 /
+  0.077, dec_joint_s2 0.859 / 0.851 / 0.078. Joint training leaves it at chance.
+- Corrections (audit):
+  - The baseline relaxes A9, a build choice made before the result: cold_ctl has uniform durations, while rank1 has
+    durinit plus EM durations. Their share of the -0.161 is unmeasured.
+  - Under A6, LOWER alone licenses no claim.
+  - The read licenses not funding this phi, not that the key line cannot lift.
+- Reading: rank1 behaves like the A10 and wave phis (A14 (i), A18 (a)). It lowers the objective through l_tau and
+  carries no phonetic content. Next steps for phi training are the proposal in `SAE_4A_rename.md`.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
