@@ -296,6 +296,7 @@ def moshified_fdb_eval(
     unmute_llm=None,
     code_version=1,
     seed=None,
+    batch_size=None,
 ):
     # Cloud realtime backends (Gemini/OpenAI) run as a login-node mini_task.
     infer = SpeechInference(
@@ -320,7 +321,10 @@ def moshified_fdb_eval(
             (*backend.offline_extra_args, "--seed", str(int(seed)))
             if (backend.server is None and seed is not None)
             else (backend.offline_extra_args if backend.server is None else ())
-        ),
+        )
+        # Intra-GPU batch (offline lib drivers; PersonaPlex's _run_pairs_batched): B clips per forward. Part of
+        # the hashed args (the per-row random draws differ from B=1); None = the serial B=1 path, no hash change.
+        + (("--batch_size", str(int(batch_size))) if (backend.server is None and batch_size) else ()),
         # RAG retrieval (MoshiRAG) only applies to the offline/server-less path.
         retrieval_llm=backend.retrieval_llm if backend.server is None else None,
         lora_weights=lora_weights,
@@ -371,6 +375,7 @@ def fdb_benchmark_py(
     code_version: int = 1,
     seed: int | None = None,
     tasks=None,
+    batch_size: int | None = None,
 ):
     """Full Duplex Bench eval over all tasks for one model, namespaced by ``tag``.
 
@@ -406,6 +411,7 @@ def fdb_benchmark_py(
             server_venv_python=server_venv_python,
             unmute_llm=unmute_llm,
             seed=seed,
+            batch_size=batch_size,
         )
         tk.register_output(f"fdb/{tag}/{t}/eval", bench)
         tk.register_output(f"fdb/{tag}/{t}/audio", bench.creator.in_audios)

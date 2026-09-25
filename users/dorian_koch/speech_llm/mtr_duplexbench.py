@@ -106,7 +106,9 @@ class MTRDuplexInference(Job):
     # ``engine_version`` (excluded at 1): bump to re-run a backend whose inference ENGINE changed while its arguments
     # did not (the engine is run()-side code, so nothing else re-hashes). 2 = PersonaPlex after the 2026-08/09 port
     # (ring-KV off-by-one and reset fixes); the 2026-06-30 personaplex_family cells ran on the pre-port stack.
-    __sis_hash_exclude__ = {"retrieval_llm": None, "engine_version": 1}
+    # ``batch_size`` (excluded at 1): dialogues per forward (engines with ``reply_batch``: PersonaPlex). A protocol
+    # setting, not a speed knob -- the per-row random draws differ from B=1 -- so it is hashed when set.
+    __sis_hash_exclude__ = {"retrieval_llm": None, "engine_version": 1, "batch_size": 1}
 
     def __init__(
         self,
@@ -125,8 +127,10 @@ class MTRDuplexInference(Job):
         retrieval_llm: str | None = None,
         rqmt: dict | None = None,
         engine_version: int = 1,
+        batch_size: int = 1,
     ):
         self.engine_version = engine_version
+        self.batch_size = batch_size
         self.mtr_data = mtr_data
         self.dimension = dimension
         self.inference_venv = inference_venv
@@ -181,6 +185,8 @@ class MTRDuplexInference(Job):
             cmd += ["--overlay", self.overlay.get_path()]
         if self.lora_rank is not None:
             cmd += ["--lora_rank", str(self.lora_rank), "--lora_scaling", str(self.lora_scaling)]
+        if self.batch_size != 1:
+            cmd += ["--batch_size", str(self.batch_size)]
 
         from .inference_harness import run_with_optional_retrieval
 
@@ -493,6 +499,7 @@ def mtr_benchmark_py(
     judge: str = "vllm",
     judge_model: str = "openai/gpt-oss-120b",
     engine_version: int = 1,
+    batch_size: int = 1,
 ):
     """Wire data -> multi-round inference -> eval and register the summary under
     ``benchmark/mtr/<backend_name>/<dimension>[_<scenario>]/scores``.
@@ -520,6 +527,7 @@ def mtr_benchmark_py(
         lora_scaling=lora_scaling,
         retrieval_llm=retrieval_llm,
         engine_version=engine_version,
+        batch_size=batch_size,
     )
     ev = MTRDuplexEval(
         submission_dir=inf.out_dir,

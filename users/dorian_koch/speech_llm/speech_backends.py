@@ -268,6 +268,10 @@ def personaplex_family_backend_spec(lora_rank: int | None = None, lora_scaling: 
         offline_module="moshi_family.personaplex.offline_inference",
         offline_extra_args=extra,
         inference_venv=_venv,
+        # rqmt is not hashed. 16 GB (the SpeechInference default) is below what io_prefetch needs to read the
+        # 16.7 GB checkpoint into the page cache, so every PersonaPlex FDB job page-faulted it in instead: 18-895 s
+        # (895 s for three jobs loading together on one node, 2026-09-25) vs 5 s prefetched.
+        rqmt_override={"mem": 48},
     )
 
 
