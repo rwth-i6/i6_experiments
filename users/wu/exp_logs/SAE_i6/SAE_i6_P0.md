@@ -19,9 +19,13 @@ NEXT:
     - chunk 2, Slurm 4363361, in `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs2`;
     - chunk 1, Slurm 4363362, 6 h limit, in `..._cs1`.
     Trust `read.txt`'s verdict only after `rnn exit 0`.
-  - Pass: apply the largest passing chunk's variant (`reports/impl_p0_k2lat_cs1_cs2_2026-09-25.md`, under review).
-  - No pass by the end of sub-epoch 7: hold k2lat after `epoch.007.pt`, resume it on the V100 once a chunk size
-    passes, and bring the options to the user. No GPU switch (user).
+  - Early steps: chunk 2 peaks at 25.4-26.7 GiB (60-67 s per step); chunk 1 at 27.2 GiB. Reads due 18:45-19:00.
+  - J holds: `J/hold` is placed (17:48). A session loop scancels J once `epoch.007.opt.pt` exists (about 19:10).
+    If the session died, check that J stopped.
+  - Pass at N: case (a)/(b) steps in `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, with the largest passing N.
+    The executor does: drift check (`git diff 14a8042d7 HEAD`); the csN install; the csN patch; move
+    `error.run.1` aside; `rm J/hold`; check that `log.run.1` shows epoch 7 loaded, step 399, chunk_seqs N.
+  - No pass: J stays held after `epoch.007.pt`, and the options go to the user. No GPU switch (user).
 - GAN reproduction (G0.GAN), pushed 68b39418a and merged locally 692d6e55a: i6 setup being prepared
   (`reports/impl_w2vu2_i6_setup_2026-09-25.md`: `settings.py` patch, w2vu env build on a V100, torchaudio in the
   sae env, `config/sae_i6_w2vu2.py`, overlap with P0 jobs, CPU tests). Then review, env build, then its manager.
