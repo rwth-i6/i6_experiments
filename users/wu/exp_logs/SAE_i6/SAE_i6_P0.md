@@ -12,18 +12,22 @@ LIVE (2026-09-25 13:50). One manager, pid 1646677, runs the FULL graph `config/s
   07:00 on 2026-09-26 if the banked 1.25x k2 overhead holds on V100 (not measured). Job starts spend about 2 min
   per HDF input in the `cf` timeout: slow, not a failure.
 Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). G0.R0 prior and HLG clauses FAIL,
-fully attributed to JUPITER's truncated text; T0 closed (Results, G0.R0). G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS.
+fully attributed to JUPITER's truncated text; T0 closed. G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS. Step 1:
+G0.R2 PASS; G0.R1s prior FAIL, attributed; G0.RC log Z not logged, open (Results, step 1).
 NEXT:
 - OOM fallbacks: first V100 sub-epoch, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` via
   DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
   (`reports/review_v100_routing_2026-09-25.md`, d and e).
-- One extractor pass once k2lat logs "ep 1 train, step 0": its step 1 against ctrl_20's (`log.run.1:670`) under
-  the amended G0.R2 clause; the s1 and rc step-1 lines (G0.R1s, G0.RC); the paired ep1/ep4 reads. Then ep20.
-- G0.G: implementer on the three core fixes (`reverse_model/` only, no P0 job id changes), code review, then the
-  gold-phi D4 read on its own entry point.
-- After the trainings end: the implementer passes `sil_run_collapse` to ctrl_20_rc's derangement and decode gap
-  reads (`config/common.py` builds them without it, so the ep20 rc gaps built now are void for G0.RC) and moves
-  the README Sisyphus pin to a567fa7; code review; rerun those two reads.
+- ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
+- G0.G: implementer on fixes 1, 2 and 4 (outside the live import closure, no P0 job id changes), code review,
+  then the gold-phi D4 read on its own entry point.
+- After the trainings end:
+  - the implementer passes `sil_run_collapse` to ctrl_20_rc's derangement and decode gap reads
+    (`config/common.py`; the ep20 rc gaps built now are void for G0.RC);
+  - fix 3 (`WAVE_*` in `reverse_model/phi_first.py`, which the P0 graph imports);
+  - moves the README Sisyphus pin to a567fa7;
+  - design a one-step read of log Z for the G0.RC clause;
+  - code review, then rerun the two rc gap reads.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -323,10 +327,32 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
     a GPU switch inside a Tier-A pair adds a hardware difference to the seed noise. Later packs run on V100.
     SUPERSEDED the same day by the user ("start them on V100"). The hardware amendment is under Gates.
 
-### G0.R1 ctrl_20 PER at sub-epochs 4 and 10 (2026-09-25, L40S)
+### Step 1 of s1, rc and k2lat; PER and paired reads to sub-epoch 10 (2026-09-25)
 
-- ep4 dev-other greedy PER 0.877185 (gate 0.875 +-0.03): PASS. ep10 0.884654 (gate 0.869 +-0.03; +0.016): PASS.
-  Source: `output/sae/4a/ctrl_20/ep{4,10}/dev-other/per.json`.
+Source: `reports/extract_step1_paired_2026-09-25.md`. The ep1 step-0 lines of s1 and rc are in their first
+Slurm runs' stdout (`engine/*.run.4357433.1`, `*.run.4357376.1`, L40S); their `log.run.1` restarts at epoch 4.
+- G0.R2 step 1 (k2lat, V100, vs ctrl_20, L40S): PASS. Every printed field is identical: l_tau -0.352, prior per
+  token -5.637, expected tokens 63.854, reverse per frame -7.209. The batch shape is the same too (128 sequences,
+  max 330 frames). No lexicon or k2 field is logged before the on-set. The 1e-4 relative rule is below the log's
+  3-decimal resolution, so no difference is detectable. Step time is 25.7 s against 37.8 s.
+- G0.R1s step 1 (s1, audio-label tolerances):
+  - l_tau -0.351 vs -0.347: PASS.
+  - Expected tokens 57.532 vs 57.498: PASS.
+  - Prior per token -5.651 vs -5.671: FAIL. The +0.020 shift equals ctrl_20's, so it is attributed to the i6 prior
+    (G0.R0).
+- G0.RC step 1 (rc):
+  - Same batch and inputs as ctrl_20: PASS. Sequences, max frames, expected tokens 63.854 and reverse per frame
+    -7.209 are all equal.
+  - Prior per token -5.635, against ctrl_20's -5.637: the rc prior history differs by design.
+  - "log Z <= ctrl_20's": NOT READ. No log Z field is logged; l_tau is equal at 3 decimals. Open.
+- G0.R1 ctrl_20 PER: ep4 0.877185 (gate 0.875 +-0.03) PASS; ep10 0.884654 (0.869 +-0.03) PASS.
+- s1 PER: ep1 0.851981, ep4 0.877806. rc PER: ep1 0.855671, ep4 0.884360.
+- Paired dev-other deltas (2864 utterances, 33 speaker clusters):
+  - i6 seed band ctrl_20 - s1: ep1 +0.0032 [+0.0004, +0.0059] (banked +0.004); ep4 -0.0006 [-0.0037, +0.0025]
+    (banked +0.002).
+  - G0.RC rc - ctrl_20 (report-only): ep1 +0.0005 [0.0000, +0.0010]; ep4 +0.0072 [+0.0046, +0.0098].
+  - From ep4, s1 and rc ran on V100 and ctrl_20 on L40S, so every ep4 delta carries a hardware term (Gates,
+    hardware amendment).
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 
