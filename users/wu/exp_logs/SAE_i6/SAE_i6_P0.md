@@ -246,6 +246,10 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
     RIVAW is missing (388,780 types). The 788,092 dropped lines are the 788,091 lines holding such a word plus
     1 empty line. The mechanism is the Sisyphus rerun defect (`SAE_i6_ref.md` section 6).
   - The clause stays FAIL as registered and is fully attributed to JUPITER's text.
+  - i6 cross-check (`reports/extract_i6_g2p_counts_2026-09-25.md`). `ApplyG2PModelJob.3eJqzOadjOqw` ran 16 chunks,
+    none empty. Its merged lexicon holds 773,673 entries, 388,779 of them in the DITCHLIKE-RIVAW band; the one-word
+    difference from the 388,780 counted on JUPITER is not resolved. `PhonemizeWithSilJob.NpoY1pGJWNUJ` read the same
+    40,418,261 lines as JUPITER and dropped 3 of them.
 - rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
   `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
 - HLG clause: FAIL as registered. k2lat's HLG, `LexlatHLGBuildJob.avjHv1Xvjyqd`, has 24,949,308 states and
