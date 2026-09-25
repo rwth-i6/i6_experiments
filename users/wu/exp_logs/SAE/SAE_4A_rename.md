@@ -16,9 +16,10 @@ No live rename manager. Finished: AN-0b `RenameEscapeJob.cw4BeJzrQ3U9`, AN-2 `An
 
 NEXT:
 1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
-2. AN-2/AN-4 and AN-0b are under fresh-context audit (`reports/audit_rename_{an24,an0b}_2026-09-25.md`); record
-   them in Results, then apply the decision table.
-3. AN-5 when stage 2 (`SAE_4A_lexlat_v2.md`) finishes; then bring the decision table's proposal to the user.
+2. AN-0b and AN-2/AN-4 recorded (Results). Row 2 fires: TP-B and the coarse-to-fine inventory; rename levers and
+   TP-A2 dropped. A precedence rule (row 6 over row 2) was fixed before AN-5.
+3. AN-5 is being built (implementer, `reports/impl_rename_an5_2026-09-25.md`), then code review. It launches when
+   the stage-2 keyarms manager (`SAE_4A_lexlat_v2.md`) has exited. Then the audit, and the proposal goes to the user.
 
 ## Objective
 
@@ -288,6 +289,14 @@ utterances (about 16 GPU-minutes); 1-2 GPU-h in all, limited by job count. AN-1 
 
 Every proposal's best case is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), not gold.
 
+Precedence amendment (2026-09-25, at the AN-2/AN-4 audit, before any AN-5 job and before stage 2's KEY BASIN
+read; source `reports/audit_rename_an24_2026-09-25.md`, finding 8). Rows 2 and 6 can both fire, and the table
+had no precedence rule. Row 6 takes precedence, because it measures what EM does from the found partitions, while
+row 2 reads the objective on those partitions before EM.
+- If row 6 fires, no TP is brought. Row 2's read is then reported as a property of the pre-EM key partitions.
+- If AN-5 reads EM LOCKED, PARTIAL, or EM RENAMES without KEY BASIN on the same arm, row 2's proposal stands. On
+  PARTIAL, TP0 is listed beside it, as TP0's bullet says.
+
 ## Ruled out by current evidence (not proposed)
 
 - Rename or name search under the current J (E7, A20: J ranks the right names lower; keys are swap-optimal).
@@ -388,3 +397,46 @@ match to 4e-15; its V0 equals A20's J and stage 1's J_final). Held-out, nats per
   non-SIL frames, or a key search gains by inflating SIL. The near miss is a measurement at one divisor chosen
   after the result, not a pass. Even there, names stay invisible, so a V12 search would still not rename toward
   gold on found partitions.
+
+### AN-2 and AN-4 (2026-09-25): H2 REFUTED; S SEES NAMES and S PREFERS FOUND NAMES; LAMBDA KEEPS THE BASIN; P1a False, P1b and P1c True, not H3' (audited CONFIRMED_WITH_CORRECTIONS)
+
+Jobs `An2ReadJob.91eeK6mtb6UH` and `An4ReadJob.c75KVY92wtjP` (941e392d, 996a6aad). They score the 260 CV-holdout
+utterances, none excluded, with the same settings in all 44 columns. Extraction
+`reports/extract_rename_an24_2026-09-25.md`; audit `reports/audit_rename_an24_2026-09-25.md`, which recomputed every
+value from `per_utterance.tsv` (AN-2 exactly, AN-4 to 2e-15). Held-out S_1, nats per frame.
+- H2 REFUTED. The gold-key phi with gold names has S_1 = 4.573. The 3 full derangements (fixed-point-free over 37
+  symbols) are worse by +0.513 to +0.567, against the 0.1 bar. S sees names on the gold partition.
+- Found partitions: the 4 stage-1 keys as key-built phis at sub-epoch 0; (b) against (a) is a pure row permutation.
+  - S_1(b) - S_1(a) is +0.351 / +0.251 / +0.292 / +0.278. The 3 random renames of (a) are worse by +0.587 to +0.744.
+  - Both SEES NAMES (4 of 4: the oracle names beat random renames) and PREFERS FOUND NAMES (4 of 4: the found names
+    beat the oracle names) fire. S orders the namings found, then oracle 1:1, then random.
+- Basin lead (min over the six A10 finals minus max over the durinit basin set at 48), rate-neutral: +0.075 /
+  +0.166 / +0.260 / +0.272 at lambda 1 / 2 / 4.4 / 10, so LAMBDA KEEPS THE BASIN. The plain form beside: +0.075 /
+  +0.081 / -0.053 / -0.481.
+- AN-4 (plain form, R1 scope), six finals against the basin set at 48:
+  - P1a False. The finals' channel term per frame is lower (-3.049 to -2.918 against -2.877 to -2.860).
+  - P1b True. LM per phone is -3.987 to -3.809 against -3.163 to -3.124.
+  - P1c True. The non-SIL rate is 6.85-7.56 Hz against 8.42-8.55 Hz.
+  - Not H3'.
+  - P2 True. The LM term per frame differs by -0.022 against the paired S gap of +0.137 (group means). So the finals
+    lose to the basin on both terms, and most of the S gap lies outside the LM term.
+  - P3 HOLDS on the three basin trajectories: from 0 to 48, PER rises, the channel term rises and LM per phone falls.
+- Generative PER, dev-other, Hungarian: the finals 0.838-0.862; the basin set at 48 0.345-0.391.
+- Decision table: row 2 fires.
+  - The rename levers are dropped (TP-A1, TP0's lambda arms).
+  - TP-A2 is not brought, because P1a fails.
+  - TP-B and the coarse-to-fine inventory are brought.
+  - Rows 1, 3, 4, 5 and 7 do not fire. Row 6 waits on AN-5, under the precedence amendment below the table.
+- Corrections (audit):
+  - Row 2's wording "on the partitions EM reaches" overstates the evidence. The read concerns the four stage-1 key
+    partitions as key-built phis before EM. The claim is that S, like J, ranks the found names above the oracle
+    1:1 names on those partitions. The found names were climbed on J, and S is J's objective with a soft channel,
+    so PREFERS largely re-expresses A20. What EM does from those phis is AN-5's question.
+  - The oracle names are the best 1:1 naming of a many-to-one partition (identity 0.39-0.47), not gold.
+  - The four keys were selected by held-out J on the same 260 set, which favours (a). Flipping PREFERS would need a
+    bias above 0.24 per frame on 2 of 4 keys, more than the whole J range over 124 finals.
+  - P2 holds on group means and on 17 of 18 pairs (durinit_s01 against g_dur fails). It fails under the
+    unregistered rate-neutral derivative.
+  - P3's gold-key endpoint rise is +0.006 on a non-monotone path, so P3 rests on g_dur and r30_dur.
+  - Neither P2 nor P3 gates anything.
+  - The AN-4 job's printed rules omit the R1 scope bullet. Its behaviour conforms.
