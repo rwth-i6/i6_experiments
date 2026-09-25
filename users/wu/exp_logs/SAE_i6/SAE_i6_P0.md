@@ -2,39 +2,36 @@
 
 ## State
 
-LIVE (2026-09-25 14:20). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py`
-(`log/sae_i6_p0.manager.pid`); never a second one on it. Re-arm the watcher first (setup dir):
+LIVE (2026-09-25 17:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
+Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
-- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100 from sub-epoch 4,
-  about 44 min per sub-epoch; end about 01:30 on 2026-09-26.
-- k2lat `jcKXbLMDk4hl`: Slurm 4359832, V100 since 13:05, about 48 min per sub-epoch; k2 on-set (sub-epoch 8)
-  about 19:30; end about 07:00 on 2026-09-26.
-Decided: the i6 prior and phone text are the bed (user). G0.R0 prior and HLG FAIL, attributed; G0.R3 PASS;
-ctrl_20 PER ep1/4/10 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results, step 1).
+- ctrl_20_s1 `DvVfxf1LrCBi` (4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
+- k2lat `jcKXbLMDk4hl` = J: Slurm 4359832, V100, 42 min per sub-epoch; `epoch.007` due about 19:10.
+Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
+PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results).
 NEXT:
-- k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M).
-  - Round 1 FAIL at chunk 16 and chunk 8 (Results).
-  - Round 2 RUNNING on cn-32, seeded from `epoch.004.pt` (`reports/review_p0_k2lat_probe_round2_2026-09-25.md`):
-    - chunk 2, Slurm 4363361, in `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs2`;
-    - chunk 1, Slurm 4363362, 6 h limit, in `..._cs1`.
-    Trust `read.txt`'s verdict only after `rnn exit 0`.
-  - Early steps: chunk 2 peaks at 25.4-26.7 GiB (60-67 s per step); chunk 1 at 27.2 GiB. Reads due 18:45-19:00.
-  - J holds: `J/hold` is placed (17:48). A session loop scancels J once `epoch.007.opt.pt` exists (about 19:10).
-    If the session died, check that J stopped.
-  - Pass at N: case (a)/(b) steps in `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, with the largest passing N.
-    The executor does: drift check (`git diff 14a8042d7 HEAD`); the csN install; the csN patch; move
-    `error.run.1` aside; `rm J/hold`; check that `log.run.1` shows epoch 7 loaded, step 399, chunk_seqs N.
-  - No pass: J stays held after `epoch.007.pt`, and the options go to the user. No GPU switch (user).
-- GAN reproduction (G0.GAN), pushed 68b39418a and merged locally 692d6e55a: i6 setup being prepared
-  (`reports/impl_w2vu2_i6_setup_2026-09-25.md`: `settings.py` patch, w2vu env build on a V100, torchaudio in the
-  sae env, `config/sae_i6_w2vu2.py`, overlap with P0 jobs, CPU tests). Then review, env build, then its manager.
-- ep10 of s1 and rc (about 18:00), then ep20.
-- After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
-  gap reads (`config/common.py`; the ep20 rc gaps now built are void for G0.RC), then rerun them; README pin to
-  a567fa7; `k2_word_lm` `phone_trigram` default "full"; a one-step log Z read for G0.RC; then P1 fix 3.
-The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
-passes G0.R1 and the audit is done (user, 2026-09-24).
+- k2lat's k2 phase: V100 with the exact per-chunk backward, tested first (G0.K2M, user). Round 1 FAIL (Results).
+  - Round 2 is running on cn-32 from `epoch.004.pt`:
+    - chunk 2: Slurm 4363361, `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs2`;
+    - chunk 1: Slurm 4363362, `..._cs1`.
+    Early peaks: 25.4-26.7 GiB and 27.2 GiB. Trust the `read.txt` verdict only after `rnn exit 0`.
+  - J is held: `J/hold` since 17:48. A session loop scancels J once `epoch.007.opt.pt` exists; on resume, check
+    that J stopped.
+  - Pass at N: steps (a)/(b) of `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, largest passing N. The executor
+    runs the drift check `git diff 14a8042d7 HEAD`, the csN install and patch, moves `error.run.1` aside, removes
+    `J/hold`, then checks for epoch 7 loaded, step 399 and chunk_seqs N.
+  - No pass: J stays held, options to the user. No GPU switch (user).
+- GAN (G0.GAN; 68b39418a merged as 692d6e55a): i6 setup in preparation (`reports/impl_w2vu2_i6_setup_2026-09-25.md`),
+  then review, env build and its own manager.
+- ep10 of s1 and rc, then ep20.
+- After the trainings end, in one implementer batch with review:
+  - `sil_run_collapse` into rc's gap reads, then rerun them (the ep20 rc gaps are void for G0.RC);
+  - the README pin to a567fa7;
+  - `phone_trigram` default "full";
+  - a one-step log Z read for G0.RC;
+  - then P1 fix 3.
+`model/`, `training/` and `analysis/` stay FROZEN until then. Push only after G0.R1 passes and the audit (user).
 
 ## Objective
 
