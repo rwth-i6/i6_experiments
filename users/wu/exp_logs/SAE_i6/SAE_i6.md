@@ -29,8 +29,15 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 2. After P0: resume the cold line from where JUPITER stopped (`SAE_i6_ref_lexlat_v2.md`, "Open at
    the move": the L2-1 wave with durinit / 12 sub-epochs, A14 (i), A17 (i)-(iii), A16 (b) stage 1-2,
    A18 bridges, A19). Which of these, and in what order, is decided after P0 with the user's
-   priorities; most have no entry point in the port yet.
+   priorities; most have no entry point in the port yet. Ported and matching the banked jobs: A10 12
+   sub-epochs, duration prior, 285-set S reader and selection, gold phi, p0, rt ladder. Not ported: A10
+   48 sub-epochs and its K* reader; A13 260-set reads; generative PER on dev-other (genmarg refuses it,
+   and refuses `sil_run_collapse`); a ladder read outside the 285 set (25 of its utterances are fit
+   items); none of the 34 SAE modules added on JUPITER after c49559ce (A11-A20, AN-0..6, TP0), on which
+   the rename evidence rests (`exp_logs/SAE/SAE_4A_rename.md`, d9b7e5362). The JUPITER orchestrator
+   will put a phi-init plan on the branch (`reports/jupiter_port_review_2026-09-25.md`).
 
 ## Phase pointers
 
-- **P0 port and verification** — OPEN, cost screen running (input graph + ctrl_20) — `SAE_i6_P0.md`.
+- **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
+  ctrl_20_rc and k2lat on V100) — `SAE_i6_P0.md`.

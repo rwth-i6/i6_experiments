@@ -2,31 +2,27 @@
 
 ## State
 
-LIVE (2026-09-25 13:00). One manager, pid 1646677, runs the FULL graph `config/sae_i6_p0.py` (pid file
+LIVE (2026-09-25 13:50). One manager, pid 1646677, runs the FULL graph `config/sae_i6_p0.py` (pid file
 `log/sae_i6_p0.manager.pid`). Never start a second manager on it. Re-arm the watcher first after a resume (from the setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
-Trainings route to V100 (gpu_32gb) from 2026-09-25 (user; Deviations: GPU partition; Gates: hardware amendment).
-- ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, finishes there at about 19:00.
-- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): cancelled after their sub-epoch 3,
-  resumed at sub-epoch 4 on V100. About 44 min per sub-epoch including dev (about 44 s per step averaged); they end
-  about 01:30 on 2026-09-26.
-- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. Sub-epoch 8, the k2 on-set, falls at about 19:00.
-  End about 07:00 on 2026-09-26, assuming the banked GH200 k2 overhead of 1.25x (`SAE_i6_ref_lexicon.md`:246);
-  the overhead on V100 is not measured. The trie and HLG finished (Results, G0.R0: HLG
-  clause FAIL, attributed). Job starts spend about 2 min per HDF input in the cache-manager (`cf`) timeout before
-  reading directly; this is slow, not a failure.
-Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). The G0.R0 prior clause is a Tier-A FAIL,
-attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
+- ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
+- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): on V100 from sub-epoch 4
+  (resume verified), about 44 min per sub-epoch; end about 01:30 on 2026-09-26.
+- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. k2 on-set (sub-epoch 8) about 19:00; end about
+  07:00 on 2026-09-26 if the banked 1.25x k2 overhead holds on V100 (not measured). Job starts spend about 2 min
+  per HDF input in the `cf` timeout: slow, not a failure.
+Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). G0.R0 prior and HLG clauses FAIL,
+fully attributed to JUPITER's truncated text; T0 closed (Results, G0.R0). G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS.
 NEXT:
-- Resume verified (12:57): both logs show a Tesla V100-SXM3-32GB, epoch.003 model and optimizer loaded, and
-  "start epoch 4 global train step 171".
-- The G0.V suite on a V100 is green (Results: G0.V repeated on a V100). k2 on sm_70 is cleared.
-- OOM at the first V100 sub-epoch: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` through
-  DEFAULT_ENVIRONMENT_SET. OOM of k2lat at sub-epoch 8: `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb`, resuming from
-  epoch 7 (`reports/review_v100_routing_2026-09-25.md`, sections d and e).
-- Read k2lat's "ep 1 train, step 0" line against ctrl_20's (`log.run.1:670`) under the amended G0.R2 step-1
-  clause.
-- Then the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc and k2lat.
+- OOM fallbacks: first V100 sub-epoch, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` via
+  DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
+  (`reports/review_v100_routing_2026-09-25.md`, d and e).
+- One extractor pass once k2lat logs "ep 1 train, step 0": its step 1 against ctrl_20's (`log.run.1:670`) under
+  the amended G0.R2 clause; the s1 and rc step-1 lines (G0.R1s, G0.RC); the paired ep1/ep4 reads.
+- Then ep20: ctrl_20, ctrl_20_s1, ctrl_20_rc, k2lat.
+- After the trainings end: the implementer passes `sil_run_collapse` to ctrl_20_rc's derangement and decode gap
+  reads (`config/common.py` builds them without it, so the ep20 rc gaps built now are void for G0.RC) and moves
+  the README Sisyphus pin to a567fa7; code review; rerun those two reads.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -242,6 +238,14 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   - The G0.R0 prior clause stays a Tier-A FAIL as pre-registered.
   This can be reproduced exactly only
   by importing JUPITER's `g2p.lexicon` (`ApplyG2PModelJob.myTIGtmrUIFq`); no JUPITER artefact is on i6.
+  RESOLVED 2026-09-25 by the JUPITER orchestrator's review (`reports/jupiter_port_review_2026-09-25.md`; run on
+  JUPITER, the artefacts are not on i6):
+  - T0 was run there as port test T7. On JUPITER's window the port reproduces JUPITER's prior.stats.txt
+    (ppl 9.561056344) byte for byte. So no port effect remains, and 9.561 is not a port target.
+  - Cause of JUPITER's loss: its g2p chunks 5-12 of 16 are empty, so every non-bliss word from DITCHLIKE to
+    RIVAW is missing (388,780 types). The 788,092 dropped lines are the 788,091 lines holding such a word plus
+    1 empty line. The mechanism is the Sisyphus rerun defect (`SAE_i6_ref.md` section 6).
+  - The clause stays FAIL as registered and is fully attributed to JUPITER's text.
 - rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
   `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
 - HLG clause: FAIL as registered. k2lat's HLG, `LexlatHLGBuildJob.avjHv1Xvjyqd`, has 24,949,308 states and
@@ -252,7 +256,8 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   - The size lies inside the reviewer's prediction from the i6 vocabulary, made before the build: 24.9-25.1 M states,
     101-104 M arcs (confound note under Gates). The trie recorded 182,215 words vs 151,731 banked (MISMATCH, as
     expected).
-  - Attribution: the size tracks the vocabulary, i.e. the phone-text deviation. Not audited.
+  - Attribution: the size tracks the vocabulary, i.e. the phone-text deviation. Not audited. The vocabulary
+    gap is JUPITER's truncated g2p lexicon (prior clause, RESOLVED), so the attribution is complete.
 - Trie word set: the gap is JUPITER's g2p drop, as for the prior. Source: Slurm 4358262,
   `analysis/prior_gap/window_word_types.py`, output
   `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/window_word_types/window_word_types.txt`.
@@ -304,6 +309,11 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   - Decision (orchestrator): P0's remaining trainings stay on L40S. G0.R2 pairs k2lat with the L40S ctrl_20, and
     a GPU switch inside a Tier-A pair adds a hardware difference to the seed noise. Later packs run on V100.
     SUPERSEDED the same day by the user ("start them on V100"). The hardware amendment is under Gates.
+
+### G0.R1 ctrl_20 PER at sub-epochs 4 and 10 (2026-09-25, L40S)
+
+- ep4 dev-other greedy PER 0.877185 (gate 0.875 +-0.03): PASS. ep10 0.884654 (gate 0.869 +-0.03; +0.016): PASS.
+  Source: `output/sae/4a/ctrl_20/ep{4,10}/dev-other/per.json`.
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 

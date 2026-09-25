@@ -145,6 +145,18 @@ The package's default k2 arm `k2_word_lm` (official 4-gram HLG, max_active 1000,
   (`model/lattice.py:673-674`): an infeasible utterance gets a finite log Z and loss instead of z_zero.
   On the bed the only infeasible case (S = 1) is caught elsewhere. Pinned by P0 tests.
 - SIL runs may split into several SIL tokens in the training lattice (objective note section 10).
+- JUPITER's phone text is truncated (NOT fixed in the banked numbers). Its g2p lexicon
+  (`ApplyG2PModelJob.myTIGtmrUIFq`) lacks every non-bliss word from DITCHLIKE to RIVAW: 388,780 of
+  773,673 types, because g2p chunks 5-12 of 16 are empty. Sisyphus before d9e1ede (upstream PR #314)
+  re-runs finished local tasks, and the reruns truncated the chunks just before the merge.
+  `PhonemizeWithSilJob` then dropped the 788,091 lines holding such a word.
+  - So the banked prior ppl 9.561, the HLG size and the trie word set belong to the truncated text, and
+    so does rho 9.6619. The full text gives rho about 9.679. The literal is kept: every arm and its control
+    share it.
+  - The i6 text is complete, and the i6 Sisyphus (a567fa7) contains the fix. Any multi-task local job run
+    under an older Sisyphus can lose output the same way; the package README still pins ddcd028.
+  - Source: the JUPITER orchestrator's review (`reports/jupiter_port_review_2026-09-25.md`), where port
+    test T7 reproduced JUPITER's prior.stats.txt on JUPITER's window, and `SAE_i6_P0.md`, G0.R0.
 
 ## 7. i6 port
 
