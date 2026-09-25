@@ -16,8 +16,7 @@ attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
 NEXT:
 - Resume verified (12:57): both logs show a Tesla V100-SXM3-32GB, epoch.003 model and optimizer loaded, and
   "start epoch 4 global train step 171".
-- Read Slurm 4359759 (the G0.V suite on a V100, output `analysis_out/v100_k2_tests`). It must be green before k2lat
-  reaches sub-epoch 8; otherwise debugger, and k2lat goes to `-p gpu_48gb`.
+- The G0.V suite on a V100 is green (Results: G0.V repeated on a V100). k2 on sm_70 is cleared.
 - OOM at the first V100 sub-epoch: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` through
   DEFAULT_ENVIRONMENT_SET. OOM of k2lat at sub-epoch 8: `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb`, resuming from
   epoch 7 (`reports/review_v100_routing_2026-09-25.md`, sections d and e).
@@ -358,3 +357,18 @@ G0.V: every clause is met. Several strict xfails sit inside the train step: the 
 and the `_logmm` floor (T1.4c, T1.5). They count as banked behaviour only through the orchestrator's
 decision "the code defines the bed" (`SAE_i6_ref_objective.md` section 10). The user accepted T1.4c and
 T1.5 on 2026-09-24; T1.6 is pending the user's decision.
+
+### G0.V repeated on a V100 (2026-09-25, before any k2 use on V100)
+
+- Run: Slurm 4359759 on cn-32, `analysis/v100_bench/run_k2_tests.sh`, which runs the same full pytest command.
+  The log reads "device Tesla V100-SXM3-32GB capability (7, 0)". Output:
+  `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/v100_k2_tests/`.
+- Outcome: 529 passed, 11 skipped, 12 xfailed, 0 failed, 849 s. The suite now collects 552 tests; the L40S run
+  collected 529. The 11 skips are the same artefact-dir and reference-ffmpeg skips; none is a CUDA or k2 skip.
+- Passed on the V100:
+  - T1.8 GPU parity;
+  - the CPU-vs-CUDA parity of log Z_HLG and log Z_H at tau 1 and 2;
+  - T1.18 and T1.19;
+  - the T2.5 k2 train-step plumbing.
+- Reading: the sm_70 k2 kernels are exercised and agree with the CPU oracles. k2lat may use k2 on V100.
+  Its memory at sub-epoch 8 is still unmeasured (Gates, hardware amendment).
