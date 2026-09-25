@@ -228,6 +228,21 @@ Cost: AN-2 and AN-4 are about 180 gpupack forwards at about 20 s of GPU each, AN
 utterances (about 16 GPU-minutes); 1-2 GPU-h in all, limited by job count. AN-1 is one login-node job
 (10-20 minutes); AN-5 is the A15-F reader on 16 checkpoints.
 
+**Pre-decision analyses (added 2026-09-25 after the proposal audit, on the user's question whether every needed
+analysis has run; registered before any job; CPU, no training):**
+- **AN-1 V3 (as registered above; it was never estimated or built).** Delta from `KeyObjectiveScreenJob.erCoRAmZID5a`:
+  J with its trigram LM term replaced by a 4-gram (V3a) and a 5-gram (V3b). Both are fit on the same uniform-sample
+  window with the trigram's estimator extended in order. Everything else is unchanged: keys, corpus, split, emission,
+  duration and absorption. Check: order 3 through the new path reproduces V0 (A20's J) to 1e-9. The readings are
+  AN-1's GOLD FIRST and NAMES VISIBLE; NAMES VISIBLE applies here, because the LM term carries names. The consequence
+  is decision-table row "AN-1 GOLD FIRST under some V": TP-C (the V3 term in J and S) beside the proposal.
+- **AN-6 (label-using, report only) TP-D ceiling.** Second-level k-means on the 500 centroids to K in {100, 200, 300}
+  (seeds 1-2, unweighted as TP-D specifies; frame-weighted reported beside), plus the 500 units themselves. For each
+  inventory, against the gold frame alignments: many-to-one frame accuracy (the majority map fit on train, read on
+  train and on the 260 set), PNMI, phone purity, and the number of phones that are some class's majority. It is shown
+  with the TP-D request and decides nothing. It measures how much phone information each coarse inventory keeps
+  before TP-D is funded.
+
 ## Proposed training changes (not funded; each needs the user's OK)
 
 - **TP0 (label-using diagnostic, supervised init, analysis only) Direct test of the premise.** phi EM from the
