@@ -5,32 +5,21 @@
 Created 2026-09-25 as a proposal phase (user request 2026-09-24: "carefully plan with literature review: how
 should we adjust our phi training to make it possible. The rule for no new training arms stays, just propose in a
 next_step phase file"; new analyses are allowed, including GPU). Nothing here is funded training.
-- Allowed now: forwards, readers, CPU analyses and one-step operator evaluations whose updated tables are discarded
-  (AN-0 to AN-5). Every TP arm needs the user's OK, because each trains phi.
-- Design review `reports/design_review_rename_2026-09-25.md`: APPROVE_WITH_AMENDMENTS; amendments A1-A12 applied
-  below before any job.
-- Live dependency in `SAE_4A_lexlat_v2.md`: the stage-2 key arms (pack G0Vzzokj5PQC) feed AN-5.
+- Every TP arm needs the user's OK, because each trains phi. TP0 was funded on 2026-09-25.
 
 LIVE: TP0 manager 3153527 (`config/sae_4a_rename_tp0.py`, started 11:02, log
 `log/sae_4a_rename_tp0.manager.20260925_110248.log`; pack `21tww6QQK0tH`, SLURM 2011293; reader `Tp0ReadJob.t7gzZhB2fWtn`).
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 3153527 config/sae_4a_rename_tp0.py 600`. AN-1 V3 finished
-(`KeyObjectiveV3Job.N7q9hgRBDrFw`, audit pending). AN-6 `InventoryCeilingJob.CmkLGGuJFZyg` is fixed but still errored,
-and needs the user's `-co`. Earlier finished: AN-0b `RenameEscapeJob.cw4BeJzrQ3U9`, AN-2 `An2ReadJob.91eeK6mtb6UH`, AN-4
-`An4ReadJob.c75KVY92wtjP`; extractions `reports/extract_rename_{an0b,an24}_2026-09-25.md`.
+(recorded: NOT GOLD FIRST, NOT VISIBLE; no TP-C). AN-6 `InventoryCeilingJob.CmkLGGuJFZyg` is fixed but still errored,
+and needs the user's `-co`.
 
 NEXT:
-1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
-2. AN-0b and AN-2/AN-4 recorded (Results). Row 2 fires: TP-B and the coarse-to-fine inventory; rename levers and
-   TP-A2 dropped. A precedence rule (row 6 over row 2) was fixed before AN-5.
-3. AN-5 recorded (Results): EM LOCKED. Row 2 is final. The Proposal section (TP-D, then TP-B') is written after the
-   literature pass (`reports/lit_partition_levers_2026-09-25.md`), audited CONFIRMED_WITH_CORRECTIONS
-   (`reports/audit_rename_proposal_2026-09-25.md`) and corrected. It waits for the user's OK and three rulings
-   (secondary acceptance read, broad-class allocation, V2 occupancy term). No TP runs without the user's OK; on an
-   OK, register the gate (bar spread, disjoint read set, no-move control, name read), then design review.
-4. Pre-decision analyses registered in the Analyses section, all 2026-09-25: AN-1 V3 and AN-6 (CPU), and TP0
-   (funded by the user). Implementer reports are due at `reports/impl_rename_{an1v3,an6,tp0}_2026-09-25.md`. Next:
-   the executor launches V3 and AN-6 on the login node; TP0 goes to code review, then the executor launches it and
-   I arm the watcher.
+1. AN-0 to AN-5 are recorded (Results). Row 2 is final. The Proposal section (TP-D, then TP-B') is audited and
+   corrected (`reports/audit_rename_proposal_2026-09-25.md`). It waits for the user's OK and three rulings (secondary
+   acceptance read, broad-class allocation, V2 occupancy term).
+2. Pre-decision analyses (Analyses section): AN-1 V3 is recorded. AN-6 runs after the user's `-co`, then
+   extract and audit it. When the watcher wakes on TP0, the executor checks, then extract, audit and record,
+   applying TP0's registered consequence to the Proposal.
 
 ## Objective
 
@@ -451,8 +440,8 @@ has been shown to see names. Evidence (Results, all audited):
 - TP0 was not run, so iterated EM from a clean partition with wrong names is untested (E13). The premise is
   measured for one step on the clean partition and for 48 sub-epochs on found partitions only.
 - AN-3 was dropped after AN-0 DEAD, so LAMBDA OPENS and an iterated or flat-start LM-led E-step were never measured.
-- AN-1 read NOT GOLD FIRST under V1, V2 and V12; V3 (4- and 5-gram) was not built, so higher-order LM terms are
-  untested, and TP-C is not brought. The V12 near miss at the non-SIL divisor was +0.0076, below the 0.01 floor,
+- AN-1 read NOT GOLD FIRST under V1, V2 and V12, and V3 (4- and 5-gram, run 2026-09-25 after this list) also reads
+  NOT GOLD FIRST and NOT VISIBLE (gold 136th of 188 at every order), so TP-C is not brought. The V12 near miss at the non-SIL divisor was +0.0076, below the 0.01 floor,
   with the divisor chosen after the result.
 - The sparse channel prior (the handoff item beside TP-A1; Johnson 2007, Ravi and Knight 2011) is untested.
 - One-seed margins: AN-0 seed 1; AN-5 one seed per key; KEY BASIN rank1's margin. Also unmeasured: m without the
@@ -555,7 +544,7 @@ match to 4e-15; its V0 equals A20's J and stage 1's J_final). Held-out, nats per
   V12 -0.058 (6th). The K30 > K70 > K100 ladder holds on seed means under every variant.
 - NAMES VISIBLE: J_V(b) - J_V(a) is -0.56 to -0.83 under V2 and V12, so 0 of 4 keys pass. The class-prior term does
   not reverse the trigram's preference for the found names on the found partitions (A20).
-- V3 (4- and 5-gram) was not built, so the negative covers V1, V2 and V12 only.
+- V3 (4- and 5-gram) was built later: see "AN-1 V3" below. It is also NOT GOLD FIRST and NOT VISIBLE.
 - Correction (audit): the registered V2 formula did not fix its divisor. As built, V2's occupancy sum is divided
   by all frames, so a SIL frame scores 0 against about -3.1 to -3.5 for a non-SIL frame, and the term rewards SIL
   share. All 4 keys that beat gold under V12 carry SIL share 0.083-0.093 against gold's 0.074. Under the other
@@ -566,6 +555,26 @@ match to 4e-15; its V0 equals A20's J and stage 1's J_final). Held-out, nats per
   non-SIL frames, or a key search gains by inflating SIL. The near miss is a measurement at one divisor chosen
   after the result, not a pass. Even there, names stay invisible, so a V12 search would still not rename toward
   gold on found partitions.
+
+### AN-1 V3 (2026-09-25): NOT GOLD FIRST and NOT VISIBLE under a 4-gram and a 5-gram (audited CONFIRMED_WITH_CORRECTIONS)
+- Job `KeyObjectiveV3Job.N7q9hgRBDrFw` (login node, 6:52, 2.65 GB). Implementation `reports/impl_rename_an1v3_2026-09-25.md`;
+  audit `reports/audit_rename_an1v3_2026-09-25.md`. The auditor refit the n-grams independently on the uniform window
+  `orN768ARKwlt`, reproduced orders 1-3 of the banked prior exactly, and matched lm3/lm4/lm5 on all 218 real rows to
+  8.9e-16. Order 3 through the new path reproduces V0 (= AN-1's J) to 8.9e-16. The competitor set is AN-1's.
+- Estimator: interpolated Witten-Bell, the trigram's own, extended in order. Held-out perplexity on the window is
+  9.56 / 7.20 / 5.98 at orders 3 / 4 / 5, so there is no over-fit.
+- GOLD FIRST: gold's margin to the best competitor is -0.2656 (V0), -0.2570 (V3a) and -0.2453 (V3b), and gold ranks
+  136th of 188 in each. The K30 > K70 > K100 ladder holds.
+- NAMES VISIBLE: J_V(b) - J_V(a) is -0.63 to -0.46 on all 4 selected keys under both orders, so 0 of 4 pass. The gap
+  is only the LM term, because (b) renames (a)'s symbols one to one with SIL kept, so emission and duration are
+  unchanged.
+- The audit adds: gold's deficit is mostly emission (0.20-0.22), with only 0.03-0.04 from the LM. On gold's
+  key-decoded string the LM cost rises with order (4.26 / 4.98 / 5.55 nats per token, against 3.69 for a uniform
+  LM), and 51 % of its 5-grams never occur in the text (1 % for real text). Key-decoded strings are not phone text
+  even under the gold key, so a higher-order LM penalises them more.
+- Decision table: no row fires, so TP-C is not brought. The read licenses only that, not "no higher-order LM term
+  can see names".
+- Correction (audit): the job ran on the login node, not gpupack as the executor report says.
 
 ### AN-2 and AN-4 (2026-09-25): H2 REFUTED; S SEES NAMES and S PREFERS FOUND NAMES; LAMBDA KEEPS THE BASIN; P1a False, P1b and P1c True, not H3' (audited CONFIRMED_WITH_CORRECTIONS)
 
