@@ -50,6 +50,10 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 4. **Candidate, unfunded, awaiting the user's OK:** the phi-init plan (a new label-free phi initialisation: named
    alphabet coarse-to-fine, SIL anchor, oracle split arms), `exp_logs/SAE/SAE_4A_phiinit.md` (origin 7711f1513,
    audited). A new cold-start method with its own objective and gate, so it becomes its own phase if funded.
+5. **GAN reproduction (user, 2026-09-25):** the JUPITER orchestrator pushes a GAN implementation to this branch;
+   review it, test it, then run the reproduction. It is a reference baseline, not a cold-start method arm, so the
+   no-GAN constraint for the method (`SAE_i6_ref.md` section 2) stands. It becomes its own phase, with a design
+   review before its first job. Waiting for the push (remote head 7e7c38aee at the time of the request).
 
 ## Phase pointers
 
