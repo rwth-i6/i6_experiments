@@ -2,30 +2,26 @@
 
 ## State
 
-LIVE (2026-09-25 11:00). One manager, pid 1629803, runs the FULL graph `config/sae_i6_p0.py` (pid file
-`log/sae_i6_p0.manager.pid`). Never start a second manager on it or on a subset of it. Its watcher is OFF on purpose
-(it would re-fire on the trie marker below). Re-arm it from the setup dir after the trie clear:
-`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1629803 config/sae_i6_p0.py 60`
-Running (gpu_48gb, about 57 min per sub-epoch):
-- ctrl_20 `GiT88bxzoZbZ`: sub-epoch 11 at 10:19; ends about 19:00.
-- ctrl_20_s1 `DvVfxf1LrCBi` and ctrl_20_rc `llSFybyKXkbL`: both started about 09:50.
-Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25; Deviations: phone text). The G0.R0 prior
-clause is a Tier-A FAIL, with its gap attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
-Blocked: `LexiconTrieBuildJob.W0e4no47Crfu` (lm/word_lm/). It asserted JUPITER's word count, but the i6 window gives
-182,215 words vs 151,731. The reviewed hash-neutral fix records that check instead
-(`reports/review_trie_reportonly_2026-09-25.md`); the confound note is in Gates. The task is NOT cleared on purpose:
-clearing it releases trie, HLG and k2lat (about 19 GPU-h) with no stop in between.
-NEXT: wait for Slurm 4358262 (`analysis/prior_gap/window_word_types.py`, about 70 min, output
-`/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/window_word_types`). Compare the
-emulated-drop windows with JUPITER's 151,731 types, 3,302,936 in-line bigram types and 19,629,091 tokens
-(i6: 182,215 / 3,414,449 / 19,885,331).
-- Near 151,731: clear the task in its job dir (`rm error.run.1 submit_log.run; mv log.run.1 log.run.1.backup;
-  mv usage.run.1 usage.run.1.backup`, one command), then re-arm the watcher.
-- Near 182k: debugger before k2lat.
-- An abort on the exact ppl3 `==` is a node-float artefact: relaunch pinned to a cn-60x node.
-Then read the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc, the HLG size and k2lat.
-V100 benchmark done (Results, cost screen): the V100 fits 88k/128 and is 1.32x faster per step; P0 stays on L40S
-unless the user moves k2lat.
+LIVE (2026-09-25 13:00). One manager, pid 1646677, runs the FULL graph `config/sae_i6_p0.py` (pid file
+`log/sae_i6_p0.manager.pid`). Never start a second manager on it. Re-arm the watcher first after a resume (from the setup dir):
+`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
+Trainings route to V100 (gpu_32gb) from 2026-09-25 (user; Deviations: GPU partition; Gates: hardware amendment).
+- ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, finishes there at about 19:00.
+- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): cancelled after their sub-epoch 3,
+  resuming at sub-epoch 4 on V100 (about 41 min per sub-epoch, ends about 01:00 on 2026-09-26).
+- The trie was cleared on the word-type result (Results, G0.R0). The trie runs as Slurm 4359749, then the HLG, then
+  k2lat `jcKXbLMDk4hl` on V100.
+Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). The G0.R0 prior clause is a Tier-A FAIL,
+attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
+NEXT:
+- Resume verified (12:57): both logs show a Tesla V100-SXM3-32GB, epoch.003 model and optimizer loaded, and
+  "start epoch 4 global train step 171".
+- Read Slurm 4359759 (the G0.V suite on a V100, output `analysis_out/v100_k2_tests`). It must be green before k2lat
+  reaches sub-epoch 8; otherwise debugger, and k2lat goes to `-p gpu_48gb`.
+- OOM at the first V100 sub-epoch: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` through
+  DEFAULT_ENVIRONMENT_SET. OOM of k2lat at sub-epoch 8: `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb`, resuming from
+  epoch 7 (`reports/review_v100_routing_2026-09-25.md`, sections d and e).
+- Then read the HLG size (G0.R0), the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc and k2lat.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -99,6 +95,24 @@ generation); widened tolerances in brackets apply then.
   <= 0.01; `lexlat_k2_stability` <= 0.05 from sub-epoch 11; `lexlat_k2_empty_frac` <= 0.002; no abort
   marker. (B): dev lexicon term ep20 0.310 +-0.03; derangement gap 3.61 +-0.6; emitted rate in
   [7.0, 8.5] /s.
+- **Hardware amendment to G0.R2, G0.R1s and G0.RC (2026-09-25, before k2lat started and before any V100
+  sub-epoch ended; the user moved the P0 trainings to V100, Deviations: GPU partition).** Hardware split:
+  ctrl_20 all L40S; ctrl_20_s1 and ctrl_20_rc sub-epochs 1-3 on L40S and 4-20 on V100; k2lat all V100.
+  - What differs between the two GPUs:
+    - reduction order in every cuBLAS and cuDNN kernel, the float64 lattice GEMM included;
+    - the recognizer's dropout masks, which come from the CUDA RNG, whose element mapping depends on the SM count;
+    - possibly the recognizer's Conv1d precision: cuDNN may use TF32 on the L40S by PyTorch default, and the
+      V100 has none. Not verified.
+    Bit-identity was already absent on one GPU (atomics in backward).
+  - G0.R2 "Step 1 identical" now reads:
+    - same step-1 batch (sequences and frames);
+    - l_tau, prior per token and expected tokens within the G0.R1 step-1 tolerances of ctrl_20's
+      (+-0.002 / +-0.005 / +-1.0), a cross-hardware tolerance already registered;
+    - a difference above 1e-4 relative is recorded and gets a debugger read before the verdict.
+    A lexicon term leaking in before the on-set moves l_tau by order 1.
+  - G0.R1s band and G0.RC deltas at sub-epochs 4/10/20: the i6 band ctrl_20 - ctrl_20_s1 and the G0.RC deltas
+    carry a hardware term besides the seed. With one replicate the two cannot be separated. ep1 is all L40S.
+  - G0.R2 paired read and PER: k2lat on V100 vs ctrl_20 on L40S. Thresholds unchanged.
 - **Confound note on G0.R0 HLG and G0.R2 (recorded 2026-09-25, before the i6 trie, HLG or k2lat gave any
   number; thresholds unchanged).**
   - What changed: the lexlat word set comes from a word LM trained on the i6 prior window (the user's i6-text
@@ -171,6 +185,11 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   headroom). Larger tasks, i.e. every training, go to gpu_48gb, and a training keeps its GPU type
   across resubmits. Forwards may therefore run on A10 or L40S. Hash-neutral. Open note: a
   flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
+  Changed 2026-09-25 (user decision): every ReturnnTrainingJob run task goes to gpu_32gb (V100-SXM3 32 GB,
+  sm_70), resumes included. No stickiness; an explicit `-p` still wins. `settings.py` `GPU_ROUTE_TRAIN`.
+  Hash-neutral (164 ids identical). Reports: `reports/impl_v100_routing_2026-09-25.md`, review
+  `reports/review_v100_routing_2026-09-25.md`. ctrl_20_s1 and ctrl_20_rc were cancelled after their
+  sub-epoch 3 checkpoints and resumed on V100. ctrl_20 finishes on L40S.
 - Phone text (found 2026-09-25; the user decided the same day to keep the i6 prior as the bed): the i6 phonemised LM corpus keeps 40,418,258
   lines, where JUPITER's kept 39,630,169 (G0.R0 prior clause, Results). The same window also feeds the lexlat
   word LM, trie and HLG: 182,215 words vs 151,731 (confound note under Gates; `LexiconTrieBuildJob` now records
@@ -221,6 +240,18 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
 - rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
   `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
 - HLG size: not yet read (built only by the full config).
+- Trie word set: the gap is JUPITER's g2p drop, as for the prior. Source: Slurm 4358262,
+  `analysis/prior_gap/window_word_types.py`, output
+  `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/window_word_types/window_word_types.txt`.
+  - Self-check PASS: the i6 seed-0 window equals the trie job's replayed words byte for byte.
+  - Identity PASS: each window's sample sha256 and ppl3 equal the prior-gap run.
+  - Word types, in-line bigram types and tokens:
+    - i6 seed-0 window: 182,215 / 3,414,449 / 19,885,331.
+    - Drop-emulated windows: 151,228 / 151,515 / 151,660 types; 3,300,564 / 3,295,442 / 3,302,838 bigram types;
+      19.58-19.63 M tokens.
+    - JUPITER: 151,731 / 3,302,936 / 19,629,091.
+  - So the 30,484 extra i6 words are the words JUPITER's lexicon lacked. It is one deviation (Deviations:
+    phone text), not a second port defect. The trie task was cleared on this reading (State plan).
 
 ### Cost screen and G0.R1 step 1 (ctrl_20 sub-epoch 1, 2026-09-25, `ReturnnTrainingJob.GiT88bxzoZbZ`)
 
@@ -259,6 +290,7 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
     time goes is not profiled.
   - Decision (orchestrator): P0's remaining trainings stay on L40S. G0.R2 pairs k2lat with the L40S ctrl_20, and
     a GPU switch inside a Tier-A pair adds a hardware difference to the seed noise. Later packs run on V100.
+    SUPERSEDED the same day by the user ("start them on V100"). The hardware amendment is under Gates.
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 

@@ -19,7 +19,7 @@ disclosed parallel analysis, never cold-start progress.
 paired speaker-clustered comparisons, one delta per arm with an own `ctrl_20`, uniform-sample
 n-grams, N = 20 sub-epochs, float64 DP, pre-registered gates. i6: L40S 46 GB GPUs, 5 per user; V100 32 GB,
 32 of them with no per-user cap. The V100 fits the reference batch and is 1.32x faster per step (`SAE_i6_P0.md`,
-Results, cost screen). After P0, a pack runs its arm AND its own control on the same GPU type.
+Results, cost screen). Trainings run on V100 from 2026-09-25 (user decision). A pack runs its arm AND its own control on the same GPU type.
 Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 
 ## Queue
