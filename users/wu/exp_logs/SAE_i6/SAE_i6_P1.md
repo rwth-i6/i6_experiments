@@ -3,11 +3,10 @@
 ## State
 
 OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
-- Task A (core phi reads, G1.G): fixes 1, 2 and 4 written, uncommitted; 92 CPU tests pass; P0 job ids unchanged
-  (`reports/impl_g0g_core_phi_reads_2026-09-25.md`). Code review running, including each read convention against
-  JUPITER's (`reports/review_g1g_core_phi_reads_2026-09-25.md`). Then commit, then the gold-phi D4 read on its own
-  entry point `config/sae_i6_g0g.py` (V100). Fix 3 (`WAVE_*`) waits until the P0 trainings end, because the P0
-  graph imports `reverse_model/phi_first.py`.
+- Task A (core phi reads, G1.G): fixes 1 and 2 reviewed PASS and committed (8280d6e1f); 92 CPU tests pass; P0 job
+  ids unchanged. The gold-phi D4 read (V100, own manager on `config/sae_i6_g0g.py`, outputs under
+  `sae_i6/g0g/`, a name kept from before the move) is being launched (`reports/launch_g1g_2026-09-25.md`). Fix 3
+  (`WAVE_*`) waits until the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`.
 - Task B (lift ladder): design review done (`reports/design_review_p1_2026-09-25.md`). All four MUST items are
   applied as gate amendments before any job: L40S with a per-chunk k2 backward, a full-sub-epoch rt_r90 probe
   gating the arms, the G1.L rules (CANNOT_TELL, VOID, rt_r100 in the both-LIFT branch), and a P1-only entry point.
@@ -38,6 +37,11 @@ items; (3) the wave default durinit at 12 sub-epochs (`WAVE_*` is None).
 - **G1.G (B, report-only):** direct PER, the uniform-prior Hungarian PER (banked R2 0.276), NMI(symbol, phone),
   E[d].
 - Every P0 job id stays unchanged by the change.
+- Read conventions against JUPITER's (code review, `reports/review_g1g_core_phi_reads_2026-09-25.md`). MATCH:
+  the Hungarian map (40x40 with a zero-gain DELETE column, after an identity-label edit alignment); direct PER (SIL
+  dropped, no merging); token NMI; the D4 sample (2863 eligible); the 260 set. UNKNOWN, JUPITER's source not on
+  i6: the uniform prior (i6 uses a 1/40 table at weight 1; weight 0 would drop log 40 per token) and the E[d]
+  weighting over phone types. Both touch Tier-B reads only (R2, E[d]). Frame NMI is i6-only.
 
 ## Task B: corrupted-phi lift ladder — reproduce rt_r70, extend to rt_r80 and rt_r90 (user, 2026-09-25)
 
