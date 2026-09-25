@@ -11,18 +11,14 @@ next_step phase file"; new analyses are allowed, including GPU). Nothing here is
   below before any job.
 - Live dependency in `SAE_4A_lexlat_v2.md`: the stage-2 key arms (pack G0Vzzokj5PQC) feed AN-5.
 
-LIVE (watcher as in `SAE_4A_lexlat_v2.md` State): 4143792 `config/sae_4a_rename_an24.py`, AN-2/AN-4
-(`reports/exec_rename_an24_launch_2026-09-25.md`).
+No live rename manager. Finished: AN-0b `RenameEscapeJob.cw4BeJzrQ3U9`, AN-2 `An2ReadJob.91eeK6mtb6UH`, AN-4
+`An4ReadJob.c75KVY92wtjP`; extractions `reports/extract_rename_{an0b,an24}_2026-09-25.md`.
 
 NEXT:
-1. AN-0 DEAD recorded (Results). TP-A1 is not brought on it and AN-3 is dropped. AN-0b (escape diagnostic,
-   registered after AN-0 and before its own run) goes through implementer (`reports/impl_rename_an0b_2026-09-25.md`),
-   then code review, then executor.
-2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 launch review
-   `reports/review_rename_an24_launch_2026-09-25.md` APPROVE_WITH_CONDITIONS (AN-4 plain-only scope recorded;
-   AN3 stays False until the an24 manager has finished the 4 shared PhiFromKeyInitJobs). AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
-   AN-3 as re-scoped by AN-0; AN-5 when stage 2 finishes.
-3. After the reads are audited, bring the decision table's proposal to the user.
+1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
+2. AN-2/AN-4 and AN-0b are under fresh-context audit (`reports/audit_rename_{an24,an0b}_2026-09-25.md`); record
+   them in Results, then apply the decision table.
+3. AN-5 when stage 2 (`SAE_4A_lexlat_v2.md`) finishes; then bring the decision table's proposal to the user.
 
 ## Objective
 
@@ -348,6 +344,29 @@ recomputed unit weights. All 16 cells match.
   - Part of it goes to SIL, whose share rises from 0.079 to 0.118. Part goes to the empty OY and ZH rows, which take 5.7 % of frames at plain/4.4 against 0.45 % at lambda 1.
   - Under the smoothing, an empty row's emission (1/500) is 1.66 nats per frame above an off-key entry of a populated row, which is where the right name's row sits for a swapped unit.
   - Lattice behaviour or an undetected E-step issue: these files cannot tell. AN-0b is registered to settle it.
+
+### AN-0b (2026-09-25): E-STEP CHECK passes; ESCAPE NOT THE BLOCK (audited CONFIRMED_WITH_CORRECTIONS)
+
+Job `RenameEscapeJob.cw4BeJzrQ3U9` (0822791c, 3.5 min, same 300 utterances and derangement as AN-0). Extraction
+`reports/extract_rename_an0b_2026-09-25.md`; audit `reports/audit_rename_an0b_2026-09-25.md`. The audit re-added
+the paths with its own code (channel to 4e-5 nats, LM to 2e-12), rebuilt the keys from `n_su.npz` (500/500 units
+match) and recomputed restore, rho and the split to 1e-15. The as-is cells equal AN-0 exactly.
+- E-step check: all 10 MAP paths extracted, max relative difference 6.4e-7, max bridge_rel_diff 4.2e-16. The
+  re-add uses no lattice code. This settles AN-0's open question: path scoring is correct.
+- No-escape masks only the OY and ZH next-token columns, the same way in every row. N(OY, ZH) is 0 in every
+  no-escape cell. Restore on the 5-pair row: 0.0000 at plain 4.4 and 0.0053 at rate-neutral 4.4, both VALID (gold
+  0.9888, 0.9834). **ESCAPE NOT THE BLOCK.**
+- Swapped units' mass at rate-neutral 4.4, no-escape: right name 0.060, partner 0.489, SIL 0.071, other names 0.379.
+  SIL ESCAPE fires (0.071 > 0.060). The gold row sends 0.050 of the same units to SIL, so the excess is about 0.021.
+  At plain 4.4, masking freed 0.069 of the mass; the right name gained 0.0024 of it.
+- Consequence as registered: H1 (lock-in) is recorded at the sharp-channel operating point. No escape finding goes
+  to the user.
+- Corrections (audit):
+  - Only the empty-row half of H1b was tested, since SIL was not masked. Whether SIL blocks the step is not measured.
+  - "The pressure escapes through SIL" is not licensed. The wrong name keeps most of the mass.
+  - Licensed: one step from the sharp gold-key channel (5 pairs, seed 1, 300 utterances, lambda <= 4.4) restores no
+    material share of keys, even without the empty rows. Not licensed: iterated or flat-start EM, other seeds, or
+    N(s,u) at batched size.
 
 ### AN-1 (2026-09-25): NOT GOLD FIRST under V1, V2, V12; NOT VISIBLE under V2, V12 (audited CONFIRMED_WITH_CORRECTIONS)
 
