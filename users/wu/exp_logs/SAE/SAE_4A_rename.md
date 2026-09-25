@@ -17,6 +17,8 @@ NEXT:
    the user's OK and four rulings (secondary acceptance read, broad-class allocation, V2 occupancy term, TP-B''s name
    step).
 2. AN-6 runs after the user's `-co`; then extract, audit and record it.
+3. The follow-up the user asked for on 2026-09-25, a new phi initialisation, is planned in `SAE_4A_phiinit.md`
+   (runs on i6; unfunded).
 
 ## Objective
 
