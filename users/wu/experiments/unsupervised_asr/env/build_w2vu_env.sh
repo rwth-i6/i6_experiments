@@ -73,7 +73,13 @@ export PATH="$PREFIX/bin:$PATH"
 # numpy is deliberately NOT in this list: --ignore-installed overwrites without uninstalling, and for
 # numpy that leaves a Frankenstein (numpy-1.23.5.dist-info AND numpy-2.0.2.dist-info side by side,
 # pip reporting 1.23.5 while `import numpy` says 2.0.2). It is pinned separately below.
+# torch is pinned here again, from the cu126 index: --ignore-installed hides step 2's torch from the
+# resolver, and fairseq 0.12.2 lists `torch` and `torchaudio>=0.8.0` unpinned, so without the pin pip
+# re-resolves them from PyPI (torch 2.8.0 cu128 on x86_64) and lays that tree over step 2's.
+# torchaudio is installed here as fairseq's dependency on x86_64, so it is pinned to torch's build.
 "$PY" -m pip install --ignore-installed \
+  --extra-index-url https://download.pytorch.org/whl/cu126 \
+  torch==2.6.0+cu126 torchaudio==2.6.0+cu126 \
   fairseq==0.12.2 omegaconf==2.0.6 hydra-core==1.0.7 \
   typing_extensions==4.15.0 cffi==2.0.0 soundfile==0.13.1 bitarray==3.7.2 \
   editdistance==0.8.1 sacrebleu==2.5.1 regex==2026.1.15 Cython==3.1.5 \
@@ -132,7 +138,10 @@ ln -sfn "$SP/examples" "$PREFIX/fairseq_shim/examples"
 # The prefix and the torch lib dir are resolved now and written into the wrapper.
 TORCH_LIB="$(ls -d "$PREFIX"/lib/python3.*/site-packages/torch/lib)"
 WRAPPER="$PREFIX/bin/w2vu-python"
-cat > "$WRAPPER" <<EOF
+# Written under a temporary name; step 7 renames it to w2vu-python only after the gate passes, so a
+# failed or partial env never has a wrapper that looks usable (sisyphus takes the existing path as ready).
+WRAPPER_UNGATED="$WRAPPER.ungated"
+cat > "$WRAPPER_UNGATED" <<EOF
 #!/usr/bin/env bash
 # The w2vu env's python with the env isolation of the reference setup's settings.py
 # (_w2vu_env_overrides, selftrain.py:295): its own lib dirs only, the \`examples\` shim, no user
@@ -144,12 +153,13 @@ export PYTHONNOUSERSITE=1
 export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 exec "$PREFIX/bin/python" "\$@"
 EOF
-chmod +x "$WRAPPER"
+chmod +x "$WRAPPER_UNGATED"
 
 # ---- 7. gate ------------------------------------------------------------------------------------
 # Every import must resolve with user-site suppressed and the main env's LD_LIBRARY_PATH replaced,
 # i.e. as the job will see it: so the gate runs through the wrapper (which adds the shim).
-GATE_CUDA="$GATE_CUDA" CUDA_ARCH="$CUDA_ARCH" "$WRAPPER" - <<'EOF'
+gate_fail() { die "gate failed${1:+: $1}; $PREFIX is not usable (no w2vu-python was written): remove it (rm -rf $PREFIX) before rebuilding"; }
+if ! GATE_CUDA="$GATE_CUDA" CUDA_ARCH="$CUDA_ARCH" "$WRAPPER_UNGATED" - <<'EOF'
 import logging, os
 assert hasattr(logging, "getLogger"), f"stdlib logging is shadowed: {logging.__file__}"
 
@@ -157,6 +167,7 @@ import numpy as np
 assert np.__version__ == "1.23.5", f"numpy is {np.__version__}; fairseq 0.12.2 needs <1.24 (np.int)"
 
 import torch
+assert torch.__version__ == "2.6.0+cu126", f"torch is {torch.__version__}; the reference env is 2.6.0+cu126"
 if os.environ["GATE_CUDA"] == "1":
     # fairseq trains on CPU without an error when CUDA is not visible (trainer.py:61);
     # checked first: get_arch_list() is [] then
@@ -179,4 +190,16 @@ b = data_utils.batch_by_size(np.arange(20), num_tokens_fn=lambda i: 10, max_toke
 assert len(b) == 5, b
 print("OK", torch.__version__, fairseq.__version__, np.__version__, "| cuda:", torch.cuda.is_available())
 EOF
+then
+    gate_fail
+fi
+# fairseq provenance: the check of the config/w2vu2.py docstring, through the wrapper. fairseq must be
+# 0.12.2 from this env's site-packages (here without the jobs' fairseq root on PYTHONPATH).
+SITE="$(ls -d "$PREFIX"/lib/python3.*/site-packages)"
+FAIRSEQ_ORIGIN="$("$WRAPPER_UNGATED" -c 'import fairseq; print(fairseq.__file__, fairseq.__version__)')" \
+    || gate_fail "import fairseq"
+echo "fairseq: $FAIRSEQ_ORIGIN"
+[[ "$FAIRSEQ_ORIGIN" == "$SITE/fairseq/__init__.py 0.12.2" ]] \
+    || gate_fail "fairseq is not 0.12.2 from $SITE"
+mv "$WRAPPER_UNGATED" "$WRAPPER"
 echo "== done: W2VU_PYTHON = \"$WRAPPER\""
