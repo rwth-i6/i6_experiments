@@ -19,7 +19,7 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     (4363117_1), rt_r70 `9lD2HS2Mzgcl` (4363118_1); r70 and r80 end about 03:30 on 2026-09-26.
     Watcher, re-armed first on resume: `P1_LADDER_STAGE=arms SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis"
     PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1726329 config/sae_i6_p1_ladder.py 60`.
-NEXT: confirm rt_r70's `installed (chunk_seqs = 4)` line (rt_r80 shows it). When the arms end, G1.L reads the ladder
+All three arms log `installed (chunk_seqs = 4)`. NEXT: when the arms end, G1.L reads the ladder
 (the r70/r80 reads are scheduled by the arms stage). The second-seed builder needs a `seed=` argument in `ladder.py`;
 it is needed only if G1.L's second-seed rule fires.
 
