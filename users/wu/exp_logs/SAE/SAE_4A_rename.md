@@ -7,19 +7,16 @@ should we adjust our phi training to make it possible. The rule for no new train
 next_step phase file"; new analyses are allowed, including GPU). Nothing here is funded training.
 - Every TP arm needs the user's OK, because each trains phi. TP0 was funded on 2026-09-25.
 
-LIVE: TP0 manager 3153527 (`config/sae_4a_rename_tp0.py`, started 11:02, log
-`log/sae_4a_rename_tp0.manager.20260925_110248.log`; pack `21tww6QQK0tH`, SLURM 2011293; reader `Tp0ReadJob.t7gzZhB2fWtn`).
-Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 3153527 config/sae_4a_rename_tp0.py 600`. AN-1 V3 finished
-(recorded: NOT GOLD FIRST, NOT VISIBLE; no TP-C). AN-6 `InventoryCeilingJob.CmkLGGuJFZyg` is fixed but still errored,
-and needs the user's `-co`.
+No manager or watcher is live. TP0 finished and is recorded (Results: EM LOCKED on the right partition, audited).
+AN-1 V3 is recorded (NOT GOLD FIRST, NOT VISIBLE; no TP-C). AN-6 `InventoryCeilingJob.CmkLGGuJFZyg` is fixed but
+still errored, and needs the user's `-co`.
 
 NEXT:
-1. AN-0 to AN-5 are recorded (Results). Row 2 is final. The Proposal section (TP-D, then TP-B') is audited and
-   corrected (`reports/audit_rename_proposal_2026-09-25.md`). It waits for the user's OK and three rulings (secondary
-   acceptance read, broad-class allocation, V2 occupancy term).
-2. Pre-decision analyses (Analyses section): AN-1 V3 is recorded. AN-6 runs after the user's `-co`, then
-   extract and audit it. When the watcher wakes on TP0, the executor checks, then extract, audit and record,
-   applying TP0's registered consequence to the Proposal.
+1. The Proposal (TP-D, then TP-B'; audited, `reports/audit_rename_proposal_2026-09-25.md`) now carries TP0's
+   registered consequence: item 4 brings back TP-A1, the sparse channel prior and TP-B''s name step. It waits for
+   the user's OK and four rulings (secondary acceptance read, broad-class allocation, V2 occupancy term, TP-B''s name
+   step).
+2. AN-6 runs after the user's `-co`; then extract, audit and record it.
 
 ## Objective
 
@@ -54,13 +51,14 @@ Ceiling of every proposal: the basin (phi generative PER 0.35-0.50; recognizer l
 | E10 | Found keys fit the trigram better than gold, per frame (-0.948 at 9.20 Hz against -0.990 at 9.47 Hz) and per phone (-5.15 against -5.23); a hard key pushes unit noise (purity 0.644) into gold's strings | A20 | raising the LM weight at key level favours wrong keys; H3's "lose on LM per phone" is false at key level |
 | E11 | Inside the basin EM drifts: gold-init PER 0.19 -> 0.35 while S falls; tau = 1 from the start removes about a quarter | A14 (ii), A17 (ii) | S does not reward accuracy inside the basin |
 | E12 | r70 (random label noise, per-unit argmax right) improves under EM, PER 0.61 -> 0.39-0.50 | A14 (ii), A17 (ii)/(iii) | denoising, not renaming |
-| E13 | No phi EM run has started from a clean partition with systematically wrong names; stage 2 starts from found partitions with wrong names (identity 0.07-0.14, many-to-one 0.49-0.58) | registrations | the premise has no direct test yet |
+| E13 | From the gold-key partition with deranged names, 12 sub-epochs of EM keep the wrong names (DELTA +0.024 / +0.013 / -0.005) and break the partition (best 1:1 identity 0.52-0.65, control 0.78) | TP0 (Results) | the premise holds on the right partition |
 | E14 | Rates on two conventions: A10 finals 6.8-7.6 Hz (A8 greedy emitted rate); basin arms 10.0-10.5 Hz and r100-EM 9.13 Hz (Viterbi segment rate, `SegmentationBoundaryJob.g52gIGtUHpkr`). Key level: found 9.2-9.7 against gold 9.47 | A10, keyinit audit, A20 | a phi-level rate gap is not established on one convention (AN-4); none at key level |
 | E15 | Gold phi under a fixed name permutation (permphi): decode-based Hungarian PER 0.819, its decode map recovers 16 of 40 labels (A15-E registration's build test); the emission map recovers 40 of 40 | A15, A15-E | renaming must be measured through the emission map or key identity, never decode PER |
 | E16 | Basin phis lift the recognizer (A17 (i) 0.20); EM finals do not (A14 (i) 0.82-0.84; A18 (a) 0.842) | A17 (i), A14 (i), A18 (a) | fixing names is worth the work |
 | E17 | Count-table EM from Dirichlet random tables stops at iteration 2-3 (gain < 0.01), S 3.536-3.608 on the 285 holdout; its frame-permuted nulls fall out of the rate band, so the family read CANNOT_TELL | A11/A12 read | the table operator locks in almost at once |
 
-Status of the premise: plausible and indirect (E3, E4, E13, E17). Between basins S is right (E1); within J it is
+Status of the premise: tested directly on the right partition by TP0 (E13), where it holds; indirect elsewhere (E3,
+E4, E17). Between basins S is right (E1); within J it is
 wrong (E7). The phi-level question is therefore search (EM cannot leave a wrong-name optimum that S ranks higher)
 or coupling (the partitions EM reaches are ones on which the right names do not win under S).
 
@@ -356,6 +354,9 @@ has been shown to see names. Evidence (Results, all audited):
     and other seeds were not tested.
   - 48 sub-epochs from the four found keys leave key identity flat, with changes of -0.040 to -0.001 (AN-5, EM
     LOCKED). Keys still change on 28-51 % of frames.
+  - 12 sub-epochs from the right partition with deranged names (TP0, EM LOCKED; added after this proposal was
+    audited): identity changes by +0.024 and +0.013 (full derangement, 2 seeds) and -0.005 (5 pairs). EM breaks the
+    partition instead: best 1:1 identity falls from 1.0 to 0.52-0.65, against 0.78 for the underanged control.
   - The best arm meanwhile reaches the S basin bar at PER 0.86 (KEY BASIN, on S only; its 0.016 margin is below the
     A10 seed spread 0.025-0.071, one seed). Bridged into joint training it does not lift (dev-other PER 0.843 at
     ep8; A18 (c) in `SAE_4A_lexlat_v2.md`, audited).
@@ -435,10 +436,20 @@ has been shown to see names. Evidence (Results, all audited):
    cost. Then TP-B' on TP-D's S-best finals, or on the six starts above if TP-D is not funded.
 - The best case of either is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), not gold. No published result covers a
   named inventory, so neither is expected to reach it; each tests the partition hypothesis.
+4. **Naming levers brought back by TP0 (registered consequence; beside the proposal, not ranked, each needs the
+   user's OK).** TP0 read EM LOCKED on the right partition, so a partition fix alone does not correct names; the
+   names must already be right when the channel sharpens, or be moved by a lever that is not plain EM.
+   - TP-A1, the LM-led E-step continuation (spec under "Proposed training changes"; Form 1, the table version, costs
+     about 1-2 GPU-h). Its contraindications do not fire (AN-2 H2 REFUTED and LAMBDA KEEPS THE BASIN; AN-4 not H3').
+     AN-0 found one LM-weighted E-step from a sharp channel DEAD; TP-A1 differs in starting from a flat channel.
+   - The sparse channel prior (handoff item; Ravi and Knight 2011), a candidate beside TP-A1 in Form 1's table.
+   - TP-B''s name step goes to the user as a separate decision (below): after TP0, a name the move assigns wrongly is
+     not expected to be corrected by the refit EM.
 
 **Not tested (the user should know):**
-- TP0 was not run, so iterated EM from a clean partition with wrong names is untested (E13). The premise is
-  measured for one step on the clean partition and for 48 sub-epochs on found partitions only.
+- TP0 ran iterated EM from the right partition for 12 sub-epochs only (A17 (ii)'s recipe, tau 1), with one seed for
+  the 5-pair arm. Whether the 5-pair arm's frames moved for the five phones that the emission map renames is not
+  measured.
 - AN-3 was dropped after AN-0 DEAD, so LAMBDA OPENS and an iterated or flat-start LM-led E-step were never measured.
 - AN-1 read NOT GOLD FIRST under V1, V2 and V12, and V3 (4- and 5-gram, run 2026-09-25 after this list) also reads
   NOT GOLD FIRST and NOT VISIBLE (gold 136th of 188 at every order), so TP-C is not brought. The V12 near miss at the non-SIL divisor was +0.0076, below the 0.01 floor,
@@ -454,6 +465,8 @@ has been shown to see names. Evidence (Results, all audited):
 - Is a broad-class name allocation (vowel / stop / fricative / nasal / SIL counts) admissible as general phonetic
   knowledge? It is the direct analogue of Jin et al.'s group counts, and is not proposed without a ruling.
 - Still open: the occupancy term (V2), a unigram-level term beside the trigram.
+- After TP0: is TP-B''s name step (an unclaimed name ranked by LM fit of its decoded contexts) acceptable as the
+  only naming mechanism, given that EM does not correct a wrong name afterwards?
 
 ## Ruled out by current evidence (not proposed)
 
@@ -648,3 +661,38 @@ no checkpoint substituted. m and pi come from the same checkpoint in every cell.
   - Identity ranges over 0.05-0.17 across epochs (rank2 at epoch 4 is 0.165).
   - LOCKED is not frozen. Keys change on 28-51 % of frames, with no net move toward gold.
   - The gold-key arm's drop is a partition change, not a renaming.
+
+### TP0 (2026-09-25): EM LOCKED on the right partition (audited CONFIRMED_WITH_CORRECTIONS)
+
+Pack `PackedBlankfreeTrainJob.21tww6QQK0tH` (SLURM 2011293, 12 sub-epochs per arm, A17 (ii)'s recipe with the init
+phi as the only delta), reader `Tp0ReadJob.t7gzZhB2fWtn` (`output/report.txt`, `output/tp0.json`). Extraction
+`reports/extract_tp0_read_2026-09-25.md`; finish check `reports/exec_tp0_check_2026-09-25.md`; audit
+`reports/audit_tp0_read_2026-09-25.md`. The audit reproduced all 16 cells with its own code and confirmed three things:
+the inits and derangements match AN-0's, the configs equal A17 (ii)'s except the init path, and epoch 0 is measured on
+the init phis. Identity uses AN-5's code.
+
+| arm | key identity 0 / 4 / 8 / 12 | DELTA | best 1:1 at 12 | S (260 set) 0 / 12 | genPER direct 0 / 12 | dup / unclaimed at 12 |
+|---|---|---|---|---|---|---|
+| full_s1 | 0.078 / 0.106 / 0.100 / 0.102 | +0.024 | 0.554 | 5.113 / 3.387 | 0.953 / 0.854 | 7 / 8 |
+| full_s2 | 0.078 / 0.093 / 0.092 / 0.090 | +0.013 | 0.518 | 5.086 / 3.370 | 0.949 / 0.855 | 7 / 8 |
+| 5pair_s1 | 0.593 / 0.627 / 0.598 / 0.588 | -0.005 | 0.650 | 4.933 / 3.292 | 0.660 / 0.502 | 6 / 6 |
+| control | 1.000 / 0.817 / 0.793 / 0.780 | -0.220 (not counted) | 0.780 | 4.573 / 3.252 | 0.327 / 0.336 | 3 / 3 |
+
+Best 1:1 identity is 1.000 at epoch 0 in every arm. Duplicated / unclaimed gold types are 1 / 2 at epoch 0 in every
+arm (A15-F, label-using, report only).
+- All 3 deranged arms read DELTA <= 0.05: **EM LOCKED**.
+- Corrections (audit):
+  - The two full arms carry the verdict; they had room to pass. The 5-pair arm could not reach 0.2: a perfect
+    rename plus the control's drift gives about 0.19.
+  - In 5pair_s1 the emission map puts AH, T, N, M and Y back on their own names while key identity stays flat.
+    Whether their frames moved is not measured; a per-phone key breakdown would show it.
+  - The partition does not stay right: best 1:1 identity falls to 0.52-0.65, against the control's 0.78.
+- Descriptive, not registered (full: 2 seeds; 5-pair and control: 1 seed):
+  - Rather than renaming, EM re-partitions around the wrong names. Duplicated gold types rise from 1 to 6-7 and
+    unclaimed ones from 2 to 6-8, against 3 / 3 for the control: the state of the found finals (E3), now reached
+    from the right partition.
+  - S falls in every arm. At sub-epoch 12 the control is lowest (3.252), then 5-pair (3.292), then full (3.370,
+    3.387). These are unpaired means on the common 260 set, not a registered comparison.
+- Consequence (registered; applied in the Proposal): EM keeps wrong names even on the right partition, so fixing the
+  partition alone is not enough. The naming levers (TP-A1, the sparse channel prior) and TP-B''s name step go back
+  to the user beside the proposal.
