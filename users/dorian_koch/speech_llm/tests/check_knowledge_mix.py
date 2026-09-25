@@ -33,6 +33,13 @@ on p3's corpus (what ab_epad1 trains on):
      exactly), no assistant word onset at/after a barge-in cut and dropped words exist (non-vacuous), EPAD before
      every word after padding, one speaker, JRE items == the unmixed stream, same seed = same batches, resume exact.
      CAN FAIL: a mutant that does not shift alignments (``shift_onset`` = identity) breaks the text check.
+     [6f] BARGE VARIANTS (ab2_know30_concat_nobarge / _barge, 2026-09-25; ``track_persona_ab2.AB2_BARGE_VARIANTS``, read
+     from the recipe): the concat arm's default plans are byte-identical to the pre-``barge_pos_frac`` planner (digest
+     pinned 2026-09-25 from the real meta); nobarge has no barge junction; barge: > 90% of junctions barge in, every
+     barge-in point lies at 20-90% of the last answer, the cut is the first word boundary at/after it (no kept word
+     starts at/after it, the word in progress is kept to its end unless the next onset caps it), later words dropped,
+     most barge-ins leave > 1 s of answer unsaid; assembled items claim every frame once. CAN FAIL: the same checks on
+     barge_prob 1 with the OLD lead rule (``barge_pos_frac`` None) fail the 20-90% position check.
 
 Runs in moshi_family_venv, CPU (~2-4 min, + [6] ~3 min; mimi + spm from the HF cache):
     ./hpc-venv.py --cluster i6-rz moshi_family --sh 'cd <setup> && HF_HUB_OFFLINE=1 python \
@@ -558,6 +565,110 @@ except AssertionError as e:  # shift_onset's own assert does not exist in the mu
 finally:
     kc.shift_onset = _real_shift
 ck(bad_m > 0, "the mutant fails the text check", f"{bad_m} of {n_m} frames differ")
+
+print("  [6f] barge variants (ab2_know30_concat_nobarge / _barge): position rule, old default unchanged")
+import hashlib  # noqa: E402
+
+AB2 = os.path.join(LIB, "sis_recipe", "doriank", "track_persona_ab2.py")
+VARIANTS = next(
+    ast.literal_eval(node.value)
+    for node in ast.parse(open(AB2).read()).body
+    if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "AB2_BARGE_VARIANTS"
+)
+print(f"    variants (from the recipe): {VARIANTS}")
+#: sha256[:16] of the 2,400 default-scheme plans (seed 0) under the planner BEFORE barge_pos_frac existed (2026-09-25,
+#: computed on output/persona_knowledge/v6_concat_meta.npz = what the running concat arms read).
+OLD_DEFAULT_PLANS_DIGEST = "75baf893b45b984b"
+
+
+def plan_digest(plans_) -> str:
+    h = hashlib.sha256()
+    for pl in plans_:
+        pcs = [(p.row, p.offset, p.src0, p.a_end, p.u_end, p.a_from, p.junction, p.gap_frames,
+                None if p.cut_sec is None else round(float(p.cut_sec), 6), p.cut_frame) for p in pl.pieces]  # fmt: skip
+        h.update(repr((pl.n_frames, pl.n_target, pcs)).encode())
+    return h.hexdigest()[:16]
+
+
+def plan_run(cfg_) -> list:
+    st = row_item_stream(vt, lambda i, _rng: i, seed=[0, KNOWLEDGE_STREAM_TAG])
+    rng_ = np.random.default_rng([0, KNOWLEDGE_STREAM_TAG, kc.CONCAT_STREAM_TAG])
+    return [
+        kc.plan_sequence(lambda: int(next(st)), rng_, meta, words_of, window_frames=WIN, fr=FR, cfg=cfg_)
+        for _ in range(N_ITEMS)
+    ]
+
+
+ck(plan_digest(plans) == OLD_DEFAULT_PLANS_DIGEST, "default scheme: plans == the pre-barge_pos_frac planner's",
+   plan_digest(plans))  # fmt: skip
+ck(kc.ConcatCfg.from_dict({**SCHEME, "barge_pos_frac": None}) == cfg, "barge_pos_frac=None is the default")
+
+
+def barge_stats(plans_) -> dict:
+    s = collections.Counter()
+    fracs, unsaid = [], []
+    for pl in plans_:
+        for j, p in enumerate(pl.pieces[1:], 1):
+            s[p.junction] += 1
+            if p.junction != "barge":
+                continue
+            prev = pl.pieces[j - 1]
+            a0, ae = float(meta.last_asst_start[prev.row]), float(meta.ans_end[prev.row])
+            b = float(prev.cut_sec)
+            fracs.append((b - a0) / (ae - a0))
+            unsaid.append(ae - b)
+            pbase = prev.offset - prev.src0
+            ws = words_of(prev.row)
+            s["dropped"] += sum(1 for x in ws if x[1][0] >= b)
+            s["kept_after_cut"] += sum(
+                1 for x in ws if x[1][0] < b and pbase + int(x[1][0] * FR // 1) >= prev.cut_frame
+            )
+            nxt = min([x[1][0] for x in ws if x[1][0] >= b], default=None)
+            for x in ws:  # the word in progress at b keeps its end (unless the next onset caps the cut)
+                if x[1][0] < b < x[1][1]:
+                    end_f = pbase + min(int(np.ceil(x[1][1] * FR)), int(meta.n_frames[prev.row]))
+                    cap = None if nxt is None else pbase + int(np.floor(nxt * FR))
+                    s["short_cut"] += int(prev.cut_frame < end_f and (cap is None or prev.cut_frame < cap))
+            s["user_before_cut"] += int(p.offset > prev.cut_frame)
+    s["n_junc"] = sum(s[k] for k in ("gap", "barge"))
+    return {"c": s, "fracs": np.asarray(fracs), "unsaid": np.asarray(unsaid)}
+
+
+cfg_nb = kc.ConcatCfg.from_dict({**SCHEME, **VARIANTS["ab2_know30_concat_nobarge"]})
+st_nb = barge_stats(plan_run(cfg_nb))
+ck(st_nb["c"]["barge"] == 0 and st_nb["c"]["gap"] > 0, "nobarge: every junction a silence gap", str(dict(st_nb["c"])))
+cfg_b = kc.ConcatCfg.from_dict({**SCHEME, **VARIANTS["ab2_know30_concat_barge"]})
+lo, hi = cfg_b.barge_pos_frac
+plans_b = plan_run(cfg_b)
+st_b = barge_stats(plans_b)
+cb, fr_b = st_b["c"], st_b["fracs"]
+ck(cb["barge"] / max(1, cb["n_junc"]) > 0.9, "barge: > 90% of junctions barge in", f"{cb['barge']}/{cb['n_junc']}")
+ck(fr_b.size > 0 and fr_b.min() >= lo - 1e-9 and fr_b.max() <= hi + 1e-9,
+   f"barge: every barge-in point at {lo:.0%}-{hi:.0%} of the last answer",
+   f"{fr_b.min():.3f}-{fr_b.max():.3f}, mean {fr_b.mean():.3f}")  # fmt: skip
+ck(cb["kept_after_cut"] == 0 and cb["short_cut"] == 0 and cb["user_before_cut"] == 0,
+   "barge: cut at the first word boundary at/after the barge-in (no kept onset after it, word in progress kept)",
+   str({k: cb[k] for k in ("kept_after_cut", "short_cut", "user_before_cut")}))  # fmt: skip
+ck(cb["dropped"] > cb["barge"], "barge: the later words are dropped (> 1 word per barge-in)", f"{cb['dropped']} words")
+ck(float(np.median(st_b["unsaid"])) > 1.0, "barge: a real mid-answer interruption (median > 1 s of answer unsaid)",
+   f"median {np.median(st_b['unsaid']):.2f} s")  # fmt: skip
+rows_b: dict = {}
+n_asm = 0
+for pl in plans_b[:64]:
+    for p in pl.pieces:
+        if p.row not in rows_b:
+            ca_, cu_, _fr, al_ = decode_codes_row(vt, p.row)
+            rows_b[p.row] = (np.asarray(ca_, np.int64), np.asarray(cu_, np.int64), normalize_alignments(al_))
+    kc.assemble(pl, rows_b, meta, fr=FR, onset_floor=bool(getattr(tok.cfg, "onset_floor", False)))
+    n_asm += 1
+ck(n_asm == 64, "barge: 64 items assemble (every frame claimed exactly once)")
+print(
+    f"    old default (lead rule) for contrast: barge-in at {np.mean(barge_stats(plans)['fracs']):.3f} of the answer on average"
+)
+st_mut = barge_stats(plan_run(kc.ConcatCfg.from_dict({**SCHEME, "barge_prob": 1.0})))
+fm = st_mut["fracs"]
+ck(not (fm.min() >= lo - 1e-9 and fm.max() <= hi + 1e-9), "CAN FAIL: the old lead rule at barge_prob 1 fails the position check",
+   f"{fm.min():.3f}-{fm.max():.3f}")  # fmt: skip
 
 print("  [6e] launcher")
 ck('knowledge_meta = cfg.get("knowledge_meta")' in src_l and 'knowledge_concat = cfg.get("knowledge_concat")' in src_l,

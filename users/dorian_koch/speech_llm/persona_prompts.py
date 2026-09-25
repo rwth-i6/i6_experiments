@@ -1369,6 +1369,17 @@ def content_parse_reply(spec: dict, raw: str, transcript: str) -> tuple:
     return bodies, ""
 
 
+def content_level_errors(spec: dict, raw: str, transcript: str) -> dict:
+    """``{level: (body, error)}`` for EVERY level of a reply (``content_parse_reply``'s checks, none short-circuited;
+    error "" = accepted). Raises on an unparsable reply."""
+    d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+    out = {}
+    for lv, (key, cap) in content_levels(spec).items():
+        body = strip_opener(d[key])
+        out[lv] = (body, content_reply_error(body, transcript, cap))
+    return out
+
+
 def content_call(
     client,
     spec: dict,
@@ -1379,16 +1390,30 @@ def content_call(
     key: str,
     transcript: str,
     attempts: int | None = None,
+    fallback_levels: tuple = (),
 ):
     """ONE content call as ``PersonaContentPromptGen.run`` makes it (seeded per call key, 5 attempts; an API error,
     an unparsable reply, or any level over its cap / with a verbatim 5-gram is retried). Returns ``{"bodies": {level:
-    body} | None, "overlap": {level: max shared n-gram} | None, "error", "attempts", "completion_tokens"}``
-    (``analysis/ppx_promptgen_profile.py`` calls this very function)."""
+    body} | None, "overlap": {level: max shared n-gram} | None, "error", "attempts", "completion_tokens", "partial"}``
+    (``analysis/ppx_promptgen_profile.py`` calls this very function).
+
+    ``fallback_levels`` (default none = all levels or nothing, as every job before 2026-09-25 ran): when EVERY attempt
+    fails, the FIRST attempt in which all ``fallback_levels`` passed is kept with only the levels that passed in it
+    (``partial`` = the full check's error then; "" otherwise). Deterministic (same seeds), and a call that succeeds
+    in full within ``attempts`` returns exactly what it would without the fallback."""
     if not transcript.strip():
-        return {"bodies": None, "overlap": None, "error": "empty transcript", "attempts": 0, "completion_tokens": 0}
+        return {
+            "bodies": None,
+            "overlap": None,
+            "error": "empty transcript",
+            "attempts": 0,
+            "completion_tokens": 0,
+            "partial": "",
+        }
     msg = content_message(spec, transcript)
     seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
     err, toks = "", 0
+    fallback = None  # (bodies, attempt, error) of the first attempt whose fallback levels all passed
     attempts = int(attempts or spec.get("max_attempts", 5))  # v1 / v2: 5; a job's max_attempts overrides
     for attempt in range(attempts):
         try:
@@ -1405,6 +1430,10 @@ def content_call(
             toks += int(getattr(usage, "completion_tokens", 0) or 0)
             raw = (resp.choices[0].message.content or "").strip()
             bodies, err = content_parse_reply(spec, raw, transcript)
+            if err and fallback_levels and fallback is None:
+                per = content_level_errors(spec, raw, transcript)
+                if all(not per[lv][1] for lv in fallback_levels):
+                    fallback = ({lv: b for lv, (b, e) in per.items() if not e}, attempt + 1, err)
         except Exception as e:  # API error, empty or unparsable reply: retry
             err = f"{type(e).__name__}: {e}"[:200]
             continue
@@ -1416,8 +1445,26 @@ def content_call(
             "error": "",
             "attempts": attempt + 1,
             "completion_tokens": toks,
+            "partial": "",
         }
-    return {"bodies": None, "overlap": None, "error": err, "attempts": attempts, "completion_tokens": toks}
+    if fallback is not None:
+        bodies, n_att, why = fallback
+        return {
+            "bodies": bodies,
+            "overlap": {lv: max_shared_ngram(b, transcript) for lv, b in bodies.items()},
+            "error": "",
+            "attempts": n_att,
+            "completion_tokens": toks,
+            "partial": why,
+        }
+    return {
+        "bodies": None,
+        "overlap": None,
+        "error": err,
+        "attempts": attempts,
+        "completion_tokens": toks,
+        "partial": "",
+    }
 
 
 def content_spec_digest(name: str) -> str:
@@ -1545,6 +1592,7 @@ class PersonaContentPromptGen(Job):
         llm_name: str = "openai/gpt-oss-120b",
         temperature: float = 0.6,
         max_attempts: int | None = None,
+        fallback_levels: tuple | None = None,
     ):
         assert spec in CONTENT_SPECS, spec
         sides = tuple(sides)
@@ -1565,6 +1613,14 @@ class PersonaContentPromptGen(Job):
         # get prompts (the 64 pinned self-play rows: the attach raises on a missing one; 2026-09-25 one of 128 v3
         # calls kept a verbatim 6-gram in fh_detailed through all 8 attempts).
         self.max_attempts = max_attempts
+        # Levels a call may fall back to when every attempt fails the full check (``content_call``): the kept attempt
+        # stores only its passing levels. ``None`` = all or nothing (hash-neutral). For the pinned self-play rows, which
+        # read one level (2026-09-25: rss_1341116090418274#46@a#w0's other side kept "the Laugh Factory in Long Beach",
+        # a verbatim 6-gram, in fh_detailed through all 24 attempts, so the row had no fh_topic either).
+        if fallback_levels is not None:
+            fallback_levels = tuple(fallback_levels)
+            assert fallback_levels and set(fallback_levels) <= set(content_levels(CONTENT_SPECS[spec])), fallback_levels
+        self.fallback_levels = fallback_levels
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
@@ -1572,10 +1628,12 @@ class PersonaContentPromptGen(Job):
     @classmethod
     def hash(cls, parsed_args):
         """The spec's CONTENT is part of the hash (Sisyphus hashes only ``__init__`` arguments): an edited instruction,
-        source or cap is a different job. ``max_attempts=None`` is left out (every job declared before it existed)."""
+        source or cap is a different job. ``max_attempts=None`` / ``fallback_levels=None`` are left out (every job
+        declared before they existed)."""
         d = {**parsed_args, "spec_digest": content_spec_digest(parsed_args["spec"])}
-        if d.get("max_attempts") is None:
-            d.pop("max_attempts", None)
+        for k in ("max_attempts", "fallback_levels"):
+            if d.get(k) is None:
+                d.pop(k, None)
         return super(PersonaContentPromptGen, cls).hash(d)
 
     def tasks(self):
@@ -1714,6 +1772,7 @@ class PersonaContentPromptGen(Job):
                     call[0],
                     call[1],
                     getattr(self, "max_attempts", None),
+                    getattr(self, "fallback_levels", None) or (),
                 )
 
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
@@ -1728,6 +1787,9 @@ class PersonaContentPromptGen(Job):
         print(f"[content] {len(failed)}/{len(calls)} calls failed", flush=True)
         for k, e in failed[:5]:
             print(f"  FAILED {k}: {e}", flush=True)
+        partial = [(c[0], sorted(o["bodies"]), o["partial"]) for c, o in zip(calls, outs) if o.get("partial")]
+        for k, lvs, e in partial:
+            print(f"  PARTIAL {k}: kept {lvs} (full check: {e})", flush=True)
         if len(failed) > 0.01 * max(1, len(calls)):
             raise RuntimeError(f"content prompt generation failed on {len(failed)}/{len(calls)} calls (> 1%)")
         rows = []
@@ -1760,7 +1822,10 @@ class PersonaContentPromptGen(Job):
                 "words_hist": {str(n): lens.count(n) for n in sorted(set(lens))},
             }
 
-        by_level = {lv: [len(o["bodies"][lv].split()) for o in outs if o["bodies"] is not None] for lv in self.levels}
+        by_level = {
+            lv: [len(o["bodies"][lv].split()) for o in outs if o["bodies"] is not None and lv in o["bodies"]]
+            for lv in self.levels
+        }
         summary = {
             "spec": self.spec,
             "spec_digest": content_spec_digest(self.spec),
@@ -1768,6 +1833,7 @@ class PersonaContentPromptGen(Job):
             "rows": n_rows,
             "calls": len(calls),
             "failed": len(failed),
+            **({"partial": [list(p) for p in partial]} if getattr(self, "fallback_levels", None) else {}),
             "prompts": len(rows),
             # single-level specs: the top-level word stats as before; multi-level: per level
             **(words_stats(by_level[self.level]) if len(self.levels) == 1 else {}),
