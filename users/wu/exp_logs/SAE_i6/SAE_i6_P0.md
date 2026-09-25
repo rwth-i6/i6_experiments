@@ -2,31 +2,30 @@
 
 ## State
 
-LIVE (2026-09-25 09:50). One manager, the FULL P0 graph; re-arm its watcher first on resume (from the setup dir):
+LIVE (2026-09-25 11:00). One manager, pid 1629803, runs the FULL graph `config/sae_i6_p0.py` (pid file
+`log/sae_i6_p0.manager.pid`). Never start a second manager on it or on a subset of it. Its watcher is OFF on purpose
+(it would re-fire on the trie marker below). Re-arm it from the setup dir after the trie clear:
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1629803 config/sae_i6_p0.py 60`
-- pid 1629803, `sae_i6_p0` (pid file `log/sae_i6_p0.manager.pid`), started plain per
-  `reports/review_p0_full_launch_2026-09-24.md` section 3 after the user killed the screen manager.
-  Steps 2-6 passed. The pre-start graph read showed 0 error, and ctrl_20 `GiT88bxzoZbZ` running (Slurm 4346718, about
-  1 h per sub-epoch). The first new create_files (ctrl_20_rc `llSFybyKXkbL`, queued on gpu_48gb) finished
-  without error, and ctrl_20 is in squeue exactly once.
-- The screen and supinit managers are gone (their graphs are subsets of the full one).
-Code at recipe/i6_experiments `51f4def2d` (the package tree is unchanged at HEAD b20b65059). The package's `model/`, `training/` and `analysis/` stay FROZEN
-until the P0 trainings end.
-Cost screen and prior (Results): time FAIL (3237 s), memory PASS (34.3 GiB); G0.R0 prior ppl FAIL (9.6018
-vs 9.561056). Attributed to JUPITER's phonemised corpus dropping 788k lines; not a port defect in the
-code. The window-noise and composition split is being measured by Slurm 4349993 (`analysis/prior_gap/`, output `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/prior_window_spread`). ctrl_20 ep1 PER 0.855180 passes.
-G0.R3 PASS (p0 PER 0.189626; gold phi 3.274249); the supinit manager ended DONE. Prior-gap analysis
-(Results, G0.R0): 5 i6 windows give 9.598 +-0.008; JUPITER lies outside their 95 % prediction interval (p about 0.015), so the gap is not window noise.
-Emulating JUPITER's line drop (3 seeds) gives 9.559 / 9.579 / 9.601, which brackets 9.561. Audit (`reports/audit_prior_gap_2026-09-25.md`): UNDETERMINED. The gap is not
-window noise, and it fits corpus makeup. A residual port effect of about +-0.02 in the sampling/fit code is not
-excluded; only a JUPITER artefact decides it. USER DECISION (2026-09-25): keep the i6 prior
-(`PhoneNgramPriorJob.qJxXHgXLe31S`, ppl 9.6018) as the bed, a disclosed deviation (Deviations: phone text). The
-G0.R0 prior clause stays a Tier-A FAIL. The G0.R1 step-1 prior clause is confounded. No g2p rebuild. The
-optional T0 check (JUPITER window plus prior.npz, fit must give 9.561056) stays open.
-NEXT: wait for the watcher. Then read the ctrl_20 PER at ep4/10/20 (G0.R1), the ctrl_20_s1, k2lat and ctrl_20_rc
-gates as they finish, and the HLG size (G0.R0). Never run a second manager on this config or a subset of it.
-Push: per the user (2026-09-24), push `haotian_cycle_consistency_unsupervised` only after ctrl_20 passes
-G0.R1 and the audit is done.
+Running (gpu_48gb, about 57 min per sub-epoch):
+- ctrl_20 `GiT88bxzoZbZ`: sub-epoch 11 at 10:19; ends about 19:00.
+- ctrl_20_s1 `DvVfxf1LrCBi` and ctrl_20_rc `llSFybyKXkbL`: both started about 09:50.
+Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25; Deviations: phone text). The G0.R0 prior
+clause is a Tier-A FAIL, with its gap attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
+Blocked: `LexiconTrieBuildJob.W0e4no47Crfu` (lm/word_lm/). It asserted JUPITER's word count, but the i6 window gives
+182,215 words vs 151,731. The reviewed hash-neutral fix records that check instead
+(`reports/review_trie_reportonly_2026-09-25.md`); the confound note is in Gates. The task is NOT cleared on purpose:
+clearing it releases trie, HLG and k2lat (about 19 GPU-h) with no stop in between.
+NEXT: wait for Slurm 4358262 (`analysis/prior_gap/window_word_types.py`, about 70 min, output
+`/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/window_word_types`). Compare the
+emulated-drop windows with JUPITER's 151,731 types, 3,302,936 in-line bigram types and 19,629,091 tokens
+(i6: 182,215 / 3,414,449 / 19,885,331).
+- Near 151,731: clear the task in its job dir (`rm error.run.1 submit_log.run; mv log.run.1 log.run.1.backup;
+  mv usage.run.1 usage.run.1.backup`, one command), then re-arm the watcher.
+- Near 182k: debugger before k2lat.
+- An abort on the exact ppl3 `==` is a node-float artefact: relaunch pinned to a cn-60x node.
+Then read the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc, the HLG size and k2lat.
+The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
+passes G0.R1 and the audit is done (user, 2026-09-24).
 
 ## Objective
 
@@ -98,6 +97,17 @@ generation); widened tolerances in brackets apply then.
   <= 0.01; `lexlat_k2_stability` <= 0.05 from sub-epoch 11; `lexlat_k2_empty_frac` <= 0.002; no abort
   marker. (B): dev lexicon term ep20 0.310 +-0.03; derangement gap 3.61 +-0.6; emitted rate in
   [7.0, 8.5] /s.
+- **Confound note on G0.R0 HLG and G0.R2 (recorded 2026-09-25, before the i6 trie, HLG or k2lat gave any
+  number; thresholds unchanged).**
+  - What changed: the lexlat word set comes from a word LM trained on the i6 prior window (the user's i6-text
+    decision). It has 182,215 words, not 151,731, and 3,414,449 in-line bigram types, not 3,302,936. Its word
+    LM has 182,218 / 3,510,073 / 10,623,445 n-grams, against 151,734 / 3,393,577 / 10,419,405.
+  - HLG size: the reviewer (`reports/review_trie_reportonly_2026-09-25.md`) PREDICTS about 24.9-25.1 M states
+    and 101-104 M arcs. The G0.R0 HLG clause is read as registered; a miss is a Tier-A FAIL, attributed to
+    this deviation only if the size tracks the vocabulary.
+  - G0.R2: its thresholds were set on JUPITER's 151,731-word graph. A G0.R2 miss therefore cannot be blamed
+    on the port alone.
+  - k2lat GPU memory: estimated 35-38 GiB of 45 GiB, not measured; it would show at the k2 on-set, sub-epoch 8.
 - **G0.R3 supervised inits (analysis only).** (A): p0 dev-other greedy PER 0.1894 +-0.02 at its selected
   checkpoint (banked: selected at pass 1). (B, report-only under an audio label): gold phi
   `dev_loss_nll_per_frame` at epoch 8 = 3.2888 +-0.02 (package-banked value, not in the JUPITER logs).
@@ -160,7 +170,9 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   across resubmits. Forwards may therefore run on A10 or L40S. Hash-neutral. Open note: a
   flexible training ignores its sticky type after a lock timeout; no P0 training is flexible.
 - Phone text (found 2026-09-25; the user decided the same day to keep the i6 prior as the bed): the i6 phonemised LM corpus keeps 40,418,258
-  lines, where JUPITER's kept 39,630,169 (G0.R0 prior clause, Results). g2p defect in the environment,
+  lines, where JUPITER's kept 39,630,169 (G0.R0 prior clause, Results). The same window also feeds the lexlat
+  word LM, trie and HLG: 182,215 words vs 151,731 (confound note under Gates; `LexiconTrieBuildJob` now records
+  its banked checks instead of asserting them, hash-neutral). g2p defect in the environment,
   not yet fixed: Sequitur's `adjustHigherOrder` calls `np.sometrue`, which numpy 2.4.6 removed.
   `TrainG2PModelJob.pD4nbqFLWtbi` therefore aborted ramp-ups 2 and 3 early (at iterations 41 and 25), yet
   reported success. Final dev symbol error 5.53 %, string error 22.79 %. Only the pronunciations of g2p words

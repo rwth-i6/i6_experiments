@@ -69,7 +69,8 @@ LEXICON_JSON = "lexicon.json.gz"
 SHUFFLED_JSON = "shuffled_lexicon.json.gz"
 
 #: the banked identity of the Step 0 resource (survey ``survey_lexicon_scorer_2026-09-20.md`` s1,
-#: s4; `SAE_4A_lexlat.md` Design 8).  These are ASSERTED, not measured here.
+#: s4; `SAE_4A_lexlat.md` Design 8).  Compared and RECORDED (build.json ``identity_vs_banked``), not
+#: asserted: the i6 LM text differs from JUPITER's by the user's decision of 2026-09-25.
 BANKED_WORDS = 151_731
 BANKED_BIGRAM_TYPES = 3_302_936
 #: the survey's other two resource numbers, asserted beside them
@@ -144,7 +145,9 @@ class LexiconTrieBuildJob(Job):
     it an unseen word is a one-``<unk>`` cover for any phone span, review F2) are called verbatim,
     so the trie word set IS the banked Step 0 row's.
 
-    PRE-REGISTERED CHECKS (Design 8), asserted:
+    PRE-REGISTERED CHECKS (Design 8), recorded in ``build.json`` ``identity_vs_banked`` and printed,
+    NOT asserted (i6 port: the LM text differs from JUPITER's by decision; the trie word count ==
+    window word-type count consistency IS asserted):
 
       * ``|V| = 151,731`` -- the trie word count after ``restrict_to_word_lm``, and the word-type
         count of the replayed window text, which the survey measured to be the same set;
@@ -297,18 +300,31 @@ class LexiconTrieBuildJob(Job):
         in_vocab = restrict_to_word_lm(w2p_all, word_lm)
         text = self._bigram_types(self.window_words.get_path())
 
-        # --- the pre-registered identity checks --------------------------------------------------
-        assert len(in_vocab) == self.expected_words, (
-            f"the trie holds {len(in_vocab)} words, the banked Step 0 row holds "
-            f"{self.expected_words}: this is NOT the banked resource")
-        assert text["n_types"] == self.expected_words, (
-            f"the window text has {text['n_types']} word types, not {self.expected_words}")
+        # --- the internal consistency check (asserted) ---------------------------------------------
+        # every window word is in the phonemization lexicon (the replay keeps only fully covered
+        # lines) and the word LM's vocabulary is the window's types plus <s> </s> <unk>, so the trie
+        # word set IS the window's type set
+        assert len(in_vocab) == text["n_types"], (
+            f"the trie holds {len(in_vocab)} words, the window text has {text['n_types']} word "
+            f"types: restrict_to_word_lm and the replay disagree")
+
+        # --- the pre-registered identity checks against the BANKED constants (recorded) -----------
+        # i6 port: the LM text and prior differ from JUPITER's by the user's decision (2026-09-25),
+        # so these are recorded in build.json ("identity_vs_banked") and printed, not asserted
         matched = [k for k in ("in_line", "with_bos", "with_bos_eos")
                    if text[k] == self.expected_bigram_types]
-        assert matched, (
-            f"no bigram-counting convention reproduces the banked {self.expected_bigram_types} "
-            f"distinct types: in_line={text['in_line']}, with_bos={text['with_bos']}, "
-            f"with_bos_eos={text['with_bos_eos']}")
+        identity = {
+            "trie_words": {"expected": self.expected_words, "got": len(in_vocab),
+                           "pass": len(in_vocab) == self.expected_words},
+            "window_word_types": {"expected": self.expected_words, "got": text["n_types"],
+                                  "pass": text["n_types"] == self.expected_words},
+            "bigram_types": {"expected": self.expected_bigram_types,
+                             "got": {k: text[k] for k in ("in_line", "with_bos", "with_bos_eos")},
+                             "pass": bool(matched)},
+        }
+        for key, chk in identity.items():
+            print(f"IDENTITY vs banked: {key} {chk['got']} (banked {chk['expected']}) "
+                  f"{'MATCH' if chk['pass'] else 'MISMATCH'}", flush=True)
 
         # --- the trie, the automaton, the escape prices -------------------------------------------
         lm = lexlat.parse_arpa_word_lm(arpa)
@@ -363,6 +379,7 @@ class LexiconTrieBuildJob(Job):
             "bigram_convention_matched": matched,
             "expected": {"words": self.expected_words,
                          "bigram_types": self.expected_bigram_types},
+            "identity_vs_banked": identity,
             "null": null_stats,
             "escape_phone_log_probs": {p: float(v) for p, v in escape.items()},
             "window": {k: window[k] for k in sorted(window) if isinstance(window[k], (int, float))},
@@ -393,7 +410,9 @@ class LexiconTrieBuildJob(Job):
             f"{text['n_types']} types",
             f"distinct bigram types: in_line={text['in_line']}, with_bos={text['with_bos']}, "
             f"with_bos_eos={text['with_bos_eos']} (banked {self.expected_bigram_types}, "
-            f"matched by {', '.join(matched)})",
+            f"matched by {', '.join(matched) if matched else 'NONE: MISMATCH'})",
+            "IDENTITY vs banked: " + ", ".join(
+                f"{k} {'MATCH' if c['pass'] else 'MISMATCH'}" for k, c in identity.items()),
             "",
             f"null (seed {self.derangement_seed}, {null_stats['algorithm']}): "
             f"{null_stats['fixed_points']} fixed points, "
