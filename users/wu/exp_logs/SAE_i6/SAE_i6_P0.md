@@ -8,17 +8,22 @@ LIVE (2026-09-25 14:20). Manager pid 1646677 runs the FULL graph `config/sae_i6_
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
 - ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100 from sub-epoch 4,
   about 44 min per sub-epoch; end about 01:30 on 2026-09-26.
-- k2lat `jcKXbLMDk4hl`: Slurm 4359832, V100 since 13:05; k2 on-set (sub-epoch 8) about 19:00; end about 07:00
-  on 2026-09-26 (banked 1.25x k2 overhead, unmeasured on V100). Job starts wait about 2 min per HDF in `cf`.
-Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). G0.R0 prior and HLG clauses FAIL,
-fully attributed to JUPITER's truncated text; T0 closed. G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS. Step 1:
-G0.R2 PASS; G0.R1s prior FAIL, attributed; G0.RC log Z not logged, open (Results, step 1).
+- k2lat `jcKXbLMDk4hl`: Slurm 4359832, V100 since 13:05, about 48 min per sub-epoch; k2 on-set (sub-epoch 8)
+  about 19:30; end about 07:00 on 2026-09-26.
+Decided: the i6 prior and phone text are the bed (user). G0.R0 prior and HLG FAIL, attributed; G0.R3 PASS;
+ctrl_20 PER ep1/4/10 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results, step 1).
 NEXT:
-- k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M). Building:
-  `reports/impl_p0_k2lat_v100_probe_2026-09-25.md`, `reports/impl_p0_k2lat_perchunk_2026-09-25.md`; then review,
-  probe, read. PASS: the change goes in at a sub-epoch boundary before 8. No PASS by the end of sub-epoch 7: hold
-  k2lat after `epoch.007.pt` (cancel, resumable), options to the user. No GPU switch (user); smaller chunks cannot
-  lower the held path's peak.
+- k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M).
+  - The G0.K2M probes (reviewed) were submitted: A at chunk 16, B at chunk 8, each in
+    `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25{,_cs8}`. Slurm ids are in
+    `reports/launch_p0_k2lat_v100_probe_2026-09-25.md`.
+  - Gate read: `read.txt`, plus the stability and `chunk_seqs` lines in `slurm-*.out`. Peak = max(per-step peak,
+    epoch-end peak). A and B must have seeded from the same epoch.
+  - The live change (chunk 16) is reviewed and is applied only if A passes, using the restart steps in
+    `reports/review_p0_k2lat_perchunk_2026-09-25.md`. If only B passes: the chunk-8 variant
+    (`reports/impl_p0_k2lat_perchunk_cs8_2026-09-25.md`, being built) needs its review first.
+  - No PASS by the end of sub-epoch 7: hold k2lat after `epoch.007.pt` (cancel, resumable) and take the options
+    to the user. No GPU switch (user).
 - ep10 of s1 and rc (about 18:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
   gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
@@ -210,6 +215,14 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   reported success. Final dev symbol error 5.53 %, string error 22.79 %. Only the pronunciations of g2p words
   are touched (about 0.25 % of word tokens). Fix: `num.any` in the env's `sequitur.py`, then clear the
   g2p job; every job down to the prior reruns under the same hashes.
+- k2 backward for k2lat (user, 2026-09-25; recorded before the change is applied and before any k2 step): k2lat's
+  k2 phase runs on the V100 with the exact per-chunk k2 backward (`reverse_model/rt_chunked_backward.py`) instead
+  of the held path. It is added to the job's `returnn.config` as a 239-byte python epilog, so the hash is unchanged
+  (164 ids identical). It goes in at a sub-epoch boundary before 8, and only at a chunk size that passed G0.K2M
+  (`reports/review_p0_k2lat_perchunk_2026-09-25.md`). The change is exact: CUDA log Z within 3.3e-16, gradients
+  within 1.9e-9, and a deviation of 0.0 at k2lat's rung 3000. One side effect: a non-finite
+  `lexlat_k2_stability` is now left out of the monitors instead of stopping the run. G0.R2 reading (registered
+  now): a `lexlat_k2_stability` value missing at any sub-epoch from 11 on fails G0.R2's stability clause.
 
 ## Results
 
