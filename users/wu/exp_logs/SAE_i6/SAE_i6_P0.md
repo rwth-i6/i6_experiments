@@ -9,8 +9,9 @@ Trainings route to V100 (gpu_32gb) from 2026-09-25 (user; Deviations: GPU partit
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, finishes there at about 19:00.
 - ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): cancelled after their sub-epoch 3,
   resuming at sub-epoch 4 on V100 (about 41 min per sub-epoch, ends about 01:00 on 2026-09-26).
-- The trie was cleared on the word-type result (Results, G0.R0). The trie runs as Slurm 4359749, then the HLG, then
-  k2lat `jcKXbLMDk4hl` on V100.
+- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. The trie and HLG finished (Results, G0.R0: HLG
+  clause FAIL, attributed). Job starts spend about 2 min per HDF input in the cache-manager (`cf`) timeout before
+  reading directly; this is slow, not a failure.
 Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). The G0.R0 prior clause is a Tier-A FAIL,
 attributed in Results; the T0 check stays open. G0.R3 PASS. ctrl_20 ep1 PASS.
 NEXT:
@@ -20,7 +21,9 @@ NEXT:
 - OOM at the first V100 sub-epoch: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` through
   DEFAULT_ENVIRONMENT_SET. OOM of k2lat at sub-epoch 8: `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb`, resuming from
   epoch 7 (`reports/review_v100_routing_2026-09-25.md`, sections d and e).
-- Then read the HLG size (G0.R0), the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc and k2lat.
+- Read k2lat's "ep 1 train, step 0" line against ctrl_20's (`log.run.1:670`) under the amended G0.R2 step-1
+  clause.
+- Then the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc and k2lat.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -238,7 +241,15 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   by importing JUPITER's `g2p.lexicon` (`ApplyG2PModelJob.myTIGtmrUIFq`); no JUPITER artefact is on i6.
 - rho clause: PASS. `rate_rho_hz = 9.6619373279` (ctrl_20 `returnn.config:51`) is hard-coded at
   `training/config.py:316`, not computed from the text. The i6 text would give about 9.679 (debugger).
-- HLG size: not yet read (built only by the full config).
+- HLG clause: FAIL as registered. k2lat's HLG, `LexlatHLGBuildJob.avjHv1Xvjyqd`, has 24,949,308 states and
+  103,206,474 arcs; the gate is [23.8 M, 24.0 M] states and [98.1 M, 99.1 M] arcs.
+  - Build settings: theta 0.0 (the full trigram; the ladder stopped at its first rung); peak RSS 14.5 GiB.
+  - Components: H 42 / 1,681; L 1,076,120 / 1,440,630; G 3,692,293 / 21,216,609 (states / arcs).
+  - Source: `output/summary.txt` and `build.json`; extract `reports/extract_hlg_k2lat_step1_2026-09-25.md`.
+  - The size lies inside the reviewer's prediction from the i6 vocabulary, made before the build: 24.9-25.1 M states,
+    101-104 M arcs (confound note under Gates). The trie recorded 182,215 words vs 151,731 banked (MISMATCH, as
+    expected).
+  - Attribution: the size tracks the vocabulary, i.e. the phone-text deviation. Not audited.
 - Trie word set: the gap is JUPITER's g2p drop, as for the prior. Source: Slurm 4358262,
   `analysis/prior_gap/window_word_types.py`, output
   `/work/asr4/hwu/setups/librispeech-960/2026-09-24-unsupervised/analysis_out/window_word_types/window_word_types.txt`.
