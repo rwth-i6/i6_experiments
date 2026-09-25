@@ -18,8 +18,11 @@ NEXT:
 1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
 2. AN-0b and AN-2/AN-4 recorded (Results). Row 2 fires: TP-B and the coarse-to-fine inventory; rename levers and
    TP-A2 dropped. A precedence rule (row 6 over row 2) was fixed before AN-5.
-3. AN-5 is being built (implementer, `reports/impl_rename_an5_2026-09-25.md`), then code review. It launches when
-   the stage-2 keyarms manager (`SAE_4A_lexlat_v2.md`) has exited. Then the audit, and the proposal goes to the user.
+3. AN-5 built and reviewed: 40cb0854 plus guard 5e4df526, review `reports/review_rename_an5_launch_2026-09-25.md`
+   APPROVE_WITH_CONDITIONS. It launches, from jpbl-s02-03 with `config/sae_4a_rename_an5.py` in the live form, once
+   `KeyArmsReadJob.STcxhF0w4kpq` and `PhiFirstA10DiagnosticsDisjointJob.nyCwi94aepC0` are finished (the waiter
+   polls both markers). The manager log must show "0 unfinished jobs not created by AN-5"; otherwise stop the
+   manager. Then extract, audit, and bring the proposal to the user.
 
 ## Objective
 
