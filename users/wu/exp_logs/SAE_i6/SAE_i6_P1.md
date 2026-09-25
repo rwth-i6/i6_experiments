@@ -3,13 +3,8 @@
 ## State
 
 OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
-- Task A (core phi reads, G1.G): fixes 1 and 2 reviewed PASS and committed (8280d6e1f); 92 CPU tests pass; P0 job
-  ids unchanged. The gold-phi D4 read is LIVE: manager pid 1670372 on `config/sae_i6_g0g.py` (outputs under
-  `sae_i6/g0g/`, a name kept from before the move). Forwards `ReturnnForwardJobV2.RFaMyWRYUUQN` (trigram, Slurm
-  4360692) and `4hVXB1LWkw5p` (uniform, 4360693) on gpu_32gb; reads `DevOtherPhoneReadJob.4eT8Gj5YOGWO` and
-  `Vk8VRJVfKaZd` (`reports/launch_g1g_2026-09-25.md`). Re-arm its watcher (setup dir):
-  `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1670372 config/sae_i6_g0g.py 60`
-  Fix 3 (`WAVE_*`) waits until the P0 trainings end (the P0 graph imports `reverse_model/phi_first.py`).
+- Task A (core phi reads): G1.G PASS (Results). Fix 3 (`WAVE_*` durinit at 12) is still open; it waits until
+  the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`. No Task A manager is live.
 - Task B (lift ladder): design review done (`reports/design_review_p1_2026-09-25.md`). All four MUST items are
   applied as gate amendments before any job: L40S with a per-chunk k2 backward, a full-sub-epoch rt_r90 probe
   gating the arms, the G1.L rules (CANNOT_TELL, VOID, rt_r100 in the both-LIFT branch), and a P1-only entry point.
@@ -141,3 +136,30 @@ The registration text of each amended clause is kept under "Original".
 ## Deviations from the reference (filled as they are made)
 
 ## Results
+
+### G1.G core phi reads (2026-09-25, 14:38-14:44; V100 cn-32)
+
+Code 8280d6e1f (review PASS, `reports/review_g1g_core_phi_reads_2026-09-25.md`); launch
+`reports/launch_g1g_2026-09-25.md`. The i6 gold phi is P0's `ReturnnTrainingJob.Ac2eioZbRX7d` at epoch 8. Its D4
+dev-other genmarg posterior decodes are `ReturnnForwardJobV2.RFaMyWRYUUQN` (trigram, Slurm 4360692, 1 min 13 s)
+and `4hVXB1LWkw5p` (uniform, 4360693, 2 min 27 s); the reads are `DevOtherPhoneReadJob.4eT8Gj5YOGWO` / `Vk8VRJVfKaZd`,
+`output/phone_read.txt`. 500 of 500 utterances decoded, 0 impossible, N = 29,690 gold phones.
+
+| read | trigram (R1) | uniform (R2) | JUPITER banked |
+|---|---|---|---|
+| Hungarian PER | 0.1960 | 0.2806 | 0.193 / 0.276 |
+| direct PER | 0.1960 (S 3004, D 2149, I 666) | 0.2806 (S 3547, D 4126, I 657) | |
+| Hungarian map | identity, 40 of 40 symbols | identity, 40 of 40 | |
+| token NMI(symbol, phone) | 0.8291 (27,794 tokens) | 0.7953 (25,806) | |
+| frame NMI (i6 only) | 0.5648 | 0.5351 | |
+| E[d] of phi's table, 39 phones / SIL | 5.0966 / 4.9991 | same phi | |
+| E[d] of the decode, non-SIL / SIL | 4.4065 / 5.3420 | 4.8172 / 6.1766 | |
+
+- (A) R1 Hungarian PER 0.1960, within 0.193 +-0.02 (+0.003): PASS.
+- (A) Unit tests: 92 CPU tests pass, 20 of them new (D4 sample, Hungarian map, NMI and E[d] against hand oracles).
+  The 260 set is 285 minus 25, on disk: PASS.
+- (A) Every P0 job id unchanged (164 ids; code review): PASS.
+- (B) R2 0.2806 against 0.276 (+0.005). The map is the identity, as expected of a gold phi, so direct PER equals
+  Hungarian PER under both priors. The uniform prior mainly adds deletions (2149 to 4126).
+- Verdict: G1.G PASS. The dev-other generative phone read is ported and reproduces JUPITER's gold-phi row to
+  0.005. It is the standing read for every phi run from now on.

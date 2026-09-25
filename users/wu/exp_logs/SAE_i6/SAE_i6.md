@@ -53,5 +53,5 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 
 - **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
   ctrl_20_rc and k2lat on V100) — `SAE_i6_P0.md`.
-- **P1 completion and small extensions of the JUPITER framework** — OPEN: Task A code written, in review;
-  Task B in design review — `SAE_i6_P1.md`.
+- **P1 completion and small extensions of the JUPITER framework** — OPEN: Task A G1.G PASS (dev-other phone read
+  reproduces JUPITER's gold row, 0.1960 vs 0.193), fix 3 after P0; Task B fits and arms in review — `SAE_i6_P1.md`.
