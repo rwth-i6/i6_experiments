@@ -107,7 +107,8 @@ explicit single-delta arm. Reason: the trigram in `l_tau` is the only text signa
 trains theta's emissions alone, through a pruned numerator. JUPITER D15: warm rampout minus full is +0.0372 at ep8;
 cold it is −0.0012, inside the 0.013-0.020 spread of identical cold configs. At trigram weight 0 the objective
 prefers the worse-PER arm (D18) (`SAE_i6_ref_lexicon.md`, D15 and D18). The package default changes after the P0
-trainings end (`SAE_i6_P0.md`, State).
+trainings end (`SAE_i6_P0.md`, State). Checked the same day: the running P0 `k2lat_20_ma3000` and the written P1 rt
+arm configs carry `prior_weight: 1.0` and no weight schedule, so no k2 arm needed a restart.
 
 ## 5. What the campaign established (one line each; evidence in the topic files)
 

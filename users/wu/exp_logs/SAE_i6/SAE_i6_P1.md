@@ -10,16 +10,15 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     `6IkAAuzcBwBR` / `uO8wkodbR2uh`, epoch 8.
   - Arms: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, selected by a hash-neutral config epilog)
     and `config/sae_i6_p1_ladder.py`. Review PASS_WITH_FIXES (`reports/review_p1_arms_chunked_backward_2026-09-25.md`):
-    exact on CPU (38 tests, deviation 0.0, not self-compared), the epilog is in all three written arm configs, and
-    each arm has one delta. The MUST fix is that the stability read's peak memory escaped the log; an implementer is
-    fixing it (`reports/impl_p1_probe_memlog_2026-09-25.md`). GPU parity test Slurm 4361250 (RTX 3090,
-    `log/p1_rt_parity.4361250.out`) FAILED as a test: log Z and the k2 term agree on CUDA, but the monitor loop
-    stops at `lexlat_k2_stability`, which is NaN in both paths (pytest treats NaN != NaN). So the CUDA gradient
-    asserts never ran. The same implementer makes the CUDA comparison NaN-aware and finds why the held path's
-    stability is NaN on CUDA.
-NEXT: re-review of the fix, a GPU parity re-run (gradients on CUDA), then commit the code, then the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
-rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
-in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
+    exact on CPU (deviation 0.0), one delta per arm. The memory-log fix and the NaN-aware CUDA compare are
+    re-reviewed PASS (`reports/review_p1_probe_memlog_2026-09-25.md`, 39 rt tests pass, job ids unchanged). Its F1:
+    with `stop_on_nonfinite_train_score = True`, a failed stability read (NaN monitor) makes RETURNN stop the arm,
+    against the read's design. Decision: a diagnostic may not end an arm, so the guard is being fixed before the
+    parity re-run (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, in progress). CUDA gradients are still
+    unverified (Slurm 4361250 stopped at the NaN-vs-NaN monitor).
+NEXT: review of the NaN guard, then the GPU parity re-run (CUDA gradients), then commit the code, then the rt_r90
+probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then rt_r70 and rt_r80.
+The second-seed builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
 
@@ -106,7 +105,8 @@ The registration text of each amended clause is kept under "Original".
   sub-epoch. A passed probe may continue as rt_r90. On a miss, no arm launches; the miss goes to the debugger.
   - Amended 2026-09-25 from the arms code review (`reports/review_p1_arms_chunked_backward_2026-09-25.md`), before
     any arm job. The peak is the max over each step of the pre-k2 peak (which includes the stability read) and the
-    k2 leg's peak. Device-level used memory (`torch.cuda.mem_get_info`, logged per step) stands in for
+    k2 leg's peak. Both are allocated memory: `lexlat_k2_pre_peak_allocated_gib` and the step's `mem_usage:cuda:0`
+    line; the reserved-memory monitors are context only (clarified 2026-09-25 from the memlog re-review, before any run). Device-level used memory (`torch.cuda.mem_get_info`, logged per step) stands in for
     `nvidia-smi`, which cannot run beside a batch job here. A probe over 40 GiB that has not crashed is cancelled at
     the read and does not continue as rt_r90.
   A change of batch shape, or of anything that moves a score or gradient, is a new operating point: it needs the
