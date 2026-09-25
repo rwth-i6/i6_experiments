@@ -4,7 +4,7 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - The keyinit manager finished on 2026-09-25. The r30 genmarg decode was rerun after a node fault (`reports/debug_keyinit_genmarg_2026-09-25.md`).
-- 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
+- 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): the key-arm pack G0Vzzokj5PQC has finished and been read. The manager is still alive for the L2-2 bridge (88 jobs, per `reports/review_rename_an5_launch_2026-09-25.md`; watcher bc1wz4ty2).
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
 Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. A18 (b): DURINIT BASIN LIFTS, all 4 label-built arms at 0.19-0.23. Next-step proposals: `SAE_4A_rename.md`.
@@ -12,8 +12,8 @@ Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 2 (keyarms): read KEY BASIN when the pack finishes. The bridge stays enabled, because A18 (b) is recorded and the hold rule does not fire.
-2. Owed report: A15-F measures on the key arms (review finding), registered as AN-5 in `SAE_4A_rename.md`.
+1. Stage 2 recorded (Results): KEY BASIN on S only; the arms decode at chance. Next is the L2-2 bridge read when manager 3019650 exits.
+2. The owed A15-F measures on the key arms ran as AN-5 (`SAE_4A_rename.md`).
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
 ## Objective
@@ -905,6 +905,27 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
 - Corrections (audit):
   - The ep8 forwards of gold-key (`e9LrruCo4AdR`) and r70-dur (`9AUpBk28Ak7F`) ran on the faulty jpbo-028-30 GPU1, seconds after the fault that broke the r30 genmarg decode. No corruption was found, but they are not bit-verified. The verdict does not depend on them, since every arm sits 0.27-0.31 under the LIFT bar. The r70 paired row rests on `9AUpBk28Ak7F`.
   - Scope: every init is built from labels. G-dur and r70-dur also carry MFA-fitted segment structure in their emission heads. The read shows that general-knowledge durations suffice once the init is near right. It says nothing about label-free phis, which so far all read NO LIFT (0.820-0.842).
+
+### A16 (b) stage 2 read (2026-09-25): KEY BASIN, on S only (audited CONFIRMED_WITH_CORRECTIONS)
+
+Read job `KeyArmsReadJob.STcxhF0w4kpq` on pack `PackedBlankfreeTrainJob.G0Vzzokj5PQC` (A10 recipe verbatim except
+the key init; durinit; one seed per key). Extraction `reports/extract_keyarms_read_2026-09-25.md`; audit
+`reports/audit_keyarms_read_2026-09-25.md`, which recomputed S from the per-utterance files (260 of 260 paired, as
+in A14 (ii)).
+- S at 48 on the 260 set: rank1 3.27275, rank2 3.29550, rank3 3.28529, rank4 3.33540. The bar is 3.289 (S_min
+  3.29903, A10 durinit_s01). The best arm, rank1, is below it, so the verdict is **KEY BASIN**. rank1 against S_min:
+  -0.026 [-0.037, -0.015].
+- Generative PER at 48 (`GenDecodeReportJob`), direct / Hungarian / NMI: rank1 0.858 / 0.861 / 0.077, rank2
+  0.847 / 0.798 / 0.099, rank3 0.849 / 0.842 / 0.096, rank4 0.872 / 0.873 / 0.068. This is the chance band, as for A10.
+- Name tracking on these arms is AN-5 in `SAE_4A_rename.md`: EM LOCKED, key identity 0.05-0.14 throughout.
+- A18 (c): rank1, the S-best arm, goes to L2-2. The bridge is under manager 3019650.
+- Corrections (audit):
+  - KEY BASIN licenses S only. It licenses neither the phonetic basin (A14 (ii) also needed PER below 0.50), nor
+    names, nor lift.
+  - rank1's margin (0.016) is below the A10 same-recipe seed spread of S (0.025-0.071), with one seed per key. The
+    four arms average 3.297, above the bar, so only the best of four clears it. rank3's 0.004 is within jitter
+    (below the bar only at sub-epochs 40, 45 and 48).
+  - log.run.1 is inside finished.tar.gz; it has no warnings.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
