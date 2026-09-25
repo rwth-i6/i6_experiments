@@ -2,26 +2,26 @@
 
 ## State
 
-LIVE (2026-09-25 18:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
+LIVE (2026-09-25 19:40). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
 Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
 - ctrl_20 `GiT88bxzoZbZ`: FINISHED. G0.R1 FAIL as registered (audited): only the step-1 prior per token misses.
   No push. T3 (step 1 with JUPITER's prior rebuilt on i6) is with the implementer
   (`reports/impl_p0_prior_t3_2026-09-25.md`), then review and an executor.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
-- k2lat `jcKXbLMDk4hl` = J: Slurm 4359832, V100, 42 min per sub-epoch; `epoch.007` due about 19:10.
+- k2lat `jcKXbLMDk4hl` = J: stopped at 19:11 after `epoch.007` (its epoch-7 dev score was never written).
+  - The hold was released at 19:12. It was resubmitted as Slurm 4365260 on cn-32 at 19:14
+    (`reports/launch_p0_k2lat_cs2_resume_2026-09-25.md`).
+  - At 19:36 it was still loading HDFs through cache-manager timeouts.
+  - The resume checks are still open: epoch 7 loaded, global step 399, one `installed (chunk_seqs = 2)`, the
+    stability line, and no OOM. Read them in `J/log.run.1`; `J/work/returnn.log` holds the older runs.
 Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results).
 NEXT:
-- k2lat's k2 phase: G0.K2M round 2 PASS at chunks 2 and 1; J switches at chunk 2 (Results).
-  - cs2 installed in J at 18:45 (sha 3a53ad6c...), `config/sae_i6_p0.py` patched, no drift since 14a8042d7
-    (`reports/launch_p0_k2lat_cs2_install_2026-09-25.md`).
-  - J is held: `J/hold` since 17:48. A session loop scancels J once `epoch.007.opt.pt` exists; on resume, check
-    that J stopped.
-  - Then an executor follows steps 5-7 of `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, case (b) step 4:
-    - moves `J/error.run.1` aside and removes `J/hold`;
-    - checks the resubmit (`-p gpu_32gb`), that epoch 7 is loaded, global step 399, one
-      `installed (chunk_seqs = 2)`, and no OOM at sub-epoch 8.
+- k2lat's k2 phase: G0.K2M round 2 PASS; chunk 2 installed at 18:45 (`reports/launch_p0_k2lat_cs2_install_2026-09-25.md`).
+  - Session loop b2217fsgp prints the resume check lines once `ep 8 train, step 3` or an error appears.
+  - If the session is gone, grep `J/log.run.1` by hand.
+  - Record PASS or FAIL of the switch in Results.
 - GAN (G0.GAN; 68b39418a merged as 692d6e55a): setup reviewed and applied (Deviations).
   - The w2vu env build is Slurm 4364831 (V100), log `log/w2vu_env_build.4364831.out`.
   - When its gate prints "OK 2.6.0+cu126 0.12.2 ... cuda: True", the fairseq line and "== done", start one manager
