@@ -2,36 +2,28 @@
 
 ## State
 
-LIVE (2026-09-25 19:45). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
-Re-arm the watcher first (setup dir):
-`SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
-- ctrl_20 `GiT88bxzoZbZ`: FINISHED. G0.R1 FAIL as registered (audited): only the step-1 prior per token misses.
-  No push. T3 (step 1 with JUPITER's prior rebuilt on i6) is with the implementer
-  (`reports/impl_p0_prior_t3_2026-09-25.md`), then review and an executor.
-- ctrl_20_s1 `DvVfxf1LrCBi` (4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
-- k2lat `jcKXbLMDk4hl` = J: stopped at 19:11 after `epoch.007` (its epoch-7 dev score was never written).
-  - The hold was released at 19:12. It was resubmitted as Slurm 4365260 on cn-32 at 19:14
-    (`reports/launch_p0_k2lat_cs2_resume_2026-09-25.md`).
-  - At 19:36 it was still loading HDFs through cache-manager timeouts.
-  - The resume checks are still open: epoch 7 loaded, global step 399, one `installed (chunk_seqs = 2)`, the
-    stability line, and no OOM. Read them in `J/log.run.1`; `J/work/returnn.log` holds the older runs.
-Other reads: Results.
+LIVE (2026-09-25 20:50). Two managers, one per config (never a second on either). Re-arm both watchers first
+(setup dir; `W="SIS_LAUNCHER=\"/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis\" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh"`):
+- P0 manager pid 1646677, `$W 1646677 config/sae_i6_p0.py 60`.
+- GAN manager pid 1786381 (`log/sae_i6_w2vu2.manager.pid`), `$W 1786381 config/sae_i6_w2vu2.py 60`.
+
+Runs:
+- ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered (audited), no push.
+- ctrl_20_s1 `DvVfxf1LrCBi` (4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
+- k2lat J `jcKXbLMDk4hl`, Slurm 4365260 (`reports/launch_p0_k2lat_cs2_resume_2026-09-25.md`). In `J/log.run.1`:
+  epoch.007 loaded, "Starting training at epoch 8, global train step 399", one `installed (chunk_seqs = 2)`;
+  first batch after 26 min of cache-manager timeouts. Step lines, stability and memory still open.
+- T3 (`reports/launch_p0_prior_t3_2026-09-25.md`): Part A 4365697, Part B 4365700 (afterok A).
+- GAN (G0.GAN): env rebuilt as Slurm 4366145, gate "OK 2.6.0+cu126 0.12.2 1.23.5 | cuda: True"
+  (`reports/launch_w2vu2_env_rebuild2_2026-09-25.md`). Manager started at 20:45; CPU prep jobs running.
+
 NEXT:
-- k2lat: G0.K2M round 2 PASS; chunk 2 installed at 18:45.
-  - Session loop b2217fsgp prints J's resume lines at `ep 8 train, step 3` or on an error; without it, grep
-    `J/log.run.1`.
-  - Record the switch in Results.
-- T3 is running (`reports/launch_p0_prior_t3_2026-09-25.md`):
-  - Part A: Slurm 4365697 (cpu_modern).
-  - Part B: 4365700 (V100, afterok A). Session loop b88umi6c7 fires when both have ended.
-  - read.py now follows the registered reading; the review passed (`reports/review_p0_prior_t3_read_fix_2026-09-25.md`).
-    Ignore its Part A "EXACT" display column and check ppl against 9.561056344 by eye.
-- GAN (G0.GAN):
-  - The env build hung in the unbounded `pip uninstall numpy` loop of `build_w2vu_env.sh`, and was cancelled at 19:38.
-  - The fix was reviewed and committed (45c20acef). Rebuild: Slurm 4365689 on cn-32 since 19:51, log
-    `log/w2vu_env_build.4365689.out`. Session loop bne3sudd8 fires at the end, or after a 25-min log stall.
-  - On "OK 2.6.0+cu126 0.12.2 ... cuda: True" and "== done", start one manager on `config/sae_i6_w2vu2.py`
-    (step 4 of the review), then the pid file and a watcher.
+- J: at `ep 8 train, step 3` (loop b2217fsgp) read stability and memory; record the switch in Results.
+- T3: when both parts end (loop b88umi6c7), check Part A ppl against 9.561056344 by eye (ignore read.py's
+  "EXACT" column), read B's `read.txt`, record under the registered reading.
+- GAN: before the first GAN training, optionally run the fairseq-origin probe
+  (`reports/review_w2vu2_i6_launch_2026-09-25.md`, launch step 4). At the first training, check the CUDA
+  banner, `-p gpu_32gb` and fairseq 0.12.2.
 - s1/rc ep20. After the trainings end, one implementer batch with review:
   - `sil_run_collapse` into rc's gap reads, then rerun them (the ep20 rc gaps are void for G0.RC);
   - the README pin to a567fa7 and the `phone_trigram` default "full";
