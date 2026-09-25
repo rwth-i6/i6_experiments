@@ -6,18 +6,13 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
 - Task A (core phi reads): G1.G PASS (Results). Fix 3 (`WAVE_*` durinit at 12) is still open; it waits until
   the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`. No Task A manager is live.
 - Task B (lift ladder): gates amended from the design review before any job (`reports/design_review_p1_2026-09-25.md`).
-  - Fits LIVE (review PASS, `reports/review_p1_fits_2026-09-25.md`): manager pid 1677624 on
-    `config/sae_i6_p1_fits.py` (`log/sae_i6_p1_fits.manager.pid`). Corruptions `CorruptSeedGoldJob.aj2XQaDlED2E` /
-    `H9GbhLPtIthV` / `wsKq52Dk68b4` (cpu_modern, 14:51); fits `ReturnnTrainingJob.ruLnJFWyifwp` (r70) /
-    `6IkAAuzcBwBR` (r80) / `uO8wkodbR2uh` (r90) on gpu_24gb. Re-arm the watcher (setup dir):
-    `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1677624 config/sae_i6_p1_fits.py 60`
+  - Fits DONE, G1.F PASS (Results). No fits manager is live. r70 / r80 / r90 = `ReturnnTrainingJob.ruLnJFWyifwp` /
+    `6IkAAuzcBwBR` / `uO8wkodbR2uh`, epoch 8.
   - Arms: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, selected by a hash-neutral config epilog)
     and `config/sae_i6_p1_ladder.py` (STAGE=probe or arms) are written. On CPU they match the held path with
     deviation 0.0 (38 tests). GPU parity is not yet run (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
     Code and launch review running (`reports/review_p1_arms_chunked_backward_2026-09-25.md`).
-NEXT: when the fits finish, read G1.F (`analysis/p1_nesting.py`, each fit's epoch-8 dev NLL from its learning_rates
-file). After the review, a GPU parity test on gpu_test_24gb. Once the fits have FINISHED and their manager has
-exited, the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
+NEXT: after the arms review, a GPU parity test on gpu_test_24gb, then the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
 rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
 in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
@@ -150,6 +145,29 @@ The registration text of each amended clause is kept under "Original".
   is estimated at 2-3 GiB from a worst-case batch (229 phones, 823 units) measured on CPU.
 
 ## Results
+
+### G1.F corrupted-phi fits (2026-09-25, 14:51-15:05)
+
+Read `reports/read_g1f_2026-09-25.md` (`analysis/p1_nesting.py`, the fits' learning_rates files and logs).
+
+| rho | corruption job | realised rate | adjacent repeats gold / corrupted | fit | dev NLL/frame ep8 | GPU, wall |
+|---|---|---|---|---|---|---|
+| 0.7 | `CorruptSeedGoldJob.aj2XQaDlED2E` | 0.699905 | 1705 / 14293 | `ReturnnTrainingJob.ruLnJFWyifwp` | 5.051149 | A10, 8:42 |
+| 0.8 | `H9GbhLPtIthV` | 0.800081 | 1705 / 14706 | `6IkAAuzcBwBR` | 5.117938 | A10, 9:17 |
+| 0.9 | `wsKq52Dk68b4` | 0.899946 | 1705 / 14942 | `uO8wkodbR2uh` | 5.127337 | A10, 9:02 |
+| gold | (none) | 0 | 1705 | `Ac2eioZbRX7d` (P0) | 3.274249 | L40S, 4:48 |
+
+- (A) Realised rates within 0.700 / 0.800 / 0.900 +-0.005: PASS.
+- (A) Nesting (r70 in r80, r80 in r90): 0 positions outside the subset, 0 symbol mismatches, 0 length mismatches:
+  PASS.
+- (A) Each fit ends at epoch 8 without error (no Traceback, ERROR or nan): PASS.
+- (A) Epoch-8 dev NLL above gold 3.2742 and r70 < r80 < r90: PASS. The step from r80 to r90 is small (+0.009); at
+  epoch 4 r80 (5.1339) sat above r90 (5.1331). Only epoch 8 enters the clause.
+- (B) The r70 corruption equals JUPITER's banked `CorruptSeedGoldJob.mnzDC7XJX00r` on every field (0.699905;
+  1705 / 14293). S on the 260 set is not yet read.
+- The fits train on the corrupted targets: the launch review diffed the written configs, which differ from the gold
+  fit only in the train/dev HDF paths and the model dir. Their dev NLL sits 1.8 nats per frame above gold's.
+- Verdict: G1.F PASS.
 
 ### G1.G core phi reads (2026-09-25, 14:38-14:44; V100 cn-32)
 
