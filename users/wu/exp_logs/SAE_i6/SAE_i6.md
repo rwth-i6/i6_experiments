@@ -57,9 +57,9 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 
 ## Phase pointers
 
-- **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
-  ctrl_20_rc and k2lat on V100); k2lat's V100 memory probe (G0.K2M) in round 2; GAN reproduction (G0.GAN) in
-  setup — `SAE_i6_P0.md`.
+- **P0 port and verification** — OPEN. ctrl_20 finished: G0.R1 PASS under the user's amendment (step-1 matching
+  clauses are diagnostics); the branch is pushed. ctrl_20_s1, ctrl_20_rc and k2lat (per-chunk k2, chunk 2) run on
+  V100. The GAN reproduction (G0.GAN), with intermediate CPU eval, is in its prep jobs — `SAE_i6_P0.md`.
 - **P1 completion and small extensions of the JUPITER framework** — OPEN: Task A G1.G PASS (dev-other phone read
   reproduces JUPITER's gold row, 0.1960 vs 0.193), fix 3 after P0; Task B G1.M PASS, arms r70/r80/r90 running —
   `SAE_i6_P1.md`.

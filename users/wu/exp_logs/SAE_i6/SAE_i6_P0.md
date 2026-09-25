@@ -9,7 +9,7 @@ LIVE (2026-09-25 22:00). Two managers, one per config (never a second on either)
   `$W 1811964 config/sae_i6_w2vu2.py 60`.
 
 Runs:
-- ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered (audited), no push.
+- ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered, PASS under the user amendment (Gates); branch pushed.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
 - k2lat J `jcKXbLMDk4hl`: OOM at 8/17 from fragmentation (Results, G0.K2M round 2). Relaunched with
   `expandable_segments` as Slurm 4368174 (V100 cn-32): resume checks pass, steps 0-3 identical to the OOM run
@@ -126,6 +126,16 @@ generation); widened tolerances in brackets apply then.
   - G0.R1s band and G0.RC deltas at sub-epochs 4/10/20: the i6 band ctrl_20 - ctrl_20_s1 and the G0.RC deltas
     carry a hardware term besides the seed. With one replicate the two cannot be separated. ep1 is all L40S.
   - G0.R2 paired read and PER: k2lat on V100 vs ctrl_20 on L40S. Thresholds unchanged.
+- **User amendment (2026-09-25, AFTER the ctrl_20 ep20 result; the clauses above stay as registered).**
+  - The step-1 matching clauses become diagnostics: a miss must be explained but no longer fails the gate.
+    They are G0.R1's step-1 l_tau, prior per token and expected tokens, G0.R1s's step-1 values, and G0.R2's
+    "Step 1 identical".
+  - The user's reason: these clauses are identity checks, not outcome criteria. A 0.02 nats-per-token step-1
+    difference does not bear on reproduction.
+  - G0.R1, G0.R1s and G0.R2 pass or fail on their outcome clauses: PER, rate, derangement gap, the k2 clauses
+    and the (B) dev reads.
+  - The user accepts the i6 minus JUPITER ctrl_20 PER shift (+0.002 / +0.016 / +0.012 at ep4 / 10 / 20) as
+    reproduction.
 - **Confound note on G0.R0 HLG and G0.R2 (recorded 2026-09-25, before the i6 trie, HLG or k2lat gave any
   number; thresholds unchanged).**
   - What changed: the lexlat word set comes from a word LM trained on the i6 prior window (the user's i6-text
@@ -433,6 +443,11 @@ Source: `reports/extract_p0_ctrl20_ep20_2026-09-25.md`.
     - dev agg uses 89 % of its band. Its direction fits a different prior, which is not established.
 - Consequence: no push. The push waits for G0.R1 with the audit (user). Next is the debugger's decisive test T3:
   step 1 with only the prior swapped to JUPITER's.
+- **Under the user amendment (Gates, 2026-09-25): G0.R1 PASS.**
+  - Every outcome clause is inside its tolerance.
+  - The step-1 prior per token miss (+0.020) is a diagnostic; T3 is to explain it.
+  - Audit findings: the user accepts the PER shift. Dev agg at 89 % of its band stays noted and does not block.
+  - Push authorised by the user on this basis.
 - **T3 reading (registered 2026-09-25, before any T3 run; diagnostic, not a gate).** Built in
   `reports/impl_p0_prior_t3_2026-09-25.md`.
   - Part A rebuilds JUPITER's prior on i6: the i6 g2p output with chunks 5-12 emptied, then the i6 phonemize, sample
