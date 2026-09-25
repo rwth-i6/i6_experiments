@@ -567,9 +567,19 @@ def _render_personaplex_lora_config(
         if every <= 0:
             raise ValueError(f"{who}: eval_data needs hparams eval_every > 0")
         ed = _eval_data.get() if hasattr(_eval_data, "get") else str(_eval_data)
-        perf = f'eval_data: "{ed}"\neval_every: {every}\n' + perf
-    elif hp.get("eval_every") is not None:
-        raise ValueError(f"{who}: eval_every without eval_data")
+        # The cheap cadence (2026-09-25): a fixed ``eval_subset``-window subset every ``eval_every`` steps, the whole
+        # set every ``eval_full_every``; rendered ONLY when set (p6's first config stays byte-identical without it).
+        sub = ""
+        if (hp.get("eval_subset") is None) != (hp.get("eval_full_every") is None):
+            raise ValueError(f"{who}: eval_subset and eval_full_every go together")
+        if hp.get("eval_subset") is not None:
+            n_sub, full_every = int(hp["eval_subset"]), int(hp["eval_full_every"])
+            if n_sub <= 0 or full_every <= 0 or full_every % every:
+                raise ValueError(f"{who}: eval_subset > 0 and eval_full_every a multiple of eval_every ({every})")
+            sub = f"eval_subset: {n_sub}\neval_full_every: {full_every}\n"
+        perf = f'eval_data: "{ed}"\neval_every: {every}\n' + sub + perf
+    elif hp.get("eval_every") is not None or hp.get("eval_subset") is not None or hp.get("eval_full_every") is not None:
+        raise ValueError(f"{who}: eval_every / eval_subset / eval_full_every without eval_data")
     scope_block = (
         'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
     )

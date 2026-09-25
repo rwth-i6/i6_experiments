@@ -21,6 +21,10 @@ held-out gap it shows would be an artifact. Each check drives the real code:
       ``build_heldout`` (n=400, the real pool): 400 distinct ids, none in p4's training table, no episode of p2's or
       p3's corpus, every row with a voice clip, reproducible; ``evaluate_set`` twice under different global RNG
       states -> bit-identical numbers; ``summarize`` reproduces its bootstrap CI.
+  [7] the launcher's cheap in-loop cadence (2026-09-25): ``subset_indices`` fixed / sorted / distinct (another seed
+      differs); ``evaluate_set(indices=, cache=)`` == the whole-set rows at those indices, cached or not; a cache of
+      another set is rebuilt; CAN FAIL: another set's cached items under this set's path change the numbers; the
+      eval leaves the global torch RNG untouched (the launcher also forks it).
   [6] ``persona_heldout._consolidated_complete`` (how an eval waits for a checkpoint of a run that is still
       training): weights without ``config.json`` -> not available, with it -> available.
 
@@ -330,6 +334,33 @@ ck(a == b, "evaluate_set twice under different global RNG states: identical numb
 ck(HL.summarize(a, seed=0) == HL.summarize(b, seed=0), "summarize reproduces its bootstrap CI")
 m = HL.summarize(a, seed=0)["loss"]
 ck(m["ci95"][0] <= m["mean"] <= m["ci95"][1], "the mean lies inside its CI", str(m))
+
+print("[7] the in-loop cheap eval: a fixed subset and the item cache give the whole-set rows exactly")
+sub400 = HL.subset_indices(400, 128)
+ck(
+    sub400 == HL.subset_indices(400, 128) and sub400 == sorted(set(sub400)) and len(sub400) == 128,
+    "subset_indices(400, 128): fixed, sorted, distinct",
+)
+ck(HL.subset_indices(400, 128, seed=1) != sub400, "another seed -> another subset (non-vacuous)")
+ck(HL.subset_indices(4, 9) == [0, 1, 2, 3], "k >= n -> the whole set")
+sub = HL.subset_indices(len(a), 2)
+cache = {}
+r1 = HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", indices=sub, cache=cache)
+r2 = HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", indices=sub, cache=cache)
+ck(r1 == [a[i] for i in sub], "subset rows == the whole-set rows at those indices (same numbers, same ids)")
+ck(r2 == r1 and len(cache["items"]) == len(sub), "a cached second eval gives the same numbers")
+ck(HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", cache=cache) == a, "cached whole set == a")
+c2 = {}
+HL.evaluate_set(core, set_dirs["train_sample"], tok, s, device="cpu", cache=c2)
+ck(HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", cache=c2) == a, "a cache of ANOTHER set is rebuilt")
+c2["path"] = set_dirs["heldout"]  # mutant: a stale cache (train_sample's items) labelled as the held-out set
+HL.evaluate_set(core, set_dirs["train_sample"], tok, s, device="cpu", cache=c2)
+c2["path"] = set_dirs["heldout"]
+bad = HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", cache=c2)
+ck([r["loss"] for r in bad] != [r["loss"] for r in a], "CAN FAIL: reusing another set's cached items is visible")
+st0 = torch.get_rng_state()
+HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", indices=sub, cache=cache)
+ck(torch.equal(st0, torch.get_rng_state()), "evaluate_set leaves the global torch RNG untouched (CPU)")
 
 # ---------------------------------------------------------------------------------------------------------------
 print("[6] a checkpoint path is available only once consolidated/config.json is written")

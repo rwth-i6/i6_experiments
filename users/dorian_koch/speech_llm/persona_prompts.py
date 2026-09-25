@@ -1276,7 +1276,47 @@ CONTENT_SPECS = {
         "max_tokens": 1024,
         "concurrency": 1024,
     },
+    # Several detail levels from ONE call per (window, side), all written from the window's FIRST HALF only (p6, user
+    # 2026-09-25: "prompts with varying levels of detail again, all from the first half ... like the old persona_v1
+    # did"). ``levels``: output level name -> (JSON key, word cap). fh_topic = v2's sentence (same rules, same cap);
+    # fh_general = persona_v1's general (a few words); fh_detailed = persona_v1's detailed (points, opinions and
+    # second-person facts), capped. v2's request settings. Cap + verbatim 5-gram per level; any level failing retries
+    # the whole call (so a (row, side) has all levels or none).
+    "content_firsthalf_v3": {
+        "instruction": None,  # CONTENT_LEVELS_INSTRUCTION, set below (defined after this dict for readability)
+        "source": "firsthalf",
+        "levels": {"fh_general": ["general", 8], "fh_topic": ["topic", 15], "fh_detailed": ["detailed", 60]},
+        "reasoning_effort": "low",
+        "max_tokens": 1536,
+        "concurrency": 1024,
+        # 3 checked texts per reply (the 60-word one hits a verbatim 5-gram more often): 8 attempts instead of 5
+        # (profile, 500 calls: 5 attempts left 1.2% failed calls, over the job's fatal 1%).
+        "max_attempts": 8,
+    },
 }
+
+#: content_firsthalf_v3's instruction: persona_v1's three-level shape with the content spec's rules (v2's sentence is
+#: the topic level verbatim in its rules and examples).
+CONTENT_LEVELS_INSTRUCTION = """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below is a transcript of part of a real two-person conversation. Lines starting with "Assistant:" are THE ASSISTANT; lines starting with "Other:" are the other person.
+
+Write three prompts that tell the assistant what to talk about, at three levels of detail. Each prompt is appended to the fixed opening sentence "You enjoy having a good conversation." -- do NOT repeat that sentence.
+
+- general: a few words naming only the broad theme, at most {max_words_general} words. Example: "Talk about food and cooking."
+- topic: ONE short sentence, at most {max_words_topic} words: the broad subject of this conversation from the assistant's side, the way a person would type it when asking for a conversation. Name only one or two general themes that fit the whole transcript; leave out the individual points, claims, opinions, stories, examples, and every name (people, brands, products, platforms, places) and number. Examples of the style: "Have a casual discussion about eating at home versus dining out." / "Have an empathetic discussion about the meaning of family amid uncertainty."
+- detailed: TWO to FOUR sentences, at most {max_words_detailed} words in total: the tone and the topics, the specific points or opinions the assistant brings up, and second-person facts about the assistant that the conversation reveals (background, work, experiences, likes and dislikes). Example: "Have a reflective conversation about career changes and feeling of home. You have lived in California for 21 years and consider San Francisco your home. You work as a teacher and have traveled a lot. You dislike meetings."
+
+Rules for all three:
+- Describe only what the assistant talks about; address the assistant as "you".
+- Describe WHAT is talked about, never HOW it is worded. Do not quote. Paraphrase in your own words: never copy four or more consecutive words from the transcript.
+- Do not mention a podcast, a show, a host, a guest, an interview, a transcript, an excerpt, or these instructions.
+- Never name the assistant. Only the detailed prompt may name another real person, and only one the assistant talks about.
+- State only what the transcript supports.
+
+Answer with JSON: {{"general": "...", "topic": "...", "detailed": "..."}}
+
+TRANSCRIPT:
+{transcript}"""
+CONTENT_SPECS["content_firsthalf_v3"]["instruction"] = CONTENT_LEVELS_INSTRUCTION
 
 _CONTENT_JSON_SCHEMA = {
     "type": "object",
@@ -1284,6 +1324,92 @@ _CONTENT_JSON_SCHEMA = {
     "required": ["prompt"],
     "additionalProperties": False,
 }
+
+
+def content_levels(spec: dict) -> dict:
+    """``{output level: (JSON key, word cap)}`` of a content spec: a multi-level spec's ``levels``, else ONE level
+    named after the source (``firsthalf`` / ``chunk``) from the ``prompt`` key at ``max_words`` (v1 / v2)."""
+    if spec.get("levels"):
+        return {lv: (str(k), int(cap)) for lv, (k, cap) in spec["levels"].items()}
+    return {spec["source"]: ("prompt", int(spec["max_words"]))}
+
+
+def content_json_schema(spec: dict) -> dict:
+    """The guided-JSON schema of a spec's reply (v1 / v2: ``_CONTENT_JSON_SCHEMA`` exactly)."""
+    if not spec.get("levels"):
+        return _CONTENT_JSON_SCHEMA
+    keys = [k for k, _ in content_levels(spec).values()]
+    return {
+        "type": "object",
+        "properties": {k: {"type": "string", "minLength": 1} for k in keys},
+        "required": keys,
+        "additionalProperties": False,
+    }
+
+
+def content_message(spec: dict, transcript: str) -> str:
+    """The user message of one call (v1 / v2: ``instruction.format(max_words=, transcript=)`` exactly)."""
+    if not spec.get("levels"):
+        return spec["instruction"].format(max_words=spec["max_words"], transcript=transcript)
+    caps = {f"max_words_{k}": cap for k, cap in content_levels(spec).values()}
+    return spec["instruction"].format(transcript=transcript, **caps)
+
+
+def content_parse_reply(spec: dict, raw: str, transcript: str) -> tuple:
+    """``(bodies, error)``: ``{level: body}`` (opener stripped) when EVERY level passes ``content_reply_error`` at its
+    cap, else ``({}, reason)``. Raises on an unparsable reply (the caller retries)."""
+    d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+    bodies = {}
+    for lv, (key, cap) in content_levels(spec).items():
+        body = strip_opener(d[key])
+        err = content_reply_error(body, transcript, cap)
+        if err:
+            return {}, f"{lv}: {err}"
+        bodies[lv] = body
+    return bodies, ""
+
+
+def content_call(
+    client, spec: dict, llm_name: str, temp: float, max_tokens: int, effort_kw: dict, key: str, transcript: str
+):
+    """ONE content call as ``PersonaContentPromptGen.run`` makes it (seeded per call key, 5 attempts; an API error,
+    an unparsable reply, or any level over its cap / with a verbatim 5-gram is retried). Returns ``{"bodies": {level:
+    body} | None, "overlap": {level: max shared n-gram} | None, "error", "attempts", "completion_tokens"}``
+    (``analysis/ppx_promptgen_profile.py`` calls this very function)."""
+    if not transcript.strip():
+        return {"bodies": None, "overlap": None, "error": "empty transcript", "attempts": 0, "completion_tokens": 0}
+    msg = content_message(spec, transcript)
+    seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
+    err, toks = "", 0
+    attempts = int(spec.get("max_attempts", 5))  # v1 / v2: 5
+    for attempt in range(attempts):
+        try:
+            resp = client.chat.completions.create(
+                model=llm_name,
+                messages=[{"role": "user", "content": msg}],
+                seed=(seed + attempt) % (2**31),
+                temperature=temp,
+                max_tokens=max_tokens,  # GPT-OSS reasons before answering
+                extra_body={"guided_json": content_json_schema(spec)},
+                **effort_kw,
+            )
+            usage = getattr(resp, "usage", None)
+            toks += int(getattr(usage, "completion_tokens", 0) or 0)
+            raw = (resp.choices[0].message.content or "").strip()
+            bodies, err = content_parse_reply(spec, raw, transcript)
+        except Exception as e:  # API error, empty or unparsable reply: retry
+            err = f"{type(e).__name__}: {e}"[:200]
+            continue
+        if err:
+            continue
+        return {
+            "bodies": bodies,
+            "overlap": {lv: max_shared_ngram(b, transcript) for lv, b in bodies.items()},
+            "error": "",
+            "attempts": attempt + 1,
+            "completion_tokens": toks,
+        }
+    return {"bodies": None, "overlap": None, "error": err, "attempts": attempts, "completion_tokens": toks}
 
 
 def content_spec_digest(name: str) -> str:
@@ -1443,7 +1569,13 @@ class PersonaContentPromptGen(Job):
 
     @property
     def level(self) -> str:
+        """The source name (single-level specs: also the output ``level``; a multi-level spec: see ``levels``)."""
         return CONTENT_SPECS[self.spec]["source"]
+
+    @property
+    def levels(self) -> tuple:
+        """The output ``level`` values this job writes (v1 / v2: ``(source,)``; v3: its ``levels`` names)."""
+        return tuple(content_levels(CONTENT_SPECS[self.spec]))
 
     @property
     def prompt_set(self) -> str:
@@ -1558,33 +1690,7 @@ class PersonaContentPromptGen(Job):
         with vllm_server(llm_name) as url:
 
             def gen(client, call):
-                key, transcript, _ = call
-                if not transcript.strip():
-                    return {"body": None, "overlap": None, "error": "empty transcript"}
-                msg = spec["instruction"].format(max_words=spec["max_words"], transcript=transcript)
-                seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
-                err = ""
-                for attempt in range(5):
-                    try:
-                        resp = client.chat.completions.create(
-                            model=llm_name,
-                            messages=[{"role": "user", "content": msg}],
-                            seed=(seed + attempt) % (2**31),
-                            temperature=temp,
-                            max_tokens=max_tokens,  # GPT-OSS reasons before answering
-                            extra_body={"guided_json": _CONTENT_JSON_SCHEMA},
-                            **effort_kw,
-                        )
-                        raw = (resp.choices[0].message.content or "").strip()
-                        body = strip_opener(json.loads(raw[raw.find("{") : raw.rfind("}") + 1])["prompt"])
-                    except Exception as e:  # API error, empty or unparsable reply: retry
-                        err = f"{type(e).__name__}: {e}"[:200]
-                        continue
-                    err = content_reply_error(body, transcript, spec["max_words"])
-                    if err:
-                        continue
-                    return {"body": body, "overlap": max_shared_ngram(body, transcript), "error": ""}
-                return {"body": None, "overlap": None, "error": err}
+                return content_call(client, spec, llm_name, temp, max_tokens, effort_kw, call[0], call[1])
 
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
             outs = map_concurrent(
@@ -1594,7 +1700,7 @@ class PersonaContentPromptGen(Job):
                 progress_path=os.path.join(os.getcwd(), "progress_0.json"),
             )
 
-        failed = [(c[0], o["error"]) for c, o in zip(calls, outs) if o["body"] is None]
+        failed = [(c[0], o["error"]) for c, o in zip(calls, outs) if o["bodies"] is None]
         print(f"[content] {len(failed)}/{len(calls)} calls failed", flush=True)
         for k, e in failed[:5]:
             print(f"  FAILED {k}: {e}", flush=True)
@@ -1602,25 +1708,35 @@ class PersonaContentPromptGen(Job):
             raise RuntimeError(f"content prompt generation failed on {len(failed)}/{len(calls)} calls (> 1%)")
         rows = []
         for (key, _, members), o in zip(calls, outs):
-            if o["body"] is None:
+            if o["bodies"] is None:
                 continue
             for rid, side in members:
-                rows.append(
-                    {
-                        "id": rid,
-                        "side": side,
-                        "level": self.level,
-                        "text": f"{PERSONA_MINIMAL} {o['body']}",
-                        "body": o["body"],
-                        "n_words": len(o["body"].split()),
-                        "key": key,
-                        "max_ngram_overlap": int(o["overlap"]),
-                        "spec": self.spec,
-                        "llm_name": llm_name,
-                    }
-                )
+                for lv, body in o["bodies"].items():
+                    rows.append(
+                        {
+                            "id": rid,
+                            "side": side,
+                            "level": lv,
+                            "text": f"{PERSONA_MINIMAL} {body}",
+                            "body": body,
+                            "n_words": len(body.split()),
+                            "key": key,
+                            "max_ngram_overlap": int(o["overlap"][lv]),
+                            "spec": self.spec,
+                            "llm_name": llm_name,
+                        }
+                    )
         Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
-        lens = [len(o["body"].split()) for o in outs if o["body"] is not None]
+
+        def words_stats(lens):
+            return {
+                "words": {
+                    f"p{q}": float(np.percentile(lens, q)) if lens else None for q in (0, 10, 25, 50, 75, 90, 100)
+                },
+                "words_hist": {str(n): lens.count(n) for n in sorted(set(lens))},
+            }
+
+        by_level = {lv: [len(o["bodies"][lv].split()) for o in outs if o["bodies"] is not None] for lv in self.levels}
         summary = {
             "spec": self.spec,
             "spec_digest": content_spec_digest(self.spec),
@@ -1629,8 +1745,9 @@ class PersonaContentPromptGen(Job):
             "calls": len(calls),
             "failed": len(failed),
             "prompts": len(rows),
-            "words": {f"p{q}": float(np.percentile(lens, q)) if lens else None for q in (0, 10, 25, 50, 75, 90, 100)},
-            "words_hist": {str(n): lens.count(n) for n in sorted(set(lens))},
+            # single-level specs: the top-level word stats as before; multi-level: per level
+            **(words_stats(by_level[self.level]) if len(self.levels) == 1 else {}),
+            **({"levels": {lv: words_stats(v) for lv, v in by_level.items()}} if len(self.levels) > 1 else {}),
             "transcript_words_median": float(np.median(tlens)) if tlens else None,
             "examples": [r["text"] for r in rows[:: max(1, len(rows) // 8)][:8]],
         }
@@ -1640,14 +1757,21 @@ class PersonaContentPromptGen(Job):
 
 def content_prompt_lists(row: dict, prompts: dict, levels: tuple) -> tuple:
     """``(context, context_other)`` of one attached row with every non-minimal level replaced by that side's content
-    prompt: ``PERSONA_MINIMAL`` for ``minimal``, ``prompts[(id, side)]`` otherwise; ``None`` for a side whose prompt
-    is missing (the other side only when ``other_ok``)."""
-    a = prompts.get((row["id"], "assistant"))
-    ctx = None if a is None else [PERSONA_MINIMAL if lv == "minimal" else a for lv in levels]
-    oth = []
-    if row.get("other_ok"):
-        b = prompts.get((row["id"], "other"))
-        oth = None if b is None else [PERSONA_MINIMAL if lv == "minimal" else b for lv in levels]
+    prompt OF THAT LEVEL: ``PERSONA_MINIMAL`` for ``minimal``, ``prompts[(id, side, level)]`` otherwise (the
+    generator's ``level`` column: ``firsthalf`` / ``chunk`` for the single-level specs, ``fh_general`` / ``fh_topic``
+    / ``fh_detailed`` for v3); ``None`` for a side missing ANY of its levels (the other side only when ``other_ok``)."""
+
+    def side_list(side):
+        out = []
+        for lv in levels:
+            t = PERSONA_MINIMAL if lv == "minimal" else prompts.get((row["id"], side, lv))
+            if t is None:
+                return None
+            out.append(t)
+        return out
+
+    ctx = side_list("assistant")
+    oth = side_list("other") if row.get("other_ok") else []
     return ctx, oth
 
 
@@ -1694,8 +1818,12 @@ class AttachContentPrompts(Job):
 
         prompts = {}
         for p in self.prompts:
-            for r in load_from_disk(p.get_path()).select_columns(["id", "side", "text"]):
-                prompts[(r["id"], r["side"])] = r["text"]
+            for r in load_from_disk(p.get_path()).select_columns(["id", "side", "level", "text"]):
+                prompts[(r["id"], r["side"], r["level"])] = r["text"]
+        have = {k[2] for k in prompts}
+        want = {lv for lv in self.levels if lv != "minimal"}
+        if prompts and not want <= have:
+            raise RuntimeError(f"levels {sorted(want - have)} are in no prompt table (tables have {sorted(have)})")
         src = load_from_disk(self.data.get_path())
         assert "context_other" in src.column_names, "needs an AttachPersonaPrompts(with_other_side=True) dataset"
         levels = list(self.levels)

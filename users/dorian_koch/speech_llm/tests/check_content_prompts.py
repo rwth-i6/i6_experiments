@@ -19,6 +19,12 @@
      side-swapped table is caught); missing prompts drop / unswap (training) or raise (``require_ids``); keep_all_rows
      keeps every row and its other_ok flag.
 
+  7. ``content_firsthalf_v3`` (p6, 2026-09-25): v2's source + request settings; ONE call per (row, side) writes three
+     levels (``fh_general`` <= 8, ``fh_topic`` <= 15, ``fh_detailed`` <= 60 words) from the first half only; a level
+     over ITS cap retries the whole call; ``AttachContentPrompts`` puts each level's prompt in that level's slot (a
+     table with swapped level labels is caught), a side missing one level gets no list; v1 / v2 messages and schema
+     unchanged.
+
 The real-data leak (content words of the prompt said in the window / only in its second half / another window of the
 episode / another episode) is ``analysis/persona_prompt_leak.py <corpus> <level>`` on the built corpus, not this check.
 
@@ -222,7 +228,8 @@ Dataset.from_list(
 ).save_to_disk(os.path.join(slice_dir, "parts", "part0"))
 
 # ---- stub LLM ----
-seen, calls = [], {"over_cap_first": set(), "always_over": set()}
+seen, calls = [], {"over_cap_first": set(), "always_over": set(), "v3_over": set()}
+v3_msgs = []
 
 
 class _Stub:
@@ -232,6 +239,20 @@ class _Stub:
         asst = [ln.split()[1] for ln in tr.split("\n") if ln.startswith("Assistant:")]
         first = asst[0] if asst else "none"  # the prompted speaker's first word: the two sides get different prompts
         key = tr[:40]
+        if '{"general": "..."' in messages[0]["content"]:  # a multi-level spec (content_firsthalf_v3)
+            v3_msgs.append(messages[0]["content"])
+            det = f"Have a chat about topic {first[:12]}. You like it."
+            if key in calls["v3_over"]:
+                calls["v3_over"].discard(key)
+                det = " ".join(["long"] * 61)
+            d = {
+                "general": f"Talk about {first[:12]}.",
+                "topic": f"Have a chat about topic {first[:12]}.",
+                "detailed": det,
+            }
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(d)))]
+            )
         if key in calls["always_over"] or key in calls["over_cap_first"]:
             calls["over_cap_first"].discard(key)
             body = " ".join(["long"] * (cap + 3))
@@ -380,4 +401,66 @@ r1 = keep[1]
 assert r1["context"] == [OP, OP] and r1["context_other"] == [OP, OP], "a non-required row without prompts keeps minimal"
 assert keep[0]["context"][1] == ptext[("ep0#0@a#w0", "assistant")]
 print("[6] AttachContentPrompts: only prompt lists change, sides kept apart, drops/unswaps/raises as specified")
+
+# ---- 7 ---- content_firsthalf_v3: three levels from ONE call per (row, side), first half only
+V3 = "content_firsthalf_v3"
+s3, s2 = pp.CONTENT_SPECS[V3], pp.CONTENT_SPECS["content_firsthalf_v2"]
+assert s3["source"] == "firsthalf" and {k: s3[k] for k in ("reasoning_effort", "concurrency")} == {
+    k: s2[k] for k in ("reasoning_effort", "concurrency")
+}, "v3 keeps v2's source and request settings"
+assert pp.content_levels(s3) == {
+    "fh_general": ("general", 8),
+    "fh_topic": ("topic", 15),
+    "fh_detailed": ("detailed", 60),
+}
+assert pp.content_levels(s2) == {"firsthalf": ("prompt", 15)} and pp.content_json_schema(s2) is pp._CONTENT_JSON_SCHEMA
+assert pp.content_message(s2, "XYZ") == s2["instruction"].format(max_words=15, transcript="XYZ"), "v1/v2 message kept"
+m3 = pp.content_message(s3, "XYZ")
+assert "at most 8 words" in m3 and "at most 15 words" in m3 and "at most 60 words" in m3 and m3.endswith("XYZ")
+assert pp.content_spec_digest(V3) != pp.content_spec_digest("content_firsthalf_v2")
+assert pp.PersonaContentPromptGen.hash({**args, "spec": V3}) != h0
+v3_msgs.clear()
+seen.clear()
+job3 = pp.PersonaContentPromptGen(data=data_path, spec=V3)
+assert job3.levels == ("fh_general", "fh_topic", "fh_detailed")
+fh3 = run(job3, "fh3")
+assert len(v3_msgs) == 4 + 3, f"ONE call per (row, side): {len(v3_msgs)}"
+assert not firsthalf_leaks(seen), "v3: a second-half word reached the LLM"
+got = {}
+for r in fh3:
+    got.setdefault((r["id"], r["side"]), {})[r["level"]] = r
+assert set(got) == set(zip(fh["id"], fh["side"])) and all(set(v) == set(job3.levels) for v in got.values())
+caps = {lv: cap for lv, (_k, cap) in pp.content_levels(s3).items()}
+assert all(r["n_words"] <= caps[r["level"]] for r in fh3) and all(r["text"].startswith(OP + " ") for r in fh3)
+summ3 = json.load(open(os.path.join(tmp, "fh3_summary.json")))
+assert set(summ3["levels"]) == set(job3.levels)
+# a detailed reply over ITS cap (61 > 60) retries the whole call; the other levels are never written alone
+calls["v3_over"] = {fh_seen[0][:40]}
+v3_msgs.clear()
+fh3r = run(pp.PersonaContentPromptGen(data=data_path, spec=V3, temperature=0.4), "fh3_retry")
+assert len(v3_msgs) == 7 + 1 and len(fh3r) == len(fh3), "an over-cap level retries the call"
+# attach: each slot gets ITS level's prompt, per side
+LV3 = ("fh_general", "minimal", "fh_topic")
+fh3_path = tk.Path(os.path.join(tmp, "fh3"))
+att3 = attach("att3", prompts=(fh3_path,), levels=LV3)
+t3 = {(r["id"], r["side"], r["level"]): r["text"] for r in fh3}
+for o in att3:
+    assert o["context"] == [t3[(o["id"], "assistant", "fh_general")], OP, t3[(o["id"], "assistant", "fh_topic")]]
+    assert o["context_level"] == list(LV3)
+    if o["other_ok"]:
+        assert o["context_other"] == [t3[(o["id"], "other", "fh_general")], OP, t3[(o["id"], "other", "fh_topic")]]
+# CAN FAIL: a table with the level labels swapped puts the topic prompt in the general slot -- visible
+mixed = [{**r, "level": {"fh_general": "fh_topic", "fh_topic": "fh_general"}.get(r["level"], r["level"])} for r in fh3]
+Dataset.from_list(mixed).save_to_disk(os.path.join(tmp, "fh3_mixed"))
+bad3 = attach("att3_bad", prompts=(tk.Path(os.path.join(tmp, "fh3_mixed")),), levels=LV3)
+assert any(o["context"][0] != t3[(o["id"], "assistant", "fh_general")] for o in bad3), "(can fail) level mix-up"
+# a (row, side) missing ONE of its levels has no prompt list (dropped / unswapped), never a partial one
+Dataset.from_list([r for r in fh3 if not (r["id"].endswith("w1") and r["level"] == "fh_topic")]).save_to_disk(
+    os.path.join(tmp, "fh3_missing")
+)
+att3m = attach("att3_m", prompts=(tk.Path(os.path.join(tmp, "fh3_missing")),), levels=LV3, max_drop_frac=0.5)
+assert len(att3m) == len(src) - 1 and "ep0#0@a#w1" not in att3m["id"]
+expect_fail(lambda: attach("att3_lv", prompts=(fh3_path,), levels=("minimal", "firsthalf")), "in no prompt table")
+print("[7] v3: one call per (row, side) -> 3 levels, caps per level (an over-cap level retries the call), first half")
+print("    only; attach puts each level in its slot (a level mix-up is caught), a missing level = no list")
 print("ALL OK")

@@ -15,11 +15,15 @@ audio and the loss reads as generalisation; an eval that is not wired (the A17 l
      from a held-out episode, no kept row overlaps an evaluation window (brute force from the raw spans), some rows
      WERE dropped for overlap (non-vacuous), exactly the rest is kept, row order kept, summary counts == recount.
   4. RENDER. ``eval_data`` / ``eval_every`` render only when the job has ``eval_data`` (the config is otherwise
-     byte-identical), and a half-set pair raises.
+     byte-identical), and a half-set pair raises. ``eval_subset`` / ``eval_full_every`` (2026-09-25, the cheap
+     cadence) render only when set, only together, only with ``eval_data``, and the full cadence must be a multiple.
   5. LAUNCHER. reads both keys unconditionally in ``main``; the eval is ``heldout_loss.evaluate_set`` with
      ``heldout_loss.loss_settings(cfg)`` of THIS config (the shared code the PersonaHeldoutLoss job runs; its own
      parity with ``loss_step`` is ``check_heldout_loss.py``); step 0 evaluated fatally before training; ``eval_every``
-     reaches ``TrainConfig`` and ``eval_fn`` reaches ``run_training``.
+     reaches ``TrainConfig`` and ``eval_fn`` reaches ``run_training``; the cheap cadence: ``eval_subset`` /
+     ``eval_full_every`` read unconditionally, subset = ``heldout_loss.subset_indices`` through the same
+     ``evaluate_set`` (its row parity: check_heldout_loss [7]), whole set at step 0 and every ``eval_full_every``,
+     the eval under ``torch.random.fork_rng``.
   7. PROMPT SPEC. ``content_firsthalf_v2`` = v1's instruction / source / cap + request knobs only; its hash differs;
      ``PersonaContentPromptGen.run`` sends the spec's ``max_tokens`` / ``reasoning_effort`` / concurrency, v1's
      defaults (4096, none, 192) when absent.
@@ -208,9 +212,28 @@ check(
     [ln for ln in withe.splitlines() if not ln.startswith(("eval_data", "eval_every"))] == plain.splitlines(),
     "the eval config = the plain one + those two lines",
 )
+sub_cfg = render(
+    {**HP, "eval_every": 100, "eval_subset": 128, "eval_full_every": 500}, eval_data=_P("/heldout/dataset")
+)
+sc = yaml.safe_load(sub_cfg)
+check(
+    sc["eval_subset"] == 128 and sc["eval_full_every"] == 500 and sc["eval_every"] == 100,
+    "eval_subset / eval_full_every rendered",
+)
+check(
+    [ln for ln in sub_cfg.splitlines() if not ln.startswith(("eval_subset", "eval_full_every"))]
+    == render({**HP, "eval_every": 100}, eval_data=_P("/heldout/dataset")).splitlines(),
+    "...and only those two lines (a config without them is unchanged)",
+)
 for bad, what in (
     ((HP, _P("/x")), "eval_data without eval_every"),
     (({**HP, "eval_every": 5}, None), "eval_every without eval_data"),
+    (({**HP, "eval_every": 100, "eval_subset": 128}, _P("/x")), "eval_subset without eval_full_every"),
+    (
+        ({**HP, "eval_every": 100, "eval_subset": 128, "eval_full_every": 250}, _P("/x")),
+        "eval_full_every not a multiple",
+    ),
+    (({**HP, "eval_subset": 128, "eval_full_every": 500}, None), "eval_subset without eval_data"),
 ):
     try:
         render(*bad)
@@ -227,10 +250,32 @@ check({"eval_data", "eval_every"} <= top, "eval_data / eval_every read at the to
 check('cfg.get("eval_data")' in src and 'cfg.get("eval_every")' in src, "...from the config")
 check("heldout_loss.loss_settings(cfg)" in src, "the eval uses heldout_loss.loss_settings of THIS config")
 check(
-    "heldout_loss.evaluate_set(core, eval_data, tok, eval_settings, device=device)" in src,
+    "heldout_loss.evaluate_set( core, eval_data, tok, eval_settings, device=device,"
+    in " ".join(src.replace("(", "( ").split()),
     "...and heldout_loss.evaluate_set",
 )
 check("eval_fn(0, fatal=True)" in src, "step 0 evaluated fatally before training")
+check({"eval_subset", "eval_full_every"} <= top, "eval_subset / eval_full_every read at the top level of main")
+check('cfg.get("eval_subset")' in src and 'cfg.get("eval_full_every")' in src, "...from the config")
+check(
+    "torch.random.fork_rng(devices=[device])" in src,
+    "the eval runs under a forked torch RNG (training draws untouched)",
+)
+check(
+    'heldout_loss.subset_indices(len(eval_cache["ids"]), eval_subset)' in src
+    and "indices=None if full else sub, cache=eval_cache" in " ".join(src.split()),
+    "the subset is heldout_loss.subset_indices, evaluated by the same evaluate_set (cache: check_heldout_loss [7])",
+)
+_prep = src.index("heldout_loss.prepare_cache(eval_data, tok, eval_cache)")
+_mk = src.index("loader = _make_loader(skip_batches=_skip)")
+check(
+    _prep < _mk and src.count("heldout_loss.set_items(") == 0 and src.count("= _make_loader(skip_batches") == 1,
+    "the eval set is read once, BEFORE the loader's prefetch thread starts (a concurrent load_from_disk races on tqdm)",
+)
+check(
+    "full = not eval_subset or step == 0 or step % eval_full_every == 0" in src,
+    "the whole set at step 0 and every eval_full_every; the subset otherwise",
+)
 check(
     "eval_every=eval_every," in src and "eval_fn=eval_fn," in src, "eval_every -> TrainConfig, eval_fn -> run_training"
 )
