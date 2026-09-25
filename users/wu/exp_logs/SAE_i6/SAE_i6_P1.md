@@ -14,9 +14,10 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     re-reviewed PASS (`reports/review_p1_probe_memlog_2026-09-25.md`, 39 rt tests pass, job ids unchanged). Its F1:
     with `stop_on_nonfinite_train_score = True`, a failed stability read (NaN monitor) makes RETURNN stop the arm,
     against the read's design. Decision: a diagnostic may not end an arm, so the guard is being fixed before the
-    parity re-run (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, in progress). CUDA gradients are still
+    parity re-run (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, reviewed PASS; G1.M's read amended). CUDA gradients are still
     unverified (Slurm 4361250 stopped at the NaN-vs-NaN monitor).
-NEXT: review of the NaN guard, then the GPU parity re-run (CUDA gradients), then commit the code, then the rt_r90
+NEXT: the NaN guard passed review and the code is committed (35f676b70). The GPU parity re-run (CUDA gradients,
+Launch A) is running; on DONE, the rt_r90
 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then rt_r70 and rt_r80.
 The second-seed builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
@@ -109,6 +110,12 @@ The registration text of each amended clause is kept under "Original".
     line; the reserved-memory monitors are context only (clarified 2026-09-25 from the memlog re-review, before any run). Device-level used memory (`torch.cuda.mem_get_info`, logged per step) stands in for
     `nvidia-smi`, which cannot run beside a batch job here. A probe over 40 GiB that has not crashed is cancelled at
     the read and does not continue as rt_r90.
+  - Amended 2026-09-25 from the NaN-guard review (`reports/review_p1_stability_nan_guard_2026-09-25.md`), before
+    any arm job. A failed or empty stability read no longer stops the job, so it is read, not inferred: the read
+    completes iff the log shows "stability at sub-epoch 1: median X ... over N of M" with N >= 1 and X finite (the
+    epoch-1 `learning_rates` entry then holds `train_loss_lexlat_k2_stability`). A probe that misses any PASS clause
+    without crashing (a failed or empty read, or a peak over 40 GiB) is cancelled at the read, does not continue as
+    rt_r90, and goes to the debugger. In the arms, a failed read at a later sub-epoch is recorded, not a stop.
   A change of batch shape, or of anything that moves a score or gradient, is a new operating point: it needs the
   design review and voids the G1.R70 comparison. `lexlat_k2_chunk_seqs` and `expandable_segments` are launch
   granularity and move nothing; both are disclosed if used.

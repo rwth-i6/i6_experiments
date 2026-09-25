@@ -16,7 +16,8 @@ G0.R2 PASS; G0.R1s prior FAIL, attributed; G0.RC log Z not logged, open (Results
 NEXT:
 - OOM fallbacks: first V100 sub-epoch, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` via
   DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
-  (`reports/review_v100_routing_2026-09-25.md`, d and e).
+  (`reports/review_v100_routing_2026-09-25.md`, d and e). A failed rung-10000 stability read at sub-epoch 8 is an OOM case too:
+  it shows "stability read at sub-epoch 8 FAILED", then "Inf/nan score in step 0" (`reports/review_p1_stability_nan_guard_2026-09-25.md`).
 - ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
   gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
