@@ -13,13 +13,15 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     `review_p1_probe_memlog`, `review_p1_stability_nan_guard` (a failed stability read no longer stops an arm; G1.M
     amended to match). CUDA parity PASS (Slurm 4362010: log Z within 3.3e-16, gradients within 1.9e-9, test
     fixture only). Committed 35f676b70.
-  - rt_r90 probe RUNNING (Runs): manager pid 1700738 (`P1_LADDER_STAGE=probe`, `config/sae_i6_p1_ladder.py`),
-    `ReturnnTrainingJob.EexT85vdfx25`, Slurm 4362041_1 on cn-506 (L40S). Watcher, re-armed first on resume:
-    `P1_LADDER_STAGE=probe SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis"
-    PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1700738 config/sae_i6_p1_ladder.py 60`.
-G1.M PASS (Runs). NEXT: the code review of the STAGE=arms launch (`reports/review_p1_arms_launch_2026-09-25.md`);
-then an executor stops probe manager 1700738 and starts the arms manager (rt_r90 continues as EexT85vdfx25). The second-seed
-builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
+  - Arms RUNNING (G1.M PASS, Runs; `reports/launch_p1_arms_2026-09-25.md`): manager pid 1726329
+    (`P1_LADDER_STAGE=arms`, `config/sae_i6_p1_ladder.py`, `log/sae_i6_p1_ladder.manager.pid`), all on L40S, 8 sub-epochs.
+    rt_r90 `EexT85vdfx25` (Slurm 4362041_1, the probe continuing, ends about 01:45), rt_r80 `5CL3pQyyOvQt`
+    (4363117_1), rt_r70 `9lD2HS2Mzgcl` (4363118_1); r70 and r80 end about 03:30 on 2026-09-26.
+    Watcher, re-armed first on resume: `P1_LADDER_STAGE=arms SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis"
+    PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1726329 config/sae_i6_p1_ladder.py 60`.
+NEXT: confirm rt_r70's `installed (chunk_seqs = 4)` line (rt_r80 shows it). When the arms end, G1.L reads the ladder
+(the r70/r80 reads are scheduled by the arms stage). The second-seed builder needs a `seed=` argument in `ladder.py`;
+it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
 
