@@ -17,8 +17,8 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     `ReturnnTrainingJob.EexT85vdfx25`, Slurm 4362041_1 on cn-506 (L40S). Watcher, re-armed first on resume:
     `P1_LADDER_STAGE=probe SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis"
     PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1700738 config/sae_i6_p1_ladder.py 60`.
-NEXT: when `output/models/epoch.001.pt` appears (or the job ends), an extractor reads G1.M from `log.run.1`
-(amended read); on PASS, launch rt_r70 and rt_r80 (STAGE=arms, code review of the launch first). The second-seed
+G1.M PASS (Runs). NEXT: the code review of the STAGE=arms launch (`reports/review_p1_arms_launch_2026-09-25.md`);
+then an executor stops probe manager 1700738 and starts the arms manager (rt_r90 continues as EexT85vdfx25). The second-seed
 builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
@@ -158,6 +158,15 @@ The registration text of each amended clause is kept under "Original".
 - rt_r90 probe (2026-09-25, about 15:55): `ReturnnTrainingJob.EexT85vdfx25`, one L40S, per-chunk backward (chunk_seqs 4),
   launch `reports/launch_p1_rt_r90_probe_2026-09-25.md`. Step 1 (warm-up, not a G1.M read): pre-k2 peak allocated
   24.6 GiB, device used 32.6 GiB, 74.7 s/step; sub-epoch 1 stability read median 0.0826 over 16 of 16 utterances.
+  - G1.M PASS on sub-epoch 1, which ended at 17:07 (`reports/extract_p1_rt_r90_probe_ep1_2026-09-25.md`):
+    - peak allocated 27.256 GiB at step 6, from the max of `lexlat_k2_pre_peak_allocated_gib` 27.256 and
+      `mem_usage:cuda` 27.0; the limit is 40 GiB;
+    - no OOM, int32 error, ABORT or non-finite score; no `lexlat_k2_ABORT.json`;
+    - stability median 0.0826 over 16 of 16 utterances, also held in the epoch-1 `learning_rates` entry;
+    - 57 steps, median 78.1 s per step (max 103.5 at step 0), 1:10:25 for the sub-epoch.
+    Context only: device used rose to 41.3 GiB and reserved to 40.8 GiB at steps 54-56 (the L40S has 46 GB). At
+    the epoch end, alloc peak was 13.2 GB with 40.8 GB reserved. The probe continues as rt_r90.
+    Epoch-1 train scores: l_tau 2.537, agg 1.483, rate 0.019, lexlat_k2 0.563.
 
 ## Deviations from the reference (filled as they are made)
 
