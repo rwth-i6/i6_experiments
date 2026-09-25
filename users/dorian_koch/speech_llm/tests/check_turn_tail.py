@@ -1,39 +1,36 @@
-"""Guard: the assistant turn cap (``asst_turn_cap_s``, ablation ab2_turncap10, 2026-09-25) zeroes EXACTLY the
-assistant-side loss more than the cap into a continuous assistant turn, causally, on the real data path, and changes
-nothing when off.
+"""Guard: the assistant turn-tail weight (``turn_tail_weight`` / ``turn_tail_s``, ablation ab2_turntail03, 2026-09-25)
+multiplies EXACTLY the assistant-side loss more than 10 s into a continuous assistant turn by its factor, causally, on
+the real data path, and changes nothing when off.
 
-WHY. The ablation asks whether dropping the loss deep into long assistant turns helps ("Moshi training was unstable
-for turns longer than 10 s"). A cap that also silenced the user's codebooks, missed the text stream, used the stored
-side on a swapped read, or looked at the future (a turn that "continues" only because the next word comes) would
-test something else -- and a loss curve shows none of it. Everything runs through the real code: p4's corpus, the
-real ``build_data_loader`` with the arm's read knobs (swap, stored user augmentation), the launcher's REAL
-``loss_step`` (its source cut out of ``finetune_launcher.main`` and executed with the variables main() binds) and the
-real ``duplex_ce_loss``.
+WHY. The ablation asks whether down-weighting the loss deep into long assistant turns helps ("Moshi training was
+unstable for turns longer than 10 s"; user: "simply downweight it"). A weight that also hit the user's codebooks,
+missed the text stream, used the stored side on a swapped read, or looked at the future (a turn that "continues" only
+because the next word comes) would test something else -- and a loss curve shows none of it. Everything runs through
+the real code: p4's corpus, the real ``build_data_loader`` with the arm's read knobs (swap, stored user augmentation),
+the launcher's REAL ``loss_step`` (its source cut out of ``finetune_launcher.main`` and executed with the variables
+main() binds) and the real ``duplex_ce_loss``.
 
   1. DEFINITION. ``assistant_turn_position`` on hand-made words: pauses < 1 s stay in one turn, >= 1 s start a new
      one; the onset frame of the opening word is outside (it starts the turn); frames within 1 s after the last word
      are inside, later ones outside; the position is clipped at the window start.
   2. CAUSALITY (real rows). Removing every assistant word whose onset frame is >= f leaves the position on frames
-     0..f identical (frame f's target changed). CAN FAIL: a non-causal variant (turn span = first start .. last end,
-     no 1 s tail) is caught.
-  3. LOADER. With the cap the loader yields the SAME codes and masks, batch for batch, as without (rows, order,
-     swap / augmentation draws unchanged), plus a third tensor == ``pos > cap`` recomputed from THIS read's assistant
-     words (``alignments_other`` on a swapped read), 1 on the prompt; both swapped and unswapped reads are covered.
-  4. LOSS (launcher's loss_step, stub LM with leaf logits). Gradient is exactly 0 on every text logit and on the
-     assistant's audio codebooks 0-7 at capped frames, non-zero on the user's codebooks 8-15 there and on every
-     stream at uncapped frames; the text loss == manual ``sum(ce*w_cls*w_frame)/sum(w_cls*w_frame)``;
-     ``asst_frame_weighted_frac`` == the capped share. CAN FAIL: a loss_step that drops the weight, and a
-     ``duplex_ce_loss`` that caps all 16 codebooks, are both caught.
-  5. OFF == BEFORE. Cap None: the loss equals the pre-change ``duplex_ce_loss`` (full_duplex ``27625233``, loaded from
-     git) bit for bit, with every component; an all-ones weight is bit-identical too.
-  6. HELD-OUT UNMASKED. ``heldout_loss.loss_settings`` of the arm's config == of the baseline's (the cap is not a
-     held-out setting), and its ``make_loss_step`` source passes no assistant frame weight.
+     0..f identical. CAN FAIL: a non-causal variant (turn span = first start .. last end, no 1 s tail) is caught.
+  3. LOADER. With the weight the loader yields the SAME codes and masks, item for item, as without (rows, order,
+     swap / augmentation draws unchanged), plus a third tensor == 0.3 where ``pos > 10`` of THIS read's assistant
+     (``alignments_other`` on a swapped read), 1 elsewhere and on the prompt; swapped and stored reads both covered.
+  4. LOSS (launcher's loss_step, stub LM with leaf logits). The per-position gradient ratio weighted / all-ones is
+     exactly 0.3 x (the free frames' common ratio) on every tail frame for the text and the assistant codebooks 0-7,
+     and 1 x for the user codebooks 8-15; text loss == manual ``sum(ce*w_cls*w_frame)/sum(w_cls*w_frame)``;
+     ``asst_frame_weighted_frac`` == the tail share. CAN FAIL: a loss_step that drops the weight, and a
+     ``duplex_ce_loss`` weighting all 16 codebooks, are both caught.
+  5. OFF == BEFORE. Weight None: the loss equals the pre-change ``duplex_ce_loss`` (full_duplex ``27625233``, loaded
+     from git) bit for bit, with every component; an all-ones weight and ``per_frame=`` are bit-identical too.
+  6. HELD-OUT UNWEIGHTED. ``heldout_loss.loss_settings`` ignores the keys and its ``make_loss_step`` passes no
+     assistant frame weight.
 
-Also prints the capped share on the rows read.
-
-moshi_family venv, CPU, ~2-3 min (mimi + spm from the HF cache):
+moshi_family venv, CPU, ~3 min (mimi + spm from the HF cache):
     ./hpc-venv.py --cluster i6-rz moshi_family --sh 'cd /home/tt201262/setups/2026-01-speech-llm && HF_HUB_OFFLINE=1 \\
-        python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_turn_cap.py'
+        python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_turn_tail.py'
 """
 
 import ast
@@ -73,7 +70,7 @@ LIB = os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex")
 LAUNCHER = os.path.join(LIB, "moshi_family", "personaplex", "finetune_launcher.py")
 P4 = "output/persona_v4/p1_data"  # AttachPersonaPrompts.DHvnX2ifpvad: the 2-hour standard's corpus
 PRE_CHANGE = "27625233"  # full_duplex HEAD before the turn cap
-CAP, GAP, FR = 10.0, 1.0, 12.5
+CAP, W, GAP, FR = 10.0, 0.3, 1.0, 12.5  # tail after 10 s, weight 0.3 (ab2_turntail03)
 N_ITEMS = 24
 fails = []
 
@@ -166,7 +163,7 @@ kw = dict(
     stored_user_augment=True,
     infinite=False,
 )
-on = build_data_loader(P4, tok, turn_cap_s=CAP, turn_gap_s=GAP, **kw)
+on = build_data_loader(P4, tok, turn_tail_s=CAP, turn_tail_weight=W, turn_gap_s=GAP, **kw)
 off = build_data_loader(P4, tok, **kw)
 n_same = n_w = n_swapped = 0
 capped = frames = 0
@@ -184,18 +181,22 @@ for k in range(N_ITEMS):
     n_swapped += int(swapped)
     al = table.column("alignments_other" if swapped else "alignments")[i].as_py()
     want = torch.ones(codes.shape[1])
-    want[p:] = torch.from_numpy(~(assistant_turn_position(spans_of(al), n, FR, GAP) > CAP)).float()
+    want[p:] = torch.where(torch.from_numpy(assistant_turn_position(spans_of(al), n, FR, GAP) > CAP), W, 1.0)
     n_w += int(torch.equal(w, want))
-    capped += int((w[p:] == 0).sum())
+    capped += int((w[p:] == W).sum())
     frames += n
     items.append((codes, mask, w))
 ck(n_same == N_ITEMS, "codes + mask identical with and without the cap, item for item", f"{n_same}/{N_ITEMS}")
-ck(n_w == N_ITEMS, "weight == (position > 10 s) of this read's assistant, 1 on the prompt", f"{n_w}/{N_ITEMS}")
+ck(
+    n_w == N_ITEMS,
+    f"weight == {W} where position > 10 s in this read's assistant turn, else 1 (prompt 1)",
+    f"{n_w}/{N_ITEMS}",
+)
 ck(0 < n_swapped < N_ITEMS, "both swapped and stored reads covered", f"{n_swapped} swapped")
-ck(capped > 0, "some frames capped", f"{capped / frames:.3f} of {frames} dialogue frames")
+ck(capped > 0, "some frames down-weighted", f"{capped / frames:.3f} of {frames} dialogue frames")
 
 # ---------------------------------------------------------------------------------------------------------------
-print("\n4. the launcher's real loss_step: zero gradient exactly on the capped assistant targets", flush=True)
+print("\n4. the launcher's real loss_step: exactly x0.3 on the tail's assistant targets", flush=True)
 main_fn = next(
     n for n in ast.walk(ast.parse(open(LAUNCHER).read())) if isinstance(n, ast.FunctionDef) and n.name == "main"
 )
@@ -237,42 +238,64 @@ def loss_step_for(cap, src=LOSS_STEP_SRC, loss_fn=personaplex_loss, model=None):
         "text_pad_weight": 0.3,
         "user_semantic_weight": None,
         "depformer_skip_masked": True,
-        "asst_turn_cap_s": cap,
+        "turn_tail_weight": cap,
     }
     exec(src, ns)
     return ns["loss_step"]
 
 
-# the item with the most capped frames
-codes, mask, w = max(items, key=lambda it: int((it[2] == 0).sum()))
+# the item with the most down-weighted frames
+codes, mask, w = max(items, key=lambda it: int((it[2] == W).sum()))
 T = codes.shape[1]
 batch = (codes[None], mask[None], w[None, :, None])
-cap_f = (w == 0) & mask
+ones = (codes[None], mask[None], torch.ones(1, T, 1))  # the same batch, every frame weight 1
+tail_f = (w == W) & mask
 free_f = (w == 1) & mask
 
 
-def grads(src=LOSS_STEP_SRC, loss_fn=personaplex_loss):
+def grads(b, src=LOSS_STEP_SRC, loss_fn=personaplex_loss):
     lm = StubLM(T)
-    loss, comps = loss_step_for(CAP, src, loss_fn, lm)(batch)
+    loss, comps = loss_step_for(W, src, loss_fn, lm)(b)
     loss.backward()
-    gt = lm.text.grad[0, 0].abs().sum(-1)  # [T]
-    ga = lm.audio.grad[0].abs().sum(-1)  # [16, T]
+    gt = lm.text.grad[0, 0].abs().sum(-1).double()  # [T]
+    ga = lm.audio.grad[0].abs().sum(-1).double()  # [16, T]
     return gt, ga, comps
 
 
-gt, ga, comps = grads()
-ck(bool((gt[cap_f] == 0).all()) and bool((gt[free_f] > 0).all()), "text: grad 0 at capped frames, > 0 elsewhere")
-ck(bool((ga[:8][:, cap_f] == 0).all()), "assistant codebooks 0-7: grad 0 at capped frames")
-ck(bool((ga[8:][:, cap_f] > 0).all()), "user codebooks 8-15: grad > 0 at capped frames (still trained)")
-ck(bool((ga[:, free_f] > 0).all()), "every codebook: grad > 0 at uncapped frames")
+def factor(gw, g1, sel_tail, sel_free):
+    """Per-position gradient ratio weighted / unweighted, tail over free: exactly the frame factor on the tail.
+    (Under the weighted mean each position's gradient is w_i * d(ce_i) / denominator, so the ratio at a free
+    frame is the denominator change c, and at a tail frame W * c.)"""
+    r = gw / g1
+    rf, rt = r[..., sel_free], r[..., sel_tail]
+    c = rf.mean()
+    return float((rt / c).min()), float((rt / c).max()), float((rf / c - 1).abs().max())
+
+
+def near(x, y, tol=1e-5):
+    return abs(x - y) <= tol * max(1.0, abs(y))
+
+
+gt_w, ga_w, comps = grads(batch)
+gt_1, ga_1, _ = grads(ones)
+lo, hi, spread = factor(gt_w, gt_1, tail_f, free_f)
+ck(near(lo, W) and near(hi, W) and spread < 1e-5, f"text: every tail frame gets exactly x{W}", f"[{lo:.7f}, {hi:.7f}]")
+lo, hi, spread = factor(ga_w[:8], ga_1[:8], tail_f, free_f)
 ck(
-    abs(comps["asst_frame_weighted_frac"] - float(cap_f.sum() / mask.sum())) < 1e-6,
-    "asst_frame_weighted_frac == capped share",
+    near(lo, W) and near(hi, W) and spread < 1e-5,
+    f"assistant codebooks 0-7: x{W} on tail frames",
+    f"[{lo:.7f}, {hi:.7f}]",
+)
+lo, hi, spread = factor(ga_w[8:], ga_1[8:], tail_f, free_f)
+ck(near(lo, 1.0) and near(hi, 1.0) and spread < 1e-5, "user codebooks 8-15: x1 on tail frames", f"[{lo:.7f}, {hi:.7f}]")
+ck(
+    abs(comps["asst_frame_weighted_frac"] - float(tail_f.sum() / mask.sum())) < 1e-6,
+    "asst_frame_weighted_frac == tail share",
     f"{comps['asst_frame_weighted_frac']:.4f}",
 )
 # manual text loss (weighted mean): sum(ce * w_cls * w_frame) / sum(w_cls * w_frame) over valid positions
 lm = StubLM(T)
-_, comps = loss_step_for(CAP, model=lm)(batch)
+_, comps = loss_step_for(W, model=lm)(batch)
 tgt = codes[TEXT_ROW].clamp(0, 31999)
 ce = torch.nn.functional.cross_entropy(lm.text[0, 0].detach().float(), tgt, reduction="none")
 cls_w = torch.where(tgt == TEXT_PADDING_ID, 0.3, 1.0)
@@ -284,8 +307,9 @@ ck(abs(comps["text_loss"] - manual) < 1e-5, "text loss == manual frame-weighted 
 print("   CAN FAIL:", flush=True)
 mut_src = LOSS_STEP_SRC.replace("asst_frame_weight=asst_frame_weight,", "")
 assert mut_src != LOSS_STEP_SRC, "the launcher's loss_step does not pass asst_frame_weight"
-gt_m, ga_m, _ = grads(src=mut_src)
-ck(bool((gt_m[cap_f] > 0).any()), "a loss_step that drops the weight is caught (text grad at capped frames)")
+gm, _, _ = grads(batch, src=mut_src)
+lo, hi, _ = factor(gm, gt_1, tail_f, free_f)
+ck(not near(lo, W), "a loss_step that drops the weight is caught (text factor 1)", f"{lo:.4f}")
 ALL16_SRC = inspect.getsource(tdc.duplex_ce_loss)
 _N_ASST = "n_asst = min(dep_q, max(1, (codes.shape[1] - AUDIO_OFFSET) // 2))"
 assert _N_ASST in ALL16_SRC
@@ -294,12 +318,14 @@ exec(ALL16_SRC.replace(_N_ASST, "n_asst = dep_q"), _ns)
 
 
 def all16_loss(out, codes, loss_mask, *, dep_q, **k):
-    """Mutant: ``duplex_ce_loss`` with the cap on all 16 codebooks (the user's too), PersonaPlex's weights."""
+    """Mutant: ``duplex_ce_loss`` with the weight on all 16 codebooks (the user's too), PersonaPlex's weights."""
     return _ns["duplex_ce_loss"](out, codes, loss_mask, dep_q=dep_q, other_audio_weight=0.02, **k)
 
 
-_, ga_m2, _ = grads(loss_fn=all16_loss)
-ck(bool((ga_m2[8:][:, cap_f] == 0).all()), "a cap on all 16 codebooks is caught (user grad vanishes)")
+_, ga_m2, _ = grads(batch, loss_fn=all16_loss)
+_, ga_m1, _ = grads(ones, loss_fn=all16_loss)
+lo, hi, _ = factor(ga_m2[8:], ga_m1[8:], tail_f, free_f)
+ck(near(lo, W), "a weight on all 16 codebooks is caught (user factor W)", f"{lo:.4f}")
 
 # ---------------------------------------------------------------------------------------------------------------
 print("\n5. off == before (pre-change duplex_ce_loss from git)", flush=True)
@@ -342,7 +368,10 @@ ck(torch.isfinite(l_ls).item(), "the launcher's loss_step with the cap off runs 
 # ---------------------------------------------------------------------------------------------------------------
 print("\n6. the held-out loss stays unmasked", flush=True)
 base_cfg = {"loss_norm": "weight", "emit_epad": True, "text_epad_weight": 1.0, "onset_floor": True, "duration_sec": 60}
-ck(HL.loss_settings({**base_cfg, "asst_turn_cap_s": 10.0}) == HL.loss_settings(base_cfg), "same settings as x1's")
+ck(
+    HL.loss_settings({**base_cfg, "turn_tail_weight": 0.3, "turn_tail_s": 10.0}) == HL.loss_settings(base_cfg),
+    "same settings as the baseline's",
+)
 ck("asst_frame_weight" not in inspect.getsource(HL.make_loss_step), "make_loss_step passes no assistant weight")
 
 print()

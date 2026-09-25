@@ -105,7 +105,7 @@ check(set(ab2h.AB2H_PRE_INLOOP_EVAL) == PINNED_0925, "AB2H_PRE_INLOOP_EVAL == th
 for name, run in sorted(ab2h.AB2H_RUNS.items()):
     if name in ab2h.AB2H_PRE_INLOOP_EVAL:
         continue
-    check(tp.PPX_POLICY[name] == ab2h.AB2H_EVAL_POLICY and has_eval(run), f"{name}: 09-25 epoch, in-loop eval")
+    check(runs._policy_applies(tp.PPX_POLICY[name], ab2h.AB2H_EVAL_POLICY) and has_eval(run), f"{name}: >= 09-25 epoch, in-loop eval")
 
 print("[3] rendered configs")
 
