@@ -18,6 +18,7 @@ architectures (PersonaPlex, RAG variants, ablation sweeps) go through
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -537,9 +538,19 @@ def _render_personaplex_lora_config(
             raise ValueError(f"{who}: the knowledge mix has no floor weight and no length bucketing")
         kd = hp["knowledge_data"]
         kd = kd.get() if hasattr(kd, "get") else str(kd)
-        perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + perf
-    elif hp.get("knowledge_share") is not None:
-        raise ValueError(f"{who}: knowledge_share without knowledge_data")
+        concat = ""
+        # ... each knowledge item = 2-4 dialogues back to back (2026-09-25, ablation ab_epad1_know30_concat): rendered
+        # ONLY when set. ``knowledge_meta`` = ``KnowledgeConcatMeta.out_meta`` (a tk.Path: the run depends on it),
+        # ``knowledge_concat`` = the scheme's knobs (``moshi_family.knowledge_concat.ConcatCfg``), as one JSON line.
+        if (hp.get("knowledge_meta") is None) != (hp.get("knowledge_concat") is None):
+            raise ValueError(f"{who}: knowledge_meta and knowledge_concat go together")
+        if hp.get("knowledge_meta") is not None:
+            km = hp["knowledge_meta"]
+            km = km.get() if hasattr(km, "get") else str(km)
+            concat = f'knowledge_meta: "{km}"\nknowledge_concat: {json.dumps(dict(hp["knowledge_concat"]), sort_keys=True)}\n'
+        perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + concat + perf
+    elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
+        raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
     scope_block = (
         'train_scope: "full"\n' if full else f'train_scope: "lora"\nlora_rank: {job.lora_rank}\nlora_scaling: 2.0\n'
     )

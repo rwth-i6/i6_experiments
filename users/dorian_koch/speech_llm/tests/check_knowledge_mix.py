@@ -23,8 +23,18 @@ on p3's corpus (what ab_epad1 trains on):
      with the mix built at seed 1 differs; the coin mixer misses the schedule.
   4. RESUME. ``skip_batches=4`` yields the dialogue codes of the fresh loader's batch 4 onwards (both corpora).
   5. LAUNCHER. reads knowledge_data / knowledge_share unconditionally and routes them to the mix loader.
+  6. CONCAT (ab_epad1_know30_concat, 2026-09-25; ``moshi_family.knowledge_concat``), on the REAL v6 codes corpus:
+     the meta worker (the job's command) on all 60,000 rows (every row usable, filler = offline Mimi silence 1316);
+     the planner over the run's 2,400 knowledge items (dialogues per item, junction kinds, gap lengths, rows = know30's
+     stream in order, NO row repeated, knowledge hours vs know30); the mixed loader with the concat stream: per-batch
+     counts == the schedule, the prompt appears ONCE (prefix == hybrid prompt; no voice block / SINE frame / prompt
+     text after it), every frame of both channels == exactly its planned row frame or the silence filler
+     (junctions), each piece's text == that dialogue's own text row shifted by its frame offset (alignments shifted
+     exactly), no assistant word onset at/after a barge-in cut and dropped words exist (non-vacuous), EPAD before
+     every word after padding, one speaker, JRE items == the unmixed stream, same seed = same batches, resume exact.
+     CAN FAIL: a mutant that does not shift alignments (``shift_onset`` = identity) breaks the text check.
 
-Runs in moshi_family_venv, CPU (~2-4 min; mimi + spm from the HF cache):
+Runs in moshi_family_venv, CPU (~2-4 min, + [6] ~3 min; mimi + spm from the HF cache):
     ./hpc-venv.py --cluster i6-rz moshi_family --sh 'cd <setup> && HF_HUB_OFFLINE=1 python \
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_mix.py'
 """
@@ -302,6 +312,260 @@ ck(
 )
 ck("build_knowledge_mix_loader(" in src_l and "share=knowledge_share" in src_l, "routes them to the mix loader")
 _ = collate_codes  # the loader's collate; imported so a rename fails here too
+
+print("[6] concat: 2-4 knowledge dialogues back to back (ab_epad1_know30_concat), real v6 corpus")
+import ast  # noqa: E402
+import collections  # noqa: E402
+
+import moshi_family.knowledge_concat as kc  # noqa: E402
+from moshi_family.personaplex.models.lm import SINE_TOKENS  # noqa: E402
+
+V6C = os.path.realpath("output/persona_knowledge/v6_codes")
+V6_NAMES = sorted(json.load(open("output/persona_knowledge/v6_codes_summary.json"))["by_source"])
+RECIPE = os.path.join(LIB, "sis_recipe", "doriank", "track_persona_knowledge.py")
+SCHEME = next(
+    ast.literal_eval(node.value)
+    for node in ast.parse(open(RECIPE).read()).body
+    if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "KNOWLEDGE_CONCAT_SCHEME"
+)
+print(f"  scheme (from the recipe): {SCHEME}")
+cfg = kc.ConcatCfg.from_dict(SCHEME)
+FR, WIN = 12.5, 750
+meta_path = os.path.join(tmp, "concat_meta.npz")
+cmd = [sys.executable, "-m", "moshi_family.knowledge_concat", "--codes", V6C, "--out", meta_path,
+       "--summary", os.path.join(tmp, "concat_meta_summary.json")] + [
+    f"{n}={os.path.realpath(f'output/triviaqa_mix_v6/{n}/chatterbox_inference')}" for n in V6_NAMES]  # fmt: skip
+r = subprocess.run(cmd, env=env, capture_output=True, text=True)
+print("    " + (r.stdout + r.stderr).strip().splitlines()[-1][:400])
+ck(r.returncode == 0, "meta worker exit 0 (the KnowledgeConcatMeta command)")
+vt = read_arrow_table(V6C)
+meta = kc.ConcatMeta.load(meta_path, vt)
+ck(
+    bool(meta.ok.all()),
+    "every v6 row usable (first turn = user at 0 s, last turn ends on the last frame)",
+    f"{int(meta.ok.sum())}",
+)
+ck(float(meta.barge_ok.mean()) > 0.95, "barge-in possible after >95% of rows", f"{meta.barge_ok.mean():.4f}")
+ck(bool((meta.silence_filler[0] == 1316).all()), "silence filler = offline Mimi code of digital zeros (cb0 1316)")
+
+print("  [6b] planner over the run's 2,400 knowledge items (seed 0)")
+N_ITEMS = stratified_share_total(SHARE, B, 1000)
+idx_stream = row_item_stream(vt, lambda i, _rng: i, seed=[0, KNOWLEDGE_STREAM_TAG])
+prng = np.random.default_rng([0, KNOWLEDGE_STREAM_TAG, kc.CONCAT_STREAM_TAG])
+aligns_col = vt.column("alignments")
+
+
+def words_of(r_):
+    return normalize_alignments(aligns_col[r_].as_py())
+
+
+plans = [
+    kc.plan_sequence(lambda: int(next(idx_stream)), prng, meta, words_of, window_frames=WIN, fr=FR, cfg=cfg)
+    for _ in range(N_ITEMS)
+]
+rows_used = [p.row for pl in plans for p in pl.pieces]
+n_dia = collections.Counter(len(pl.pieces) for pl in plans)
+junc = collections.Counter(p.junction for pl in plans for p in pl.pieces[1:])
+gaps = [p.gap_frames for pl in plans for p in pl.pieces if p.junction == "gap"]
+print(f"    dialogues/item {dict(sorted(n_dia.items()))}; junctions {dict(junc)}; rows {len(rows_used)}")
+ck(len(set(rows_used)) == len(rows_used), "no knowledge row repeated over the run", f"{len(rows_used)} rows")
+ck(min(n_dia) >= 1 and sum(v for k, v in n_dia.items() if k >= 2) / N_ITEMS > 0.98, ">98% of items hold >= 2 dialogues")
+ck(max(n_dia) <= 4, "at most 4 dialogues per item")
+ck(min(gaps) >= 4 and max(gaps) <= 19, "gap junctions 4-19 frames (0.3-1.5 s)", f"{min(gaps)}-{max(gaps)}")
+bshare = junc["barge"] / max(1, sum(junc.values()))
+ck(0.2 < bshare <= 0.32, "barge-in share of junctions ~0.3 (coin x feasibility)", f"{bshare:.3f}")
+k30_rows = row_item_stream(vt, lambda i, _rng: i, seed=[0, KNOWLEDGE_STREAM_TAG])
+k30_order = [int(next(k30_rows)) for _ in range(len(rows_used))]
+ck(rows_used == k30_order, "the rows are know30's knowledge stream, in order (same permutation)")
+know_frames_concat = sum(pl.n_frames for pl in plans)
+know_frames_k30 = int(sum(meta.n_frames[k30_order[:N_ITEMS]]))
+print(
+    f"    knowledge dialogue frames over the run: concat {know_frames_concat} ({know_frames_concat / FR / 3600:.1f} h) "
+    f"vs know30 {know_frames_k30} ({know_frames_k30 / FR / 3600:.1f} h); items {np.mean([pl.n_frames for pl in plans]) / FR:.1f} s mean"
+)
+
+print("  [6c] mixed loader with the concat stream (p3 + v6 codes, ab_epad1's knobs)")
+vvoice = np.asarray(vt.column("voice_codes")[0].as_py(), dtype=np.int64).reshape(8, -1)
+kprefix_c = system_prompt_prefix(tok.system_prompt_text_tokens(QA_ROLE), vvoice, n_q=16, silence_frames=6)
+ck(torch.equal(kprefix_c, kprefix), "v6 corpus voice == the worker's TTS voice (one assistant voice)")
+prompt_toks = tok.system_prompt_text_tokens(QA_ROLE)
+
+
+def is_know_c(codes) -> bool:
+    P_ = kprefix_c.shape[1]
+    return codes.shape[1] > P_ and torch.equal(codes[:, :P_], kprefix_c)
+
+
+def concat_mix(seed=0, skip=0, plans_out=None, knobs=KNOBS):
+    return build_knowledge_mix_loader(
+        P3, V6C, tok, batch_size=B, share=SHARE, seed=seed, skip_batches=skip,
+        knowledge_meta=meta_path, knowledge_concat=SCHEME, knowledge_plans=plans_out, **knobs,
+    )  # fmt: skip
+
+
+def text_mismatches(items_plans) -> tuple[int, int, int]:
+    """(mismatched frames, compared frames, in-progress-word spill frames after a cut): each piece's text == its
+    dialogue's own interleave (cut words dropped) moved by the piece's frame offset -- built here per dialogue, never
+    from the item's shifted alignments."""
+    bad = n = spill = 0
+    kw = tok._text_kwargs()
+    for (codes, _m), pl in items_plans:
+        text = codes[TEXT_ROW, kprefix_c.shape[1] :]
+        T = text.shape[0]
+        onsets = []  # item frame of each piece's first kept word (None = no word)
+        rows_t = []
+        for p in pl.pieces:
+            w = [x for x in words_of(p.row) if p.cut_sec is None or x[1][0] < p.cut_sec]
+            base = p.offset - p.src0
+            # the dialogue alone, cropped where the item's window crops it (a word past the crop gets no EPAD
+            # either way: interleave_text skips onsets beyond its num_frames, as for a cropped JRE window)
+            nf = min(int(meta.n_frames[p.row]), T - base)
+            rows_t.append(tok.interleave_text(w, nf, **kw)[0])
+            onsets.append(base + int(w[0][1][0] * FR // 1) if w else None)
+        last_stop = 0
+        for j, p in enumerate(pl.pieces):
+            base = p.offset - p.src0
+            stop = T
+            for o in onsets[j + 1 :]:
+                if o is not None:
+                    stop = min(T, o - 1)  # the next piece's EPAD frame
+                    break
+            for f in range(max(p.offset, last_stop), stop):
+                ref = int(rows_t[j][f - base]) if f - base < rows_t[j].shape[0] else TEXT_PADDING_ID
+                n += 1
+                bad += int(int(text[f]) != ref)
+                if p.cut_frame is not None and f >= p.cut_frame and ref not in (TEXT_PADDING_ID, TEXT_EPAD_ID):
+                    spill += 1
+            last_stop = max(last_stop, stop)
+    return bad, n, spill
+
+
+seen_plans: list = []
+mixc = concat_mix(plans_out=seen_plans)
+batches_c = [uncollate(next(mixc)) for _ in range(N_BATCH)]
+per_batch_c = [sum(is_know_c(c) for c, _m in items) for items in batches_c]
+ck(per_batch_c == counts[:N_BATCH], "knowledge items per batch == the schedule (30% exactly)", str(per_batch_c))
+know_c = [(c, m) for items in batches_c for c, m in items if is_know_c(c)]
+ck(len(know_c) == len(seen_plans), "one plan per knowledge item", f"{len(know_c)} items, {len(seen_plans)} plans")
+pairs = list(zip(know_c, seen_plans))
+filler = meta.silence_filler
+frame_bad = frame_n = n_gap = n_barge = dropped = onset_after_cut = prompt_again = 0
+spk = set()
+yield_frames = []
+for (codes, mask), pl in pairs:
+    P_ = kprefix_c.shape[1]
+    ck_ok = int((~mask).sum()) == P_ and bool(mask[P_:].all())
+    prompt_again += int(not ck_ok)
+    dia = codes[:, P_:].numpy()
+    a_, u_ = dia[1:9], dia[9:17]
+    T = dia.shape[1]
+    frame_bad += int(T != pl.n_frames)
+    # the prompt once: no voice block, no SINE (prompt user) frame, no prompt text after the prefix
+    for f0 in range(0, T - vvoice.shape[1] + 1):
+        if np.array_equal(a_[:, f0 : f0 + vvoice.shape[1]], vvoice):
+            prompt_again += 1
+    prompt_again += int((u_ == SINE_TOKENS[:, None]).all(0).any())
+    tx = dia[0].tolist()
+    L = len(prompt_toks)
+    prompt_again += int(any(tx[i : i + L] == prompt_toks for i in range(0, T - L + 1)))
+    claim_a, claim_u = np.zeros(T, int), np.zeros(T, int)
+    prev_end = 0
+    for j, p in enumerate(pl.pieces):
+        ca, cu, _fr, al = decode_codes_row(vt, p.row)
+        spk |= {x[2] for x in normalize_alignments(al)}
+        base = p.offset - p.src0
+        if p.junction == "gap":
+            n_gap += 1
+            for f in range(prev_end, p.offset):
+                frame_n += 1
+                frame_bad += int(
+                    not (
+                        np.array_equal(a_[:, f], filler[:, f - prev_end])
+                        and np.array_equal(u_[:, f], filler[:, f - prev_end])
+                    )
+                )
+                claim_a[f] += 1
+                claim_u[f] += 1
+        if p.junction == "barge":
+            n_barge += 1
+            prev = pl.pieces[j - 1]
+            pbase = prev.offset - prev.src0
+            lead = pbase / FR + float(meta.ans_end[prev.row]) - p.offset / FR
+            frame_bad += int(not (0.2 - 1 / FR <= lead <= 0.8 + 1 / FR))
+            frame_bad += int(prev.cut_frame != p.a_from or p.a_from < p.offset)
+            yield_frames.append(p.a_from - p.offset)
+            pw = words_of(prev.row)
+            dropped += sum(1 for x in pw if x[1][0] >= prev.cut_sec)
+            onset_after_cut += sum(
+                1 for x in pw if x[1][0] < prev.cut_sec and pbase + int(x[1][0] * FR // 1) >= prev.cut_frame
+            )
+        for f in range(p.a_from, min(base + p.a_end, T)):
+            frame_n += 1
+            frame_bad += int(not np.array_equal(a_[:, f], ca[:, f - base]))
+            claim_a[f] += 1
+        for f in range(p.offset, min(base + p.u_end, T)):
+            frame_n += 1
+            frame_bad += int(not np.array_equal(u_[:, f], cu[:, f - base]))
+            claim_u[f] += 1
+        prev_end = min(base + max(p.a_end, p.u_end), T)
+    frame_bad += int(not ((claim_a == 1).all() and (claim_u == 1).all()))
+ck(prompt_again == 0, "prompt once: loss mask 0 exactly over it; no voice block / SINE frame / prompt text after it")
+ck(frame_bad == 0 and frame_n > 0, "every frame == its planned row frame or the silence filler; each claimed once",
+   f"{frame_bad} bad of {frame_n}; {n_gap} gap + {n_barge} barge junctions")  # fmt: skip
+ck(n_gap > 0 and n_barge > 0, "both junction kinds occur in the checked batches")
+bad_t, n_t, spill = text_mismatches(pairs)
+ck(bad_t == 0 and n_t > 0, "each piece's text == its own dialogue's text row shifted by its frame offset",
+   f"{bad_t} of {n_t} frames; {spill} spill frames of the in-progress word after a cut")  # fmt: skip
+ck(onset_after_cut == 0, "no assistant word onset at/after a barge-in cut")
+ck(dropped > 0, "non-vacuous: the barge-in cuts dropped words", f"{dropped} words")
+print(f"    yield (user onset -> assistant silent), frames: {sorted(yield_frames)}")
+vk = sum(epad_violations(c, m) for c, m in know_c)
+ck(vk == 0, "EPAD before every word that follows padding (concat items)", f"{vk}")
+ck(len(spk) == 1, "one speaker in every used row", str(spk))
+jre_c = [(c, m) for items in batches_c for c, m in items if not is_know_c(c)]
+ck(len(jre_c) == len(head) and all(torch.equal(a[0], b[0]) and torch.equal(a[1], b[1]) for a, b in zip(jre_c, head)),
+   f"the {len(jre_c)} JRE items == the unmixed stream's head (as without concat)")  # fmt: skip
+again = concat_mix()
+ck(all(torch.equal(x[0], y[0]) for items in batches_c[:3] for x, y in zip(items, uncollate(next(again)))),
+   "same seed -> same batches (deterministic)")  # fmt: skip
+fresh_c = concat_mix(knobs=plain)
+fb_c = [dialogue(uncollate(next(fresh_c))) for _ in range(7)]
+res_c = concat_mix(skip=4, knobs=plain)
+rb_c = [dialogue(uncollate(next(res_c))) for _ in range(3)]
+ck(
+    all(torch.equal(x, y) for fb, rb in zip(fb_c[4:], rb_c) for x, y in zip(fb, rb)),
+    "resume: skip_batches=4 == fresh 4-6",
+)
+kf = sum(int(m.sum()) for c, m in know_c)
+jf = sum(int(m.sum()) for c, m in jre_c)
+kf30 = sum(int(m.sum()) for c, m in know_items)
+jf30 = sum(int(m.sum()) for c, m in jre_items)
+print(
+    f"    supervised knowledge frame share, first {N_BATCH} batches: concat {kf / (kf + jf):.3f} vs know30 (worker rows) {kf30 / (kf30 + jf30):.3f}"
+)
+
+print("  [6d] CAN FAIL: alignments not shifted (shift_onset = identity)")
+_real_shift = kc.shift_onset
+kc.shift_onset = lambda s_, k_, fr_, fl_: float(s_)
+try:
+    mut_plans: list = []
+    mut = concat_mix(plans_out=mut_plans)
+    mut_items = [(c, m) for _ in range(3) for c, m in uncollate(next(mut)) if is_know_c(c)]
+    bad_m, n_m, _ = text_mismatches(list(zip(mut_items, mut_plans)))
+except AssertionError as e:  # shift_onset's own assert does not exist in the mutant; any failure counts
+    bad_m, n_m = 1, 1
+    print(f"    mutant raised: {e!r}")
+finally:
+    kc.shift_onset = _real_shift
+ck(bad_m > 0, "the mutant fails the text check", f"{bad_m} of {n_m} frames differ")
+
+print("  [6e] launcher")
+ck('knowledge_meta = cfg.get("knowledge_meta")' in src_l and 'knowledge_concat = cfg.get("knowledge_concat")' in src_l,
+   "reads knowledge_meta / knowledge_concat")  # fmt: skip
+ck(
+    "knowledge_meta=knowledge_meta" in src_l and "knowledge_concat=knowledge_concat" in src_l,
+    "routes them to the mix loader",
+)
 
 print()
 if fails:

@@ -114,3 +114,48 @@ class KnowledgeDialogueCodes(Job):
         # the worker writes summary.json beside the dataset dir, i.e. into output/
         if not os.path.isfile(self.out_summary.get_path()):
             raise RuntimeError(f"worker wrote no {self.out_summary.get_path()}")
+
+
+class KnowledgeConcatMeta(Job):
+    """Per-row turn metadata of a ``KnowledgeDialogueCodes`` corpus for concatenating its dialogues back to back
+    (ablation ab_epad1_know30_concat, 2026-09-25; worker ``moshi_family.knowledge_concat``).
+
+    The annotated corpora keep only the assistant's words; the TTS outputs keep each turn's speaker / start / end.
+    Joined by id (``<name>/<TTS id>``), per codes row: the user's first-turn start, the last (assistant) turn's
+    start, the answer end (min of the last word's end and the last turn's end) and ``ok`` (first turn = user, last =
+    assistant, last turn ends at the row's last frame +- 2 frames, the last answer has words). Plus the silence
+    filler (offline Mimi codes of digital zeros, mid-signal). CPU only, ~minutes (no audio is decoded).
+
+    ``codes``: ``KnowledgeDialogueCodes.out_dir``; ``tts``: ``[(name, ChatterboxInference output)]`` with the SAME
+    names as the codes job's corpora. Output ``out_meta`` (meta.npz, row-aligned with ``codes``), ``out_summary``.
+    """
+
+    def __init__(self, *, codes: tk.Path, tts: list, venv_python_path: tk.Path):
+        names = [n for n, _ in tts]
+        assert len(set(names)) == len(names), f"tts names must be unique: {names}"
+        self.codes = codes
+        self.tts = [(str(n), p) for n, p in tts]
+        self.venv_python_path = venv_python_path
+        self.out_meta = self.output_path("meta.npz")
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"cpu": 2, "mem": 16, "time": 1}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.knowledge_concat",
+            "--codes",
+            self.codes.get_path(),
+            "--out",
+            self.out_meta.get_path(),
+            "--summary",
+            self.out_summary.get_path(),
+        ] + [f"{n}={p.get_path()}" for n, p in self.tts]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
