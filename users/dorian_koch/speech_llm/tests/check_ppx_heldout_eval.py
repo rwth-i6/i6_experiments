@@ -20,6 +20,9 @@ audio and the loss reads as generalisation; an eval that is not wired (the A17 l
      ``heldout_loss.loss_settings(cfg)`` of THIS config (the shared code the PersonaHeldoutLoss job runs; its own
      parity with ``loss_step`` is ``check_heldout_loss.py``); step 0 evaluated fatally before training; ``eval_every``
      reaches ``TrainConfig`` and ``eval_fn`` reaches ``run_training``.
+  7. PROMPT SPEC. ``content_firsthalf_v2`` = v1's instruction / source / cap + request knobs only; its hash differs;
+     ``PersonaContentPromptGen.run`` sends the spec's ``max_tokens`` / ``reasoning_effort`` / concurrency, v1's
+     defaults (4096, none, 192) when absent.
   6. CADENCE. The real ``run_training`` calls ``eval_fn`` at exactly the multiples of ``eval_every``. CAN FAIL:
      ``eval_every=0`` never calls it.
 
@@ -65,7 +68,10 @@ eps = [f"rss_{i:016d}" for i in range(2000)]
 forced = set(eps[:50])
 half = pp.split_train_episodes(eps, fraction=0.5, seed=0, heldout=forced)
 full = pp.split_train_episodes(eps, fraction=1.0, seed=0, heldout=forced)
-check(half == pp.split_train_episodes(list(reversed(eps)), fraction=0.5, seed=0, heldout=forced), "deterministic, order-free")
+check(
+    half == pp.split_train_episodes(list(reversed(eps)), fraction=0.5, seed=0, heldout=forced),
+    "deterministic, order-free",
+)
 check(half <= full and full == set(eps) - forced, "half is nested in all; all = every non-forced episode")
 check(not (half | full) & forced, "a forced episode never trains")
 check(abs(len(half) / (len(eps) - len(forced)) - 0.5) < 0.03, f"realised share {len(half) / 1950:.3f} ~ 0.5")
@@ -81,7 +87,9 @@ def leaks(train_rows):
 real_rows = [r for r in rows if pp.episode_of(r) in pp.split_train_episodes(eps[:300], fraction=0.5, seed=0)]
 mutant_rows = [r for r in rows if pp._seeded_unit(0, f"split|{r}") < 0.5]  # the window-level split
 check(not leaks(real_rows), "the episode split leaves no episode on both sides")
-check(bool(leaks(mutant_rows)), f"(can fail) a window-level split leaks {len(leaks(mutant_rows))} episodes to both sides")
+check(
+    bool(leaks(mutant_rows)), f"(can fail) a window-level split leaks {len(leaks(mutant_rows))} episodes to both sides"
+)
 
 # ---- 2 ----
 print("[2] overlap")
@@ -115,13 +123,17 @@ ctx_rows, corpus = [], []
 for it, _ in items:
     for w in range(2):  # 2 windows per row: [0, 30) and [30, 60) within the row
         rid = f"{it}@a#w{w}"
-        ctx_rows.append({"id": rid, "item_id": it, "episode_id": it.split("#")[0], "t0": 30.0 * w, "t1": 30.0 * w + 30.0})
+        ctx_rows.append(
+            {"id": rid, "item_id": it, "episode_id": it.split("#")[0], "t0": 30.0 * w, "t1": 30.0 * w + 30.0}
+        )
         corpus.append({"id": rid, "duration": 30.0, "x": len(corpus)})
 Dataset.from_list(ctx_rows).save_to_disk(os.path.join(tmp, "ctx"))
 Dataset.from_list(corpus).save_to_disk(os.path.join(tmp, "data"))
 # the evaluation set comes from another slicing of episodes 5-9: its rows start 10 s later
 ex_items = [(f"{e}#x{k}", 100.0 * k + 10.0) for e in ep10[5:] for k in range(3)]
-ex_ctx = [{"id": f"{it}@b#w0", "item_id": it, "episode_id": it.split("#")[0], "t0": 5.0, "t1": 12.0} for it, _ in ex_items]
+ex_ctx = [
+    {"id": f"{it}@b#w0", "item_id": it, "episode_id": it.split("#")[0], "t0": 5.0, "t1": 12.0} for it, _ in ex_items
+]
 Dataset.from_list(ex_ctx).save_to_disk(os.path.join(tmp, "ex_ctx"))
 ex_set = [r["id"] for r in ex_ctx][::2]  # every other one is in the set
 Dataset.from_list([{"id": r} for r in ex_set]).save_to_disk(os.path.join(tmp, "ex_set"))
@@ -152,7 +164,9 @@ ex_abs = [
 brute = {i for i, (e, a, b) in abs_span.items() if any(e == f and a < y and x < b for f, x, y in ex_abs)}
 summ = json.load(open(os.path.join(tmp, "summary.json")))
 check(not {pp.episode_of(r) for r in kept_ids} & {ep10[0], ep10[1]}, "no kept row from a forced held-out episode")
-check(bool(brute) and not set(kept_ids) & brute, f"no kept row overlaps an evaluation window ({len(brute)} rows overlap)")
+check(
+    bool(brute) and not set(kept_ids) & brute, f"no kept row overlaps an evaluation window ({len(brute)} rows overlap)"
+)
 check(
     set(kept_ids) == {r["id"] for r in corpus if pp.episode_of(r["id"]) not in ep10[:2]} - brute,
     "exactly the rest is kept",
@@ -217,7 +231,9 @@ check(
     "...and heldout_loss.evaluate_set",
 )
 check("eval_fn(0, fatal=True)" in src, "step 0 evaluated fatally before training")
-check("eval_every=eval_every," in src and "eval_fn=eval_fn," in src, "eval_every -> TrainConfig, eval_fn -> run_training")
+check(
+    "eval_every=eval_every," in src and "eval_fn=eval_fn," in src, "eval_every -> TrainConfig, eval_fn -> run_training"
+)
 
 # ---- 6 ----
 print("[6] cadence")
@@ -239,7 +255,9 @@ def cadence(every):
         batch_iter=batches(),
         loss_step=lambda b: ((w - b) ** 2).sum(),
         save_fn=lambda step, final: None,
-        cfg=TrainConfig(max_steps=23, grad_accum=2, warmup_steps=0, save_every=10**9, log_every=10**9, eval_every=every),
+        cfg=TrainConfig(
+            max_steps=23, grad_accum=2, warmup_steps=0, save_every=10**9, log_every=10**9, eval_every=every
+        ),
         out_dir=tempfile.mkdtemp(prefix="check_ppx_cadence_"),
         log=lambda m: None,
         eval_fn=calls.append,
@@ -250,6 +268,24 @@ def cadence(every):
 got5 = cadence(5)
 check(got5 == [5, 10, 15, 20], f"eval at the multiples of eval_every: {got5}")
 check(cadence(0) == [], "(can fail) eval_every=0 never evaluates")
+
+# ---- 7 ----
+print("[7] prompt spec")
+v1, v2 = pp.CONTENT_SPECS["content_firsthalf_v1"], pp.CONTENT_SPECS["content_firsthalf_v2"]
+check({k: v2[k] for k in v1} == v1, "v2 keeps v1's instruction, source and cap")
+check(set(v2) - set(v1) == {"reasoning_effort", "max_tokens", "concurrency"}, "v2 adds only request knobs")
+check(
+    pp.content_spec_digest("content_firsthalf_v1") != pp.content_spec_digest("content_firsthalf_v2"), "v2 hashes apart"
+)
+gsrc = Path(pp.__file__).read_text()
+check(
+    'max_tokens = int(spec.get("max_tokens", 4096))' in gsrc
+    and 'int(spec.get("concurrency", PROMPT_GEN_CONCURRENCY))' in gsrc
+    and "max_tokens=max_tokens," in gsrc
+    and "**effort_kw," in gsrc
+    and "concurrency=concurrency," in gsrc,
+    "run() sends the spec's knobs, v1 defaults when absent",
+)
 
 print()
 if FAILURES:

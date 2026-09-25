@@ -1263,6 +1263,19 @@ CONTENT_SPECS = {
         "source": "firsthalf",
         "max_words": 15,
     },
+    # v1's instruction and source at 3.5x the throughput (p6, 2026-09-25; user: prompt generation too expensive).
+    # Measured on 500 v1 calls (analysis/ppx_promptgen_profile.py, test node H100): v1 as run 19.0 calls/s, 205
+    # completion tokens/call; reasoning_effort low + 1024 in flight 67.2 calls/s, 85 tokens/call, 0 failed, words
+    # p10/p50/p90 10/11/13 (v1 10/12/14); leak on the read-out's 200 rows own 15.5% [13.0, 17.9] (v1 19.4),
+    # own_2nd_only 0.9% [0.4, 1.6] (v1 1.0). gpt-oss-20b at low effort was no faster (74.6 calls/s, 3x retries).
+    "content_firsthalf_v2": {
+        "instruction": CONTENT_PROMPT_INSTRUCTION,
+        "source": "firsthalf",
+        "max_words": 15,
+        "reasoning_effort": "low",
+        "max_tokens": 1024,
+        "concurrency": 1024,
+    },
 }
 
 _CONTENT_JSON_SCHEMA = {
