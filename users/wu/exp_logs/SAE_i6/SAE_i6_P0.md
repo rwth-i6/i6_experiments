@@ -5,8 +5,9 @@
 LIVE (2026-09-25 18:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
 Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
-- ctrl_20 `GiT88bxzoZbZ`: FINISHED (20 sub-epochs). The ep20 G0.R1 reads are in Results; the audit is running
-  (`reports/audit_p0_g0r1_ctrl20_2026-09-25.md`). On PASS, push the branch (user); on a miss, debugger first.
+- ctrl_20 `GiT88bxzoZbZ`: FINISHED. G0.R1 FAIL as registered (audited): only the step-1 prior per token misses.
+  No push. T3 (step 1 with JUPITER's prior rebuilt on i6) is with the implementer
+  (`reports/impl_p0_prior_t3_2026-09-25.md`), then review and an executor.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
 - k2lat `jcKXbLMDk4hl` = J: Slurm 4359832, V100, 42 min per sub-epoch; `epoch.007` due about 19:10.
 Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
@@ -414,7 +415,22 @@ Source: `reports/extract_p0_ctrl20_ep20_2026-09-25.md`.
   - reverse per frame -3.2061 (-3.26 +-0.3).
 - All ep1-20 PER and the ep20 values fall inside their tolerances. The one miss is step 1 prior per token, recorded
   under the cost screen.
-- The verdict waits for the audit: `reports/audit_p0_g0r1_ctrl20_2026-09-25.md`.
+- **Verdict: G0.R1 FAIL as registered.** Audit: `reports/audit_p0_g0r1_ctrl20_2026-09-25.md`, from a fresh context.
+  - Every clause passes except the Tier-A step-1 prior per token: -5.637 against -5.657 +-0.01, the audio-label
+    tolerance. The gap is +0.020; 3-decimal rounding moves it by at most 0.001.
+  - Tier-B attribution cannot excuse a Tier-A miss. The attribution to the i6 prior is also only asserted:
+    `reports/debug_prior_ppl_2026-09-25.md` section 8 says the prior's share is not isolated, because the i6 audio
+    enters the step-1 lattice through units and eta. The G0.R1s shift is equal but does not discriminate, since s1
+    shares both the prior and the audio.
+  - No wrong reading: each PER is on the right checkpoint, on dev-other (2864 utterances, 177,275 phones), with no
+    label leak. The banked thresholds trace to the frozen JUPITER logs; dev l_tau and agg trace only to summary lines.
+  - UNRESOLVED AUDIT FINDINGS:
+    - i6 sits above JUPITER from ep4 on: +0.002, +0.016 and +0.012 PER at ep4, ep10 and ep20. That is inside
+      +-0.03, but 9x JUPITER's ep20 ctrl_20 vs s1 spread (0.0013). With one replicate, a systematic shift cannot be
+      told from noise.
+    - dev agg uses 89 % of its band. Its direction fits a different prior, which is not established.
+- Consequence: no push. The push waits for G0.R1 with the audit (user). Next is the debugger's decisive test T3:
+  step 1 with only the prior swapped to JUPITER's.
 
 ### G0.K2M k2lat sub-epoch 8 on the V100, round 1 (2026-09-25): FAIL at chunk 16 and chunk 8
 
