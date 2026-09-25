@@ -5,15 +5,18 @@
 OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
 - Task A (core phi reads): G1.G PASS (Results). Fix 3 (`WAVE_*` durinit at 12) is still open; it waits until
   the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`. No Task A manager is live.
-- Task B (lift ladder): design review done (`reports/design_review_p1_2026-09-25.md`). All four MUST items are
-  applied as gate amendments before any job: L40S with a per-chunk k2 backward, a full-sub-epoch rt_r90 probe
-  gating the arms, the G1.L rules (CANNOT_TELL, VOID, rt_r100 in the both-LIFT branch), and a P1-only entry point.
-  Two implementers are writing new files only:
-  - fits: `config/sae_i6_p1_fits.py` and `analysis/p1_nesting.py` (`reports/impl_p1_fits_2026-09-25.md`);
-  - arms: the per-chunk backward in a new `reverse_model/` module and `config/sae_i6_p1_ladder.py`, staged probe
-    then arms (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
-NEXT: code review of the fits, then launch the fits (their own manager). Code review of the per-chunk backward and
-the arms, then the rt_r90 probe on one L40S (G1.M), then rt_r70 and rt_r80.
+- Task B (lift ladder): gates amended from the design review before any job (`reports/design_review_p1_2026-09-25.md`).
+  - Fits LIVE (review PASS, `reports/review_p1_fits_2026-09-25.md`): manager pid 1677624 on
+    `config/sae_i6_p1_fits.py` (`log/sae_i6_p1_fits.manager.pid`). Corruptions `CorruptSeedGoldJob.aj2XQaDlED2E` /
+    `H9GbhLPtIthV` / `wsKq52Dk68b4` (cpu_modern, 14:51); fits `ReturnnTrainingJob.ruLnJFWyifwp` (r70) /
+    `6IkAAuzcBwBR` (r80) / `uO8wkodbR2uh` (r90) on gpu_24gb. Re-arm the watcher (setup dir):
+    `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1677624 config/sae_i6_p1_fits.py 60`
+  - Arms: the per-chunk backward and `config/sae_i6_p1_ladder.py` are being implemented
+    (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
+NEXT: when the fits finish, read G1.F (`analysis/p1_nesting.py`, each fit's epoch-8 dev NLL from its learning_rates
+file). The arms manager starts only after the fits have FINISHED, and must build the same fit ids. Arms code review,
+then the rt_r90 probe on one L40S (G1.M), then rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
+in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
 
@@ -131,9 +134,17 @@ The registration text of each amended clause is kept under "Original".
 
 ## Runs
 
-(none yet)
+- Fits (2026-09-25 14:51): manager on `config/sae_i6_p1_fits.py`; job ids in State. The corruption on the i6 seed
+  gold (2849 utterances, 351,312 tokens, 1705 repeats) gives realised rates 0.699905 / 0.800081 / 0.899946 when
+  the reviewer re-runs the code. The r70 rate, PER vs gold 0.695288 and 14,293 repeats equal JUPITER's banked
+  `CorruptSeedGoldJob.mnzDC7XJX00r` exactly, so the i6 seed strings are JUPITER's. These are the reviewer's code
+  reads; the jobs' own corruption.json are read at G1.F.
 
 ## Deviations from the reference (filled as they are made)
+
+- The fits run on gpu_24gb (A10). The i6 gold fit ran on L40S and JUPITER's on GH200. The fit configs differ from
+  the gold fit's only in the train/dev HDF paths (the corrupted targets) and the model dir (review). The GPU peak
+  is estimated at 2-3 GiB from a worst-case batch (229 phones, 823 units) measured on CPU.
 
 ## Results
 
