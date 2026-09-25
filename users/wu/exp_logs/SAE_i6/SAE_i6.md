@@ -50,14 +50,16 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 4. **Candidate, unfunded, awaiting the user's OK:** the phi-init plan (a new label-free phi initialisation: named
    alphabet coarse-to-fine, SIL anchor, oracle split arms), `exp_logs/SAE/SAE_4A_phiinit.md` (origin 7711f1513,
    audited). A new cold-start method with its own objective and gate, so it becomes its own phase if funded.
-5. **GAN reproduction (user, 2026-09-25):** the JUPITER orchestrator pushes a GAN implementation to this branch;
-   review it, test it, then run the reproduction. It is a reference baseline, not a cold-start method arm, so the
-   no-GAN constraint for the method (`SAE_i6_ref.md` section 2) stands. It becomes its own phase, with a design
-   review before its first job. Waiting for the push (remote head 7e7c38aee at the time of the request).
+5. **GAN reproduction (user, 2026-09-25):** wav2vec-U 2.0 through fairseq, pushed by the JUPITER orchestrator
+   (68b39418a, merged locally 692d6e55a). Per the user through that orchestrator, it runs inside P0 under gate
+   G0.GAN. It is a reference baseline, not a cold-start method arm, so the no-GAN constraint on the method
+   (`SAE_i6_ref.md` section 2) stands.
 
 ## Phase pointers
 
 - **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
-  ctrl_20_rc and k2lat on V100) — `SAE_i6_P0.md`.
+  ctrl_20_rc and k2lat on V100); k2lat's V100 memory probe (G0.K2M) in round 2; GAN reproduction (G0.GAN) in
+  setup — `SAE_i6_P0.md`.
 - **P1 completion and small extensions of the JUPITER framework** — OPEN: Task A G1.G PASS (dev-other phone read
-  reproduces JUPITER's gold row, 0.1960 vs 0.193), fix 3 after P0; Task B fits and arms in review — `SAE_i6_P1.md`.
+  reproduces JUPITER's gold row, 0.1960 vs 0.193), fix 3 after P0; Task B G1.M PASS, arms r70/r80/r90 running —
+  `SAE_i6_P1.md`.

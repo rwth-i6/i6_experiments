@@ -14,19 +14,21 @@ Decided: the i6 prior and phone text are the bed (user). G0.R0 prior and HLG FAI
 ctrl_20 PER ep1/4/10 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results, step 1).
 NEXT:
 - k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M).
-  - Round 1 FAIL: chunk 8 OOM, chunk 16 cannot pass (Results, G0.K2M round 1).
-  - Round 2 is being built: probes at chunk 2 and chunk 1, seeded from J's latest checkpoint, plus the live
-    variants `_cs2` and `_cs1` (`reports/impl_p0_k2lat_cs1_cs2_2026-09-25.md`). Then launch review, launch and
-    read (`read.txt` verdict line).
-  - Apply the variant with the largest passing chunk size, after its review, using the restart steps in
-    `reports/review_p0_k2lat_perchunk_2026-09-25.md`.
-  - No PASS by the end of sub-epoch 7 (about 19:30): hold k2lat after `epoch.007.pt` (cancel, resumable), and
-    resume it on the V100 once a variant passes; the options go to the user. No GPU switch (user).
+  - Round 1 FAIL at chunk 16 and chunk 8 (Results).
+  - Round 2 RUNNING on cn-32, seeded from `epoch.004.pt` (`reports/review_p0_k2lat_probe_round2_2026-09-25.md`):
+    - chunk 2, Slurm 4363361, in `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs2`;
+    - chunk 1, Slurm 4363362, 6 h limit, in `..._cs1`.
+    Trust `read.txt`'s verdict only after `rnn exit 0`.
+  - Pass: apply the largest passing chunk's variant (`reports/impl_p0_k2lat_cs1_cs2_2026-09-25.md`, under review).
+  - No pass by the end of sub-epoch 7: hold k2lat after `epoch.007.pt`, resume it on the V100 once a chunk size
+    passes, and bring the options to the user. No GPU switch (user).
+- GAN reproduction (G0.GAN), pushed 68b39418a and merged locally 692d6e55a: i6 setup being prepared
+  (`reports/impl_w2vu2_i6_setup_2026-09-25.md`: `settings.py` patch, w2vu env build on a V100, torchaudio in the
+  sae env, `config/sae_i6_w2vu2.py`, overlap with P0 jobs, CPU tests). Then review, env build, then its manager.
 - ep10 of s1 and rc (about 18:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
-  gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
-  Sisyphus pin to a567fa7; `k2_word_lm` default `phone_trigram` to "full" (user, `SAE_i6_ref.md` section 4); a one-step
-  log Z read for G0.RC. P1 fix 3 (`phi_first.py`) is released then.
+  gap reads (`config/common.py`; the ep20 rc gaps now built are void for G0.RC), then rerun them; README pin to
+  a567fa7; `k2_word_lm` `phone_trigram` default "full"; a one-step log Z read for G0.RC; then P1 fix 3.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -148,6 +150,23 @@ generation); widened tolerances in brackets apply then.
   `lexlat_k2_ABORT.json`; the stability read gives a finite median over at least 1 utterance; peak allocated (max over
   steps of max(`lexlat_k2_pre_peak_allocated_gib`, `mem_usage:cuda`), and the epoch-end alloc peak) <= 28 GiB of the
   V100's 32 GB. Step time is reported against the held path's banked 1.25x overhead.
+- **G0.GAN wav2vec-U 2.0 GAN reproduction (user through the JUPITER orchestrator, 2026-09-25; registered before any
+  job).** This is a reference baseline outside the GAN-free method line. Entry: `config/w2vu2.py` in the package
+  (68b39418a) through a setup-local config. Banked JUPITER numbers are in that file's docstring; greedy phone PER
+  is dev-clean / dev-other. Five seeds are trained; the seed is selected by the best valid `weighted_lm_ppl`, with
+  no label read.
+  - (A) GAN: every clause must hold.
+    - The selected seed reads dev-other 0.214 +-0.03 and dev-clean 0.173 +-0.03 (banked s0).
+    - At most 2 of 5 seeds collapse (PER > 0.5; banked: 1 of 5, s4).
+    - Every non-collapsed seed reads dev-other in [0.138, 0.245] (banked 0.168-0.215 +-0.03).
+    - The first training log shows fairseq's CUDA banner.
+    - The trainings' `submit_log.run` shows `-p gpu_32gb`.
+    - fairseq 0.12.2 is imported from the w2vu env.
+  - (A) CTC student on the selected seed's pseudo-labels: viterbi phone PER dev-other 0.1716 +-0.02 and dev-clean
+    0.1384 +-0.02.
+  - (B) Word WER with the lexicon and word 4-gram: dev-other 0.2187 +-0.03, dev-clean 0.1796 +-0.03.
+  - Disclosed up front: V100 instead of GH200; x86_64 audio (Deviations); utterance and manifest order; features
+    within one fp16 step. The trainings are not bit-reproducible, so a seed-level miss inside the band is noise.
 - **G0.V components.** All priority-1 tests (T1.1-T1.23) and T2.1-T2.4 green, the gpu- and k2-marked
   tests run on a gpu_48gb node, plus a CPU-vs-CUDA parity assert for `log_z_hlg` and `log_z_h` on the
   T1.19 fixture (1e-5). Strict xfails are allowed only for defects outside what the train step
