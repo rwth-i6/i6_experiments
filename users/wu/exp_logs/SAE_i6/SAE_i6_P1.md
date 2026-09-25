@@ -42,9 +42,11 @@ items; (3) the wave default durinit at 12 sub-epochs (`WAVE_*` is None).
 - Every P0 job id stays unchanged by the change.
 - Read conventions against JUPITER's (code review, `reports/review_g1g_core_phi_reads_2026-09-25.md`). MATCH:
   the Hungarian map (40x40 with a zero-gain DELETE column, after an identity-label edit alignment); direct PER (SIL
-  dropped, no merging); token NMI; the D4 sample (2863 eligible); the 260 set. UNKNOWN, JUPITER's source not on
-  i6: the uniform prior (i6 uses a 1/40 table at weight 1; weight 0 would drop log 40 per token) and the E[d]
-  weighting over phone types. Both touch Tier-B reads only (R2, E[d]). Frame NMI is i6-only.
+  dropped, no merging); token NMI; the D4 sample (2863 eligible); the 260 set. Also MATCH, settled from JUPITER's
+  source (`exp_logs/SAE/reports/reply_genmarg_conventions_2026-09-25.md`, origin bb33ab6d1): R2's prior is a
+  normalised 1/40 table at prior weight 1, as on i6 (the same job hash, `UniformPhonePriorJob.n7Yd9EbtVi13`); E[d]
+  is the unweighted mean of phi's duration law over the 39 non-SIL types, SIL separate, as `duration_means`
+  computes it. Frame NMI is i6-only.
 
 ## Task B: corrupted-phi lift ladder — reproduce rt_r70, extend to rt_r80 and rt_r90 (user, 2026-09-25)
 
