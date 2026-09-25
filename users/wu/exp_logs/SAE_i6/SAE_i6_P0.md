@@ -2,7 +2,7 @@
 
 ## State
 
-LIVE (2026-09-25 17:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
+LIVE (2026-09-25 18:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
 Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
@@ -11,17 +11,15 @@ Re-arm the watcher first (setup dir):
 Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results).
 NEXT:
-- k2lat's k2 phase: V100 with the exact per-chunk backward, tested first (G0.K2M, user). Round 1 FAIL (Results).
-  - Round 2 is running on cn-32 from `epoch.004.pt`:
-    - chunk 2: Slurm 4363361, `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs2`;
-    - chunk 1: Slurm 4363362, `..._cs1`.
-    Early peaks: 25.4-26.7 GiB and 27.2 GiB. Trust the `read.txt` verdict only after `rnn exit 0`.
+- k2lat's k2 phase: G0.K2M round 2 PASS at chunks 2 and 1; J switches at chunk 2 (Results).
+  - cs2 installed in J at 18:45 (sha 3a53ad6c...), `config/sae_i6_p0.py` patched, no drift since 14a8042d7
+    (`reports/launch_p0_k2lat_cs2_install_2026-09-25.md`).
   - J is held: `J/hold` since 17:48. A session loop scancels J once `epoch.007.opt.pt` exists; on resume, check
     that J stopped.
-  - Pass at N: steps (a)/(b) of `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, largest passing N. The executor
-    runs the drift check `git diff 14a8042d7 HEAD`, the csN install and patch, moves `error.run.1` aside, removes
-    `J/hold`, then checks for epoch 7 loaded, step 399 and chunk_seqs N.
-  - No pass: J stays held, options to the user. No GPU switch (user).
+  - Then an executor follows steps 5-7 of `reports/review_p0_k2lat_cs1_cs2_2026-09-25.md`, case (b) step 4:
+    - moves `J/error.run.1` aside and removes `J/hold`;
+    - checks the resubmit (`-p gpu_32gb`), that epoch 7 is loaded, global step 399, one
+      `installed (chunk_seqs = 2)`, and no OOM at sub-epoch 8.
 - GAN (G0.GAN; 68b39418a merged as 692d6e55a): setup reviewed and applied (Deviations).
   - The w2vu env build is Slurm 4364831 (V100), log `log/w2vu_env_build.4364831.out`.
   - When its gate prints "OK 2.6.0+cu126 0.12.2 ... cuda: True", the fairseq line and "== done", start one manager
@@ -411,6 +409,27 @@ Slurm runs' stdout (`engine/*.run.4357433.1`, `*.run.4357376.1`, L40S); their `l
   - J enters sub-epoch 8 with epoch-7 weights. Its lattices are likely smaller (JUPITER's same arm reserved
     17.4-21.9 GiB at on-set), but this is unmeasured on i6.
 - Next: round 2 at chunk 2 and chunk 1, from J's latest checkpoint as the gate prescribes; the gate is unchanged.
+
+### G0.K2M round 2 (2026-09-25): PASS at chunk 2 and chunk 1; J switches at chunk 2
+
+- Both probes were seeded from J's `epoch.004.pt`, the latest checkpoint at 17:36 (model sha256 f649c3546853...). Each
+  ran sub-epoch 8 on one V100 on cn-32 and exited `rnn exit 0`: cs2 (Slurm 4363361) at 18:39 and cs1 (4363362) at
+  18:42. Reads: `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25_cs{2,1}/read.txt`.
+- Both chunk sizes gave the same memory and stability reads:
+
+  | chunk | steps | peak (GiB, ≤ 28) | epoch-end alloc peak (GiB) | stability median | OOM / int32 / ABORT |
+  |---|---|---|---|---|---|
+  | 2 | 57 | 27.224 (per-step, step 1) | 8.7 | 0.0143 over 16 of 16 | 0 / 0 / absent |
+  | 1 | 57 | 27.224 (per-step, step 1) | 7.9 | 0.0143 over 16 of 16 | 0 / 0 / absent |
+
+  Both logged `installed (chunk_seqs = N)` at the intended N.
+- The 27.224 GiB peak is the pre-k2 part at step 1, not the k2 chunk. On the sub-epoch-8 dev pass, the pre-k2 peak
+  was 23.5 GiB and mem_usage was 10.8 GiB (cs2) and 9.9 GiB (cs1).
+- Step time (median over 57 steps, step 0 excluded) was 60.3 s at chunk 2 and 64.5 s at chunk 1. Before k2, J's
+  sub-epochs take 42 min, including the dev pass, which is at most 44 s per step. Chunk 2 therefore costs at least
+  1.36x, against the held path's banked 1.25x.
+- Decision, by the reviewed rule of taking the largest passing N: N = 2. J switches to chunk 2 at the epoch-7
+  boundary (Deviations, "k2 backward for k2lat").
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 
