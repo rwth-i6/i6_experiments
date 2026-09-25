@@ -24,6 +24,8 @@ emulated-drop windows with JUPITER's 151,731 types, 3,302,936 in-line bigram typ
 - Near 182k: debugger before k2lat.
 - An abort on the exact ppl3 `==` is a node-float artefact: relaunch pinned to a cn-60x node.
 Then read the ctrl_20 PER at ep4/10/20, ctrl_20_s1, ctrl_20_rc, the HLG size and k2lat.
+V100 benchmark done (Results, cost screen): the V100 fits 88k/128 and is 1.32x faster per step; P0 stays on L40S
+unless the user moves k2lat.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -242,6 +244,21 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   gold phi does not depend on the prior. p0 carries it in its hash and loads it, but its values enter
   no loss, pick, dump or PER (`reports/review_supinit_launch_2026-09-25.md`), so p0's PER holds under either
   prior. ctrl_20 keeps running.
+- V100 benchmark (2026-09-25, user request; Slurm 4358701 on cn-32, V100-SXM3-32GB, and 4358702 on cn-508, L40S;
+  `analysis_out/v100_bench/{v100,l40s}/summary.txt`; review `reports/review_v100_bench_2026-09-25.md`).
+  - Method: the real ctrl_20 step, resumed from epoch.011 (sub-epoch 12), on 12 seeded uniform-random train batches
+    (not laplace), the same batches on both GPUs, with 2 untimed warm-ups.
+  - 88,000 / 128: median step 51.68 s on V100 [51.39, 51.89] vs 68.14 s on L40S [66.29, 68.80]; ratio 0.758.
+    The earlier "does not fit a V100" was wrong. Peak memory, identical on both: 20.28 GiB allocated. Reserved:
+    28.22 GiB on V100, 36.8 GiB on L40S; the nvidia-smi 34.3 GiB was mostly the allocator cache.
+  - 44,000 / 64: 25.71 s vs 31.72 s. Per padded frame it matches the full batch (0.589 ms on V100), so halving
+    buys nothing.
+  - Projection: 3237 s x 0.758 = 2455 s of training per sub-epoch (41 vs 54 min); a 20-sub-epoch run takes
+    about 15 h instead of 19 h.
+  - The float64 matrix multiply was expected to dominate, which would predict a much larger V100 gain; where the
+    time goes is not profiled.
+  - Decision (orchestrator): P0's remaining trainings stay on L40S. G0.R2 pairs k2lat with the L40S ctrl_20, and
+    a GPU switch inside a Tier-A pair adds a hardware difference to the seed noise. Later packs run on V100.
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 
