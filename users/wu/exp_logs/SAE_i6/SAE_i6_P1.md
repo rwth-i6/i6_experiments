@@ -9,10 +9,15 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
   - Fits DONE, G1.F PASS (Results). No fits manager is live. r70 / r80 / r90 = `ReturnnTrainingJob.ruLnJFWyifwp` /
     `6IkAAuzcBwBR` / `uO8wkodbR2uh`, epoch 8.
   - Arms: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, selected by a hash-neutral config epilog)
-    and `config/sae_i6_p1_ladder.py` (STAGE=probe or arms) are written. On CPU they match the held path with
-    deviation 0.0 (38 tests). GPU parity is not yet run (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
-    Code and launch review running (`reports/review_p1_arms_chunked_backward_2026-09-25.md`).
-NEXT: after the arms review, a GPU parity test on gpu_test_24gb, then the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
+    and `config/sae_i6_p1_ladder.py`. Review PASS_WITH_FIXES (`reports/review_p1_arms_chunked_backward_2026-09-25.md`):
+    exact on CPU (38 tests, deviation 0.0, not self-compared), the epilog is in all three written arm configs, and
+    each arm has one delta. The MUST fix is that the stability read's peak memory escaped the log; an implementer is
+    fixing it (`reports/impl_p1_probe_memlog_2026-09-25.md`). GPU parity test Slurm 4361250 (RTX 3090,
+    `log/p1_rt_parity.4361250.out`) FAILED as a test: log Z and the k2 term agree on CUDA, but the monitor loop
+    stops at `lexlat_k2_stability`, which is NaN in both paths (pytest treats NaN != NaN). So the CUDA gradient
+    asserts never ran. The same implementer makes the CUDA comparison NaN-aware and finds why the held path's
+    stability is NaN on CUDA.
+NEXT: re-review of the fix, a GPU parity re-run (gradients on CUDA), then commit the code, then the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
 rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
 in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
@@ -99,6 +104,11 @@ The registration text of each amended clause is kept under "Original".
   `nvidia-smi` on the node, the step time and the sub-epoch wall time. PASS = no OOM, no k2 int32 error, no
   `lexlat_k2_ABORT.json`, the sub-epoch 1 stability read completes, and peak allocated <= 40 GiB over the whole
   sub-epoch. A passed probe may continue as rt_r90. On a miss, no arm launches; the miss goes to the debugger.
+  - Amended 2026-09-25 from the arms code review (`reports/review_p1_arms_chunked_backward_2026-09-25.md`), before
+    any arm job. The peak is the max over each step of the pre-k2 peak (which includes the stability read) and the
+    k2 leg's peak. Device-level used memory (`torch.cuda.mem_get_info`, logged per step) stands in for
+    `nvidia-smi`, which cannot run beside a batch job here. A probe over 40 GiB that has not crashed is cancelled at
+    the read and does not continue as rt_r90.
   A change of batch shape, or of anything that moves a score or gradient, is a new operating point: it needs the
   design review and voids the G1.R70 comparison. `lexlat_k2_chunk_seqs` and `expandable_segments` are launch
   granularity and move nothing; both are disclosed if used.
