@@ -23,6 +23,10 @@ NEXT:
    (`reports/audit_rename_proposal_2026-09-25.md`) and corrected. It waits for the user's OK and three rulings
    (secondary acceptance read, broad-class allocation, V2 occupancy term). No TP runs without the user's OK; on an
    OK, register the gate (bar spread, disjoint read set, no-move control, name read), then design review.
+4. Pre-decision analyses registered in the Analyses section, all 2026-09-25: AN-1 V3 and AN-6 (CPU), and TP0
+   (funded by the user). Implementer reports are due at `reports/impl_rename_{an1v3,an6,tp0}_2026-09-25.md`. Next:
+   the executor launches V3 and AN-6 on the login node; TP0 goes to code review, then the executor launches it and
+   I arm the watcher.
 
 ## Objective
 
@@ -242,6 +246,27 @@ analysis has run; registered before any job; CPU, no training):**
   train and on the 260 set), PNMI, phone purity, and the number of phones that are some class's majority. It is shown
   with the TP-D request and decides nothing. It measures how much phone information each coarse inventory keeps
   before TP-D is funded.
+- **TP0, funded by the user on 2026-09-25 (analysis only, label-built init; amended before any job).** The user was
+  asked whether to run it now and chose "Run TP0 now". Reason: AN-5 starts from found partitions, so it cannot
+  separate partition from names, which is TP0's registered trigger.
+  - Arms, one 4-GPU pack, A17 (ii)'s recipe (tau = 1, 12 sub-epochs), each starting from the gold-key phi (stage 2's
+    key-to-phi conversion, durinit):
+    - full derangement, seed 1;
+    - full derangement, seed 2;
+    - the 5-pair derangement of AN-0 (seed 1);
+    - a no-derangement control.
+    Derangements are built exactly as in AN-0.
+  - Measured at 0/4/8/12: key identity (AN-5's rule); the best 1:1 renaming's identity, a partition-only measure;
+    A15-F; S on the 260 set; generative PER.
+  - **EM RENAMES** if identity(12) - identity(0) >= 0.2 on at least 2 of the 3 deranged arms. **EM LOCKED** if it is
+    <= 0.05 on at least 2 of 3. Otherwise PARTIAL. The control's identity drift and each arm's best-1:1 identity are
+    reported beside, so that name changes can be told apart from partition drift.
+  - Consequence:
+    - EM LOCKED: EM keeps wrong names even on the right partition. Fixing the partition alone is then not enough.
+      The naming levers (TP-A1, the sparse channel prior) and TP-B''s name step go back to the user beside the
+      proposal; row 2 dropped them on the evidence of found partitions only.
+    - EM RENAMES: the found partitions' lock is a partition fault, and the proposal stands as written.
+    - PARTIAL: reported beside, with no change.
 
 ## Proposed training changes (not funded; each needs the user's OK)
 
