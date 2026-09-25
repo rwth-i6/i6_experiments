@@ -11,7 +11,11 @@ next_step phase file"; new analyses are allowed, including GPU). Nothing here is
   below before any job.
 - Live dependency in `SAE_4A_lexlat_v2.md`: the stage-2 key arms (pack G0Vzzokj5PQC) feed AN-5.
 
-No live rename manager. Finished: AN-0b `RenameEscapeJob.cw4BeJzrQ3U9`, AN-2 `An2ReadJob.91eeK6mtb6UH`, AN-4
+LIVE: TP0 manager 3153527 (`config/sae_4a_rename_tp0.py`, started 11:02, log
+`log/sae_4a_rename_tp0.manager.20260925_110248.log`; pack `21tww6QQK0tH`, SLURM 2011293; reader `Tp0ReadJob.t7gzZhB2fWtn`).
+Watcher: `bash ~/.claude/skills/sis/sis_watch.sh 3153527 config/sae_4a_rename_tp0.py 600`. AN-1 V3 finished
+(`KeyObjectiveV3Job.N7q9hgRBDrFw`, audit pending). AN-6 `InventoryCeilingJob.CmkLGGuJFZyg` is fixed but still errored,
+and needs the user's `-co`. Earlier finished: AN-0b `RenameEscapeJob.cw4BeJzrQ3U9`, AN-2 `An2ReadJob.91eeK6mtb6UH`, AN-4
 `An4ReadJob.c75KVY92wtjP`; extractions `reports/extract_rename_{an0b,an24}_2026-09-25.md`.
 
 NEXT:
