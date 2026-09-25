@@ -22,8 +22,11 @@ NEXT:
     runs the drift check `git diff 14a8042d7 HEAD`, the csN install and patch, moves `error.run.1` aside, removes
     `J/hold`, then checks for epoch 7 loaded, step 399 and chunk_seqs N.
   - No pass: J stays held, options to the user. No GPU switch (user).
-- GAN (G0.GAN; 68b39418a merged as 692d6e55a): i6 setup in preparation (`reports/impl_w2vu2_i6_setup_2026-09-25.md`),
-  then review, env build and its own manager.
+- GAN (G0.GAN; 68b39418a merged as 692d6e55a): setup reviewed and applied (Deviations).
+  - The w2vu env build is Slurm 4364831 (V100), log `log/w2vu_env_build.4364831.out`.
+  - When its gate prints "OK 2.6.0+cu126 0.12.2 ... cuda: True", the fairseq line and "== done", start one manager
+    on `config/sae_i6_w2vu2.py`. Use step 4 of the review, then write the pid file and arm a watcher.
+  - First-log checks: the CUDA banner, `-p gpu_32gb`, and fairseq 0.12.2 from the env.
 - ep10 of s1 and rc, then ep20.
 - After the trainings end, in one implementer batch with review:
   - `sil_run_collapse` into rc's gap reads, then rerun them (the ep20 rc gaps are void for G0.RC);
@@ -241,6 +244,16 @@ Tier-A miss goes to the debugger before any rerun; P0 closes on REPRODUCED or on
   within 1.9e-9, and a deviation of 0.0 at k2lat's rung 3000. One side effect: a non-finite
   `lexlat_k2_stability` is now left out of the monitors instead of stopping the run. G0.R2 reading (registered
   now): a `lexlat_k2_stability` value missing at any sub-epoch from 11 on fails G0.R2's stability clause.
+
+- GAN reproduction setup on i6 (2026-09-25, before any w2vu2 job; `reports/impl_w2vu2_i6_setup_2026-09-25.md`, review
+  `reports/review_w2vu2_i6_launch_2026-09-25.md`, launch `reports/launch_w2vu2_steps123_2026-09-25.md`):
+  - `settings.py` adds `W2VU_PYTHON` and extends the 72 h first leg to FairseqHydraTrainingJob run tasks (production
+    fit into 11.5 h on GH200, and a V100 seed may not). Unhashed: the 101 w2vu2 and 164 P0 ids are unchanged.
+    The GAN and CTC trainings run on V100 (`-p gpu_32gb`); the forwards and decodes on L40S.
+  - The w2vu env build now pins torch and torchaudio 2.6.0+cu126, production's torch. Unpinned, pip resolved torch
+    2.8.0 (0dbe9cf7f). The gate asserts the version, sm_70, CUDA and fairseq 0.12.2 from the env.
+  - The sae env gained torchaudio 2.7.1 (pip, `--no-deps`) for the w2vu2 feature jobs; its pip freeze is otherwise
+    unchanged. No live P0/P1 or RETURNN code imports torchaudio. JUPITER's env record does not show torchaudio.
 
 ## Results
 
