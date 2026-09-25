@@ -2,15 +2,14 @@
 
 ## State
 
-LIVE (2026-09-25 13:50). One manager, pid 1646677, runs the FULL graph `config/sae_i6_p0.py` (pid file
-`log/sae_i6_p0.manager.pid`). Never start a second manager on it. Re-arm the watcher first after a resume (from the setup dir):
+LIVE (2026-09-25 14:20). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py`
+(`log/sae_i6_p0.manager.pid`); never a second one on it. Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
 - ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
-- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): on V100 from sub-epoch 4
-  (resume verified), about 44 min per sub-epoch; end about 01:30 on 2026-09-26.
-- k2lat `jcKXbLMDk4hl`: Slurm 4359832, on V100 since 13:05. k2 on-set (sub-epoch 8) about 19:00; end about
-  07:00 on 2026-09-26 if the banked 1.25x k2 overhead holds on V100 (not measured). Job starts spend about 2 min
-  per HDF input in the `cf` timeout: slow, not a failure.
+- ctrl_20_s1 `DvVfxf1LrCBi` (Slurm 4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100 from sub-epoch 4,
+  about 44 min per sub-epoch; end about 01:30 on 2026-09-26.
+- k2lat `jcKXbLMDk4hl`: Slurm 4359832, V100 since 13:05; k2 on-set (sub-epoch 8) about 19:00; end about 07:00
+  on 2026-09-26 (banked 1.25x k2 overhead, unmeasured on V100). Job starts wait about 2 min per HDF in `cf`.
 Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). G0.R0 prior and HLG clauses FAIL,
 fully attributed to JUPITER's truncated text; T0 closed. G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS. Step 1:
 G0.R2 PASS; G0.R1s prior FAIL, attributed; G0.RC log Z not logged, open (Results, step 1).
@@ -21,13 +20,10 @@ NEXT:
 - ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
 - G0.G: implementer on fixes 1, 2 and 4 (outside the live import closure, no P0 job id changes), code review,
   then the gold-phi D4 read on its own entry point.
-- After the trainings end:
-  - the implementer passes `sil_run_collapse` to ctrl_20_rc's derangement and decode gap reads
-    (`config/common.py`; the ep20 rc gaps built now are void for G0.RC);
-  - fix 3 (`WAVE_*` in `reverse_model/phi_first.py`, which the P0 graph imports);
-  - moves the README Sisyphus pin to a567fa7;
-  - design a one-step read of log Z for the G0.RC clause;
-  - code review, then rerun the two rc gap reads.
+- After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
+  gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; fix 3 (`WAVE_*`,
+  `reverse_model/phi_first.py`, imported by the P0 graph); README Sisyphus pin to a567fa7; a one-step log Z read
+  for G0.RC.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
