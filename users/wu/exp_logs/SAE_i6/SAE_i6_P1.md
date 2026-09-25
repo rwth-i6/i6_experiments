@@ -2,24 +2,24 @@
 
 ## State
 
-OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
+OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph.
 - Task A (core phi reads): G1.G PASS (Results). Fix 3 (`WAVE_*` durinit at 12) is still open; it waits until
   the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`. No Task A manager is live.
 - Task B (lift ladder): gates amended from the design review before any job (`reports/design_review_p1_2026-09-25.md`).
   - Fits DONE, G1.F PASS (Results). No fits manager is live. r70 / r80 / r90 = `ReturnnTrainingJob.ruLnJFWyifwp` /
     `6IkAAuzcBwBR` / `uO8wkodbR2uh`, epoch 8.
-  - Arms: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, selected by a hash-neutral config epilog)
-    and `config/sae_i6_p1_ladder.py`. Review PASS_WITH_FIXES (`reports/review_p1_arms_chunked_backward_2026-09-25.md`):
-    exact on CPU (deviation 0.0), one delta per arm. The memory-log fix and the NaN-aware CUDA compare are
-    re-reviewed PASS (`reports/review_p1_probe_memlog_2026-09-25.md`, 39 rt tests pass, job ids unchanged). Its F1:
-    with `stop_on_nonfinite_train_score = True`, a failed stability read (NaN monitor) makes RETURNN stop the arm,
-    against the read's design. Decision: a diagnostic may not end an arm. The guard leaves a non-finite read out of
-    the monitors (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, reviewed PASS); G1.M's read is amended to match.
-  - GPU parity re-run PASS (Slurm 4362010, RTX 3090, `log/p1_rt_parity.4362010.out`): 2 passed; CUDA log Z within
-    3.3e-16, gradients within 1.9e-9 of the reference path, at the test fixture only. The code is committed (35f676b70).
-NEXT: the rt_r90
-probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then rt_r70 and rt_r80.
-The second-seed builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
+  - Arms code: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, hash-neutral epilog) and
+    `config/sae_i6_p1_ladder.py`; exact on CPU, one delta per arm; reviews `review_p1_arms_chunked_backward`,
+    `review_p1_probe_memlog`, `review_p1_stability_nan_guard` (a failed stability read no longer stops an arm; G1.M
+    amended to match). CUDA parity PASS (Slurm 4362010: log Z within 3.3e-16, gradients within 1.9e-9, test
+    fixture only). Committed 35f676b70.
+  - rt_r90 probe RUNNING (Runs): manager pid 1700738 (`P1_LADDER_STAGE=probe`, `config/sae_i6_p1_ladder.py`),
+    `ReturnnTrainingJob.EexT85vdfx25`, Slurm 4362041_1 on cn-506 (L40S). Watcher, re-armed first on resume:
+    `P1_LADDER_STAGE=probe SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis"
+    PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1700738 config/sae_i6_p1_ladder.py 60`.
+NEXT: when `output/models/epoch.001.pt` appears (or the job ends), an extractor reads G1.M from `log.run.1`
+(amended read); on PASS, launch rt_r70 and rt_r80 (STAGE=arms, code review of the launch first). The second-seed
+builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
 
@@ -106,7 +106,8 @@ The registration text of each amended clause is kept under "Original".
   sub-epoch. A passed probe may continue as rt_r90. On a miss, no arm launches; the miss goes to the debugger.
   - Amended 2026-09-25 from the arms code review (`reports/review_p1_arms_chunked_backward_2026-09-25.md`), before
     any arm job. The peak is the max over each step of the pre-k2 peak (which includes the stability read) and the
-    k2 leg's peak. Both are allocated memory: `lexlat_k2_pre_peak_allocated_gib` and the step's `mem_usage:cuda:0`
+    k2 leg's peak. Both are allocated memory: `lexlat_k2_pre_peak_allocated_gib` and the step's `mem_usage:cuda` (the
+    log's name; the reviews wrote `mem_usage:cuda:0`)
     line; the reserved-memory monitors are context only (clarified 2026-09-25 from the memlog re-review, before any run). Device-level used memory (`torch.cuda.mem_get_info`, logged per step) stands in for
     `nvidia-smi`, which cannot run beside a batch job here. A probe over 40 GiB that has not crashed is cancelled at
     the read and does not continue as rt_r90.
@@ -154,6 +155,9 @@ The registration text of each amended clause is kept under "Original".
   the reviewer re-runs the code. The r70 rate, PER vs gold 0.695288 and 14,293 repeats equal JUPITER's banked
   `CorruptSeedGoldJob.mnzDC7XJX00r` exactly, so the i6 seed strings are JUPITER's. These are the reviewer's code
   reads; the jobs' own corruption.json are read at G1.F.
+- rt_r90 probe (2026-09-25, about 15:55): `ReturnnTrainingJob.EexT85vdfx25`, one L40S, per-chunk backward (chunk_seqs 4),
+  launch `reports/launch_p1_rt_r90_probe_2026-09-25.md`. Step 1 (warm-up, not a G1.M read): pre-k2 peak allocated
+  24.6 GiB, device used 32.6 GiB, 74.7 s/step; sub-epoch 1 stability read median 0.0826 over 16 of 16 utterances.
 
 ## Deviations from the reference (filled as they are made)
 
