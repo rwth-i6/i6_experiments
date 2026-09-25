@@ -5,7 +5,8 @@
 LIVE (2026-09-25 18:50). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
 Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
-- ctrl_20 `GiT88bxzoZbZ`: L40S, Slurm 4346718, ends about 19:00.
+- ctrl_20 `GiT88bxzoZbZ`: FINISHED (20 sub-epochs). The ep20 G0.R1 reads are in Results; the audit is running
+  (`reports/audit_p0_g0r1_ctrl20_2026-09-25.md`). On PASS, push the branch (user); on a miss, debugger first.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756) and ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
 - k2lat `jcKXbLMDk4hl` = J: Slurm 4359832, V100, 42 min per sub-epoch; `epoch.007` due about 19:10.
 Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
@@ -392,6 +393,28 @@ Slurm runs' stdout (`engine/*.run.4357433.1`, `*.run.4357376.1`, L40S); their `l
   - G0.RC rc - ctrl_20 (report-only): ep1 +0.0005 [0.0000, +0.0010]; ep4 +0.0072 [+0.0046, +0.0098].
   - From ep4, s1 and rc ran on V100 and ctrl_20 on L40S, so every ep4 delta carries a hardware term (Gates,
     hardware amendment).
+- ep10 (`reports/extract_p0_ctrl20_ep20_2026-09-25.md`):
+  - s1 PER 0.863263; rc PER 0.895484.
+  - Seed band ctrl_20 - s1: +0.0214 [+0.0179, +0.0248] (banked -0.011).
+  - rc - ctrl_20: +0.0108 [+0.0085, +0.0134].
+  - Both are on 2864 utterances in 33 clusters and carry the hardware term.
+
+### G0.R1 ctrl_20 at ep20 (2026-09-25; read before the audit)
+
+Source: `reports/extract_p0_ctrl20_ep20_2026-09-25.md`.
+- The run finished cleanly: 20 sub-epochs, global step 1140, about 3245 s of training per sub-epoch on L40S.
+- ep20 dev-other greedy PER 0.886233 (gate 0.874568 +-0.03).
+  - S/D/I 129496 / 18234 / 9377 over 177,275 phones.
+  - Source: `BlankfreeGreedyPerJob.LbLZ8pK3RIm9`.
+- Emitted rate 9.153 /s (gate 9.16 +-0.3).
+- Derangement gap 4.2347 over 500 utterances (gate 4.27 +-0.6).
+- (B) dev reads from `work/learning_rates`, epoch 20:
+  - l_tau 1.8019 (1.811 +-0.05);
+  - agg 1.3826 (1.516 +-0.15);
+  - reverse per frame -3.2061 (-3.26 +-0.3).
+- All ep1-20 PER and the ep20 values fall inside their tolerances. The one miss is step 1 prior per token, recorded
+  under the cost screen.
+- The verdict waits for the audit: `reports/audit_p0_g0r1_ctrl20_2026-09-25.md`.
 
 ### G0.K2M k2lat sub-epoch 8 on the V100, round 1 (2026-09-25): FAIL at chunk 16 and chunk 8
 
