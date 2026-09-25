@@ -18,9 +18,11 @@ NEXT:
 1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
 2. AN-0b and AN-2/AN-4 recorded (Results). Row 2 fires: TP-B and the coarse-to-fine inventory; rename levers and
    TP-A2 dropped. A precedence rule (row 6 over row 2) was fixed before AN-5.
-3. AN-5 recorded (Results): EM LOCKED. Row 2 is final: TP-B and the coarse-to-fine inventory. The literature pass
-   on their design (`reports/lit_partition_levers_2026-09-25.md`) is pending. Then write the Proposal section and
-   bring it to the user. No TP runs without the user's OK.
+3. AN-5 recorded (Results): EM LOCKED. Row 2 is final. The Proposal section (TP-D, then TP-B') is written after the
+   literature pass (`reports/lit_partition_levers_2026-09-25.md`), audited CONFIRMED_WITH_CORRECTIONS
+   (`reports/audit_rename_proposal_2026-09-25.md`) and corrected. It waits for the user's OK and three rulings
+   (secondary acceptance read, broad-class allocation, V2 occupancy term). No TP runs without the user's OK; on an
+   OK, register the gate (bar spread, disjoint read set, no-move control, name read), then design review.
 
 ## Objective
 
@@ -300,34 +302,57 @@ row 2 reads the objective on those partitions before EM.
 
 ## Proposal to the user (2026-09-25, after AN-0 to AN-5; decision-table row 2; nothing funded)
 
-**Answer.** EM cannot correct wrongly named phones here because the fault lies in the partition, not in the naming
-step. No naming-side lever reaches it. Evidence (Results, all audited):
+Audit: `reports/audit_rename_proposal_2026-09-25.md`, CONFIRMED_WITH_CORRECTIONS; corrections applied below.
+
+**Answer.** In every regime measured, EM keeps the names it starts with: one LM-weighted E-step on the right
+partition with swapped names (AN-0, AN-0b), and 48 sub-epochs from the four found partitions (AN-5, one seed each).
+On those found partitions S itself prefers the found names to the best 1:1 naming (AN-2). The registered table
+(row 2) therefore does not fund the naming levers, and this proposal targets the partition, the only place where S
+has been shown to see names. Evidence (Results, all audited):
 - On the right partition, S sees names. Deranging the gold key costs 0.51-0.57 nats per frame (AN-2, H2 REFUTED).
 - On the four partitions the label-free key search finds, scored as key-built phis before EM, S prefers the found
-  names over the best 1:1 oracle naming by 0.25-0.35 (AN-2), as J does at key level (A20). After stage-2 EM, these
-  partitions duplicate 7-11 gold phone types and leave 8-12 unclaimed; the gold-key arm has 1 and 1 (AN-5).
-- EM does not rename:
-  - One LM-weighted E-step restores at most 0.005 of swapped frames, even from the sharpest channel (AN-0), and
-    the cause is not an escape to empty rows (AN-0b).
+  names over the best 1:1 oracle naming by 0.25-0.35 (AN-2). This largely re-expresses A20: the found names were
+  climbed on J, and the keys were selected on the same 260 set. These partitions duplicate 9-11 gold phone types and
+  leave 12-13 unclaimed as built, and 7-11 and 8-12 after 48 sub-epochs of stage-2 EM; the gold-key arm has 1 and 1
+  at 48 (A15-F in AN-5, label-using, report only). Their best 1:1 renaming reaches identity 0.43-0.49 against
+  0.05-0.17 as named, so the names are a large part of the fault.
+- EM does not rename in the regimes measured:
+  - One LM-weighted E-step (lambda <= 4.4, either form) from the gold-key phi's sharp channel with 5 swapped pairs
+    (seed 1, 300 utterances) restores at most 0.0053 of train frames (0.013 of the 0.41 that were swapped) (AN-0).
+    Masking the empty OY/ZH rows does not change this (AN-0b); SIL was not masked. Iterated EM, a flat-channel start
+    and other seeds were not tested.
   - 48 sub-epochs from the four found keys leave key identity flat, with changes of -0.040 to -0.001 (AN-5, EM
     LOCKED). Keys still change on 28-51 % of frames.
-  - The best arm meanwhile reaches the S basin bar at PER 0.86 (KEY BASIN, on S only).
+  - The best arm meanwhile reaches the S basin bar at PER 0.86 (KEY BASIN, on S only; its 0.016 margin is below the
+    A10 seed spread 0.025-0.071, one seed).
 - The finals are not a private code the LM favours. They lose to the basin on both the channel term and the LM term
-  (AN-4, P1a False, P1b True). The LM-weight lever (TP-A1) and the rate floor (TP-A2) therefore have nothing to act on.
-- The literature treats duplicated and starved states as a search error of EM when the global optimum is right. It
-  fixes them with partition moves or restarts, never by changing the objective (`reports/lit_partition_levers_2026-09-25.md`:
+  (AN-4, P1a False, P1b True). Under the registered table TP-A1 is not funded: AN-0 DEAD dropped AN-3, so row 1
+  cannot fire, and row 2 drops the rename levers. TP-A2 is not brought, because its condition needs P1a, which is
+  False. P1c is True (6.85-7.56 Hz against 8.42-8.55 Hz). Neither lever has been shown not to work.
+- The split-merge and mixture papers read for this phase treat duplicated and starved states as a search error when
+  the global optimum is right, and fix them with partition moves or restarts (`reports/lit_partition_levers_2026-09-25.md`:
   Ueda et al. 2000; Zhao et al. 2012; Jain and Neal 2004; Hughes et al. 2015; Berg-Kirkpatrick and Klein 2013; Jin
-  et al. 2016). Two gaps: no published move works on a named, fixed inventory, and none accepts on held-out likelihood.
+  et al. 2016). Objective-side fixes exist elsewhere with mixed results (sparse priors: Johnson 2007; Ravi and Knight
+  2011; posterior regularisation did not help, Ganchev et al. 2010). Whether S's optimum is right is shown only
+  between basins (E1), not within them (E11). Gaps: no published move works on a named, fixed inventory; none
+  accepts on held-out likelihood; SMEM's mean LL was below repeated EM on 6 of 7 sets (Zhao et al. 2012); the one
+  held-out read found went the wrong way (SMEM 2000 toy); no published work shows that coarsening makes naming
+  recoverable.
 
 **Proposed (each needs the user's OK; gates are fixed at registration, before any job):**
 1. **TP-B' Named merge + split moves under held-out S.** This amends TP-B after the literature, before any TP-B job.
-   - Starts: the six A10 finals and the four stage-2 key arms at 48 (label-free).
+   It stays inside TP-B's relocation-only lever (fixed M). Disclosed: its name choice is a naming decision accepted
+   under S, and on found partitions S ranks the wrong names first (AN-2).
+   - Starts: the two durinit A10 finals and the four stage-2 key arms at 48 (all durinit, label-free). The A10
+     uniform-duration restarts (A9: reported only, never chosen) and durfrz restarts are excluded.
    - Move: SMEM's fixed-M structure with a naming step added.
-     - Merge a duplicate pair, ranked by emission-row similarity (Ueda eq. 8), into one symbol. This frees a name.
+     - Merge a duplicate pair, ranked by emission-row similarity, into one symbol. This frees a name. (Ueda eq. 8
+       is a posterior inner product; row similarity is an analogue.)
      - Split a symbol whose units fall into two groups by their decoded left and right symbol contexts. SMEM's
-       local-KL split is degenerate for free multinomial rows.
+       local-KL split is degenerate for free multinomial rows (the literature agent's inference).
      - Give the new half an unclaimed name, ranked by how well its decoded trigram contexts fit under the LM, and
-       try the top 2-3.
+       try the top 2-3. "Unclaimed" is defined from the phi's own decoded occupancy against the uniform-window LM
+       unigram (threshold fixed at registration), never from A15-F's gold counts.
    - Refit: the affected rows and their durations first (Ueda eq. 7), then full EM. Before fixing the refit length,
      check on the first moves that S has flattened by sub-epoch 2.
    - Acceptance: paired per-utterance held-out S on the 260 set, above the measured same-config S spread.
@@ -335,34 +360,63 @@ step. No naming-side lever reaches it. Evidence (Results, all audited):
      - Stop when none clears. The published schedules try far more than one candidate per 4 sub-epochs (Zhao et
        al.: more than M^2 trials).
    - Reported beside, never used for acceptance:
-     - label-free: the duplicate-pair count, occupancy KL to the LM unigram, the unclaimed-name count, LM log-prob
-       per decoded phone (AN-4's P1b separator), the non-SIL rate, cross-seed key agreement;
+     - label-free: the duplicate-pair count, occupancy KL to the uniform-window LM unigram (SIL excluded, AN-1's
+       lesson), the unclaimed-name count, LM log-prob per decoded phone (AN-4's P1b separator), the non-SIL rate,
+       cross-seed key agreement. LM per phone and rate stay report-only: they are in the battery because they
+       separated label-built from label-free phis (AN-4), so gating on them would be label-informed selection;
      - label-using, report only: generative PER and key identity (AN-5's rule).
-   - Draft read: RELOCATION LOWER if the chain's final S is below its start by more than the seed spread on at
-     least 2 of 3 starts.
-   - Cost, estimated from A10 (48 sub-epochs in about 3 h on one GPU): about 10-15 min per round on one 4-GPU node.
-     Up to 12 rounds is about 2-3 node-hours per start.
-2. **TP-D Coarse-to-fine unit inventory.**
+   - Needed at registration (the S-only draft read was implied by acceptance, had no control and could not show
+     that names are corrected):
+     - a no-move continuation control per start (the same EM continuation without moves);
+     - a held-out read set disjoint from the 260 acceptance set, since acceptance makes 36-60 selections on it;
+     - which spread sets the bar: the A10 exact-rerun band (3.4e-5) or the seed spread (0.025-0.071). The choice
+       decides the outcome and is fixed before any job;
+     - a label-using name read as the decision read: key identity (AN-5's rule) of the chain's final against its
+       no-move control. It decides what goes to the user and selects nothing inside the arm.
+   - Cost, from A10 (2.80 h for 48 sub-epochs on one GPU, about 3.5 min per sub-epoch): at 2 refit sub-epochs,
+     about 7 min per candidate plus the S forward, so 10-15 min per round for at most 4 candidates (5 need a second
+     wave, about 20 min). Up to 12 rounds is about 2-3 node-hours per start, 12-18 node-hours (48-72 GPU-h) over the
+     six starts, plus the controls. Excluded: job startup, the separate ReturnnForwardJobV2 S jobs, the queue wait
+     between the 12 sequential rounds; a 4-sub-epoch refit doubles the cost.
+2. **TP-D Coarse-to-fine unit inventory.** This amends the registered item ("about 100 classes") to a sweep used
+   for coarse-to-fine training, after the literature, before any job.
    - Cluster the 500 k-means centroids to {100, 200, 300} classes, label-free, by a second-level k-means on the
-     centroids. The counts come from the literature: Liu et al. 2018 is best near 300 units, and HuBERT's PNMI is
-     0.686 at 500 against 0.575 at 100. Labels never pick the count.
+     centroids. The counts span the published range: Sicherman and Adi 2023 (second k-means on centroids; V-measure
+     peak at 100-200) and Liu et al. 2018 (GAN, oracle boundaries, background only; best near 300). Coarsening costs
+     purity (HuBERT PNMI 0.686 at 500 against 0.575 at 100). Labels never pick the count.
    - Fit phi on the classes with the A10 durinit recipe, 2 seeds per count. Then expand each class row to its units,
-     m(u|s) = m(c(u)|s) p(u|c(u)), and continue EM on the 500 units (Petrov et al. 2006: hierarchical beats direct).
+     m(u|s) = m(c(u)|s) p(u|c(u)), and continue EM on the 500 units (by analogy to Petrov et al. 2006, who split
+     latent subsymbols under observed categories; TP-D coarsens the observations instead).
    - Read:
+     - decision read, label-using, selects nothing inside the arm: key identity (AN-5's rule) and generative PER of
+       the expanded phi against the two durinit A10 finals, margin fixed at registration. S alone cannot decide: the
+       3.289 bar was cleared by a chance-PER arm;
      - S on the expanded phi against the A10 finals (3.299) and the bar (3.289);
      - TP-B's label-free battery;
-     - generative PER;
      - each count's oracle many-to-one purity, as a label-using analysis only.
-   - Cost, estimated: 6 arms of about 4-5 GPU-h each, about two 4-GPU packs.
-3. **Order (recommended).** TP-D first: it tests the partition hypothesis directly and is a fixed cost. Then TP-B'
-   on TP-D's S-best finals, or on the A10 finals if TP-D is not funded.
+   - Cost, estimated: the coarse fit is about 2.8 h; the 500-unit continuation length (1.2-2.2 h would give 4-5
+     GPU-h per arm) is fixed at registration. 6 arms is about two 4-GPU packs if both stages run in one pack job,
+     four if the expansion is a separate job.
+3. **Order (recommended).** TP-D first: with its name read it tests the partition hypothesis directly, at a fixed
+   cost. Then TP-B' on TP-D's S-best finals, or on the six starts above if TP-D is not funded.
 - The best case of either is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), not gold. No published result covers a
   named inventory, so neither is expected to reach it; each tests the partition hypothesis.
 
+**Not tested (the user should know):**
+- TP0 was not run, so iterated EM from a clean partition with wrong names is untested (E13). The premise is
+  measured for one step on the clean partition and for 48 sub-epochs on found partitions only.
+- AN-3 was dropped after AN-0 DEAD, so LAMBDA OPENS and an iterated or flat-start LM-led E-step were never measured.
+- AN-1 read NOT GOLD FIRST under V1, V2 and V12; V3 (4- and 5-gram) was not built, so higher-order LM terms are
+  untested, and TP-C is not brought. The V12 near miss at the non-SIL divisor was +0.0076, below the 0.01 floor,
+  with the divisor chosen after the result.
+- The sparse channel prior (the handoff item beside TP-A1; Johnson 2007, Ravi and Knight 2011) is untested.
+- One-seed margins: AN-0 seed 1; AN-5 one seed per key; KEY BASIN rank1's margin. Also unmeasured: m without the
+  duration weighting (AN-5), SIL escape (AN-0b), N(s,u) at batched size.
+
 **Rulings needed from the user:**
 - May a label-free secondary read gate a move's acceptance in TP-B'? Near the top, S alone is a weak judge
-  (Berg-Kirkpatrick and Klein 2013; our PER-0.86 arm at the S bar). If so, may that read be chosen by how well it
-  separates the label-built basin set from the finals?
+  (Berg-Kirkpatrick and Klein 2013; our PER-0.86 arm at the S bar). The project's candidates (LM per phone, rate)
+  are label-informed (AN-4), so such a read would have to be fixed from general knowledge before any result.
 - Is a broad-class name allocation (vowel / stop / fricative / nasal / SIL counts) admissible as general phonetic
   knowledge? It is the direct analogue of Jin et al.'s group counts, and is not proposed without a ruling.
 - Still open: the occupancy term (V2), a unigram-level term beside the trigram.
