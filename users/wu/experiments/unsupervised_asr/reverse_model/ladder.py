@@ -77,6 +77,10 @@ Port changes:
   (the corrupted-phi arms on p0's theta), the per-arm PER reads and paired deltas, statistic (c)
   (``decode_gap``, ``REUSED_GAP_READS``), D14's decphi, statistic (b) of the competence reads (not
   ported in ``genmarg``) and the dev-other competence reads.
+* Added 2026-09-25 (G0.G, ``SAE_i6_P0.md``): the competence reads score, by default, the CV holdout
+  MINUS every ladder fit item (:class:`DisjointHoldoutSegmentsJob`, ``genmarg.CV_DISJOINT``; the
+  source's A13 260-utterance set), with the whole 285-utterance CV holdout read beside it.  The
+  removed items are derived from the fit sets' segment lists, never listed here.
 * ``edit_counts`` is a verbatim local copy of ``sae/emc/eval_jobs.edit_counts``.
 * The builders return their jobs and register no outputs; the source config's ``sys.path`` prolog is
   dropped.
@@ -99,7 +103,7 @@ __all__ = ["CorruptSeedGoldJob", "corrupt_string", "corrupt_all", "gold_unigram"
            "phone_permutation", "permute_all", "RHOS", "CORRUPTION_SEED", "PERM_SEED", "tag",
            "NUM_SUBEPOCHS", "KEEP_EPOCHS", "RT_K2_CHUNK_SEQS", "SECOND_SEED", "RT_PACKS", "LIFT_PER",
            "PARTIAL_PER", "schedules", "corrupted_phi", "permuted_phi", "ladder_phis",
-           "competence_reads", "rt_model_args_delta", "rt_train_config", "build_fits", "build_rt"]
+           "competence_reads", "DisjointHoldoutSegmentsJob", "disjoint_holdout", "rt_model_args_delta", "rt_train_config", "build_fits", "build_rt"]
 
 #: the seed census every consumer asserts (2849, split 2821 / 28)
 SEED_UTTERANCES = 2849
@@ -505,16 +509,89 @@ def ladder_phis(fits: dict, *, gold_phi) -> Dict[str, Optional[tk.Path]]:
     return phis
 
 
+def disjoint_holdout(holdout: Sequence[str], fits: Sequence[Sequence[str]]) -> Dict[str, Any]:
+    """``holdout`` minus the UNION of ``fits`` (sorted), with the overlaps: ``overlap_any`` = the
+    holdout items in at least one fit set (removed), ``overlap_all`` = those in every fit set."""
+    assert fits, "no fit set"
+    hold = set(holdout)
+    assert len(hold) == len(holdout), "duplicate holdout items"
+    union = set().union(*map(set, fits))
+    shared = set.intersection(*map(set, fits))
+    return {"disjoint": sorted(hold - union), "overlap_any": sorted(hold & union),
+            "overlap_all": sorted(hold & shared)}
+
+
+class DisjointHoldoutSegmentsJob(Job):
+    """The CV holdout minus every item a ladder phi was fitted on (:func:`disjoint_holdout`).
+
+    :param holdout_segments: the CV-holdout segment list the competence reads score (``cv.segments``,
+        285 lines).
+    :param fit_segments: the fit sets' segment lists (each ladder phi's ``train_segments``; the
+        gold phi, the corrupted phis and permphi all fit on the seed split's ``train_segments``).
+
+    Writes ``disjoint.segments`` (the read set), ``overlap.segments`` (the removed items) and
+    ``counts.json`` (holdout, fit-set sizes, both overlap counts, the disjoint count).
+    """
+
+    def __init__(self, *, holdout_segments: tk.Path, fit_segments: Sequence[tk.Path]):
+        super().__init__()
+        self.holdout_segments = holdout_segments
+        self.fit_segments = list(fit_segments)
+        assert self.fit_segments, "no fit set"
+        self.out_segments = self.output_path("disjoint.segments")
+        self.out_overlap = self.output_path("overlap.segments")
+        self.out_counts = self.output_path("counts.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _lines(path: tk.Path) -> List[str]:
+        with open(path.get_path()) as fh:
+            return [ln.strip() for ln in fh if ln.strip()]
+
+    def run(self):
+        holdout = self._lines(self.holdout_segments)
+        fits = [self._lines(p) for p in self.fit_segments]
+        res = disjoint_holdout(holdout, fits)
+        assert res["disjoint"], "every holdout item is a fit item"
+        for path, part in ((self.out_segments, res["disjoint"]), (self.out_overlap, res["overlap_any"])):
+            with open(path.get_path(), "w") as fh:
+                fh.write("\n".join(part) + ("\n" if part else ""))
+        counts = {"holdout": len(holdout), "fit_sets": [len(f) for f in fits],
+                  "overlap_any_fit": len(res["overlap_any"]), "overlap_every_fit": len(res["overlap_all"]),
+                  "disjoint": len(res["disjoint"]),
+                  "rule": "holdout minus the union of the fit sets"}
+        with open(self.out_counts.get_path(), "w") as fh:
+            json.dump(counts, fh, indent=1)
+        print(json.dumps(counts), flush=True)
+
+
 def competence_reads(phis: Dict[str, Optional[tk.Path]], *, reads: Dict[str, Any],
-                     alias: Optional[str] = ALIAS) -> dict:
-    """Statistic (a) and the posterior decode per phi on the CV holdout (``genmarg.genmarg_reads``;
-    statistic (b) and dev-other are not ported).  Read name = the phi key.
+                     alias: Optional[str] = ALIAS, fit_segments: Optional[Sequence[tk.Path]] = None,
+                     datasets: Optional[Sequence[str]] = None) -> dict:
+    """Statistic (a) and the posterior decode per phi on the CV holdout minus the fit items
+    (``genmarg.CV_DISJOINT``, the default read) and on the whole CV holdout (``"cv_holdout"``, beside
+    it) (``genmarg.genmarg_reads``; statistic (b) and dev-other are not ported).  Read name = the phi
+    key.
 
     :param reads: ``phi_first.reads_bed(data)`` (the bed and the CV-holdout segment list).
-    :return: ``{phi key: genmarg_reads(...)}`` plus ``"_not_read"`` (key -> reason).
+    :param fit_segments: the ladder phis' fit sets; default the seed split's ``train_segments``
+        (``inputs.get_seed_inputs()``, the set every ladder fit and the gold phi use).
+    :param datasets: default ``(CV_DISJOINT, "cv_holdout")``.
+    :return: ``{phi key: genmarg_reads(...)}`` (the CV_DISJOINT entry also carries its
+        ``"holdout_split"`` :class:`DisjointHoldoutSegmentsJob`) plus ``"_not_read"`` (key -> reason).
     """
-    from .genmarg import genmarg_reads
+    from .genmarg import CV_DISJOINT, genmarg_reads
 
+    datasets = (CV_DISJOINT, "cv_holdout") if datasets is None else tuple(datasets)
+    if fit_segments is None:
+        from ..inputs import get_seed_inputs
+
+        fit_segments = [get_seed_inputs().seed_inputs["train_segments"]]
+    split = DisjointHoldoutSegmentsJob(holdout_segments=reads["cv_segments"], fit_segments=fit_segments)
+    if alias:
+        split.add_alias(f"{alias}/competence/{CV_DISJOINT}_segments")
     out: Dict[str, Any] = {}
     skipped: Dict[str, str] = {}
     for key, phi in phis.items():
@@ -522,7 +599,10 @@ def competence_reads(phis: Dict[str, Optional[tk.Path]], *, reads: Dict[str, Any
             skipped[key] = ("genmarg_get_model loads phi only from a checkpoint; no random-init "
                             "checkpoint exists and the builder builds none from a seed")
             continue
-        out[key] = genmarg_reads(phi, key, alias=f"{alias}/competence/{key}" if alias else None, **reads)
+        out[key] = genmarg_reads(phi, key, datasets, alias=f"{alias}/competence/{key}" if alias else None,
+                                 disjoint_segments=split.out_segments, **reads)
+        if CV_DISJOINT in out[key]:
+            out[key][CV_DISJOINT]["holdout_split"] = split
     out["_not_read"] = skipped
     return out
 

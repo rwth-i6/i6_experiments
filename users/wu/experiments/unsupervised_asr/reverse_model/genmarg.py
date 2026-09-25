@@ -25,10 +25,20 @@ Port changes:
   caller's ``prior_npz`` now; the other bed assertions are kept.
 * ``training_checkpoint`` / ``phi_c_checkpoint`` (pins of finished runs on disk) are cut: a phi is
   passed as a ``tk.Path`` or a checkpoint object with ``.path``.
-* Statistic (b) (``GenerativeDecodeGapJob``), the label-using ``GenDecodeReportJob`` and the D4
-  dev-other dataset (used only by those and the A10 diagnostics) are cut: ``genmarg_reads`` raises
-  ``ValueError`` for ``gap=True``, ``report=True`` or ``"dev-other"``, and its defaults are
-  ``datasets=("cv_holdout",)``, ``gap=False`` (the source's were both datasets and ``gap=True``).
+* Statistic (b) (``GenerativeDecodeGapJob``) and the label-using ``GenDecodeReportJob`` are cut:
+  ``genmarg_reads`` raises ``ValueError`` for ``gap=True``, ``report=True`` or ``"dev-other"``, and
+  its defaults are ``datasets=("cv_holdout",)``, ``gap=False`` (the source's were both datasets and
+  ``gap=True``).
+* ``genmarg_reads`` also reads :data:`CV_DISJOINT` (the CV holdout minus every ladder fit item; the
+  segment list is ``ladder.DisjointHoldoutSegmentsJob``'s, passed as ``disjoint_segments``).
+
+Restored 2026-09-25 (G0.G, ``SAE_i6_P0.md``), LABEL-USING, REPORT ONLY -- :func:`dev_other_reads`:
+the posterior decode of the D4 dev-other set (the seed-0 sample of :data:`SELECT_N` dev-other tags
+with a non-empty gold string, :class:`GenMargSampleJob`) under the trigram prior and, report only,
+under a uniform prior (:class:`UniformPhonePriorJob`), scored by :class:`DevOtherPhoneReadJob`
+(direct PER, Hungarian PER, token and frame NMI(symbol, phone), E[d]).  QUARANTINE: it is a separate
+builder that ``genmarg_reads`` cannot reach, its decode jsons carry ``dataset = "dev-other"`` which
+:class:`GenMargSelectionJob` refuses, and no label-free selection may read any of its outputs.
 """
 
 from __future__ import annotations
@@ -45,6 +55,9 @@ from .genmarg_steps import FRAME_RATE_HZ, INIT_PATH_KEYS, RATE_BAND_HZ, _check_m
 __all__ = [
     "GenMargSampleJob", "GenMargSelectionJob", "SELECTION_RULE", "genmarg_reads",
     "bed_from_train_config", "eval_dataset", "select_utterances", "READ_TEMPERATURE_SCHEDULE",
+    "CV_DISJOINT", "LABEL_FREE_DATASETS", "DEV_OTHER", "PRIORS", "UniformPhonePriorJob",
+    "DevOtherPhoneReadJob", "dev_other_reads", "align", "hungarian_map", "relabel", "nmi_bits",
+    "corpus_per", "segment_frame_labels", "gold_frame_labels", "duration_means",
 ]
 
 _PKG = __name__.rsplit(".", 2)[0]  # i6_experiments.users.wu.experiments.unsupervised_asr
@@ -56,6 +69,15 @@ SELECT_N = 500
 DATASETS = ("cv_holdout",)
 #: the realised counts the forward callbacks assert (cv.segments has 285 lines)
 EXPECTED_UTTERANCES = {"cv_holdout": 285}
+#: the CV holdout minus every ladder fit item (``ladder.DisjointHoldoutSegmentsJob``); its count is
+#: derived by that job, so no count is asserted here
+CV_DISJOINT = "cv_holdout_disjoint"
+#: every label-free dataset ``genmarg_reads`` reads
+LABEL_FREE_DATASETS = ("cv_holdout", CV_DISJOINT)
+#: the LABEL-USING D4 dev-other read (:func:`dev_other_reads` only; module docstring)
+DEV_OTHER = "dev-other"
+#: the priors of the D4 decode: the bed's trigram (R1) and a uniform phone prior (R2, report only)
+PRIORS = ("trigram", "uniform")
 #: amendment A7: wave = 16 restarts + 4 nulls + 2 phi_c-initialised restarts + reruns of seeds 1, 2
 N_RESTARTS = 16
 N_NULLS = 4
@@ -484,13 +506,27 @@ def bed_from_train_config(returnn_config) -> Dict[str, Any]:
             "max_seqs": c["max_seqs"], "extern_data": _extern_data(returnn_config)}
 
 
-def eval_dataset(bed_dev: Dict[str, Any], dataset: str, segments: tk.Path) -> Dict[str, Any]:
-    """The bed's dev MetaDataset on ``dataset``'s VAD streams, filtered to ``segments``."""
-    if dataset != "cv_holdout":
-        raise ValueError(f"dataset {dataset!r}: only 'cv_holdout' is ported (module docstring)")
+def eval_dataset(bed_dev: Dict[str, Any], dataset: str, segments: tk.Path,
+                 stream: Optional[Dict[str, Sequence[tk.Path]]] = None) -> Dict[str, Any]:
+    """The bed's dev MetaDataset on ``dataset``'s VAD streams, filtered to ``segments``.
+
+    The label-free datasets (:data:`LABEL_FREE_DATASETS`) are the bed's own dev stream (the train
+    stream's HDFs).  ``"dev-other"`` (:func:`dev_other_reads` only) swaps the three sub-datasets'
+    files for ``stream`` (``inputs.Inputs.dev_stream("dev-other")``: ``features`` / ``units`` /
+    ``originals``); every other option of the bed's dev dataset is kept.
+    """
+    if dataset not in LABEL_FREE_DATASETS + (DEV_OTHER,):
+        raise ValueError(f"dataset {dataset!r}: not one of {LABEL_FREE_DATASETS + (DEV_OTHER,)}")
+    assert (stream is not None) == (dataset == DEV_OTHER), "a stream is stated for dev-other only"
     data = copy.deepcopy(bed_dev)
     for name in ("feats", "original", "units"):
         data["datasets"][name].pop("seq_list_filter_file", None)
+    if stream is not None:
+        for name, key in (("feats", "features"), ("units", "units"), ("original", "originals")):
+            assert "files" in data["datasets"][name], (name, sorted(data["datasets"][name]))
+            files = list(stream[key])
+            assert files, f"empty {key} stream"
+            data["datasets"][name]["files"] = files
     data["datasets"]["feats"]["seq_list_filter_file"] = segments
     return data
 
@@ -553,14 +589,17 @@ def genmarg_reads(phi, name: str, datasets: Sequence[str] = DATASETS,
                   shuffle: Optional[int] = None, *, bed: Dict[str, Any], cv_segments: tk.Path,
                   decode: bool = True, gap: bool = False, report: bool = False,
                   alias: Optional[str] = None, returnn_python_exe: Optional[tk.Path] = None,
-                  returnn_root: Optional[tk.Path] = None) -> Dict[str, Dict[str, Any]]:
-    """Statistic (a) [+ the posterior decode] of ``phi`` on the CV holdout.
+                  returnn_root: Optional[tk.Path] = None,
+                  disjoint_segments: Optional[tk.Path] = None) -> Dict[str, Dict[str, Any]]:
+    """Statistic (a) [+ the posterior decode] of ``phi`` on the CV holdout (label-free).
 
     :param phi: a reverse-only or whole-model checkpoint: a ``tk.Path`` (a reverse-init job's
         output, an ``ExtractSubmoduleCheckpointJob`` slice) or a checkpoint object with ``.path``
         (``ReturnnTrainingJob.out_checkpoints[epoch]``, e.g. a probe's per-sub-epoch checkpoints).
     :param name: free text stamped into every output.
-    :param datasets: ``("cv_holdout",)``: all utterances of the bed's CV holdout of the train stream.
+    :param datasets: ``("cv_holdout",)``: all utterances of the bed's CV holdout of the train stream;
+        :data:`CV_DISJOINT` reads every utterance of ``disjoint_segments`` on the same stream (no
+        count asserted: the segment job derives it).  ``"dev-other"`` raises (:func:`dev_other_reads`).
     :param shuffle: the ``permute_frames`` seed of a null restart's corpus (None = real stream).
         Its value is the caller's (the null corpus's); this module never chooses one.
     :param bed: :func:`bed_from_train_config` of the bed's config.
@@ -570,22 +609,27 @@ def genmarg_reads(phi, name: str, datasets: Sequence[str] = DATASETS,
     :param gap: / :param report: statistic (b) and the label-using report, cut in the port: True
         raises ``ValueError``.
     :param alias: alias prefix for the jobs (None = no alias).
+    :param disjoint_segments: the :data:`CV_DISJOINT` segment list (required for that dataset only).
     :return: ``{dataset: {"sample", "marginal", "decode"}}`` (jobs, absent when not built).
     """
     if gap:
         raise ValueError("gap=True: statistic (b) (GenerativeDecodeGapJob) is not ported")
     if report:
         raise ValueError("report=True: GenDecodeReportJob (label-using) is not ported")
-    unknown = sorted(set(datasets) - set(DATASETS))
+    unknown = sorted(set(datasets) - set(LABEL_FREE_DATASETS))
     if unknown:
-        raise ValueError(f"datasets {unknown}: only {DATASETS} is ported (module docstring)")
+        raise ValueError(f"datasets {unknown}: only {LABEL_FREE_DATASETS} are read here (the "
+                         "label-using dev-other read is dev_other_reads)")
+    if CV_DISJOINT in datasets and disjoint_segments is None:
+        raise ValueError(f"{CV_DISJOINT!r} needs disjoint_segments (ladder.DisjointHoldoutSegmentsJob)")
     phi = _phi_path(phi)
     out: Dict[str, Dict[str, Any]] = {}
     for dataset in datasets:
-        sample = GenMargSampleJob(segments=cv_segments, n=None)
+        segments = cv_segments if dataset == "cv_holdout" else disjoint_segments
+        sample = GenMargSampleJob(segments=segments, n=None)
         data = eval_dataset(bed["dev"], dataset, sample.out_segments)
         jobs: Dict[str, Any] = {"sample": sample}
-        n_exp = EXPECTED_UTTERANCES[dataset]
+        n_exp = EXPECTED_UTTERANCES.get(dataset)
         kw = dict(phi=phi, bed=bed, data=data, shuffle_seed=shuffle, name=name, dataset=dataset,
                   expected_utterances=n_exp, returnn_python_exe=returnn_python_exe,
                   returnn_root=returnn_root)
@@ -596,4 +640,401 @@ def genmarg_reads(phi, name: str, datasets: Sequence[str] = DATASETS,
             for key, job in jobs.items():
                 job.add_alias(f"{alias}/{dataset}/{key}")
         out[dataset] = jobs
+    return out
+
+
+# =================================================================================================
+# LABEL-USING, REPORT ONLY: the D4 dev-other phone read (G0.G; module docstring, QUARANTINE)
+# =================================================================================================
+#: the Hungarian map's deletion target: a symbol mapped here is dropped from the hypothesis
+DELETE = "<DELETE>"
+
+
+def align(hyp: Sequence[str], ref: Sequence[str]) -> List[tuple]:
+    """Levenshtein alignment of ``hyp`` against ``ref`` as ``(hyp token | None, ref token | None)``
+    pairs in order, with ``analysis.per.edit_counts``' unit costs, tie rule (match / substitution
+    before deletion before insertion) and backtrace, so its S + D + I is that function's."""
+    n, m = len(ref), len(hyp)
+    prev = list(range(m + 1))
+    ops = [[0] * (m + 1) for _ in range(n + 1)]  # 0 = match, 1 = sub, 2 = del, 3 = ins
+    for j in range(1, m + 1):
+        ops[0][j] = 3
+    for i in range(1, n + 1):
+        cur = [prev[0] + 1] + [0] * m
+        ops[i][0] = 2
+        for j in range(1, m + 1):
+            same = ref[i - 1] == hyp[j - 1]
+            c_sub = prev[j - 1] + (0 if same else 1)
+            c_del = prev[j] + 1
+            c_ins = cur[j - 1] + 1
+            best = min(c_sub, c_del, c_ins)
+            cur[j] = best
+            ops[i][j] = 0 if (same and best == c_sub) else (1 if best == c_sub else (2 if best == c_del else 3))
+        prev = cur
+    i, j, pairs = n, m, []
+    while i > 0 or j > 0:
+        op = ops[i][j]
+        if i > 0 and j > 0 and op in (0, 1):
+            pairs.append((hyp[j - 1], ref[i - 1]))
+            i, j = i - 1, j - 1
+        elif i > 0 and op == 2:
+            pairs.append((None, ref[i - 1]))
+            i -= 1
+        else:
+            pairs.append((hyp[j - 1], None))
+            j -= 1
+    return pairs[::-1]
+
+
+def corpus_per(hyps: Dict[str, Sequence[str]], refs: Dict[str, Sequence[str]]) -> Dict[str, Any]:
+    """(S + D + I) / N summed over ``refs``' tags, each with a fresh :func:`align`."""
+    s = d = i = n = 0
+    for tag in sorted(refs):
+        for h, r in align(list(hyps[tag]), list(refs[tag])):
+            s += h is not None and r is not None and h != r
+            d += h is None
+            i += r is None
+        n += len(refs[tag])
+    return {"per": (s + d + i) / n if n else None, "sub": s, "del": d, "ins": i, "ref_tokens": n}
+
+
+def hungarian_map(pairs: Sequence[tuple], symbols: Sequence[str], phones: Sequence[str]) -> Dict[str, str]:
+    """The one-to-one symbol -> phone | :data:`DELETE` map maximising the aligned matches.
+
+    Gain of (symbol s, phone p) = the number of aligned pairs ``(s, p)`` (both sides present) in
+    ``pairs`` (the identity-label alignment of the RAW decode, SIL kept, against the SIL-free gold);
+    one extra zero-gain :data:`DELETE` column, so ``len(symbols)`` must be ``len(phones) + 1``
+    (40 = 39 + 1): the square ``scipy.optimize.linear_sum_assignment(maximize=True)`` of the
+    campaign's ``private_code.hungarian_labelling`` (``SAE/reports/impl_private_code_2026-09-20.md``).
+    """
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+
+    cols = list(phones) + [DELETE]
+    assert len(symbols) == len(cols), (len(symbols), len(cols))
+    si = {s: k for k, s in enumerate(symbols)}
+    pi = {p: k for k, p in enumerate(phones)}
+    gain = np.zeros((len(symbols), len(cols)), dtype=np.int64)
+    for h, r in pairs:
+        if h is not None and r is not None:
+            gain[si[h], pi[r]] += 1
+    rows, cs = linear_sum_assignment(gain, maximize=True)
+    return {symbols[r]: cols[c] for r, c in zip(rows, cs)}
+
+
+def relabel(tokens: Sequence[str], mapping: Dict[str, str]) -> List[str]:
+    """``tokens`` through ``mapping``, :data:`DELETE` targets dropped (no re-collapse)."""
+    return [mapping[t] for t in tokens if mapping[t] != DELETE]
+
+
+def nmi_bits(pairs: Sequence[tuple]) -> Dict[str, Any]:
+    """NMI = I(X; Y) / sqrt(H(X) H(Y)) in bits over the empirical joint of ``pairs`` ``(x, y)``
+    (``None`` when either entropy is 0), with I, H(X), H(Y) and the pair count."""
+    import math
+    from collections import Counter
+
+    n = len(pairs)
+    if n == 0:
+        return {"nmi": None, "mi_bits": None, "h_x_bits": None, "h_y_bits": None, "n": 0}
+    joint = Counter(pairs)
+    px = Counter(x for x, _ in pairs)
+    py = Counter(y for _, y in pairs)
+    h = lambda c: -sum(v / n * math.log2(v / n) for v in c.values())  # noqa: E731
+    hx, hy = h(px), h(py)
+    mi = sum(v / n * math.log2(v * n / (px[x] * py[y])) for (x, y), v in joint.items())
+    mi = max(mi, 0.0)
+    nmi = mi / math.sqrt(hx * hy) if hx > 0 and hy > 0 else None
+    return {"nmi": nmi, "mi_bits": mi, "h_x_bits": hx, "h_y_bits": hy, "n": n}
+
+
+def segment_frame_labels(segments: Sequence[Sequence[int]], n_frames: int) -> List[str]:
+    """Per retained unit frame, the decoded symbol (``prior.PHONES`` name) of the segment covering it."""
+    from ..phones import PHONES
+
+    out: List[str] = []
+    for k, start, dur in segments:
+        assert int(start) == len(out), ("segments do not tile", start, len(out))
+        out.extend([PHONES[int(k)]] * int(dur))
+    assert len(out) == n_frames, (len(out), n_frames)
+    return out
+
+
+def gold_frame_labels(raw_index: Sequence[int], intervals: Sequence[tuple],
+                      frame_rate_hz: float = FRAME_RATE_HZ) -> List[str]:
+    """Per retained unit frame, the MFA gold phone at its centre ``(raw_index + 0.5) / frame_rate_hz``
+    seconds (``raw_index`` = the frame's position in the unmasked 50 Hz stream, the VAD job's
+    ``raw_index`` HDF); ``intervals`` = ``(canonical phone, start s, end s)``; a centre in no
+    interval ``[start, end)`` is SIL."""
+    import numpy as np
+
+    from ..phones import SIL
+
+    iv = sorted((float(s), float(e), p) for p, s, e in intervals)
+    starts = np.array([s for s, _, _ in iv], dtype=np.float64)
+    out = []
+    for f in raw_index:
+        c = (int(f) + 0.5) / frame_rate_hz
+        k = int(np.searchsorted(starts, c, side="right")) - 1
+        out.append(iv[k][2] if k >= 0 and c < iv[k][1] else SIL)
+    return out
+
+
+def duration_means(dur_logits) -> Dict[str, Any]:
+    """E[d] of phi's duration table (``duration_prior.duration_law`` at ``ReverseConfig()``, the bed's
+    reverse config): the mean over the 39 phone types, SIL's, and every type's."""
+    from ..model.reverse import ReverseConfig
+    from ..phones import ARPABET_39, PHONES, SIL
+    from .duration_prior import duration_law, law_summary
+
+    law = law_summary(duration_law(dur_logits, ReverseConfig()), PHONES)
+    per_type = {p: law[p]["mean"] for p in PHONES}
+    return {"phone_types_mean": sum(per_type[p] for p in ARPABET_39) / len(ARPABET_39),
+            "sil": per_type[SIL], "per_type": per_type}
+
+
+def _read_hdf_int_sequences(paths: Sequence[str]) -> Dict[str, Any]:
+    import h5py
+    import numpy as np
+
+    rows: Dict[str, Any] = {}
+    for path in paths:
+        with h5py.File(path, "r") as fh:
+            tags = [t.decode() if isinstance(t, bytes) else str(t) for t in fh["seqTags"][:]]
+            lengths = fh["seqLengths"][:, 0]
+            data = np.asarray(fh["inputs"][:]).reshape(-1)
+            offset = 0
+            for tag, length in zip(tags, lengths):
+                assert tag not in rows, f"duplicate tag {tag}"
+                rows[tag] = data[offset:offset + int(length)]
+                offset += int(length)
+            assert offset == len(data), (path, offset, len(data))
+    return rows
+
+
+class UniformPhonePriorJob(Job):
+    """A ``model.prior.PhoneNgramPrior`` npz whose every conditional is uniform over the 40 symbols
+    (log 1/40 in the unigram, bigram and trigram tables): R2's "uniform phone prior", loaded by the
+    bed's model through ``prior_npz_path`` at the bed's ``prior_weight`` 1.0 (every token pays
+    log 40 nats; the text prior carries no string preference)."""
+
+    def __init__(self):
+        super().__init__()
+        self.out_prior = self.output_path("prior.npz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import numpy as np
+
+        from ..model.prior import N_CTX, N_TYPES, PhoneNgramPrior
+
+        v = -np.log(float(N_TYPES))
+        prior = PhoneNgramPrior(np.full(N_TYPES, v), np.full((N_CTX, N_TYPES), v),
+                                np.full((N_CTX * N_CTX, N_TYPES), v),
+                                meta={"kind": "uniform", "log_p": float(v)})
+        prior.save(self.out_prior.get_path())
+
+
+class DevOtherPhoneReadJob(Job):
+    """LABEL-USING, REPORT ONLY (QUARANTINE: module docstring).  R1 / R2's reads of one D4 dev-other
+    posterior decode (``gendecode.json`` of :func:`dev_other_reads`) against the MFA gold.
+
+    * DIRECT PER: per decoded utterance the decode's tokens with SIL dropped (the identity labelling:
+      phone symbol -> its own name, SIL -> DELETE; no run-collapse, the decode emits segments), a
+      Levenshtein (S + D + I) / N against the SIL-free gold (``analysis.per.edit_counts``' costs),
+      pooled over the decoded utterances.  ``per_impossible_as_deletions`` adds every impossible
+      utterance's gold as deletions.  ``adjacent_repeats`` / ``direct_per_collapsed`` state what a
+      greedy-style run-collapse would change.
+    * HUNGARIAN PER: the identity-label alignment of the RAW decode (SIL kept) against the gold gives
+      the aligned (symbol, phone) counts; :func:`hungarian_map` picks the 1:1 symbol -> phone | DELETE
+      map maximising the aligned matches (40 symbols x 39 phones + DELETE); the mapped decode
+      (:func:`relabel`) is re-scored with a FRESH alignment.
+    * TOKEN NMI(symbol, phone): :func:`nmi_bits` over the aligned (both sides present) pairs of that
+      identity alignment (SIL a symbol, gold SIL-free).
+    * FRAME NMI(symbol, phone) (when ``raw_index_hdfs`` and ``mfa_dir`` are given): per retained unit
+      frame the decoded symbol (:func:`segment_frame_labels`) against the MFA phone at the frame's
+      centre (:func:`gold_frame_labels`; SIL where no phone covers it), 40 x 40.
+    * E[d]: phi's duration table (:func:`duration_means`), plus the decode's mean segment duration
+      (non-SIL and SIL segments) beside it.
+    """
+
+    def __init__(self, *, gendecode: tk.Path, gold: tk.Path, sample_segments: tk.Path, phi: tk.Path,
+                 prior: str, split: str = DEV_OTHER, raw_index_hdfs: Optional[Sequence[tk.Path]] = None,
+                 mfa_dir: Optional[tk.Path] = None, mfa_glob: str = "data/dev_other-*.parquet"):
+        super().__init__()
+        assert (raw_index_hdfs is None) == (mfa_dir is None), "the frame read needs both inputs"
+        self.gendecode = gendecode
+        self.gold = gold
+        self.sample_segments = sample_segments
+        self.phi = phi
+        self.prior = prior
+        self.split = split
+        self.raw_index_hdfs = None if raw_index_hdfs is None else list(raw_index_hdfs)
+        self.mfa_dir = mfa_dir
+        self.mfa_glob = mfa_glob
+        self.out_json = self.output_path("phone_read.json")
+        self.out_report = self.output_path("phone_read.txt")
+        self.rqmt = {"cpu": 2, "mem": 16, "time": 2}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    @staticmethod
+    def score(decodes: Dict[str, Optional[Sequence[str]]], gold: Dict[str, Sequence[str]]) -> Dict[str, Any]:
+        """Direct PER, Hungarian PER and token NMI of ``decodes`` (tag -> raw tokens, SIL kept, or
+        None when impossible) against ``gold`` (tag -> SIL-free phones)."""
+        from ..phones import ARPABET_39, PHONES, SIL
+
+        live = sorted(t for t, v in decodes.items() if v is not None)
+        refs = {t: list(gold[t]) for t in live}
+        raw = {t: list(decodes[t]) for t in live}
+        identity = {p: p for p in ARPABET_39}
+        identity[SIL] = DELETE
+        direct = corpus_per({t: relabel(raw[t], identity) for t in live}, refs)
+        pairs = [pr for t in live for pr in align(raw[t], refs[t])]
+        mapping = hungarian_map(pairs, PHONES, ARPABET_39)
+        hung = corpus_per({t: relabel(raw[t], mapping) for t in live}, refs)
+        collapsed = {}
+        repeats = 0
+        for t in live:
+            h = relabel(raw[t], identity)
+            repeats += sum(a == b for a, b in zip(h, h[1:]))
+            collapsed[t] = [x for k, x in enumerate(h) if k == 0 or x != h[k - 1]]
+        dead = sorted(t for t, v in decodes.items() if v is None)
+        n_all = direct["ref_tokens"] + sum(len(gold[t]) for t in dead)
+        errors = direct["sub"] + direct["del"] + direct["ins"] + sum(len(gold[t]) for t in dead)
+        return {
+            "n_utterances": len(decodes), "n_decoded": len(live), "impossible_tags": dead,
+            "direct": direct, "per_impossible_as_deletions": errors / n_all if n_all else None,
+            "adjacent_repeats": repeats, "direct_per_collapsed": corpus_per(collapsed, refs)["per"],
+            "hungarian": hung, "hungarian_map": mapping,
+            "map_is_identity": all(mapping[s] == identity[s] for s in PHONES),
+            "symbols_mapped_to_identity": sum(mapping[s] == identity[s] for s in PHONES),
+            "token_nmi": nmi_bits([(h, r) for h, r in pairs if h is not None and r is not None]),
+        }
+
+    def run(self):
+        import glob
+
+        import pandas as pd
+
+        from ..phones import PHONES, SIL, canonical_phone
+        from .genmarg_steps import load_phi_state
+
+        record = json.load(open(self.gendecode.get_path()))
+        assert record["dataset"] == DEV_OTHER, record["dataset"]
+        rows = record["per_utterance"]
+        with open(self.sample_segments.get_path()) as fh:
+            tags = [ln.strip() for ln in fh if ln.strip()]
+        assert set(rows) == set(tags), "the decode does not cover exactly the D4 sample"
+        gold = json.load(open(self.gold.get_path()))[self.split]
+        decodes = {t: (None if rows[t]["impossible"] else rows[t]["tokens"]) for t in tags}
+        out = {"schema": "sae-i6-g0g-devother-phone-read-v1", "label_using": True, "report_only": True,
+               "prior": self.prior, "decode_name": record.get("name"),
+               "gendecode": os.path.realpath(self.gendecode.get_path()),
+               "phi_checkpoint": os.path.realpath(self.phi.get_path()),
+               **self.score(decodes, gold)}
+
+        state, meta = load_phi_state(self.phi.get_path())
+        out["phi_load"] = meta
+        out["e_d_table"] = duration_means(state["dur_logits"])
+        seg = {"nonsil": [0, 0], "sil": [0, 0]}
+        for t in tags:
+            for k, _, d in (rows[t]["segments"] or []):
+                key = "sil" if PHONES[int(k)] == SIL else "nonsil"
+                seg[key][0] += int(d)
+                seg[key][1] += 1
+        out["e_d_decode"] = {k: (v[0] / v[1] if v[1] else None) for k, v in seg.items()}
+        out["e_d_decode"]["segments"] = {k: v[1] for k, v in seg.items()}
+
+        out["frame_nmi"] = None
+        if self.raw_index_hdfs is not None:
+            raw_index = _read_hdf_int_sequences([p.get_path() for p in self.raw_index_hdfs])
+            files = sorted(glob.glob(os.path.join(self.mfa_dir.get_path(), self.mfa_glob)))
+            assert files, f"no MFA parquet under {self.mfa_dir.get_path()}/{self.mfa_glob}"
+            wanted, intervals = set(tags), {}
+            for fp in files:
+                df = pd.read_parquet(fp, columns=["id", "phonemes"])
+                for r in df.itertuples():
+                    if str(r.id) in wanted:
+                        intervals[str(r.id)] = [(canonical_phone(p["phoneme"]), p["start"], p["end"])
+                                                for p in r.phonemes]
+            missing = sorted(wanted - set(intervals))
+            assert not missing, f"{len(missing)} D4 tags without an MFA alignment, e.g. {missing[:3]}"
+            pairs = []
+            for t in tags:
+                if rows[t]["impossible"]:
+                    continue
+                idx = raw_index[t]
+                hyp = segment_frame_labels(rows[t]["segments"], len(idx))
+                pairs.extend(zip(hyp, gold_frame_labels(idx, intervals[t])))
+            out["frame_nmi"] = nmi_bits(pairs)
+            out["frame_convention"] = ("retained 50 Hz unit frame; gold = MFA canonical phone at the "
+                                       "frame centre (raw_index + 0.5) / 50 s, SIL where uncovered")
+
+        with open(self.out_json.get_path(), "w") as fh:
+            json.dump(out, fh, indent=1)
+        f = lambda v: "n/a" if v is None else f"{v:.4f}"  # noqa: E731
+        lines = [
+            f"LABEL-USING, REPORT ONLY: D4 {self.split} phone read, prior = {self.prior}",
+            f"decoded {out['n_decoded']} / {out['n_utterances']} (impossible {len(out['impossible_tags'])})",
+            f"direct PER     {f(out['direct']['per'])}  (S {out['direct']['sub']} D {out['direct']['del']} "
+            f"I {out['direct']['ins']} N {out['direct']['ref_tokens']})",
+            f"Hungarian PER  {f(out['hungarian']['per'])}  (map is identity: {out['map_is_identity']}; "
+            f"{out['symbols_mapped_to_identity']} / 40 symbols at their identity label)",
+            f"token NMI      {f(out['token_nmi']['nmi'])}  (n {out['token_nmi']['n']})",
+            f"frame NMI      {f(out['frame_nmi']['nmi']) if out['frame_nmi'] else 'not built'}",
+            f"E[d] table     phones {f(out['e_d_table']['phone_types_mean'])}  SIL {f(out['e_d_table']['sil'])}",
+            f"E[d] decode    non-SIL {f(out['e_d_decode']['nonsil'])}  SIL {f(out['e_d_decode']['sil'])}",
+        ]
+        with open(self.out_report.get_path(), "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+        print("\n".join(lines), flush=True)
+
+
+def dev_other_reads(phi, name: str, *, bed: Dict[str, Any], gold: tk.Path,
+                    stream: Dict[str, Sequence[tk.Path]], raw_index_hdfs: Optional[Sequence[tk.Path]] = None,
+                    mfa_dir: Optional[tk.Path] = None, priors: Sequence[str] = PRIORS,
+                    alias: Optional[str] = None, returnn_python_exe: Optional[tk.Path] = None,
+                    returnn_root: Optional[tk.Path] = None) -> Dict[str, Any]:
+    """LABEL-USING, REPORT ONLY (QUARANTINE: module docstring).  ``phi``'s posterior decode of the D4
+    dev-other set per prior, and its :class:`DevOtherPhoneReadJob`.
+
+    :param phi: as :func:`genmarg_reads`'.
+    :param bed: :func:`bed_from_train_config` of the bed's config; the ``"uniform"`` prior replaces
+        only its ``prior_npz_path`` (by :class:`UniformPhonePriorJob`'s npz).
+    :param gold: ``GoldPhonesJob.out_gold`` (the D4 sample and the reference).
+    :param stream: ``Inputs.dev_stream("dev-other")``.
+    :param raw_index_hdfs: / :param mfa_dir: the VAD job's dev-other ``raw_index`` HDFs and the MFA
+        parquet dir (``data.gold.get_mfa_alignments("dev")``) for the frame NMI; both or neither.
+    :param priors: a subset of :data:`PRIORS`.
+    :return: ``{"sample", "uniform_prior" (when read), prior: {"decode", "report"}}``.
+    """
+    unknown = sorted(set(priors) - set(PRIORS))
+    if unknown or not priors:
+        raise ValueError(f"priors {list(priors)}: a non-empty subset of {PRIORS}")
+    phi = _phi_path(phi)
+    sample = GenMargSampleJob(gold=gold, split=DEV_OTHER, n=SELECT_N, seed=0)
+    data = eval_dataset(bed["dev"], DEV_OTHER, sample.out_segments, stream=stream)
+    out: Dict[str, Any] = {"sample": sample}
+    named: Dict[str, Job] = {"sample": sample}
+    for prior in priors:
+        b = bed
+        if prior == "uniform":
+            out["uniform_prior"] = named["uniform_prior"] = UniformPhonePriorJob()
+            args = copy.deepcopy(bed["model_args"])
+            args["prior_npz_path"] = out["uniform_prior"].out_prior
+            b = dict(bed, model_args=args)
+        dec = _forward_job(mode="decode", phi=phi, bed=b, data=data, shuffle_seed=None,
+                           name=f"{name}/{prior}", dataset=DEV_OTHER, expected_utterances=SELECT_N,
+                           returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
+        rep = DevOtherPhoneReadJob(gendecode=dec.out_files["gendecode.json"], gold=gold,
+                                   sample_segments=sample.out_segments, phi=phi, prior=prior,
+                                   raw_index_hdfs=raw_index_hdfs, mfa_dir=mfa_dir)
+        out[prior] = {"decode": dec, "report": rep}
+        named[f"{prior}/decode"], named[f"{prior}/report"] = dec, rep
+    if alias:
+        for key, job in named.items():
+            job.add_alias(f"{alias}/{DEV_OTHER}/{key}")
     return out
