@@ -32,7 +32,7 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
    priorities. Port scope (user, through the JUPITER orchestrator, 2026-09-25): core experiments only.
    - Ported and matching the banked jobs: ctrl_20 (with rc and s1), k2lat, word LM/trie/HLG/VAD, p0, the A10
      durinit recipe at 12 sub-epochs with its S reader, gold phi, the rt lift ladder.
-   - Core fixes, before any phi run (in progress; P0 gate G0.G): (1) generative PER on the D4 dev-other set
+   - Core fixes, before any phi run (P1 Task A, gate G1.G): (1) generative PER on the D4 dev-other set
      (direct, Hungarian, NMI), a standing read for every phi run; (2) ladder reads on the 260 set (the 285
      set holds 25 fit items); (3) the wave default durinit at 12 sub-epochs (`WAVE_*` is None).
    - On demand only, when a funded phi step needs them: PhiFromKeyInitJob with PhiDurinitSwapJob, the AN-5
@@ -41,12 +41,17 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
      key search and J screens, AN-0..6, TP0, the A15-F battery, the inventory ceiling, statistic (b), node P,
      phi_c, k2lat_20_x60 (G4a.L2.3 closed CANNOT_TELL).
    Sources: `reports/jupiter_port_review_2026-09-25.md`, `exp_logs/SAE/SAE_4A_rename.md` (d9b7e5362).
-3. **P1 corrupted-phi lift ladder (ACTIVE, user 2026-09-25, in parallel with P0)**, `SAE_i6_P1.md`: JUPITER's
-   L2-0 node R on i6. rt_r70 reproduces; rt_r80 and rt_r90 place the lift boundary (JUPITER: rho*_lift = 0.7,
-   r100 NO LIFT). Label-using diagnostic, analysis only.
+3. **P1 completion and small extensions of the JUPITER framework (ACTIVE, user 2026-09-25, in parallel with P0)**,
+   `SAE_i6_P1.md`. Task A: the core phi reads (Queue 2's fixes). Task B: JUPITER's L2-0 corrupted-phi lift ladder;
+   rt_r70 reproduces, rt_r80 and rt_r90 place the lift boundary (JUPITER: rho*_lift = 0.7, r100 NO LIFT); a
+   label-using diagnostic. Small label-using analyses and ports of existing JUPITER pieces join P1 as tasks.
+4. **Candidate, unfunded, awaiting the user's OK:** the phi-init plan (a new label-free phi initialisation: named
+   alphabet coarse-to-fine, SIL anchor, oracle split arms), `exp_logs/SAE/SAE_4A_phiinit.md` (origin 7711f1513,
+   audited). A new cold-start method with its own objective and gate, so it becomes its own phase if funded.
 
 ## Phase pointers
 
 - **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
   ctrl_20_rc and k2lat on V100) — `SAE_i6_P0.md`.
-- **P1 corrupted-phi lift ladder** — OPEN, gates registered, design review next — `SAE_i6_P1.md`.
+- **P1 completion and small extensions of the JUPITER framework** — OPEN: Task A code written, in review;
+  Task B in design review — `SAE_i6_P1.md`.

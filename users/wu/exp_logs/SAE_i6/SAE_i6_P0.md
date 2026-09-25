@@ -18,12 +18,9 @@ NEXT:
   DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
   (`reports/review_v100_routing_2026-09-25.md`, d and e).
 - ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
-- G0.G: implementer on fixes 1, 2 and 4 (outside the live import closure, no P0 job id changes), code review,
-  then the gold-phi D4 read on its own entry point.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
-  gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; fix 3 (`WAVE_*`,
-  `reverse_model/phi_first.py`, imported by the P0 graph); README Sisyphus pin to a567fa7; a one-step log Z read
-  for G0.RC.
+  gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
+  Sisyphus pin to a567fa7; a one-step log Z read for G0.RC. P1 fix 3 (`phi_first.py`) is released then.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 
@@ -143,14 +140,8 @@ generation); widened tolerances in brackets apply then.
   T1.19 fixture (1e-5). Strict xfails are allowed only for defects outside what the train step
   computes, or for banked behaviour the owner has accepted, and each is listed in Results. Owner
   decisions S1, S2, S7: recorded (`SAE_i6_ref_objective.md` section 10: the code defines the bed).
-- **G0.G core phi reads (added 2026-09-25, before any code or run; port scope in `SAE_i6.md`, Queue 2).**
-  - (A): the i6 gold phi's genmarg posterior decode of the D4 dev-other set (500 utterances) under the trigram
-    gives Hungarian PER 0.193 +-0.02 (banked R1, `SAE_i6_ref_lexlat_v2.md`, A15 table, row gold). The i6 gold
-    phi is a refit on other hardware (G0.R3), hence the tolerance of the p0 clause.
-  - (A): unit tests for the D4 sample, the Hungarian map and NMI against hand-computed oracles; the 260 set is
-    the 285 CV-holdout set minus the fit items shared by every ladder phi, and there are 25 of them.
-  - (B, report-only): direct PER, the uniform-prior Hungarian PER (banked R2 0.276), NMI(symbol, phone), E[d].
-  - Every P0 job id stays unchanged by the change.
+- **G0.G core phi reads — MOVED to P1 as G1.G (2026-09-25, user: phases are logical units; the gate text moved
+  unchanged, before any code or run).** It is completion work on the framework, not reproduction. See `SAE_i6_P1.md`, Task A.
 - **Launch order (cost screen).** The ffmpeg pin check runs first, alone (CPU). Then the input graph and
   ctrl_20 alone among the trainings; after its sub-epoch 1: wall time per sub-epoch <= 1800 s (3x
   GH200) and peak GPU memory <= 40 GiB at the reference batch shape, else stop and decide (the lattice
