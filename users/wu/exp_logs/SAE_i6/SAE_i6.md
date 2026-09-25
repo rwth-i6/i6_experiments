@@ -26,10 +26,12 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 
 1. **P0 port (ACTIVE)**, `SAE_i6_P0.md`: env, i6 settings, reproduce `ctrl_20`, `k2lat_20_ma3000`
    and the gold-phi init; verify every component and loss term (gates G0.R1-R3, G0.V).
-2. After P0: resume the cold line from where JUPITER stopped (`SAE_i6_ref_lexlat_v2.md`, "Open at
-   the move": the L2-1 wave with durinit / 12 sub-epochs, A14 (i), A17 (i)-(iii), A16 (b) stage 1-2,
-   A18 bridges, A19). Which of these, and in what order, is decided after P0 with the user's
-   priorities. Port scope (user, through the JUPITER orchestrator, 2026-09-25): core experiments only.
+2. After P0: resume the cold line from JUPITER's final state (`SAE_i6_ref_lexlat_v2.md`, "Final reads after
+   the move" and "Open after the final reads", from the JUPITER logs at 7e7c38aee). Every registered run of
+   JUPITER's phase is read and audited: no label-free phi lifts a random theta, while every label-built phi in the
+   basin does. JUPITER's named next steps are the rename proposal (`exp_logs/SAE/SAE_4A_rename.md`) and the
+   phi-init plan (item 4), both awaiting the user. What i6 runs next, and in what order, is decided after P0 with
+   the user's priorities. Port scope (user, through the JUPITER orchestrator, 2026-09-25): core experiments only.
    - Ported and matching the banked jobs: ctrl_20 (with rc and s1), k2lat, word LM/trie/HLG/VAD, p0, the A10
      durinit recipe at 12 sub-epochs with its S reader, gold phi, the rt lift ladder.
    - Core fixes, before any phi run (P1 Task A, gate G1.G): (1) generative PER on the D4 dev-other set
