@@ -18,11 +18,9 @@ NEXT:
 1. AN-0 DEAD, AN-1 NOT GOLD FIRST recorded (Results); AN-3 dropped, no TP-C.
 2. AN-0b and AN-2/AN-4 recorded (Results). Row 2 fires: TP-B and the coarse-to-fine inventory; rename levers and
    TP-A2 dropped. A precedence rule (row 6 over row 2) was fixed before AN-5.
-3. AN-5 built and reviewed: 40cb0854 plus guard 5e4df526, review `reports/review_rename_an5_launch_2026-09-25.md`
-   APPROVE_WITH_CONDITIONS. It launches, from jpbl-s02-03 with `config/sae_4a_rename_an5.py` in the live form, once
-   `KeyArmsReadJob.STcxhF0w4kpq` and `PhiFirstA10DiagnosticsDisjointJob.nyCwi94aepC0` are finished (the waiter
-   polls both markers). The manager log must show "0 unfinished jobs not created by AN-5"; otherwise stop the
-   manager. Then extract, audit, and bring the proposal to the user.
+3. AN-5 recorded (Results): EM LOCKED. Row 2 is final: TP-B and the coarse-to-fine inventory. The literature pass
+   on their design (`reports/lit_partition_levers_2026-09-25.md`) is pending. Then write the Proposal section and
+   bring it to the user. No TP runs without the user's OK.
 
 ## Objective
 
@@ -443,3 +441,33 @@ value from `per_utterance.tsv` (AN-2 exactly, AN-4 to 2e-15). Held-out S_1, nats
   - P3's gold-key endpoint rise is +0.006 on a non-monotone path, so P3 rests on g_dur and r30_dur.
   - Neither P2 nor P3 gates anything.
   - The AN-4 job's printed rules omit the R1 scope bullet. Its behaviour conforms.
+
+### AN-5 (2026-09-25): EM LOCKED; stage 2 is not the route (audited CONFIRMED_WITH_CORRECTIONS)
+
+Job `An5ReadJob.2q262c8lhmdT` (40cb0854, guard 5e4df526; `output/sae/4a/rename/an5/report.txt`). It reads the
+stage-2 key arms of pack `G0Vzzokj5PQC` and, beside them, the gold-key arm of `ge1MKcAPmZIV`, at 0/4/12/48, with
+no checkpoint substituted. m and pi come from the same checkpoint in every cell. Audit
+`reports/audit_rename_an5_2026-09-25.md`, which reproduced all 20 cells exactly with its own code (weights
+15,275,716, equal to A20's).
+- Key identity from epoch 0 to 48, with DELTA:
+  - rank1 0.115 to 0.075 (-0.040)
+  - rank2 0.143 to 0.139 (-0.005)
+  - rank3 0.124 to 0.123 (-0.001)
+  - rank4 0.065 to 0.052 (-0.013)
+  - gold-key arm 1.000 to 0.766 (not counted)
+- 0 of 4 arms rename and 4 of 4 are locked: **EM LOCKED**. STAGE 2 IS THE ROUTE is not licensed. rank1 and rank3
+  have KEY BASIN S (3.273, 3.285; `SAE_4A_lexlat_v2.md`), but their DELTAs are negative.
+- Robustness (audit): every pi variant and the posterior-key variant keep all 4 arms locked (highest DELTA +0.017).
+  m without the duration weighting is not measured.
+- A15-F at 48, key arms against the gold-key arm:
+  - 7-11 duplicated gold types (1 for gold) and 8-12 unclaimed (1 for gold);
+  - own-label agreement 2-6 of 40 (40 of 40 for gold);
+  - R4 emission accuracy 0.34-0.35 (0.54 for gold).
+- Generative PER at 48, Hungarian: 0.80-0.87 for the key arms, 0.39 for the gold-key arm.
+- Decision table under the precedence amendment: row 6 does not fire, so row 2's proposal stands. That is TP-B
+  and the coarse-to-fine inventory, without TP-A2 (P1a False). TP0 is not triggered. The best 1:1 renaming of each
+  arm's partition stays at 0.43-0.49 while identity stays at 0.05-0.14, so partition and names are separable.
+- Corrections (audit):
+  - Identity ranges over 0.05-0.17 across epochs (rank2 at epoch 4 is 0.165).
+  - LOCKED is not frozen. Keys change on 28-51 % of frames, with no net move toward gold.
+  - The gold-key arm's drop is a partition change, not a renaming.

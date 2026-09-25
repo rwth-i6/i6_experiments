@@ -917,7 +917,7 @@ in A14 (ii)).
   -0.026 [-0.037, -0.015].
 - Generative PER at 48 (`GenDecodeReportJob`), direct / Hungarian / NMI: rank1 0.858 / 0.861 / 0.077, rank2
   0.847 / 0.798 / 0.099, rank3 0.849 / 0.842 / 0.096, rank4 0.872 / 0.873 / 0.068. This is the chance band, as for A10.
-- Name tracking on these arms is AN-5 in `SAE_4A_rename.md`: EM LOCKED, key identity 0.05-0.14 throughout.
+- Name tracking on these arms is AN-5 in `SAE_4A_rename.md`: EM LOCKED, key identity 0.05-0.17 throughout.
 - A18 (c): rank1, the S-best arm, goes to L2-2. The bridge is under manager 3019650.
 - Corrections (audit):
   - KEY BASIN licenses S only. It licenses neither the phonetic basin (A14 (ii) also needed PER below 0.50), nor
