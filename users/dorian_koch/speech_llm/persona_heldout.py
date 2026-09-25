@@ -10,6 +10,8 @@ held out eval losses").
                          settings from its ``config.yaml``; mean over windows + 95% bootstrap CI
   PersonaHeldoutSummary  merges many PersonaHeldoutLoss outputs into one JSON (run, step, windows_seen, set, metrics,
                          CI; plus held-out minus train-sample per checkpoint with a bootstrap CI)
+  PersonaHeldoutTurnPos  several checkpoints on the held-out set: text word CE and assistant semantic CE by position in
+                         the assistant's current turn (0-5 / 5-10 / 10-20 / 20+ s, outside; ``heldout_turnpos``)
 
 ``checkpoint_path(run, kind, step)`` is how an eval waits for a checkpoint of a run that is STILL TRAINING: a
 ``tk.Path`` inside the run's work dir whose availability is "the checkpoint's ``consolidated/config.json`` exists"
@@ -212,6 +214,69 @@ class PersonaHeldoutLoss(Job):
             cmd += ["--overlay", self.overlay.get_path()]
             if self.lora_rank is not None:
                 cmd += ["--lora_rank", str(self.lora_rank)]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+
+
+class PersonaHeldoutTurnPos(Job):
+    """Held-out CE by position within the assistant's current turn, 0-5 / 5-10 / 10-20 / 20+ s and outside a turn
+    (``moshi_family.personaplex.heldout_turnpos``; user, 2026-09-25: "Moshi training was unstable for turns longer
+    than 10 s"). Text word CE and assistant semantic CE, frame-pooled per bucket, 95% cluster bootstrap over windows.
+
+    ``heldout``: one ``PersonaHeldoutSet.out_dataset``. ``train_config``: the config.yaml whose loss / text-stream
+    settings apply (one for every checkpoint of the job). ``evals``: ``{label: (weights, lora_rank)}`` -- weights a
+    ``checkpoint_path`` or None = base, lora_rank None for a full finetune. Output dir: ``results.json`` (per label,
+    metric, bucket: mean, ci95, n_frames, n_windows) and ``per_window.<label>.jsonl`` (per-bucket sums / counts, for
+    paired comparisons)."""
+
+    def __init__(
+        self,
+        *,
+        heldout: tk.Path,
+        train_config: tk.Path,
+        venv_python_path: tk.Path,
+        evals: dict,
+        gap_s: float = 1.0,
+        seed: int = 0,
+    ):
+        assert evals, "no checkpoint"
+        for label, (weights, rank) in evals.items():
+            assert "=" not in label and "@" not in label, label
+            assert not (weights is None and rank is not None), f"{label}: a LoRA rank needs its adapter"
+        self.heldout = heldout
+        self.train_config = train_config
+        self.venv_python_path = venv_python_path
+        self.evals = {k: (w, None if r is None else int(r)) for k, (w, r) in sorted(evals.items())}
+        self.gap_s = float(gap_s)
+        self.seed = int(seed)
+        self.out_dir = self.output_path("eval", directory=True)
+        # PersonaHeldoutLoss's per checkpoint (one 7B in bf16, a full-FT overlay read beside it), 1 h per 2 checkpoints
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 1 + len(self.evals) // 2, "gpu_mem_gb": 80}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        d = _progress(self)
+        try:
+            return min(d["done"] / d["total"], 1.0)
+        except (TypeError, KeyError, ZeroDivisionError):
+            return None
+
+    def info(self):
+        d = _progress(self)
+        return None if d is None else f"{d.get('done')}/{d.get('total')} window evals"
+
+    def run(self):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env.setdefault("HF_HUB_OFFLINE", "1")
+        cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.heldout_turnpos"]
+        cmd += ["--train_config", self.train_config.get_path(), "--set", self.heldout.get_path()]
+        cmd += ["--out", self.out_dir.get_path(), "--gap", str(self.gap_s), "--seed", str(self.seed)]
+        for label, (weights, rank) in self.evals.items():
+            spec = "base" if weights is None else weights.get_path() + ("" if rank is None else f"@{rank}")
+            cmd += ["--eval", f"{label}={spec}"]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
 

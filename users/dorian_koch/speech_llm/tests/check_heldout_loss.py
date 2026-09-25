@@ -192,6 +192,8 @@ def launcher_loss_step(cfg: dict, model):
         "text_pad_weight": 0.3 if cfg.get("text_pad_weight") is None else float(cfg["text_pad_weight"]),
         "user_semantic_weight": None if cfg.get("user_semantic_weight") is None else float(cfg["user_semantic_weight"]),
         "depformer_skip_masked": bool(cfg.get("depformer_skip_masked", False)),
+        # the assistant turn cap (ab2_turncap10, 2026-09-25) is a training-only weight: the held-out loss is unmasked
+        "asst_turn_cap_s": None,
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]

@@ -528,6 +528,17 @@ def _render_personaplex_lora_config(
     # launcher, so every earlier config is byte-identical.
     if hp.get("weight_decay") is not None:
         perf = f"weight_decay: {_yaml_float(hp['weight_decay'])}\n" + perf
+    # Assistant-side loss cap on long turns (2026-09-25, ablation ab2_turncap10): weight 0 on the assistant's text +
+    # audio targets more than asst_turn_cap_s into a continuous assistant turn. Rendered ONLY when set (absent = off,
+    # every earlier config byte-identical); asst_turn_gap_s only with it (absent = the launcher's 1.0 s).
+    if hp.get("asst_turn_cap_s") is not None:
+        if hp.get("floor_weight") is not None or hp.get("knowledge_data") is not None:
+            raise ValueError(f"{who}: asst_turn_cap_s goes with neither floor_weight nor knowledge_data")
+        gap = hp.get("asst_turn_gap_s")
+        gap = "" if gap is None else f"asst_turn_gap_s: {_yaml_float(gap)}\n"
+        perf = f"asst_turn_cap_s: {_yaml_float(hp['asst_turn_cap_s'])}\n" + gap + perf
+    elif hp.get("asst_turn_gap_s") is not None:
+        raise ValueError(f"{who}: asst_turn_gap_s without asst_turn_cap_s")
     # Context weight at floor-available frames (2026-09-24, ablation ab_epad1_floor): rendered ONLY when set,
     # like text_epad_weight. The launcher asserts onset_floor and no text lead.
     if hp.get("floor_weight") is not None:
