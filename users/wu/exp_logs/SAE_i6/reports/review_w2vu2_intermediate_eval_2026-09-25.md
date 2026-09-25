@@ -111,3 +111,77 @@ sequences is about 1-4 GB, and the compute is seconds.
 1786381 had no child processes when I checked, so no local mini task would be orphaned. The setup file
 still just calls `w2vu2.py()`. A restart is safe, but only after F1 and F2 are fixed. Otherwise the 26 stuck
 points per seed never evaluate.
+
+---
+
+## Re-review, round 3 (2026-09-25): PASS
+
+Scope: the round-3 uncommitted diff of `config/w2vu2.py` and `tests/test_w2vu2_config.py` against HEAD
+(package code unchanged since bc68b9fb7), plus the coordinator's N_train question. F1 and F2 are resolved;
+no new finding.
+
+**F1 resolved (180 updates per epoch).** `w2vu2.py:243-246` derives
+`N//160 + (N%160 >= 8) + (N%160%8 > 0)` and asserts 180. I ran fairseq 0.12.2's own
+`data_utils.batch_by_size` (w2vu env; max_sentences 160, multiple 8, max_tokens None, random sizes) for
+every N in 28,400-28,699: the formula matches fairseq for all 300 values. The count depends only on N.
+The comment's validity claims are right: 180 holds for N 28,537-28,543, and for 160 values in
+[28,489, 28,800] overall, with 28,536 and 28,544 giving 179. `gan_update_checkpoint_name(148000)` =
+`checkpoint_823_148000.pt`, which is production s0's best. The GAN yaml's `dataset` section sets
+`batch_size: 160` and leaves `required_batch_size_multiple` unset. No override in `w2vu2_gan_config`
+touches `dataset.*`, and `update_freq` is not set, so its default of 1 applies. The graph asserts at
+`w2vu2.py:320-324` therefore check the values fairseq actually uses.
+
+**F2 resolved (epoch-end points).** `intermediate_eval_updates` moves 45000, 90000 and 135000 to 44000,
+89000 and 134000. Each of these is 80 mod 180 and a multiple of `save_interval_updates` 1000, so fairseq
+writes it (`checkpoint_utils.py:74-78`, not end_of_epoch). All 30 points per seed are non-multiples of 180.
+`gan_update_checkpoint_name` asserts this condition, and the tests check it.
+
+**Graph.** I rebuilt the graph in-process, without a manager, and got 851 jobs. All 101 HEAD ids are
+present. The only changes to them are the 10 intended checkpoint_best dev forwards, which move from gpu
+1/gpu_mem 40 to gpu 0 with device cpu. The graph adds 750 jobs: 150 conversions, 300 forwards on CPU
+with gpu 0, and 300 PER jobs. Per seed there are 30 points, and the only ones off the 5000 grid are
+44000/89000/134000. 650 of the round-1 intermediate ids changed because the names changed. None of them
+was ever created on disk: there are no `analysis/w2vu2_gan_eval` or fairseq training job dirs. pytest
+passes 13 of 13 (my run). The new test asserts the constant 180, production's name, the first
+179/180-discriminating save (`checkpoint_39_7000.pt`), the update list, and that an epoch-end name raises.
+
+**N_train on i6: 28,539. This is established from existing i6 artifacts, before the feature job runs.**
+- The i6 VAD job `data/vad/BlankfreeVadHdfJob.RLrgIh6lFv9m` has finished. Its
+  `output/counts_vs_expected.json` gives train utterances 28,539 against 28,539 expected, and original
+  frames equal to the banked value. Kept frames are 15,427,887 against 15,427,853 banked. That is a
+  report-only mode, but the utterance count is exact.
+- I read the four `feats.train.shard*.hdf` directly: 28,539 sequences, minimum kept length 46 frames,
+  0 below 3.
+- `W2vu2FeatureDataJob.5Do5oigXsUKq` (`data/w2vu2_features.py:245-262`) drops only frames at or beyond
+  `min(original, len(mfcc))`, then utterances under `min_length` 3. The original frame totals equal the
+  banked ones, so the MFCC cut removes at most a frame or two per utterance. An utterance with 46 frames
+  cannot fall below 3.
+- fairseq then applies only `length >= 3` with max_length null (`extracted_features_dataset.py:65`). The
+  task's and the model's `max_positions` are both None, so `get_batch_iterator` skips
+  `filter_indices_by_size` (`fairseq_task.py:289`).
+
+N_train therefore equals the line count of `train.lengths`, and the evidence says 28,539. Even if that
+were wrong, only drop counts d = 3, 11, 19, ... or d >= 51 would change the per-epoch count. In that case
+the intermediate points would wait forever, and no wrong checkpoint would be evaluated, because U is in
+the file name.
+
+**Graph-time assertion: not worth it.** A job-based check that gates the chain would add an input and a
+new class argument. A guarded file read inside `gan_1c` is hash-neutral, but it runs only when the config
+loads. The manager loads the config once, and the feature file does not exist yet, so the read would not
+fire unless the manager is restarted after the feature job. Note also that `w2vu2.py:320` compares the
+constant with the raw corpus count `EXPECTED_UTTS`, not with the filtered N. It encodes "zero drops"
+rather than checking it.
+
+**Manual checks before seed 0 reaches 7000 updates:**
+1. When `work/i6_experiments/users/wu/experiments/unsupervised_asr/data/w2vu2_features/W2vu2FeatureDataJob.5Do5oigXsUKq`
+   finishes, which happens before any GAN training can start:
+   - `wc -l < output/data/train.lengths` must print 28539;
+   - `output/data/train.stats.txt` must show `utts=28539` and `utts_dropped_short=0`.
+2. After seed 0's first epoch, `log.run.1` of `i6_core/fairseq/training/FairseqHydraTrainingJob.gY9AdQ2aYl3B`
+   (also `work/outputs/*/*/hydra_train.log`) must show:
+   - `loaded 28539, skipped 0 samples` for the train split;
+   - the train JSON line after `end of epoch 1` with `"train_num_updates": "180"`.
+
+   The second item verifies the per-epoch count directly.
+3. At 7000 updates, `output/checkpoints/checkpoint_39_7000.pt` must exist. With 179 updates per epoch the
+   file would instead be `checkpoint_40_7000.pt`.

@@ -36,9 +36,17 @@ The graph (:func:`py`)
 4-gram KenLM (i6_core ``KenLMplzJob`` + ``CreateBinaryLMJob``), the fairseq feature data from the
 port's VAD-trimmed L15 stream (``data.w2vu2_features``), one i6_core ``FairseqHydraTrainingJob`` per
 seed and ``W2vu2GanSelectJob``.  Then per seed (production evaluated every seed) the generator is
-converted to a RETURNN checkpoint and decoded greedily by ``ReturnnForwardJobV2`` on dev-clean and
-dev-other, and scored by ``W2vu2GanPerJob`` (``analysis.w2vu2_gan_eval``).  The selected seed's
-generator decodes train-clean-100 into the pseudo-labels (``W2vu2GanPseudoLabelJob``).
+converted to a RETURNN checkpoint and decoded greedily by ``ReturnnForwardJobV2`` (on CPU) on
+dev-clean and dev-other, and scored by ``W2vu2GanPerJob`` (``analysis.w2vu2_gan_eval``).  The selected
+seed's generator decodes train-clean-100 into the pseudo-labels (``W2vu2GanPseudoLabelJob``).
+
+Intermediate evaluation (not in production): the same conversion, CPU forward and PER chain on each
+seed's update checkpoint ``checkpoint_<E>_<U>.pt`` every :data:`INTERMEDIATE_EVAL_INTERVAL` updates, a
+point on an epoch end moved one save earlier (:func:`intermediate_eval_updates`,
+:func:`_intermediate_checkpoint`).  Each point waits only for its own checkpoint file (a custom
+``available`` check, not the training's completion), so it runs while the training runs.  fairseq's
+in-training ``uer`` is no substitute: the GAN's ``valid`` split has no labels, so it logs 0.0.
+Outputs: ``<GAN_ARM>/intermediate/s<seed>/u<U>/<split>/per.{json,txt}``.
 
 1d (``training.w2vu2_ctc``, ``analysis.w2vu2_ctc_decode``): fairseq manifests of the ogg zips, the
 CTC data dir, the LV-60 fairseq checkpoint, the CTC fine-tune as i6_core ``FairseqHydraTrainingJob``,
@@ -76,8 +84,13 @@ unhashed exceptions:
   renames that constant, the trainings fall back silently to gpu_48gb (L40S): check that the first
   training's ``submit_log.run`` shows ``-p gpu_32gb``.
 
-The forwards and decodes keep production's ``gpu_mem`` 40 (:data:`FORWARD_RQMT`; the two CTC decodes'
-own default), which the i6 rule ``gpu_mem > 24`` sends to gpu_48gb (L40S 46 GB), as intended.  The
+The train-clean-100 pseudo-label forward and the two CTC decodes keep production's ``gpu_mem`` 40
+(:data:`FORWARD_RQMT`; the two CTC decodes' own default), which the i6 rule ``gpu_mem > 24`` sends to
+gpu_48gb (L40S 46 GB), as intended.  The dev-clean / dev-other generator forwards (per-seed
+``checkpoint_best.pt`` and intermediate) run on CPU (:data:`FORWARD_CPU_RQMT`: production's time, mem
+and cpu without a GPU; ``check_engine_limits`` leaves them on the default CPU partition), so every
+per-seed PER comes from the same device; ``device`` sits in the RETURNN ``post_config`` and is not
+hashed.  The
 GAN took 10.5 h and the CTC student 4.25 h on GH200 under an 11.5 h limit (i6's 72 h training floor
 also matches only ``ReturnnTrainingJob``); on V100 both will take longer and rely on
 ``FairseqHydraTrainingJob``'s resumable ``run`` task (fairseq resumes from ``checkpoint_last.pt``).
@@ -153,6 +166,8 @@ Run from the setup dir (sisyphus imports the module and calls :func:`py`)::
 from __future__ import annotations
 
 import contextlib
+import math
+import os
 from typing import Any, Dict, Iterator
 
 from sisyphus import gs, tk
@@ -166,7 +181,16 @@ __all__ = [
     "I6_TRAIN_GPU_MEM",
     "I6_TRAIN_PARTITION_SETTING",
     "FORWARD_RQMT",
+    "FORWARD_CPU_RQMT",
     "PHONE_DECODE_TIME",
+    "INTERMEDIATE_EVAL_INTERVAL",
+    "GAN_TRAIN_UTTS",
+    "GAN_BATCH_SIZE",
+    "GAN_BATCH_SIZE_MULTIPLE",
+    "GAN_UPDATES_PER_EPOCH",
+    "INTERMEDIATE_EPOCH_END_SHIFT",
+    "intermediate_eval_updates",
+    "gan_update_checkpoint_name",
     "gan_1c",
     "selftrain_1d",
     "py",
@@ -192,9 +216,51 @@ I6_TRAIN_GPU_MEM = 32
 I6_TRAIN_PARTITION_SETTING = "GPU_ROUTE_TRAIN"
 #: production's ``W2vu2PerEvalJob`` and ``GanPseudoLabelJob`` rqmt, for the RETURNN generator forwards
 FORWARD_RQMT = {"time_rqmt": 2, "mem_rqmt": 24, "cpu_rqmt": 4, "gpu_mem": 40}
+#: :data:`FORWARD_RQMT` without the GPU, for the dev-clean / dev-other generator forwards (``device="cpu"``)
+FORWARD_CPU_RQMT = {k: v for k, v in FORWARD_RQMT.items() if k != "gpu_mem"}
 #: production's dev-only ``Wav2Vec2CtcDecodeJob.qqKPLPBEt1K3`` time (``CtcPhoneDecodeJob`` defaults to
 #: 3 h, the train-including ``decode_all``'s)
 PHONE_DECODE_TIME = 2
+#: updates between two intermediate evaluations (K = 5000: 30 points per seed up to max_update 150000)
+INTERMEDIATE_EVAL_INTERVAL = 5000
+#: a grid point on an epoch end moves this many updates earlier (one ``save_interval_updates``): fairseq
+#: writes no ``checkpoint_<E>_<U>.pt`` at an epoch end
+INTERMEDIATE_EPOCH_END_SHIFT = 1000
+#: GAN training utterances (train-clean-100, ``data.librispeech.EXPECTED_UTTS``), the yaml's
+#: ``dataset.batch_size`` and fairseq's ``dataset.required_batch_size_multiple`` (default 8, not set in
+#: the yaml); all three are asserted at graph time in :func:`gan_1c`
+GAN_TRAIN_UTTS = 28_539
+GAN_BATCH_SIZE = 160
+GAN_BATCH_SIZE_MULTIPLE = 8
+#: fairseq updates per GAN epoch.  ``batch_by_size`` (max_sentences 160, multiple 8) gives 178 full
+#: batches of 160 and splits the 59 left-over utterances into 56 + 3, so 180 = full batches
+#: + (rem >= 8) + (rem % 8 > 0) (checked by the review with fairseq 0.12.2's batch_by_size; production s0
+#: has ``checkpoint_823_148000.pt`` = ceil(148000 / 180)).  It fixes E = ceil(U / 180) of
+#: ``checkpoint_<E>_<U>.pt``.  180 holds for N_train 28,537 .. 28,543 around 28,539 (overall for 160
+#: values in [28,489, 28,800], not a contiguous range: e.g. 28,536 and 28,544 give 179).  If it were
+#: wrong, the named files would never appear and the intermediate points would wait, not evaluate a wrong
+#: checkpoint.
+GAN_UPDATES_PER_EPOCH = (GAN_TRAIN_UTTS // GAN_BATCH_SIZE
+                         + int(GAN_TRAIN_UTTS % GAN_BATCH_SIZE >= GAN_BATCH_SIZE_MULTIPLE)
+                         + int(GAN_TRAIN_UTTS % GAN_BATCH_SIZE % GAN_BATCH_SIZE_MULTIPLE > 0))
+assert GAN_UPDATES_PER_EPOCH == 180, GAN_UPDATES_PER_EPOCH
+
+
+def intermediate_eval_updates(max_update: int) -> tuple:
+    """The evaluated updates: every :data:`INTERMEDIATE_EVAL_INTERVAL` up to ``max_update``, a point on an
+    epoch end moved :data:`INTERMEDIATE_EPOCH_END_SHIFT` earlier (150000: 45000, 90000, 135000 -> 44000,
+    89000, 134000; 30 points)."""
+    out = tuple(u - INTERMEDIATE_EPOCH_END_SHIFT if u % GAN_UPDATES_PER_EPOCH == 0 else u
+                for u in range(INTERMEDIATE_EVAL_INTERVAL, max_update + 1, INTERMEDIATE_EVAL_INTERVAL))
+    assert len(set(out)) == len(out), out
+    return out
+
+
+def gan_update_checkpoint_name(update: int) -> str:
+    """fairseq's name of the save at ``update`` (not an epoch end): ``checkpoint_<E>_<U>.pt``,
+    E = ceil(U / :data:`GAN_UPDATES_PER_EPOCH`)."""
+    assert update % GAN_UPDATES_PER_EPOCH != 0, (update, GAN_UPDATES_PER_EPOCH)
+    return f"checkpoint_{math.ceil(update / GAN_UPDATES_PER_EPOCH)}_{update}.pt"
 
 
 def _i6_train_rqmt(rqmt: Dict[str, Any]) -> Dict[str, Any]:
@@ -205,6 +271,25 @@ def _i6_train_rqmt(rqmt: Dict[str, Any]) -> Dict[str, Any]:
     if partition:
         rqmt["sbatch_args"] = ["-p", partition]
     return rqmt
+
+
+def _checkpoint_file_exists(path: tk.Path) -> bool:
+    """``available`` check of an intermediate checkpoint Path: the file exists.  fairseq writes
+    ``checkpoint_<E>_<U>.pt`` to ``.tmp`` and renames it, so the name never shows a partial file.
+    Module level: sisyphus pickles it with the Path (job.save); moving or renaming it breaks the
+    unpickling of existing job.save files."""
+    return os.path.isfile(path.get_path())
+
+
+def _intermediate_checkpoint(train, update: int) -> tk.Path:
+    """``checkpoints/<gan_update_checkpoint_name(update)>`` of the fairseq GAN ``train``, available as soon
+    as the file exists.
+
+    The Path hash is (creator, path), as for ``out_checkpoint_dir.join_right(...)``; the ``available``
+    callable is not hashed.  fairseq names a save ``checkpoint_<E>_<U>.pt`` only when it is not at an
+    epoch end (asserted in :func:`gan_update_checkpoint_name`)."""
+    return tk.Path(f"checkpoints/{gan_update_checkpoint_name(update)}", creator=train,
+                   available=_checkpoint_file_exists)
 
 
 @contextlib.contextmanager
@@ -223,34 +308,51 @@ def gan_1c(inputs) -> Dict[str, Any]:
 
     :param inputs: ``inputs.get_inputs()``.
     :return: ``{"gan": W2vu2Gan, "eval": {seed: {"generator", split: {"forward", "per"}}},
+        "intermediate": {seed: {update: {"generator", split: {"forward", "per"}}}},
         "select": {"generator", "forward", "labels"}}``.
     """
     from ..analysis.w2vu2_gan_eval import W2vu2GanPerJob, W2vu2GanPseudoLabelJob, w2vu2_forward_job, \
         w2vu2_generator_checkpoint
     from ..data.librispeech import EXPECTED_UTTS
-    from ..training.w2vu2_gan import get_w2vu2_gan
+    from ..training.w2vu2_gan import GAN_MAX_UPDATE, get_w2vu2_gan, w2vu2_base_config
+
+    # the constants behind GAN_UPDATES_PER_EPOCH (intermediate checkpoint names)
+    assert EXPECTED_UTTS["train-clean-100"] == GAN_TRAIN_UTTS, (EXPECTED_UTTS["train-clean-100"], GAN_TRAIN_UTTS)
+    dataset_cfg = w2vu2_base_config()["dataset"]
+    assert dataset_cfg["batch_size"] == GAN_BATCH_SIZE, GAN_BATCH_SIZE
+    # fairseq 0.12.2 DatasetConfig.required_batch_size_multiple defaults to 8
+    assert dataset_cfg.get("required_batch_size_multiple", 8) == GAN_BATCH_SIZE_MULTIPLE, dataset_cfg
 
     gan = get_w2vu2_gan(seeds=PRODUCTION_SEEDS)
     text_dict = gan.text_data.out_dict
     arm = GAN_ARM.split("/", 2)[2]  # w2vu2_forward_job prefixes its alias with sae/1c/gan
 
-    evals: Dict[int, Dict[str, Any]] = {}
-    for seed, train in gan.trainings.items():
-        train.rqmt.update(_i6_train_rqmt(train.rqmt))  # unhashed (module docstring, Resources)
+    def dev_eval(fairseq_checkpoint: tk.Path, prefix: str) -> Dict[str, Any]:
+        """conversion, CPU forward and PER on :data:`EVAL_SPLITS`; aliases and outputs under ``prefix``
+        (relative to :data:`GAN_ARM`)"""
         conv, ckpt = w2vu2_generator_checkpoint(
-            fairseq_checkpoint=train.out_checkpoint_dir.join_right("checkpoint_best.pt"),
-            text_dict=text_dict, alias=f"{GAN_ARM}/s{seed}/generator")
-        evals[seed] = {"generator": conv}
+            fairseq_checkpoint=fairseq_checkpoint, text_dict=text_dict, alias=f"{GAN_ARM}/{prefix}/generator")
+        res = {"generator": conv}
         for split in EVAL_SPLITS:
             fwd = w2vu2_forward_job(
-                name=f"{arm}/s{seed}/{split}", checkpoint=ckpt, vocab=conv.out_vocab,
+                name=f"{arm}/{prefix}/{split}", checkpoint=ckpt, vocab=conv.out_vocab,
                 feature_hdfs=list(inputs.vad.out_feature_hdfs[split]), expected_num_seqs=EXPECTED_UTTS[split],
-                **FORWARD_RQMT)
+                device="cpu", **FORWARD_CPU_RQMT)
             per = W2vu2GanPerJob(hyps=fwd.out_files["hyps.json"], gold=inputs.gold, split=split)
-            per.add_alias(f"{GAN_ARM}/s{seed}/per/{split}")
-            tk.register_output(f"{GAN_ARM}/s{seed}/{split}/per.json", per.out_per)
-            tk.register_output(f"{GAN_ARM}/s{seed}/{split}/per.txt", per.out_report)
-            evals[seed][split] = {"forward": fwd, "per": per}
+            per.add_alias(f"{GAN_ARM}/{prefix}/per/{split}")
+            tk.register_output(f"{GAN_ARM}/{prefix}/{split}/per.json", per.out_per)
+            tk.register_output(f"{GAN_ARM}/{prefix}/{split}/per.txt", per.out_report)
+            res[split] = {"forward": fwd, "per": per}
+        return res
+
+    evals: Dict[int, Dict[str, Any]] = {}
+    intermediate: Dict[int, Dict[int, Dict[str, Any]]] = {}
+    for seed, train in gan.trainings.items():
+        train.rqmt.update(_i6_train_rqmt(train.rqmt))  # unhashed (module docstring, Resources)
+        evals[seed] = dev_eval(train.out_checkpoint_dir.join_right("checkpoint_best.pt"), f"s{seed}")
+        intermediate[seed] = {
+            update: dev_eval(_intermediate_checkpoint(train, update), f"intermediate/s{seed}/u{update}")
+            for update in intermediate_eval_updates(GAN_MAX_UPDATE)}
     tk.register_output(f"{GAN_ARM}/select/selection.json", gan.selection.out_selection)
 
     # the selected seed's generator labels train-clean-100 (production: GanPseudoLabelJob on s0)
@@ -263,7 +365,8 @@ def gan_1c(inputs) -> Dict[str, Any]:
     labels = W2vu2GanPseudoLabelJob(hyps=[fwd.out_files["hyps.json"]], expected_num_seqs=n_train)
     labels.add_alias(f"{SELFTRAIN_PREFIX}/pseudo_labels")
     tk.register_output(f"{SELFTRAIN_PREFIX}/pseudo_labels.json", labels.out_labels)
-    return {"gan": gan, "eval": evals, "select": {"generator": conv, "forward": fwd, "labels": labels}}
+    return {"gan": gan, "eval": evals, "intermediate": intermediate,
+            "select": {"generator": conv, "forward": fwd, "labels": labels}}
 
 
 def selftrain_1d(inputs, pseudo_labels: tk.Path) -> Dict[str, Any]:

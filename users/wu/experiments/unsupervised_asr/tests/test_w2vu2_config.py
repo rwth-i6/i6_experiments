@@ -31,10 +31,11 @@ EXPECTED_COUNTS = {
     # 5 GAN seeds + the 1d CTC student
     "FairseqHydraTrainingJob": 6,
     "W2vu2GanSelectJob": 1,
-    # report B: 5 seeds + the selected generator; 5 seeds x 2 dev splits + the train forward
-    "W2vu2GeneratorCheckpointJob": 6,
-    "ReturnnForwardJobV2": 11,
-    "W2vu2GanPerJob": 10,
+    # report B: 5 seeds + the selected generator; 5 seeds x 2 dev splits + the train forward;
+    # plus the intermediate eval: 5 seeds x 30 updates (5000 .. 150000), each on 2 dev splits
+    "W2vu2GeneratorCheckpointJob": 6 + 150,
+    "ReturnnForwardJobV2": 11 + 300,
+    "W2vu2GanPerJob": 10 + 300,
     "W2vu2GanPseudoLabelJob": 1,
     # report C
     "FairseqAudioManifestJob": 3,
@@ -49,8 +50,14 @@ EXPECTED_COUNTS = {
 GAN_RQMT = {"gpu": 1, "gpu_mem": 32, "mem": 100, "time": 11.5, "cpu": 8}
 CTC_RQMT = {"gpu": 4, "gpu_mem": 32, "mem": 60, "time": 11.5, "cpu": 16}
 FORWARD_RQMT = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 2, "cpu": 4}
+#: the dev-clean / dev-other generator forwards (checkpoint_best and intermediate): FORWARD_RQMT on CPU
+DEV_FORWARD_RQMT = {"gpu": 0, "mem": 24, "time": 2, "cpu": 4}
 PHONE_DECODE_RQMT = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 2, "cpu": 4}
 WORD_DECODE_RQMT = {"gpu": 1, "gpu_mem": 40, "mem": 64, "time": 11.5, "cpu": 8}
+#: the intermediate-eval updates: every 5000, the epoch ends 45000 / 90000 / 135000 (180 updates per epoch)
+#: moved one save (1000 updates) earlier
+INTERMEDIATE_UPDATES = sorted({45000: 44000, 90000: 89000, 135000: 134000}.get(u, u)
+                              for u in range(5000, 150_001, 5000))
 
 
 @pytest.fixture
@@ -167,6 +174,41 @@ def test_pseudo_labels_come_from_the_selected_generator(built):
     assert labels.hyps == [sel["forward"].out_files["hyps.json"]] and labels.expected_num_seqs == 28539
 
 
+def test_dev_forwards_of_best_and_intermediate_chains_run_on_cpu(built):
+    """Every dev forward, of ``checkpoint_best.pt`` and of every intermediate checkpoint, uses device cpu."""
+    res, _, _ = built
+    evals, inter = res["1c"]["eval"], res["1c"]["intermediate"]
+    assert sorted(inter) == list(w2vu2.PRODUCTION_SEEDS)
+    forwards = [evals[s][split]["forward"] for s in evals for split in w2vu2.EVAL_SPLITS]
+    for seed, points in inter.items():
+        assert sorted(points) == INTERMEDIATE_UPDATES, (seed, sorted(points))
+        for u in points:
+            conv = points[u]["generator"]
+            assert conv.fairseq_checkpoint.creator is res["1c"]["gan"].trainings[seed]
+            assert conv.fairseq_checkpoint.path == f"checkpoints/{w2vu2.gan_update_checkpoint_name(u)}"
+        forwards += [points[u][split]["forward"] for u in points for split in w2vu2.EVAL_SPLITS]
+    assert len(forwards) == 10 + 300
+    for fwd in forwards:
+        assert fwd.device == "cpu" and fwd.rqmt["gpu"] == 0, (fwd.device, fwd.rqmt)
+
+
+def test_intermediate_checkpoint_names_follow_fairseq():
+    """180 updates per epoch (batch_by_size: 178 x 160 + 56 + 3); production's names; no epoch end."""
+    assert w2vu2.GAN_UPDATES_PER_EPOCH == 180
+    assert w2vu2.gan_update_checkpoint_name(148000) == "checkpoint_823_148000.pt"  # production s0 best
+    assert w2vu2.gan_update_checkpoint_name(7000) == "checkpoint_39_7000.pt"
+    assert list(w2vu2.intermediate_eval_updates(150_000)) == INTERMEDIATE_UPDATES
+    assert all(u % 180 for u in INTERMEDIATE_UPDATES)
+    with pytest.raises(AssertionError):
+        w2vu2.gan_update_checkpoint_name(45000)  # an epoch end: fairseq writes no update-named file
+
+
+def test_pseudo_label_forward_stays_on_gpu(built):
+    res, _, _ = built
+    fwd = res["1c"]["select"]["forward"]
+    assert fwd.device == "gpu" and fwd.rqmt["gpu"] == 1 and fwd.rqmt["gpu_mem"] == 40, (fwd.device, fwd.rqmt)
+
+
 def test_selftrain_wiring(built):
     res, _, out = built
     from i6_experiments.users.wu.experiments.unsupervised_asr.lm.word_lm import official_4gram_arpa, official_lexicon
@@ -209,7 +251,11 @@ def test_rqmt_is_production_except_training_gpu_mem(built):
         assert job.rqmt == GAN_RQMT, job.rqmt
     assert res["1d"]["train"].rqmt == CTC_RQMT, res["1d"]["train"].rqmt
     forwards = _of(new, "ReturnnForwardJobV2")
-    assert forwards and all(j.rqmt == FORWARD_RQMT for j in forwards), [j.rqmt for j in forwards]
+    select_forward = res["1c"]["select"]["forward"]
+    dev_forwards = [j for j in forwards if j is not select_forward]
+    assert len(forwards) == 311 and len(dev_forwards) == 310
+    assert all(j.rqmt == DEV_FORWARD_RQMT for j in dev_forwards), [j.rqmt for j in dev_forwards]
+    assert select_forward.rqmt == FORWARD_RQMT, select_forward.rqmt
     assert res["1d"]["phone"].rqmt == PHONE_DECODE_RQMT
     assert res["1d"]["word"].rqmt == WORD_DECODE_RQMT
 
