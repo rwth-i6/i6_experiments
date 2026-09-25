@@ -2,14 +2,15 @@
 
 ## State
 
-OPEN (2026-09-25 15:00, user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
+OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
 - Task A (core phi reads, G1.G): fixes 1, 2 and 4 written, uncommitted; 92 CPU tests pass; P0 job ids unchanged
   (`reports/impl_g0g_core_phi_reads_2026-09-25.md`). Code review running, including each read convention against
   JUPITER's (`reports/review_g1g_core_phi_reads_2026-09-25.md`). Then commit, then the gold-phi D4 read on its own
   entry point `config/sae_i6_g0g.py` (V100). Fix 3 (`WAVE_*`) waits until the P0 trainings end, because the P0
   graph imports `reverse_model/phi_first.py`.
 - Task B (lift ladder): design review running (`reports/design_review_p1_2026-09-25.md`).
-NEXT: after both reviews, and with `reverse_model/ladder.py` committed (Task A wrote it), the Task B implementer writes the entry point and the memory probe. Then code review, the three phi fits and the probe.
+NEXT: after both reviews, and with `reverse_model/ladder.py` committed (Task A wrote it), the Task B implementer
+writes the entry point and the memory probe. Then code review, the three phi fits and the probe.
 
 ## Objective
 
