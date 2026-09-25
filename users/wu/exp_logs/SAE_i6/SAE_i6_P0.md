@@ -2,7 +2,7 @@
 
 ## State
 
-LIVE (2026-09-25 19:40). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
+LIVE (2026-09-25 19:45). Manager pid 1646677 runs the FULL graph `config/sae_i6_p0.py` (never a second one).
 Re-arm the watcher first (setup dir):
 `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1646677 config/sae_i6_p0.py 60`
 - ctrl_20 `GiT88bxzoZbZ`: FINISHED. G0.R1 FAIL as registered (audited): only the step-1 prior per token misses.
@@ -15,26 +15,26 @@ Re-arm the watcher first (setup dir):
   - At 19:36 it was still loading HDFs through cache-manager timeouts.
   - The resume checks are still open: epoch 7 loaded, global step 399, one `installed (chunk_seqs = 2)`, the
     stability line, and no OOM. Read them in `J/log.run.1`; `J/work/returnn.log` holds the older runs.
-Read so far: G0.R0 prior and HLG FAIL, attributed (the i6 bed stands, user); G0.R3 PASS; ctrl_20 PER ep1/4/10
-PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results).
+Other reads: Results.
 NEXT:
-- k2lat's k2 phase: G0.K2M round 2 PASS; chunk 2 installed at 18:45 (`reports/launch_p0_k2lat_cs2_install_2026-09-25.md`).
-  - Session loop b2217fsgp prints the resume check lines once `ep 8 train, step 3` or an error appears.
-  - If the session is gone, grep `J/log.run.1` by hand.
-  - Record PASS or FAIL of the switch in Results.
-- GAN (G0.GAN; 68b39418a merged as 692d6e55a): setup reviewed and applied (Deviations).
-  - The w2vu env build is Slurm 4364831 (V100), log `log/w2vu_env_build.4364831.out`.
-  - When its gate prints "OK 2.6.0+cu126 0.12.2 ... cuda: True", the fairseq line and "== done", start one manager
-    on `config/sae_i6_w2vu2.py`. Use step 4 of the review, then write the pid file and arm a watcher.
-  - First-log checks: the CUDA banner, `-p gpu_32gb`, and fairseq 0.12.2 from the env.
-- ep10 of s1 and rc, then ep20.
-- After the trainings end, in one implementer batch with review:
+- k2lat: G0.K2M round 2 PASS; chunk 2 installed at 18:45.
+  - Session loop b2217fsgp prints J's resume lines at `ep 8 train, step 3` or on an error; without it, grep
+    `J/log.run.1`.
+  - Record the switch in Results.
+- T3: under review (`reports/review_p0_prior_t3_2026-09-25.md`). Then an executor runs Part A, then B with afterok,
+  and it is read as registered.
+- GAN (G0.GAN):
+  - The env build hung in the unbounded `pip uninstall numpy` loop of `build_w2vu_env.sh`, and was cancelled at 19:38.
+  - The fix is with the implementer (`reports/impl_w2vu2_env_numpy_loop_2026-09-25.md`), then review and commit.
+  - Then remove the partial `/work/asr4/hwu/conda/envs/w2vu` and resubmit `analysis/w2vu_env_build/build.sbatch`.
+  - On "OK 2.6.0+cu126 0.12.2 ... cuda: True" and "== done", start one manager on `config/sae_i6_w2vu2.py`
+    (step 4 of the review), then the pid file and a watcher.
+- s1/rc ep20. After the trainings end, one implementer batch with review:
   - `sil_run_collapse` into rc's gap reads, then rerun them (the ep20 rc gaps are void for G0.RC);
-  - the README pin to a567fa7;
-  - `phone_trigram` default "full";
+  - the README pin to a567fa7 and the `phone_trigram` default "full";
   - a one-step log Z read for G0.RC;
-  - then P1 fix 3.
-`model/`, `training/` and `analysis/` stay FROZEN until then. Push only after G0.R1 passes and the audit (user).
+  - P1 fix 3.
+  `model/`, `training/` and `analysis/` stay FROZEN until then.
 
 ## Objective
 
@@ -431,6 +431,20 @@ Source: `reports/extract_p0_ctrl20_ep20_2026-09-25.md`.
     - dev agg uses 89 % of its band. Its direction fits a different prior, which is not established.
 - Consequence: no push. The push waits for G0.R1 with the audit (user). Next is the debugger's decisive test T3:
   step 1 with only the prior swapped to JUPITER's.
+- **T3 reading (registered 2026-09-25, before any T3 run; diagnostic, not a gate).** Built in
+  `reports/impl_p0_prior_t3_2026-09-25.md`.
+  - Part A rebuilds JUPITER's prior on i6: the i6 g2p output with chunks 5-12 emptied, then the i6 phonemize, sample
+    and fit code. It is JUPITER's prior only if it gives EXACTLY 39,630,169 lines, 81,559,944 / 808,146 tokens and
+    ppl 9.561056344. Otherwise it is "JUPITER-like", and the reading below says so.
+  - Part B runs step 0 from the flat init on one V100 in two arms: (i) the i6 prior and (ii) the Part-A prior. The
+    configs differ only in `prior_npz_path`.
+  - Control: arm (i) must reproduce ctrl_20's step-0 line (-0.352 / -5.637 / 63.854), within the registered
+    cross-hardware tolerances (+-0.002 / +-0.005 / +-1.0) and on the same batch. Otherwise T3 is void.
+  - The prior's share is arm (ii) minus arm (i) in prior per token:
+    - arm (ii) within -5.657 +-0.005 means the miss is owed to the prior;
+    - |share| <= 0.005 means the prior does not explain it, and the audio or the port does (debugger);
+    - anything between is reported as a partial share.
+  - G0.R1 stays FAIL as registered in every case.
 
 ### G0.K2M k2lat sub-epoch 8 on the V100, round 1 (2026-09-25): FAIL at chunk 16 and chunk 8
 
