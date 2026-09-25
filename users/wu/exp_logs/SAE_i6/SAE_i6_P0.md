@@ -4,16 +4,17 @@
 
 LIVE (2026-09-25 22:00). Two managers, one per config (never a second on either). Re-arm both watchers first
 (setup dir; `W="SIS_LAUNCHER=\"/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis\" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh"`):
-- P0 manager pid 1646677, `$W 1646677 config/sae_i6_p0.py 60` (re-arm after J's relaunch).
+- P0 manager pid 1646677, `$W 1646677 config/sae_i6_p0.py 60`.
 - GAN manager pid 1811964 (`log/sae_i6_w2vu2.manager.pid`, restarted 21:58 for the intermediate eval),
   `$W 1811964 config/sae_i6_w2vu2.py 60`.
 
 Runs:
 - ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered (audited), no push.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
-- k2lat J `jcKXbLMDk4hl`: OOM at 8/17 from fragmentation (Results, G0.K2M round 2). The reviewed
-  `expandable_segments` fix is being installed and relaunched by an executor
-  (`reports/launch_p0_k2lat_alloc_expandable_2026-09-25.md`).
+- k2lat J `jcKXbLMDk4hl`: OOM at 8/17 from fragmentation (Results, G0.K2M round 2). Relaunched with
+  `expandable_segments` as Slurm 4368174 (V100 cn-32): resume checks pass, steps 0-3 identical to the OOM run
+  (`reports/launch_p0_k2lat_alloc_expandable_2026-09-25.md`). The OOM run's log is `engine/...run.4365260.1`.
+  Session loop b7egw24yg fires at `ep 9 train, step 0` or on an OOM or Traceback.
 - T3 (`reports/launch_p0_prior_t3_2026-09-25.md`): Part A 4365697, Part B 4365700 (afterok A).
 - GAN (G0.GAN): env gated (`reports/launch_w2vu2_env_rebuild2_2026-09-25.md`); CPU prep running. The intermediate
   eval (user: required) is in the graph at 87e6aed53: CPU PER on dev-clean/dev-other per seed every 5000 updates
@@ -21,7 +22,8 @@ Runs:
   `reports/review_w2vu2_intermediate_eval_2026-09-25.md`. The g2p lexicon is complete (HHH only; 3 lines dropped).
 
 NEXT:
-- J: at the relaunch report, check step 17 is passed, and compare steps 0-16 with the OOM run.
+- J: when sub-epoch 8 ends, record in Results that step 17 was passed and the peak reserved, and compare steps
+  0-16 with the OOM run.
 - GAN checks (eval names assume 180 updates per epoch):
   - `W2vu2FeatureDataJob.5Do5oigXsUKq/output/data/train.lengths` has 28539 lines;
   - seed 0 `FairseqHydraTrainingJob.gY9AdQ2aYl3B` logs `loaded 28539, skipped 0` and `train_num_updates` 180;
