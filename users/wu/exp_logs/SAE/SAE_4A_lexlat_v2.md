@@ -7,12 +7,12 @@ Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm fir
 - 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): key-arm pack G0Vzzokj5PQC (SLURM 2003614) PENDING; the bridge is submitted automatically after the key reads.
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
-Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. Next-step proposals: `SAE_4A_rename.md`.
+Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. A18 (b): DURINIT BASIN LIFTS, all 4 label-built arms at 0.19-0.23. Next-step proposals: `SAE_4A_rename.md`.
 
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. A18 (b): the lift read `uRzbIh0EfQXG` prints DURINIT BASIN LIFTS, with all 4 arms at LIFT (`reports/extract_a18b_lift_2026-09-25.md`). Audit `reports/audit_a18b_lift_2026-09-25.md` is pending; record after it. The gold-key arm reads LIFT, so the A18 (c) hold rule does not trigger and BRIDGE_KEYARMS stays True.
+1. Stage 2 (keyarms): read KEY BASIN when the pack finishes. The bridge stays enabled, because A18 (b) is recorded and the hold rule does not fire.
 2. Owed report: A15-F measures on the key arms (review finding), registered as AN-5 in `SAE_4A_rename.md`.
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
@@ -882,6 +882,29 @@ Source: `KeyFloorReadJob.DgDbciHlq2wY` (`output/table.txt`, `table.json`); 260 h
 - em_s13's own generative PER (dec_frz, phi frozen): direct 0.857, Hungarian 0.859, NMI 0.076. That is at the worst edge of the A10 band.
 - Correction: cold_ctl lacks A9's durinit, a relaxation made before any result, when A18 was built. Its effect on the drop is unmeasured, but PER alone rules out CODE BROKEN.
 - Reading: the label-free wave phi behaves like the A10 phis under joint training (A14 (i)). It lowers the objective through l_tau and carries no phonetic content. The basin phis of A17 (i) reach 0.20 under the same kind of run.
+
+### A18 (b) lift read (2026-09-25): DURINIT BASIN LIFTS (analysis only, label-built inits; audited CONFIRMED_WITH_CORRECTIONS)
+- Job `DurinitBasinLiftReadJob.uRzbIh0EfQXG` on pack `ZUZypSQn7qc0`; extraction `reports/extract_a18b_lift_2026-09-25.md`; audit `reports/audit_a18b_lift_2026-09-25.md`. The auditor recomputed PER from each posteriors.hdf over all 2864 utterances, and the values match. Each arm starts from its own keyinit `ge1MKcAPmZIV` epoch.048 phi; the arms differ only in phi path and model dir.
+- Dev-other greedy PER at ep1/2/4/8 (ep8 class):
+  - gold-key 0.275/0.258/0.235/0.208 (LIFT)
+  - G-dur 0.275/0.237/0.232/0.193 (LIFT)
+  - r30-dur 0.290/0.264/0.228/0.206 (LIFT)
+  - r70-dur 0.355/0.345/0.278/0.228 (LIFT)
+- Jointly trained phi generative PER at ep8 (direct/Hungarian/NMI):
+  - gold-key 0.258/0.310/0.771
+  - G-dur 0.221/0.221/0.810
+  - r30-dur 0.243/0.243/0.787
+  - r70-dur 0.284/0.335/0.741
+  - The init phis (ep0) read 0.346, 0.345, 0.368 and 0.442 direct.
+- Paired rows at ep8, PER(durinit arm) - PER(A17 (i) MFA arm), 95 % speaker-clustered CI:
+  - G-dur vs gold-EM: -0.0073 [-0.0093, -0.0054]
+  - r30-dur vs r30-EM: +0.0051 [+0.0034, +0.0070]
+  - r70-dur vs r70-EM: -0.1344 [-0.1397, -0.1295]
+  - The first two have opposite signs and sit below the bed's seed spread (0.004-0.010), so they are ties. They show neither help nor harm from MFA durations. The r70 pair differs in more than durations: different EM endpoints, init genPER 0.442 against 0.495, one seed each.
+- A18 (c) hold rule: it does not fire, because the gold-key arm reads LIFT. BRIDGE_KEYARMS stays True.
+- Corrections (audit):
+  - The ep8 forwards of gold-key (`e9LrruCo4AdR`) and r70-dur (`9AUpBk28Ak7F`) ran on the faulty jpbo-028-30 GPU1, seconds after the fault that broke the r30 genmarg decode. No corruption was found, but they are not bit-verified. The verdict does not depend on them, since every arm sits 0.27-0.31 under the LIFT bar. The r70 paired row rests on `9AUpBk28Ak7F`.
+  - Scope: every init is built from labels. G-dur and r70-dur also carry MFA-fitted segment structure in their emission heads. The read shows that general-knowledge durations suffice once the init is near right. It says nothing about label-free phis, which so far all read NO LIFT (0.820-0.842).
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.

@@ -15,9 +15,9 @@ LIVE (watcher as in `SAE_4A_lexlat_v2.md` State): 4143792 `config/sae_4a_rename_
 (`reports/exec_rename_an24_launch_2026-09-25.md`).
 
 NEXT:
-1. AN-0 (under R1) finished: `RenameEmStepJob.sXyLgUqfPBPv` prints AN-0 DEAD
-   (`reports/extract_rename_an0_2026-09-25.md`). The audit `reports/audit_rename_an0_2026-09-25.md` is pending,
-   and it checks that the step is not a silent no-op. Record after it. AN-3 stays off until then.
+1. AN-0 DEAD recorded (Results). TP-A1 is not brought on it and AN-3 is dropped. AN-0b (escape diagnostic,
+   registered after AN-0 and before its own run) goes through implementer (`reports/impl_rename_an0b_2026-09-25.md`),
+   then code review, then executor.
 2. AN-1 read recorded (Results): NOT GOLD FIRST, NOT VISIBLE, so no TP-C. AN-2/AN-4 launch review
    `reports/review_rename_an24_launch_2026-09-25.md` APPROVE_WITH_CONDITIONS (AN-4 plain-only scope recorded;
    AN3 stays False until the an24 manager has finished the 4 shared PhiFromKeyInitJobs). AN-2/AN-4 are built (`reports/impl_rename_an24_2026-09-25.md`) and are being amended for R1; then code review and launch.
@@ -122,6 +122,33 @@ names, and the plain P_LM^lambda form confounds names with rate in AN-2 and AN-3
   even in a right context, TP-A1's mechanism is dead, AN-3's grid is dropped, and AN-2 and AN-4 run alone;
   **AN-0 CANNOT TELL** if neither 2 nor 4.4 is VALID in either form (then TP-A1 is not dropped on AN-0 and AN-3
   runs with the guard). lambda = 10 is reported only.
+- **AN-0b (GPU, minutes; label-using; registered 2026-09-25 after AN-0's result and before its own run)
+  Where the LM pressure goes.** This follows AN-0's audit (Results): the LM moves swapped units' mass to SIL and
+  to the empty uniform rows, not to the right name.
+  - Hypothesis H1b (escape): in the E-step the LM pressure is relieved through SIL and through symbols that hold
+    no units in the key, because those are cheaper in the channel than the right name's populated row.
+  - Inputs as in AN-0: gold-key phi; the seed-1 5-pair derangement; the same 300 utterances; one E-step and one
+    M-step; the table is discarded.
+  - Cells: lambda in {1, 4.4} x {plain, rate-neutral}, with lambda 1 shared. Each cell runs two operators on the
+    deranged row and the gold row:
+    - as-is (AN-0's step);
+    - no-escape: symbols holding no units in the phi's key (OY, ZH) are masked out of the E-step lattice.
+  - A seed-1 1-pair row is added as a descriptive row. It carries no reading and does not reopen AN-3.
+  - Printed per cell, row and operator: restore, rho, the gold-row guard, SIL share, tokens per frame, and the
+    split of swapped units' posterior frame mass into right name / partner name / SIL / masked or empty rows /
+    other. The job also saves N(s,u).
+  - MAP paths of 5 fixed utterances in the as-is rate-neutral 4.4 cell, for both rows, each re-scored by an
+    independent re-add of its terms.
+  - Readings:
+    - **E-STEP CHECK FAILS** if any re-added path score differs from the lattice's by more than 1e-4 relative.
+      Then the E-step is debugged before any other reading.
+    - **ESCAPE BLOCKS THE STEP** if no-escape restore >= 0.05 at a VALID lambda 4.4 cell (either form).
+    - **ESCAPE NOT THE BLOCK** if no-escape restore < 0.05 at every VALID lambda 4.4 cell.
+    - **SIL ESCAPE** (descriptive) if, under no-escape at rate-neutral 4.4, SIL takes more of the swapped units'
+      mass than the right name does.
+  - Consequence: AN-0 DEAD and its registered consequence stand. ESCAPE BLOCKS THE STEP is brought to the user as
+    a mechanism finding, disclosed as found after AN-0, with its training counterpart as a candidate. ESCAPE NOT
+    THE BLOCK records H1 at the sharp-channel operating point.
 - **AN-1 (CPU, key level) Objective screen.** J variants on all stage-1 finals, the A20 (a)/(b)/(c) keys, gold,
   K30/K70/K100, and 3 random non-SIL derangements of each selected key's (a) names:
   - V1: emission without d_min absorption (on the unabsorbed symbol string).
@@ -290,6 +317,31 @@ Every proposal's best case is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), 
   conventions (E14), so it stays a hypothesis until AN-4.
 
 ## Results
+
+### AN-0 (2026-09-25): AN-0 DEAD (audited CONFIRMED_WITH_CORRECTIONS)
+
+Job `RenameEmStepJob.sXyLgUqfPBPv` (d2bbd4c7, 300 train utterances, derangement AH-T, AO-N, K-OW, M-Y, P-S
+moving 0.407 of frames, H_LM 2.2571). Extraction `reports/extract_rename_an0_2026-09-25.md`; audit
+`reports/audit_rename_an0_2026-09-25.md`, which re-scored every cell from the saved keys with independently
+recomputed unit weights. All 16 cells match.
+- restore (the bar is 0.05):
+  - plain: 0 at lambda 1, 0.0019 at 2, 0.0001 at 4.4
+  - rate-neutral: 0.0032 at 2, 0.0053 at 4.4
+  - lambda 10, report only: 0 plain, 0.021 rate-neutral; both cells fail the guard.
+  - The gold-row guard is 0.983-0.996 at lambda <= 4.4, so every one of those cells is VALID.
+- Not a silent no-op:
+  - 8-35 units change key per cell.
+  - The posterior mass that swapped units send to their correct name rises with lambda (0.019 / 0.031 / 0.045) but never exceeds the wrong name's.
+  - S_1 falls by 0.31-0.39.
+  - The LM prior is not permuted along with phi: log Z, tokens per frame and S_1 differ between rows.
+- Consequence applied as registered: TP-A1 is not brought on AN-0, and AN-3's grid is dropped.
+- Correction (audit): the registered wording "TP-A1's mechanism is dead" states more than was measured. What is licensed: one LM-weighted E-step at lambda <= 4.4, in either form, does not flip the keys of a material share of swapped units of the deranged gold-key phi. Not licensed: anything about iterated EM, a flat-channel start (TP-A1's own regime), 1-pair contexts or other seeds.
+  - The operating point is the sharpest possible channel. The margin against the swap partner averages about 4.4 nats per frame, and 58 % of moved-phone tokens in the LM text have a moved neighbour.
+- Unexplained magnitude (audit estimate, not a registered statistic):
+  - The LM gain from flipping one swapped token back has a median of 6.6 nats at lambda 1, which should outweigh the channel margin at 4.4. Yet only 0.4-11 % of swapped units' mass reaches the right name, and 24-65 % goes elsewhere.
+  - Part of it goes to SIL, whose share rises from 0.079 to 0.118. Part goes to the empty OY and ZH rows, which take 5.7 % of frames at plain/4.4 against 0.45 % at lambda 1.
+  - Under the smoothing, an empty row's emission (1/500) is 1.66 nats per frame above an off-key entry of a populated row, which is where the right name's row sits for a swapped unit.
+  - Lattice behaviour or an undetected E-step issue: these files cannot tell. AN-0b is registered to settle it.
 
 ### AN-1 (2026-09-25): NOT GOLD FIRST under V1, V2, V12; NOT VISIBLE under V2, V12 (audited CONFIRMED_WITH_CORRECTIONS)
 
