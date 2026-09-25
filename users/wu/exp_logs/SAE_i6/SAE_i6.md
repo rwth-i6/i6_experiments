@@ -41,8 +41,12 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
      key search and J screens, AN-0..6, TP0, the A15-F battery, the inventory ceiling, statistic (b), node P,
      phi_c, k2lat_20_x60 (G4a.L2.3 closed CANNOT_TELL).
    Sources: `reports/jupiter_port_review_2026-09-25.md`, `exp_logs/SAE/SAE_4A_rename.md` (d9b7e5362).
+3. **P1 corrupted-phi lift ladder (ACTIVE, user 2026-09-25, in parallel with P0)**, `SAE_i6_P1.md`: JUPITER's
+   L2-0 node R on i6. rt_r70 reproduces; rt_r80 and rt_r90 place the lift boundary (JUPITER: rho*_lift = 0.7,
+   r100 NO LIFT). Label-using diagnostic, analysis only.
 
 ## Phase pointers
 
 - **P0 port and verification** — OPEN, the four trainings running (ctrl_20 on L40S; ctrl_20_s1,
   ctrl_20_rc and k2lat on V100) — `SAE_i6_P0.md`.
+- **P1 corrupted-phi lift ladder** — OPEN, gates registered, design review next — `SAE_i6_P1.md`.
