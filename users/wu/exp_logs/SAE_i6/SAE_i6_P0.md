@@ -2,32 +2,33 @@
 
 ## State
 
-LIVE (2026-09-25 20:50). Two managers, one per config (never a second on either). Re-arm both watchers first
+LIVE (2026-09-25 22:00). Two managers, one per config (never a second on either). Re-arm both watchers first
 (setup dir; `W="SIS_LAUNCHER=\"/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis\" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh"`):
-- P0 manager pid 1646677, `$W 1646677 config/sae_i6_p0.py 60`.
-- GAN manager pid 1786381 (`log/sae_i6_w2vu2.manager.pid`), `$W 1786381 config/sae_i6_w2vu2.py 60`.
+- P0 manager pid 1646677, `$W 1646677 config/sae_i6_p0.py 60` (re-arm after J's relaunch).
+- GAN manager pid 1811964 (`log/sae_i6_w2vu2.manager.pid`, restarted 21:58 for the intermediate eval),
+  `$W 1811964 config/sae_i6_w2vu2.py 60`.
 
 Runs:
 - ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered (audited), no push.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
-- k2lat J `jcKXbLMDk4hl`, Slurm 4365260 (`reports/launch_p0_k2lat_cs2_resume_2026-09-25.md`). In `J/log.run.1`:
-  resume checks PASS at chunk 2, then OOM at 8/17 from fragmentation (Results, G0.K2M round 2). In error state,
-  not resubmitted. Fix `expandable_segments` with the implementer
-  (`reports/impl_p0_k2lat_alloc_expandable_2026-09-25.md`), then review, then an executor: hold, install, clear
-  the error, release. The P0 watcher exits on this error; re-arm it after the relaunch.
+- k2lat J `jcKXbLMDk4hl`: OOM at 8/17 from fragmentation (Results, G0.K2M round 2). The reviewed
+  `expandable_segments` fix is being installed and relaunched by an executor
+  (`reports/launch_p0_k2lat_alloc_expandable_2026-09-25.md`).
 - T3 (`reports/launch_p0_prior_t3_2026-09-25.md`): Part A 4365697, Part B 4365700 (afterok A).
-- GAN (G0.GAN): env rebuilt as Slurm 4366145, gate "OK 2.6.0+cu126 0.12.2 1.23.5 | cuda: True"
-  (`reports/launch_w2vu2_env_rebuild2_2026-09-25.md`). Manager started at 20:45; CPU prep jobs running.
+- GAN (G0.GAN): env gated (`reports/launch_w2vu2_env_rebuild2_2026-09-25.md`); CPU prep running. The intermediate
+  eval (user: required) is in the graph at 87e6aed53: CPU PER on dev-clean/dev-other per seed every 5000 updates
+  (44k/89k/134k replace the epoch-end points), with checkpoint_best forwards on CPU as well.
+  `reports/review_w2vu2_intermediate_eval_2026-09-25.md`. The g2p lexicon is complete (HHH only; 3 lines dropped).
 
 NEXT:
-- GAN intermediate eval (user 20:47: intermediate checkpoints and eval are required; recognition may run on CPU
-  or gpu_11gb): facts in `reports/facts_w2vu2_intermediate_eval_2026-09-25.md` (pending), then implementer ->
-  review -> add to the running graph. Check the g2p lexicon completeness before the GANs train (JUPITER handover).
+- J: at the relaunch report, check step 17 is passed, and compare steps 0-16 with the OOM run.
+- GAN checks (eval names assume 180 updates per epoch):
+  - `W2vu2FeatureDataJob.5Do5oigXsUKq/output/data/train.lengths` has 28539 lines;
+  - seed 0 `FairseqHydraTrainingJob.gY9AdQ2aYl3B` logs `loaded 28539, skipped 0` and `train_num_updates` 180;
+  - `checkpoint_39_7000.pt` exists;
+  - at the first training, check the CUDA banner, `-p gpu_32gb` and fairseq 0.12.2.
 - T3: when both parts end (loop b88umi6c7), check Part A ppl against 9.561056344 by eye (ignore read.py's
   "EXACT" column), read B's `read.txt`, record under the registered reading.
-- GAN: before the first GAN training, optionally run the fairseq-origin probe
-  (`reports/review_w2vu2_i6_launch_2026-09-25.md`, launch step 4). At the first training, check the CUDA
-  banner, `-p gpu_32gb` and fairseq 0.12.2.
 - s1/rc ep20. After the trainings end, one implementer batch with review:
   - `sil_run_collapse` into rc's gap reads, then rerun them (the ep20 rc gaps are void for G0.RC);
   - the README pin to a567fa7 and the `phone_trigram` default "full";
