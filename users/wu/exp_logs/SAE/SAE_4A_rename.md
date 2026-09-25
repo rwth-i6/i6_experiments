@@ -141,7 +141,13 @@ names, and the plain P_LM^lambda form confounds names with rate in AN-2 and AN-3
     independent re-add of its terms.
   - Readings:
     - **E-STEP CHECK FAILS** if any re-added path score differs from the lattice's by more than 1e-4 relative.
-      Then the E-step is debugged before any other reading.
+      Then the E-step is debugged before any other reading. Launch review
+      (`reports/review_rename_an0b_launch_2026-09-25.md`), read-time rules fixed before the run:
+      - the check passes only if all 10 paths were extracted and each has bridge_rel_diff <= 1e-4 (the check
+        runs at tau 1e-7 elementwise, the E-step at tau 1 by matmul);
+      - otherwise ESCAPE is not read.
+      - The best path is taken through the posterior support (mass > 0.01) because exact posterior ties occur.
+      - A pass shows correct path scoring, not a verified N(s,u) at full size.
     - **ESCAPE BLOCKS THE STEP** if no-escape restore >= 0.05 at a VALID lambda 4.4 cell (either form).
     - **ESCAPE NOT THE BLOCK** if no-escape restore < 0.05 at every VALID lambda 4.4 cell.
     - **SIL ESCAPE** (descriptive) if, under no-escape at rate-neutral 4.4, SIL takes more of the swapped units'
