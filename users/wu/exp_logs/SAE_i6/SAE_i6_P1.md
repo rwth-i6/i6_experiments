@@ -13,11 +13,11 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     exact on CPU (deviation 0.0), one delta per arm. The memory-log fix and the NaN-aware CUDA compare are
     re-reviewed PASS (`reports/review_p1_probe_memlog_2026-09-25.md`, 39 rt tests pass, job ids unchanged). Its F1:
     with `stop_on_nonfinite_train_score = True`, a failed stability read (NaN monitor) makes RETURNN stop the arm,
-    against the read's design. Decision: a diagnostic may not end an arm, so the guard is being fixed before the
-    parity re-run (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, reviewed PASS; G1.M's read amended). CUDA gradients are still
-    unverified (Slurm 4361250 stopped at the NaN-vs-NaN monitor).
-NEXT: the NaN guard passed review and the code is committed (35f676b70). The GPU parity re-run (CUDA gradients,
-Launch A) is running; on DONE, the rt_r90
+    against the read's design. Decision: a diagnostic may not end an arm. The guard leaves a non-finite read out of
+    the monitors (`reports/impl_p1_stability_nan_guard_2026-09-25.md`, reviewed PASS); G1.M's read is amended to match.
+  - GPU parity re-run PASS (Slurm 4362010, RTX 3090, `log/p1_rt_parity.4362010.out`): 2 passed; CUDA log Z within
+    3.3e-16, gradients within 1.9e-9 of the reference path, at the test fixture only. The code is committed (35f676b70).
+NEXT: the rt_r90
 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then rt_r70 and rt_r80.
 The second-seed builder needs a `seed=` argument in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
