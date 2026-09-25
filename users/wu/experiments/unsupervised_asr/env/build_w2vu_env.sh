@@ -88,8 +88,17 @@ export PATH="$PREFIX/bin:$PATH"
 
 # fairseq 0.12.2 needs numpy<1.24 -- fairseq/data/data_utils.py:488 still uses `np.int`.
 # Uninstall in a loop: a previous --ignore-installed run can leave several dist-infos stacked, and
-# each `pip uninstall` removes only one.
-while "$PY" -m pip uninstall -y numpy >/dev/null 2>&1; do :; done
+# each `pip uninstall` removes only one. The loop runs while `pip show numpy` finds it (pip 23.3.2
+# exits 1 when absent), not on uninstall's status: uninstalling an absent package logs "Skipping ...
+# as it is not installed" and still exits 0, so looping on it never ends. A failing uninstall ends the
+# loop (the rm -rf below clears what it left); still present after 10 uninstalls is an error.
+# PYTHONNOUSERSITE=1: only this env's numpy counts (a user-site numpy is outside the env).
+n_uninst=0
+while PYTHONNOUSERSITE=1 "$PY" -m pip show numpy >/dev/null 2>&1; do
+    (( n_uninst < 10 )) || die "numpy still installed after 10 pip uninstalls: $(PYTHONNOUSERSITE=1 "$PY" -m pip show numpy 2>&1 | grep -E '^(Version|Location):' | tr '\n' ' ')"
+    PYTHONNOUSERSITE=1 "$PY" -m pip uninstall -y numpy >/dev/null 2>&1 || break
+    n_uninst=$((n_uninst + 1))
+done
 rm -rf "$PREFIX"/lib/python3.*/site-packages/numpy "$PREFIX"/lib/python3.*/site-packages/numpy-*.dist-info \
        "$PREFIX"/lib/python3.*/site-packages/numpy.libs
 "$PY" -m pip install --no-cache-dir "numpy==1.23.5"
