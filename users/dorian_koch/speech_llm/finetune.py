@@ -524,6 +524,10 @@ def _render_personaplex_lora_config(
         perf = f"text_pad_weight: {_yaml_float(hp['text_pad_weight'])}\n" + perf
     if hp.get("user_semantic_weight") is not None:
         perf = f"user_semantic_weight: {_yaml_float(hp['user_semantic_weight'])}\n" + perf
+    # AdamW decoupled weight decay (2026-09-25, ablation ab2_wd): rendered ONLY when set; absent = 0.0 in the
+    # launcher, so every earlier config is byte-identical.
+    if hp.get("weight_decay") is not None:
+        perf = f"weight_decay: {_yaml_float(hp['weight_decay'])}\n" + perf
     # Context weight at floor-available frames (2026-09-24, ablation ab_epad1_floor): rendered ONLY when set,
     # like text_epad_weight. The launcher asserts onset_floor and no text lead.
     if hp.get("floor_weight") is not None:
