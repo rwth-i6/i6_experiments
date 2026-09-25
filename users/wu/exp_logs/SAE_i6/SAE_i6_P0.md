@@ -14,11 +14,12 @@ Decided: the i6 prior and i6 phone text are the bed (user, 2026-09-25). G0.R0 pr
 fully attributed to JUPITER's truncated text; T0 closed. G0.R3 PASS. ctrl_20 PER ep1/4/10 PASS. Step 1:
 G0.R2 PASS; G0.R1s prior FAIL, attributed; G0.RC log Z not logged, open (Results, step 1).
 NEXT:
-- OOM fallbacks: first V100 sub-epoch, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` via
-  DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
-  (`reports/review_v100_routing_2026-09-25.md`, d and e). A failed rung-10000 stability read at sub-epoch 8 is an OOM case too:
-  it shows "stability read at sub-epoch 8 FAILED", then "Inf/nan score in step 0" (`reports/review_p1_stability_nan_guard_2026-09-25.md`).
-- ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
+- k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M). Building:
+  `reports/impl_p0_k2lat_v100_probe_2026-09-25.md`, `reports/impl_p0_k2lat_perchunk_2026-09-25.md`; then review,
+  probe, read. PASS: the change goes in at a sub-epoch boundary before 8. No PASS by the end of sub-epoch 7: hold
+  k2lat after `epoch.007.pt` (cancel, resumable), options to the user. No GPU switch (user); smaller chunks cannot
+  lower the held path's peak.
+- ep10 of s1 and rc (about 18:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
   gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
   Sisyphus pin to a567fa7; `k2_word_lm` default `phone_trigram` to "full" (user, `SAE_i6_ref.md` section 4); a one-step
@@ -137,6 +138,13 @@ generation); widened tolerances in brackets apply then.
   - (Report-only; no pass/fail, a new operating point): the paired dev-other PER delta
     `ctrl_20_rc` - `ctrl_20` at sub-epochs 1/4/10/20, read against the i6 seed band from G0.R1s.
     Also its emitted rate and derangement gap at 20.
+- **G0.K2M k2lat memory on the V100 with the per-chunk backward (A for applying it; registered 2026-09-25, before
+  any run).** A probe outside Sisyphus trains k2lat's sub-epoch 8 on one V100 from k2lat's latest checkpoint, with every
+  schedule at its sub-epoch-8 value and the per-chunk epilog. The earlier theta is less sharp than the real one, so its
+  lattices are larger: a conservative test. PASS = sub-epoch 8 completes; no OOM, no k2 int32 error, no
+  `lexlat_k2_ABORT.json`; the stability read gives a finite median over at least 1 utterance; peak allocated (max over
+  steps of max(`lexlat_k2_pre_peak_allocated_gib`, `mem_usage:cuda`), and the epoch-end alloc peak) <= 28 GiB of the
+  V100's 32 GB. Step time is reported against the held path's banked 1.25x overhead.
 - **G0.V components.** All priority-1 tests (T1.1-T1.23) and T2.1-T2.4 green, the gpu- and k2-marked
   tests run on a gpu_48gb node, plus a CPU-vs-CUDA parity assert for `log_z_hlg` and `log_z_h` on the
   T1.19 fixture (1e-5). Strict xfails are allowed only for defects outside what the train step
