@@ -11,14 +11,16 @@ Runs:
 - ctrl_20 `GiT88bxzoZbZ`: FINISHED; G0.R1 FAIL as registered (audited), no push.
 - ctrl_20_s1 `DvVfxf1LrCBi` (4359756), ctrl_20_rc `llSFybyKXkbL` (4359755): V100, end about 01:30 on 09-26.
 - k2lat J `jcKXbLMDk4hl`, Slurm 4365260 (`reports/launch_p0_k2lat_cs2_resume_2026-09-25.md`). In `J/log.run.1`:
-  epoch.007 loaded, "Starting training at epoch 8, global train step 399", one `installed (chunk_seqs = 2)`;
-  first batch after 26 min of cache-manager timeouts. Step lines, stability and memory still open.
+  resume checks PASS at chunk 2 (Results, G0.K2M round 2). Peak reserved 29.7 GiB of 32; an OOM falls back to
+  chunk 1 on the same V100. Ends about midday 09-26.
 - T3 (`reports/launch_p0_prior_t3_2026-09-25.md`): Part A 4365697, Part B 4365700 (afterok A).
 - GAN (G0.GAN): env rebuilt as Slurm 4366145, gate "OK 2.6.0+cu126 0.12.2 1.23.5 | cuda: True"
   (`reports/launch_w2vu2_env_rebuild2_2026-09-25.md`). Manager started at 20:45; CPU prep jobs running.
 
 NEXT:
-- J: at `ep 8 train, step 3` (loop b2217fsgp) read stability and memory; record the switch in Results.
+- GAN intermediate eval (user 20:47: intermediate checkpoints and eval are required; recognition may run on CPU
+  or gpu_11gb): facts in `reports/facts_w2vu2_intermediate_eval_2026-09-25.md` (pending), then implementer ->
+  review -> add to the running graph. Check the g2p lexicon completeness before the GANs train (JUPITER handover).
 - T3: when both parts end (loop b88umi6c7), check Part A ppl against 9.561056344 by eye (ignore read.py's
   "EXACT" column), read B's `read.txt`, record under the registered reading.
 - GAN: before the first GAN training, optionally run the fairseq-origin probe
@@ -478,6 +480,16 @@ Source: `reports/extract_p0_ctrl20_ep20_2026-09-25.md`.
   1.36x, against the held path's banked 1.25x.
 - Decision, by the reviewed rule of taking the largest passing N: N = 2. J switches to chunk 2 at the epoch-7
   boundary (Deviations, "k2 backward for k2lat").
+- Switch done (Slurm 4365260, V100 cn-32, `J/log.run.1`, read 20:51):
+  - Resume: epoch.007 loaded; "Starting training at epoch 8, global train step 399"; exactly one
+    `installed (chunk_seqs = 2)`. The first batch arrived after 26 min of cache-manager timeouts.
+  - Stability at sub-epoch 8: 0.0148 over 16 of 16.
+  - Steps 1-3:
+    - pre-k2 peak allocated 27.224 / 26.694 / 26.051 GiB (step 1 equals the probe);
+    - peak reserved 29.73 GiB;
+    - lexlat_k2 0.402 / 0.401 / 0.411;
+    - 69.2 / 65.7 / 62.5 s per step.
+  - No OOM, no ABORT file.
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 
