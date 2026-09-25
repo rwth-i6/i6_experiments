@@ -324,7 +324,8 @@ has been shown to see names. Evidence (Results, all audited):
   - 48 sub-epochs from the four found keys leave key identity flat, with changes of -0.040 to -0.001 (AN-5, EM
     LOCKED). Keys still change on 28-51 % of frames.
   - The best arm meanwhile reaches the S basin bar at PER 0.86 (KEY BASIN, on S only; its 0.016 margin is below the
-    A10 seed spread 0.025-0.071, one seed).
+    A10 seed spread 0.025-0.071, one seed). Bridged into joint training it does not lift (dev-other PER 0.843 at
+    ep8; A18 (c) in `SAE_4A_lexlat_v2.md`, audited).
 - The finals are not a private code the LM favours. They lose to the basin on both the channel term and the LM term
   (AN-4, P1a False, P1b True). Under the registered table TP-A1 is not funded: AN-0 DEAD dropped AN-3, so row 1
   cannot fire, and row 2 drops the rename levers. TP-A2 is not brought, because its condition needs P1a, which is

@@ -4,7 +4,7 @@
 
 Watcher: `bash ~/.claude/skills/sis/sis_watch.sh <pid> <config> 600`; re-arm first on resume. LIVE:
 - The keyinit manager finished on 2026-09-25. The r30 genmarg decode was rerun after a node fault (`reports/debug_keyinit_genmarg_2026-09-25.md`).
-- 3019650 `config/sae_4a_lexlat_v2_keyarms.py` (started 23:41, review `reports/review_keyarms_launch_2026-09-24.md` APPROVE_WITH_CONDITIONS): the key-arm pack G0Vzzokj5PQC has finished and been read. The manager is still alive for the L2-2 bridge (88 jobs, per `reports/review_rename_an5_launch_2026-09-25.md`; watcher bc1wz4ty2).
+- No live manager. Keyarms manager 3019650 exited normally on 2026-09-25 at 08:42 ("All output calculated"). The key-arm pack G0Vzzokj5PQC and the L2-2 bridge SCtv4DjzFQ50 are finished and read.
 - Finished: em, keysearch_s1 (top 4 in `KeySearchSelectJob.g9wsznNnqmyO`), A20 (recorded).
 
 Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F mislabelled and merged. A14 (ii) PHONETIC BASIN LOWER (3.216 against 3.299). Stage 0: J SEES THE KEY, fragile. G4a.L2.2 SIGNAL, NOT BEYOND PRIVATE CODE. A14 (i): EM PHI DOES NOT LIFT. A19 SAME LADDER. A17 (i) BASIN SUFFICIENT (0.20); A17 (ii) OBJECTIVE DRIFT. GOLD KEY REACHES BASIN (3.207); LABELS SUFFICE. Stage 1: finals beat gold on J through the emission term, wrong names (identity 0.07-0.14). A18 (a): LOWER, OBJECTIVE ONLY. A20: NAME-BLIND by rule; J penalises gold-matching names by 0.42-0.57 on the found partitions. A18 (b): DURINIT BASIN LIFTS, all 4 label-built arms at 0.19-0.23. Next-step proposals: `SAE_4A_rename.md`.
@@ -12,7 +12,7 @@ Reads 2026-09-24 (Results, all audited): A10 EM phis decode at chance; A15/A15-F
 Rulings: pure unsupervised, GAN-free. Last training round: A14, A17, A16 (b), A18 joint runs on selected phis, A19 (Constraints).
 
 NEXT:
-1. Stage 2 recorded (Results): KEY BASIN on S only; the arms decode at chance. Next is the L2-2 bridge read when manager 3019650 exits.
+1. Stage 2 recorded (Results): KEY BASIN on S only; the arms decode at chance. The A18 (c) bridge is recorded (Results): LOWER, OBJECTIVE ONLY, NO LIFT. Every registered run of this phase has now been read. The next training changes wait for the user's decision on the proposal in `SAE_4A_rename.md`.
 2. The owed A15-F measures on the key arms ran as AN-5 (`SAE_4A_rename.md`).
 3. At each watcher wake the executor checks; every read is audited, then recorded.
 
@@ -926,6 +926,37 @@ in A14 (ii)).
     four arms average 3.297, above the bar, so only the best of four clears it. rank3's 0.004 is within jitter
     (below the bar only at sub-epochs 40, 45 and 48).
   - log.run.1 is inside finished.tar.gz; it has no warnings.
+
+### A18 (c) bridge read, G4a.L2.4 (2026-09-25): LOWER, OBJECTIVE ONLY; the key arm does not lift (audited CONFIRMED_WITH_CORRECTIONS)
+- Source: pack `PackedBlankfreeTrainJob.SCtv4DjzFQ50` (SLURM 2007225) and `BridgeReadJob.HWuOTb0Tefo1`. Extraction
+  `reports/extract_l22_keyarm_bridge_2026-09-25.md`; audit `reports/audit_l22_keyarm_bridge_2026-09-25.md` (recomputed from
+  the five per_utterance.json files and from the posteriors on all 2864 utterances; every number matches).
+- The bridged phi is rank1 `G0Vzzokj5PQC` epoch.048, verified identical. dec_frz's phi is unchanged at every kept epoch.
+  cold_ctl is A18 (a)'s own run `UdhhxiGIMBob`, which differs from dec_joint only in reverse_checkpoint_path.
+- Verdict: dec_joint minus cold_ctl at ep8 is -0.1609 nats per frame, CI [-0.1710, -0.1488], 285 utterances, 164
+  speakers. B = 0.0038, so the margin is 0.01 and the read is **LOWER**. The read is also LOWER under bootstrap seed 7
+  and frame weighting. PER stays in the chance band, so it is **OBJECTIVE ONLY**, not CODE BROKEN.
+- The whole drop is l_tau (-0.284), and the frozen phi alone gives 97 % of it. lexlat_k2 (+0.081) and 3 x rate (+0.042)
+  get worse. The other arms, reported only: dec_distil -0.165, dec_frz -0.106, dec_joint_s2 -0.165, all LOWER, OBJECTIVE
+  ONLY.
+- Dev-other greedy PER, ep1 / ep2 / ep4 / ep8:
+  - dec_joint 0.862 / 0.852 / 0.840 / 0.843;
+  - dec_distil 0.857 / 0.854 / 0.844 / 0.843;
+  - dec_frz 0.861 / 0.857 / 0.850 / 0.846;
+  - dec_joint_s2 0.863 / 0.850 / 0.843 / 0.843;
+  - cold_ctl 0.888 / 0.886 / 0.855 / 0.849.
+  - The lowest of all 20 cells is 0.840. Every arm is NO LIFT at ep8 under A4's bands.
+- Lift test (A14 (i) form; the reader prints no verdict, so it is taken from A4's bands): dec_joint 0.843 = **NO LIFT**
+  (one phi, two theta seeds). The same-line gold-key arm lifts to 0.208 (A18 (b)).
+- The phi's generative PER at ep8 (direct / Hungarian / NMI): dec_joint 0.858 / 0.855 / 0.077, dec_frz 0.858 / 0.861 /
+  0.077, dec_joint_s2 0.859 / 0.851 / 0.078. Joint training leaves it at chance.
+- Corrections (audit):
+  - The baseline relaxes A9, a build choice made before the result: cold_ctl has uniform durations, while rank1 has
+    durinit plus EM durations. Their share of the -0.161 is unmeasured.
+  - Under A6, LOWER alone licenses no claim.
+  - The read licenses not funding this phi, not that the key line cannot lift.
+- Reading: rank1 behaves like the A10 and wave phis (A14 (i), A18 (a)). It lowers the objective through l_tau and
+  carries no phonetic content. Next steps for phi training are the proposal in `SAE_4A_rename.md`.
 
 ### Adjacent-repeat handling in the objective (2026-09-24; code review `reports/review_repeat_handling_2026-09-24.md`, user question)
 - No term reads a run of identical frames as several phones, and no path count is inflated.
