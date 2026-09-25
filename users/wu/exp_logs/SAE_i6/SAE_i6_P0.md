@@ -14,16 +14,14 @@ Decided: the i6 prior and phone text are the bed (user). G0.R0 prior and HLG FAI
 ctrl_20 PER ep1/4/10 PASS; step 1: G0.R2 PASS, G0.R1s prior FAIL attributed, G0.RC open (Results, step 1).
 NEXT:
 - k2lat's k2 phase (user, 2026-09-25): V100 with the exact per-chunk k2 backward, tested first (G0.K2M).
-  - The G0.K2M probes (reviewed) were submitted: A at chunk 16, B at chunk 8, each in
-    `/work/asr4/hwu/sae_i6_probes/p0_k2lat_v100_ep8_2026-09-25{,_cs8}`. Slurm ids are in
-    `reports/launch_p0_k2lat_v100_probe_2026-09-25.md`.
-  - Gate read: `read.txt`, plus the stability and `chunk_seqs` lines in `slurm-*.out`. Peak = max(per-step peak,
-    epoch-end peak). A and B must have seeded from the same epoch.
-  - The live change (chunk 16) is reviewed and is applied only if A passes, using the restart steps in
-    `reports/review_p0_k2lat_perchunk_2026-09-25.md`. If only B passes: the chunk-8 variant
-    (`reports/impl_p0_k2lat_perchunk_cs8_2026-09-25.md`, being built) needs its review first.
-  - No PASS by the end of sub-epoch 7: hold k2lat after `epoch.007.pt` (cancel, resumable) and take the options
-    to the user. No GPU switch (user).
+  - Round 1 FAIL: chunk 8 OOM, chunk 16 cannot pass (Results, G0.K2M round 1).
+  - Round 2 is being built: probes at chunk 2 and chunk 1, seeded from J's latest checkpoint, plus the live
+    variants `_cs2` and `_cs1` (`reports/impl_p0_k2lat_cs1_cs2_2026-09-25.md`). Then launch review, launch and
+    read (`read.txt` verdict line).
+  - Apply the variant with the largest passing chunk size, after its review, using the restart steps in
+    `reports/review_p0_k2lat_perchunk_2026-09-25.md`.
+  - No PASS by the end of sub-epoch 7 (about 19:30): hold k2lat after `epoch.007.pt` (cancel, resumable), and
+    resume it on the V100 once a variant passes; the options go to the user. No GPU switch (user).
 - ep10 of s1 and rc (about 18:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
   gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
@@ -363,6 +361,23 @@ Slurm runs' stdout (`engine/*.run.4357433.1`, `*.run.4357376.1`, L40S); their `l
   - G0.RC rc - ctrl_20 (report-only): ep1 +0.0005 [0.0000, +0.0010]; ep4 +0.0072 [+0.0046, +0.0098].
   - From ep4, s1 and rc ran on V100 and ctrl_20 on L40S, so every ep4 delta carries a hardware term (Gates,
     hardware amendment).
+
+### G0.K2M k2lat sub-epoch 8 on the V100, round 1 (2026-09-25): FAIL at chunk 16 and chunk 8
+
+- Launch: `reports/launch_p0_k2lat_v100_probe_2026-09-25.md`. Both probes seeded from J's `epoch.003.pt` (the same
+  sha256), ran on cn-32 and started at 16:44.
+- B, chunk 8 (Slurm 4362705): CUDA OOM after 4 min, before its first train step. The stability read had
+  completed (median 0.0194 over 16 of 16). The OOM hit in the k2 forward of the first chunk
+  (`rt_chunked_backward.py:258`), with 29.96 GiB allocated plus 1.34 GiB reserved but unallocated.
+- A, chunk 16 (Slurm 4362704): its stability read was identical. It then logged nothing after 16:46 and completed
+  no train step. It was cancelled at 17:19 because it cannot pass: its first chunk holds B's 8 sequences plus 8 more.
+- Diagnosis (`reports/debug_p0_k2lat_probe_oom_2026-09-25.md`):
+  - The pre-k2 model is about 20.3 GiB (V100 bench); the HLG on the GPU is about 3 GiB (24.9M states, 103M arcs).
+  - B's 8-sequence chunk needed at least 6-7 GiB more, because the epoch-3 weights give dense lattices.
+  - This is not a tooling regression: k2 is at JUPITER's commit.
+  - J enters sub-epoch 8 with epoch-7 weights. Its lattices are likely smaller (JUPITER's same arm reserved
+    17.4-21.9 GiB at on-set), but this is unmeasured on i6.
+- Next: round 2 at chunk 2 and chunk 1, from J's latest checkpoint as the gate prescribes; the gate is unchanged.
 
 ### G0.R3 supervised inits (2026-09-25; both finished at 01:41-01:43 on L40S)
 
