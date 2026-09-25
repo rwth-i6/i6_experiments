@@ -25,8 +25,8 @@ NEXT:
   and it is read as registered.
 - GAN (G0.GAN):
   - The env build hung in the unbounded `pip uninstall numpy` loop of `build_w2vu_env.sh`, and was cancelled at 19:38.
-  - The fix is with the implementer (`reports/impl_w2vu2_env_numpy_loop_2026-09-25.md`), then review and commit.
-  - Then remove the partial `/work/asr4/hwu/conda/envs/w2vu` and resubmit `analysis/w2vu_env_build/build.sbatch`.
+  - The fix was reviewed and committed (45c20acef). Rebuild: Slurm 4365689 on cn-32 since 19:51, log
+    `log/w2vu_env_build.4365689.out`. Session loop bne3sudd8 fires at the end, or after a 25-min log stall.
   - On "OK 2.6.0+cu126 0.12.2 ... cuda: True" and "== done", start one manager on `config/sae_i6_w2vu2.py`
     (step 4 of the review), then the pid file and a watcher.
 - s1/rc ep20. After the trainings end, one implementer batch with review:
