@@ -11,11 +11,14 @@ OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and nev
     `H9GbhLPtIthV` / `wsKq52Dk68b4` (cpu_modern, 14:51); fits `ReturnnTrainingJob.ruLnJFWyifwp` (r70) /
     `6IkAAuzcBwBR` (r80) / `uO8wkodbR2uh` (r90) on gpu_24gb. Re-arm the watcher (setup dir):
     `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1677624 config/sae_i6_p1_fits.py 60`
-  - Arms: the per-chunk backward and `config/sae_i6_p1_ladder.py` are being implemented
-    (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
+  - Arms: the per-chunk backward (`reverse_model/rt_chunked_backward.py`, selected by a hash-neutral config epilog)
+    and `config/sae_i6_p1_ladder.py` (STAGE=probe or arms) are written. On CPU they match the held path with
+    deviation 0.0 (38 tests). GPU parity is not yet run (`reports/impl_p1_arms_chunked_backward_2026-09-25.md`).
+    Code and launch review running (`reports/review_p1_arms_chunked_backward_2026-09-25.md`).
 NEXT: when the fits finish, read G1.F (`analysis/p1_nesting.py`, each fit's epoch-8 dev NLL from its learning_rates
-file). The arms manager starts only after the fits have FINISHED, and must build the same fit ids. Arms code review,
-then the rt_r90 probe on one L40S (G1.M), then rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
+file). After the review, a GPU parity test on gpu_test_24gb. Once the fits have FINISHED and their manager has
+exited, the rt_r90 probe (STAGE=probe, one L40S, G1.M) under a single manager that builds the same fit ids; then
+rt_r70 and rt_r80. The second-seed builder needs a `seed=` argument
 in `ladder.py`; it is needed only if G1.L's second-seed rule fires.
 
 ## Objective
