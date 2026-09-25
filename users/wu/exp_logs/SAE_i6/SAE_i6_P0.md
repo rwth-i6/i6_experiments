@@ -20,7 +20,8 @@ NEXT:
 - ep10 of s1 and rc (about 18:00), k2lat's first k2 sub-epoch (about 19:00), then ep20.
 - After the trainings end, one implementer batch and review: `sil_run_collapse` into rc's derangement and decode
   gap reads (`config/common.py`; the ep20 rc gaps built now are void for G0.RC), then rerun them; README
-  Sisyphus pin to a567fa7; a one-step log Z read for G0.RC. P1 fix 3 (`phi_first.py`) is released then.
+  Sisyphus pin to a567fa7; `k2_word_lm` default `phone_trigram` to "full" (user, `SAE_i6_ref.md` section 4); a one-step
+  log Z read for G0.RC. P1 fix 3 (`phi_first.py`) is released then.
 The package's `model/`, `training/` and `analysis/` stay FROZEN until the trainings end. Push only after ctrl_20
 passes G0.R1 and the audit is done (user, 2026-09-24).
 

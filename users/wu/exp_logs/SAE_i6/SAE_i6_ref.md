@@ -102,6 +102,12 @@ dev-other PER 0.214 (four seeds 0.168-0.215) on the same features.
 
 The package's default k2 arm `k2_word_lm` (official 4-gram HLG, max_active 1000, phone trigram
 `rampout`) was never run and has no banked number.
+Decision (user, 2026-09-25): k2 arms keep the phone trigram at full weight by default; `rampout` runs only as an
+explicit single-delta arm. Reason: the trigram in `l_tau` is the only text signal that reaches phi. The k2 term
+trains theta's emissions alone, through a pruned numerator. JUPITER D15: warm rampout minus full is +0.0372 at ep8;
+cold it is −0.0012, inside the 0.013-0.020 spread of identical cold configs. At trigram weight 0 the objective
+prefers the worse-PER arm (D18) (`SAE_i6_ref_lexicon.md`, D15 and D18). The package default changes after the P0
+trainings end (`SAE_i6_P0.md`, State).
 
 ## 5. What the campaign established (one line each; evidence in the topic files)
 
