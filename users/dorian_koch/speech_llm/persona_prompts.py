@@ -1370,7 +1370,15 @@ def content_parse_reply(spec: dict, raw: str, transcript: str) -> tuple:
 
 
 def content_call(
-    client, spec: dict, llm_name: str, temp: float, max_tokens: int, effort_kw: dict, key: str, transcript: str
+    client,
+    spec: dict,
+    llm_name: str,
+    temp: float,
+    max_tokens: int,
+    effort_kw: dict,
+    key: str,
+    transcript: str,
+    attempts: int | None = None,
 ):
     """ONE content call as ``PersonaContentPromptGen.run`` makes it (seeded per call key, 5 attempts; an API error,
     an unparsable reply, or any level over its cap / with a verbatim 5-gram is retried). Returns ``{"bodies": {level:
@@ -1381,7 +1389,7 @@ def content_call(
     msg = content_message(spec, transcript)
     seed = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**31)
     err, toks = "", 0
-    attempts = int(spec.get("max_attempts", 5))  # v1 / v2: 5
+    attempts = int(attempts or spec.get("max_attempts", 5))  # v1 / v2: 5; a job's max_attempts overrides
     for attempt in range(attempts):
         try:
             resp = client.chat.completions.create(
@@ -1536,6 +1544,7 @@ class PersonaContentPromptGen(Job):
         num_shards: int | None = None,
         llm_name: str = "openai/gpt-oss-120b",
         temperature: float = 0.6,
+        max_attempts: int | None = None,
     ):
         assert spec in CONTENT_SPECS, spec
         sides = tuple(sides)
@@ -1552,6 +1561,10 @@ class PersonaContentPromptGen(Job):
         self.num_shards = num_shards
         self.llm_name = llm_name
         self.temperature = float(temperature)
+        # Attempts per call, overriding the spec's (``None`` = the spec's; hash-neutral then). For rows that MUST all
+        # get prompts (the 64 pinned self-play rows: the attach raises on a missing one; 2026-09-25 one of 128 v3
+        # calls kept a verbatim 6-gram in fh_detailed through all 8 attempts).
+        self.max_attempts = max_attempts
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
@@ -1559,10 +1572,11 @@ class PersonaContentPromptGen(Job):
     @classmethod
     def hash(cls, parsed_args):
         """The spec's CONTENT is part of the hash (Sisyphus hashes only ``__init__`` arguments): an edited instruction,
-        source or cap is a different job."""
-        return super(PersonaContentPromptGen, cls).hash(
-            {**parsed_args, "spec_digest": content_spec_digest(parsed_args["spec"])}
-        )
+        source or cap is a different job. ``max_attempts=None`` is left out (every job declared before it existed)."""
+        d = {**parsed_args, "spec_digest": content_spec_digest(parsed_args["spec"])}
+        if d.get("max_attempts") is None:
+            d.pop("max_attempts", None)
+        return super(PersonaContentPromptGen, cls).hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -1690,7 +1704,17 @@ class PersonaContentPromptGen(Job):
         with vllm_server(llm_name) as url:
 
             def gen(client, call):
-                return content_call(client, spec, llm_name, temp, max_tokens, effort_kw, call[0], call[1])
+                return content_call(
+                    client,
+                    spec,
+                    llm_name,
+                    temp,
+                    max_tokens,
+                    effort_kw,
+                    call[0],
+                    call[1],
+                    getattr(self, "max_attempts", None),
+                )
 
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
             outs = map_concurrent(

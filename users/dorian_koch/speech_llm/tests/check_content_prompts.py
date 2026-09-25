@@ -113,6 +113,9 @@ for edit in ({"instruction": ins + " "}, {"max_words": 16}):
     pp.CONTENT_SPECS[FH].clear()
     pp.CONTENT_SPECS[FH].update(saved)
 assert pp.PersonaContentPromptGen.hash(args) == h0
+# max_attempts (2026-09-25): None is hash-neutral (every job declared before it existed), a value is a new job
+assert pp.PersonaContentPromptGen.hash({**args, "max_attempts": None}) == h0
+assert pp.PersonaContentPromptGen.hash({**args, "max_attempts": 24}) != h0
 print("[1] A and B share one instruction; spec text + cap are hashed (plain Job.hash is not)")
 
 # ---- 2 ----
