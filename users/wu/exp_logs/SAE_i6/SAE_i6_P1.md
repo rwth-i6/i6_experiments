@@ -4,9 +4,12 @@
 
 OPEN (2026-09-25 14:25, re-scoped by the user). Runs in parallel with P0 and never touches P0's manager or graph. No job yet.
 - Task A (core phi reads, G1.G): fixes 1 and 2 reviewed PASS and committed (8280d6e1f); 92 CPU tests pass; P0 job
-  ids unchanged. The gold-phi D4 read (V100, own manager on `config/sae_i6_g0g.py`, outputs under
-  `sae_i6/g0g/`, a name kept from before the move) is being launched (`reports/launch_g1g_2026-09-25.md`). Fix 3
-  (`WAVE_*`) waits until the P0 trainings end, because the P0 graph imports `reverse_model/phi_first.py`.
+  ids unchanged. The gold-phi D4 read is LIVE: manager pid 1670372 on `config/sae_i6_g0g.py` (outputs under
+  `sae_i6/g0g/`, a name kept from before the move). Forwards `ReturnnForwardJobV2.RFaMyWRYUUQN` (trigram, Slurm
+  4360692) and `4hVXB1LWkw5p` (uniform, 4360693) on gpu_32gb; reads `DevOtherPhoneReadJob.4eT8Gj5YOGWO` and
+  `Vk8VRJVfKaZd` (`reports/launch_g1g_2026-09-25.md`). Re-arm its watcher (setup dir):
+  `SIS_LAUNCHER="/work/asr4/hwu/conda/envs/sae/bin/python sisyphus/sis" PATH=/work/asr4/hwu/conda/envs/sae/bin:$PATH bash ~/.claude/skills/sis/sis_watch.sh 1670372 config/sae_i6_g0g.py 60`
+  Fix 3 (`WAVE_*`) waits until the P0 trainings end (the P0 graph imports `reverse_model/phi_first.py`).
 - Task B (lift ladder): design review done (`reports/design_review_p1_2026-09-25.md`). All four MUST items are
   applied as gate amendments before any job: L40S with a per-chunk k2 backward, a full-sub-epoch rt_r90 probe
   gating the arms, the G1.L rules (CANNOT_TELL, VOID, rt_r100 in the both-LIFT branch), and a P1-only entry point.
