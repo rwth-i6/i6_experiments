@@ -298,6 +298,75 @@ row 2 reads the objective on those partitions before EM.
 - If AN-5 reads EM LOCKED, PARTIAL, or EM RENAMES without KEY BASIN on the same arm, row 2's proposal stands. On
   PARTIAL, TP0 is listed beside it, as TP0's bullet says.
 
+## Proposal to the user (2026-09-25, after AN-0 to AN-5; decision-table row 2; nothing funded)
+
+**Answer.** EM cannot correct wrongly named phones here because the fault lies in the partition, not in the naming
+step. No naming-side lever reaches it. Evidence (Results, all audited):
+- On the right partition, S sees names. Deranging the gold key costs 0.51-0.57 nats per frame (AN-2, H2 REFUTED).
+- On the four partitions the label-free key search finds, scored as key-built phis before EM, S prefers the found
+  names over the best 1:1 oracle naming by 0.25-0.35 (AN-2), as J does at key level (A20). After stage-2 EM, these
+  partitions duplicate 7-11 gold phone types and leave 8-12 unclaimed; the gold-key arm has 1 and 1 (AN-5).
+- EM does not rename:
+  - One LM-weighted E-step restores at most 0.005 of swapped frames, even from the sharpest channel (AN-0), and
+    the cause is not an escape to empty rows (AN-0b).
+  - 48 sub-epochs from the four found keys leave key identity flat, with changes of -0.040 to -0.001 (AN-5, EM
+    LOCKED). Keys still change on 28-51 % of frames.
+  - The best arm meanwhile reaches the S basin bar at PER 0.86 (KEY BASIN, on S only).
+- The finals are not a private code the LM favours. They lose to the basin on both the channel term and the LM term
+  (AN-4, P1a False, P1b True). The LM-weight lever (TP-A1) and the rate floor (TP-A2) therefore have nothing to act on.
+- The literature treats duplicated and starved states as a search error of EM when the global optimum is right. It
+  fixes them with partition moves or restarts, never by changing the objective (`reports/lit_partition_levers_2026-09-25.md`:
+  Ueda et al. 2000; Zhao et al. 2012; Jain and Neal 2004; Hughes et al. 2015; Berg-Kirkpatrick and Klein 2013; Jin
+  et al. 2016). Two gaps: no published move works on a named, fixed inventory, and none accepts on held-out likelihood.
+
+**Proposed (each needs the user's OK; gates are fixed at registration, before any job):**
+1. **TP-B' Named merge + split moves under held-out S.** This amends TP-B after the literature, before any TP-B job.
+   - Starts: the six A10 finals and the four stage-2 key arms at 48 (label-free).
+   - Move: SMEM's fixed-M structure with a naming step added.
+     - Merge a duplicate pair, ranked by emission-row similarity (Ueda eq. 8), into one symbol. This frees a name.
+     - Split a symbol whose units fall into two groups by their decoded left and right symbol contexts. SMEM's
+       local-KL split is degenerate for free multinomial rows.
+     - Give the new half an unclaimed name, ranked by how well its decoded trigram contexts fit under the LM, and
+       try the top 2-3.
+   - Refit: the affected rows and their durations first (Ueda eq. 7), then full EM. Before fixing the refit length,
+     check on the first moves that S has flattened by sub-epoch 2.
+   - Acceptance: paired per-utterance held-out S on the 260 set, above the measured same-config S spread.
+     - Each round evaluates 3-5 candidate triples, packed on one node, and accepts the best that clears the bar.
+     - Stop when none clears. The published schedules try far more than one candidate per 4 sub-epochs (Zhao et
+       al.: more than M^2 trials).
+   - Reported beside, never used for acceptance:
+     - label-free: the duplicate-pair count, occupancy KL to the LM unigram, the unclaimed-name count, LM log-prob
+       per decoded phone (AN-4's P1b separator), the non-SIL rate, cross-seed key agreement;
+     - label-using, report only: generative PER and key identity (AN-5's rule).
+   - Draft read: RELOCATION LOWER if the chain's final S is below its start by more than the seed spread on at
+     least 2 of 3 starts.
+   - Cost, estimated from A10 (48 sub-epochs in about 3 h on one GPU): about 10-15 min per round on one 4-GPU node.
+     Up to 12 rounds is about 2-3 node-hours per start.
+2. **TP-D Coarse-to-fine unit inventory.**
+   - Cluster the 500 k-means centroids to {100, 200, 300} classes, label-free, by a second-level k-means on the
+     centroids. The counts come from the literature: Liu et al. 2018 is best near 300 units, and HuBERT's PNMI is
+     0.686 at 500 against 0.575 at 100. Labels never pick the count.
+   - Fit phi on the classes with the A10 durinit recipe, 2 seeds per count. Then expand each class row to its units,
+     m(u|s) = m(c(u)|s) p(u|c(u)), and continue EM on the 500 units (Petrov et al. 2006: hierarchical beats direct).
+   - Read:
+     - S on the expanded phi against the A10 finals (3.299) and the bar (3.289);
+     - TP-B's label-free battery;
+     - generative PER;
+     - each count's oracle many-to-one purity, as a label-using analysis only.
+   - Cost, estimated: 6 arms of about 4-5 GPU-h each, about two 4-GPU packs.
+3. **Order (recommended).** TP-D first: it tests the partition hypothesis directly and is a fixed cost. Then TP-B'
+   on TP-D's S-best finals, or on the A10 finals if TP-D is not funded.
+- The best case of either is the basin (phi PER 0.35-0.50; lift to 0.20-0.36), not gold. No published result covers a
+  named inventory, so neither is expected to reach it; each tests the partition hypothesis.
+
+**Rulings needed from the user:**
+- May a label-free secondary read gate a move's acceptance in TP-B'? Near the top, S alone is a weak judge
+  (Berg-Kirkpatrick and Klein 2013; our PER-0.86 arm at the S bar). If so, may that read be chosen by how well it
+  separates the label-built basin set from the finals?
+- Is a broad-class name allocation (vowel / stop / fricative / nasal / SIL counts) admissible as general phonetic
+  knowledge? It is the direct analogue of Jin et al.'s group counts, and is not proposed without a ruling.
+- Still open: the occupancy term (V2), a unigram-level term beside the trigram.
+
 ## Ruled out by current evidence (not proposed)
 
 - Rename or name search under the current J (E7, A20: J ranks the right names lower; keys are swap-optimal).
