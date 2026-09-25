@@ -151,6 +151,77 @@ def check_masked_positions_do_not_leak():
     print("PASS  masked positions never leak, under either denominator")
 
 
+def _two_stream_fixture(seed: int):
+    """``_fixture`` with PersonaPlex's two-stream audio target: dep_q=16 logits (assistant 0-7, user 8-15)."""
+    g = torch.Generator().manual_seed(100 + seed)
+    codes, out, loss_mask = _fixture(seed)
+    out.logits = torch.randn(B, 16, T, CARD, generator=g)
+    out.mask = torch.rand(B, 16, T, generator=g) > 0.1
+    out.logits[~out.mask] = float("nan")
+    return codes, out, loss_mask
+
+
+def _audio_by_hand(codes, out, loss_mask, weights):
+    """Eq. 7's audio half with explicit per-codebook weights: sum(w_k * CE_k) / sum(w_k) over valid positions."""
+    import torch.nn.functional as F
+
+    k = len(weights)
+    valid = (out.mask[:, :k] & loss_mask[:, None, :]).float()
+    ce = F.cross_entropy(
+        torch.nan_to_num(out.logits[:, :k]).float().reshape(-1, CARD),
+        codes[:, AUDIO_OFFSET : AUDIO_OFFSET + k].reshape(-1),
+        reduction="none",
+    ).view(B, k, T)
+    w = torch.tensor(weights, dtype=torch.float32)[None, :, None] * valid
+    return (ce * w).sum() / w.sum()
+
+
+def check_user_semantic_weight():
+    """``user_semantic_weight`` (ablation ab2_usersem, 2026-09-25): None is bit-identical to not passing it; a value
+    lands on codebook dep_q // 2 (= 8, the user's semantic codebook at dep_q=16) and nowhere else; the text half is
+    untouched; a one-stream target (odd dep_q) is refused. Mutants (the weight on codebook 7 or 9, or on 0) fail."""
+    for seed in (5, 6):
+        codes, out, loss_mask = _two_stream_fixture(seed)
+        for wm in (False, True):
+            kw = dict(dep_q=16, other_audio_weight=AUDIO_OTHER, text_pad_weight=TEXT_PAD, text_epad_id=TEXT_EPAD_ID)
+            kw.update(weighted_mean=wm, return_components=True)
+            t0, p0 = duplex_ce_loss(out, codes, loss_mask, **kw)
+            t1, p1 = duplex_ce_loss(out, codes, loss_mask, user_semantic_weight=None, **kw)
+            assert torch.equal(t0, t1) and p0 == p1, "user_semantic_weight=None must be bit-identical"
+            t2, p2 = duplex_ce_loss(out, codes, loss_mask, user_semantic_weight=1.0, **kw)
+            assert p2["text_loss"] == p0["text_loss"], "the text half must not move"
+            assert not torch.isclose(t2, t0), "a user semantic weight of 1.0 must change the audio half"
+            if not wm:
+                continue
+            base = [1.0] + [AUDIO_OTHER] * 15
+            want = base.copy()
+            want[8] = 1.0
+            torch.testing.assert_close(torch.tensor(p2["audio_loss"]), _audio_by_hand(codes, out, loss_mask, want))
+            torch.testing.assert_close(torch.tensor(p0["audio_loss"]), _audio_by_hand(codes, out, loss_mask, base))
+            for wrong in (7, 9):
+                mut = base.copy()
+                mut[wrong] = 1.0
+                got = _audio_by_hand(codes, out, loss_mask, mut)
+                assert not torch.isclose(torch.tensor(p2["audio_loss"]), got), f"mutant (codebook {wrong}) not caught"
+    try:
+        duplex_ce_loss(
+            out,
+            codes,
+            loss_mask,
+            dep_q=7,
+            other_audio_weight=AUDIO_OTHER,
+            text_pad_weight=TEXT_PAD,
+            user_semantic_weight=1.0,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an odd dep_q (no user stream) must be refused")
+    print(
+        "PASS  user_semantic_weight: None bit-identical; the weight lands on codebook dep_q//2 = 8 only (mutants 7/9 fail)"
+    )
+
+
 def check_wiring():
     launcher = (SETUP / "recipe/speech_llm/full_duplex/moshi_family/moshi_finetune_launcher.py").read_text()
     assert re.search(r'^\s*loss_norm = str\(cfg\.get\("loss_norm", "count"\)\)', launcher, re.M), (
@@ -170,9 +241,48 @@ def check_wiring():
     print("PASS  launcher reads + forwards loss_norm at every call site; presets stay hash-stable")
 
 
+def check_ppx_loss_weight_wiring():
+    """The PersonaPlex launcher reads ``text_pad_weight`` / ``user_semantic_weight`` unconditionally, defaults PAD to
+    ``paper_weight_loss``'s own default (so an old config means what it meant), and passes both at every
+    ``personaplex_loss`` call; the held-out loss (``heldout_loss.make_loss_step``) does the same; the renderer emits
+    the keys only when set."""
+    import inspect
+
+    from moshi_family.train_data_common import paper_weight_loss
+
+    ppx = SETUP / "recipe/speech_llm/full_duplex/moshi_family/personaplex"
+    launcher = (ppx / "finetune_launcher.py").read_text()
+    default = inspect.signature(paper_weight_loss).parameters["text_pad_weight"].default
+    for key in ("text_pad_weight", "user_semantic_weight"):
+        assert re.search(rf'^    {key} = cfg\.get\("{key}"\)$', launcher, re.M), f"{key}: not read unconditionally"
+    assert re.search(rf"^    text_pad_weight = {default} if text_pad_weight is None", launcher, re.M), (
+        f"the launcher's PAD default must be paper_weight_loss's ({default})"
+    )
+    for name, src in (("launcher", launcher), ("heldout_loss", (ppx / "heldout_loss.py").read_text())):
+        calls = src.count("personaplex_loss(\n")
+        for kw in ("text_pad_weight=text_pad_weight", "user_semantic_weight=user_semantic_weight"):
+            assert calls >= 1 and src.count(kw) == calls, (
+                f"{name}: {calls} personaplex_loss calls, {src.count(kw)} pass {kw}"
+            )
+    from moshi_family.personaplex.heldout_loss import loss_settings
+
+    s = loss_settings({})
+    assert s["text_pad_weight"] == default and s["user_semantic_weight"] is None, s
+    template = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
+    for key in ("text_pad_weight", "user_semantic_weight"):
+        assert f'if hp.get("{key}") is not None:\n        perf = f"{key}: ' in template, (
+            f"renderer: {key} not render-if-set"
+        )
+    print(
+        f"PASS  PersonaPlex launcher + held-out loss read/forward text_pad_weight (default {default}) and user_semantic_weight"
+    )
+
+
 if __name__ == "__main__":
     check_weighted_mean_matches_reference()
     check_default_differs_by_the_predicted_factor()
     check_masked_positions_do_not_leak()
+    check_user_semantic_weight()
     check_wiring()
+    check_ppx_loss_weight_wiring()
     print("ALL PASS")

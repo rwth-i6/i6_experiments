@@ -184,6 +184,9 @@ def launcher_loss_step(cfg: dict, model):
         "emit_epad": cfg.get("emit_epad"),
         "text_epad_weight": None if cfg.get("text_epad_weight") is None else float(cfg["text_epad_weight"]),
         "floor_weight": None,  # the held-out rows carry no floor weight (documented difference)
+        # loss-weight overrides (ab2_pad05 / ab2_usersem, 2026-09-25), read as main() reads them
+        "text_pad_weight": 0.3 if cfg.get("text_pad_weight") is None else float(cfg["text_pad_weight"]),
+        "user_semantic_weight": None if cfg.get("user_semantic_weight") is None else float(cfg["user_semantic_weight"]),
         "depformer_skip_masked": bool(cfg.get("depformer_skip_masked", False)),
     }
     exec(LOSS_STEP_SRC, ns)

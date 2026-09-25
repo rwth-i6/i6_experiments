@@ -518,6 +518,12 @@ def _render_personaplex_lora_config(
         if not hp.get("emit_epad"):
             raise ValueError(f"{who}: text_epad_weight needs emit_epad=True")
         perf = f"text_epad_weight: {_yaml_float(hp['text_epad_weight'])}\n" + perf
+    # Loss-weight overrides (2026-09-25, ablations ab2_pad05 / ab2_usersem): rendered ONLY when set, like
+    # text_epad_weight; absent = PAD at the paper's 0.3 and the user stream's semantic codebook weighted as acoustic.
+    if hp.get("text_pad_weight") is not None:
+        perf = f"text_pad_weight: {_yaml_float(hp['text_pad_weight'])}\n" + perf
+    if hp.get("user_semantic_weight") is not None:
+        perf = f"user_semantic_weight: {_yaml_float(hp['user_semantic_weight'])}\n" + perf
     # Context weight at floor-available frames (2026-09-24, ablation ab_epad1_floor): rendered ONLY when set,
     # like text_epad_weight. The launcher asserts onset_floor and no text lead.
     if hp.get("floor_weight") is not None:
