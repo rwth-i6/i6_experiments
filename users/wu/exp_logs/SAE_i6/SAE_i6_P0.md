@@ -18,8 +18,9 @@ NEXT:
   DEFAULT_ENVIRONMENT_SET; k2lat at sub-epoch 8, `LEXLAT_K2_CHUNK_SEQS=8`, then `-p gpu_48gb` from epoch 7
   (`reports/review_v100_routing_2026-09-25.md`, d and e).
 - One extractor pass once k2lat logs "ep 1 train, step 0": its step 1 against ctrl_20's (`log.run.1:670`) under
-  the amended G0.R2 clause; the s1 and rc step-1 lines (G0.R1s, G0.RC); the paired ep1/ep4 reads.
-- Then ep20: ctrl_20, ctrl_20_s1, ctrl_20_rc, k2lat.
+  the amended G0.R2 clause; the s1 and rc step-1 lines (G0.R1s, G0.RC); the paired ep1/ep4 reads. Then ep20.
+- G0.G: implementer on the three core fixes (`reverse_model/` only, no P0 job id changes), code review, then the
+  gold-phi D4 read on its own entry point.
 - After the trainings end: the implementer passes `sil_run_collapse` to ctrl_20_rc's derangement and decode gap
   reads (`config/common.py` builds them without it, so the ep20 rc gaps built now are void for G0.RC) and moves
   the README Sisyphus pin to a567fa7; code review; rerun those two reads.
@@ -142,6 +143,14 @@ generation); widened tolerances in brackets apply then.
   T1.19 fixture (1e-5). Strict xfails are allowed only for defects outside what the train step
   computes, or for banked behaviour the owner has accepted, and each is listed in Results. Owner
   decisions S1, S2, S7: recorded (`SAE_i6_ref_objective.md` section 10: the code defines the bed).
+- **G0.G core phi reads (added 2026-09-25, before any code or run; port scope in `SAE_i6.md`, Queue 2).**
+  - (A): the i6 gold phi's genmarg posterior decode of the D4 dev-other set (500 utterances) under the trigram
+    gives Hungarian PER 0.193 +-0.02 (banked R1, `SAE_i6_ref_lexlat_v2.md`, A15 table, row gold). The i6 gold
+    phi is a refit on other hardware (G0.R3), hence the tolerance of the p0 clause.
+  - (A): unit tests for the D4 sample, the Hungarian map and NMI against hand-computed oracles; the 260 set is
+    the 285 CV-holdout set minus the fit items shared by every ladder phi, and there are 25 of them.
+  - (B, report-only): direct PER, the uniform-prior Hungarian PER (banked R2 0.276), NMI(symbol, phone), E[d].
+  - Every P0 job id stays unchanged by the change.
 - **Launch order (cost screen).** The ffmpeg pin check runs first, alone (CPU). Then the input graph and
   ctrl_20 alone among the trainings; after its sub-epoch 1: wall time per sub-epoch <= 1800 s (3x
   GH200) and peak GPU memory <= 40 GiB at the reference batch shape, else stop and decide (the lattice

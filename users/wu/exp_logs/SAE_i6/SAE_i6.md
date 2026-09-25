@@ -29,13 +29,18 @@ Project rules (documents, commits, env): `CLAUDE.md` in the setup dir.
 2. After P0: resume the cold line from where JUPITER stopped (`SAE_i6_ref_lexlat_v2.md`, "Open at
    the move": the L2-1 wave with durinit / 12 sub-epochs, A14 (i), A17 (i)-(iii), A16 (b) stage 1-2,
    A18 bridges, A19). Which of these, and in what order, is decided after P0 with the user's
-   priorities; most have no entry point in the port yet. Ported and matching the banked jobs: A10 12
-   sub-epochs, duration prior, 285-set S reader and selection, gold phi, p0, rt ladder. Not ported: A10
-   48 sub-epochs and its K* reader; A13 260-set reads; generative PER on dev-other (genmarg refuses it,
-   and refuses `sil_run_collapse`); a ladder read outside the 285 set (25 of its utterances are fit
-   items); none of the 34 SAE modules added on JUPITER after c49559ce (A11-A20, AN-0..6, TP0), on which
-   the rename evidence rests (`exp_logs/SAE/SAE_4A_rename.md`, d9b7e5362). The JUPITER orchestrator
-   will put a phi-init plan on the branch (`reports/jupiter_port_review_2026-09-25.md`).
+   priorities. Port scope (user, through the JUPITER orchestrator, 2026-09-25): core experiments only.
+   - Ported and matching the banked jobs: ctrl_20 (with rc and s1), k2lat, word LM/trie/HLG/VAD, p0, the A10
+     durinit recipe at 12 sub-epochs with its S reader, gold phi, the rt lift ladder.
+   - Core fixes, before any phi run (in progress; P0 gate G0.G): (1) generative PER on the D4 dev-other set
+     (direct, Hungarian, NMI), a standing read for every phi run; (2) ladder reads on the 260 set (the 285
+     set holds 25 fit items); (3) the wave default durinit at 12 sub-epochs (`WAVE_*` is None).
+   - On demand only, when a funded phi step needs them: PhiFromKeyInitJob with PhiDurinitSwapJob, the AN-5
+     key-identity read.
+   - Not ported (conclusions stay in the JUPITER logs): A10 at 48 with K*, A11/A12 table EM, A13-A20 readers,
+     key search and J screens, AN-0..6, TP0, the A15-F battery, the inventory ceiling, statistic (b), node P,
+     phi_c, k2lat_20_x60 (G4a.L2.3 closed CANNOT_TELL).
+   Sources: `reports/jupiter_port_review_2026-09-25.md`, `exp_logs/SAE/SAE_4A_rename.md` (d9b7e5362).
 
 ## Phase pointers
 
