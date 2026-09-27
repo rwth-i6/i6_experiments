@@ -154,3 +154,27 @@ level (5.69 % of runs, 0.0603 SIL per non-SIL run) and higher at the frame level
 retained frames); rVAD removes 15.1 % of the raw frames and cuts the gold-SIL frame share from
 20.30 % to 7.89 %, so the surviving silence is mostly short: 28.3 % of the retained SIL runs are
 1-2 frames (20-40 ms) and the median run is 5 frames (100 ms).
+
+### FOUND - Complete data
+
+**Job location:** `/e/scratch/spell/wu24/2026-07-13_unsupervised/work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/text/PhonemizeWithSilJob.DbFgvZOGZQ8F`
+
+**Parameters from job info file (lines 7-9):**
+- seed: 0
+- sil_prob: 0.5  
+- surround: True
+
+**Token statistics from output/stats.txt:**
+- Total tokens: 3,232,620,004
+- SIL tokens: 448,460,735
+- SIL token rate: 0.138730 (13.873%)
+- Lines in: 40,418,261
+- Lines out: 39,630,169
+- Dropped OOV: 788,092
+
+**Surround effect (fraction of lines starting with SIL):**
+- Lines starting with `<SIL>`: 100% (sampled first 200,000 lines)
+
+**SIL token share:** 448460735 / 3232620004 = 0.138730
+- Source: `/e/scratch/spell/wu24/2026-07-13_unsupervised/work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/text/PhonemizeWithSilJob.DbFgvZOGZQ8F/output/stats.txt` lines 7-9
+
