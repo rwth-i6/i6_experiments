@@ -582,6 +582,14 @@ def _render_personaplex_lora_config(
         tr = hp["train_rows"]
         tr = tr.get() if hasattr(tr, "get") else str(tr)
         perf = f'train_rows: "{tr}"\n' + perf
+    # Per-row loss weights (2026-09-28, the monologue down-weight; ``row_filters.ThresholdRowWeights.out_weights``, a
+    # tk.Path in hparams, so the run depends on it). Rendered ONLY when set: every earlier config is byte-identical.
+    if hp.get("train_row_weights") is not None:
+        if hp.get("floor_weight") is not None or hp.get("turn_tail_weight") is not None:
+            raise ValueError(f"{who}: train_row_weights goes with neither floor_weight nor turn_tail_weight")
+        rw = hp["train_row_weights"]
+        rw = rw.get() if hasattr(rw, "get") else str(rw)
+        perf = f'train_row_weights: "{rw}"\n' + perf
     # Held-out validation loss (2026-09-25, p6): rendered ONLY when set, like text_epad_weight. ``job.eval_data`` (the
     # SpeechFinetune constructor argument, so the run depends on it; never an hparam, check_hparams_destination) is a
     # fixed ``heldout_set`` window set (e.g. ``PersonaHeldoutSet`` "heldout"), ``eval_every`` the cadence in

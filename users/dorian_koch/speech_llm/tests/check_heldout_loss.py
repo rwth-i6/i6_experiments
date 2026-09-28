@@ -194,6 +194,8 @@ def launcher_loss_step(cfg: dict, model):
         "depformer_skip_masked": bool(cfg.get("depformer_skip_masked", False)),
         # the assistant turn-tail weight (ab2_turntail03, 2026-09-25) is training-only: the held-out loss is unweighted
         "turn_tail_weight": None,
+        # ... and so is the per-row loss weight (train_row_weights, 2026-09-28)
+        "train_row_weights": None,
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]
