@@ -217,7 +217,7 @@ class OpenYapEpisodeIngest(Job):
         provenance: dict | None = None,
         code_version: int = 1,
         env_ffmpeg_path: tk.Path | None = None,
-        convs_per_part: int = 8,
+        convs_per_part: int = 32,
         rqmt: dict | None = None,
     ):
         assert mimi_encode_mode == "offline", "only the offline encode is exact (audio_datasets.md, Mimi encode bug)"
