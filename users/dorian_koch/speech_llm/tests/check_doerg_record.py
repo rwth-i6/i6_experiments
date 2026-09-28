@@ -13,7 +13,10 @@ a manifest line pointing at missing files would silently shrink it. Checks, on t
      connected) ends it cleanly: recorded, ``ended_by == "server stop"``, manifest line written;
   3. CAN FAIL: with the stop hooks removed (the pre-2026-09-25 behaviour, ``os._exit`` straight away),
      the open conversation is NOT recorded within the same wait;
-  4. without ``doerg_manifest`` nothing is appended (hpc-talk without ``--record`` stays manifest-free).
+  4. without ``doerg_manifest`` nothing is appended (hpc-talk without ``--record`` stays manifest-free);
+  5. (2026-09-28) a scripted client's ``POST /api/client_info`` lands in ITS conversation's record as
+     ``client`` and its ``via`` replaces the session's in the manifest line; a report posted during an
+     earlier conversation does not leak into the next one.
 
 moshi_family venv (torch, sphn, aiohttp, soundfile), CPU, a few seconds::
 
@@ -56,14 +59,16 @@ def tone(seconds: float) -> np.ndarray:
     return (0.1 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
 
 
-async def conversation(td: str, manifest: str | None, stop_mid: str | None) -> tuple[ls.LiveServer, bool]:
+async def conversation(
+    td: str, manifest: str | None, stop_mid: str | None, client_info: dict | None = None, server=None
+) -> tuple[ls.LiveServer, bool]:
     """One conversation of 3 s of audio. ``stop_mid``: None = the client closes; "hooks" = server stop
     while open; "mutant" = the same with the stop hooks removed. Returns (server, recorded within 5 s)."""
     import sphn
     from aiohttp import web
     from aiohttp.test_utils import TestClient, TestServer
 
-    server = ls.LiveServer(
+    server = server or ls.LiveServer(
         FakeCore(),
         idle_min=5,
         max_hours=1,
@@ -75,6 +80,8 @@ async def conversation(td: str, manifest: str | None, stop_mid: str | None) -> t
     )
     app = web.Application()
     app.router.add_get("/api/chat", server.handle_chat)
+    app.router.add_post("/api/client_info", server.handle_client_info)
+    n_before = len(server.sessions)
     async with TestClient(TestServer(app)) as cl:
         ws = await cl.ws_connect("/api/chat?voice_prompt=NATF2.pt&text_prompt=hello")
         msg = await ws.receive()
@@ -93,6 +100,9 @@ async def conversation(td: str, manifest: str | None, stop_mid: str | None) -> t
                 await ws.send_bytes(b"\x01" + pkt)
             await asyncio.sleep(0.004)
         await asyncio.sleep(0.5)
+        if client_info is not None:
+            r = await cl.post("/api/client_info", data=json.dumps(client_info))
+            assert r.status == 200, r.status
         if stop_mid is None:
             await ws.close()
         else:
@@ -103,7 +113,7 @@ async def conversation(td: str, manifest: str | None, stop_mid: str | None) -> t
                 hook()
         recorded = False
         for _ in range(50):
-            if server.sessions:
+            if len(server.sessions) > n_before:
                 recorded = True
                 break
             await asyncio.sleep(0.1)
@@ -175,6 +185,20 @@ def main() -> int:
 
         server, rec_ok = asyncio.run(conversation(os.path.join(td, "x"), None, None))
         check(rec_ok and not os.path.exists(os.path.join(td, "x", "doerg")), "4 no manifest without doerg_manifest")
+
+        man5 = os.path.join(td, "doerg5", "sessions.jsonl")
+        info = {"via": "discord-voice", "discord_user_id": "123", "bridge": {"added_latency_ms": 250.0}}
+        server, rec_ok = asyncio.run(conversation(td, man5, None, client_info=info))
+        server, rec_ok2 = asyncio.run(conversation(td, man5, None, server=server))
+        L = lines(man5)
+        check(rec_ok and rec_ok2 and len(L) == 2, f"5a two conversations, two lines ({len(L)})")
+        if len(L) == 2:
+            check(L[0]["record"].get("client") == info, "5b client_info lands in its conversation's record")
+            check(L[0].get("via") == "discord-voice", "5c its via replaces the session's in the manifest line")
+            check(
+                "client" not in L[1]["record"] and L[1].get("via") == "check",
+                "5d the next conversation carries no stale client_info",
+            )
     print("\nALL PASS" if not FAILS else f"\n{len(FAILS)} FAILED: {FAILS}")
     return 1 if FAILS else 0
 
