@@ -100,6 +100,11 @@ def build(**kw):
     sisyphus.job.created_jobs.clear()
     kw.setdefault("tag", "hparams_dest_guard")
     tag = kw.pop("tag")
+    # POLICY_LATEST is past RULE_NO_GRAD_ACCUM (09-25c): make_finetune_run then refuses a run that does not state
+    # grad_accum=1 (the launcher default accumulates). Every build states it, so each check below reaches the
+    # property it tests; [3b] shows the refusal is still in force without it. ``grad_accum_unset=True`` omits it.
+    if not kw.pop("grad_accum_unset", False):
+        kw["extra_hparams"] = {"grad_accum": 1, **(kw.get("extra_hparams") or {})}
     return train(
         tag,
         model=MOSHI_LIB,
@@ -152,6 +157,13 @@ try:
     check(r.job.hparams.get("text_pad_weight") == 0.01, "text_pad_weight reaches hparams")
 except AssertionError as e:
     check(False, "a real hparam still builds", str(e)[:160])
+
+print("[3b] the 09-25c refusal is untouched: a POLICY_LATEST run without grad_accum still raises")
+try:
+    build(extra_hparams={"text_pad_weight": 0.01}, tag="hparams_dest_guard_noaccum", grad_accum_unset=True)
+    check(False, "a POLICY_LATEST run without grad_accum raises (RULE_NO_GRAD_ACCUM)")
+except ValueError as e:
+    check("grad_accum" in str(e), "a POLICY_LATEST run without grad_accum raises (RULE_NO_GRAD_ACCUM)", str(e)[:160])
 
 print("[4] passed properly, the value lands ON THE JOB")
 r = build(eval_data=EVAL, tag="hparams_dest_guard_eval")
