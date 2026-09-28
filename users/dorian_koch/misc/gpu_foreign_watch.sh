@@ -4,7 +4,7 @@
 # Runs the worker unchanged (exec). On a SLURM GPU job it also starts a background watcher that,
 # every 60 s, lists the compute processes on THIS job's GPU(s) and logs, once per pid, every one that
 # does not belong to this SLURM job: owner, exe path, cwd, command line, start time, and the SLURM
-# job it belongs to (id, user, name). Lines go to <log prefix>.<array task id> (= log.run.N), tagged
+# job it belongs to (id, user, name; else the jobs on the node). Lines go to <log prefix>.<array task id> (= log.run.N), tagged
 # `[gpu-foreign]`. Motivation: 2026-09-28 PersonaSelfPlay.EAdY0g1kSd5g OOMed on n25g0004 next to a
 # 10.3 GiB process that was not ours.
 #
@@ -15,20 +15,36 @@ shift
 [[ ${1:-} == -- ]] && shift
 
 watch_gpus() {
-    local worker=$1 log=$2 seen=" " uuids line uuid pid mem name owner exe cwd args start fjob finfo i
+    local worker=$1 log=$2 seen=" " uuids line uuid pid mem name owner exe cwd args start fjob finfo penv i
     # Sisyphus's init_worker unlinks log.run.N and hard-links it to the engine log, so never hold it
     # open: wait until it exists, then append by path, one line at a time.
     for i in {1..60}; do [[ -e $log ]] && break; sleep 5; done
     sleep 15
-    uuids=$(nvidia-smi --query-gpu=uuid --format=csv,noheader -i "$CUDA_VISIBLE_DEVICES" 2>/dev/null) || return
+    # Which cards are ours: UUIDs as given; or every card nvidia-smi sees when that count matches (SLURM
+    # constrains devices, so the job sees only its own); else by index -- CUDA's order may differ from
+    # nvidia-smi's there (login23-g-1: CUDA 2 = nvidia-smi 3), hence the note.
+    local note="" n_cvd n_vis
+    n_cvd=$(tr ',' '\n' <<<"$CUDA_VISIBLE_DEVICES" | grep -c .)
+    n_vis=$(nvidia-smi --query-gpu=uuid --format=csv,noheader 2>/dev/null | grep -c .)
+    if [[ $CUDA_VISIBLE_DEVICES == *GPU-* || $CUDA_VISIBLE_DEVICES == *MIG-* ]]; then
+        uuids=$(tr ',' '\n' <<<"$CUDA_VISIBLE_DEVICES")
+    elif ((n_cvd == n_vis)); then
+        uuids=$(nvidia-smi --query-gpu=uuid --format=csv,noheader 2>/dev/null)
+    else
+        uuids=$(nvidia-smi --query-gpu=uuid --format=csv,noheader -i "$CUDA_VISIBLE_DEVICES" 2>/dev/null) || return
+        note=" (by nvidia-smi index; CUDA's device order may differ)"
+    fi
     [[ -n $uuids ]] || return
-    echo "[gpu-foreign] $(date '+%F %T') watching $(hostname -s) GPU(s) ${uuids//$'\n'/ } for processes outside SLURM job $SLURM_JOB_ID" >>"$log"
+    echo "[gpu-foreign] $(date '+%F %T') watching $(hostname -s) GPU(s) ${uuids//$'\n'/ } for processes outside SLURM job $SLURM_JOB_ID$note" >>"$log"
     while kill -0 "$worker" 2>/dev/null; do
         while IFS= read -r line; do
             IFS=',' read -r uuid pid mem name <<<"$line"
             uuid=${uuid// /} pid=${pid// /} mem=${mem// /} name=${name# }
             [[ -n $pid && $uuids == *"$uuid"* && $seen != *" $pid "* ]] || continue
-            if [[ ${GPU_FOREIGN_TEST:-0} != 1 ]] && grep -qs "job_${SLURM_JOB_ID}\b" "/proc/$pid/cgroup"; then
+            # Ours = carries our SLURM_JOB_ID. (The job cgroup is not visible in /proc/<pid>/cgroup on
+            # the RZ nodes; environ is readable for our own processes, never for other users'.)
+            penv=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null)
+            if [[ ${GPU_FOREIGN_TEST:-0} != 1 ]] && grep -qx "SLURM_JOB_ID=$SLURM_JOB_ID" <<<"$penv"; then
                 continue
             fi
             seen+="$pid "
@@ -37,10 +53,13 @@ watch_gpus() {
             cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) || cwd="?"
             args=$(ps -o args= -p "$pid" 2>/dev/null | cut -c1-600)
             start=$(ps -o lstart= -p "$pid" 2>/dev/null)
-            fjob=$(grep -so 'job_[0-9]*' "/proc/$pid/cgroup" | head -1)
-            finfo="none (not in a SLURM job cgroup)"
+            fjob=$(grep -m1 -o '^SLURM_JOB_ID=[0-9]*' <<<"$penv")
+            fjob=${fjob#SLURM_JOB_ID=}
+            [[ -n $fjob ]] || { fjob=$(grep -so 'job_[0-9]*' "/proc/$pid/cgroup" | head -1); fjob=${fjob#job_}; }
             if [[ -n $fjob ]]; then
-                finfo="${fjob#job_} $(squeue -h -j "${fjob#job_}" -o '%u %T %j' 2>/dev/null | head -1)"
+                finfo="$fjob $(squeue -h -j "$fjob" -o '%u %T %j' 2>/dev/null | head -1)"
+            else
+                finfo="unknown; jobs on this node: $(squeue -h -w "$(hostname -s)" -o '%i:%u:%j' 2>/dev/null | tr '\n' ' ')"
             fi
             echo "[gpu-foreign] $(date '+%F %T') FOREIGN process on our GPU $uuid: pid=$pid used=${mem}MiB" \
                 "owner=${owner// /} exe=$exe cwd=$cwd started='${start}' slurm_job=$finfo cmd=$args" >>"$log"
