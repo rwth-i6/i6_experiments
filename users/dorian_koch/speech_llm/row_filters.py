@@ -813,3 +813,347 @@ def run_safety_sample(data_path, n, seed, llm_name, rubric, out_rows, out_summar
     json.dump(summary, open(out_summary, "w"), indent=2)
     print(json.dumps(summary, indent=1), flush=True)
     return summary
+
+
+# ---------------------------------------------------------------------------------------------
+# flagged WORDS: per-word lexicon hits (loss mask / down-weight / censor), 2026-09-28b
+# ---------------------------------------------------------------------------------------------
+#: The categories whose words the flagged-word arms act on (user, 2026-09-28: "Lets do the word list filter for sexual
+#: content. THe loss mask on flagged words sounds good. Or maybe downweight a lot. Or could we train the model to output
+#: a beep instead?"): swearing and sexual words. Slurs are rare (0.27% of windows) and not part of the decision.
+FLAGGED_WORD_CATEGORIES = ("profanity", "sexual")
+
+
+def flagged_word_hits(words: list, pats: dict, categories) -> list:
+    """Lexicon hits of one side as WORD indices: ``[(categories, [word index, ...]), ...]`` in order of the first word.
+    ``words``: the side's word strings in stored order. The matching is :func:`lexicon_hits`' exactly (the same
+    normalisation and whole-word regexes over the side's joined, normalised text); each match is mapped back to the
+    words whose normalised tokens it covers, so a multi-word entry ("blow job", "jerk off") is ONE hit over two words.
+    Two categories matching the same words give one hit with both categories."""
+    toks, offs, pos = [], [], 0
+    for i, w in enumerate(words):
+        for t in norm_words(w).split():
+            toks.append(i)
+            offs.append(pos)
+            pos += len(t) + 1
+    text = " ".join(t for w in words for t in norm_words(w).split())
+    import bisect
+
+    found = {}
+    for cat in categories:
+        for m in pats[cat].finditer(text):
+            a = bisect.bisect_right(offs, m.start()) - 1
+            b = bisect.bisect_right(offs, m.end() - 1) - 1
+            key = tuple(sorted({toks[k] for k in range(a, b + 1)}))
+            found.setdefault(key, set()).add(cat)
+    return [(sorted(c), list(k)) for k, c in sorted(found.items())]
+
+
+def flagged_word_spans(data_path: str, lexicon: str, categories, n_examples: int = 12, seed: int = 0) -> tuple:
+    """:class:`FlaggedWordSpans`' worker: ``(spans, summary)``. ``spans["rows"]``: ``{row: {side: [[[start, end] per
+    word] per hit]}}`` for every table row with a hit, sides = the STORED channels (``assistant`` = ``alignments``,
+    ``other`` = ``alignments_other``, whatever ``other_ok`` says: the loader uses "other" only on a swapped read)."""
+    import numpy as np
+    from datasets import load_from_disk
+
+    pats = lexicon_patterns(lexicon)
+    cats = tuple(categories)
+    ds = load_from_disk(str(data_path))
+    cols = ["id", "duration", "alignments"] + [c for c in ("alignments_other", "other_ok") if c in ds.column_names]
+    ds = ds.select_columns(cols)
+    rows, n_rows = {}, ds.num_rows
+    st = {
+        s: {"words": 0, "rows_with_hit": 0, "hits": 0, "words_flagged": 0, "sec_flagged": 0.0, "per_category": {}}
+        for s in ("assistant", "other")
+    }
+    trainable_rows, examples = 0, []
+    for i, r in enumerate(ds):
+        per = {}
+        for side, col in (("assistant", "alignments"), ("other", "alignments_other")):
+            al = r.get(col) or []
+            ws = [str(w["text"]) for w in al]
+            s = st[side]
+            s["words"] += len(ws)
+            hits = flagged_word_hits(ws, pats, cats)
+            if not hits:
+                continue
+            per[side] = [[[float(al[k]["start"]), float(al[k]["end"])] for k in idx] for _c, idx in hits]
+            s["rows_with_hit"] += 1
+            s["hits"] += len(hits)
+            s["words_flagged"] += sum(len(idx) for _c, idx in hits)
+            s["sec_flagged"] += sum(max(e for _s, e in h) - min(b for b, _e in h) for h in per[side])
+            for c, idx in hits:
+                for cat in c:
+                    s["per_category"][cat] = s["per_category"].get(cat, 0) + 1
+            examples.append((i, r["id"], side, ws, hits))
+        if per:
+            rows[str(i)] = per
+            trainable_rows += "assistant" in per or ("other" in per and bool(r.get("other_ok", False)))
+    rng = np.random.default_rng(int(seed))
+    pick = sorted(rng.choice(len(examples), min(n_examples, len(examples)), replace=False).tolist()) if examples else []
+    ex = []
+    for j in pick:
+        i, rid, side, ws, hits = examples[j]
+        c, idx = hits[0]
+        ex.append(
+            {
+                "row": i,
+                "id": rid,
+                "side": side,
+                "categories": c,
+                "words": [ws[k] for k in idx],
+                "context": " ".join(ws[max(0, idx[0] - 6) : idx[-1] + 7]),
+            }
+        )
+    summary = {
+        "lexicon": lexicon,
+        "lexicon_digest": lexicon_digest(lexicon),
+        "categories": list(cats),
+        "rows": n_rows,
+        "rows_with_hit_any_side": len(rows),
+        "rows_with_hit_on_a_trainable_side": trainable_rows,
+        "per_side": {
+            s: {
+                **{k: (round(v, 1) if isinstance(v, float) else v) for k, v in d.items()},
+                "flagged_word_share": round(d["words_flagged"] / max(d["words"], 1), 5),
+            }
+            for s, d in st.items()
+        },
+        "examples_seeded": ex,
+    }
+    spans = {
+        "num_rows": n_rows,
+        "lexicon": lexicon,
+        "lexicon_digest": lexicon_digest(lexicon),
+        "categories": list(cats),
+        "rows": rows,
+    }
+    return spans, summary
+
+
+class FlaggedWordSpans(Job):
+    """Per table row and STORED side, the time spans of every lexicon hit's words (``SAFETY_LEXICONS[lexicon]``,
+    ``categories``; default swearing + sexual), for the flagged-word arms (2026-09-28b): the loader's
+    ``train_word_spans`` (loss mask / down-weight on the assistant's flagged words: ``train_data.build_data_loader``)
+    and :class:`CensorFlaggedWords` (beep). Word times are the corpus's own alignments (the text row's source), so
+    the loader finds exactly those words again. CPU, minutes.
+
+    Outputs: ``out_spans`` (``spans.json``: ``{"num_rows", "lexicon", "lexicon_digest", "categories", "rows": {row:
+    {side: [[[start, end] per word] per hit]}}}``) and ``out_summary`` (hits / flagged words / seconds per side and
+    category, seeded verbatim examples)."""
+
+    def __init__(self, *, data: tk.Path, lexicon: str = "explicit_v1", categories: tuple = FLAGGED_WORD_CATEGORIES):
+        assert lexicon in SAFETY_LEXICONS, lexicon
+        assert categories and set(categories) <= set(SAFETY_LEXICONS[lexicon]), categories
+        self.data = data
+        self.lexicon = lexicon
+        self.lexicon_digest = lexicon_digest(lexicon)  # hashed: an edited lexicon is a different job
+        self.categories = tuple(sorted(categories))
+        self.out_spans = self.output_path("spans.json")
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 16, "time": 2})
+
+    def run(self):
+        spans, summary = flagged_word_spans(self.data.get_path(), self.lexicon, self.categories)
+        json.dump(spans, open(self.out_spans.get_path(), "w"))
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(json.dumps({k: v for k, v in summary.items() if k != "examples_seeded"}, indent=1), flush=True)
+
+
+class CensorFlaggedWords(Job):
+    """A censored copy of every STORED channel that says a flagged word (``spans`` = :class:`FlaggedWordSpans`), for
+    the beep arm (user, 2026-09-28: "could we train the model to output a beep instead? i.e. censor?"): per (table row,
+    side) with a hit, the channel's stored codes are Mimi-DECODED (offline), each hit's time span is replaced by a
+    ``beep_hz`` sine at the span's own RMS (5 ms fades), the whole window is re-ENCODED OFFLINE (one non-streaming
+    ``mimi.encode`` per window <= 60 s: never the streaming multi-frame encode, audio_datasets.md "Mimi encode bug"),
+    and ONLY the frames overlapping a hit take the new codes -- every other frame keeps its stored code (a decode ->
+    re-encode round trip changes ~40% of codes, so a whole-window swap would degrade the rest). The hit's words in that
+    side's alignments become one word ``text`` over the hit's span. The loader (``train_censor``) swaps this copy in
+    only when the channel is THIS read's assistant; read as the user, a channel keeps its stored clean codes /
+    augmented variants. Worker: ``moshi_family.personaplex.censor_words`` (``num_shards`` GPU tasks + a merge).
+
+    Outputs: ``out_dir`` (``dataset/``: row, side, n_codebooks, n_frames, codes, alignments; ``meta.json``) and
+    ``out_summary``."""
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        spans: tk.Path,
+        venv_python_path: tk.Path,
+        beep_hz: float = 1000.0,
+        fade_ms: float = 5.0,
+        text: str = "beep",
+        num_shards: int = 4,
+    ):
+        self.data = data
+        self.spans = spans
+        self.venv_python_path = venv_python_path
+        self.beep_hz = float(beep_hz)
+        self.fade_ms = float(fade_ms)
+        self.text = str(text)
+        self.num_shards = int(num_shards)
+        self.out_dir = self.output_path("censor", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 4, "gpu_mem_gb": 20}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, args=range(self.num_shards))
+        yield Task("merge", rqmt={"cpu": 2, "mem": 16, "time": 1})
+
+    def run(self, shard: int):
+        from pathlib import Path
+
+        # podcast_ingest._moshi_pythonpath's two entries (moshi_family + the recipe root for ``moshi``), inlined: importing
+        # podcast_ingest in the worker pulls i6_core, which the job's worker does not have
+        root = next(str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists())
+        pp = os.pathsep.join([os.path.join(root, "speech_llm", "full_duplex"), root])
+        env = dict(os.environ)
+        env["PYTHONPATH"] = pp + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.personaplex.censor_words",
+            "--data",
+            self.data.get_path(),
+            "--spans",
+            self.spans.get_path(),
+            "--out",
+            os.path.abspath(f"shard_{shard}"),
+            "--shard",
+            str(shard),
+            "--num_shards",
+            str(self.num_shards),
+            "--beep_hz",
+            str(self.beep_hz),
+            "--fade_ms",
+            str(self.fade_ms),
+            "--text",
+            self.text,
+        ]
+        print(" ".join(cmd), flush=True)
+        import subprocess
+
+        subprocess.run(cmd, env=env, check=True)
+
+    def merge(self):
+        from datasets import concatenate_datasets, load_from_disk
+
+        parts = [load_from_disk(os.path.abspath(f"shard_{i}/dataset")) for i in range(self.num_shards)]
+        sums = [json.load(open(os.path.abspath(f"shard_{i}/summary.json"))) for i in range(self.num_shards)]
+        out = self.out_dir.get_path()
+        concatenate_datasets(parts).save_to_disk(os.path.join(out, "dataset"))
+        num_rows = {s["num_rows"] for s in sums}
+        assert len(num_rows) == 1, num_rows
+        json.dump({"num_rows": num_rows.pop()}, open(os.path.join(out, "meta.json"), "w"))
+        keys = ("items", "hits", "frames_replaced", "frames_total", "sec_replaced", "codes_changed_in_span")
+        summary = {k: sum(s[k] for s in sums) for k in keys}
+        summary.update(
+            beep_hz=self.beep_hz,
+            fade_ms=self.fade_ms,
+            text=self.text,
+            share_of_frames_replaced=round(summary["frames_replaced"] / max(summary["frames_total"], 1), 5),
+            code_change_rate_in_span=round(
+                summary["codes_changed_in_span"] / max(summary["frames_replaced"] * sums[0]["n_codebooks"], 1), 4
+            ),
+            gpu_sec=round(sum(s["gpu_sec"] for s in sums), 1),
+            shards=sums,
+        )
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(json.dumps({k: v for k, v in summary.items() if k != "shards"}, indent=1), flush=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# self-play lexicon rates (measurement)
+# ---------------------------------------------------------------------------------------------
+def _words_text(words_json) -> str:
+    try:
+        return " ".join(str(w["text"]) for w in json.loads(words_json or "[]"))
+    except (TypeError, ValueError):
+        return ""
+
+
+def selfplay_lexicon_rates(path: str, lexicon: str) -> dict:
+    """Lexicon rates of one self-play (+ASR) dataset, both channels (both are the model): per category the
+    conversations with a hit and hits per 1k words, from the model's TEXT stream (``text_a`` / ``text_b``, the
+    quantity rules.md "Row filters" quotes) and from the ASR words of its AUDIO (``words_a`` / ``words_b``); plus the
+    word "beep" per 1k words in each (the censor arm's marker)."""
+    from datasets import load_from_disk
+
+    pats = lexicon_patterns(lexicon)
+    beep = re.compile(r"(?:(?<= )|^)beeps?(?=$| )")
+    ds = load_from_disk(str(path))
+    has_asr = "words_a" in ds.column_names
+    cols = ["text_a", "text_b"] + (["words_a", "words_b"] if has_asr else [])
+    ds = ds.select_columns(cols)
+    views = {"text": ("text_a", "text_b")} | ({"asr": ("words_a", "words_b")} if has_asr else {})
+    out = {"conversations": ds.num_rows}
+    for view, (ka, kb) in views.items():
+        conv = {c: 0 for c in pats}
+        hits = {c: 0 for c in pats}
+        words, beeps = 0, 0
+        for r in ds:
+            texts = [r[k] if view == "text" else _words_text(r[k]) for k in (ka, kb)]
+            hs = [lexicon_hits(t, pats) for t in texts]
+            words += sum(len(norm_words(t).split()) for t in texts)
+            beeps += sum(len(beep.findall(norm_words(t))) for t in texts)
+            for c in pats:
+                conv[c] += any(h[c] for h in hs)
+                hits[c] += sum(h[c] for h in hs)
+        n = max(ds.num_rows, 1)
+        out[view] = {
+            "words": words,
+            **{
+                c: {
+                    "conv": conv[c],
+                    "conv_share": round(conv[c] / n, 4),
+                    "per_1k_words": round(1000 * hits[c] / max(words, 1), 3),
+                }
+                for c in pats
+            },
+            "beep_per_1k_words": round(1000 * beeps / max(words, 1), 3),
+        }
+    return out
+
+
+class SelfPlayLexiconRates(Job):
+    """The swear / sexual / slur lexicon rates (``SAFETY_LEXICONS[lexicon]``) of self-play runs, per run
+    (:func:`selfplay_lexicon_rates`: text stream and ASR, conversations with a hit, hits per 1k words, "beep" rate).
+    ``runs``: ``{label: SelfPlayTranscribe.out_dir}``. The read-out of the flagged-word arms (2026-09-28b; the numbers
+    rules.md "Row filters" quotes for base vs the finetuned runs). CPU, minutes.
+
+    Outputs: ``out_summary`` (json) and ``out_md`` (one table row per run)."""
+
+    def __init__(self, *, runs: dict, lexicon: str = "explicit_v1"):
+        assert lexicon in SAFETY_LEXICONS, lexicon
+        self.runs = {str(k): v for k, v in sorted(runs.items())}
+        self.lexicon = lexicon
+        self.lexicon_digest = lexicon_digest(lexicon)
+        self.out_summary = self.output_path("summary.json")
+        self.out_md = self.output_path("table.md")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 1})
+
+    def run(self):
+        res = {k: selfplay_lexicon_rates(p.get_path(), self.lexicon) for k, p in self.runs.items()}
+        json.dump({"lexicon": self.lexicon, "runs": res}, open(self.out_summary.get_path(), "w"), indent=2)
+        lines = [
+            "| run | conv | text: profanity conv / per 1k | text: sexual conv / per 1k | text: beep per 1k "
+            "| ASR: profanity conv / per 1k | ASR: sexual conv / per 1k |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for k, r in res.items():
+            t, a = r["text"], r.get("asr")
+
+            def cell(v, c):
+                return f"{v[c]['conv']} / {v[c]['per_1k_words']:.2f}" if v else "-"
+
+            lines.append(
+                f"| {k} | {r['conversations']} | {cell(t, 'profanity')} | {cell(t, 'sexual')} | "
+                f"{t['beep_per_1k_words']:.2f} | {cell(a, 'profanity')} | {cell(a, 'sexual')} |"
+            )
+        open(self.out_md.get_path(), "w").write("\n".join(lines) + "\n")
+        print("\n".join(lines), flush=True)

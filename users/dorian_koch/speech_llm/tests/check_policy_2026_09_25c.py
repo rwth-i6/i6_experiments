@@ -76,8 +76,8 @@ check(
     and runs.PPX_KNOWLEDGE_SHARE == 0.3,
     "rules at 09-25c, wd 1e-4, share 0.3",
 )
-at_c = sorted(t for t, p in tp.PPX_POLICY.items() if p >= C)
-check(not at_c, f"no declared arm at 09-25c yet ({at_c})")
+at_c = sorted(t for t, p in tp.PPX_POLICY.items() if p == C)  # later epochs: check_policy_2026_09_28 / _28b
+check(not at_c, f"no declared arm at exactly 09-25c ({at_c})")
 check(
     tp.PPX_POLICY.get("ab2_turntail03") == B and ab2h.ab2h_baseline("ab2_turntail03") == ab2h.AB2H_BASELINE_USERSEM,
     "ab2_turntail03 pinned at 09-25b, baseline ab2_usersem",
@@ -87,8 +87,10 @@ check(
     and ab2h.ab2h_baseline(ab2h.AB2H_BASELINE_C) == ab2h.AB2H_BASELINE_USERSEM,
     "ab2_base_c: 09-25c, baseline ab2_usersem (new 2-hour arms moved on to 09-28: check_policy_2026_09_28)",
 )
-wd_arms = sorted(t for t, r in tp.PPX_ARMS.items() if r.hparams.get("weight_decay"))
-check(wd_arms == ["ab2_wd"], f"only ab2_wd trains with weight decay ({wd_arms})")
+wd_arms = sorted(t for t, r in tp.PPX_ARMS.items() if r.hparams.get("weight_decay") and tp.PPX_POLICY.get(t, "") < C)
+check(wd_arms == ["ab2_wd"], f"of the arms before 09-25c only ab2_wd trains with weight decay ({wd_arms})")
+new_wd = [t for t, p in tp.PPX_POLICY.items() if p >= C and tp.PPX_ARMS[t].hparams.get("weight_decay") != 1e-4]
+check(not new_wd, f"every arm at >= 09-25c trains with weight decay 1e-4 ({new_wd})")
 
 print("[2] the default knowledge mix is ab2_know30_concat's")
 ref = tp.PPX_ARMS["ab2_know30_concat"].hparams

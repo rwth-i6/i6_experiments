@@ -596,6 +596,29 @@ def _render_personaplex_lora_config(
         rw = hp["train_row_weights"]
         rw = rw.get() if hasattr(rw, "get") else str(rw)
         perf = f'train_row_weights: "{rw}"\n' + perf
+    # Flagged-word loss weights / the censored-assistant sidecar (2026-09-28b, ablations ab2_wordmask / ab2_wordw01 /
+    # ab2_beep; ``row_filters.FlaggedWordSpans.out_spans`` / ``CensorFlaggedWords.out_dir``, tk.Paths in hparams, so the
+    # run depends on them). Rendered ONLY when set: every earlier config is byte-identical.
+    if (hp.get("train_word_spans") is None) != (hp.get("train_word_weight") is None):
+        raise ValueError(f"{who}: train_word_spans and train_word_weight go together")
+    if hp.get("train_word_spans") is not None or hp.get("train_censor") is not None:
+        if hp.get("floor_weight") is not None or hp.get("turn_tail_weight") is not None:
+            raise ValueError(
+                f"{who}: train_word_spans / train_censor go with neither floor_weight nor turn_tail_weight"
+            )
+        if hp.get("aux_data") is not None:
+            raise ValueError(f"{who}: train_word_spans / train_censor are not implemented with aux_data")
+    if hp.get("train_word_spans") is not None:
+        ww = float(hp["train_word_weight"])
+        if not 0.0 <= ww < 1.0:
+            raise ValueError(f"{who}: train_word_weight must be in [0, 1), got {ww}")
+        ws = hp["train_word_spans"]
+        ws = ws.get() if hasattr(ws, "get") else str(ws)
+        perf = f'train_word_spans: "{ws}"\ntrain_word_weight: {_yaml_float(ww)}\n' + perf
+    if hp.get("train_censor") is not None:
+        tc = hp["train_censor"]
+        tc = tc.get() if hasattr(tc, "get") else str(tc)
+        perf = f'train_censor: "{tc}"\n' + perf
     # Held-out validation loss (2026-09-25, p6): rendered ONLY when set, like text_epad_weight. ``job.eval_data`` (the
     # SpeechFinetune constructor argument, so the run depends on it; never an hparam, check_hparams_destination) is a
     # fixed ``heldout_set`` window set (e.g. ``PersonaHeldoutSet`` "heldout"), ``eval_every`` the cadence in

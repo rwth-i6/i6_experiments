@@ -401,7 +401,7 @@ def graph_part():
     tp, runs, ab2h = mod(".track_persona"), mod(".doriank.runs"), mod(".track_persona_ab2h")
     data = ab2h._STATE["train_data"]
     src = tp.PPX_EDGE_SOURCES[data.get_path()]
-    D = runs.POLICY_LATEST
+    D = runs.POLICY_2026_09_28  # the edge-only default (09-28b adds the lexicon + row weight: check_policy_2026_09_28b)
 
     def arm(tag, extra=None, policy=D):
         return tp._ppx_arm(f"_guard_rf_{tag}", data, extra or {}, hparams=ab2h.AB2H_HPARAMS, steps=100,

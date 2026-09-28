@@ -257,11 +257,12 @@ ck(
 )
 print("   CAN FAIL:", flush=True)
 SRC = inspect.getsource(tdc.duplex_ce_loss)
-_A = "text_loss = (text_ce * text_w * sample_frame_weight.reshape(-1)).sum() / text_denom.clamp(min=1e-8)"
+# (2026-09-28b: the numerator is built as ``text_term`` so the flagged-word weight can join it; same arithmetic)
+_A = "text_loss = text_term.sum() / text_denom.clamp(min=1e-8)"
 assert _A in SRC, "duplex_ce_loss's weighted text numerator changed; update the mutant"
 _ns = dict(vars(tdc))
-exec(SRC.replace(_A, "text_loss = (text_ce * text_w * sample_frame_weight.reshape(-1)).sum() / "
-                 "(text_w * sample_frame_weight.reshape(-1)).sum().clamp(min=1e-8)"), _ns)  # fmt: skip
+exec(SRC.replace(_A, "text_loss = text_term.sum() / ((text_w * sample_frame_weight.reshape(-1)).sum() if "
+                 "sample_frame_weight is not None else text_denom).clamp(min=1e-8)"), _ns)  # fmt: skip
 
 
 def renorm_loss(out, codes, loss_mask, *, dep_q, **k):
@@ -288,7 +289,7 @@ def loss_step_for(src, model, rw="/weights.npy"):
         "model": model, "device": "cpu", "dep_q": 16, "personaplex_loss": td.personaplex_loss,
         "TEXT_EPAD_ID": TEXT_EPAD_ID, "loss_norm": "weight", "emit_epad": True, "text_epad_weight": 1.0,
         "floor_weight": None, "text_pad_weight": 0.3, "user_semantic_weight": 1.0, "depformer_skip_masked": True,
-        "turn_tail_weight": None, "train_row_weights": rw,
+        "turn_tail_weight": None, "train_row_weights": rw, "train_word_spans": None,
     }  # fmt: skip
     exec(src, ns)
     return ns["loss_step"]

@@ -7,9 +7,11 @@ Mechanism: ``runs.RULE_PPX_EDGE_FILTER`` = "2026-09-28" = POLICY_LATEST; ``track
 corpus's registered episode-time source (``register_edge_source``); ``ablation_2h`` declares new arms at
 ``AB2H_0928_POLICY`` with baseline ``AB2H_BASELINE_0928``. On the REAL graph:
 
-  [1] epochs: 09-25c < 09-28 = POLICY_LATEST; no declared arm is at 09-28 or trains with ``train_rows``; a new 2-hour
-      name is at 09-28 with baseline ab2_base_0928 (itself at 09-28, baseline ab2_usersem); ab2_base_c stays at 09-25c;
-      ab2_turntail03 stays at 09-25b.
+  [1] epochs: 09-25c < 09-28 <= POLICY_LATEST (09-28b since 2026-09-28); the arms declared at exactly 09-28 are the
+      2-hour arms pinned there (``AB2H_AT_0928``: ab2_base_0928 and the arms planned as one change from it), and no arm
+      older than 09-28 trains with ``train_rows``; a pinned name is at 09-28 with baseline ab2_base_0928 (itself at
+      09-28, baseline ab2_usersem); ab2_base_c stays at 09-25c; ab2_turntail03 stays at 09-25b. (Until 2026-09-28b this
+      check said "no arm at 09-28 yet", stale once ab2_base_0928 was declared; check_policy_2026_09_28b covers 09-28b.)
   [2] p4's corpus (the 2-hour standard's) has its source registered: ``persona_v4/window_context_both``, that
       context's dialogue slices, and the jre_full EPISODE codes index.
   [3] a probe arm at 09-28 (in memory, never registered for a manager) carries ``train_rows`` = the EpisodeEdgeRows of
@@ -64,18 +66,23 @@ def raises(fn, exc=(ValueError, AssertionError, RuntimeError)):
 
 C, D = runs.POLICY_2026_09_25C, runs.POLICY_2026_09_28
 print("[1] epochs, pins, baselines")
-check(C < D and runs.POLICY_LATEST == D and D in runs.KNOWN_POLICIES, "09-25c < 09-28 = POLICY_LATEST, known")
+check(C < D <= runs.POLICY_LATEST and D in runs.KNOWN_POLICIES, "09-25c < 09-28 <= POLICY_LATEST, known")
 check(runs.RULE_PPX_EDGE_FILTER == D and runs.PPX_EDGE_FRAC == 0.02, "rule at 09-28, edge_frac 0.02")
-at_d = sorted(t for t, p in tp.PPX_POLICY.items() if p >= D)
-check(not at_d, f"no declared arm at 09-28 yet ({at_d})")
-with_rows = sorted(t for t, r in tp.PPX_ARMS.items() if "train_rows" in r.hparams)
-check(not with_rows, f"no declared arm trains with train_rows ({with_rows})")
+at_d = sorted(t for t, p in tp.PPX_POLICY.items() if p == D)
 check(
-    ab2h.ab2h_policy("some_new_arm") == D
-    and ab2h.ab2h_baseline("some_new_arm") == ab2h.AB2H_BASELINE_0928
+    ab2h.AB2H_BASELINE_0928 in at_d and set(at_d) <= ab2h.AB2H_AT_0928,
+    f"the arms at exactly 09-28 are the pinned 2-hour arms ({at_d})",
+)
+old_rows = sorted(t for t, r in tp.PPX_ARMS.items() if "train_rows" in r.hparams and tp.PPX_POLICY.get(t, "") < D)
+check(not old_rows, f"no arm older than 09-28 trains with train_rows ({old_rows})")
+check(
+    all(
+        ab2h.ab2h_policy(n) == D and ab2h.ab2h_baseline(n) == ab2h.AB2H_BASELINE_0928
+        for n in ab2h.AB2H_AT_0928 - {ab2h.AB2H_BASELINE_0928}
+    )
     and ab2h.ab2h_policy(ab2h.AB2H_BASELINE_0928) == D
     and ab2h.ab2h_baseline(ab2h.AB2H_BASELINE_0928) == ab2h.AB2H_BASELINE_USERSEM,
-    "a new 2-hour arm: 09-28, baseline ab2_base_0928 (itself at 09-28, rated against ab2_usersem)",
+    "a pinned 2-hour arm: 09-28, baseline ab2_base_0928 (itself at 09-28, rated against ab2_usersem)",
 )
 check(
     ab2h.ab2h_policy(ab2h.AB2H_BASELINE_C) == C

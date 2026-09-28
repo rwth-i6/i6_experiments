@@ -81,6 +81,8 @@ for name in sorted(ab2h.AB2H_PRE_USERSEM):
 for name in sorted(ab2h.AB2H_RUNS):
     if name in ab2h.AB2H_PRE_USERSEM or name in ab2h.AB2H_PRE_INLOOP_EVAL:
         continue
+    if tp.PPX_POLICY[name] > runs.POLICY_2026_09_25B:
+        continue  # a later epoch (09-25c / 09-28 / 09-28b: their own guards); [1] checks its user semantic 1.0
     check(
         tp.PPX_POLICY[name] == runs.POLICY_2026_09_25B and ab2h.ab2h_baseline(name) == ab2h.AB2H_BASELINE_USERSEM,
         f"{name}: 09-25b, baseline ab2_usersem",
