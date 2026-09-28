@@ -42,35 +42,76 @@ class KnowledgeDialogueCodes(Job):
     ``voice_alias``: the TTS speaker dir and the assistant's alias (``<dir>/<alias>.wav``, the clip Chatterbox
     cloned). ``system_prompt``: the role text of every row. ``loudness_norm``: the ingest's dict
     (``synthetic_train_data.PODCAST_INGEST["loudness_norm"]``). Output ``out_dir`` (dataset) + ``out_summary``.
+
+    v7 (user, 2026-09-28: random assistant voices + the JRE user augmentation), all three opt-in and hash-excluded
+    when None (the v6 job keeps its hash):
+      * ``assistant_audio``: ``[(name, KnowledgeVoiceConvert.out_dir)]`` with the SAME names as ``corpora``: each
+        row's assistant channel is read from there (row-aligned, ids checked) instead of the annotated corpus;
+      * ``voice_pool``: ``KnowledgeVoicePool.out_dir`` (then ``voice_dir`` / ``voice_alias`` must be None): each
+        row's voice prompt = its pool voice's codes (the ``voice`` the conversion recorded), plus a ``voice_id``
+        column (``moshi_family.knowledge_concat`` groups by it);
+      * ``user_augment`` (+ ``noise_pool``): the ingest's ``{"variants", "seed", "augment"}`` dict: stored augmented
+        variants of the USER channel (``codes_user_aug``, ``n_user_aug``, ``user_aug_json``) made by the ingest's
+        own ``podcast_mimi_encode.augment_user_variants`` from the TTS waveform, encoded like the clean codes.
     """
 
     def __init__(
         self,
         *,
         corpora: list,
-        voice_dir: tk.Path,
-        voice_alias: str,
+        voice_dir: tk.Path | None,
+        voice_alias: str | None,
         venv_python_path: tk.Path,
         loudness_norm: dict,
         system_prompt: str = PERSONAPLEX_QA_ROLE,
         voice_sec: float = 4.0,
         max_sec: float = 60.0,
+        assistant_audio: list | None = None,
+        voice_pool: tk.Path | None = None,
+        user_augment: dict | None = None,
+        noise_pool: tk.Path | None = None,
     ):
         names = [n for n, _ in corpora]
         assert len(set(names)) == len(names), f"corpus names must be unique: {names}"
         self.corpora = [(str(n), p) for n, p in corpora]
+        assert (voice_pool is None) == (voice_dir is not None and voice_alias is not None), (
+            "exactly one voice source: voice_dir + voice_alias (one voice) or voice_pool (per-row voices)"
+        )
         self.voice_dir = voice_dir
-        self.voice_alias = str(voice_alias)
+        self.voice_alias = None if voice_alias is None else str(voice_alias)
         self.venv_python_path = venv_python_path
         self.loudness_norm = dict(loudness_norm)
         self.system_prompt = str(system_prompt)
         self.voice_sec = float(voice_sec)
         self.max_sec = float(max_sec)
+        if assistant_audio is not None:
+            assert [str(n) for n, _ in assistant_audio] == names, "assistant_audio names must match corpora, in order"
+            assistant_audio = [(str(n), p) for n, p in assistant_audio]
+        assert voice_pool is None or assistant_audio is not None, "voice_pool reads the voices assistant_audio used"
+        self.assistant_audio = assistant_audio
+        self.voice_pool = voice_pool
+        self.user_augment = None if user_augment is None else dict(user_augment)
+        if self.user_augment is not None:
+            assert "noise_pool" not in self.user_augment, "pass the noise pool as noise_pool= (a tk.Path)"
+            draws_noise = float(self.user_augment.get("augment", {}).get("noise_prob", 0.0)) > 0.0
+            assert draws_noise == (noise_pool is not None), "noise_pool goes with a nonzero noise_prob"
+        else:
+            assert noise_pool is None, "noise_pool without user_augment"
+        self.noise_pool = noise_pool
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         # One GPU for the offline Mimi encode (~327 h of stereo audio for the v6 corpus); decode, loudness and the
-        # clamp run in CPU threads beside it. Small GPU memory: Mimi alone.
-        self.rqmt = {"gpu": 1, "cpu": 8, "mem": 48, "time": 8, "gpu_mem_gb": 20}
+        # clamp run in CPU threads beside it. Small GPU memory: Mimi alone. With user_augment: 1 + variants encodes per
+        # row and the augmentation in the CPU threads (the noise pool is staged on node-local disk first).
+        self.rqmt = {"gpu": 1, "cpu": 8, "mem": 48, "time": 8 if user_augment is None else 16, "gpu_mem_gb": 20}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        for k in ("assistant_audio", "voice_pool", "user_augment", "noise_pool"):
+            if d.get(k) is None:
+                d.pop(k, None)  # v7's opt-ins: absent at the default, so the v6 corpus keeps its hash
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -85,17 +126,29 @@ class KnowledgeDialogueCodes(Job):
     def run(self):
         env = dict(os.environ)
         env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        voice_wav = os.path.join(self.voice_dir.get_path(), self.voice_alias + ".wav")
-        if not os.path.isfile(voice_wav):
-            raise RuntimeError(f"voice clip not found: {voice_wav}")
+        if getattr(self, "voice_pool", None) is not None:
+            voice_args = ["--voice_pool", self.voice_pool.get_path()]
+        else:
+            voice_wav = os.path.join(self.voice_dir.get_path(), self.voice_alias + ".wav")
+            if not os.path.isfile(voice_wav):
+                raise RuntimeError(f"voice clip not found: {voice_wav}")
+            voice_args = ["--voice_wav", voice_wav]
+        extra = []
+        for n, p in getattr(self, "assistant_audio", None) or []:
+            extra += ["--assistant_audio", f"{n}={p.get_path()}"]
+        if getattr(self, "user_augment", None) is not None:
+            aug = dict(self.user_augment)
+            if self.noise_pool is not None:
+                aug["noise_pool"] = self.noise_pool.get_path()
+            extra += ["--user_augment", json.dumps(aug, sort_keys=True)]
         cmd = [
             self.venv_python_path.get(),
             "-m",
             "moshi_family.knowledge_codes",
             "--out",
             self.out_dir.get_path(),
-            "--voice_wav",
-            voice_wav,
+            *voice_args,
+            *extra,
             "--voice_sec",
             str(self.voice_sec),
             "--system_prompt",
@@ -159,3 +212,177 @@ class KnowledgeConcatMeta(Job):
         ] + [f"{n}={p.get_path()}" for n, p in self.tts]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
+
+
+class KnowledgeVoicePool(Job):
+    """The assistant voices of the knowledge corpus v7 (user, 2026-09-28: "Maybe we should also get different voices
+    in there, to align with the jre training. Just use random voices ig."; worker ``moshi_family.knowledge_voices``,
+    CPU, minutes).
+
+    ``n`` voice clips drawn uniformly (``seed``) from the (episode, speaker) clips that ``train_data``'s rows (p4's
+    AttachPersonaPrompts table) use as voice prompts, minus the episodes of ``heldout`` (the shared held-out set) and
+    ``exclude_episodes`` (the evaluation episodes), with a source clip >= ``prompt_sec`` + 6 s. Per voice: its
+    ``voice_codes`` rows' codes as the voice prompt (identical to JRE's) and the same reference clip's
+    ``[prompt_sec, prompt_sec + 10 s)`` as the cloning reference (same speaker, not the prompt audio).
+    ``episode_shard_dirs``: the ingest shards whose episode rows hold the reference clips (``speaker_ref_audio``).
+    Output ``out_dir`` (one row per voice) + ``out_summary``.
+    """
+
+    def __init__(
+        self,
+        *,
+        voice_codes: tk.Path,
+        train_data: tk.Path,
+        heldout: tk.Path,
+        exclude_episodes: list,
+        episode_shard_dirs: list,
+        venv_python_path: tk.Path,
+        n: int = 1000,
+        seed: int = 0,
+        prompt_sec: float = 4.0,
+    ):
+        self.voice_codes = voice_codes
+        self.train_data = train_data
+        self.heldout = heldout
+        self.exclude_episodes = sorted(str(e) for e in exclude_episodes)
+        self.episode_shard_dirs = list(episode_shard_dirs)
+        self.venv_python_path = venv_python_path
+        self.n = int(n)
+        self.seed = int(seed)
+        self.prompt_sec = float(prompt_sec)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"cpu": 2, "mem": 16, "time": 2}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        excl = os.path.abspath("exclude_episodes.json")
+        with open(excl, "w") as f:
+            json.dump(self.exclude_episodes, f)
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.knowledge_voices",
+            "--out",
+            self.out_dir.get_path(),
+            "--summary",
+            self.out_summary.get_path(),
+            "--voice_codes",
+            self.voice_codes.get_path(),
+            "--train_data",
+            self.train_data.get_path(),
+            "--heldout",
+            self.heldout.get_path(),
+            "--exclude_episodes_json",
+            excl,
+            "--n",
+            str(self.n),
+            "--seed",
+            str(self.seed),
+            "--prompt_sec",
+            str(self.prompt_sec),
+        ] + [d.get_path() for d in self.episode_shard_dirs]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+
+
+class KnowledgeVoiceConvert(Job):
+    """One knowledge slice's ASSISTANT channel re-voiced with the TTS's own decoder (knowledge corpus v7, 2026-09-28;
+    worker ``knowledge_voice_convert.py`` in the chatterbox venv, one GPU).
+
+    Per row a pool voice (``pool``: ``KnowledgeVoicePool.out_dir``; balanced, seeded by ``seed`` + ``name``); per
+    assistant turn (``tts``: the slice's ``ChatterboxInference`` output, for the turn spans) Chatterbox's voice
+    conversion with the Turbo S3Gen decoder that made v6 -- S3 tokens of the turn's audio decoded with the new speaker
+    condition -- written back at the turn's own samples, so words, timing and the user channel are v6's. Why not
+    re-TTS from text: that changes timing and prosody as well (two changes) and costs ~1 GPU-h per 1,000 dialogues
+    plus a Whisper pass and ~3 inodes per dialogue. ``annotated``: the slice's ``MoshiAnnotate`` output (the v6
+    assistant audio). ``orig_voice_wav``: the v6 reference clip, for the summary's speaker check only.
+    ``max_rows``: a pilot on the first rows (0 = all). Output ``out_dir`` (row-aligned with ``annotated``) +
+    ``out_summary``.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        annotated: tk.Path,
+        tts: tk.Path,
+        pool: tk.Path,
+        orig_voice_wav: tk.Path,
+        venv_python_path: tk.Path,
+        ffmpeg_path: tk.Path | None = None,
+        seed: int = 0,
+        max_rows: int = 0,
+    ):
+        self.name = str(name)
+        self.annotated = annotated
+        self.tts = tts
+        self.pool = pool
+        self.orig_voice_wav = orig_voice_wav
+        self.venv_python_path = venv_python_path
+        self.ffmpeg_path = ffmpeg_path
+        self.seed = int(seed)
+        self.max_rows = int(max_rows)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 4, "gpu_mem_gb": 20}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        f = job_progress_fraction(self)
+        return None if f is None else f"{100 * f:.1f}% of rows converted"
+
+    def run(self):
+        from pathlib import Path
+
+        from .common import add_cuda_npp_to_env, add_venv_python_lib_to_env, run_worker_script
+        from .tts import InstallFFmpeg
+
+        def env_hook(env):
+            # as ChatterboxInference: the chatterbox stack imports torchaudio/torchcodec, which need our FFmpeg,
+            # CUDA NPP and libpython on the library path on nodes without them
+            if self.ffmpeg_path is not None:
+                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
+            add_cuda_npp_to_env(self.venv_python_path.get(), env)
+            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+
+        args = [
+            "--annotated",
+            self.annotated.get_path(),
+            "--tts",
+            self.tts.get_path(),
+            "--pool",
+            self.pool.get_path(),
+            "--name",
+            self.name,
+            "--out",
+            self.out_dir.get_path(),
+            "--summary",
+            self.out_summary.get_path(),
+            "--orig_voice_wav",
+            self.orig_voice_wav.get_path(),
+            "--seed",
+            self.seed,
+            "--max_rows",
+            self.max_rows,
+            "--progress",
+            os.path.abspath("progress.json"),
+        ]
+        run_worker_script(
+            self.venv_python_path.get(),
+            Path(__file__).resolve().parent / "knowledge_voice_convert.py",
+            args,
+            log_label="knowledge voice conversion",
+            env_hook=env_hook,
+        )
+        if not os.path.isfile(self.out_summary.get_path()):
+            raise RuntimeError(f"worker wrote no {self.out_summary.get_path()}")

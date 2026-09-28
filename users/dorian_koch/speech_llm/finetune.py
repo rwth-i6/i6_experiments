@@ -573,7 +573,13 @@ def _render_personaplex_lora_config(
             km = hp["knowledge_meta"]
             km = km.get() if hasattr(km, "get") else str(km)
             concat = f'knowledge_meta: "{km}"\nknowledge_concat: {json.dumps(dict(hp["knowledge_concat"]), sort_keys=True)}\n'
+        # ... and the knowledge rows' user stream from their stored augmented variants (2026-09-28, knowledge corpus v7):
+        # rendered ONLY when set, so every earlier config is byte-identical.
+        if hp.get("knowledge_user_augment"):
+            concat += "knowledge_user_augment: true\n"
         perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + concat + perf
+    elif hp.get("knowledge_user_augment"):
+        raise ValueError(f"{who}: knowledge_user_augment without knowledge_data")
     elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
         raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
     # A row subset of train_data (2026-09-28, the episode-edge filter; ``persona_prompts.EpisodeEdgeRows.out_rows``, a
