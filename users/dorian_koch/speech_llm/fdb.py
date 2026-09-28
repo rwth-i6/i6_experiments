@@ -286,6 +286,49 @@ class FullDuplexBenchEval_Evaluation(Job):
             sys.stdout = sys.__stdout__
 
 
+class FDBTurnTakingRescore(Job):
+    """Re-scores a finished ``candor_turn_taking`` inference with MFDB turn-taking metric v2 (2026-09-28).
+
+    v1 (the fork's eval_smooth_turn_taking.py, run by FullDuplexBenchEval_Evaluation) takes the first non-greeting
+    model speech anywhere in the clip as the response onset, so an opener ("Let me know.") or a mid-turn "Yeah." sets the
+    latency. v2 (``fdb_turn_taking_v2.py``) takes the first worded speech still going at or after the user's turn end and
+    reports earlier speech separately (``pre_turn_rate``). Reads the SpeechInference output only (no inference, no GPU);
+    the v1 job is untouched, so old numbers stay reproducible. Bump ``metric_version`` on any scoring change (the script
+    is not hashed).
+    """
+
+    def __init__(self, *, in_audios: tk.Path, eval_venv_python: tk.AbstractPath, metric_version: int = 2):
+        assert metric_version == 2, metric_version
+        self.in_audios = in_audios
+        self.eval_venv_python = eval_venv_python
+        self.metric_version = metric_version
+        self.out_log = self.output_path("evaluation_output.txt")
+        self.out_eval = self.output_path("eval.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import moshified_fdb_v1_v15
+
+        fork_eval_dir = os.path.join(os.path.dirname(moshified_fdb_v1_v15.__file__), "evaluation")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fdb_turn_taking_v2.py")
+        cmd = [
+            self.eval_venv_python.get(),
+            script,
+            "--root_dir",
+            self.in_audios.get_path(),
+            "--fork_eval_dir",
+            fork_eval_dir,
+            "--out-json",
+            self.out_eval.get_path(),
+        ]
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
+        with open(self.out_log, "w", encoding="utf-8") as f:
+            subprocess.run(cmd, env=env, check=True, stdout=f, stderr=subprocess.STDOUT)
+
+
 def moshified_fdb_eval(
     fdb_task: str,
     backend=MOSHI_BACKEND,
@@ -417,6 +460,13 @@ def fdb_benchmark_py(
         tk.register_output(f"fdb/{tag}/{t}/audio", bench.creator.in_audios)
         bench.creator.add_alias(f"fdb/{tag}/{t}")
         eval_jobs[t] = bench.creator
+    # MFDB turn-taking metric v2 (2026-09-28): a login-node re-score of the same inference output, next to v1.
+    if "candor_turn_taking" in eval_jobs:
+        tt2 = FDBTurnTakingRescore(
+            in_audios=eval_jobs["candor_turn_taking"].in_audios, eval_venv_python=fdb_eval_venv()
+        )
+        tk.register_output(f"fdb/{tag}/candor_turn_taking/eval_tt2", tt2.out_eval)
+        tk.register_output(f"fdb/{tag}/candor_turn_taking/eval_tt2_log", tt2.out_log)
     # Return {task -> FullDuplexBenchEval_Evaluation} so callers can wire follow-on jobs
     # (e.g. fdb_latency_histograms_py) onto each task's out_log. Was None before; additive.
     _FDB_REGISTRY[tag] = eval_jobs
