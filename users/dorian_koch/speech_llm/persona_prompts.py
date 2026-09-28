@@ -2125,3 +2125,227 @@ class EpisodeSplit(Job):
         )
         json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
         print(f"[split] {summary}", flush=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# Episode-edge filter (user, 2026-09-28: "Hearing a lot of podcast wrap ups. Maybe we should exclude the first and
+# last 2% of every episode? Add that as a filter for future runs")
+# ---------------------------------------------------------------------------------------------
+#: Intro / wrap-up marker phrases, for :class:`EpisodeEdgeRows`' SUMMARY only (they never decide a row, so they are not
+#: part of the hash): whole-phrase, case-insensitive matches on a window's text (both sides), punctuation stripped.
+EDGE_MARKERS = (
+    "joe rogan experience",
+    "welcome to",
+    "we're live",
+    "we're up",
+    "thanks for having me",
+    "thank you for having me",
+    "thanks for coming",
+    "thank you for coming",
+    "thanks for doing this",
+    "thank you for doing this",
+    "my guest",
+    "where can people",
+    "tell everybody",
+    "follow",
+    "instagram",
+    "twitter",
+    "podcast",
+    "sponsor",
+    "brought to you by",
+    "goodnight",
+    "good night",
+    "bye everybody",
+    "see you soon",
+    "see you next time",
+)
+#: Relative-position bins of the summary: fraction of the episode at the window MIDPOINT.
+EDGE_BINS = (0.0, 0.01, 0.02, 0.03, 0.05, 0.10, 0.90, 0.95, 0.97, 0.98, 0.99, 1.0)
+
+
+def episode_durations(index) -> dict:
+    """``{episode: seconds}`` from an EPISODE codes index (``PodcastCodesIndex`` over the ``PodcastEpisodeIngest``
+    shards, e.g. ``output/podcast_episodes/jre_full/codes_index``; a directory holding ``index.jsonl`` or the file).
+    One row per episode; ``duration_sec`` = the encoded episode's frames / frame rate, i.e. the time base every
+    dialogue slice's ``span_start_sec`` is in (``podcast_slice_main``: an episode row's frame 0 is episode t=0)."""
+    root = index.get_path() if hasattr(index, "get_path") else str(index)
+    path = os.path.join(root, "index.jsonl") if os.path.isdir(root) else root
+    out = {}
+    with open(path) as f:
+        for line in f:
+            r = json.loads(line)
+            if r["item_id"] != r["episode_id"]:
+                raise RuntimeError(
+                    f"{path}: not an EPISODE index (row {r['item_id']!r} is a slice of {r['episode_id']})"
+                )
+            if r["episode_id"] in out:
+                raise RuntimeError(f"{path}: episode {r['episode_id']} twice")
+            out[r["episode_id"]] = float(r["duration_sec"])
+    return out
+
+
+def episode_edge_side(t0: float, t1: float, duration: float, edge_frac: float):
+    """``"head"`` if the window ``[t0, t1]`` (episode seconds) shares any time with the first ``edge_frac`` of an
+    episode of ``duration`` seconds, ``"tail"`` if with the last, else None (a window touching both: ``"head"``).
+    OVERLAP, not the midpoint: a sign-off is a few seconds anywhere in a 20-60 s window, so a window that only
+    reaches into the edge zone still carries it."""
+    e = float(edge_frac) * float(duration)
+    if t0 < e:
+        return "head"
+    if t1 > float(duration) - e:
+        return "tail"
+    return None
+
+
+def _marker_patterns(markers=EDGE_MARKERS) -> dict:
+    import re
+
+    return {m: re.compile(r"(?<![a-z'])" + re.escape(m) + r"(?![a-z'])") for m in markers}
+
+
+def _norm_text(text: str) -> str:
+    import re
+
+    t = str(text or "").lower().replace("’", "'")
+    return " ".join(re.sub(r"[^a-z0-9' ]+", " ", t).split())
+
+
+def edge_rows(ids, spans: dict, durations: dict, edge_frac: float) -> tuple:
+    """``(keep, side)`` for the rows ``ids`` (a table's ``id`` column): ``keep`` = the row indices whose window lies
+    wholly inside the middle ``1 - 2 * edge_frac`` of its episode, ascending; ``side`` = ``{row index: "head" /
+    "tail"}`` for the others (:func:`episode_edge_side`). ``spans``: :func:`window_spans` of these ids; ``durations``:
+    :func:`episode_durations`. Raises on a row without a span or an episode without a duration, and on a window that
+    ends more than 1 s after its episode (the durations would not be this corpus's time base)."""
+    assert 0.0 <= float(edge_frac) < 0.5, edge_frac
+    keep, side = [], {}
+    for i, rid in enumerate(ids):
+        if rid not in spans:
+            raise RuntimeError(f"row {i} ({rid}) has no window span (not in the window context)")
+        ep, t0, t1 = spans[rid]
+        if ep not in durations:
+            raise RuntimeError(f"row {i} ({rid}): episode {ep} not in the episode index")
+        d = durations[ep]
+        if t1 > d + 1.0 or t0 < -1e-3:
+            raise RuntimeError(f"row {i} ({rid}): window [{t0:.2f}, {t1:.2f}] s outside its episode (0, {d:.2f}) s")
+        s = episode_edge_side(t0, t1, d, edge_frac)
+        if s is None:
+            keep.append(i)
+        else:
+            side[i] = s
+    return keep, side
+
+
+class EpisodeEdgeRows(Job):
+    """The rows of a window corpus that lie in the MIDDLE of their episode: every row whose window shares any time with
+    the first or last ``edge_frac`` of its episode's duration is dropped (user, 2026-09-28, listening to p5's
+    self-play: "Hearing a lot of podcast wrap ups. Maybe we should exclude the first and last 2% of every episode?").
+    Measured on p4's corpus before it became a default (backlog / rules.md "episode-edge filter").
+
+    ``data``: the training corpus (rows carry ``id`` + ``duration``; any ``AttachPersonaPrompts``-style output).
+    ``window_context`` + ``slice_dirs``: the ``PodcastWindowContext`` its ids come from and its dialogue slices
+    (:func:`window_spans`: window id -> episode seconds). ``episode_index``: the EPISODE codes index of the same build
+    (:func:`episode_durations`). Rows keep their table order; nothing is copied.
+
+    Outputs: ``out_rows`` (``rows.npy``: int64 row indices to train on, ascending -- the launcher's ``train_rows``;
+    ``train_data_common.load_row_subset``) and ``out_summary`` (rows / hours kept and dropped per side, episodes, rows
+    per relative-position bin, and the share of windows whose text holds an ``EDGE_MARKERS`` phrase per bin -- the
+    evidence for the cut, recomputed on every corpus it is applied to)."""
+
+    def __init__(
+        self,
+        *,
+        data: tk.Path,
+        window_context: tk.Path,
+        slice_dirs: list,
+        episode_index: tk.Path,
+        edge_frac: float = 0.02,
+    ):
+        assert 0.0 < float(edge_frac) < 0.5, edge_frac
+        self.data = data
+        self.window_context = window_context
+        self.slice_dirs = list(slice_dirs)
+        self.episode_index = episode_index
+        self.edge_frac = float(edge_frac)
+        self.out_rows = self.output_path("rows.npy")
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 16, "time": 2})
+
+    def run(self):
+        import numpy as np
+
+        summary, keep = edge_rows_summary(
+            self.data.get_path(),
+            self.window_context.get_path(),
+            self.slice_dirs,
+            self.episode_index,
+            self.edge_frac,
+        )
+        np.save(self.out_rows.get_path(), np.asarray(keep, dtype=np.int64))
+        json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
+        print(f"[edge] {json.dumps({k: summary[k] for k in ('kept', 'dropped_head', 'dropped_tail')})}", flush=True)
+
+
+def edge_rows_summary(data_path: str, context_path: str, slice_dirs: list, episode_index, edge_frac: float) -> tuple:
+    """:class:`EpisodeEdgeRows`' worker: ``(summary, keep)``. Also the measurement behind the default."""
+    from datasets import load_from_disk
+
+    meta = load_from_disk(data_path).select_columns(["id", "duration"])
+    ids, dur = meta["id"], meta["duration"]
+    spans = window_spans(context_path, slice_dirs, ids=set(ids))
+    durations = episode_durations(episode_index)
+    keep, side = edge_rows(ids, spans, durations, edge_frac)
+
+    ctx = load_from_disk(context_path).select_columns(["id", "assistant_text", "user_text"])
+    want = set(ids)
+    text = {r["id"]: _norm_text(f"{r['assistant_text']} {r['user_text']}") for r in ctx if r["id"] in want}
+    pats = _marker_patterns()
+    bins = list(EDGE_BINS)
+    per_bin = [{"rows": 0, "hours": 0.0, "marker_rows": 0} for _ in bins[:-1]]
+    marker_by_side = {s: {m: 0 for m in pats} for s in ("head", "middle", "tail")}
+    for i, rid in enumerate(ids):
+        ep, t0, t1 = spans[rid]
+        mid = min(max(0.5 * (t0 + t1) / durations[ep], 0.0), 1.0 - 1e-12)
+        b = max(k for k in range(len(bins) - 1) if bins[k] <= mid)
+        hits = [m for m, p in pats.items() if p.search(text.get(rid, ""))]
+        per_bin[b]["rows"] += 1
+        per_bin[b]["hours"] += float(dur[i]) / 3600.0
+        per_bin[b]["marker_rows"] += bool(hits)
+        for m in hits:
+            marker_by_side[side.get(i, "middle")][m] += 1
+
+    def rows_hours(idx):
+        return {"rows": len(idx), "hours": round(sum(float(dur[i]) for i in idx) / 3600.0, 2)}
+
+    eps_all = {spans[r][0] for r in ids}
+    ep_hours = sorted(durations[e] / 3600.0 for e in eps_all)
+    summary = {
+        "edge_frac": float(edge_frac),
+        "rule": "drop a row whose window [t0, t1] (episode seconds) overlaps [0, f*D) or (D - f*D, D]",
+        "rows": len(ids),
+        "episodes": len(eps_all),
+        "episode_hours": {
+            "median": round(ep_hours[len(ep_hours) // 2], 3),
+            "min": round(ep_hours[0], 3),
+            "max": round(ep_hours[-1], 3),
+        },
+        "kept": rows_hours(keep),
+        "dropped_head": rows_hours([i for i, s in side.items() if s == "head"]),
+        "dropped_tail": rows_hours([i for i, s in side.items() if s == "tail"]),
+        "episodes_losing_all_rows": len(eps_all - {spans[ids[i]][0] for i in keep}),
+        "bins_by_midpoint": [
+            {
+                "from": bins[k],
+                "to": bins[k + 1],
+                "rows": v["rows"],
+                "hours": round(v["hours"], 2),
+                "marker_rows": v["marker_rows"],
+                "marker_rate": round(v["marker_rows"] / v["rows"], 4) if v["rows"] else None,
+            }
+            for k, v in enumerate(per_bin)
+        ],
+        "markers": list(pats),
+        "marker_rows_by_side": marker_by_side,
+    }
+    return summary, keep

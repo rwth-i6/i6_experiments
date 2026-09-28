@@ -69,7 +69,7 @@ def raises(fn, exc=(ValueError, AssertionError, RuntimeError)):
 
 C, B = runs.POLICY_2026_09_25C, runs.POLICY_2026_09_25B
 print("[1] epochs, pins, baselines")
-check(B < C and runs.POLICY_LATEST == C and C in runs.KNOWN_POLICIES, "09-25b < 09-25c = POLICY_LATEST, known")
+check(B < C <= runs.POLICY_LATEST and C in runs.KNOWN_POLICIES, "09-25b < 09-25c <= POLICY_LATEST, known")
 check(
     runs.RULE_PPX_WEIGHT_DECAY == runs.RULE_PPX_KNOWLEDGE_MIX == runs.RULE_NO_GRAD_ACCUM == C
     and runs.PPX_WEIGHT_DECAY == 1e-4
@@ -83,10 +83,9 @@ check(
     "ab2_turntail03 pinned at 09-25b, baseline ab2_usersem",
 )
 check(
-    ab2h.ab2h_policy("some_new_arm") == C
-    and ab2h.ab2h_baseline("some_new_arm") == ab2h.AB2H_BASELINE_C
+    ab2h.ab2h_policy(ab2h.AB2H_BASELINE_C) == C
     and ab2h.ab2h_baseline(ab2h.AB2H_BASELINE_C) == ab2h.AB2H_BASELINE_USERSEM,
-    "a new 2-hour arm: 09-25c, baseline ab2_base_c (itself one step from ab2_usersem)",
+    "ab2_base_c: 09-25c, baseline ab2_usersem (new 2-hour arms moved on to 09-28: check_policy_2026_09_28)",
 )
 wd_arms = sorted(t for t, r in tp.PPX_ARMS.items() if r.hparams.get("weight_decay"))
 check(wd_arms == ["ab2_wd"], f"only ab2_wd trains with weight decay ({wd_arms})")

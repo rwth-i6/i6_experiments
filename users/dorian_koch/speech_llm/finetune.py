@@ -576,6 +576,12 @@ def _render_personaplex_lora_config(
         perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + concat + perf
     elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
         raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
+    # A row subset of train_data (2026-09-28, the episode-edge filter; ``persona_prompts.EpisodeEdgeRows.out_rows``, a
+    # tk.Path in hparams, so the run depends on it). Rendered ONLY when set: every earlier config is byte-identical.
+    if hp.get("train_rows") is not None:
+        tr = hp["train_rows"]
+        tr = tr.get() if hasattr(tr, "get") else str(tr)
+        perf = f'train_rows: "{tr}"\n' + perf
     # Held-out validation loss (2026-09-25, p6): rendered ONLY when set, like text_epad_weight. ``job.eval_data`` (the
     # SpeechFinetune constructor argument, so the run depends on it; never an hparam, check_hparams_destination) is a
     # fixed ``heldout_set`` window set (e.g. ``PersonaHeldoutSet`` "heldout"), ``eval_every`` the cadence in
