@@ -13,6 +13,9 @@ run's knobs) through the real ``build_knowledge_mix_loader`` and ``build_data_lo
      entry's ``swap`` names (``codes_user`` when swapped), its user codes == the other stored channel iff
      ``user_aug`` is False (and differ from it when True), and the prompt text sits in the item's prefix; for
      every concat knowledge entry the first plan piece's assistant codes open the item's dialogue.
+  4. EPOCH ENDS (plain loader): over a 20-row ``train_rows`` subset (2 full batches + 4 dropped items per epoch), 5
+     batches with the recorder == without, and every entry names its slot; CAN FAIL: recording every BUILT item (the
+     pre-2026-09-28 behaviour, which kept the dropped epoch-end items and shifted every later label) is caught.
   3. CAN FAIL. The same slot checks on the entries shifted by one slot fail; and with ``draw_stored_user_stream``
      mutated to return a COPY of the clean stream (so ``user_aug`` reads True for clean reads) check 2 fails.
 
@@ -179,6 +182,49 @@ finally:
 ck(
     bool(slot_errors(batches_mut, meta_mut, knowledge_schedule=False)),
     "[3] a user_aug that misreads clean draws (copying draw_stored_user_stream) is caught",
+)
+
+# 4. epoch ends (plain loader): a 20-row train_rows subset at B=8 gives 2 full batches + 4 dropped items per epoch, so
+# 5 batches cross two epoch ends; the dropped items were built (their meta recorded) but never trained on.
+import tempfile  # noqa: E402
+
+sub = os.path.join(tempfile.mkdtemp(), "rows.npy")
+np.save(sub, np.arange(100, 120, dtype=np.int64))
+
+
+def plain_sub(item_meta=None):
+    return td.build_data_loader(JRE, tok, batch_size=B, seed=0, item_meta=item_meta, train_rows=sub, **KNOBS)
+
+
+meta_ep: list = []
+with_ep, without_ep = take(plain_sub(meta_ep), 5), take(plain_sub(), 5)
+ck(
+    same(with_ep, without_ep),
+    "[4] plain loader over a 20-row subset: 5 batches (2 epoch ends) with item_meta == without",
+)
+e = slot_errors(with_ep, meta_ep, knowledge_schedule=False)
+ck(
+    not e and all(100 <= m["row"] < 120 for m in meta_ep),
+    "[4] every entry across the epoch ends names its slot",
+    f"{e[:3]}",
+)
+built: list = []
+orig_builder = td.persona_item_builder
+
+
+def recording_builder(*a, on_item=None, **kw):  # the pre-fix recorder: every BUILT item, dropped ones included
+    return orig_builder(*a, on_item=(lambda m: (built.append(m), on_item and on_item(m))), **kw)
+
+
+td.persona_item_builder = recording_builder
+try:
+    batches_bo = take(plain_sub([]), 5)
+finally:
+    td.persona_item_builder = orig_builder
+ck(
+    bool(slot_errors(batches_bo, built, knowledge_schedule=False)),
+    "[4] CAN FAIL: build-order recording (dropped epoch-end items kept) is caught",
+    f"{len(built)} built for {len(batches_bo) * B} slots",
 )
 
 print("ALL PASS" if not FAILED else f"FAILED: {FAILED}")
