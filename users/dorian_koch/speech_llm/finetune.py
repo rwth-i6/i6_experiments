@@ -582,6 +582,26 @@ def _render_personaplex_lora_config(
         raise ValueError(f"{who}: knowledge_user_augment without knowledge_data")
     elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
         raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
+    # A second conversational corpus in the knowledge mix at its own stratified share (2026-09-28, ablation
+    # ab2_mix_jre_oy_know: JRE + Open Yap + knowledge; ``train_data.build_knowledge_mix_loader(aux_path=)``). ``aux_data`` /
+    # ``aux_train_rows`` are tk.Paths in hparams (the run depends on them). Rendered ONLY when set: every earlier config is
+    # byte-identical.
+    if hp.get("aux_data") is not None:
+        if hp.get("knowledge_data") is None:
+            raise ValueError(f"{who}: aux_data rides on the knowledge mix: it needs knowledge_data")
+        aux_share = float(hp["aux_share"])
+        if not (0.0 < aux_share and aux_share + float(hp["knowledge_share"]) < 1.0):
+            raise ValueError(f"{who}: aux_share must be > 0 with knowledge_share + aux_share < 1, got {aux_share}")
+        ad = hp["aux_data"]
+        ad = ad.get() if hasattr(ad, "get") else str(ad)
+        aux = f'aux_data: "{ad}"\naux_share: {_yaml_float(aux_share)}\n'
+        if hp.get("aux_train_rows") is not None:
+            ar = hp["aux_train_rows"]
+            ar = ar.get() if hasattr(ar, "get") else str(ar)
+            aux += f'aux_train_rows: "{ar}"\n'
+        perf = aux + perf
+    elif hp.get("aux_share") is not None or hp.get("aux_train_rows") is not None:
+        raise ValueError(f"{who}: aux_share / aux_train_rows without aux_data")
     # A row subset of train_data (2026-09-28, the episode-edge filter; ``persona_prompts.EpisodeEdgeRows.out_rows``, a
     # tk.Path in hparams, so the run depends on it). Rendered ONLY when set: every earlier config is byte-identical.
     if hp.get("train_rows") is not None:
