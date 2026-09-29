@@ -9,9 +9,9 @@ MonologueRows.out_stretch) and ``train_rows`` = ``ppx_train_rows(data, lexicon_c
 over EpisodeEdgeRows + LexiconRows); ``runs.RULE_PPX_SPJ2`` = 09-28 (an eval) declares the self-play judge v2 at ONE
 temperature for every arm from 09-28 on. On the REAL graph:
 
-  [1] epochs: 09-28 < 09-28b = POLICY_LATEST, known; the arms at 09-28b are exactly the four 2-hour arms of
-      ``track_persona_wordmask``; a new 2-hour name is at 09-28b with baseline ab2_base_0928b (itself rated against
-      ab2_base_0928); the pinned 09-28 arms keep 09-28.
+  [1] epochs: 09-28 < 09-28b <= POLICY_LATEST, known; the arms at 09-28b are exactly the four 2-hour arms of
+      ``track_persona_wordmask`` (pinned there, ``AB2H_AT_0928B``, since 09-29 made a newer epoch; new arms:
+      ``check_policy_2026_09_29``); ab2_base_0928b is rated against ab2_base_0928; the pinned 09-28 arms keep 09-28.
   [2] ab2_base_0928b's hparams: ``train_rows`` = IntersectRows([EpisodeEdgeRows(p4, 2%), LexiconRows(p4, explicit_v1,
       sexual, trainable)]) and ``train_row_weights`` = ThresholdRowWeights(MonologueRows(p4, 20 s).out_stretch, above
       20, weight 0.3) + every 09-28 default; the three word arms = that + exactly their one change.
@@ -81,7 +81,7 @@ data = ab2h._STATE["train_data"]
 BASE_B = ab2h.AB2H_BASELINE_0928B
 
 print("[1] epochs, pins, baselines")
-check(D < B == runs.POLICY_LATEST and B in runs.KNOWN_POLICIES, "09-28 < 09-28b = POLICY_LATEST, known")
+check(D < B <= runs.POLICY_LATEST and B in runs.KNOWN_POLICIES, "09-28 < 09-28b <= POLICY_LATEST, known")
 check(
     runs.RULE_PPX_MONOLOGUE_WEIGHT == B == runs.RULE_PPX_LEXICON_FILTER
     and runs.PPX_MONOLOGUE_WEIGHT == 0.3
@@ -90,14 +90,13 @@ check(
     and runs.RULE_PPX_SPJ2 == D,
     "rules: row weight 0.3 above 20 s and sexual lexicon at 09-28b; spj2 (eval) from 09-28",
 )
-at_b = sorted(t for t, p in tp.PPX_POLICY.items() if p >= B)
+at_b = sorted(t for t, p in tp.PPX_POLICY.items() if p == B)
 check(at_b == sorted([BASE_B, *wm.WORDMASK_ARMS]), f"the arms at 09-28b = ab2_base_0928b + the word arms ({at_b})")
 check(
-    ab2h.ab2h_policy("some_new_arm") == B
-    and ab2h.ab2h_baseline("some_new_arm") == BASE_B
-    and ab2h.ab2h_policy(BASE_B) == B
+    all(ab2h.ab2h_policy(n) == B for n in ab2h.AB2H_AT_0928B)
+    and ab2h.AB2H_AT_0928B == frozenset([BASE_B, *wm.WORDMASK_ARMS])
     and ab2h.ab2h_baseline(BASE_B) == ab2h.AB2H_BASELINE_0928,
-    "a new 2-hour arm: 09-28b, baseline ab2_base_0928b (itself at 09-28b, rated against ab2_base_0928)",
+    "the 09-28b arms are pinned at 09-28b (AB2H_AT_0928B); ab2_base_0928b is rated against ab2_base_0928",
 )
 check(
     all(ab2h.ab2h_policy(n) == D for n in ab2h.AB2H_AT_0928)

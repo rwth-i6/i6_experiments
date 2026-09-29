@@ -599,9 +599,26 @@ def _render_personaplex_lora_config(
             ar = hp["aux_train_rows"]
             ar = ar.get() if hasattr(ar, "get") else str(ar)
             aux += f'aux_train_rows: "{ar}"\n'
+        # ... and the aux corpus's own row weights / flagged-word spans (POLICY_2026_09_29; tk.Paths, the run depends on
+        # them): each exactly when the primary has the matching knob (the loader refuses a mismatch; refused here first,
+        # at render time). Rendered ONLY when set.
+        for key, primary in (
+            ("aux_train_row_weights", "train_row_weights"),
+            ("aux_train_word_spans", "train_word_spans"),
+        ):
+            if (hp.get(key) is None) != (hp.get(primary) is None):
+                raise ValueError(f"{who}: {key} and {primary} go together (each corpus of the mix needs its own)")
+            if hp.get(key) is not None:
+                v = hp[key]
+                v = v.get() if hasattr(v, "get") else str(v)
+                aux += f'{key}: "{v}"\n'
         perf = aux + perf
-    elif hp.get("aux_share") is not None or hp.get("aux_train_rows") is not None:
-        raise ValueError(f"{who}: aux_share / aux_train_rows without aux_data")
+    elif any(
+        hp.get(k) is not None for k in ("aux_share", "aux_train_rows", "aux_train_row_weights", "aux_train_word_spans")
+    ):
+        raise ValueError(
+            f"{who}: aux_share / aux_train_rows / aux_train_row_weights / aux_train_word_spans without aux_data"
+        )
     # A row subset of train_data (2026-09-28, the episode-edge filter; ``persona_prompts.EpisodeEdgeRows.out_rows``, a
     # tk.Path in hparams, so the run depends on it). Rendered ONLY when set: every earlier config is byte-identical.
     if hp.get("train_rows") is not None:
@@ -626,15 +643,25 @@ def _render_personaplex_lora_config(
             raise ValueError(
                 f"{who}: train_word_spans / train_censor go with neither floor_weight nor turn_tail_weight"
             )
-        if hp.get("aux_data") is not None:
-            raise ValueError(f"{who}: train_word_spans / train_censor are not implemented with aux_data")
+        if hp.get("aux_data") is not None and hp.get("train_censor") is not None:
+            raise ValueError(f"{who}: train_censor is not implemented with aux_data")
     if hp.get("train_word_spans") is not None:
         ww = float(hp["train_word_weight"])
         if not 0.0 <= ww < 1.0:
             raise ValueError(f"{who}: train_word_weight must be in [0, 1), got {ww}")
         ws = hp["train_word_spans"]
         ws = ws.get() if hasattr(ws, "get") else str(ws)
-        perf = f'train_word_spans: "{ws}"\ntrain_word_weight: {_yaml_float(ww)}\n' + perf
+        pad = ""
+        # ... and each flagged word's AUDIO span widened by this many frames on both sides (POLICY_2026_09_29, user:
+        # "extend by a frame in each direction"). Rendered ONLY when set (> 0).
+        if hp.get("train_word_pad_frames"):
+            pf = hp["train_word_pad_frames"]
+            if isinstance(pf, bool) or int(pf) != pf or int(pf) < 0:
+                raise ValueError(f"{who}: train_word_pad_frames must be a non-negative int, got {pf!r}")
+            pad = f"train_word_pad_frames: {int(pf)}\n"
+        perf = f'train_word_spans: "{ws}"\ntrain_word_weight: {_yaml_float(ww)}\n' + pad + perf
+    elif hp.get("train_word_pad_frames"):
+        raise ValueError(f"{who}: train_word_pad_frames needs train_word_spans")
     if hp.get("train_censor") is not None:
         tc = hp["train_censor"]
         tc = tc.get() if hasattr(tc, "get") else str(tc)
