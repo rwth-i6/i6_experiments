@@ -281,7 +281,9 @@ def run_with_optional_retrieval(job, drive) -> None:
     saved = os.environ.get("CUDA_VISIBLE_DEVICES")
     os.environ["CUDA_VISIBLE_DEVICES"] = visible[0]
     try:
-        with vllm_server(retrieval_llm) as llm_url:
+        # ``retrieval_llm_max_model_len``: a short-prompt caller (the RL knowledge judge) serves a small context,
+        # so the judge fits any card; None (every other caller) keeps vllm_server's per-model default.
+        with vllm_server(retrieval_llm, max_model_len=getattr(job, "retrieval_llm_max_model_len", None)) as llm_url:
             drive(
                 ("--llm_base_url", llm_url, "--llm_model_name", retrieval_llm),
                 {"CUDA_VISIBLE_DEVICES": driver_dev},

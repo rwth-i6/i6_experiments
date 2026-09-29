@@ -27,9 +27,29 @@ from .finetune import (
 )
 
 
+def _render_knowledge_keys(job: "RLFinetune") -> str:
+    """PersonaPlex knowledge-GRPO keys (``moshi_family.rl.launcher._build_personaplex_knowledge``), rendered only for
+    ``family="personaplex"`` -- every earlier config renders exactly as before."""
+    if getattr(job, "family", "moshi") == "moshi":
+        return ""
+    return f"""family: "{job.family}"
+reward: "knowledge"
+reward_transcript: "{job.reward_transcript}"
+rows_per_call: {job.rows_per_call}
+context_frames: {job.context_frames}
+probe_every: {job.probe_every}
+probe_samples: {job.probe_samples}
+log_every: {job.log_every}
+skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
+"""
+
+
 def _render_rl_config(job: "RLFinetune") -> str:
     """Render the ``moshi_family.rl.launcher`` YAML (GRPO knobs; paper defaults)."""
-    train_data = job.train_data.get() if job.train_data is not None else ""
+    if getattr(job, "segment_source", None) == "knowledge":
+        train_data = job.out_knowledge_manifest.get()
+    else:
+        train_data = job.train_data.get() if job.train_data is not None else ""
     return (
         f"""# GRPO interactivity-alignment config (moshi_family.rl.launcher schema)
 hf_repo_id: "{job.hf_repo_id}"
@@ -55,6 +75,7 @@ clip_eps: 0.2
 save_every: {job.save_every}
 seed: {job.seed}
 """
+        + _render_knowledge_keys(job)
         + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
         + render_train_perf_keys(
             # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
@@ -109,6 +130,21 @@ class RLFinetune(Job):
         # Training-speed switches (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams): excluded at
         # None so every existing job keeps its hash; new runs pass the policy's dict.
         "train_perf": None,
+        # PersonaPlex knowledge GRPO (2026-09-29, rl_alignment.md "Knowledge GRPO"): excluded at their defaults, so
+        # every existing (base-Moshi interactivity) job keeps its hash.
+        "family": "moshi",
+        "knowledge_questions": None,
+        "knowledge_audio": None,
+        "knowledge_exclude": None,
+        "n_probe": 64,
+        "reward_transcript": "monologue",
+        "rows_per_call": 32,
+        "context_frames": 750,
+        "probe_every": 0,
+        "probe_samples": 4,
+        "log_every": 10,
+        "skip_zero_signal": False,
+        "judge_max_model_len": None,
     }
 
     def __init__(
@@ -137,7 +173,46 @@ class RLFinetune(Job):
         rqmt: dict | None = None,
         launcher_fixes: dict | None = None,
         train_perf: dict | None = None,
+        family: str = "moshi",
+        knowledge_questions=None,
+        knowledge_audio=None,
+        knowledge_exclude=None,
+        n_probe: int = 64,
+        reward_transcript: str = "monologue",
+        rows_per_call: int = 32,
+        context_frames: int = 750,
+        probe_every: int = 0,
+        probe_samples: int = 4,
+        log_every: int = 10,
+        skip_zero_signal: bool = False,
+        judge_max_model_len: int | None = None,
     ):
+        """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
+        ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
+        ``knowledge_exclude`` (e.g. the benchmark's validation split); ``n_probe`` of them are the fixed held-out probe
+        (``probe_samples`` rollouts each every ``probe_every`` steps). ``reward_transcript``: what the judge reads
+        (``monologue`` / ``asr``). ``rows_per_call``: rollouts per engine call (several questions' groups);
+        ``context_frames``: the PersonaPlex KV context (any value >= the frames a rollout steps gives identical
+        outputs). ``judge_max_model_len``: the co-launched vLLM judge's context (short prompts)."""
+        assert family in ("moshi", "personaplex"), family
+        assert (segment_source == "knowledge") == (family == "personaplex"), (family, segment_source)
+        if segment_source == "knowledge":
+            assert knowledge_questions is not None and knowledge_audio is not None and quality_judge, (
+                "knowledge GRPO needs questions, their audio and the judge"
+            )
+        self.family = family
+        self.knowledge_questions = knowledge_questions
+        self.knowledge_audio = knowledge_audio
+        self.knowledge_exclude = knowledge_exclude
+        self.n_probe = n_probe
+        self.reward_transcript = reward_transcript
+        self.rows_per_call = rows_per_call
+        self.context_frames = context_frames
+        self.probe_every = probe_every
+        self.probe_samples = probe_samples
+        self.log_every = log_every
+        self.skip_zero_signal = skip_zero_signal
+        self.judge_max_model_len = judge_max_model_len
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
@@ -165,6 +240,8 @@ class RLFinetune(Job):
         self.seed = seed
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
+        if segment_source == "knowledge":
+            self.out_knowledge_manifest = self.output_path("knowledge_manifest.json")
         # GRPO is heavier per step than SFT (G rollouts + 3 forwards); give it more memory/time. The
         # quality reward adds a co-launched vLLM judge -> a 2nd GPU + more CPU/mem for ASR + the client.
         if rqmt is not None:
@@ -183,6 +260,18 @@ class RLFinetune(Job):
 
     def write_config(self):
         prepare_run_dir(self.out_rundir.get())
+        if self.segment_source == "knowledge":
+            import json
+
+            manifest = {
+                "questions": self.knowledge_questions.get(),
+                "audio": self.knowledge_audio.get(),
+                "exclude_questions": self.knowledge_exclude.get() if self.knowledge_exclude is not None else None,
+                "n_probe": self.n_probe,
+                "seed": self.seed,
+            }
+            with open(self.out_knowledge_manifest, "w") as f:
+                json.dump(manifest, f, indent=1)
         with open(self.out_config, "w") as f:
             f.write(_render_rl_config(self))
 
@@ -202,6 +291,7 @@ class RLFinetune(Job):
         from .inference_harness import run_with_optional_retrieval
 
         self.retrieval_llm = self.quality_judge  # keys the GPU split in run_with_optional_retrieval
+        self.retrieval_llm_max_model_len = getattr(self, "judge_max_model_len", None)
 
         def _drive(extra_args, extra_env):
             if extra_env:
