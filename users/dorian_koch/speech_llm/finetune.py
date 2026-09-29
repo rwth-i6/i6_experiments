@@ -557,8 +557,9 @@ def _render_personaplex_lora_config(
     # hparams, so the run depends on it); the launcher refuses it together with floor_weight / length bucketing.
     if hp.get("knowledge_data") is not None:
         share = float(hp["knowledge_share"])
-        if not 0.0 < share < 1.0:
-            raise ValueError(f"{who}: knowledge_share must be in (0, 1), got {share}")
+        # 1.0 = knowledge items only (ab2_knowonly_3p, 2026-09-29); the launcher refuses 1.0 together with aux_data.
+        if not 0.0 < share <= 1.0:
+            raise ValueError(f"{who}: knowledge_share must be in (0, 1], got {share}")
         if hp.get("floor_weight") is not None or hp.get("length_bucket_pool"):
             raise ValueError(f"{who}: the knowledge mix has no floor weight and no length bucketing")
         kd = hp["knowledge_data"]
