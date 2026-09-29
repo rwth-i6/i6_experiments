@@ -322,7 +322,15 @@ class SpeechInference(BackendInferenceMixin, Job):
         # re-hashes. fdb mode ignores it -- its nested <ind>/output.wav layout is read directly by
         # the benchmark's NeMo ASR, which we do not own.
         "storage": "wav",
+        # Opt-in text-logit probe (knowledge mode, PersonaPlex lib driver only): the first ``max_clips`` clips of
+        # this job's shard, and a per-frame dump of the inner-monologue text logits (moshi_family/personaplex/
+        # text_logits.py). Excluded at the defaults so no existing job re-hashes.
+        "max_clips": None,
+        "dump_text_logits": False,
     }
+
+    #: The only driver that implements ``--text_logits_out``.
+    TEXT_LOGITS_MODULE = "moshi_family.personaplex.offline_inference"
 
     def __init__(
         self,
@@ -352,6 +360,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         batch_size: int = 32,
         oracle_dataset: tk.Path | None = None,
         storage: str = "wav",
+        max_clips: int | None = None,
+        dump_text_logits: bool = False,
         # --- fdb mode ---
         fdb_task: str | None = None,
         asr_venv_python: tk.AbstractPath | None = None,
@@ -419,6 +429,21 @@ class SpeechInference(BackendInferenceMixin, Job):
         self.storage = storage if mode == "knowledge" else "wav"
         self.out_dir = self.output_path("speech_output", directory=True)
 
+        # Text-logit probe. max_clips = the first N clips of THIS job's shard (the driver takes the prefix after
+        # sharding), so with the benchmark's own shard/batch/seed a probe reproduces that benchmark's first N
+        # replies byte for byte and its logits line up with the scored transcripts.
+        assert max_clips is None or (mode == "knowledge" and max_clips > 0), (mode, max_clips)
+        self.max_clips = max_clips
+        self.dump_text_logits = dump_text_logits
+        if dump_text_logits or max_clips is not None:
+            assert mode == "knowledge" and offline_module == self.TEXT_LOGITS_MODULE, (
+                f"max_clips / dump_text_logits are implemented only by {self.TEXT_LOGITS_MODULE} in knowledge mode"
+            )
+        if dump_text_logits:
+            # float16 [frames, 32000] per clip: ~25 MB for a 30 s knowledge clip -- keep max_clips small.
+            assert max_clips is not None and max_clips <= 200, "dump_text_logits needs max_clips <= 200 (~25 MB/clip)"
+            self.out_text_logits = self.output_path("text_logits", directory=True)
+
         # rqmt is NOT part of the Sisyphus hash (it is an instance attribute, not a
         # constructor arg). Callers tune walltime/GPUs per-backend by mutating job.rqmt
         # AFTER construction (see sharded_knowledge_inference / fdb.py), so a resource
@@ -472,6 +497,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         n = len(open_clips(in_path)) if is_clip_dataset(in_path) else self._count_wavs(in_path)
         if n and self.shard is not None and self.num_shards:
             n = len(range(self.shard, n, self.num_shards))
+        if n and getattr(self, "max_clips", None):
+            n = min(n, self.max_clips)
         if n:
             self._total_cache = n
         return n or None
@@ -572,6 +599,7 @@ class SpeechInference(BackendInferenceMixin, Job):
                 capture_s=self.capture_s,
                 batch_size=self.batch_size,
                 oracle_dataset=(self.oracle_dataset.get() if self.oracle_dataset is not None else None),
+                driver_args=self._probe_driver_args(),
             )
             # Per-GPU fan-out (backlog G1): the driver's own sharding is strided by clip index
             # (wavs[shard::num_shards]), so worker k of n inside this job's shard is the NESTED
@@ -579,6 +607,8 @@ class SpeechInference(BackendInferenceMixin, Job):
             # driver change. Outputs are index-disjoint wavs in the same scratch dir, packed once.
             # A retrieval-backed backend pins its driver to one card itself, so it stays single.
             plan = self._driver_shards()
+            # The prefix semantics of max_clips hold per driver; a GPU fan-out would take N per sub-shard.
+            assert len(plan) == 1 or getattr(self, "max_clips", None) is None, "max_clips needs a 1-GPU job"
             if len(plan) == 1:
                 shard, num_shards, _env = plan[0]
                 self._offline(shard=shard, num_shards=num_shards, **common)
@@ -599,6 +629,15 @@ class SpeechInference(BackendInferenceMixin, Job):
         items = [(wav, out_dir / wav.name) for wav in wav_files]
         self._stream(items, opts=StreamOptions(lead_in_s=self.lead_in_s, capture_s=self.capture_s, progress_every=50))
         self._pack_clips(out_dir, final_dir)
+
+    def _probe_driver_args(self) -> tuple:
+        """``--max_clips`` / ``--text_logits_out`` for the offline driver; () for every existing job."""
+        args = ()
+        if getattr(self, "max_clips", None) is not None:
+            args += ("--max_clips", str(self.max_clips))
+        if getattr(self, "dump_text_logits", False):
+            args += ("--text_logits_out", self.out_text_logits.get_path())
+        return args
 
     def _pack_clips(self, scratch: Path, final_dir: Path) -> None:
         """Under storage="hf", fold the scratch wavs (+ monologue/trace sidecars) into one dataset."""

@@ -357,6 +357,9 @@ class BackendInferenceMixin:
         # A caller may pin this driver to one card (the per-GPU fan-out in the knowledge/FDB jobs);
         # the retrieval seam's own pin, if any, is layered on top.
         pinned_env = driver_kwargs.pop("extra_env", None) or {}
+        # Job-level driver flags (e.g. SpeechInference's --max_clips / --text_logits_out), spliced in after the
+        # backend's own extra args. Empty for every existing caller.
+        driver_args = tuple(driver_kwargs.pop("driver_args", ()) or ())
 
         def _drive(extra_args, extra_env=None):
             run_offline_driver(
@@ -367,7 +370,7 @@ class BackendInferenceMixin:
                 lora_weights=lora_weights,
                 lora_config=lora_config,
                 seed=seed,
-                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
+                extra_args=tuple(self.offline_extra_args) + driver_args + tuple(extra_args),
                 extra_env={**pinned_env, **(extra_env or {})} or None,
                 **driver_kwargs,
             )

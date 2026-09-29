@@ -905,6 +905,7 @@ def knowledge_benchmark_py(
     storage: str = "hf",
     ffmpeg_path: tk.Path | None = None,
     inference_seed: int | None = None,
+    text_logits_first_n: int | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -955,6 +956,13 @@ def knowledge_benchmark_py(
             Note the seeding capability is not theoretical -- FDB has used it in production since
             ``seed_variance_py`` (3 models x 3 seeds), one of them through the offline lib driver.
             It is the knowledge line that has 43 unseeded call sites and zero seeded ones.
+        text_logits_first_n: also run a small text-logit PROBE (PersonaPlex lib driver only): one extra
+            ``SpeechInference`` with this benchmark's own inference arguments on the first N clips of its shard 0
+            (``max_clips``), dumping the inner-monologue text logits of every frame (``dump_text_logits``;
+            ~25 MB/clip). Same shard, batch and seed as the scored run, so its replies are the scored replies of
+            those clips (indices 0, 2, 4, ... for the 2-shard layout) and the logits line up with the
+            transcripts/judgements. Outputs ``benchmark/text_probs/<tag>/{text_logits,moshi_output}``. None (default)
+            declares nothing, so no existing job moves.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -1061,8 +1069,7 @@ def knowledge_benchmark_py(
         batch_size = 1
     _bs_kw = {} if batch_size is None else {"batch_size": batch_size}
     _oracle_kw = {"oracle_dataset": data} if speech_backend.needs_oracle_dataset else {}
-    moshi_out = sharded_knowledge_inference(
-        num_shards=1 if single else 2,
+    inference_kwargs = dict(
         venv_python_path=inference_venv,
         **_bs_kw,
         **_oracle_kw,
@@ -1088,7 +1095,22 @@ def knowledge_benchmark_py(
         rqmt_override=speech_backend.rqmt_override,
         code_version=code_version,
     )
+    num_shards = 1 if single else 2
+    moshi_out = sharded_knowledge_inference(num_shards=num_shards, **inference_kwargs)
     tk.register_output(f"{_bench}/{tag}/moshi_output", moshi_out)
+
+    if text_logits_first_n is not None:
+        rqmt_override = inference_kwargs.pop("rqmt_override")
+        probe = SpeechInference(
+            mode="knowledge",
+            **({} if num_shards == 1 else {"shard": 0, "num_shards": num_shards}),
+            max_clips=text_logits_first_n,
+            dump_text_logits=True,
+            **inference_kwargs,
+        )
+        probe.rqmt = {**probe.rqmt, **(rqmt_override or {}), "time": 2}
+        tk.register_output(f"benchmark/text_probs/{tag}/text_logits", probe.out_text_logits)
+        tk.register_output(f"benchmark/text_probs/{tag}/moshi_output", probe.out_dir)
 
     # 6. Whisper transcription
     transcription = WhisperTranscription(
