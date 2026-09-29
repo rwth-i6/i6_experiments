@@ -43,6 +43,7 @@ log_every: {job.log_every}
 skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
 advantage_split: {str(bool(getattr(job, "advantage_split", False))).lower()}
 loss_norm: "{getattr(job, "loss_norm", "tokens")}"
+brevity_weight: {getattr(job, "brevity_weight", 0.25)}
 """
 
 
@@ -149,6 +150,7 @@ class RLFinetune(Job):
         "judge_max_model_len": None,
         "advantage_split": False,
         "loss_norm": "tokens",
+        "brevity_weight": 0.25,
     }
 
     def __init__(
@@ -192,6 +194,7 @@ class RLFinetune(Job):
         judge_max_model_len: int | None = None,
         advantage_split: bool = False,
         loss_norm: str = "tokens",
+        brevity_weight: float = 0.25,
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -224,6 +227,8 @@ class RLFinetune(Job):
         self.advantage_split = advantage_split
         assert loss_norm in ("tokens", "constant"), loss_norm
         self.loss_norm = loss_norm
+        # knowledge reward: weight of the brevity component (-min(words, 40) / 40 on correct rollouts); 0 = correctness only
+        self.brevity_weight = brevity_weight
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
