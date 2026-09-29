@@ -44,6 +44,7 @@ skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
 advantage_split: {str(bool(getattr(job, "advantage_split", False))).lower()}
 loss_norm: "{getattr(job, "loss_norm", "tokens")}"
 brevity_weight: {getattr(job, "brevity_weight", 0.25)}
+lr_schedule: "{getattr(job, "lr_schedule", "cosine")}"
 """
 
 
@@ -151,6 +152,7 @@ class RLFinetune(Job):
         "advantage_split": False,
         "loss_norm": "tokens",
         "brevity_weight": 0.25,
+        "lr_schedule": "cosine",
     }
 
     def __init__(
@@ -195,6 +197,7 @@ class RLFinetune(Job):
         advantage_split: bool = False,
         loss_norm: str = "tokens",
         brevity_weight: float = 0.25,
+        lr_schedule: str = "cosine",
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -229,6 +232,9 @@ class RLFinetune(Job):
         self.loss_norm = loss_norm
         # knowledge reward: weight of the brevity component (-min(words, 40) / 40 on correct rollouts); 0 = correctness only
         self.brevity_weight = brevity_weight
+        # after the warmup: "cosine" (to 0, as SFT) or "constant"
+        assert lr_schedule in ("cosine", "constant"), lr_schedule
+        self.lr_schedule = lr_schedule
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
