@@ -191,6 +191,13 @@ def finetune_completed_fraction(job: "SpeechFinetune", adapter: FinetuneAdapter)
     return max(0.0, min(1.0, pct / 100.0))
 
 
+def declared_train_gpus(job) -> int:
+    """The GPU count a training job declares: ``compute["gpu"]``, else ``hparams["gpu"]``, else 1. Jobs without
+    ``hparams`` (``RLFinetune``, ``AudexDuplexFinetune``) declare 1 -- reading ``job.hparams`` unguarded crashed the
+    first RLFinetune after the 2026-09-23 fix, after its judge had loaded (guard ``check_declared_train_gpus.py``)."""
+    return int((getattr(job, "compute", None) or {}).get("gpu", (getattr(job, "hparams", None) or {}).get("gpu", 1)))
+
+
 def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     """Shared ``run`` body: single-node ``torch.distributed.run`` of the adapter's
     launcher module, with the fork on ``PYTHONPATH`` and the HF cache wired."""
@@ -249,7 +256,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # `compute` first: from RULE_RQMT_NOT_HASHED (2026-09-17) the GPU count travels there, not in `hparams`,
     # and reading only `hparams` trained such a run on ONE rank of its N-GPU allocation (found 2026-09-23 on
     # p5 before it ran; no earlier multi-GPU arm used `compute`). Same fallback order as `SpeechFinetune.rqmt`.
-    declared = int((getattr(job, "compute", None) or {}).get("gpu", job.hparams.get("gpu", 1)))
+    declared = declared_train_gpus(job)
     if n_train_gpus > declared:
         print(
             f"[launch_training] {n_train_gpus} GPUs visible but the run declares gpu={declared}; "
