@@ -41,6 +41,8 @@ probe_every: {job.probe_every}
 probe_samples: {job.probe_samples}
 log_every: {job.log_every}
 skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
+advantage_split: {str(bool(getattr(job, "advantage_split", False))).lower()}
+loss_norm: "{getattr(job, "loss_norm", "tokens")}"
 """
 
 
@@ -145,6 +147,8 @@ class RLFinetune(Job):
         "log_every": 10,
         "skip_zero_signal": False,
         "judge_max_model_len": None,
+        "advantage_split": False,
+        "loss_norm": "tokens",
     }
 
     def __init__(
@@ -186,6 +190,8 @@ class RLFinetune(Job):
         log_every: int = 10,
         skip_zero_signal: bool = False,
         judge_max_model_len: int | None = None,
+        advantage_split: bool = False,
+        loss_norm: str = "tokens",
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -213,6 +219,11 @@ class RLFinetune(Job):
         self.log_every = log_every
         self.skip_zero_signal = skip_zero_signal
         self.judge_max_model_len = judge_max_model_len
+        # knowledge GRPO: split advantage (correct z-scored + brevity mean-centred x 0.25) and Dr. GRPO's constant
+        # per-sequence loss normaliser ("constant"; "tokens" = the paper's 1/N)
+        self.advantage_split = advantage_split
+        assert loss_norm in ("tokens", "constant"), loss_norm
+        self.loss_norm = loss_norm
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
