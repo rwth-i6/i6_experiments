@@ -214,6 +214,92 @@ class KnowledgeConcatMeta(Job):
         subprocess.run(cmd, env=env, check=True)
 
 
+class KnowledgeKnownScore(Job):
+    """Which TriviaQA-train questions does base PersonaPlex already know? (ablation ab2_know_known, 2026-09-29; worker
+    ``moshi_family.personaplex.knowledge_known_score``, whose docstring has the method.)
+
+    User: "restrict training to only those examples that are already known by the base model" (Gekhman et al. 2024),
+    "Make sure to normalize across length tho. We want to score the speech model tho, not some random text model".
+    One teacher-forced forward of the RELEASED PersonaPlex per knowledge dialogue, read as the training loader reads a
+    knowledge row; score = mean log-prob per token of the answer where the ASSISTANT first says it (TriviaQA's main
+    answer; unscorable when never said or when the user says it first). Per question: the mean over its scorable
+    dialogues. Known = the top ``quantile`` of the scored questions.
+
+    ``codes``: ``KnowledgeDialogueCodes.out_dir``; ``dialogues``: the cleaned dialogue dataset the TTS read (question_id,
+    answer, dialogue, template_name); ``tts``: ``[(name, ChatterboxInference output)]`` with the codes corpora's names
+    (codes id = ``<name>/<TTS id>``; joined to the dialogue by slice + turn text). ``settings``: the text-stream / loss
+    keys of a run config (``heldout_loss.loss_settings``). ``max_rows``: 0 = every row; N = N rows evenly spaced over the corpus (the smoke).
+    Outputs: ``out_dir`` (dialogues.jsonl, questions.jsonl, known_questions.json, summary.json), ``out_rows`` (the
+    ascending codes-row keep-list of every dialogue of a known question: ``knowledge_train_rows`` of an arm),
+    ``out_summary``."""
+
+    def __init__(
+        self,
+        *,
+        codes: tk.Path,
+        dialogues: tk.Path,
+        tts: list,
+        venv_python_path: tk.Path,
+        settings: dict,
+        quantile: float = 0.25,
+        max_rows: int = 0,
+        batch: int = 16,
+        control_n: int = 400,
+    ):
+        names = [n for n, _ in tts]
+        assert len(set(names)) == len(names), f"tts names must be unique: {names}"
+        assert 0.0 < float(quantile) < 1.0, quantile
+        self.codes = codes
+        self.dialogues = dialogues
+        self.tts = [(str(n), p) for n, p in tts]
+        self.venv_python_path = venv_python_path
+        self.settings = dict(settings)
+        self.quantile = float(quantile)
+        self.max_rows = int(max_rows)
+        self.batch = int(batch)
+        self.control_n = int(control_n)
+        self.out_dir = self.output_path("score", directory=True)
+        self.out_rows = self.output_path("known_rows.npy")
+        # the same cut within each answer-length stratum (the per-token mean still favours longer answers)
+        self.out_rows_len_strat = self.output_path("known_rows_len_strat.npy")
+        self.out_summary = self.output_path("summary.json")
+        # one 7B forward per 16 dialogues (~21 s each) in bf16; test node 2026-09-29: ~14 rows/s -> ~75 min for 60k
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 3, "gpu_mem_gb": 80}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        try:
+            d = json.load(open(os.path.join(self.out_dir.get_path(), "progress.json")))
+            return min(d["done"] / d["total"], 1.0)
+        except (OSError, ValueError, KeyError, ZeroDivisionError):
+            return None
+
+    def info(self):
+        f = self.completed_fraction()
+        return None if f is None else f"{100 * f:.1f}% of dialogues scored"
+
+    def run(self):
+        import shutil
+
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env.setdefault("HF_HUB_OFFLINE", "1")
+        out = self.out_dir.get_path()
+        cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.knowledge_known_score"]
+        cmd += ["--codes", self.codes.get_path(), "--dialogues", self.dialogues.get_path(), "--out", out]
+        cmd += ["--settings", json.dumps(self.settings, sort_keys=True), "--quantile", str(self.quantile)]
+        cmd += ["--max_rows", str(self.max_rows), "--batch", str(self.batch), "--control_n", str(self.control_n)]
+        for n, p in self.tts:
+            cmd += ["--tts", f"{n}={p.get_path()}"]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+        shutil.copyfile(os.path.join(out, "known_rows.npy"), self.out_rows.get_path())
+        shutil.copyfile(os.path.join(out, "known_rows_len_strat.npy"), self.out_rows_len_strat.get_path())
+        shutil.copyfile(os.path.join(out, "summary.json"), self.out_summary.get_path())
+
+
 class KnowledgeVoicePool(Job):
     """The assistant voices of the knowledge corpus v7 (user, 2026-09-28: "Maybe we should also get different voices
     in there, to align with the jre training. Just use random voices ig."; worker ``moshi_family.knowledge_voices``,

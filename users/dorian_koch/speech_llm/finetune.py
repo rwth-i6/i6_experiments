@@ -578,9 +578,17 @@ def _render_personaplex_lora_config(
         # rendered ONLY when set, so every earlier config is byte-identical.
         if hp.get("knowledge_user_augment"):
             concat += "knowledge_user_augment: true\n"
+        # ... and only these knowledge-corpus rows (2026-09-29, ablation ab2_know_known: ``KnowledgeKnownScore.out_rows``, a
+        # tk.Path: the run depends on it): rendered ONLY when set, so every earlier config is byte-identical.
+        if hp.get("knowledge_train_rows") is not None:
+            kr = hp["knowledge_train_rows"]
+            kr = kr.get() if hasattr(kr, "get") else str(kr)
+            concat += f'knowledge_train_rows: "{kr}"\n'
         perf = f'knowledge_data: "{kd}"\nknowledge_share: {_yaml_float(share)}\n' + concat + perf
     elif hp.get("knowledge_user_augment"):
         raise ValueError(f"{who}: knowledge_user_augment without knowledge_data")
+    elif hp.get("knowledge_train_rows") is not None:
+        raise ValueError(f"{who}: knowledge_train_rows without knowledge_data")
     elif hp.get("knowledge_share") is not None or hp.get("knowledge_meta") is not None:
         raise ValueError(f"{who}: knowledge_share / knowledge_meta without knowledge_data")
     # A second conversational corpus in the knowledge mix at its own stratified share (2026-09-28, ablation

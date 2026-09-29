@@ -100,7 +100,9 @@ check(
     "rules: word mask weight 0 pad 1, Open Yap share 0.35, both at 09-29",
 )
 at_n = sorted(t for t, p in tp.PPX_POLICY.items() if p == N)
-check(at_n == [BASE_N], f"the arms at 09-29 = ab2_base_0929 only ({at_n})")
+#: the one-change arms declared at 09-29 so far (2026-09-29: knowledge-only, known-only knowledge mix); a new one is added here
+AT_N_ARMS = {"ab2_knowonly_3p", "ab2_know_known"}
+check(at_n == sorted({BASE_N} | AT_N_ARMS), f"the arms at 09-29 = ab2_base_0929 + {sorted(AT_N_ARMS)} ({at_n})")
 check(
     ab2h.ab2h_policy("some_new_arm") == N
     and ab2h.ab2h_baseline("some_new_arm") == BASE_N
