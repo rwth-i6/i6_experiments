@@ -109,60 +109,61 @@ def py():
                     ablations.append((train_name, model_args, train_args, 1000))
 
     # 2. Fully Frozen Encoder ablations (across all disc strategies, layers 3 & 6, 1000 epochs)
-    for disc_strat in ["neither", "lstm", "codebooks"]:
-        for layers in [3, 6]:
-            for pretrain_epochs in [100, 500]:
-                if disc_strat == "neither":
-                    disc_type = None
-                    codebook_prob = 0.0
-                    pretrain_codebook_prob = 0.0
-                    codebook_div = 0.0
-                    pretrain_codebook_div = 0.0
-                    adv_scale = 0.0
-                    pretrain_adv_scale = 0.0
-                elif disc_strat == "lstm":
-                    disc_type = "lstm"
-                    codebook_prob = 0.0
-                    pretrain_codebook_prob = 0.0
-                    codebook_div = 0.0
-                    pretrain_codebook_div = 0.0
-                    adv_scale = 0.1
-                    pretrain_adv_scale = 0.1
-                elif disc_strat == "codebooks":
-                    disc_type = None
-                    codebook_prob = 0.5
-                    pretrain_codebook_prob = 0.5
-                    codebook_div = 0.1
-                    pretrain_codebook_div = 0.1
-                    adv_scale = 0.0
-                    pretrain_adv_scale = 0.0
-
-                train_name = f"disc-{disc_strat}_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_frozen_enc-True_v6.1"
-
-                model_args = {
-                    "num_enc_layers": layers,
-                    "num_text_dec_layers": layers,
-                    "num_audio_dec_layers": layers,
-                    "discriminator_type": disc_type,
-                    "codebook_opts": {"codebook_prob": codebook_prob},
-                }
-
-                train_args = {
-                    "codebook_diversity_loss_scale": codebook_div,
-                    "denoise_pretrain_epochs": pretrain_epochs,
-                    "pretrain_codebook_prob": pretrain_codebook_prob,
-                    "pretrain_codebook_diversity_loss_scale": pretrain_codebook_div,
-                    "adv_loss_scale": adv_scale,
-                    "pretrain_adv_loss_scale": pretrain_adv_scale,
-
-                    "gradual_unfreeze": False,
-                    "freeze_encoder": True,
-
-                    "bt_buffer_size_steps": 10,
-                    "bt_train_iterations": 50,
-                }
-
-                ablations.append((train_name, model_args, train_args, 1000))
+    # (Commented out: performing poorly)
+    # for disc_strat in ["neither", "lstm", "codebooks"]:
+    #     for layers in [3, 6]:
+    #         for pretrain_epochs in [100, 500]:
+    #             if disc_strat == "neither":
+    #                 disc_type = None
+    #                 codebook_prob = 0.0
+    #                 pretrain_codebook_prob = 0.0
+    #                 codebook_div = 0.0
+    #                 pretrain_codebook_div = 0.0
+    #                 adv_scale = 0.0
+    #                 pretrain_adv_scale = 0.0
+    #             elif disc_strat == "lstm":
+    #                 disc_type = "lstm"
+    #                 codebook_prob = 0.0
+    #                 pretrain_codebook_prob = 0.0
+    #                 codebook_div = 0.0
+    #                 pretrain_codebook_div = 0.0
+    #                 adv_scale = 0.1
+    #                 pretrain_adv_scale = 0.1
+    #             elif disc_strat == "codebooks":
+    #                 disc_type = None
+    #                 codebook_prob = 0.5
+    #                 pretrain_codebook_prob = 0.5
+    #                 codebook_div = 0.1
+    #                 pretrain_codebook_div = 0.1
+    #                 adv_scale = 0.0
+    #                 pretrain_adv_scale = 0.0
+    #
+    #             train_name = f"disc-{disc_strat}_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_frozen_enc-True_v6.1"
+    #
+    #             model_args = {
+    #                 "num_enc_layers": layers,
+    #                 "num_text_dec_layers": layers,
+    #                 "num_audio_dec_layers": layers,
+    #                 "discriminator_type": disc_type,
+    #                 "codebook_opts": {"codebook_prob": codebook_prob},
+    #             }
+    #
+    #             train_args = {
+    #                 "codebook_diversity_loss_scale": codebook_div,
+    #                 "denoise_pretrain_epochs": pretrain_epochs,
+    #                 "pretrain_codebook_prob": pretrain_codebook_prob,
+    #                 "pretrain_codebook_diversity_loss_scale": pretrain_codebook_div,
+    #                 "adv_loss_scale": adv_scale,
+    #                 "pretrain_adv_loss_scale": pretrain_adv_scale,
+    #
+    #                 "gradual_unfreeze": False,
+    #                 "freeze_encoder": True,
+    #
+    #                 "bt_buffer_size_steps": 10,
+    #                 "bt_train_iterations": 50,
+    #             }
+    #
+    #             ablations.append((train_name, model_args, train_args, 1000))
 
     # 3. 500-epoch ablations with lower LSTM discriminator loss weights (0.01 and 0.02)
     for layers in [3, 6]:

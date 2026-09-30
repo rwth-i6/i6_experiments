@@ -173,8 +173,14 @@ def py():
             "text_masking_opts": {"mask_prob": 0.3, "min_span": 2, "max_span": 10, "expand": True, "insert_prob": 0.1},
             "audio_masking_opts": {"mask_prob": 0.3, "min_span": 4, "max_span": 20, "expand": True, "insert_prob": 0.1},
         })
-        config["training"].update({"batch_size": 30000, "grad_scaler": None, "accum_grad_multiple_step": 1})
-        
+        # Lower batch size and use gradient accumulation only for failed/killed ablations to prevent OOM
+        # while keeping the 6 running jobs untouched so their hashes remain intact.
+        unfreeze = train_args.get("gradual_unfreeze", False)
+        cb_div = train_args.get("codebook_diversity_loss_scale", 0.0)
+        if cb_div == 0.01 and not unfreeze:
+            config["training"].update({"batch_size": 15000, "grad_scaler": None, "accum_grad_multiple_step": 2})
+        else:
+            config["training"].update({"batch_size": 30000, "grad_scaler": None, "accum_grad_multiple_step": 1})
         config["recog_rqmt"] = {"time": 48, "mem": 64, "cpu": 12, "device": "cpu"}
         config.setdefault("train_rqmt", {})["mem_rqmt"] = 64
         
@@ -249,10 +255,12 @@ def py():
             "num_epochs": ft_epochs,
         }
 
-    HpoResultsExcelJob(
+    excel_job = HpoResultsExcelJob(
         configs_meta=configs_meta,
         train_jobs=finetune_jobs,
         eval_epochs=sorted(list(all_eval_epochs)),
         prefix_name=prefix_name,
         report_name="unsup_v6_codebooks_summary",
     )
+    
+    return {"excel_job": excel_job}
