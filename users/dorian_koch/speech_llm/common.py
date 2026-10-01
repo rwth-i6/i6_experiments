@@ -8,7 +8,7 @@ import threading
 import time
 import socket
 import random
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 #: The HF **hub** cache -- the directory that holds ``models--*`` / ``datasets--*``. This is the
 #: value for ``HF_HUB_CACHE``, NOT for ``HF_HOME``.
@@ -284,17 +284,37 @@ def vllm_server(
     # its own split without re-deriving it from vLLM's own log.
     _t0 = time.time()
     print(f"[vllm-timing] starting server for {hf_model} (enforce_eager={enforce_eager})", flush=True)
-    with managed_subprocess_server(
-        cmd,
-        port=port,
-        ready_substrings=("Uvicorn running on", "Application startup complete"),
-        log_prefix="vLLM",
-        # A cold Lustre load of a big checkpoint (gemma-4-31B: 58 GiB) can take ~11-12 min for
-        # weights alone before CUDA-graph capture -- the 900s default tips over on a c25g node whose
-        # page cache is cold, though warm c23g nodes booted fine. Give cold loads generous headroom;
-        # a genuinely dead server is still caught immediately by the proc.poll() check.
-        max_wait=30 * 60,
-    ):
+
+    def _server(c):
+        return managed_subprocess_server(
+            c,
+            port=port,
+            ready_substrings=("Uvicorn running on", "Application startup complete"),
+            log_prefix="vLLM",
+            # A cold Lustre load of a big checkpoint (gemma-4-31B: 58 GiB) can take ~11-12 min for
+            # weights alone before CUDA-graph capture -- the 900s default tips over on a c25g node whose
+            # page cache is cold, though warm c23g nodes booted fine. Give cold loads generous headroom;
+            # a genuinely dead server is still caught immediately by the proc.poll() check.
+            max_wait=30 * 60,
+        )
+
+    stack = ExitStack()
+    try:
+        stack.enter_context(_server(cmd))
+    except RuntimeError as e:
+        # Safety net for the AUTO-selected squashfs image only (2026-10-01: the first vllm_venv build lacked
+        # vLLM's undeclared `pandas` import and died at startup). A broken image must cost one failed boot, not
+        # every vLLM job in the graph; an explicit VLLM_PYTHON (e.g. VllmStartupProbe) still fails loudly.
+        if os.environ.get("VLLM_PYTHON") or cmd[0] == sys.executable:
+            raise
+        print(
+            f"[vllm] ⚠ server from {cmd[0]} died during startup ({str(e)[:200]!r}); RETRYING with {sys.executable}",
+            flush=True,
+        )
+        cmd[0] = sys.executable
+        _t0 = time.time()
+        stack.enter_context(_server(cmd))
+    with stack:
         _boot = time.time() - _t0
         print(f"[vllm-timing] server ready after {_boot:.1f}s", flush=True)
         try:
