@@ -184,7 +184,12 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 _VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv_v030"
 
 
-def vllm_python() -> str:
+# Models kept on the setup .venv's vLLM: on 0.30 Gemma 4 emits its thinking as reply text ("thought\n...OK",
+# vllm_serving_smoke/gemma-4-31B-it, 2026-10-01), which would change every Gemma-4-judged result.
+_VLLM_IMAGE_EXCLUDED = ("google/gemma-4-31B-it",)
+
+
+def vllm_python(hf_model: str | None = None) -> str:
     """Interpreter to launch vLLM with: the squashfs ``vllm_venv`` once fully built (run AND pack), else ours.
 
     The setup ``.venv`` is a plain directory on the shared filesystem; vLLM imports torch + vllm from it twice per
@@ -195,6 +200,8 @@ def vllm_python() -> str:
     forced = os.environ.get("VLLM_PYTHON")
     if forced:
         return sys.executable if forced == "sys" else forced
+    if hf_model in _VLLM_IMAGE_EXCLUDED:
+        return sys.executable
     root = os.getcwd().split("/work/")[0]  # a job runs inside its own work dir
     job = os.path.join(root, _VLLM_VENV_JOB)
     python = os.path.join(job, "output", "venv", "bin", "python")
@@ -236,7 +243,7 @@ def vllm_server(
     # CUDA_VISIBLE_DEVICES, so it sees 1 and stays at TP=1.
     n_gpus = max(1, len(visible_gpus()))
     cmd = [
-        vllm_python(),
+        vllm_python(hf_model),
         "-m",
         "vllm.entrypoints.openai.api_server",
         "--host",
