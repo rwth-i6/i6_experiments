@@ -62,6 +62,10 @@ class CreateVenv(Job):
         finally:
             if base is not None:
                 shutil.rmtree(base, ignore_errors=True)
+                # A failed build leaves output/venv as a symlink into the deleted tree. Sisyphus's job setup then dies
+                # in os.makedirs(output/venv) (FileExistsError) and takes the MANAGER down with it (2026-10-01).
+                if os.path.islink(env) and not os.path.exists(env):
+                    os.unlink(env)
 
     def pack(self):
         env = self.out_env_path.get_path()
