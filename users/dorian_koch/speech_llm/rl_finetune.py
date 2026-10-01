@@ -53,10 +53,32 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
+def _render_selfplay_keys(job: "RLFinetune") -> str:
+    """PersonaPlex self-play GRPO keys (``moshi_family.rl.launcher._build_personaplex_selfplay``), rendered only for
+    ``segment_source="selfplay"``."""
+    return f"""family: "{job.family}"
+selfplay_policy: "{job.selfplay_policy}"
+reward_transcript: "{job.reward_transcript}"
+judge_rubric: "{job.out_judge_rubric.get()}"
+convs_per_call: {job.convs_per_call}
+conversation_s: {job.conversation_s}
+conversation_s_start: {job.conversation_s_start if job.conversation_s_start is not None else job.conversation_s}
+context_frames: {job.context_frames}
+probe_every: {job.probe_every}
+probe_samples: {job.probe_samples}
+log_every: {job.log_every}
+skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
+loss_norm: "{job.loss_norm}"
+lr_schedule: "{job.lr_schedule}"
+"""
+
+
 def _render_rl_config(job: "RLFinetune") -> str:
     """Render the ``moshi_family.rl.launcher`` YAML (GRPO knobs; paper defaults)."""
     if getattr(job, "segment_source", None) == "knowledge":
         train_data = job.out_knowledge_manifest.get()
+    elif getattr(job, "segment_source", None) == "selfplay":
+        train_data = job.out_selfplay_manifest.get()
     else:
         train_data = job.train_data.get() if job.train_data is not None else ""
     return (
@@ -84,7 +106,11 @@ clip_eps: 0.2
 save_every: {job.save_every}
 seed: {job.seed}
 """
-        + _render_knowledge_keys(job)
+        + (
+            _render_selfplay_keys(job)
+            if getattr(job, "segment_source", None) == "selfplay"
+            else _render_knowledge_keys(job)
+        )
         + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
         + render_train_perf_keys(
             # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
@@ -163,7 +189,27 @@ class RLFinetune(Job):
         "init_lora": None,
         "questions_per_episode": 1,
         "answer_end_pad_s": 1.0,
+        # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
+        "selfplay_scenarios": None,
+        "selfplay_policy": "shared",
+        "conversation_s": 30.0,
+        "conversation_s_start": None,
+        "convs_per_call": 16,
+        "judge_rubric": "spj2_judge_v1",
+        "n_probe_scenarios": 16,
     }
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """A self-play run's judge rubric TEXT is part of its hash (as ``selfplay_bench.SelfPlayJudgeV2``); every other
+        job hashes exactly as before."""
+        if parsed_args.get("segment_source") != "selfplay":
+            return super(RLFinetune, cls).hash(parsed_args)
+        from .selfplay_bench import judge_rubric_digest
+
+        return super(RLFinetune, cls).hash(
+            {**parsed_args, "judge_rubric_digest": judge_rubric_digest(parsed_args["judge_rubric"])}
+        )
 
     def __init__(
         self,
@@ -213,6 +259,13 @@ class RLFinetune(Job):
         init_lora=None,
         questions_per_episode: int = 1,
         answer_end_pad_s: float = 1.0,
+        selfplay_scenarios=None,
+        selfplay_policy: str = "shared",
+        conversation_s: float = 30.0,
+        conversation_s_start: float | None = None,
+        convs_per_call: int = 16,
+        judge_rubric: str = "spj2_judge_v1",
+        n_probe_scenarios: int = 16,
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -220,9 +273,32 @@ class RLFinetune(Job):
         (``probe_samples`` rollouts each every ``probe_every`` steps). ``reward_transcript``: what the judge reads
         (``monologue`` / ``asr``). ``rows_per_call``: rollouts per engine call (several questions' groups);
         ``context_frames``: the PersonaPlex KV context (any value >= the frames a rollout steps gives identical
-        outputs). ``judge_max_model_len``: the co-launched vLLM judge's context (short prompts)."""
+        outputs). ``judge_max_model_len``: the co-launched vLLM judge's context (short prompts).
+
+        Self-play GRPO (``family="personaplex"``, ``segment_source="selfplay"``): ``selfplay_scenarios`` (a
+        ``selfplay_bench.SelfPlayTrainScenarioSet`` dataset) are the prompts, ``n_probe_scenarios`` of them the fixed
+        probe; conversations of ``conversation_s_start`` (default ``conversation_s``) growing linearly to
+        ``conversation_s`` over the run (the probe always at ``conversation_s``), ``convs_per_call`` per engine call, G = ``num_samples`` per
+        scenario; the reward is the ``judge_rubric`` (spj2) judge, ``quality_judge`` serving it. ``selfplay_policy``:
+        ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side)."""
         assert family in ("moshi", "personaplex"), family
-        assert (segment_source == "knowledge") == (family == "personaplex"), (family, segment_source)
+        assert (segment_source in ("knowledge", "selfplay")) == (family == "personaplex"), (family, segment_source)
+        if segment_source == "selfplay":
+            from .selfplay_bench import SPJ2_RUBRICS
+
+            assert selfplay_scenarios is not None and quality_judge, "self-play GRPO needs scenarios and the judge"
+            assert judge_rubric in SPJ2_RUBRICS, judge_rubric
+            assert selfplay_policy in ("shared", "two_lora"), selfplay_policy
+            assert grad_accum % 2 == 0, "self-play: grad_accum counts (scenario, side) groups"
+            assert convs_per_call % num_samples == 0, (convs_per_call, num_samples)
+            assert init_lora is None or selfplay_policy == "shared", "init_lora with two_lora"
+        self.selfplay_scenarios = selfplay_scenarios
+        self.selfplay_policy = selfplay_policy
+        self.conversation_s = conversation_s
+        self.conversation_s_start = conversation_s_start
+        self.convs_per_call = convs_per_call
+        self.judge_rubric = judge_rubric
+        self.n_probe_scenarios = n_probe_scenarios
         if segment_source == "knowledge":
             assert knowledge_questions is not None and knowledge_audio is not None and quality_judge, (
                 "knowledge GRPO needs questions, their audio and the judge"
@@ -294,6 +370,9 @@ class RLFinetune(Job):
         self.out_rundir = self.output_path("run_dir", directory=True)
         if segment_source == "knowledge":
             self.out_knowledge_manifest = self.output_path("knowledge_manifest.json")
+        if segment_source == "selfplay":
+            self.out_selfplay_manifest = self.output_path("selfplay_manifest.json")
+            self.out_judge_rubric = self.output_path("judge_rubric.json")
         # GRPO is heavier per step than SFT (G rollouts + 3 forwards); give it more memory/time. The
         # quality reward adds a co-launched vLLM judge -> a 2nd GPU + more CPU/mem for ASR + the client.
         if rqmt is not None:
@@ -324,6 +403,35 @@ class RLFinetune(Job):
             }
             with open(self.out_knowledge_manifest, "w") as f:
                 json.dump(manifest, f, indent=1)
+        if self.segment_source == "selfplay":
+            import json
+
+            from .selfplay_bench import (
+                SPJ2_JSON_SCHEMA,
+                SPJ2_METRICS,
+                SPJ2_REASON_CHARS,
+                SPJ2_RUBRICS,
+                judge_rubric_digest,
+            )
+
+            manifest = {
+                "scenarios": self.selfplay_scenarios.get(),
+                "n_probe": self.n_probe_scenarios,
+                "seed": self.seed,
+            }
+            with open(self.out_selfplay_manifest, "w") as f:
+                json.dump(manifest, f, indent=1)
+            # the benchmark's rubric, schema and metric names, verbatim: the reward cannot drift from spj2
+            rubric = {
+                "name": self.judge_rubric,
+                "digest": judge_rubric_digest(self.judge_rubric),
+                "text": SPJ2_RUBRICS[self.judge_rubric],
+                "schema": SPJ2_JSON_SCHEMA,
+                "metrics": list(SPJ2_METRICS),
+                "reason_chars": SPJ2_REASON_CHARS,
+            }
+            with open(self.out_judge_rubric, "w") as f:
+                json.dump(rubric, f, indent=1)
         with open(self.out_config, "w") as f:
             f.write(_render_rl_config(self))
 

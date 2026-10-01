@@ -942,3 +942,301 @@ class SelfPlayJudgeV2Table(Job):
             )
         open(self.out_md.get_path(), "w").write("\n".join(lines) + "\n")
         print("\n".join(lines), flush=True)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# training scenarios for self-play GRPO (rl_alignment.md "Self-play persona GRPO")
+# ---------------------------------------------------------------------------------------------------------------
+#: What each category means, shown to the generator LLM (the spj2 categories, module docstring).
+SP_TRAIN_CATEGORY_TEXT = {
+    "topic": "a concrete shared subject the two talk about; one usually knows more, the other is curious",
+    "task": "a goal-oriented service or role-play exchange (ordering, booking, asking for help, an interview)",
+    "tension": "conflicting goals: a negotiation, a disagreement, a complaint, persuading someone",
+    "instruction": "each side gets explicit, checkable behaviours: things to say, ask, mention, avoid or never reveal, "
+    "or how to speak (e.g. answer briefly)",
+}
+#: Levels of specificity (user, 2026-10-01: "maybe we also want multiple levels of specificity"), each a word range per
+#: side inside ``check_scenarios``' 8-45 bound. spj2's hand-written prompts sit between ``general`` and ``detailed``.
+SP_TRAIN_LEVELS = {
+    "minimal": (8, 16, "only a first name and a one-line situation or topic; no goal details, no explicit instructions"),
+    "general": (15, 30, "a first name, a role and a goal or topic, in two short sentences"),
+    "detailed": (28, 45, "a first name, a role, a goal, and two or three explicit, checkable instructions (things to "
+                 "mention, ask, avoid or never reveal, or how to speak)"),
+}  # fmt: skip
+#: One example per category, written for this generator (NOT taken from ``SPJ2_SCENARIOS``).
+SP_TRAIN_EXAMPLES = {
+    "topic": ("sourdough", "Your name is Greta. You have baked sourdough bread every week for ten years. Explain how you keep "
+              "your starter alive and what went wrong with your first loaves.",
+              "Your name is Malik. You just got a sourdough starter from a friend and have no idea what to do with it. "
+              "Ask how often to feed it and how long the dough should rise."),
+    "task": ("bike_repair", "Your name is Ines. You run a bicycle repair shop. Find out what is wrong with the customer's bike "
+             "and offer a repair date.",
+             "Your name is Dev. Your bike's gears keep slipping and you need it fixed before Monday. Ask what the repair "
+             "will cost."),
+    "tension": ("noisy_neighbour", "Your name is Clara. Your neighbour plays drums late at night. You want them to stop "
+                "after nine in the evening.",
+                "Your name is Ben. You play drums and practise in the evening after work. You do not want to stop, but you "
+                "could use a practice pad."),
+    "instruction": ("museum_tour", "Your name is Otto. You are a museum guide. Mention the museum's oldest painting, ask the "
+                    "visitor where they are from, and never say the ticket price.",
+                    "Your name is Yara. You are visiting the museum. Ask how much the ticket costs, and answer every "
+                    "question in one short sentence."),
+}  # fmt: skip
+#: Domains rotated through the generation calls (one per call, seeded) to spread the scenarios.
+SP_TRAIN_DOMAINS = (
+    "cooking", "travel", "the workplace", "health", "sports", "science", "history", "music", "family life", "money",
+    "technology", "nature", "school", "housing", "shopping", "hobbies", "public services", "art", "cars", "pets",
+    "gardening", "weather", "film and TV", "books", "games", "fitness", "neighbours", "restaurants", "holidays",
+    "local events", "the outdoors", "crafts", "transport", "volunteering", "small businesses", "repairs",
+)  # fmt: skip
+SP_TRAIN_SYSTEM = """You write role-play scenarios for two voice agents, A and B, who will have a spoken conversation. Each agent gets ONLY its own instructions; neither sees the other's.
+
+Rules for every scenario:
+- Each side's instructions are addressed to that agent ("Your name is ... You ...") at the requested level of detail and length.
+- The two sides fit together: they are in the same situation and have reasons to talk to each other.
+- Everyday, safe, family-friendly content. No real people, brands or current events.
+- Everything must be checkable from what the agents SAY in a one-minute conversation.
+- Names of the two sides differ, and vary names across scenarios.
+- "name" is a short snake_case label, unique within your answer.
+
+Answer with JSON only: {"scenarios": [{"name": "...", "prompt_a": "...", "prompt_b": "..."}, ...]}"""
+_SP_TRAIN_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenarios": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 3, "maxLength": 40},
+                    "prompt_a": {"type": "string", "minLength": 20, "maxLength": 400},
+                    "prompt_b": {"type": "string", "minLength": 20, "maxLength": 400},
+                },
+                "required": ["name", "prompt_a", "prompt_b"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["scenarios"],
+    "additionalProperties": False,
+}
+
+
+def word_ngrams(text: str, n: int = 5) -> set:
+    import re
+
+    w = re.findall(r"[a-z0-9']+", text.lower())
+    return {tuple(w[i : i + n]) for i in range(len(w) - n + 1)}
+
+
+def ngram_jaccard(a: set, b: set) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def filter_train_scenarios(cands: list[tuple], held_out: list[tuple], *, per_cell: int, max_jaccard: float = 0.2):
+    """Keep generated ``(category, name, prompt_a, prompt_b, level)`` in order, up to ``per_cell`` per (category,
+    level): each side within the level's word range (``SP_TRAIN_LEVELS``, inside ``check_scenarios``' 8-45), a name new
+    to the set AND to ``held_out`` (spj2), and the pair's word-5-gram Jaccard with every held-out pair and every kept
+    pair of its category <= ``max_jaccard``. -> (kept, reject counts by reason)."""
+    import re
+
+    norm = lambda x: re.sub(r"[^a-z0-9]+", "_", str(x).lower()).strip("_")  # noqa: E731
+    held_names = {norm(s[1]) for s in held_out}
+    held_grams = [word_ngrams(s[2] + " " + s[3]) for s in held_out]
+    kept, kept_grams, names, rej = [], {}, set(), {}
+    count: dict = {}
+
+    def reject(why):
+        rej[why] = rej.get(why, 0) + 1
+
+    for cat, name, pa, pb, level in cands:
+        n = norm(name)
+        lo, hi, _ = SP_TRAIN_LEVELS[level]
+        if count.get((cat, level), 0) >= per_cell:
+            reject("cell_full")
+        elif not all(max(8, lo - 3) <= len(p.split()) <= min(45, hi + 5) for p in (pa, pb)):  # a little slack
+            reject("length")
+        elif not n or n in held_names:
+            reject("name_in_spj2" if n in held_names else "no_name")
+        elif n in names:
+            reject("name_duplicate")
+        else:
+            g = word_ngrams(pa + " " + pb)
+            if any(ngram_jaccard(g, h) > max_jaccard for h in held_grams):
+                reject("near_spj2")
+            elif any(ngram_jaccard(g, h) > max_jaccard for h in kept_grams.get(cat, [])):
+                reject("near_duplicate")
+            else:
+                kept.append((cat, n, pa.strip(), pb.strip(), level))
+                kept_grams.setdefault(cat, []).append(g)
+                names.add(n)
+                count[(cat, level)] = count.get((cat, level), 0) + 1
+    return kept, rej
+
+
+class SelfPlayScenarioGen(Job):
+    """LLM-written TRAINING scenario pairs for self-play GRPO, in the spj2 format ``(category, name, prompt A,
+    prompt B)``, kept disjoint from the spj2 benchmark (``filter_train_scenarios`` against ``held_out``).
+
+    ``calls_per_cell`` calls per (category, level of specificity: ``SP_TRAIN_LEVELS``) of ``per_call`` scenarios
+    each, every call with a seeded domain from ``SP_TRAIN_DOMAINS``, the category's definition, the level's
+    description and word range, and the category's one example (``SP_TRAIN_EXAMPLES``, written for this job). Keeps up
+    to ``per_cell`` per (category, level). Outputs ``scenarios.json`` (``[category, name, prompt A, prompt B, level]``,
+    generation order) and ``stats.json`` (raw count, rejects by reason, kept per cell)."""
+
+    def __init__(
+        self,
+        *,
+        per_cell: int = 170,
+        per_call: int = 10,
+        calls_per_cell: int = 28,
+        held_out: str = "spj2_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 1.0,
+        seed: int = 0,
+    ):
+        assert held_out in SPJ2_SCENARIOS, held_out
+        self.per_cell, self.per_call, self.calls_per_cell = int(per_cell), int(per_call), int(calls_per_cell)
+        self.held_out = held_out
+        self.held_out_digest = scenario_digest(held_out)
+        self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
+        self.out_scenarios = self.output_path("scenarios.json")
+        self.out_stats = self.output_path("stats.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The held-out set's CONTENT and the generator prompt are part of the hash."""
+        prompt = json.dumps(
+            [SP_TRAIN_SYSTEM, SP_TRAIN_CATEGORY_TEXT, SP_TRAIN_EXAMPLES, SP_TRAIN_DOMAINS, SP_TRAIN_LEVELS]
+        )
+        return super(SelfPlayScenarioGen, cls).hash(
+            {
+                **parsed_args,
+                "held_out_digest": scenario_digest(parsed_args["held_out"]),
+                "prompt_digest": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+            }
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def calls(self) -> list[dict]:
+        import numpy as np
+
+        rng = np.random.default_rng(self.seed)
+        out = []
+        for cat in SPJ2_CATEGORIES:
+            for level, (lo, hi, desc) in SP_TRAIN_LEVELS.items():
+                for _ in range(self.calls_per_cell):
+                    dom = SP_TRAIN_DOMAINS[int(rng.integers(len(SP_TRAIN_DOMAINS)))]
+                    ex = SP_TRAIN_EXAMPLES[cat]
+                    example = json.dumps({"name": ex[0], "prompt_a": ex[1], "prompt_b": ex[2]})
+                    user = (
+                        f"Category: {cat} -- {SP_TRAIN_CATEGORY_TEXT[cat]}.\n"
+                        f"Level of detail: {level} -- {desc}; {lo} to {hi} words per side.\n"
+                        f"Domain for this batch: {dom}.\n\n"
+                        f"Example of the category (its level of detail may differ; do not reuse its situation or "
+                        f"names):\n{example}\n\n"
+                        f"Write {self.per_call} new, varied scenarios of this category, at this level of detail, in "
+                        f"this domain."
+                    )
+                    out.append(
+                        {"category": cat, "level": level, "domain": dom, "user": user, "seed": int(rng.integers(2**31))}
+                    )
+        return out
+
+    def run(self):
+        from openai import OpenAI
+
+        calls = self.calls()
+        print(f"[sp-train-gen] {len(calls)} calls x {self.per_call} scenarios ({self.llm_name})", flush=True)
+
+        def gen(client, c):
+            for attempt in range(3):
+                try:
+                    resp = client.chat.completions.create(
+                        model=self.llm_name,
+                        messages=[
+                            {"role": "system", "content": SP_TRAIN_SYSTEM},
+                            {"role": "user", "content": c["user"]},
+                        ],
+                        seed=(c["seed"] + attempt) % (2**31),
+                        temperature=self.temperature,
+                        max_tokens=8192,
+                        extra_body={"guided_json": _SP_TRAIN_JSON_SCHEMA},
+                    )
+                    raw = resp.choices[0].message.content or ""
+                    d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+                    return [
+                        (c["category"], s["name"], s["prompt_a"], s["prompt_b"], c["level"]) for s in d["scenarios"]
+                    ]
+                except Exception as e:  # retried; a final failure contributes nothing (counted)
+                    err = f"{type(e).__name__}: {e}"[:200]
+            print(f"[sp-train-gen] call failed: {err}", flush=True)
+            return None
+
+        with vllm_server(self.llm_name) as url:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+            outs = map_concurrent(
+                lambda c: gen(client, c), calls, concurrency=64, progress_path=os.path.abspath("progress.json")
+            )
+        failed = sum(o is None for o in outs)
+        if failed > 0.05 * len(calls):
+            raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
+        cands = [s for o in outs if o for s in o]
+        kept, rej = filter_train_scenarios(cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_cell)
+        check_scenarios([k[:4] for k in kept])
+        per_cell = {
+            f"{c}/{lv}": sum(k[0] == c and k[4] == lv for k in kept) for c in SPJ2_CATEGORIES for lv in SP_TRAIN_LEVELS
+        }
+        json.dump([list(k) for k in kept], open(self.out_scenarios.get_path(), "w"), indent=1)
+        stats = {"calls": len(calls), "failed_calls": failed, "raw": len(cands), "kept": len(kept), "kept_per_cell": per_cell,
+                 "rejected": rej}  # fmt: skip
+        json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
+        print(f"[sp-train-gen] {stats}", flush=True)
+        if min(per_cell.values()) < self.per_cell // 2:
+            raise RuntimeError(f"too few scenarios kept per cell: {per_cell}")
+
+
+class SelfPlayTrainScenarioSet(Job):
+    """The self-play GRPO TRAINING input (``moshi_family.rl.ppx_selfplay.SelfPlayScenarioSource``): one row per
+    ``SelfPlayScenarioGen`` scenario (ids ``sptr:<category>:<name>``), the Minimal line prepended as in spj2, and a
+    seeded voice pair per scenario drawn from ``voices`` (two distinct clips; clips are reused across scenarios)."""
+
+    def __init__(self, *, scenarios: tk.Path, voices: tk.Path, seed: int = 0):
+        self.scenarios, self.voices, self.seed = scenarios, voices, int(seed)
+        self.out_dir = self.output_path("dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+
+        from .persona_prompts import PERSONA_MINIMAL
+
+        scen = [tuple(s) for s in json.load(open(self.scenarios.get_path()))]
+        check_scenarios([s[:4] for s in scen])
+        voices = list(load_from_disk(self.voices.get_path()).select_columns(["label", "codes"]))
+        rng = np.random.default_rng(self.seed)
+        rows = []
+        for cat, name, pa, pb, level in scen:
+            ia, ib = (int(i) for i in rng.choice(len(voices), size=2, replace=False))
+            rows.append(
+                {
+                    "id": f"sptr:{cat}:{name}",
+                    "scenario": name,
+                    "category": cat,
+                    "level": level,
+                    "context": [f"{PERSONA_MINIMAL} {pa}"],
+                    "context_other": [f"{PERSONA_MINIMAL} {pb}"],
+                    "voice_codes": np.asarray(voices[ia]["codes"], np.int16),
+                    "voice_codes_other": np.asarray(voices[ib]["codes"], np.int16),
+                    "voice_label": str(voices[ia]["label"]),
+                    "voice_label_other": str(voices[ib]["label"]),
+                }
+            )
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+        print(f"[sp-train-set] {len(rows)} scenarios, {len(voices)} voices", flush=True)
