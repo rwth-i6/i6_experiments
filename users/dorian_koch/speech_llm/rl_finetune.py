@@ -46,6 +46,7 @@ loss_norm: "{getattr(job, "loss_norm", "tokens")}"
 brevity_weight: {getattr(job, "brevity_weight", 0.25)}
 lr_schedule: "{getattr(job, "lr_schedule", "cosine")}"
 garbled_weight: {getattr(job, "garbled_weight", 0.0)}
+scale_std: {str(bool(getattr(job, "scale_std", True))).lower()}
 """
 
 
@@ -155,6 +156,7 @@ class RLFinetune(Job):
         "brevity_weight": 0.25,
         "lr_schedule": "cosine",
         "garbled_weight": 0.0,
+        "scale_std": True,
     }
 
     def __init__(
@@ -201,6 +203,7 @@ class RLFinetune(Job):
         brevity_weight: float = 0.25,
         lr_schedule: str = "cosine",
         garbled_weight: float = 0.0,
+        scale_std: bool = True,
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -240,6 +243,9 @@ class RLFinetune(Job):
         self.lr_schedule = lr_schedule
         # knowledge reward: weight of the garbled-reply penalty component (-1 per token-soup rollout); 0 = off
         self.garbled_weight = garbled_weight
+        # knowledge GRPO: False = Dr. GRPO's unscaled advantage (correct only mean-centred, not divided by the group std)
+        assert scale_std or advantage_split, "scale_std=False needs advantage_split"
+        self.scale_std = scale_std
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
