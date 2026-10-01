@@ -172,6 +172,8 @@ def vllm_gpu_mem_gb(hf_model: str, default: int = 0) -> int:
 
 _VLLM_MODEL_ARGS: dict[str, list[str]] = {
     "google/gemma-4-31B-it": ["--max-model-len", "65536"],
+    # MRQA judge + MoshiRAG retrieval backend (the paper's); its native 128k context would not leave KV room.
+    "google/gemma-3-27b-it": ["--max-model-len", "32768"],
     "Qwen/Qwen3-32B": ["--max-model-len", "32768"],
     "openai/gpt-oss-120b": ["--max-model-len", "32768"],
 }

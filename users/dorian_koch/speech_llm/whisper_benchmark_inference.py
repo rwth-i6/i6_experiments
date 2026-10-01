@@ -23,6 +23,27 @@ from faster_whisper import WhisperModel, BatchedInferencePipeline
 TARGET_SR = 16000
 
 
+class _LazyArrowClips:
+    """Arrow clip store decoded ONE clip per lookup (``index -> (samples, sample_rate)``).
+
+    The eager ``{index: samples}`` dict this replaced held every reply in RAM before the first
+    transcription: 1,000 clips of a 60 s-lead-in knowledge run is ~9 GB of float32, which OOM-killed
+    ``WhisperTranscription`` (8 GB) for personaplex_family_postport_d60 on 2026-10-01. Only the
+    ``index`` column is read up front.
+    """
+
+    def __init__(self, ds):
+        self._ds = ds
+        self._row = {int(i): k for k, i in enumerate(ds["index"])}
+
+    def __contains__(self, i):
+        return i in self._row
+
+    def __getitem__(self, i):
+        r = self._ds[self._row[i]]
+        return np.asarray(r["audio"], dtype=np.float32), int(r["sampling_rate"])
+
+
 # NOTE: deliberately duplicated across the standalone worker scripts -- see the note in
 # chatterbox_inference.py. These run under a job venv with no sisyphus/i6_experiments on the path,
 # so they cannot import common.py.
@@ -37,8 +58,7 @@ def open_clips(path: str):
     if os.path.isfile(os.path.join(p, "dataset_info.json")) or os.path.isfile(os.path.join(p, "state.json")):
         from datasets import load_from_disk
 
-        ds = load_from_disk(p)
-        return {int(r["index"]): (np.asarray(r["audio"], dtype=np.float32), int(r["sampling_rate"])) for r in ds}
+        return _LazyArrowClips(load_from_disk(p))
     out = {}
     for name in os.listdir(p) if os.path.isdir(p) else []:
         if name.endswith(".wav") and name[:-4].isdigit():

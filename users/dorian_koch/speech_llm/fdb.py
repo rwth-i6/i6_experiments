@@ -49,6 +49,7 @@ FDB_MODEL_ORIGIN = {
     "moshi_family": ("hf", "kyutai/moshiko (our lib)"),
     "moshirag": ("hf", "kyutai/moshika-rag"),
     "moshirag_family": ("hf", "kyutai/moshika-rag (our lib)"),
+    "moshirag_g3": ("hf", "kyutai/moshika-rag (our lib), gemma-3-27b-it retrieval (MRQA)"),
     "moshika_rl_seamless_hf": ("hf", "kyutai/moshika-rl-seamless"),
     "personaplex": ("hf", "nvidia/personaplex-7b-v1"),
     "personaplex_family": ("hf", "nvidia/personaplex-7b-v1 (our lib)"),
