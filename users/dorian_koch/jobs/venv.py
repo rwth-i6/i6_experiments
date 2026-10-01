@@ -2,6 +2,7 @@ from sisyphus import Job, Task, gs
 import os
 import shutil
 import subprocess
+import tempfile
 
 from i6_experiments.users.dorian_koch.jobs import sqsh_venv
 
@@ -39,12 +40,28 @@ class CreateVenv(Job):
 
     def run(self):
         env = self.out_env_path.get_path()
-        staging_root = getattr(gs, "VENV_STAGING_DIR", None)
-        staging = os.path.join(staging_root, os.path.basename(self.job_id())) if staging_root else None
-        venv_python = sqsh_venv.create_venv(env, staging)
-        for pkgs in self.packages:
-            subprocess.check_call([venv_python, "-m", "pip", "install"] + pkgs)
-        self.out_python_path.set(venv_python)
+        # gs.VENV_STAGING_LOCAL (a NODE-LOCAL dir on the login node, e.g. "/tmp"): build the tree there and pack it in
+        # this same task, then delete it no matter what. The shared VENV_STAGING_DIR on Lustre leaked: a failed install
+        # or a cancelled pack left its ~80-150k-file tree behind, and two such trees pushed /hpcwork/tt201262 over its
+        # inode quota on 2026-10-01 (1060K of 1024K). A node-local tree costs no quota and cannot outlive the task.
+        local_root = getattr(gs, "VENV_STAGING_LOCAL", None)
+        base = None
+        if local_root:
+            base = tempfile.mkdtemp(prefix=f"venv-{os.path.basename(self.job_id())}-", dir=local_root)
+            staging = os.path.join(base, "venv")
+        else:
+            staging_root = getattr(gs, "VENV_STAGING_DIR", None)
+            staging = os.path.join(staging_root, os.path.basename(self.job_id())) if staging_root else None
+        try:
+            venv_python = sqsh_venv.create_venv(env, staging)
+            for pkgs in self.packages:
+                subprocess.check_call([venv_python, "-m", "pip", "install"] + pkgs)
+            if base is not None:
+                self.pack()  # the tree exists on THIS node only: image it before the task ends
+            self.out_python_path.set(venv_python)
+        finally:
+            if base is not None:
+                shutil.rmtree(base, ignore_errors=True)
 
     def pack(self):
         env = self.out_env_path.get_path()
