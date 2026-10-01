@@ -47,6 +47,8 @@ brevity_weight: {getattr(job, "brevity_weight", 0.25)}
 lr_schedule: "{getattr(job, "lr_schedule", "cosine")}"
 garbled_weight: {getattr(job, "garbled_weight", 0.0)}
 scale_std: {str(bool(getattr(job, "scale_std", True))).lower()}
+questions_per_episode: {getattr(job, "questions_per_episode", 1)}
+answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
 """
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
@@ -159,6 +161,8 @@ class RLFinetune(Job):
         "garbled_weight": 0.0,
         "scale_std": True,
         "init_lora": None,
+        "questions_per_episode": 1,
+        "answer_end_pad_s": 1.0,
     }
 
     def __init__(
@@ -207,6 +211,8 @@ class RLFinetune(Job):
         garbled_weight: float = 0.0,
         scale_std: bool = True,
         init_lora=None,
+        questions_per_episode: int = 1,
+        answer_end_pad_s: float = 1.0,
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -254,6 +260,11 @@ class RLFinetune(Job):
         assert init_lora is None or family == "personaplex", "init_lora: PersonaPlex only"
         self.init_lora = init_lora
         self.overlay_lora_rank = lora_rank * (2 if init_lora is not None else 1)
+        # knowledge GRPO: questions per rollout (multi-question episodes; > 1 needs advantage_split, monologue,
+        # brevity 0) and the text silence that ends a reply
+        assert questions_per_episode == 1 or (advantage_split and reward_transcript == "monologue"), "episodes"
+        self.questions_per_episode = questions_per_episode
+        self.answer_end_pad_s = answer_end_pad_s
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
