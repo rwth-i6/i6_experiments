@@ -181,7 +181,7 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 
 #: ``CreateVenv(hash_overwrite="vllm_venv")`` (sis_recipe venvs.vllm_venv): its job id is fixed by hash_overwrite, so
 #: the image's place is known without making every vLLM job depend on it (which would re-hash ~13 job types).
-_VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv"
+_VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv_v030"
 
 
 def vllm_python() -> str:
@@ -189,7 +189,7 @@ def vllm_python() -> str:
 
     The setup ``.venv`` is a plain directory on the shared filesystem; vLLM imports torch + vllm from it twice per
     server (API server + engine core) at 10-20 ms per small-file read -- measured 40-130 s of a 120-250 s Gemma 3
-    27B startup (2026-10-01). The image holds the same pinned stack. ``VLLM_PYTHON=<path>`` overrides either way
+    27B startup (2026-10-01). The image is vLLM 0.30.0 (venvs.vllm_venv). ``VLLM_PYTHON=<path>`` overrides either way
     (``sys`` = the old behaviour).
     """
     forced = os.environ.get("VLLM_PYTHON")
