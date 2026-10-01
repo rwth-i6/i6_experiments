@@ -159,11 +159,16 @@ class MRQAData(Job):
     ``WhisperTranscription`` reads; ``category`` = set) plus ``answer_json`` (upstream's gold field),
     ``gt_reference_text`` (HaluEval ``knowledge``), ``source_id``, ``question_samples``, ``sampling_rate``.
     ``n_per_subset``: the first N rows of each set (a smoke run); None = the full sets.
+    ``subsets``: only these sets (None = all four).
     """
 
-    def __init__(self, *, data_dir: tk.Path, n_per_subset: int | None = None):
+    __sis_hash_exclude__ = {"subsets": None}
+
+    def __init__(self, *, data_dir: tk.Path, n_per_subset: int | None = None, subsets: tuple | None = None):
         self.data_dir = data_dir
         self.n_per_subset = n_per_subset
+        self.subsets = None if subsets is None else tuple(subsets)
+        assert self.subsets is None or set(self.subsets) <= set(SUBSETS), self.subsets
         self.out_clips = self.output_path("clips", directory=True)
         self.out_reference = self.output_path("reference", directory=True)
         self.rqmt = {"cpu": 2, "mem": 8, "time": 1}
@@ -179,7 +184,10 @@ class MRQAData(Job):
         import soundfile as sf
 
         root = self.data_dir.get()
+        wanted = self.subsets or SUBSETS
         for subset in OAB_SUBSETS:
+            if subset not in wanted:
+                continue
             base = os.path.join(root, "OpenAudioBench", "eval_datas", subset)
             with open(os.path.join(base, f"{subset}.csv"), newline="", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
@@ -188,6 +196,8 @@ class MRQAData(Job):
             for row in rows:
                 audio, sr = sf.read(os.path.join(base, "audios", row["audio_filename"]), dtype="float32")
                 yield subset, row, audio, sr, row["audio_filename"], ""
+        if "halueval" not in wanted:
+            return
         files = sorted(
             os.path.join(dp, n)
             for dp, _, ns in os.walk(os.path.join(root, "HaluEvalAudio_1000", "data"))
@@ -242,9 +252,8 @@ class MRQAData(Job):
         counts = {s: sum(r["subset"] == s for r in ref) for s in SUBSETS}
         print(f"[mrqa] {len(ref)} questions: {counts}", flush=True)
         if self.n_per_subset is None:
-            assert counts == {"llama_questions": 300, "web_questions": 1000, "trivia_qa": 1000, "halueval": 1000}, (
-                counts
-            )
+            full = {"llama_questions": 300, "web_questions": 1000, "trivia_qa": 1000, "halueval": 1000}
+            assert counts == {s: (n if s in (self.subsets or SUBSETS) else 0) for s, n in full.items()}, counts
         Dataset.from_list(ref).save_to_disk(self.out_reference.get())
 
 
@@ -427,6 +436,7 @@ class MRQAScore(Job):
 
     #: 2 = + the full-reply verdict columns (2026-10-01).
     __sis_version__ = 2
+    __sis_hash_exclude__ = {"judge_seed": JUDGE_SEED}
 
     def __init__(
         self,
@@ -437,6 +447,7 @@ class MRQAScore(Job):
         sources: tuple = SOURCES,
         concurrency: int = 128,
         unwrap_fence: bool = True,
+        judge_seed: int = JUDGE_SEED,
     ):
         assert judge_llm in JUDGE_SHORT, f"unknown judge {judge_llm!r}; add it to JUDGE_SHORT"
         assert set(sources) <= set(SOURCES), sources
@@ -448,6 +459,8 @@ class MRQAScore(Job):
         self.concurrency = concurrency
         # see :func:`unwrap_fence`; False = upstream's client byte for byte
         self.unwrap_fence = unwrap_fence
+        # sampling seed of the first attempt (retries add 1 each); another value = an independent judge draw
+        self.judge_seed = judge_seed
         self.out_eval = self.output_path("eval_results.jsonl")
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 6, "mem": 24, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(judge_llm)}
@@ -483,7 +496,7 @@ class MRQAScore(Job):
                 attempt = [0]
 
                 def generate(prompt, temperature, max_new_tokens):
-                    seed = JUDGE_SEED + attempt[0]
+                    seed = self.judge_seed + attempt[0]
                     attempt[0] += 1
                     # Transport retries are ours (a dropped connection is not a verdict); everything after the
                     # reply arrives is upstream's.
@@ -565,7 +578,7 @@ class MRQAScore(Job):
             "model": self.judge_llm,
             "upstream": f"{up.UPSTREAM_REPO}@{up.UPSTREAM_COMMIT}",
             "temperature": up.JUDGE_TEMPERATURE,
-            "seed_base": JUDGE_SEED,
+            "seed_base": self.judge_seed,
             "unwrap_fence": self.unwrap_fence,
         }
         with open(self.out_summary.get(), "w") as f:
@@ -590,9 +603,18 @@ def mrqa_backend(spec):
     return dataclasses.replace(spec, offline_extra_args=tuple(spec.offline_extra_args) + ("--text_trace",))
 
 
-def mrqa_data(n_per_subset: int | None = None) -> MRQAData:
-    data = MRQAData(data_dir=MRQADownload().out_dir, n_per_subset=n_per_subset)
-    sfx = "" if n_per_subset is None else f"_n{n_per_subset}"
+def subsets_suffix(subsets: tuple | None) -> str:
+    """Name suffix of a run on some of the sets: ``_oab`` = the three OpenAudioBench sets."""
+    if subsets is None or tuple(subsets) == SUBSETS:
+        return ""
+    return "_oab" if tuple(subsets) == OAB_SUBSETS else "_" + "-".join(subsets)
+
+
+def mrqa_data(n_per_subset: int | None = None, subsets: tuple | None = None) -> MRQAData:
+    if subsets is not None and tuple(subsets) == SUBSETS:
+        subsets = None
+    data = MRQAData(data_dir=MRQADownload().out_dir, n_per_subset=n_per_subset, subsets=subsets)
+    sfx = ("" if n_per_subset is None else f"_n{n_per_subset}") + subsets_suffix(subsets)
     tk.register_output(f"mrqa/data{sfx}/reference", data.out_reference)
     return data
 
@@ -612,6 +634,8 @@ def mrqa_benchmark_py(
     lora_weights: tk.Path | None = None,
     lora_config: tk.Path | None = None,
     notify: bool = True,
+    subsets: tuple | None = None,
+    judge_seeds: tuple = (),
 ) -> dict:
     """Run one model through MRQA and grade it with each judge in ``judges``. Returns ``{judge: MRQAScore}``.
 
@@ -627,11 +651,11 @@ def mrqa_benchmark_py(
     if inference_seed is None:
         inference_seed = KNOWLEDGE_INFERENCE_SEED
     spec = mrqa_backend(speech_backend)
-    data = mrqa_data(n_per_subset)
+    data = mrqa_data(n_per_subset, subsets)
     rag = spec.retrieval_llm is not None
     if rag:
         batch_size = 1
-    name = tag if n_per_subset is None else f"{tag}_n{n_per_subset}"
+    name = (tag if n_per_subset is None else f"{tag}_n{n_per_subset}") + subsets_suffix(subsets)
     if num_shards is None:
         num_shards = 1 if rag or n_per_subset is not None else 2
     inference_venv = spec.inference_venv() if spec.inference_venv else moshi_venv()
@@ -677,4 +701,11 @@ def mrqa_benchmark_py(
         if notify:
             notify_result(f"mrqa_{short}_{name}", {"summary": score.out_summary})
         out[judge] = score
+        # Re-draws of the same judge on the same replies (monologue only): upstream samples SimpleQA/keyword at
+        # T 1.0 and reads one line, so this measures how far acc_upstream moves on judge sampling alone.
+        for seed in judge_seeds:
+            redraw = MRQAScore(
+                responses=resp.out_responses, asr=None, judge_llm=judge, sources=("monologue",), judge_seed=seed
+            )
+            tk.register_output(f"mrqa/{short}/{name}_jseed{seed}/summary", redraw.out_summary)
     return out
