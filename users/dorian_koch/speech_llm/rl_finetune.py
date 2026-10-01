@@ -32,7 +32,7 @@ def _render_knowledge_keys(job: "RLFinetune") -> str:
     ``family="personaplex"`` -- every earlier config renders exactly as before."""
     if getattr(job, "family", "moshi") == "moshi":
         return ""
-    return f"""family: "{job.family}"
+    keys = f"""family: "{job.family}"
 reward: "knowledge"
 reward_transcript: "{job.reward_transcript}"
 rows_per_call: {job.rows_per_call}
@@ -48,6 +48,7 @@ lr_schedule: "{getattr(job, "lr_schedule", "cosine")}"
 garbled_weight: {getattr(job, "garbled_weight", 0.0)}
 scale_std: {str(bool(getattr(job, "scale_std", True))).lower()}
 """
+    return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
 def _render_rl_config(job: "RLFinetune") -> str:
@@ -157,6 +158,7 @@ class RLFinetune(Job):
         "lr_schedule": "cosine",
         "garbled_weight": 0.0,
         "scale_std": True,
+        "init_lora": None,
     }
 
     def __init__(
@@ -204,6 +206,7 @@ class RLFinetune(Job):
         lr_schedule: str = "cosine",
         garbled_weight: float = 0.0,
         scale_std: bool = True,
+        init_lora=None,
     ):
         """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -246,6 +249,11 @@ class RLFinetune(Job):
         # knowledge GRPO: False = Dr. GRPO's unscaled advantage (correct only mean-centred, not divided by the group std)
         assert scale_std or advantage_split, "scale_std=False needs advantage_split"
         self.scale_std = scale_std
+        # knowledge GRPO from an SFT adapter: a consolidated lora.safetensors (same rank/scaling), merged into the
+        # frozen base (= pi_ref); checkpoints then hold the combined adapter at rank 2 x lora_rank
+        assert init_lora is None or family == "personaplex", "init_lora: PersonaPlex only"
+        self.init_lora = init_lora
+        self.overlay_lora_rank = lora_rank * (2 if init_lora is not None else 1)
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
