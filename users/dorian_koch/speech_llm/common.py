@@ -199,9 +199,12 @@ def vllm_python() -> str:
     job = os.path.join(root, _VLLM_VENV_JOB)
     python = os.path.join(job, "output", "venv", "bin", "python")
     built = any(os.path.exists(os.path.join(job, m)) for m in ("finished.pack.1", "finished.tar.gz", "finished"))
-    if built and os.path.exists(python):
+    # Adopted only after VllmStartupProbe started a server from it AND got a chat reply (its registered output exists):
+    # a built image is not yet a working one (the first build lacked an undeclared vLLM import).
+    probed = os.path.exists(os.path.join(root, "output", "infra", "vllm_startup_probe"))
+    if built and probed and os.path.exists(python):
         return python
-    print(f"[vllm] squashfs vllm_venv not built yet ({job}); using {sys.executable}", flush=True)
+    print(f"[vllm] squashfs vllm_venv not built+probed yet ({job}); using {sys.executable}", flush=True)
     return sys.executable
 
 
