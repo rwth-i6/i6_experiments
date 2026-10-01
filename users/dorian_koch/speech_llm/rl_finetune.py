@@ -283,9 +283,28 @@ class RLFinetune(Job):
         ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side)."""
         assert family in ("moshi", "personaplex"), family
         assert (segment_source in ("knowledge", "selfplay")) == (family == "personaplex"), (family, segment_source)
+        self.judge_rubric_payload = None
         if segment_source == "selfplay":
-            from .selfplay_bench import SPJ2_RUBRICS
+            # imported here, in the manager: the worker running write_config cannot import selfplay_bench (its import
+            # chain needs i6_core); the payload is pickled with the job and is not hashed (the hash has the digest)
+            from .selfplay_bench import (
+                SPJ2_JSON_SCHEMA,
+                SPJ2_METRICS,
+                SPJ2_REASON_CHARS,
+                SPJ2_RUBRICS,
+                judge_rubric_digest,
+            )
 
+            assert judge_rubric in SPJ2_RUBRICS, judge_rubric
+            # the benchmark's rubric, schema and metric names, verbatim: the reward cannot drift from spj2
+            self.judge_rubric_payload = {
+                "name": judge_rubric,
+                "digest": judge_rubric_digest(judge_rubric),
+                "text": SPJ2_RUBRICS[judge_rubric],
+                "schema": SPJ2_JSON_SCHEMA,
+                "metrics": list(SPJ2_METRICS),
+                "reason_chars": SPJ2_REASON_CHARS,
+            }
             assert selfplay_scenarios is not None and quality_judge, "self-play GRPO needs scenarios and the judge"
             assert judge_rubric in SPJ2_RUBRICS, judge_rubric
             assert selfplay_policy in ("shared", "two_lora"), selfplay_policy
@@ -406,14 +425,6 @@ class RLFinetune(Job):
         if self.segment_source == "selfplay":
             import json
 
-            from .selfplay_bench import (
-                SPJ2_JSON_SCHEMA,
-                SPJ2_METRICS,
-                SPJ2_REASON_CHARS,
-                SPJ2_RUBRICS,
-                judge_rubric_digest,
-            )
-
             manifest = {
                 "scenarios": self.selfplay_scenarios.get(),
                 "n_probe": self.n_probe_scenarios,
@@ -421,17 +432,8 @@ class RLFinetune(Job):
             }
             with open(self.out_selfplay_manifest, "w") as f:
                 json.dump(manifest, f, indent=1)
-            # the benchmark's rubric, schema and metric names, verbatim: the reward cannot drift from spj2
-            rubric = {
-                "name": self.judge_rubric,
-                "digest": judge_rubric_digest(self.judge_rubric),
-                "text": SPJ2_RUBRICS[self.judge_rubric],
-                "schema": SPJ2_JSON_SCHEMA,
-                "metrics": list(SPJ2_METRICS),
-                "reason_chars": SPJ2_REASON_CHARS,
-            }
             with open(self.out_judge_rubric, "w") as f:
-                json.dump(rubric, f, indent=1)
+                json.dump(self.judge_rubric_payload, f, indent=1)
         with open(self.out_config, "w") as f:
             f.write(_render_rl_config(self))
 
