@@ -179,6 +179,32 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 }
 
 
+#: ``CreateVenv(hash_overwrite="vllm_venv")`` (sis_recipe venvs.vllm_venv): its job id is fixed by hash_overwrite, so
+#: the image's place is known without making every vLLM job depend on it (which would re-hash ~13 job types).
+_VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv"
+
+
+def vllm_python() -> str:
+    """Interpreter to launch vLLM with: the squashfs ``vllm_venv`` once fully built (run AND pack), else ours.
+
+    The setup ``.venv`` is a plain directory on the shared filesystem; vLLM imports torch + vllm from it twice per
+    server (API server + engine core) at 10-20 ms per small-file read -- measured 40-130 s of a 120-250 s Gemma 3
+    27B startup (2026-10-01). The image holds the same pinned stack. ``VLLM_PYTHON=<path>`` overrides either way
+    (``sys`` = the old behaviour).
+    """
+    forced = os.environ.get("VLLM_PYTHON")
+    if forced:
+        return sys.executable if forced == "sys" else forced
+    root = os.getcwd().split("/work/")[0]  # a job runs inside its own work dir
+    job = os.path.join(root, _VLLM_VENV_JOB)
+    python = os.path.join(job, "output", "venv", "bin", "python")
+    built = any(os.path.exists(os.path.join(job, m)) for m in ("finished.pack.1", "finished.tar.gz", "finished"))
+    if built and os.path.exists(python):
+        return python
+    print(f"[vllm] squashfs vllm_venv not built yet ({job}); using {sys.executable}", flush=True)
+    return sys.executable
+
+
 @contextmanager
 def vllm_server(
     hf_model: str,
@@ -207,7 +233,7 @@ def vllm_server(
     # CUDA_VISIBLE_DEVICES, so it sees 1 and stays at TP=1.
     n_gpus = max(1, len(visible_gpus()))
     cmd = [
-        sys.executable,
+        vllm_python(),
         "-m",
         "vllm.entrypoints.openai.api_server",
         "--host",
