@@ -368,7 +368,7 @@ def summarize(rows: list[dict], sources=SOURCES) -> dict:
                 if vals:
                     block[src] = {
                         k: round(sum(v[k] for v in vals if v[k] is not None) / len(vals), 4)
-                        for k in ("acc_upstream", "acc_strict")
+                        for k in ("acc_upstream", "acc_strict", "acc_fullreply", "acc_fullreply_strict")
                         if all(v[k] is not None for v in vals)
                     }
             delays = [out[s]["keyword_delay_s"] for s in present if out[s].get("keyword_delay_s") is not None]
@@ -396,6 +396,11 @@ def summarize(rows: list[dict], sources=SOURCES) -> dict:
                 "spoke": round((n - empty) / n, 4),
                 "n_verdict_fallback": sum(1 for r in sub if r.get("verdict_fallback", {}).get(src)),
             }
+            fr = [r.get("scores_fullreply", {}).get(src) for r in sub]
+            fj = [s for s in fr if s in (0, 1)]
+            block[src]["n_judged_fullreply"] = len(fj)
+            block[src]["acc_fullreply"] = round(sum(fj) / len(fj), 4) if fj else None
+            block[src]["acc_fullreply_strict"] = round(sum(fj) / n, 4)
         kd = [r["keyword_delay_steps"] / 12.5 for r in sub if r.get("keyword_delay_steps") is not None]
         block["keyword_delay_s"] = round(sum(kd) / len(kd), 3) if kd else None
         block["n_keyword"] = len(kd)
@@ -411,11 +416,17 @@ def summarize(rows: list[dict], sources=SOURCES) -> dict:
 class MRQAScore(Job):
     """Grade every reply with upstream's judges, served by a local vLLM ``judge_llm``.
 
+    ``acc_upstream`` / ``acc_strict`` are upstream's verdicts; ``acc_fullreply`` / ``acc_fullreply_strict`` re-read the
+    SimpleQA / LlamaQ verdicts from the whole reply (identical for TriviaQA / WebQ) -- see ``judge_row``.
+
     One server, all requests: the correctness judge of each set (by :data:`.mrqa_upstream.DATASET_JUDGE`) on each
     column in ``sources`` that has text, plus the keyword judge on the monologue (upstream's keyword delay). Every
     raw reply is kept in ``out_eval`` (upstream parses only its first line -- the full text is what shows why a
     verdict was unparseable).
     """
+
+    #: 2 = + the full-reply verdict columns (2026-10-01).
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -505,7 +516,7 @@ class MRQAScore(Job):
             def judge_row(r):
                 kind = up.DATASET_JUDGE[r["subset"]][0]
                 variants = up.extract_answer_variants(json.loads(r["answer_json"]))
-                scores, raw, fallback = {}, {}, {}
+                scores, raw, fallback, full = {}, {}, {}, {}
                 for src in self.sources:
                     log: list = []
                     scores[src] = up.run_judge(make_generate(log), kind, r["question"], r["texts"][src], variants)
@@ -515,6 +526,14 @@ class MRQAScore(Job):
                     if kind in ("simple_qa", "llama_questions") and scores[src] in (0, 1) and log:
                         first = up.first_line(unwrap_fence(log[-1]) if self.unwrap_fence else log[-1])
                         fallback[src] = re.search(_EXPLICIT_VERDICT, first) is None
+                    # NOT upstream: the LAST explicit verdict anywhere in the reply (summary ``acc_fullreply*``).
+                    # Upstream reads only line 1 and Gemma reasons first, so its substring fallback misreads e.g.
+                    # "... is not incorrect ... the score is [Correct]" as 0 (14% of fallback verdicts, smoke).
+                    full[src] = scores[src]
+                    if kind in ("simple_qa", "llama_questions") and log:
+                        found = re.findall(_EXPLICIT_VERDICT, unwrap_fence(log[-1]) or "")
+                        if found:
+                            full[src] = 1 if found[-1] == "Correct" else 0
                 log = []
                 keyword = up.run_judge(make_generate(log), "keyword", r["question"], r["monologue"], variants)
                 raw["keyword"] = log
@@ -527,6 +546,7 @@ class MRQAScore(Job):
                     "scores": scores,
                     "raw": raw,
                     "verdict_fallback": fallback,
+                    "scores_fullreply": full,
                     "keyword": keyword or "",
                     "keyword_delay_steps": kd,
                 }
