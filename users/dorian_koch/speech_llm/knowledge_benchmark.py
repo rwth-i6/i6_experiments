@@ -906,6 +906,7 @@ def knowledge_benchmark_py(
     ffmpeg_path: tk.Path | None = None,
     inference_seed: int | None = None,
     text_logits_first_n: int | None = None,
+    lead_in_s: float | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -963,6 +964,8 @@ def knowledge_benchmark_py(
             those clips (indices 0, 2, 4, ... for the 2-shard layout) and the logits line up with the
             transcripts/judgements. Outputs ``benchmark/text_probs/<tag>/{text_logits,moshi_output}``. None (default)
             declares nothing, so no existing job moves.
+        lead_in_s: user-channel silence before the question (knowledge at depth: the question arrives this many
+            seconds into the clip). None (default) = SpeechInference's 2 s, not passed, so no existing job moves.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -1094,6 +1097,9 @@ def knowledge_benchmark_py(
         retrieval_llm=speech_backend.retrieval_llm,
         rqmt_override=speech_backend.rqmt_override,
         code_version=code_version,
+        # knowledge at depth (2026-10-01): the question starts lead_in_s into the clip (user-channel silence before
+        # it); None keeps SpeechInference's own 2 s default and every existing hash
+        **({} if lead_in_s is None else {"lead_in_s": lead_in_s}),
     )
     num_shards = 1 if single else 2
     moshi_out = sharded_knowledge_inference(num_shards=num_shards, **inference_kwargs)
