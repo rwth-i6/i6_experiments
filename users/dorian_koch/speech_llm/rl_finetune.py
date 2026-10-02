@@ -75,15 +75,16 @@ lr_schedule: "{job.lr_schedule}"
 
 
 def _render_partner_key(job: "RLFinetune") -> str:
-    """``selfplay_partner`` (``moshi_family.rl.partner_channel.DEFAULT_SPEC``) as one JSON line (valid YAML), rendered
-    only when set -- every earlier self-play config renders exactly as before."""
+    """``init_lora`` and ``selfplay_partner`` (``moshi_family.rl.partner_channel.DEFAULT_SPEC``, one JSON line = valid
+    YAML), each rendered only when set -- every earlier self-play config renders exactly as before."""
     import json
 
+    out = f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else ""
     spec = getattr(job, "selfplay_partner", None)
     if not spec:
-        return ""
+        return out
     spec = {k: (v.get() if hasattr(v, "get_path") else v) for k, v in spec.items()}
-    return f"selfplay_partner: {json.dumps(spec, sort_keys=True)}\n"
+    return out + f"selfplay_partner: {json.dumps(spec, sort_keys=True)}\n"
 
 
 def _render_rl_config(job: "RLFinetune") -> str:
@@ -478,8 +479,14 @@ class RLFinetune(Job):
                 json.dump(manifest, f, indent=1)
             with open(self.out_judge_rubric, "w") as f:
                 json.dump(self.judge_rubric_payload, f, indent=1)
+        text = _render_rl_config(self)
+        # a hashed knob the launcher never sees trains silently without it (2026-10-02: init_lora was not rendered for
+        # self-play, so a run "from p6" would have started from released PersonaPlex)
+        for key in ("init_lora", "selfplay_partner"):
+            if getattr(self, key, None) is not None:
+                assert f"\n{key}: " in text, f"{key} is set but not rendered into the launcher config"
         with open(self.out_config, "w") as f:
-            f.write(_render_rl_config(self))
+            f.write(text)
 
     def run(self):
         # Reduce CUDA fragmentation OOMs (LoRA forward hit 93/93GB); the torchrun subprocess inherits this.
