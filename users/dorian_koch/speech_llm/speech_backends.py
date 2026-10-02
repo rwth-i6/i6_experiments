@@ -183,7 +183,9 @@ def openai_backend_spec() -> BackendSpec:
     )
 
 
-def moshi_family_backend_spec(lora_rank: int | None = None, lora_scaling: float = 2.0) -> BackendSpec:
+def moshi_family_backend_spec(
+    lora_rank: int | None = None, lora_scaling: float = 2.0, max_truncated_frac: float | None = None
+) -> BackendSpec:
     """Base Moshi via the local ``moshi_family`` library (latest torch, owned code).
 
     Runs the offline driver ``python -m moshi_family.offline_inference`` (no external moshi
@@ -195,6 +197,10 @@ def moshi_family_backend_spec(lora_rank: int | None = None, lora_scaling: float 
     rank so the driver wraps the linears with ``LoraConfig(rank, scaling)`` BEFORE loading the
     ``--overlay`` adapter (else the adapter keys land on non-existent LoRALinears). Must match the
     rank the launcher trained with. ``None`` (base / partial-state overlay) wraps nothing.
+
+    ``max_truncated_frac``: knowledge mode's truncation ceiling (``run_pairs``); ``None`` = the driver default (0.75),
+    no extra arg. 1.0 records the rate without failing -- for a model that keeps talking after its answer, where a
+    longer window would capture more rambling and break the paired protocol.
     """
 
     def _venv():
@@ -207,6 +213,8 @@ def moshi_family_backend_spec(lora_rank: int | None = None, lora_scaling: float 
     extra: tuple[str, ...] = ()
     if lora_rank is not None:
         extra = ("--lora_rank", str(lora_rank), "--lora_scaling", str(lora_scaling))
+    if max_truncated_frac is not None:
+        extra += ("--max_truncated_frac", str(max_truncated_frac))
 
     return BackendSpec(
         name="moshi_family" if lora_rank is None else f"moshi_family_lora{lora_rank}",
