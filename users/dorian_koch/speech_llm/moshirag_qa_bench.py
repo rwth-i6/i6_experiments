@@ -656,6 +656,8 @@ def mrqa_benchmark_py(
     if rag:
         batch_size = 1
     name = (tag if n_per_subset is None else f"{tag}_n{n_per_subset}") + subsets_suffix(subsets)
+    if inference_seed != KNOWLEDGE_INFERENCE_SEED:
+        name += f"_iseed{inference_seed}"  # a decoding replicate; the default seed keeps the historical names
     if num_shards is None:
         num_shards = 1 if rag or n_per_subset is not None else 2
     inference_venv = spec.inference_venv() if spec.inference_venv else moshi_venv()
