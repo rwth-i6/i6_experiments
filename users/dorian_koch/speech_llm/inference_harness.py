@@ -242,7 +242,10 @@ def run_offline_driver(
         assert module is not None, (
             "seed is only supported by the lib (module) drivers; a fork driver would argparse-exit"
         )
-        cmd += ["--seed", str(seed)]
+        if "--seed" in extra_args:  # fdb_benchmark_py also injects it into the offline args (both hashed): pass it once
+            assert list(extra_args)[list(extra_args).index("--seed") + 1] == str(seed), (seed, extra_args)
+        else:
+            cmd += ["--seed", str(seed)]
     cmd += list(extra_args)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
