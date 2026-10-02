@@ -71,7 +71,19 @@ log_every: {job.log_every}
 skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
 loss_norm: "{job.loss_norm}"
 lr_schedule: "{job.lr_schedule}"
-"""
+""" + _render_partner_key(job)
+
+
+def _render_partner_key(job: "RLFinetune") -> str:
+    """``selfplay_partner`` (``moshi_family.rl.partner_channel.DEFAULT_SPEC``) as one JSON line (valid YAML), rendered
+    only when set -- every earlier self-play config renders exactly as before."""
+    import json
+
+    spec = getattr(job, "selfplay_partner", None)
+    if not spec:
+        return ""
+    spec = {k: (v.get() if hasattr(v, "get_path") else v) for k, v in spec.items()}
+    return f"selfplay_partner: {json.dumps(spec, sort_keys=True)}\n"
 
 
 def _render_rl_config(job: "RLFinetune") -> str:
@@ -200,6 +212,8 @@ class RLFinetune(Job):
         "n_probe_scenarios": 16,
         # recipe-controlled self-play reward (2026-10-02): excluded at None = the spj2_judge_v1 reward of ppx_rl_sp_mono
         "selfplay_reward": None,
+        # what each self-play side hears of its partner (2026-10-02): excluded at None = the sampled codes directly
+        "selfplay_partner": None,
     }
 
     @classmethod
@@ -269,6 +283,7 @@ class RLFinetune(Job):
         judge_rubric: str = "spj2_judge_v1",
         n_probe_scenarios: int = 16,
         selfplay_reward: dict | None = None,
+        selfplay_partner: dict | None = None,
     ):
         """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -336,6 +351,16 @@ class RLFinetune(Job):
         self.convs_per_call = convs_per_call
         self.judge_rubric = judge_rubric
         self.selfplay_reward = selfplay_reward
+        if selfplay_partner is not None:
+            # moshi_family.rl.partner_channel.DEFAULT_SPEC (validated in full by the launcher); noise_pool = a
+            # DnsNoisePool output (tk.Path: a dependency of this job)
+            assert segment_source == "selfplay", "selfplay_partner: self-play only"
+            unknown = set(selfplay_partner) - {"mimi_roundtrip", "augment", "noise_pool", "noise_ref_dbfs", "seed"}
+            assert not unknown, f"selfplay_partner: unknown keys {sorted(unknown)}"
+            assert selfplay_partner.get("mimi_roundtrip") or not selfplay_partner.get("augment"), (
+                "augment needs roundtrip"
+            )
+        self.selfplay_partner = selfplay_partner
         self.n_probe_scenarios = n_probe_scenarios
         if segment_source == "knowledge":
             assert knowledge_questions is not None and knowledge_audio is not None and quality_judge, (
