@@ -31,7 +31,7 @@ def _render_knowledge_keys(job: "RLFinetune") -> str:
     """Knowledge-GRPO keys (``moshi_family.rl.launcher._build_knowledge``), rendered only for
     ``segment_source="knowledge"`` (PersonaPlex, or base Moshi since 2026-10-02) -- every earlier config renders exactly
     as before."""
-    if getattr(job, "segment_source", None) != "knowledge":
+    if getattr(job, "segment_source", None) not in ("knowledge", "multitask"):
         return ""
     keys = f"""family: "{job.family}"
 reward: "knowledge"
@@ -79,6 +79,33 @@ lr_schedule: "{job.lr_schedule}"
 """ + _render_partner_key(job)
 
 
+def _render_multitask_key(job: "RLFinetune") -> str:
+    """Multi-task GRPO (``segment_source="multitask"``): the knowledge keys above plus ONE JSON line (valid YAML) with
+    the trainer's axis order and the self-play builder's own keys (``moshi_family.rl.launcher`` multi-task branch)."""
+    import json
+
+    if getattr(job, "segment_source", None) != "multitask":
+        return ""
+    sp = job.multitask["selfplay"]
+    mt = {
+        "axis_cycle": list(job.multitask["axis_cycle"]),
+        "selfplay": {
+            "train_data": job.out_selfplay_manifest.get(),
+            "judge_rubric": job.out_judge_rubric.get(),
+            "selfplay_policy": "shared",
+            "convs_per_call": job.convs_per_call,
+            "conversation_s": job.conversation_s,
+            "conversation_s_start": job.conversation_s_start
+            if job.conversation_s_start is not None
+            else job.conversation_s,
+            "num_samples": sp["num_samples"],
+            "probe_samples": sp["probe_samples"],
+            "reward_transcript": sp["reward_transcript"],
+        },
+    }
+    return f"multitask: {json.dumps(mt, sort_keys=True)}\n"
+
+
 def _render_partner_key(job: "RLFinetune") -> str:
     """``init_lora`` and ``selfplay_partner`` (``moshi_family.rl.partner_channel.DEFAULT_SPEC``, one JSON line = valid
     YAML), each rendered only when set -- every earlier self-play config renders exactly as before."""
@@ -94,7 +121,7 @@ def _render_partner_key(job: "RLFinetune") -> str:
 
 def _render_rl_config(job: "RLFinetune") -> str:
     """Render the ``moshi_family.rl.launcher`` YAML (GRPO knobs; paper defaults)."""
-    if getattr(job, "segment_source", None) == "knowledge":
+    if getattr(job, "segment_source", None) in ("knowledge", "multitask"):
         train_data = job.out_knowledge_manifest.get()
     elif getattr(job, "segment_source", None) == "selfplay":
         train_data = job.out_selfplay_manifest.get()
@@ -128,7 +155,7 @@ seed: {job.seed}
         + (
             _render_selfplay_keys(job)
             if getattr(job, "segment_source", None) == "selfplay"
-            else _render_knowledge_keys(job)
+            else _render_knowledge_keys(job) + _render_multitask_key(job)
         )
         + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
         + render_train_perf_keys(
@@ -224,13 +251,15 @@ class RLFinetune(Job):
         "selfplay_reward": None,
         # what each self-play side hears of its partner (2026-10-02): excluded at None = the sampled codes directly
         "selfplay_partner": None,
+        # multi-task GRPO (2026-10-03): excluded at None
+        "multitask": None,
     }
 
     @classmethod
     def hash(cls, parsed_args):
         """A self-play run's judge rubric TEXT is part of its hash (as ``selfplay_bench.SelfPlayJudgeV2``); every other
         job hashes exactly as before."""
-        if parsed_args.get("segment_source") != "selfplay":
+        if parsed_args.get("segment_source") not in ("selfplay", "multitask"):
             return super(RLFinetune, cls).hash(parsed_args)
         from .selfplay_bench import judge_rubric_digest
 
@@ -297,6 +326,7 @@ class RLFinetune(Job):
         n_probe_scenarios: int = 16,
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
+        multitask: dict | None = None,
     ):
         """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -311,13 +341,21 @@ class RLFinetune(Job):
         probe; conversations of ``conversation_s_start`` (default ``conversation_s``) growing linearly to
         ``conversation_s`` over the run (the probe always at ``conversation_s``), ``convs_per_call`` per engine call, G = ``num_samples`` per
         scenario; the reward is the ``judge_rubric`` (spj2) judge, ``quality_judge`` serving it. ``selfplay_policy``:
-        ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side)."""
+        ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side).
+
+        Multi-task GRPO (``segment_source="multitask"``, 2026-10-03; ``moshi_family.rl.multitask``): every step rolls
+        out knowledge AND self-play groups on one shared LoRA, in the order ``multitask["axis_cycle"]`` (len =
+        ``grad_accum``). The knowledge part takes the knowledge args (``num_samples``, ``probe_samples``,
+        ``reward_transcript``, ``quality_judge``); the self-play part the self-play args plus ``multitask["selfplay"]``
+        = ``{"num_samples", "probe_samples", "reward_transcript"}`` and its own judge ``multitask["selfplay_judge"]``
+        (``selfplay_judge_max_model_len``). run() serves the two judges on the first two GPUs, the trainer on the
+        last: ``rqmt`` gpu >= 3."""
         assert family in ("moshi", "personaplex"), family
         # PersonaPlex runs knowledge or self-play GRPO; base Moshi the interactivity GRPO or (2026-10-02) knowledge GRPO
-        assert family == "moshi" or segment_source in ("knowledge", "selfplay"), (family, segment_source)
-        assert segment_source != "selfplay" or family == "personaplex", (family, segment_source)
+        assert family == "moshi" or segment_source in ("knowledge", "selfplay", "multitask"), (family, segment_source)
+        assert segment_source not in ("selfplay", "multitask") or family == "personaplex", (family, segment_source)
         self.judge_rubric_payload = None
-        if segment_source == "selfplay":
+        if segment_source in ("selfplay", "multitask"):
             # imported here, in the manager: the worker running write_config cannot import selfplay_bench (its import
             # chain needs i6_core); the payload is pickled with the job and is not hashed (the hash has the digest)
             from .selfplay_bench import (
@@ -355,8 +393,9 @@ class RLFinetune(Job):
             assert selfplay_scenarios is not None and quality_judge, "self-play GRPO needs scenarios and the judge"
             assert judge_rubric in SPJ2_RUBRICS, judge_rubric
             assert selfplay_policy in ("shared", "two_lora"), selfplay_policy
-            assert grad_accum % 2 == 0, "self-play: grad_accum counts (scenario, side) groups"
-            assert convs_per_call % num_samples == 0, (convs_per_call, num_samples)
+            if segment_source == "selfplay":
+                assert grad_accum % 2 == 0, "self-play: grad_accum counts (scenario, side) groups"
+                assert convs_per_call % num_samples == 0, (convs_per_call, num_samples)
             assert init_lora is None or selfplay_policy == "shared", "init_lora with two_lora"
         self.selfplay_scenarios = selfplay_scenarios
         self.selfplay_policy = selfplay_policy
@@ -383,7 +422,22 @@ class RLFinetune(Job):
             )
         self.selfplay_partner = selfplay_partner
         self.n_probe_scenarios = n_probe_scenarios
-        if segment_source == "knowledge":
+        if segment_source == "multitask":
+            assert set(multitask or {}) <= {"axis_cycle", "selfplay", "selfplay_judge", "selfplay_judge_max_model_len"}
+            sp = multitask["selfplay"]
+            assert set(sp) == {"num_samples", "probe_samples", "reward_transcript"}, sorted(sp)
+            cyc = list(multitask["axis_cycle"])
+            n_sp = cyc.count("selfplay")
+            assert len(cyc) == grad_accum and n_sp % 2 == 0 and cyc.count("knowledge") + n_sp == len(cyc), cyc
+            assert convs_per_call % sp["num_samples"] == 0, (convs_per_call, sp)
+            # one model, one batch: the two generators must step the same number of rows (moshi_family.rl.multitask)
+            assert 2 * convs_per_call == rows_per_call, (convs_per_call, rows_per_call)
+            assert multitask["selfplay_judge"] and selfplay_policy == "shared" and init_lora is None, multitask
+            assert selfplay_partner is None, "multi-task: no partner channel"
+        else:
+            assert multitask is None, "multitask: segment_source='multitask' only"
+        self.multitask = multitask
+        if segment_source in ("knowledge", "multitask"):
             assert knowledge_questions is not None and knowledge_audio is not None and quality_judge, (
                 "knowledge GRPO needs questions, their audio and the judge"
             )
@@ -460,9 +514,9 @@ class RLFinetune(Job):
         self.seed = seed
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
-        if segment_source == "knowledge":
+        if segment_source in ("knowledge", "multitask"):
             self.out_knowledge_manifest = self.output_path("knowledge_manifest.json")
-        if segment_source == "selfplay":
+        if segment_source in ("selfplay", "multitask"):
             self.out_selfplay_manifest = self.output_path("selfplay_manifest.json")
             self.out_judge_rubric = self.output_path("judge_rubric.json")
         # GRPO is heavier per step than SFT (G rollouts + 3 forwards); give it more memory/time. The
@@ -483,7 +537,7 @@ class RLFinetune(Job):
 
     def write_config(self):
         prepare_run_dir(self.out_rundir.get())
-        if self.segment_source == "knowledge":
+        if self.segment_source in ("knowledge", "multitask"):
             import json
 
             manifest = {
@@ -495,7 +549,7 @@ class RLFinetune(Job):
             }
             with open(self.out_knowledge_manifest, "w") as f:
                 json.dump(manifest, f, indent=1)
-        if self.segment_source == "selfplay":
+        if self.segment_source in ("selfplay", "multitask"):
             import json
 
             manifest = {
@@ -516,6 +570,36 @@ class RLFinetune(Job):
         with open(self.out_config, "w") as f:
             f.write(text)
 
+    def _run_two_judges(self):
+        """Multi-task GRPO: the knowledge judge (``quality_judge``) on the first visible GPU, the self-play judge on the
+        second, the trainer on the last; the launcher reads RL_JUDGE_* and RL_SP_JUDGE_*."""
+        import os
+
+        from .common import vllm_server
+
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "0,1,2").split(",")
+        assert len(visible) >= 3, f"multi-task GRPO needs 3 GPUs (two judges + the trainer), got {visible}"
+        saved = os.environ.get("CUDA_VISIBLE_DEVICES")
+        mt = self.multitask
+        try:
+            os.environ["CUDA_VISIBLE_DEVICES"] = visible[0]
+            with vllm_server(self.quality_judge, max_model_len=self.judge_max_model_len) as k_url:
+                os.environ["CUDA_VISIBLE_DEVICES"] = visible[1]
+                with vllm_server(mt["selfplay_judge"], max_model_len=mt.get("selfplay_judge_max_model_len")) as s_url:
+                    os.environ.update(
+                        CUDA_VISIBLE_DEVICES=visible[-1],
+                        RL_JUDGE_BASE_URL=k_url,
+                        RL_JUDGE_MODEL=self.quality_judge,
+                        RL_SP_JUDGE_BASE_URL=s_url,
+                        RL_SP_JUDGE_MODEL=mt["selfplay_judge"],
+                    )
+                    launch_training(self, self.adapter)
+        finally:
+            if saved is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = saved
+
     def run(self):
         # Reduce CUDA fragmentation OOMs (LoRA forward hit 93/93GB); the torchrun subprocess inherits this.
         import os
@@ -523,6 +607,9 @@ class RLFinetune(Job):
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         if not self.quality_judge:
             launch_training(self, self.adapter)
+            return
+        if getattr(self, "multitask", None):
+            self._run_two_judges()
             return
         # Quality reward ON: reuse the shared retrieval seam to co-launch the vLLM judge on GPU0 and pin
         # the trainer to GPU1; the judge url/model reach the launcher via RL_JUDGE_BASE_URL/RL_JUDGE_MODEL
