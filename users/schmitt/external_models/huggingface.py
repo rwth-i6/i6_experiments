@@ -35,6 +35,7 @@ class DownloadHuggingFaceRepoJob(Job):
         self.model_id = model_id
         self.file_list = file_list
         self.require_login = require_login
+        self.revision = None
 
         self.rqmt = {"time": 4, "cpu": 2, "mem": 8}
         self.out_hub_cache_dir = self.output_path("hub_cache", directory=True)
@@ -70,6 +71,8 @@ class DownloadHuggingFaceRepoJob(Job):
             if self.file_list:
                 assert isinstance(self.file_list, list)
                 args += self.file_list
+            if self.revision:
+                args += ["--revision", self.revision]
 
             args = parser.parse_args(args)
             service = args.func(args)
@@ -97,6 +100,8 @@ class DownloadHuggingFaceRepoJob(Job):
             if self.file_list:
                 assert isinstance(self.file_list, list)
                 kwargs["allow_patterns"] = self.file_list
+            if self.revision:
+                kwargs["revision"] = self.revision
 
             path = snapshot_download(**kwargs)
 
@@ -105,6 +110,8 @@ class DownloadHuggingFaceRepoJob(Job):
         d = copy.deepcopy(kwargs)
         if not d.get("require_login", False):
             d.pop("require_login", None)
+        if d.get("revision") is None:
+            d.pop("revision", None)
 
         return super().hash(d)
 
@@ -114,9 +121,10 @@ class DownloadHuggingFaceRepoJobV2(DownloadHuggingFaceRepoJob):
     Additionally to V1, this adds a symlink to the actual content directory of the cache.
     """
 
-    def __init__(self, *, model_id: str, file_list: Optional[List[str]] = None):
+    def __init__(self, *, model_id: str, file_list: Optional[List[str]] = None, revision: Optional[str] = None):
         """
         :param model_id: e.g. "CohereLabs/aya-expanse-32b" or so
+        :param revision: commit, branch or tag; a commit is also registered as `refs/main`
 
         Note for token auth:
         It will use the standard HF methods to determine the token.
@@ -131,10 +139,24 @@ class DownloadHuggingFaceRepoJobV2(DownloadHuggingFaceRepoJob):
         if file_list and len(file_list) == 1:
             self.out_single_file = self.output_path("file")
         self.file_list = file_list
+        self.revision = revision
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
         yield Task("symlink", mini_task=True)
+
+    def run(self):
+        super().run()
+
+        if not self.revision:
+            return
+        repo_dir = os.path.join(self.out_hub_cache_dir.get_path(), "models--" + self.model_id.replace("/", "--"))
+        refs_dir = os.path.join(repo_dir, "refs")
+        # a commit download writes no ref, offline loads resolve refs/main
+        if not os.path.isdir(refs_dir) or not os.listdir(refs_dir):
+            os.makedirs(refs_dir, exist_ok=True)
+            with open(os.path.join(refs_dir, "main"), "wt") as f:
+                f.write(self.revision)
 
     def symlink(self):
         content_dir = get_content_dir_from_hub_cache_dir(self.out_hub_cache_dir)
