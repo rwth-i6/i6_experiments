@@ -28,9 +28,10 @@ from .finetune import (
 
 
 def _render_knowledge_keys(job: "RLFinetune") -> str:
-    """PersonaPlex knowledge-GRPO keys (``moshi_family.rl.launcher._build_personaplex_knowledge``), rendered only for
-    ``family="personaplex"`` -- every earlier config renders exactly as before."""
-    if getattr(job, "family", "moshi") == "moshi":
+    """Knowledge-GRPO keys (``moshi_family.rl.launcher._build_knowledge``), rendered only for
+    ``segment_source="knowledge"`` (PersonaPlex, or base Moshi since 2026-10-02) -- every earlier config renders exactly
+    as before."""
+    if getattr(job, "segment_source", None) != "knowledge":
         return ""
     keys = f"""family: "{job.family}"
 reward: "knowledge"
@@ -267,7 +268,7 @@ class RLFinetune(Job):
         judge_rubric: str = "spj2_judge_v1",
         n_probe_scenarios: int = 16,
     ):
-        """Knowledge GRPO (``family="personaplex"``, ``segment_source="knowledge"``): ``knowledge_questions`` (an
+        """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
         ``knowledge_exclude`` (e.g. the benchmark's validation split); ``n_probe`` of them are the fixed held-out probe
         (``probe_samples`` rollouts each every ``probe_every`` steps). ``reward_transcript``: what the judge reads
@@ -282,7 +283,9 @@ class RLFinetune(Job):
         scenario; the reward is the ``judge_rubric`` (spj2) judge, ``quality_judge`` serving it. ``selfplay_policy``:
         ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side)."""
         assert family in ("moshi", "personaplex"), family
-        assert (segment_source in ("knowledge", "selfplay")) == (family == "personaplex"), (family, segment_source)
+        # PersonaPlex runs knowledge or self-play GRPO; base Moshi the interactivity GRPO or (2026-10-02) knowledge GRPO
+        assert family == "moshi" or segment_source in ("knowledge", "selfplay"), (family, segment_source)
+        assert segment_source != "selfplay" or family == "personaplex", (family, segment_source)
         self.judge_rubric_payload = None
         if segment_source == "selfplay":
             # imported here, in the manager: the worker running write_config cannot import selfplay_bench (its import
