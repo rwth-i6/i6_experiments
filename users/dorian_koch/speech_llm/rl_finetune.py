@@ -336,7 +336,8 @@ class RLFinetune(Job):
             rubric_name = spec.pop("rubric", judge_rubric)
             assert selfplay_reward is None or judge_rubric == "spj2_judge_v1", "name the rubric in selfplay_reward"
             unknown = set(spec) - {"components", "weights", "transcript_format", "transcript_gap_s", "transcript_overlap_words",
-                                   "transcript_source", "judge_temperature", "judge_max_tokens", "judge_attempts"}  # fmt: skip
+                                   "transcript_source", "judge_temperature", "judge_max_tokens", "judge_attempts",
+                                   "rate_penalty"}  # fmt: skip
             assert not unknown, f"selfplay_reward: unknown keys {sorted(unknown)}"
             text, metrics = rubric_text_metrics(rubric_name)
             for c, m in (spec.get("components") or {}).items():
@@ -368,7 +369,14 @@ class RLFinetune(Job):
             # moshi_family.rl.partner_channel.DEFAULT_SPEC (validated in full by the launcher); noise_pool = a
             # DnsNoisePool output (tk.Path: a dependency of this job)
             assert segment_source == "selfplay", "selfplay_partner: self-play only"
-            unknown = set(selfplay_partner) - {"mimi_roundtrip", "augment", "noise_pool", "noise_ref_dbfs", "seed"}
+            unknown = set(selfplay_partner) - {
+                "mimi_roundtrip",
+                "augment",
+                "noise_pool",
+                "noise_ref_dbfs",
+                "seed",
+                "span_mask",
+            }
             assert not unknown, f"selfplay_partner: unknown keys {sorted(unknown)}"
             assert selfplay_partner.get("mimi_roundtrip") or not selfplay_partner.get("augment"), (
                 "augment needs roundtrip"
