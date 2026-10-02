@@ -198,6 +198,8 @@ class RLFinetune(Job):
         "convs_per_call": 16,
         "judge_rubric": "spj2_judge_v1",
         "n_probe_scenarios": 16,
+        # recipe-controlled self-play reward (2026-10-02): excluded at None = the spj2_judge_v1 reward of ppx_rl_sp_mono
+        "selfplay_reward": None,
     }
 
     @classmethod
@@ -208,9 +210,8 @@ class RLFinetune(Job):
             return super(RLFinetune, cls).hash(parsed_args)
         from .selfplay_bench import judge_rubric_digest
 
-        return super(RLFinetune, cls).hash(
-            {**parsed_args, "judge_rubric_digest": judge_rubric_digest(parsed_args["judge_rubric"])}
-        )
+        rubric = (parsed_args.get("selfplay_reward") or {}).get("rubric", parsed_args["judge_rubric"])
+        return super(RLFinetune, cls).hash({**parsed_args, "judge_rubric_digest": judge_rubric_digest(rubric)})
 
     def __init__(
         self,
@@ -267,6 +268,7 @@ class RLFinetune(Job):
         convs_per_call: int = 16,
         judge_rubric: str = "spj2_judge_v1",
         n_probe_scenarios: int = 16,
+        selfplay_reward: dict | None = None,
     ):
         """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -291,22 +293,35 @@ class RLFinetune(Job):
             # imported here, in the manager: the worker running write_config cannot import selfplay_bench (its import
             # chain needs i6_core); the payload is pickled with the job and is not hashed (the hash has the digest)
             from .selfplay_bench import (
-                SPJ2_JSON_SCHEMA,
-                SPJ2_METRICS,
                 SPJ2_REASON_CHARS,
                 SPJ2_RUBRICS,
                 judge_rubric_digest,
+                rubric_json_schema,
+                rubric_text_metrics,
             )
 
             assert judge_rubric in SPJ2_RUBRICS, judge_rubric
-            # the benchmark's rubric, schema and metric names, verbatim: the reward cannot drift from spj2
+            # selfplay_reward (the recipe's reward spec): "rubric" (spj2 or selfplay_bench.SP_REWARD_RUBRICS) + the
+            # keys of moshi_family.rl.selfplay_reward.DEFAULT_REWARD_SPEC (components, weights, transcript format /
+            # gap / source text, judge sampling), shipped to the launcher in the rubric JSON's "reward"
+            spec = dict(selfplay_reward or {})
+            rubric_name = spec.pop("rubric", judge_rubric)
+            assert selfplay_reward is None or judge_rubric == "spj2_judge_v1", "name the rubric in selfplay_reward"
+            unknown = set(spec) - {"components", "weights", "transcript_format", "transcript_gap_s",
+                                   "transcript_source", "judge_temperature", "judge_max_tokens", "judge_attempts"}  # fmt: skip
+            assert not unknown, f"selfplay_reward: unknown keys {sorted(unknown)}"
+            text, metrics = rubric_text_metrics(rubric_name)
+            for c, m in (spec.get("components") or {}).items():
+                assert all(x in metrics for x in ([m["shared"]] if "shared" in m else [m["a"], m["b"]])), (c, m)
+            # default: the benchmark's rubric, schema and metric names, verbatim (the reward cannot drift from spj2)
             self.judge_rubric_payload = {
-                "name": judge_rubric,
-                "digest": judge_rubric_digest(judge_rubric),
-                "text": SPJ2_RUBRICS[judge_rubric],
-                "schema": SPJ2_JSON_SCHEMA,
-                "metrics": list(SPJ2_METRICS),
+                "name": rubric_name,
+                "digest": judge_rubric_digest(rubric_name),
+                "text": text,
+                "schema": rubric_json_schema(metrics),
+                "metrics": list(metrics),
                 "reason_chars": SPJ2_REASON_CHARS,
+                **({"reward": spec} if spec else {}),
             }
             assert selfplay_scenarios is not None and quality_judge, "self-play GRPO needs scenarios and the judge"
             assert judge_rubric in SPJ2_RUBRICS, judge_rubric
@@ -320,6 +335,7 @@ class RLFinetune(Job):
         self.conversation_s_start = conversation_s_start
         self.convs_per_call = convs_per_call
         self.judge_rubric = judge_rubric
+        self.selfplay_reward = selfplay_reward
         self.n_probe_scenarios = n_probe_scenarios
         if segment_source == "knowledge":
             assert knowledge_questions is not None and knowledge_audio is not None and quality_judge, (

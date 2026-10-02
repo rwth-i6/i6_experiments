@@ -563,8 +563,73 @@ SPJ2_JSON_SCHEMA = {
 }
 
 
+#: Self-play GRPO REWARD rubrics (2026-10-02; ``RLFinetune(selfplay_reward={"rubric": name, ...})``): text + metric
+#: names, chosen in the recipe. spj2's benchmark rubrics (``SPJ2_RUBRICS``) are valid reward rubrics too (metrics
+#: ``SPJ2_METRICS``). ``sp_reward_v2`` = spj2_judge_v1 + per-side ``understanding`` (user: "one side gives some
+#: information, and the other side clearly misunderstands ... The judge should penalize this a little more"), the
+#: transcript's origin from ``{transcript_source}`` (v1 always says ASR and asks to ignore recognition errors, which
+#: excuses a misheard name even in a monologue transcript) and a line description for the ``interleaved_v1`` format.
+SP_REWARD_RUBRICS = {
+    "sp_reward_v2": {
+        "metrics": ("adherence_a", "adherence_b", "understanding_a", "understanding_b", "coherence", "responsiveness"),
+        "text": """You are evaluating a spoken conversation between two AI voice agents, A and B. Each agent was given its own private instructions (below); neither saw the other's instructions. {transcript_source} Each line is a stretch of one agent's speech, in time order by start time (seconds). A line ends when the other agent starts speaking or the agent pauses, so the agents' lines interleave where they overlapped; a short line inside the other's speech is often a backchannel ("uh-huh", "yeah").
+
+INSTRUCTIONS GIVEN TO A:
+{prompt_a}
+
+INSTRUCTIONS GIVEN TO B:
+{prompt_b}
+
+Duration: {duration} s. Words: A {n_a}, B {n_b}.
+
+TRANSCRIPT:
+{transcript}
+
+Rate six things, each on its own 1-5 scale. Ignore disfluencies, audio quality, politeness and factual accuracy about the world. An agent that says (almost) nothing gets 1 for its own adherence and its own understanding.
+
+adherence_a: how well A follows ITS instructions -- plays the stated role and name, pursues the stated goal or topic, and obeys every explicit instruction (things to mention, ask, avoid, or how to speak).
+adherence_b: the same for B and B's instructions.
+  5 = fully in role; pursues the goal or topic throughout; every explicit instruction followed.
+  4 = clearly in role and on goal, with one minor lapse (one explicit instruction missed, or a brief drift).
+  3 = partly: the role or topic is recognisable, but the goal or several instructions are ignored, or long stretches are unrelated.
+  2 = barely: only a fleeting reference to the role or topic; otherwise unrelated or generic talk.
+  1 = no sign of the instructions (silent, unrelated, or contradicting the role).
+
+understanding_a: how accurately A takes in what B says -- names, numbers, dates, places, choices and requests B stated are repeated, used and answered correctly, and A answers the question B actually asked. Count every misheard or misremembered detail against A (calling B by a wrong name, repeating a wrong number or item, confirming something B never said), even when B corrects it afterwards; a later correction only stops further penalty.
+understanding_b: the same for B: how accurately B takes in what A says.
+  5 = every detail the other stated is taken up correctly. 4 = one small slip that the agent corrects itself before being corrected. 3 = one clear misunderstanding of a stated detail (wrong name, number or item) or one question answered as if it were a different one. 2 = several misunderstandings, or one that derails the conversation. 1 = consistently misunderstands or garbles what the other says, or (almost) no speech.
+
+coherence: does the conversation make sense as a whole -- statements are intelligible, consistent with each other and with what was said before, and the content develops logically (no word salad, loops or repetition, self-contradiction, or abrupt unrelated jumps). Judge the content here, not whether the two respond to each other (that is the next item).
+  5 = coherent throughout. 4 = coherent, with brief odd moments. 3 = noticeable stretches of repetition, contradiction or nonsense. 2 = mostly incoherent, with a few sensible stretches. 1 = incoherent throughout, or (almost) no speech.
+
+responsiveness: do A and B respond TO EACH OTHER -- questions get answered, each picks up what the other just said, a change of topic by one is followed or acknowledged by the other; no talking past each other, no parallel monologues.
+  5 = consistently responsive in both directions. 4 = mostly responsive; one or two missed questions or brief moments of talking past each other. 3 = some real exchange, but frequent ignored questions or parallel monologues. 2 = mostly talking past each other, with occasional responses. 1 = no exchange (one or both silent, or unrelated monologues).
+
+Answer with JSON only. Each reason is one sentence of at most 30 words:
+{"adherence_a": {"reason": "...", "score": 1-5}, "adherence_b": {"reason": "...", "score": 1-5}, "understanding_a": {"reason": "...", "score": 1-5}, "understanding_b": {"reason": "...", "score": 1-5}, "coherence": {"reason": "...", "score": 1-5}, "responsiveness": {"reason": "...", "score": 1-5}}""",
+    },
+}
+
+
+def rubric_text_metrics(name: str) -> tuple[str, tuple]:
+    """``(text, metrics)`` of a benchmark (``SPJ2_RUBRICS``) or reward (``SP_REWARD_RUBRICS``) rubric."""
+    if name in SPJ2_RUBRICS:
+        return SPJ2_RUBRICS[name], SPJ2_METRICS
+    return SP_REWARD_RUBRICS[name]["text"], tuple(SP_REWARD_RUBRICS[name]["metrics"])
+
+
+def rubric_json_schema(metrics) -> dict:
+    """The guided-JSON schema for ``metrics`` (``SPJ2_JSON_SCHEMA`` for spj2's four)."""
+    return {
+        "type": "object",
+        "properties": {m: _ITEM_SCHEMA for m in metrics},
+        "required": list(metrics),
+        "additionalProperties": False,
+    }
+
+
 def judge_rubric_digest(name: str) -> str:
-    return hashlib.sha256(json.dumps(SPJ2_RUBRICS[name]).encode()).hexdigest()[:16]
+    return hashlib.sha256(json.dumps(rubric_text_metrics(name)[0]).encode()).hexdigest()[:16]
 
 
 def render_judge_message(
