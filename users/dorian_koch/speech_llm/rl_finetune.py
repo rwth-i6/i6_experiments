@@ -51,6 +51,11 @@ scale_std: {str(bool(getattr(job, "scale_std", True))).lower()}
 questions_per_episode: {getattr(job, "questions_per_episode", 1)}
 answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
 """
+    if getattr(job, "ramble_weight", 0.0) or getattr(job, "long_capture_s", 0.0):  # absent at the defaults
+        keys += (
+            f"ramble_weight: {job.ramble_weight}\nlong_capture_s: {job.long_capture_s}\n"
+            f"long_capture_every: {job.long_capture_every}\n"
+        )
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -199,6 +204,10 @@ class RLFinetune(Job):
         "brevity_weight": 0.25,
         "lr_schedule": "cosine",
         "garbled_weight": 0.0,
+        # ramble penalty + long reply windows (2026-10-02): excluded at their defaults (off)
+        "ramble_weight": 0.0,
+        "long_capture_s": 0.0,
+        "long_capture_every": 0,
         "scale_std": True,
         "init_lora": None,
         "questions_per_episode": 1,
@@ -272,6 +281,9 @@ class RLFinetune(Job):
         brevity_weight: float = 0.25,
         lr_schedule: str = "cosine",
         garbled_weight: float = 0.0,
+        ramble_weight: float = 0.0,
+        long_capture_s: float = 0.0,
+        long_capture_every: int = 0,
         scale_std: bool = True,
         init_lora=None,
         questions_per_episode: int = 1,
@@ -392,6 +404,14 @@ class RLFinetune(Job):
         self.lr_schedule = lr_schedule
         # knowledge reward: weight of the garbled-reply penalty component (-1 per token-soup rollout); 0 = off
         self.garbled_weight = garbled_weight
+        # knowledge reward: weight of the ramble penalty (-1 per rollout the judge flags as off-topic or looping); 0 = off
+        self.ramble_weight = ramble_weight
+        # knowledge GRPO: every long_capture_every-th step samples a long_capture_s reply window (0 = off). The KV
+        # context must hold lead-in + question (<= 20 s) + that window, or the long rollouts run on a sliding window.
+        assert (long_capture_s > 0) == (long_capture_every > 0), (long_capture_s, long_capture_every)
+        assert long_capture_s == 0 or context_frames >= (long_capture_s + 20.0) * 12.5, (long_capture_s, context_frames)
+        self.long_capture_s = long_capture_s
+        self.long_capture_every = long_capture_every
         # knowledge GRPO: False = Dr. GRPO's unscaled advantage (correct only mean-centred, not divided by the group std)
         assert scale_std or advantage_split, "scale_std=False needs advantage_split"
         self.scale_std = scale_std
