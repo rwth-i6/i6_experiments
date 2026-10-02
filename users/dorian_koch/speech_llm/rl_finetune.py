@@ -307,7 +307,7 @@ class RLFinetune(Job):
             spec = dict(selfplay_reward or {})
             rubric_name = spec.pop("rubric", judge_rubric)
             assert selfplay_reward is None or judge_rubric == "spj2_judge_v1", "name the rubric in selfplay_reward"
-            unknown = set(spec) - {"components", "weights", "transcript_format", "transcript_gap_s",
+            unknown = set(spec) - {"components", "weights", "transcript_format", "transcript_gap_s", "transcript_overlap_words",
                                    "transcript_source", "judge_temperature", "judge_max_tokens", "judge_attempts"}  # fmt: skip
             assert not unknown, f"selfplay_reward: unknown keys {sorted(unknown)}"
             text, metrics = rubric_text_metrics(rubric_name)

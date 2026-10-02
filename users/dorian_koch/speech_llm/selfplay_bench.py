@@ -568,11 +568,11 @@ SPJ2_JSON_SCHEMA = {
 #: ``SPJ2_METRICS``). ``sp_reward_v2`` = spj2_judge_v1 + per-side ``understanding`` (user: "one side gives some
 #: information, and the other side clearly misunderstands ... The judge should penalize this a little more"), the
 #: transcript's origin from ``{transcript_source}`` (v1 always says ASR and asks to ignore recognition errors, which
-#: excuses a misheard name even in a monologue transcript) and a line description for the ``interleaved_v1`` format.
+#: excuses a misheard name even in a monologue transcript) and a line description for the ``turns_v1`` format.
 SP_REWARD_RUBRICS = {
     "sp_reward_v2": {
         "metrics": ("adherence_a", "adherence_b", "understanding_a", "understanding_b", "coherence", "responsiveness"),
-        "text": """You are evaluating a spoken conversation between two AI voice agents, A and B. Each agent was given its own private instructions (below); neither saw the other's instructions. {transcript_source} Each line is a stretch of one agent's speech, in time order by start time (seconds). A line ends when the other agent starts speaking or the agent pauses, so the agents' lines interleave where they overlapped; a short line inside the other's speech is often a backchannel ("uh-huh", "yeah").
+        "text": """You are evaluating a spoken conversation between two AI voice agents, A and B. Each agent was given its own private instructions (below); neither saw the other's instructions. {transcript_source} Each line is a stretch of one agent's speech, in time order by start time (seconds). A line ends when the agent pauses, when the other agent starts speaking, or after the other agent has said a few words over it, so where the agents overlapped their lines alternate; a short line inside the other's speech is often a backchannel ("uh-huh", "yeah").
 
 INSTRUCTIONS GIVEN TO A:
 {prompt_a}
@@ -595,9 +595,9 @@ adherence_b: the same for B and B's instructions.
   2 = barely: only a fleeting reference to the role or topic; otherwise unrelated or generic talk.
   1 = no sign of the instructions (silent, unrelated, or contradicting the role).
 
-understanding_a: how accurately A takes in what B says -- names, numbers, dates, places, choices and requests B stated are repeated, used and answered correctly, and A answers the question B actually asked. Count every misheard or misremembered detail against A (calling B by a wrong name, repeating a wrong number or item, confirming something B never said), even when B corrects it afterwards; a later correction only stops further penalty.
-understanding_b: the same for B: how accurately B takes in what A says.
-  5 = every detail the other stated is taken up correctly. 4 = one small slip that the agent corrects itself before being corrected. 3 = one clear misunderstanding of a stated detail (wrong name, number or item) or one question answered as if it were a different one. 2 = several misunderstandings, or one that derails the conversation. 1 = consistently misunderstands or garbles what the other says, or (almost) no speech.
+understanding_a: does A get WRONG what B said? Count only mistakes in what A takes up: a misheard or misremembered detail B stated (calling B by a wrong name, repeating a wrong number, date, place or item, confirming something B never said), or answering a question B did not ask. Each counts even when B corrects it afterwards. Not repeating or not using a detail is NOT a misunderstanding (ignoring the other belongs to responsiveness); if A gets nothing wrong, A gets 5.
+understanding_b: the same for B: does B get wrong what A said?
+  5 = no misunderstanding. 4 = one small slip that the agent corrects itself before being corrected. 3 = one clear misunderstanding (wrong name, number or item, or a question answered as if it were a different one). 2 = several misunderstandings, or one that derails the conversation. 1 = misunderstands or garbles most of what the other says, or (almost) no speech.
 
 coherence: does the conversation make sense as a whole -- statements are intelligible, consistent with each other and with what was said before, and the content develops logically (no word salad, loops or repetition, self-contradiction, or abrupt unrelated jumps). Judge the content here, not whether the two respond to each other (that is the next item).
   5 = coherent throughout. 4 = coherent, with brief odd moments. 3 = noticeable stretches of repetition, contradiction or nonsense. 2 = mostly incoherent, with a few sensible stretches. 1 = incoherent throughout, or (almost) no speech.
