@@ -34,7 +34,7 @@ def _render_knowledge_keys(job: "RLFinetune") -> str:
     if getattr(job, "segment_source", None) not in ("knowledge", "multitask"):
         return ""
     keys = f"""family: "{job.family}"
-reward: "knowledge"
+reward: "{getattr(job, "knowledge_reward", "knowledge")}"
 reward_transcript: "{job.reward_transcript}"
 rows_per_call: {job.rows_per_call}
 context_frames: {job.context_frames}
@@ -238,6 +238,8 @@ class RLFinetune(Job):
         "scale_std": True,
         "init_lora": None,
         "questions_per_episode": 1,
+        # instruction-following GRPO (2026-10-03, moshi_family.rl.instruct_reward): excluded at the default
+        "knowledge_reward": "knowledge",
         "answer_end_pad_s": 1.0,
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
@@ -316,6 +318,7 @@ class RLFinetune(Job):
         scale_std: bool = True,
         init_lora=None,
         questions_per_episode: int = 1,
+        knowledge_reward: str = "knowledge",
         answer_end_pad_s: float = 1.0,
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
@@ -486,6 +489,10 @@ class RLFinetune(Job):
         # brevity 0) and the text silence that ends a reply
         assert questions_per_episode == 1 or (advantage_split and reward_transcript == "monologue"), "episodes"
         self.questions_per_episode = questions_per_episode
+        # the judge of the question->reply rollouts: "knowledge" (exact answer, TriviaQA) or "instruct" (1-5 rubric
+        # against a reference reply; the prompts are spoken requests, speech_llm.instruct_prompts)
+        assert knowledge_reward in ("knowledge", "instruct"), knowledge_reward
+        self.knowledge_reward = knowledge_reward
         self.answer_end_pad_s = answer_end_pad_s
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
