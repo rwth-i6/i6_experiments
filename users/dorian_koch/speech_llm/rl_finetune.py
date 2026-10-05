@@ -537,7 +537,9 @@ class RLFinetune(Job):
 
     def tasks(self):
         yield Task("write_config", mini_task=True)
-        yield Task("run", rqmt=self.rqmt)
+        # resume="run": a SLURM time-limit kill is rescheduled by the manager; the launcher resumes from the latest
+        # complete checkpoint (rl/launcher.py resume_from_checkpoint). Tasks are not hashed.
+        yield Task("run", resume="run", rqmt=self.rqmt)
 
     def completed_fraction(self):
         return finetune_completed_fraction(self, self.adapter)
