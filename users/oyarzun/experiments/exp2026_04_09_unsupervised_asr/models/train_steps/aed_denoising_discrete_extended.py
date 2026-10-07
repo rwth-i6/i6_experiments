@@ -10,6 +10,7 @@ import numpy as np
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor as ReturnnTensor
+from returnn.tensor import Dim as ReturnnDim
 from returnn.tensor import TensorDict
 
 from .util import get_random_mask, mask_sequence, mask_sequence_expand
@@ -116,6 +117,33 @@ def train_step(
             label_indices_masked, label_indices_masked_lens = mask_sequence(
                 label_indices, label_indices_lens.to(label_indices.device), phon_mask, mask_value=model.mask_idx
             )
+
+    # Sequence length metrics for the denoising part of training:
+    # 1. Unmasked sequence length before encoder (for audio: after clustering & collapsing repetitions; for text: nr of phonemes)
+    # 2. Masked sequence length before encoder (after applying masking strategy)
+    if loss_name in ("audio", "text") and ctx.stage == "train_step":
+        b_dim = ReturnnDim(label_indices_lens.shape[0], name=f"{loss_name}_seq_len_dim")
+        lens_unmasked_rf = rf.convert_to_tensor(
+            label_indices_lens.to(dtype=torch.float32, device=label_indices.device),
+            dims=[b_dim],
+        )
+        ctx.mark_as_loss(
+            lens_unmasked_rf,
+            name=f"{loss_name}_len_unmasked",
+            scale=0.0,
+            as_error=True,
+        )
+
+        lens_masked_rf = rf.convert_to_tensor(
+            label_indices_masked_lens.to(dtype=torch.float32, device=label_indices.device),
+            dims=[b_dim],
+        )
+        ctx.mark_as_loss(
+            lens_masked_rf,
+            name=f"{loss_name}_len_masked",
+            scale=0.0,
+            as_error=True,
+        )
 
     adv_target = None
     adv_loss_name = None

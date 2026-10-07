@@ -94,12 +94,16 @@ def py():
 
     layers = 6
     ft_epochs = 500
-    cluster_multipliers = [1, 2, 4]
+    # Cross-modal cluster configurations: 1P (41), 2P (82), 4P (164), and 200 clusters
+    cluster_configs = [
+        (1, "1P", 41),
+        (2, "2P", 82),
+        (4, "4P", 164),
+        (200, "200", 200),
+    ]
 
     ablations = []
-    for mult in cluster_multipliers:
-        k_clusters = mult * 41
-        clus_str = f"{mult}P"
+    for mult, clus_str, k_clusters in cluster_configs:
         audio_emb_path = get_audio_embeddings_path(cluster_mult=mult, init_method="freq")
         text_emb_path = get_text_embeddings_path()
         audio_out_dim = max(train_data.datastreams["data"].vocab_size, k_clusters)
@@ -140,17 +144,15 @@ def py():
                     "bt_train_iterations": 50,
                 }
 
-                ablations.append((train_name, model_args, train_args, pretrain_epochs, ft_epochs, mult))
+                ablations.append((train_name, model_args, train_args, pretrain_epochs, ft_epochs, mult, clus_str, k_clusters))
 
     # -------------------------------------------------------------------------
     # PHASE 1: Pretraining Jobs (Denoising Only, 100 and 500 Epochs per Cluster Size)
     # -------------------------------------------------------------------------
     pretrain_jobs = {}
-    pretrain_durations = sorted(list({p_ep for _, _, _, p_ep, _, _ in ablations if p_ep > 0}))
+    pretrain_durations = sorted(list({p_ep for _, _, _, p_ep, _, _, _, _ in ablations if p_ep > 0}))
 
-    for mult in cluster_multipliers:
-        k_clusters = mult * 41
-        clus_str = f"{mult}P"
+    for mult, clus_str, k_clusters in cluster_configs:
         audio_emb_path = get_audio_embeddings_path(cluster_mult=mult, init_method="freq")
         text_emb_path = get_text_embeddings_path()
         audio_out_dim = max(train_data.datastreams["data"].vocab_size, k_clusters)
@@ -229,7 +231,7 @@ def py():
     finetune_jobs = {}
     all_eval_epochs = [125, 250, 375, 500]
 
-    for train_name, model_args, train_args, pretrain_ep, ft_epochs, mult in ablations:
+    for train_name, model_args, train_args, pretrain_ep, ft_epochs, mult, clus_str, k_clusters in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
         config["train_args"].update(train_args)
@@ -284,10 +286,10 @@ def py():
     from ....hpo_summary import HpoResultsExcelJob
 
     configs_meta = {}
-    for train_name, model_args, train_args, pretrain_ep, ft_epochs, mult in ablations:
+    for train_name, model_args, train_args, pretrain_ep, ft_epochs, mult, clus_str, k_clusters in ablations:
         configs_meta[train_name] = {
-            "cluster_mult": f"{mult}P",
-            "cluster_k": mult * 41,
+            "cluster_mult": clus_str,
+            "cluster_k": k_clusters,
             "init_method": "frequency",
             "layers": model_args.get("num_enc_layers", 6),
             "pretrain_ep": pretrain_ep,

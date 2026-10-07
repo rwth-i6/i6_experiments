@@ -3,7 +3,7 @@ Data preparation for HuBERT-based cluster sequences and cross-modal embedding al
 Integrates the HuBERT extraction, clustering, and embedding scheme from exp2026_09_15_self_learning_emb_asr.
 """
 
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Union
 import os
 
 from sisyphus import tk
@@ -54,7 +54,7 @@ def resolve_embedding_path(default_path: str, filename: str) -> str:
     return default_path
 
 def get_audio_embeddings_path(
-    cluster_mult: int = 1,
+    cluster_mult: Union[int, str] = 1,
     init_method: str = "freq",
     seed: int = 42,
 ) -> str:
@@ -62,8 +62,18 @@ def get_audio_embeddings_path(
     Finds mapped audio embeddings for the specified cluster ablation and alignment init method.
     Default: clus_1P_41 with frequency-based initialization.
     """
-    cluster_dir_map = {1: "clus_1P_41", 2: "clus_2P_82", 4: "clus_4P_164"}
-    c_name = cluster_dir_map.get(cluster_mult, f"clus_{cluster_mult}P_{cluster_mult * 41}")
+    cluster_dir_map = {
+        1: "clus_1P_41",
+        2: "clus_2P_82",
+        4: "clus_4P_164",
+        200: "clus_200_200",
+        "200": "clus_200_200",
+        "200_200": "clus_200_200",
+    }
+    c_name = cluster_dir_map.get(
+        cluster_mult,
+        f"clus_{cluster_mult}P_{cluster_mult * 41}" if isinstance(cluster_mult, int) else f"clus_{cluster_mult}"
+    )
     align_dir = "align_init_freq" if init_method == "freq" else f"align_init_rand_seed{seed}"
 
     for root in [HPCWORK_DIR, RSYNC_ALIAS_ROOT]:
