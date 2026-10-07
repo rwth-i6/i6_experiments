@@ -438,3 +438,71 @@ def get_phonemized_data_with_text(
         lexicon_file,
         seq_tags_after_phonemize,
     )
+
+
+class GenerateTextNgramsJob(Job):
+    """
+    Takes a tokenized text file (e.g. phoneme sequences) and generates n-gram sequences
+    (e.g., diphones for n=2, triphones for n=3).
+    Exports:
+    - out_ngram_text: sequence of space-separated n-gram tokens per utterance
+    - out_vocab_txt: vocabulary file listing unique n-grams sorted by frequency descending
+    - out_counts_txt: frequency counts for each n-gram
+    """
+
+    def __init__(
+        self,
+        token_text_file: Union[DelayedBase, tk.Path],
+        ngram_order: int = 2,
+        delimiter: str = "_",
+        min_count: int = 1,
+    ):
+        super().__init__()
+        self.token_text_file = token_text_file
+        self.ngram_order = ngram_order
+        self.delimiter = delimiter
+        self.min_count = min_count
+
+        self.out_ngram_text = self.output_path(f"text.ngrams_{ngram_order}.txt")
+        self.out_vocab_txt = self.output_path("vocab.txt")
+        self.out_counts_txt = self.output_path("counts.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 2, "mem": 8, "time": 1})
+
+    def run(self):
+        from collections import Counter
+        counts = Counter()
+        n = self.ngram_order
+        delim = self.delimiter
+
+        in_path = (
+            self.token_text_file.get_path()
+            if hasattr(self.token_text_file, "get_path")
+            else self.token_text_file.get()
+        )
+        with open(in_path, "r", encoding="utf-8") as f_in, open(
+            self.out_ngram_text.get_path(), "w", encoding="utf-8"
+        ) as f_out:
+            for line in f_in:
+                tokens = line.strip().split()
+                if not tokens:
+                    f_out.write("\n")
+                    continue
+                if len(tokens) < n:
+                    ngrams = [delim.join(tokens)]
+                else:
+                    ngrams = [delim.join(tokens[i : i + n]) for i in range(len(tokens) - n + 1)]
+
+                counts.update(ngrams)
+                f_out.write(" ".join(ngrams) + "\n")
+
+        vocab = [w for w, c in counts.most_common() if c >= self.min_count]
+
+        with open(self.out_vocab_txt.get_path(), "w", encoding="utf-8") as f_vocab, open(
+            self.out_counts_txt.get_path(), "w", encoding="utf-8"
+        ) as f_counts:
+            for word in vocab:
+                f_vocab.write(f"{word}\n")
+                f_counts.write(f"{word} {counts[word]}\n")
+

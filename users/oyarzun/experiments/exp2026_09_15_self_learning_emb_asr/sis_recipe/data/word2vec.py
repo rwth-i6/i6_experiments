@@ -15,6 +15,7 @@ class TrainWord2VecJob(Job):
     Trains a Word2Vec model on token sequence files (e.g. phoneme sequences or cluster ID sequences)
     and exports the embedding matrix (V x d), vocabulary, and token counts.
     """
+    _version = 2
 
     def __init__(
         self,
@@ -28,8 +29,10 @@ class TrainWord2VecJob(Job):
         workers: int = 4,
         seed: int = 42,
         fixed_vocab_file: Optional[tk.Path] = None,
+        _version: int = 2,
     ):
         super().__init__()
+        self._version = _version
         self.token_text_file = token_text_file
         self.vector_size = vector_size
         self.window = window
@@ -88,11 +91,17 @@ class TrainWord2VecJob(Job):
 
         # Determine vocabulary ordering
         if self.fixed_vocab_file is not None and os.path.exists(self.fixed_vocab_file.get_path()):
-            vocab_list = []
-            with open(self.fixed_vocab_file.get_path(), "r") as f:
-                for line in f:
-                    tok = line.strip().split()[0]
-                    vocab_list.append(tok)
+            with open(self.fixed_vocab_file.get_path(), "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            if content.startswith("{") and content.endswith("}"):
+                import ast
+                try:
+                    vocab_dict = ast.literal_eval(content)
+                    vocab_list = [k for k, _ in sorted(vocab_dict.items(), key=lambda item: item[1])]
+                except Exception:
+                    vocab_list = [line.strip().split()[0] for line in content.splitlines() if line.strip()]
+            else:
+                vocab_list = [line.strip().split()[0] for line in content.splitlines() if line.strip()]
         else:
             # Sort by frequency / natural index if integer tokens
             try:

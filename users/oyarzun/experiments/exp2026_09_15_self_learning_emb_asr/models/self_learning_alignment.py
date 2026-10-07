@@ -217,11 +217,40 @@ def run_self_learning_alignment(
     }
 
 
+def load_vocab_dict(vocab_path: Optional[str]) -> Dict[int, str]:
+    """
+    Loads vocabulary from either a Python dict string file (e.g. {'AH': 0, ...})
+    or a standard whitespace/newline-separated token file.
+    """
+    if vocab_path is None or not os.path.exists(vocab_path):
+        return {}
+
+    with open(vocab_path, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+
+    if content.startswith("{") and content.endswith("}"):
+        import ast
+        try:
+            vocab_dict = ast.literal_eval(content)
+            return {int(idx): str(tok) for tok, idx in vocab_dict.items()}
+        except Exception:
+            pass
+
+    # Standard newline delimited
+    res = {}
+    for idx, line in enumerate(content.splitlines()):
+        line = line.strip()
+        if line:
+            res[idx] = line.split()[0]
+    return res
+
+
 class SelfLearningEmbeddingAlignmentJob(Job):
     """
     Sisyphus job executing the Artetxe et al. (2017) self-learning embedding alignment.
     Aligns source audio cluster embeddings with target text phoneme embeddings.
     """
+    _version = 2
 
     def __init__(
         self,
@@ -236,8 +265,10 @@ class SelfLearningEmbeddingAlignmentJob(Job):
         max_iters: int = 100,
         tol: float = 1e-6,
         seed: int = 42,
+        _version: int = 2,
     ):
         super().__init__()
+        self._version = _version
         self.audio_embeddings_npy = audio_embeddings_npy
         self.text_embeddings_npy = text_embeddings_npy
         self.audio_vocab_file = audio_vocab_file
@@ -299,19 +330,10 @@ class SelfLearningEmbeddingAlignmentJob(Job):
         np.save(self.out_mapped_audio_emb_npy.get_path(), res["mapped_X"])
 
         # Load vocabularies if provided to save human-readable dictionary
-        audio_vocab = {}
-        if self.audio_vocab_file is not None and os.path.exists(self.audio_vocab_file.get_path()):
-            with open(self.audio_vocab_file.get_path(), "r") as f:
-                for idx, line in enumerate(f):
-                    tok = line.strip().split()[0]
-                    audio_vocab[idx] = tok
-
-        text_vocab = {}
-        if self.text_vocab_file is not None and os.path.exists(self.text_vocab_file.get_path()):
-            with open(self.text_vocab_file.get_path(), "r") as f:
-                for idx, line in enumerate(f):
-                    tok = line.strip().split()[0]
-                    text_vocab[idx] = tok
+        audio_vocab_path = self.audio_vocab_file.get_path() if self.audio_vocab_file is not None else None
+        text_vocab_path = self.text_vocab_file.get_path() if self.text_vocab_file is not None else None
+        audio_vocab = load_vocab_dict(audio_vocab_path)
+        text_vocab = load_vocab_dict(text_vocab_path)
 
         mapping_named = {}
         for s_idx, t_idx in enumerate(res["cluster_to_phoneme_map"]):
@@ -334,3 +356,4 @@ class SelfLearningEmbeddingAlignmentJob(Job):
                 "final_avg_similarity": res["final_avg_similarity"],
                 "objective_history": res["objective_history"],
             }, f, indent=2)
+
