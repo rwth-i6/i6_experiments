@@ -1562,11 +1562,12 @@ def py_aed_graphc_loquacious():
 
     # Production relaunches on the FIXED Triton kernel (delta recompute, see -fixdelta above):
     # the full-size flagship + the two scale-ladder points whose pre-fix runs late-collapsed.
-    loq_train(
+    exp_fixdelta, _, _ = loq_train(
         "base-graphc-v2-fixdelta",
         {},
         config_overrides={**_loq_v2_packed_overrides, "train._rel_pos_att_bwd_delta_recompute": True},
     )
+    _loq_epoch_boundary_timing(exp_fixdelta.get_training_job().returnn_config)
     exp_scale_small, _, _ = loq_train(
         "base-graphc-v2-small-fixdelta",
         {},
@@ -2653,6 +2654,39 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-bench-fixdelta-packed_graphc-warmup0-pinmem.json", job.out_results)
 
+    # Pinning A/B for RETURNN PR 1883 (AZ 2026-09-26): with pin_memory and a CUDA graph capture,
+    # RETURNN now pins in its own thread (coordinated with the captures) instead of the DataLoader one.
+    # The pinmem twin above, on the commit right before the PR (torch DataLoader pinning)
+    # vs the merge commit (RETURNN pinning), plus the no-pin_memory production arm on the merge commit.
+    # Two seeds per arm, since the expected difference is small (pinning itself was -1.7%).
+    for _pin_tag, _pin_root, _pin_opts in [
+        ("torchpin", "/rwthfs/rz/cluster/hpcwork/p0023999/az668407/tmp/returnn-bench-pin-pre", True),
+        ("returnnpin", "/rwthfs/rz/cluster/hpcwork/p0023999/az668407/tmp/returnn-bench-pin-post", True),
+        ("nopin", "/rwthfs/rz/cluster/hpcwork/p0023999/az668407/tmp/returnn-bench-pin-post", False),
+    ]:
+        for _seed in [42, 43]:
+            job = TrainStepBenchmarkJob(
+                returnn_config=cfg,
+                mode="packed_graphc",
+                num_steps=300,
+                random_seed=_seed,
+                version=23,
+                returnn_root=_pin_root,
+                config_overrides={
+                    "behavior_version": 29,
+                    "packed_tensors": _v2_packed_tensors,
+                    "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
+                    **(
+                        {"torch_dataloader_opts": {"num_workers": 1, "pin_memory": True, "prefetch_factor": 4}}
+                        if _pin_opts
+                        else {}
+                    ),
+                },
+            )
+            tk.register_output(
+                f"returnn/loq-bench-fixdelta-packed_graphc-warmup0-pinab-{_pin_tag}-seed{_seed}.json", job.out_results
+            )
+
     # Loader scaling: the graphc warmup-0 twin above,
     # with only the MultiProcDataset worker count changed (production runs 25).
     # This sizes what the pipeline contributes,
@@ -2776,6 +2810,72 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-bench-fixdelta-graphc-{_tag}.json", job.out_results)
 
+    # Exposed grad all-reduce under graph capture (AZ 2026-10-07).
+    # reduce_type grad_explicit is the only distributed mode a captured step supports:
+    # one flat all_reduce after the replay, no overlap with the backward,
+    # and the optimizer step has to stay out of the graph.
+    # 4 ranks vs 1 rank at the same per-rank batch: the step-time delta is the exposed reduce,
+    # the profiled cell attributes it (record_function reduce_grads in the chrome trace).
+    # The 1-rank cell differs from the warmup0 twin only in the eager optimizer step.
+    _dist_graph_opts = {**_v2_graph_opts, "warmup_steps": 0, "capture_optimizer": False}
+    # Pin each rank (and the workers it forks) to the cores of its GPU's NUMA node.
+    # Bench-only probe via the config (no RETURNN / sisyphus / torchrun code pins anything):
+    # nvidia-smi lists GPUs in PCI order, CUDA_DEVICE_ORDER makes the CUDA index follow it,
+    # sysfs gives the NUMA node of that PCI device and the node's cpulist.
+    _numa_pin_code = (
+        "import os as _os, subprocess as _sp\n"
+        "_os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'\n"
+        "_lr = int(_os.environ['LOCAL_RANK'])\n"
+        "_bus = sorted(_sp.check_output(['nvidia-smi', '--query-gpu=pci.bus_id', '--format=csv,noheader'], text=True).split())\n"
+        "_dev = '0000:' + _bus[_lr].split(':', 1)[1].lower()\n"
+        "with open(f'/sys/bus/pci/devices/{_dev}/numa_node') as _f:\n"
+        "    _numa = int(_f.read())\n"
+        "assert _numa >= 0, f'no NUMA node for {_dev}'\n"
+        "with open(f'/sys/devices/system/node/node{_numa}/cpulist') as _f:\n"
+        "    _cl = _f.read().strip()\n"
+        "_cpus = set()\n"
+        "for _part in _cl.split(','):\n"
+        "    _a, _, _b = _part.partition('-')\n"
+        "    _cpus.update(range(int(_a), int(_b or _a) + 1))\n"
+        "_allowed = _os.sched_getaffinity(0)\n"
+        "_cpus &= _allowed\n"
+        "assert _cpus, f'no allowed cpus on numa node {_numa}: {_cl} vs {sorted(_allowed)}'\n"
+        "_os.sched_setaffinity(0, _cpus)\n"
+        "print(f'NUMA pin: local rank {_lr} gpu {_dev} numa {_numa} cpus {len(_cpus)} of {len(_allowed)}: {sorted(_cpus)}')\n"
+    )
+    for _tag, _nproc, _steps, _profile, _pin in [
+        ("1gpu", None, 300, False, False),
+        ("1gpu-profiled", None, 31, True, False),
+        ("4gpu-gradexplicit", 4, 300, False, False),
+        ("4gpu-gradexplicit-profiled", 4, 31, True, False),
+        ("4gpu-gradexplicit-numapin", 4, 300, False, True),
+        ("4gpu-gradexplicit-numapin-profiled", 4, 31, True, True),
+    ]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=_steps,
+            version=23,
+            num_processes=_nproc,
+            extra_config_code=_numa_pin_code if _pin else None,
+            config_overrides={
+                "behavior_version": 29,
+                "packed_tensors": _v2_packed_tensors,
+                "torch_cuda_graph": _dist_graph_opts,
+                **({"torch_distributed": {"reduce_type": "grad_explicit"}} if _nproc else {}),
+                **(
+                    {
+                        "torch_profile": {
+                            "schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}
+                        }
+                    }
+                    if _profile
+                    else {}
+                ),
+            },
+        )
+        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-optim-eager-{_tag}.json", job.out_results)
+
 
 def _loq_batch_size_factor():
     """the raw-sample batch-size factor of the baseline configs"""
@@ -2810,6 +2910,8 @@ class TrainStepBenchmarkJob(Job):
         "seq_ordering": None,
         "nsys": None,
         "extra_config_code": None,
+        "returnn_root": None,
+        "num_processes": None,
         "version": 1,
     }
 
@@ -2817,6 +2919,8 @@ class TrainStepBenchmarkJob(Job):
     # job instances pickled before this attribute existed (job.save predates the code)
     # unpickle without it and fall through to this
     extra_config_code = None
+    returnn_root = None
+    num_processes = None
 
     def __init__(
         self,
@@ -2831,6 +2935,8 @@ class TrainStepBenchmarkJob(Job):
         load_checkpoint: Optional[tk.Path] = None,
         seq_ordering: Optional[str] = None,
         nsys: Optional[str] = None,
+        returnn_root: Optional[str] = None,
+        num_processes: Optional[int] = None,
         version: int = 1,
     ):
         """
@@ -2854,6 +2960,10 @@ class TrainStepBenchmarkJob(Job):
         :param nsys: ``"<delay_s>,<duration_s>"`` runs RETURNN under nsys and keeps the report,
             for comparing the kernel mix of two arms.
             The delay skips compile and capture, which would otherwise dominate the summary.
+        :param returnn_root: run this RETURNN checkout instead of the one sis imports,
+            e.g. two fixed commits for an A/B of a RETURNN change (must be reachable from the GPU node)
+        :param num_processes: this many ranks on one node via torchrun, one GPU each;
+            the config needs ``torch_distributed`` for the ranks to sync
         :param version: behavior version, bump to force a re-run (hash-neutral at the default)
         """
         assert mode in (
@@ -2887,8 +2997,11 @@ class TrainStepBenchmarkJob(Job):
         self.config_overrides = config_overrides
         self.extra_config_code = extra_config_code
         self.nsys = nsys
+        self.returnn_root = returnn_root
+        self.num_processes = num_processes
         self.version = version
-        self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
+        n = num_processes or 1
+        self.rqmt = {"gpu": n, "cpu": 24 * n, "mem": 100 * n, "time": 2}
         if nsys:
             # bounded profile window, so a short request backfills
             self.rqmt["time"] = 0.5
@@ -2975,6 +3088,8 @@ class TrainStepBenchmarkJob(Job):
         import i6_experiments
 
         returnn_root = os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__)))
+        if self.returnn_root is not None:
+            returnn_root = self.returnn_root
         recipe_root = os.path.dirname(os.path.dirname(os.path.abspath(i6_experiments.__file__)))
         if self.returnn_config is not None:
             base_cfg_path = "returnn.base.config"
@@ -3089,6 +3204,23 @@ class TrainStepBenchmarkJob(Job):
         env.setdefault("TORCHINDUCTOR_CACHE_DIR", work + "/inductor-cache")
 
         cmd = [sys.executable, returnn_root + "/rnn.py", cfg_path]
+        if self.num_processes:
+            # as ReturnnTrainingJob with distributed_launch_cmd torchrun;
+            # tee prefixes every log line with the rank, [default0]: for rank 0
+            cmd = [
+                sys.executable,
+                "-mtorch.distributed.run",
+                "--standalone",
+                "--nnodes=1",
+                f"--nproc-per-node={self.num_processes}",
+                "--tee=3",
+            ] + cmd[1:]
+            # torchrun relays the worker logs through its own stdout,
+            # block-buffered when that is a file (a few MB on hpcwork),
+            # so the step counting below would see the lines only at exit
+            env["PYTHONUNBUFFERED"] = "1"
+        # the log parsing below reads rank 0 only
+        rank0_prefix = "[default0]:" if self.num_processes else ""
         if self.nsys:
             delay, duration = (int(x) for x in self.nsys.split(","))
             cmd = [
@@ -3116,7 +3248,9 @@ class TrainStepBenchmarkJob(Job):
             while proc.poll() is None:
                 time.sleep(10)
                 with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
-                    n_steps_logged = sum(1 for line in f if re.search(r"ep \d+ train, step \d+,", line))
+                    n_steps_logged = sum(
+                        1 for line in f if line.startswith(rank0_prefix) and re.search(r"ep \d+ train, step \d+,", line)
+                    )
                 if n_steps_logged >= self.num_steps or time.monotonic() > deadline:
                     proc.terminate()
                     try:
@@ -3147,6 +3281,8 @@ class TrainStepBenchmarkJob(Job):
         steps = []
         with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
             for line in f:
+                if not line.startswith(rank0_prefix):
+                    continue
                 m = step_re.search(line)
                 if m:
                     mem_val, mem_unit, tail = m.group(3), m.group(4), m.group(5)
@@ -3213,6 +3349,221 @@ class TrainStepBenchmarkJob(Job):
             "max_mem_usage_gb": max((s["mem_usage_gb"] for s in steps if s["mem_usage_gb"] is not None), default=None),
             "graph_pool_gb": next((s["graph_pool_gb"] for s in reversed(steps) if s["graph_pool_gb"]), None),
             "steps": steps,
+        }
+        with open(self.out_results.get_path(), "wt", encoding="utf-8") as f:
+            json.dump(res, f, indent=1)
+
+
+def _loq_epoch_boundary_timing(cfg: ReturnnConfig):
+    """
+    ``torch_preload_next_train_epoch`` (returnn#1939) A/B at the epoch boundary (AZ 2026-10-07).
+    The fixdelta config with short subepochs: partition_epoch 424 = 2 of the 848 train files, ~210 steps,
+    so the boundary (checkpoint, dev + devtrain eval, startup of the next train data) is a visible part.
+    Both arms run the PR head, only the option differs; two runs per arm.
+    1 GPU as the trainings, and 4 GPUs on one node
+    (grad_explicit, the distributed mode a captured step supports; no data sharding, so ~210 steps per rank).
+    """
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn", commit="42f7235a14c484219b26630a24f247aa6cdeb162"
+    ).out_repository
+    for nproc_tag, nproc in [("1gpu", None), ("4gpu", 4)]:
+        for preload in [False, True]:
+            for repeat in [0, 1]:
+                job = EpochBoundaryTimingJob(
+                    returnn_config=cfg,
+                    returnn_root=returnn_root,
+                    num_epochs=5,
+                    partition_epoch=424,
+                    config_overrides={
+                        "torch_preload_next_train_epoch": preload,
+                        **({"torch_distributed": {"reduce_type": "grad_explicit"}} if nproc else {}),
+                    },
+                    # grad_explicit reduces between the step and the optimizer, so no optimizer capture
+                    extra_config_code=(
+                        "torch_cuda_graph = dict(torch_cuda_graph, capture_optimizer=False)\n" if nproc else None
+                    ),
+                    num_processes=nproc,
+                    repeat=repeat,
+                )
+                tk.register_output(
+                    f"returnn/loq-epoch-boundary-{nproc_tag}-{'preload' if preload else 'orig'}-r{repeat}.json",
+                    job.out_results,
+                )
+
+
+class EpochBoundaryTimingJob(Job):
+    """
+    Run a real training config for a few complete (sub)epochs, with checkpointing and eval,
+    and measure the wall time around each epoch boundary.
+    Every log line is stamped with a monotonic clock when it arrives.
+
+    Per boundary k -> k+1, the interval from the end of the training of epoch k
+    to the end of the training of epoch k+1, split into:
+    save (checkpoint, up to the first eval), eval, the rest until the next epoch starts,
+    the wait for the first batch, and the training.
+    """
+
+    def __init__(
+        self,
+        *,
+        returnn_config: ReturnnConfig,
+        returnn_root: tk.Path,
+        num_epochs: int,
+        partition_epoch: int,
+        config_overrides: Optional[Dict[str, Any]] = None,
+        extra_config_code: Optional[str] = None,
+        num_processes: Optional[int] = None,
+        repeat: int = 0,
+    ):
+        """
+        :param returnn_config: the config of a training job
+        :param returnn_root: RETURNN checkout to run
+        :param num_epochs: train this many (sub)epochs from scratch
+        :param partition_epoch: of the train dataset, i.e. the length of the (sub)epochs
+        :param config_overrides: appended (repr) to the config
+        :param extra_config_code: python appended verbatim after config_overrides
+        :param num_processes: this many ranks on one node via torchrun, one GPU each
+        :param repeat: index of a repeated run of the same setting
+        """
+        self.returnn_config = returnn_config
+        self.returnn_root = returnn_root
+        self.num_epochs = num_epochs
+        self.partition_epoch = partition_epoch
+        self.config_overrides = config_overrides
+        self.extra_config_code = extra_config_code
+        self.num_processes = num_processes
+        self.repeat = repeat
+        n = num_processes or 1
+        self.rqmt = {"gpu": n, "cpu": 24 * n, "mem": 100 * n, "time": 4}
+        self.out_results = self.output_path("results.json")
+        self.out_log = self.output_path("returnn.log")
+
+    def tasks(self):
+        """tasks"""
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        """run"""
+        import json
+        import os
+        import re
+        import shutil
+        import subprocess
+        import sys
+        import time
+
+        import i6_experiments
+
+        returnn_root = self.returnn_root.get_path()
+        recipe_root = os.path.dirname(os.path.dirname(os.path.abspath(i6_experiments.__file__)))
+        # no black formatting: not available on the GPU node (see TrainStepBenchmarkJob)
+        self.returnn_config.black_formatting = False
+        self.returnn_config.write("returnn.base.config")
+        with open("returnn.base.config", "rt", encoding="utf-8") as f:
+            cfg = f.read()
+        work = os.path.abspath("train-work")
+        if os.path.exists(work):
+            shutil.rmtree(work)  # a restarted run must train from scratch, not resume
+        os.makedirs(work + "/models")
+        cfg += (
+            "\n\n# ---- EpochBoundaryTimingJob overrides ----\n"
+            f"model = {work + '/models/epoch'!r}\n"
+            f"learning_rate_file = {work + '/learning_rates'!r}\n"
+            "use_train_proc_manager = False\n"
+            f"num_epochs = {self.num_epochs}\n"
+            "assert train['class'] == 'DistributeFilesDataset', train['class']\n"
+            f"train['partition_epoch'] = {self.partition_epoch}\n"
+            + "".join(f"{k} = {v!r}\n" for k, v in (self.config_overrides or {}).items())
+            + (self.extra_config_code or "")
+        )
+        cfg_path = work + "/returnn.config"
+        with open(cfg_path, "wt", encoding="utf-8") as f:
+            f.write(cfg)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = ":".join(p for p in [recipe_root, env.get("PYTHONPATH")] if p)
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        env["PYTHONUNBUFFERED"] = "1"  # the lines must arrive when they are written, for the timestamps
+        cmd = [sys.executable, returnn_root + "/rnn.py", cfg_path]
+        if self.num_processes:
+            cmd = [
+                sys.executable,
+                "-mtorch.distributed.run",
+                "--standalone",
+                "--nnodes=1",
+                f"--nproc-per-node={self.num_processes}",
+                "--tee=3",
+            ] + cmd[1:]
+        rank0_prefix = "[default0]:" if self.num_processes else ""
+        log_path = self.out_log.get_path()
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=work, env=env, text=True, errors="replace"
+        )
+        with open(log_path, "wt", encoding="utf-8") as logf:
+            for line in proc.stdout:
+                logf.write(f"{time.monotonic():.3f} {line}")
+                logf.flush()
+        returncode = proc.wait()
+        # several GB per epoch, only the time to save them is of interest
+        shutil.rmtree(work + "/models", ignore_errors=True)
+        assert returncode == 0, f"RETURNN exited with {returncode}, see {log_path}"
+
+        event_res = {
+            "start": re.compile(r"^start epoch (\d+) global train step"),
+            "first_step": re.compile(r"^ep (\d+) train, step 0,"),
+            "trained": re.compile(r"^Epoch (\d+): Trained (\d+) steps"),
+            "preload": re.compile(r"^Preloading train data for epoch (\d+)"),
+            "eval_start": re.compile(r"^Evaluating dataset "),
+            "eval_done": re.compile(r"^Epoch (\d+) evaluation:"),
+        }
+        events = {}  # epoch -> event name -> time
+        num_steps = {}
+        last_trained = None
+        with open(log_path, "rt", encoding="utf-8") as f:
+            for line in f:
+                t_str, _, text = line.partition(" ")
+                if not text.startswith(rank0_prefix):
+                    continue
+                text = text[len(rank0_prefix) :]
+                for name, pattern in event_res.items():
+                    m = pattern.match(text)
+                    if not m:
+                        continue
+                    if name == "eval_start":
+                        epoch = last_trained  # the eval of the epoch trained last
+                    elif name == "preload":
+                        epoch = int(m.group(1)) - 1  # done at the end of the previous epoch
+                    else:
+                        epoch = int(m.group(1))
+                    if name == "trained":
+                        last_trained = epoch
+                        num_steps[epoch] = int(m.group(2))
+                    events.setdefault(epoch, {}).setdefault(name, float(t_str))  # first occurrence
+        boundaries = []
+        for epoch in range(1, self.num_epochs):
+            cur, nxt = events.get(epoch, {}), events.get(epoch + 1, {})
+            needed = [cur.get(k) for k in ("trained", "eval_start", "eval_done")]
+            needed += [nxt.get(k) for k in ("start", "first_step", "trained")]
+            assert all(t is not None for t in needed), (epoch, cur, nxt)
+            boundaries.append(
+                {
+                    "from_epoch": epoch,
+                    "total": nxt["trained"] - cur["trained"],
+                    "save": cur["eval_start"] - cur["trained"],
+                    "eval": cur["eval_done"] - cur["eval_start"],
+                    "to_next_start": nxt["start"] - cur["eval_done"],
+                    "first_batch": nxt["first_step"] - nxt["start"],
+                    "train": nxt["trained"] - nxt["first_step"],
+                    "next_epoch_steps": num_steps[epoch + 1],
+                    "preloaded": "preload" in cur,
+                }
+            )
+        res = {
+            "config_overrides": self.config_overrides,
+            "num_processes": self.num_processes,
+            "repeat": self.repeat,
+            "boundaries": boundaries,
         }
         with open(self.out_results.get_path(), "wt", encoding="utf-8") as f:
             json.dump(res, f, indent=1)
