@@ -79,8 +79,9 @@ def main():
         drain_ = drain[key]
         down_ = down[key]
         print(
-            f"Count {key}: {alloc_}/{total_} used, {total_ - alloc_}/{total_} free,"
-            f" {planned_} planned, {drain_} drain, {reserved_} reserved, {down_} down, {total_theoretic_} total"
+            f"Count {key}: {alloc_}/{total_theoretic_} used, {total_ - alloc_}/{total_theoretic_} free,"
+            f" {planned_}/{total_theoretic_} planned, {drain_}/{total_theoretic_} drain,"
+            f" {reserved_}/{total_theoretic_} reserved, {down_}/{total_theoretic_} down"
         )
 
 
