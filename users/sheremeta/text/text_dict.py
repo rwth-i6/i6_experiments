@@ -5,7 +5,7 @@ import gzip
 
 from sisyphus import Job, Task, tk
 
-__all__ = ["IntersectTextDictJob"]
+__all__ = ["IntersectTextDictJob", "TextDictToRefVariantsJob"]
 
 
 def _read_text_dict(path: str) -> dict:
@@ -45,3 +45,32 @@ class IntersectTextDictJob(Job):
                 f.write(f"{k!r}: {v!r},\n")
             f.write("}\n")
         self.out_num_dropped.set(len(ref) - len(kept))
+
+
+class TextDictToRefVariantsJob(Job):
+    """Wrap each reference string in a one-element list, the shape OracleWerJob's loader accepts."""
+
+    def __init__(self, *, text_dict: tk.Path):
+        self.text_dict = text_dict
+        self.out_txt = self.output_path("ref_variants.py")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import ast
+        import gzip
+
+        path = self.text_dict.get_path()
+        with open(path, "rb") as f:
+            raw = f.read()
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        data = ast.literal_eval(raw.decode("utf-8"))
+        assert isinstance(data, dict), type(data)
+        with open(self.out_txt.get_path(), "w") as f:
+            f.write("{\n")
+            for tag, text in data.items():
+                variants = [text] if isinstance(text, str) else list(text)
+                f.write(f"{tag!r}: {variants!r},\n")
+            f.write("}\n")

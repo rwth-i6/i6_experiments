@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from sisyphus import Job, Task, tk
 from sisyphus import global_settings as gs
 
-__all__ = ["PackedReturnnForwardJob", "pack_names", "visible_device"]
+__all__ = ["MergeShardOutputsJob", "PackedReturnnForwardJob", "pack_names", "visible_device"]
 
 
 def pack_names(names: Sequence[str], max_per_job: int) -> List[List[str]]:
@@ -130,3 +130,39 @@ class PackedReturnnForwardJob(Job):
             "returnn_root": kwargs["returnn_root"],
         }
         return super().hash(d)
+
+
+class MergeShardOutputsJob(Job):
+    """Joins the files the parts of a split forward wrote, dicts keyed by sequence tag, into the file of the split."""
+
+    def __init__(self, *, parts: Sequence[tk.Path], file_name: str):
+        """
+        :param parts: the file of every part, in part order
+        :param file_name: name of the joined file, the one the forward writes
+        """
+        self.parts = list(parts)
+        self.out_file = self.output_path(file_name)
+
+    def tasks(self):
+        """
+        :return: the tasks
+        """
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """Reads every part, checks that no sequence sits in two parts and writes all entries as one dict."""
+        import ast
+
+        joined: Dict[str, Any] = {}
+        for part in self.parts:
+            with open(part.get_path(), "rt") as f:
+                entries = ast.literal_eval(f.read())
+            assert isinstance(entries, dict), (part, type(entries))
+            twice = joined.keys() & entries.keys()
+            assert not twice, (part, sorted(twice)[:3])
+            joined.update(entries)
+        with open(self.out_file.get_path(), "wt") as f:
+            f.write("{\n")
+            for tag, value in joined.items():
+                f.write(f"{tag!r}: {value!r},\n")
+            f.write("}\n")
