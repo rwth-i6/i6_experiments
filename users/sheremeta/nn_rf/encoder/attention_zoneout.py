@@ -7,10 +7,11 @@ from returnn.tensor import Tensor as ReturnnTensor
 ZONEOUT_MODES = ("head", "row", "time")
 
 
-class AttentionZoneoutRelPosSelfAttention(rf.RelPosSelfAttention):
+class AttentionZoneoutMixin:
     """
-    Relative-position self-attention with attention zoneout: in training, parts of the attention keep their state
-    of the layer below or of the frame before instead of being updated.
+    Attention zoneout for a rel-pos self-attention class which gets its queries, keys and values from
+    ``forward_qkv``: in training, parts of the attention keep their state of the layer below or of the frame before
+    instead of being updated.
 
     - head: a head of a sequence attends with the queries and keys of the layer below
     - row: a frame takes the attention output computed with the queries and keys of the layer below
@@ -18,6 +19,10 @@ class AttentionZoneoutRelPosSelfAttention(rf.RelPosSelfAttention):
 
     In evaluation, head and row use the expected output, the mix of both attention outputs by the keep probability,
     and time uses the attention output unchanged.
+
+    The keeps are drawn over the dims of the source besides the attended axis and the features, so in a chunked
+    attention a head is kept per chunk and time zoneout runs within each chunk.
+    Mixed in before the attention class, which the calls pass their further arguments to.
     """
 
     def __init__(self, *args, zoneout_mode: str, zoneout_prob: float, **kwargs):
@@ -50,36 +55,38 @@ class AttentionZoneoutRelPosSelfAttention(rf.RelPosSelfAttention):
             return self._qkv_given
         return super().forward_qkv(source)
 
-    def _attend(self, source: ReturnnTensor, q: ReturnnTensor, k: ReturnnTensor, v: ReturnnTensor, *, axis: ReturnnDim):
+    def _attend(
+        self, source: ReturnnTensor, q: ReturnnTensor, k: ReturnnTensor, v: ReturnnTensor, *, axis: ReturnnDim, **kwargs
+    ):
         """
         :return: the attention output for the given queries, keys and values
         """
         self._qkv_given = (q, k, v)
         try:
-            return super().__call__(source, axis=axis)
+            return super().__call__(source, axis=axis, **kwargs)
         finally:
             self._qkv_given = None
 
-    def __call__(self, source: ReturnnTensor, *, axis: ReturnnDim, **_kwargs) -> ReturnnTensor:
+    def __call__(self, source: ReturnnTensor, *, axis: ReturnnDim, **kwargs) -> ReturnnTensor:
         """forward"""
         q, k, v = super().forward_qkv(source)
         self.qk_out = (q, k)
         p = self.zoneout_prob
         if not p:
-            return self._attend(source, q, k, v, axis=axis)
+            return self._attend(source, q, k, v, axis=axis, **kwargs)
         train = rf.get_run_ctx().is_train_flag_enabled(func=rf.dropout)
         assert isinstance(train, bool), f"{self}: attention zoneout needs a static train flag, got {train!r}"
         batch_dims = source.remaining_dims((axis, self.in_dim))
 
         if self.zoneout_mode == "time":
-            out = self._attend(source, q, k, v, axis=axis)
+            out = self._attend(source, q, k, v, axis=axis, **kwargs)
             if not train:
                 return out
             keep = self.draw_keep(batch_dims + [axis], device=source.device)
             return rf.gather(out, indices=_last_updated_frame(keep, axis=axis), axis=axis)
 
         if self.qk_below is None:
-            return self._attend(source, q, k, v, axis=axis)
+            return self._attend(source, q, k, v, axis=axis, **kwargs)
         q_below, k_below = self.qk_below
 
         if self.zoneout_mode == "head" and train:
@@ -87,14 +94,20 @@ class AttentionZoneoutRelPosSelfAttention(rf.RelPosSelfAttention):
             q = rf.where(keep, q_below, q)
             k = rf.where(keep, k_below, k)
             self.qk_out = (q, k)
-            return self._attend(source, q, k, v, axis=axis)
+            return self._attend(source, q, k, v, axis=axis, **kwargs)
 
-        out = self._attend(source, q, k, v, axis=axis)
-        out_below = self._attend(source, q_below, k_below, v, axis=axis)
+        out = self._attend(source, q, k, v, axis=axis, **kwargs)
+        out_below = self._attend(source, q_below, k_below, v, axis=axis, **kwargs)
         if not train:
             return p * out_below + (1.0 - p) * out
         keep = self.draw_keep(batch_dims + [axis], device=source.device)
         return rf.where(keep, out_below, out)
+
+
+class AttentionZoneoutRelPosSelfAttention(AttentionZoneoutMixin, rf.RelPosSelfAttention):
+    """
+    Relative-position self-attention with attention zoneout, see :class:`AttentionZoneoutMixin`.
+    """
 
 
 def _last_updated_frame(keep: ReturnnTensor, *, axis: ReturnnDim) -> ReturnnTensor:
@@ -105,7 +118,9 @@ def _last_updated_frame(keep: ReturnnTensor, *, axis: ReturnnDim) -> ReturnnTens
     frames = rf.range_over_dim(axis, device=keep.device)
     src = rf.where(rf.logical_and(keep, frames > 0), frames - 1, frames)
     # pointer jumping: each step doubles the run of kept frames which is followed
-    if rf.is_static_traceable():
+    if axis.dimension is not None:
+        max_len = axis.dimension
+    elif rf.is_static_traceable():
         max_len = axis.capacity
         assert max_len is not None, f"attention zoneout over {axis} needs its capacity under static tracing"
     else:
@@ -125,7 +140,7 @@ class AttentionZoneoutSequential(rf.Sequential):
         qk_below = None
         for name, module in self.items():
             att = module.self_att
-            assert isinstance(att, AttentionZoneoutRelPosSelfAttention), f"{self}: unexpected attention {att!r}"
+            assert isinstance(att, AttentionZoneoutMixin), f"{self}: unexpected attention {att!r}"
             att.qk_below = qk_below
             try:
                 inp = module(inp, **kwargs)

@@ -5,6 +5,7 @@ from returnn.tensor import Tensor as ReturnnTensor
 
 _kernel_attention_class = None
 _kernel_attention_class_v2 = None
+_kernel_attention_zoneout_class = None
 _kept_rows_conv_block_class = None
 
 
@@ -52,6 +53,25 @@ def kernel_attention_class():
 
     _kernel_attention_class = ChunkedRelPosSelfAttentionKernel
     return _kernel_attention_class
+
+
+def kernel_attention_zoneout_class():
+    """
+    Builds the chunked rel-pos self-attention of :func:`kernel_attention_class` with attention zoneout, once.
+    The encoder's layers have to run in an :class:`AttentionZoneoutSequential`.
+
+    :return: the attention class, a subclass of the class of :func:`kernel_attention_class`
+    """
+    global _kernel_attention_zoneout_class
+    if _kernel_attention_zoneout_class is not None:
+        return _kernel_attention_zoneout_class
+    from .attention_zoneout import AttentionZoneoutMixin
+
+    class ChunkedRelPosSelfAttentionKernelZoneout(AttentionZoneoutMixin, kernel_attention_class()):
+        """The chunked attention on the rf op with attention zoneout, per chunk, see :class:`AttentionZoneoutMixin`."""
+
+    _kernel_attention_zoneout_class = ChunkedRelPosSelfAttentionKernelZoneout
+    return _kernel_attention_zoneout_class
 
 
 def kernel_attention_class_v2():
