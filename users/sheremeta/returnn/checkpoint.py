@@ -5,7 +5,54 @@ from typing import Any, Dict, Optional, Tuple
 
 from sisyphus import Job, Task, tk
 
-__all__ = ["GetBestCheckpointByWerJob", "resolve_names", "resolve_label"]
+__all__ = ["GetBestCheckpointByWerJob", "ResolveHFCheckpointJob", "hf_snapshot_dir", "resolve_names", "resolve_label"]
+
+
+def hf_snapshot_dir(hub_cache_dir: str) -> str:
+    """
+    Resolves a HuggingFace hub cache directory to the snapshot directory ``from_pretrained`` requires.
+    The cache must hold exactly one repo with exactly one ref.
+
+    :param hub_cache_dir: HF_HUB_CACHE style directory with one ``models--`` or ``datasets--`` entry
+    :return: path of the snapshot the single ref points at
+    """
+    entries = [
+        fn
+        for fn in os.listdir(hub_cache_dir)
+        if fn.startswith(("models--", "datasets--"))
+    ]
+    assert len(entries) == 1, f"cache dir {hub_cache_dir} has repo entries {entries}"
+    model_dir = os.path.join(hub_cache_dir, entries[0])
+    refs = os.listdir(os.path.join(model_dir, "refs"))
+    assert len(refs) == 1, f"refs dir {model_dir}/refs has entries {refs}"
+    ref = open(os.path.join(model_dir, "refs", refs[0])).read().strip()
+    snapshot_dir = os.path.join(model_dir, "snapshots", ref)
+    assert os.path.isdir(snapshot_dir), snapshot_dir
+    return snapshot_dir
+
+
+class ResolveHFCheckpointJob(Job):
+    """Resolve a hub-cache dir to its single-file ``model.safetensors``."""
+
+    def __init__(self, *, hub_cache_dir: tk.Path, filename: str = "model.safetensors"):
+        self.hub_cache_dir = hub_cache_dir
+        self.filename = filename
+        self.out_checkpoint = self.output_path("model.safetensors")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        snap = hf_snapshot_dir(self.hub_cache_dir.get_path())
+        assert not any(fn.endswith(".index.json") for fn in os.listdir(snap)), (
+            f"sharded checkpoint in {snap}; ResolveHFCheckpointJob expects a single-file safetensors"
+        )
+        src = os.path.join(snap, self.filename)
+        assert os.path.isfile(src), src
+        out = self.out_checkpoint.get_path()
+        if os.path.lexists(out):
+            os.remove(out)
+        os.symlink(src, out)
 
 
 def _format_name(spec: Any) -> str:
