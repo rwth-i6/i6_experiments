@@ -518,7 +518,12 @@ class RLFinetune(Job):
         self.questions_per_episode = questions_per_episode
         # the judge of the question->reply rollouts: "knowledge" (exact answer, TriviaQA) or "instruct" (1-5 rubric
         # against a reference reply; the prompts are spoken requests, speech_llm.instruct_prompts)
-        assert knowledge_reward in ("knowledge", "instruct"), knowledge_reward
+        # "instruct_mt" (2026-10-11): multi-turn instruct threads (instruct_prompts.InstructThreadPrep rows) as episodes,
+        # the last reply judged in context (moshi_family.rl.instruct_reward.InstructThreadReward)
+        assert knowledge_reward in ("knowledge", "instruct", "instruct_mt"), knowledge_reward
+        assert knowledge_reward != "instruct_mt" or (segment_source == "knowledge" and questions_per_episode == 1), (
+            "instruct_mt: the threads set the turns"
+        )
         self.knowledge_reward = knowledge_reward
         self.answer_end_pad_s = answer_end_pad_s
         # broad-spectrum pools (moshi_family.rl.knowledge_segments): further (category, questions, audio) sets next to
