@@ -136,6 +136,7 @@ train_data: "{train_data}"
 vad_backend: "{job.vad_backend}"
 quality_asr: "{job.quality_asr}"
 quality_asr_model: "{job.quality_asr_model or ""}"
+quality_asr_num_beams: {getattr(job, "quality_asr_num_beams", 5)}
 max_steps: {job.max_steps}
 grad_accum: {job.grad_accum}
 num_samples: {job.num_samples}
@@ -204,6 +205,9 @@ class RLFinetune(Job):
         "quality_judge": None,
         "quality_asr": "whisper",
         "quality_asr_model": None,
+        # reward-side Whisper beam width (2026-10-11; moshi_family.rl.quality.ASR_NUM_BEAMS): excluded at 5 = every
+        # earlier ASR arm; 1 = greedy (asr_bench 2026-10-05)
+        "quality_asr_num_beams": 5,
         "rqmt": None,
         # Launcher setup fixes (finetune.LAUNCHER_FIX_PRESETS["rl_grpo"]; runs.launcher_fix_hparams):
         # excluded at None so every existing job keeps its hash; new runs pass the policy's dict.
@@ -280,6 +284,7 @@ class RLFinetune(Job):
         quality_judge: str | None = None,
         quality_asr: str = "whisper",
         quality_asr_model: str | None = None,
+        quality_asr_num_beams: int = 5,
         max_steps: int = 3200,
         grad_accum: int = 2,
         num_samples: int = 16,
@@ -516,6 +521,8 @@ class RLFinetune(Job):
         self.quality_judge = quality_judge
         self.quality_asr = quality_asr
         self.quality_asr_model = quality_asr_model
+        assert int(quality_asr_num_beams) >= 1, quality_asr_num_beams
+        self.quality_asr_num_beams = int(quality_asr_num_beams)
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
