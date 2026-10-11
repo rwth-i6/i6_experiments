@@ -3,10 +3,12 @@ import torch
 import returnn.frontend as rf
 from returnn.config import Config, global_config_ctx
 from returnn.frontend import _packed_backend as packed
+from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder
-from returnn.tensor import Dim, Tensor
+from returnn.tensor import Dim, Tensor, single_step_dim
 from returnn.util import BehaviorVersion
 
+from i6_experiments.users.sheremeta.nn_rf.decoder.attention_zoneout import CausalAttentionTimeZoneoutMixin
 from i6_experiments.users.sheremeta.nn_rf.encoder.attention_zoneout import (
     AttentionZoneoutRelPosSelfAttention,
     AttentionZoneoutSequential,
@@ -270,3 +272,100 @@ def test_packed_chunked_encoder_matches_padded():
                 x, in_spatial_dim=time_dim
             )
             assert (frames(want, want_dim) - frames(plain, plain_dim)).abs().max() > 1e-3, mode
+
+
+class _TimeZoneoutAttention(CausalAttentionTimeZoneoutMixin, rf.RotaryPosCausalSelfAttention):
+    """The rotary causal attention with attention time zoneout."""
+
+
+def test_causal_attention_keeps_the_frame_before():
+    """
+    The causal attention in training with no keep and with a fixed pattern of keeps, and the attention output
+    unchanged in evaluation and over single steps, whose one frame is the first of its call.
+    """
+    model_dim = Dim(16, name="model")
+    x, batch_dim, time_dim = _source(3, model_dim)
+    rf.set_random_seed(0)
+    att = _TimeZoneoutAttention(
+        model_dim,
+        model_dim,
+        key_dim_total=model_dim,
+        value_dim_total=model_dim,
+        num_heads=2,
+        att_dropout=0.0,
+        zoneout_prob=_PROB,
+    )
+    rf.init_train_step_run_ctx(train_flag=False, step=0, epoch=1)
+    new, _ = rf.RotaryPosCausalSelfAttention.__call__(att, x, axis=time_dim)
+    new = _valid(new, batch_dim, time_dim, model_dim)
+
+    def run(train: bool, pattern):
+        rf.init_train_step_run_ctx(train_flag=train, step=0, epoch=1)
+        att.draw_keep = _fixed_keep(pattern)
+        out, _ = att(x, axis=time_dim)
+        return _valid(out, batch_dim, time_dim, model_dim)
+
+    torch.testing.assert_close(run(True, lambda shape: torch.zeros(shape, dtype=torch.bool)), new)
+    # frames 1, 2, 4 and 5 of the first sequence and frame 3 of the second keep the frame before
+    keep = torch.tensor([[0, 1, 1, 0, 1, 1, 0], [1, 0, 0, 1, 0, 0, 0]], dtype=torch.bool)
+    src = [0, 0, 0, 3, 3, 3, 6, 7 + 0, 7 + 1, 7 + 2, 7 + 2, 7 + 4]
+    torch.testing.assert_close(run(True, lambda shape: keep), new[src])
+    torch.testing.assert_close(run(False, lambda shape: keep), new)
+
+    rf.init_train_step_run_ctx(train_flag=True, step=0, epoch=1)
+    att.draw_keep = _fixed_keep(lambda shape: torch.ones(shape, dtype=torch.bool))
+    state = att.default_initial_state(batch_dims=[batch_dim])
+    steps = []
+    for t in range(time_dim.get_dim_value()):
+        out, state = att(rf.gather(x, axis=time_dim, indices=t), axis=single_step_dim, state=state)
+        steps.append(out.copy_transpose([batch_dim, model_dim]).raw_tensor)
+    mask = rf.sequence_mask([batch_dim, time_dim]).copy_transpose([batch_dim, time_dim]).raw_tensor
+    torch.testing.assert_close(torch.stack(steps, dim=1)[mask], new)
+
+
+def test_packed_causal_decoder_matches_padded():
+    """
+    A decoder with attention time zoneout gives the same frames packed and padded, and other frames than without any
+    keep.
+    The zoneout ops have no fallback, the attention itself unpacks on cpu, which has no packed fused attention.
+    """
+    model_dim, vocab_dim = Dim(16, name="model"), Dim(11, name="vocab")
+    x, batch_dim, time_dim = _source(5, model_dim)
+
+    def decode(pattern, inp: Tensor) -> Tensor:
+        class FixedKeepAttention(_TimeZoneoutAttention):
+            draw_keep = staticmethod(_fixed_keep(pattern))
+
+        rf.set_random_seed(0)
+        dec = TransformerDecoder(
+            encoder_dim=None,
+            vocab_dim=vocab_dim,
+            model_dim=model_dim,
+            num_layers=3,
+            ff_dim=Dim(32, name="ff"),
+            num_heads=2,
+            dropout=0.0,
+            att_dropout=0.0,
+            layer_opts=dict(self_att=FixedKeepAttention, self_att_opts=dict(zoneout_prob=_PROB)),
+            input_embedding=False,
+            pos_enc=None,
+        )
+        out, _ = dec(inp, spatial_dim=time_dim, encoder=None, state=dec.default_initial_state(batch_dims=[batch_dim]))
+        return out
+
+    def frames(out: Tensor) -> torch.Tensor:
+        if packed.is_packed(out):
+            out = packed.unpack(out)
+        return _valid(out, batch_dim, time_dim, vocab_dim)
+
+    def some(shape):
+        return (torch.arange(torch.Size(shape).numel()) % 3 == 1).reshape(shape)
+
+    rf.init_train_step_run_ctx(train_flag=True, step=0, epoch=1)
+    with global_config_ctx(Config(dict(packed_fallback_allowed=["scaled_dot_product_attention"]))):
+        got = decode(some, packed.pack(x, dims=[batch_dim, time_dim]))
+    assert packed.is_packed(got)
+    want = frames(decode(some, x))
+    torch.testing.assert_close(frames(got), want)
+    plain = frames(decode(lambda shape: torch.zeros(shape, dtype=torch.bool), x))
+    assert (want - plain).abs().max() > 1e-3
