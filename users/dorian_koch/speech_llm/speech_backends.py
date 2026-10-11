@@ -30,6 +30,7 @@ kwargs it needs and ignores the rest, so ``run()`` calls every backend identical
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -250,7 +251,11 @@ def audex_duplex_backend_spec() -> BackendSpec:
 
 
 def personaplex_family_backend_spec(
-    lora_rank: int | None = None, lora_scaling: float = 2.0, temp_text: float | None = None
+    lora_rank: int | None = None,
+    lora_scaling: float = 2.0,
+    temp_text: float | None = None,
+    voice: str | None = None,
+    voice_prompt_dir: str | None = None,
 ) -> BackendSpec:
     """PersonaPlex via the local ``moshi_family.personaplex`` sub-package (latest torch, owned code).
 
@@ -275,6 +280,14 @@ def personaplex_family_backend_spec(
     # ``temp_text`` (None = the driver default 0.7, args unchanged so no eval re-hashes): text sampling temperature
     if temp_text is not None:
         extra = (*extra, "--temp_text", str(temp_text))
+    # ``voice`` (None = the driver default NATM1.pt, args unchanged so no eval re-hashes): the agent voice prompt, a
+    # ``.pt`` in the model's voices.tgz or a wav basename in ``voice_prompt_dir`` (an absolute dir; the voice study,
+    # track_persona_voice)
+    if voice is not None:
+        extra = (*extra, "--voice", voice)
+    if voice_prompt_dir is not None:
+        assert voice is not None and os.path.isabs(voice_prompt_dir), (voice, voice_prompt_dir)
+        extra = (*extra, "--voice_prompt_dir", voice_prompt_dir)
     return BackendSpec(
         name="personaplex_family" if lora_rank is None else f"personaplex_family_lora{lora_rank}",
         server=None,  # end-to-end + causal: offline driver, no websocket server
