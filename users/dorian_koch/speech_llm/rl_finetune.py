@@ -260,7 +260,8 @@ class RLFinetune(Job):
     @classmethod
     def hash(cls, parsed_args):
         """A self-play run's judge rubric TEXT is part of its hash (as ``selfplay_bench.SelfPlayJudgeV2``); every other
-        job hashes exactly as before."""
+        job hashes exactly as before. The experiment ``card`` is never hashed."""
+        parsed_args = {k: v for k, v in parsed_args.items() if k != "card"}
         if parsed_args.get("segment_source") not in ("selfplay", "multitask"):
             return super(RLFinetune, cls).hash(parsed_args)
         from .selfplay_bench import judge_rubric_digest
@@ -330,6 +331,7 @@ class RLFinetune(Job):
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
         multitask: dict | None = None,
+        card: dict | None = None,
     ):
         """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
         ``LLMPreprocess`` out_hf) + ``knowledge_audio`` (their TTS, storage hf) are the prompts, minus any question in
@@ -353,6 +355,13 @@ class RLFinetune(Job):
         = ``{"num_samples", "probe_samples", "reward_transcript"}`` and its own judge ``multitask["selfplay_judge"]``
         (``selfplay_judge_max_model_len``). run() serves the two judges on the first two GPUs, the trainer on the
         last: ``rqmt`` gpu >= 3."""
+        from .experiment_card import check_card
+
+        # experiment card (speech_llm.experiment_card): not hashed, written by write_config
+        self.card = check_card(card)
+        if self.card is not None:
+            self.out_card = self.output_path("experiment_card.json")
+            self.out_card_md = self.output_path("experiment_card.md")
         assert family in ("moshi", "personaplex"), family
         # PersonaPlex runs knowledge or self-play GRPO; base Moshi the interactivity GRPO or (2026-10-02) knowledge GRPO
         assert family == "moshi" or segment_source in ("knowledge", "selfplay", "multitask"), (family, segment_source)
@@ -546,6 +555,10 @@ class RLFinetune(Job):
 
     def write_config(self):
         prepare_run_dir(self.out_rundir.get())
+        if getattr(self, "card", None) is not None:
+            from .experiment_card import write_card
+
+            write_card(self, self.out_card.get_path(), self.out_card_md.get_path())
         if self.segment_source in ("knowledge", "multitask"):
             import json
 

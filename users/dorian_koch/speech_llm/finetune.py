@@ -1185,8 +1185,17 @@ class SpeechFinetune(Job):
         lora_rank: int = 128,
         hparams: dict | None = None,
         compute: dict | None = None,
+        card: dict | None = None,
     ):
+        from .experiment_card import check_card
+
         self.adapter = adapter
+        # Experiment card (why / the one change / baseline / ...; speech_llm.experiment_card): NOT hashed (popped in
+        # hash()), written by write_config to output/experiment_card.{json,md}.
+        self.card = check_card(card)
+        if self.card is not None:
+            self.out_card = self.output_path("experiment_card.json")
+            self.out_card_md = self.output_path("experiment_card.md")
         self.train_data = train_data
         self.eval_data = eval_data
         # Held-out knowledge probe set (probe.jsonl). Honored ONLY by MOSHI_LIB_ADAPTER (its launcher
@@ -1240,6 +1249,8 @@ class SpeechFinetune(Job):
         # that before this line existed. Popping a key the old runs never had is hash-neutral for
         # them (verified: 2,100 hashes unchanged).
         d.pop("compute", None)
+        # The experiment card is documentation, never identity (hash-neutral for every run: none had the key).
+        d.pop("card", None)
         return super().hash(d)
 
     def tasks(self):
@@ -1252,6 +1263,10 @@ class SpeechFinetune(Job):
         return finetune_completed_fraction(self, self.adapter)
 
     def write_config(self):
+        if getattr(self, "card", None) is not None:
+            from .experiment_card import write_card
+
+            write_card(self, self.out_card.get_path(), self.out_card_md.get_path())
         write_finetune_config(self, self.adapter)
 
     def run(self):
