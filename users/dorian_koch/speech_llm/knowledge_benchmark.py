@@ -907,6 +907,9 @@ def knowledge_benchmark_py(
     inference_seed: int | None = None,
     text_logits_first_n: int | None = None,
     lead_in_s: float | None = None,
+    data: tk.Path | None = None,
+    data_label: str | None = None,
+    data_n: int | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -966,6 +969,11 @@ def knowledge_benchmark_py(
             declares nothing, so no existing job moves.
         lead_in_s: user-channel silence before the question (knowledge at depth: the question arrives this many
             seconds into the clip). None (default) = SpeechInference's 2 s, not passed, so no existing job moves.
+        data / data_label / data_n: an already prepared question set (an ``LLMPreprocess`` out_hf, e.g. the broad
+            knowledge-RL held-out set, knowledge_broad_rl.md) instead of ``dataset_name``'s load -> preprocess ->
+            subsample. Its TTS registers under ``benchmark/<data_label>/tts_output`` (the default TriviaQA paths would
+            collide), the model stages under ``benchmark/llm_judge/n<data_n>/<tag>/``; the summary's per-``category``
+            accuracies are the per-set numbers. None (default) = the original path, unchanged.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -974,23 +982,29 @@ def knowledge_benchmark_py(
         make_speakers,
     )
 
-    # 1. Load the full dataset
-    raw = LoadRawDataset(dataset_name=dataset_name, split=split)
-    tk.register_output("benchmark/raw_dataset", raw.out_hf)
+    tts_alias = "benchmark/tts_output"
+    if data is not None:  # a prepared question set (docstring: data / data_label / data_n)
+        assert data_label and data_n and max_examples is None, (data_label, data_n, max_examples)
+        tts_alias = f"benchmark/{data_label}/tts_output"
+        _bench = bench_out_prefix("llm_judge", data_n)
+    else:
+        # 1. Load the full dataset
+        raw = LoadRawDataset(dataset_name=dataset_name, split=split)
+        tk.register_output("benchmark/raw_dataset", raw.out_hf)
 
-    # 2. LLM preprocessing on the FULL dataset (cached; reused across subsamples)
-    preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
-    tk.register_output("benchmark/preprocessed", preprocess.out_hf)
+        # 2. LLM preprocessing on the FULL dataset (cached; reused across subsamples)
+        preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
+        tk.register_output("benchmark/preprocessed", preprocess.out_hf)
 
-    # 2b. Reproducible random subsample AFTER preprocessing, so changing the sample size/seed
-    # only re-runs this cheap step rather than the whole preprocess.
-    data = preprocess.out_hf
-    if max_examples is not None:
-        data = SubsampleDataset(in_hf=preprocess.out_hf, n=max_examples).out_hf
-        tk.register_output("benchmark/sampled", data)
+        # 2b. Reproducible random subsample AFTER preprocessing, so changing the sample size/seed
+        # only re-runs this cheap step rather than the whole preprocess.
+        data = preprocess.out_hf
+        if max_examples is not None:
+            data = SubsampleDataset(in_hf=preprocess.out_hf, n=max_examples).out_hf
+            tk.register_output("benchmark/sampled", data)
 
-    # Registered under the grader and sample size, so `ls output/benchmark` shows the partition.
-    _bench = bench_out_prefix("llm_judge", max_examples)
+        # Registered under the grader and sample size, so `ls output/benchmark` shows the partition.
+        _bench = bench_out_prefix("llm_judge", max_examples)
 
     # 3. Speaker voice (reuse existing speaker pool)
     speakers = make_speakers()
@@ -1011,7 +1025,7 @@ def knowledge_benchmark_py(
         ffmpeg_path=ffmpeg_path,
         env_ffmpeg_path=InstallFFmpeg().out_path,
     )
-    tk.register_output("benchmark/tts_output", tts.out_dir)
+    tk.register_output(tts_alias, tts.out_dir)
 
     # --- base Audex-2B native SPEECH-in reference (speech-in question audio -> Audex audio-QA -> text) ---
     # Answers the SAME tts_output question wavs through Audex's own NV-Whisper->audio-model->text path,

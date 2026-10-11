@@ -56,6 +56,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
             f"ramble_weight: {job.ramble_weight}\nlong_capture_s: {job.long_capture_s}\n"
             f"long_capture_every: {job.long_capture_every}\n"
         )
+    if getattr(job, "knowledge_judge_version", "v1") != "v1":  # absent at the default (2026-10-11)
+        keys += f'knowledge_judge_version: "{job.knowledge_judge_version}"\n'
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -245,6 +247,12 @@ class RLFinetune(Job):
         # instruction-following GRPO (2026-10-03, moshi_family.rl.instruct_reward): excluded at the default
         "knowledge_reward": "knowledge",
         "answer_end_pad_s": 1.0,
+        # broad-spectrum knowledge pools (2026-10-11, knowledge_broad_rl.md): excluded at their defaults (TriviaQA only)
+        "knowledge_sources": None,
+        "knowledge_base_category": None,
+        "knowledge_balance": False,
+        "n_probe_per_category": 0,
+        "knowledge_judge_version": "v1",
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
@@ -326,6 +334,11 @@ class RLFinetune(Job):
         questions_per_episode: int = 1,
         knowledge_reward: str = "knowledge",
         answer_end_pad_s: float = 1.0,
+        knowledge_sources: tuple | None = None,
+        knowledge_base_category: str | None = None,
+        knowledge_balance: bool = False,
+        n_probe_per_category: int = 0,
+        knowledge_judge_version: str = "v1",
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
         conversation_s: float = 30.0,
@@ -508,6 +521,28 @@ class RLFinetune(Job):
         assert knowledge_reward in ("knowledge", "instruct"), knowledge_reward
         self.knowledge_reward = knowledge_reward
         self.answer_end_pad_s = answer_end_pad_s
+        # broad-spectrum pools (moshi_family.rl.knowledge_segments): further (category, questions, audio) sets next to
+        # knowledge_questions/_audio (labelled knowledge_base_category), category-balanced draws, a fixed probe shard of
+        # n_probe_per_category per category, and the correctness judge's prompt version (knowledge_reward.JUDGE_SYSTEMS)
+        if knowledge_sources is not None:
+            knowledge_sources = tuple(dict(x) for x in knowledge_sources)
+            for x in knowledge_sources:
+                assert set(x) == {"category", "questions", "audio"}, sorted(x)
+            assert knowledge_base_category, "knowledge_sources: name the main pool's category (knowledge_base_category)"
+            assert (
+                len({x["category"] for x in knowledge_sources} | {knowledge_base_category})
+                == len(knowledge_sources) + 1
+            )
+        assert not (knowledge_balance or n_probe_per_category) or knowledge_sources, (
+            "balance/probe shard: broad pools only"
+        )
+        assert knowledge_judge_version in ("v1", "v2_broad"), knowledge_judge_version
+        assert knowledge_judge_version == "v1" or knowledge_reward == "knowledge", knowledge_judge_version
+        self.knowledge_sources = knowledge_sources
+        self.knowledge_base_category = knowledge_base_category
+        self.knowledge_balance = bool(knowledge_balance)
+        self.n_probe_per_category = int(n_probe_per_category)
+        self.knowledge_judge_version = knowledge_judge_version
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
@@ -576,6 +611,16 @@ class RLFinetune(Job):
                 "n_probe": self.n_probe,
                 "seed": self.seed,
             }
+            if getattr(self, "knowledge_sources", None):  # broad pools only: older manifests stay byte-identical
+                manifest.update(
+                    sources=[
+                        {"category": x["category"], "questions": x["questions"].get(), "audio": x["audio"].get()}
+                        for x in self.knowledge_sources
+                    ],
+                    base_category=self.knowledge_base_category,
+                    balance=self.knowledge_balance,
+                    probe_per_category=self.n_probe_per_category,
+                )
             with open(self.out_knowledge_manifest, "w") as f:
                 json.dump(manifest, f, indent=1)
         if self.segment_source in ("selfplay", "multitask"):
