@@ -58,6 +58,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         )
     if getattr(job, "knowledge_judge_version", "v1") != "v1":  # absent at the default (2026-10-11)
         keys += f'knowledge_judge_version: "{job.knowledge_judge_version}"\n'
+    if getattr(job, "text_teacher", None):  # absent at the default (2026-10-11): text-mode OPD, rl.text_teacher
+        keys += f'text_teacher: "{job.text_teacher}"\ntext_teacher_weight: {job.text_teacher_weight}\n'
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -253,6 +255,9 @@ class RLFinetune(Job):
         "knowledge_balance": False,
         "n_probe_per_category": 0,
         "knowledge_judge_version": "v1",
+        # text-mode on-policy distillation (2026-10-11, moshi_family.rl.text_teacher): excluded at their defaults (off)
+        "text_teacher": None,
+        "text_teacher_weight": 0.0,
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
@@ -339,6 +344,8 @@ class RLFinetune(Job):
         knowledge_balance: bool = False,
         n_probe_per_category: int = 0,
         knowledge_judge_version: str = "v1",
+        text_teacher: str | None = None,
+        text_teacher_weight: float = 0.0,
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
         conversation_s: float = 30.0,
@@ -563,6 +570,15 @@ class RLFinetune(Job):
         self.quality_asr_model = quality_asr_model
         assert int(quality_asr_num_beams) >= 1, quality_asr_num_beams
         self.quality_asr_num_beams = int(quality_asr_num_beams)
+        # text-mode OPD (moshi_family.rl.text_teacher): "base_text" = the frozen base LM in text-only mode as a per-token
+        # teacher on the reply's content tokens, reverse KL x text_teacher_weight next to the GRPO loss
+        assert text_teacher in (None, "base_text"), text_teacher
+        assert (text_teacher is None) == (float(text_teacher_weight) == 0.0), (text_teacher, text_teacher_weight)
+        assert text_teacher is None or (
+            family == "personaplex" and segment_source == "knowledge" and questions_per_episode == 1
+        ), "text_teacher: PersonaPlex single-question knowledge GRPO only"
+        self.text_teacher = text_teacher
+        self.text_teacher_weight = float(text_teacher_weight)
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
