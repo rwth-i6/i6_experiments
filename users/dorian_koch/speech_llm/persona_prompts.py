@@ -33,7 +33,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
+from .common import json_schema_format, map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
 from .podcast_ingest import WINDOW_SELECT_KEYS, _moshi_pythonpath, select_windows
 
 #: The paper's Minimal level, verbatim, and the opener every LLM level starts with.
@@ -496,7 +496,9 @@ class PersonaPromptGen(Job):
                 out, err = None, ""
                 for attempt in range(5):
                     try:
-                        kw = {"extra_body": {"guided_json": _PROMPT_JSON_SCHEMA}} if guided else {}
+                        # enforced from 2026-10-12 (run()-side: finished builds were unconstrained, vLLM ignored
+                        # the guided_json they sent)
+                        kw = json_schema_format(_PROMPT_JSON_SCHEMA, "persona_prompt") if guided else {}
                         resp = client.chat.completions.create(
                             model=llm_name,
                             messages=[{"role": "user", "content": msg}],
@@ -588,7 +590,8 @@ class VoicePromptCodes(Job):
 
     Runs ``moshi_family.persona_voice_codes`` in the moshi_family venv, which rebuilds each prompt
     with PersonaPlex's OWN inference functions (resample, -24 LUFS, frame iteration, streaming mimi
-    encode), trimmed to ``voice_sec`` (4.0 s = the length of the voices PersonaPlex ships).
+    encode), trimmed to ``voice_sec`` (4.0 s / 50 frames; PersonaPlex's shipped voices are 3.5-5.6 s, and upstream
+    inference itself does not cut: ``persona_voice_codes`` docstring).
     """
 
     def __init__(self, *, episode_shard_dirs: list[tk.Path], venv_python_path: tk.Path, voice_sec: float = 4.0):
@@ -1028,7 +1031,7 @@ class PersonaProfileGen(Job):
                             seed=(seed + attempt) % (2**31),
                             temperature=temp,
                             max_tokens=4096,  # GPT-OSS reasons before answering
-                            extra_body={"guided_json": _PROFILE_JSON_SCHEMA},
+                            **json_schema_format(_PROFILE_JSON_SCHEMA, "persona_profile"),  # enforced 2026-10-12+
                         )
                         raw = (resp.choices[0].message.content or "").strip()
                         prof = " ".join(str(json.loads(raw[raw.find("{") : raw.rfind("}") + 1])["profile"]).split())
@@ -1423,7 +1426,7 @@ def content_call(
                 seed=(seed + attempt) % (2**31),
                 temperature=temp,
                 max_tokens=max_tokens,  # GPT-OSS reasons before answering
-                extra_body={"guided_json": content_json_schema(spec)},
+                **json_schema_format(content_json_schema(spec), "content_prompt"),  # enforced 2026-10-12+
                 **effort_kw,
             )
             usage = getattr(resp, "usage", None)
