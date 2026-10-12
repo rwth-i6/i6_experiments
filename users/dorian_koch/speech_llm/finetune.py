@@ -522,6 +522,26 @@ def _render_personaplex_lora_config(
         perf = f"text_pad_weight: {_yaml_float(hp['text_pad_weight'])}\n" + perf
     if hp.get("user_semantic_weight") is not None:
         perf = f"user_semantic_weight: {_yaml_float(hp['user_semantic_weight'])}\n" + perf
+    # The user-text head (2026-10-12, ablation ab2_usertext; ``train_data_common.user_text_loss``): its loss weight, and
+    # optionally its target delay (frames) and LR. Rendered ONLY when set (absent = off, every earlier config
+    # byte-identical); the launcher refuses the delay / LR without the weight.
+    if hp.get("user_text_loss_weight") is not None:
+        if float(hp["user_text_loss_weight"]) <= 0:
+            raise ValueError(f"{who}: user_text_loss_weight must be > 0, got {hp['user_text_loss_weight']!r}")
+        if full or not hp.get("swap_channels"):
+            raise ValueError(f"{who}: user_text_loss_weight needs LoRA and a two-sided (swap_channels) codes corpus")
+        ut = f"user_text_loss_weight: {_yaml_float(hp['user_text_loss_weight'])}\n"
+        if hp.get("user_text_delay_frames") is not None:
+            ut += f"user_text_delay_frames: {int(hp['user_text_delay_frames'])}\n"
+        if hp.get("user_text_lr") is not None:
+            ut += f"user_text_lr: {_yaml_float(hp['user_text_lr'])}\n"
+        if hp.get("user_text_head_warmup_steps"):
+            ut += f"user_text_head_warmup_steps: {int(hp['user_text_head_warmup_steps'])}\n"
+        perf = ut + perf
+    elif any(hp.get(k) for k in ("user_text_delay_frames", "user_text_lr", "user_text_head_warmup_steps")):
+        raise ValueError(
+            f"{who}: user_text_delay_frames / user_text_lr / user_text_head_warmup_steps without user_text_loss_weight"
+        )
     # AdamW decoupled weight decay (2026-09-25, ablation ab2_wd): rendered ONLY when set; absent = 0.0 in the
     # launcher, so every earlier config is byte-identical.
     if hp.get("weight_decay") is not None:

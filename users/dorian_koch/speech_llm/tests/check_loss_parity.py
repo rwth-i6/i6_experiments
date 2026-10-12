@@ -259,11 +259,14 @@ def check_ppx_loss_weight_wiring():
         f"the launcher's PAD default must be paper_weight_loss's ({default})"
     )
     for name, src in (("launcher", launcher), ("heldout_loss", (ppx / "heldout_loss.py").read_text())):
-        calls = src.count("personaplex_loss(\n")
+        # the keywords INSIDE each personaplex_loss(...) call (the user-text head's add_user_text_loss call passes
+        # text_pad_weight too, 2026-10-12)
+        blocks = re.findall(r"personaplex_loss\(\n(.*?)\n\s*\)", src, re.S)
+        calls = len(blocks)
+        assert calls == src.count("personaplex_loss(\n"), f"{name}: a personaplex_loss call the block regex missed"
         for kw in ("text_pad_weight=text_pad_weight", "user_semantic_weight=user_semantic_weight"):
-            assert calls >= 1 and src.count(kw) == calls, (
-                f"{name}: {calls} personaplex_loss calls, {src.count(kw)} pass {kw}"
-            )
+            n = sum(kw in b for b in blocks)
+            assert calls >= 1 and n == calls, f"{name}: {calls} personaplex_loss calls, {n} pass {kw}"
     from moshi_family.personaplex.heldout_loss import loss_settings
 
     s = loss_settings({})
