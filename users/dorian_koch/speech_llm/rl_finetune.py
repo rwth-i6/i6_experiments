@@ -76,6 +76,9 @@ _SELFPLAY_EXTRA_KEYS = ("advantage_split", "scale_std", "brevity_weight", "garbl
 # ramble_weight: main() reads those only for PersonaPlex or knowledge, so rendering them would trip report_unread_config.
 _INTERACTIVITY_EXTRA_KEYS = ("log_every", "skip_zero_signal", "probe_every", "loss_norm", "lr_schedule",
                              "advantage_split", "scale_std")  # fmt: skip
+# every run kind (moshi_family.rl.launcher main() -> apply_rollout_text_sampler): the rollout TEXT sampler, "released"
+# (T 0.7 / top-k 25, every run before 2026-10-12) or "t1" (T 1, no top-k = the trained pi; rl_alignment.md)
+_COMMON_EXTRA_KEYS = ("rollout_text_sampler",)
 
 
 def _init_defaults() -> dict:
@@ -218,6 +221,7 @@ seed: {job.seed}
                 else _render_interactivity_keys(job)
             )
         )
+        + _render_non_default(job, _COMMON_EXTRA_KEYS)
         + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
         + render_train_perf_keys(
             # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
@@ -402,6 +406,8 @@ class RLFinetune(Job):
         "selfplay_partner": None,
         # multi-task GRPO (2026-10-03): excluded at None
         "multitask": None,
+        # rollout text sampler (2026-10-12, moshi_family.rl.ppx_rollout.set_text_sampler): excluded at "released"
+        "rollout_text_sampler": "released",
     }
 
     @classmethod
@@ -490,6 +496,7 @@ class RLFinetune(Job):
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
         multitask: dict | None = None,
+        rollout_text_sampler: str = "released",
         card: dict | None = None,
     ):
         """Knowledge GRPO (``segment_source="knowledge"``, PersonaPlex or base Moshi): ``knowledge_questions`` (an
@@ -731,6 +738,10 @@ class RLFinetune(Job):
         # "fixed" = the probes' own wordings; "varied" = 10 training paraphrases per task (rl.aux_tasks, 2026-10-12)
         assert aux_prompt_set in ("fixed", "varied") and (aux_prompt_set == "fixed" or aux_tasks), aux_prompt_set
         self.aux_prompt_set = aux_prompt_set
+        # the rollout TEXT sampler: "released" = the model's own (T 0.7 / top-k 25), "t1" = T 1 without top-k / top-p,
+        # i.e. the pi GRPO trains (on-policy; Kolibri tech report). Rollouts and in-loop probes; audio unchanged.
+        assert rollout_text_sampler in ("released", "t1"), rollout_text_sampler
+        self.rollout_text_sampler = rollout_text_sampler
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples

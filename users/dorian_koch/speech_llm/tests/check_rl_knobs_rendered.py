@@ -82,6 +82,14 @@ def unit():
         text = write_config(selfplay(**sp), tmp)
         for line in ("advantage_split: true", "scale_std: false", "brevity_weight: 0.0", "garbled_weight: 0.5"):
             assert f"\n{line}\n" in text, line
+    # the rollout text sampler (every run kind): hash-neutral at "released", re-hashes at "t1"; absent at "released",
+    # rendered at "t1"
+    sid = rl()._sis_id()
+    assert rl(rollout_text_sampler="released")._sis_id() == sid != rl(rollout_text_sampler="t1")._sis_id()
+    for job_fn in (rl, selfplay):
+        assert "rollout_text_sampler" not in rf._render_rl_config(job_fn())
+        with tempfile.TemporaryDirectory() as tmp:
+            assert '\nrollout_text_sampler: "t1"\n' in write_config(job_fn(rollout_text_sampler="t1"), tmp)
     # a knob the run kind's launcher branch does not read: base-Moshi interactivity ignores the knowledge reward weights
     with tempfile.TemporaryDirectory() as tmp:
         raises(lambda: write_config(rl(brevity_weight=0.0), tmp), "brevity_weight")
@@ -89,7 +97,9 @@ def unit():
         raises(lambda: write_config(rl(n_probe=8), tmp), "n_probe")
     # mutants: one render line dropped -> the real write_config refuses
     for attr, drop, job_fn in (("_SELFPLAY_EXTRA_KEYS", "garbled_weight", lambda: selfplay(**sp)),
-                               ("_INTERACTIVITY_EXTRA_KEYS", "lr_schedule", lambda: rl(**inter))):  # fmt: skip
+                               ("_INTERACTIVITY_EXTRA_KEYS", "lr_schedule", lambda: rl(**inter)),
+                               ("_COMMON_EXTRA_KEYS", "rollout_text_sampler",
+                                lambda: rl(rollout_text_sampler="t1"))):  # fmt: skip
         keep = getattr(rf, attr)
         setattr(rf, attr, tuple(k for k in keep if k != drop))
         try:
@@ -97,7 +107,7 @@ def unit():
                 raises(lambda: write_config(job_fn(), tmp), drop)
         finally:
             setattr(rf, attr, keep)
-    print("check_rl_knobs_rendered: unit ok (defaults byte-stable, knobs rendered, 2 mutants + 2 misuses caught)")
+    print("check_rl_knobs_rendered: unit ok (defaults byte-stable, knobs rendered, 3 mutants + 2 misuses caught)")
 
 
 def graph():
