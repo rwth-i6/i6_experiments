@@ -206,11 +206,25 @@ class MTRDuplexInference(Job):
         run_with_optional_retrieval(self, _drive)
 
 
+#: ``MTRDuplexEval.code_version`` per dimension (run()-side ASR changes; 1 = excluded = the original hash).
+#: conv_features 2 (2026-10-12): the CF runner uses the benchmark's ASR settings (``mtr.upstream_asr.TRANSCRIBE_KW``:
+#: beam 5, best_of 5, temperature fallback) instead of greedy ``language="en", vad=False``. IF/Safety/DQ already did.
+MTR_EVAL_CODE_VERSION = {"conv_features": 2}
+#: ``MTRJudge.code_version`` per dimension. dialogue_quality 2 (2026-10-12): the judge sees the transcript exactly as
+#: upstream formats it (the repr of ``merge_stereo_segments``' ``(lines, texts)`` tuple, see ``_dq_upstream_transcript``).
+MTR_JUDGE_CODE_VERSION = {"dialogue_quality": 2}
+
+
 class MTRDuplexEval(Job):
     """Score a submission dir: ASR (whisper-timestamped) + the benchmark's own scoring functions
     (``mtr.eval_runner``, run in ``mtr_eval_venv``) -> ``scores.json``. Judge-free for the
     conv-features heuristic scenarios; the GPT-4o dimensions add ``--judge`` + a key later.
+
+    ``code_version`` (excluded at 1) re-runs the ASR + scoring over the SAME submission (the inference job is
+    untouched) when the run()-side protocol changes; :data:`MTR_EVAL_CODE_VERSION` holds the current one.
     """
+
+    __sis_hash_exclude__ = {"code_version": 1}
 
     def __init__(
         self,
@@ -223,7 +237,15 @@ class MTRDuplexEval(Job):
         scenario: str = "smooth",
         whisper_model: str = "medium.en",
         rqmt: dict | None = None,
+        code_version: int = 1,
     ):
+        need = MTR_EVAL_CODE_VERSION.get(dimension, 1)
+        if code_version != need:
+            raise ValueError(
+                f"MTRDuplexEval({dimension}): code_version {code_version} != {need}; the runner only implements "
+                f"the current protocol (MTR_EVAL_CODE_VERSION)"
+            )
+        self.code_version = code_version
         self.submission_dir = submission_dir
         self.mtr_data = mtr_data
         self.mtr_code = mtr_code
@@ -345,6 +367,28 @@ Only output the final score (0, 0.5, 1, 1.5, ..., 5)
 """
 
 
+# One line of upstream merge_stereo_segments (= our dq_asr_runner.merge_segments).
+_DQ_LINE = re.compile(r"(model|user) speaker, start/end time: \(-?\d+\.\d\d, -?\d+\.\d\d\), content: (.*)", re.S)
+
+
+def _dq_upstream_transcript(transcript: str) -> str:
+    """The DQ transcript exactly as the benchmark's judge receives it.
+
+    ``gpt4o_mark_in_turn_GT_condor.main`` passes ``merge_stereo_segments(...)`` -- which returns a ``(lines, texts)``
+    TUPLE -- straight into ``evaluate_turn_segment``'s ``f"{transcript}\\n\\n{prompt}"``, so GPT-4o reads the tuple's
+    repr: the joined lines with escaped newlines, then the list of segment texts. We rebuild ``texts`` from our joined
+    lines (each ends in ``content: <text>``; a line that does not parse raises) and format the tuple the same way.
+    Before 2026-10-12 our judge got the joined lines only (``MTRJudge`` code_version 1)."""
+    lines = transcript.split("\n") if transcript else []
+    texts = []
+    for ln in lines:
+        m = _DQ_LINE.fullmatch(ln)
+        if m is None:
+            raise RuntimeError(f"DQ transcript line is not in merge_stereo_segments format: {ln[:120]!r}")
+        texts.append(m.group(2))
+    return f"{(transcript, texts)}"
+
+
 #: Judge requests MTRJudge keeps in flight against its own vLLM server. Run-side (not hashed).
 MTR_JUDGE_CONCURRENCY = 64
 #: Transport retries per judge request (``_create``), backoff 2, 4, 8, ... s. Run-side (not hashed).
@@ -401,7 +445,7 @@ def _judge_row(client, judge_model: str, dimension: str, row: dict):
         m = re.search(r"[01]", text)  # safety parse: first 0/1
         return float(m.group()) if m else None
     else:  # dialogue_quality
-        content = f"{row['transcript']}\n\n{_dq_prompt(row['seg_start'], row['seg_end'])}"
+        content = f"{_dq_upstream_transcript(row['transcript'])}\n\n{_dq_prompt(row['seg_start'], row['seg_end'])}"
         resp = _create(
             client,
             model=judge_model,
@@ -423,7 +467,11 @@ class MTRJudge(Job):
 
     Aggregates the mean 0/1 rate: IF -> instruction-following rate (higher better); Safety -> harmful
     rate (lower better; ``safe_rate = 1 - harmful``). Rows the judge couldn't parse (-1) are dropped.
+
+    ``code_version`` (excluded at 1): see :data:`MTR_JUDGE_CODE_VERSION`.
     """
+
+    __sis_hash_exclude__ = {"code_version": 1}
 
     def __init__(
         self,
@@ -432,9 +480,17 @@ class MTRJudge(Job):
         dimension: str,
         judge: str = "vllm",
         judge_model: str = "openai/gpt-oss-120b",
+        code_version: int = 1,
     ):
         assert dimension in ("instruction_following", "safety", "dialogue_quality")
         assert judge in ("vllm", "gpt4o")
+        need = MTR_JUDGE_CODE_VERSION.get(dimension, 1)
+        if code_version != need:
+            raise ValueError(
+                f"MTRJudge({dimension}): code_version {code_version} != {need}; _judge_row only implements the "
+                f"current protocol (MTR_JUDGE_CODE_VERSION)"
+            )
+        self.code_version = code_version
         self.asr_results = asr_results
         self.dimension = dimension
         self.judge = judge
@@ -567,6 +623,7 @@ def mtr_benchmark_py(
         eval_venv=eval_venv,
         dimension=dimension,
         scenario=scenario,
+        code_version=MTR_EVAL_CODE_VERSION.get(dimension, 1),
     )
     tag = f"{backend_name}/{dimension}_{scenario}" if dimension == "conv_features" else f"{backend_name}/{dimension}"
     tk.register_output(f"benchmark/mtr/{tag}/submission", inf.out_dir)
@@ -580,6 +637,7 @@ def mtr_benchmark_py(
         dimension=dimension,
         judge=judge,
         judge_model=judge_model,
+        code_version=MTR_JUDGE_CODE_VERSION.get(dimension, 1),
     )
     tk.register_output(f"benchmark/mtr/{tag}/asr", ev.out_file)
     tk.register_output(f"benchmark/mtr/{tag}/scores", judged.out_file)
