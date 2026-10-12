@@ -55,15 +55,15 @@ from speech_llm.full_duplex.moshi_family.moshi_engine import (  # noqa: E402
 SR = 24000
 N_CLIPS = 5
 BATCH = 2
-#: Token ids the decoder must drop (pad / epad), mirroring run_pairs' own filter.
-DROPPED = (0, 3)
+#: Token ids the decoder must drop (EPAD 0, BOS 1, EOS 2, PAD 3: text_trace.decode_monologue, which run_pairs uses).
+DROPPED = (0, 1, 2, 3)
 
 
 class _FakeTokenizer:
     """Maps a token id to a piece, with the sentencepiece word-boundary marker on word starts."""
 
     def id_to_piece(self, t: int) -> str:
-        return {1: "▁the", 2: "▁answer", 4: "▁is", 5: "▁paris"}.get(t, "?")
+        return {6: "▁the", 7: "▁answer", 4: "▁is", 5: "▁paris"}.get(t, "?")
 
 
 class _FakeState:
@@ -85,7 +85,8 @@ class _FakeState:
         bs = in_pcms.shape[0]
         out = []
         for b in range(bs):
-            toks = torch.tensor([1, 2, 0, 4, 3, 5 if b % 2 == 0 else 1])
+            # word ids >= 4: 1 / 2 are the tokenizer's <s> / </s>, dropped like PAD / EPAD (check_monologue_decode)
+            toks = torch.tensor([6, 7, 0, 4, 3, 5 if b % 2 == 0 else 6])
             audio = torch.zeros(1, SR // 2)
             audio[0, -100:] = 0.5  # non-silent tail -> "possibly truncated"
             out.append((toks, audio))
