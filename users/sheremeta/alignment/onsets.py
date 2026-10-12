@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 _WORD_MARK = "▁"  # word-start marker used by SentencePiece
 
@@ -20,6 +20,28 @@ def path_to_token_onsets(path: List[int], blank: int) -> List[Tuple[int, int]]:
             out.append((t, int(tok)))
         prev = tok
     return out
+
+
+def path_to_word_spans(path: Sequence[int], blank: int, pieces: Sequence[str]) -> List[Tuple[int, int]]:
+    """
+    Reads the frames of every word off a frame-level CTC path.
+
+    :param path: the label or the blank of every frame
+    :param blank: the blank index
+    :param pieces: the SentencePiece piece of every label
+    :return: the first frame of every word and the frame after its last one
+    """
+    spans: List[Tuple[int, int]] = []
+    prev = blank
+    for frame, label in enumerate(path):
+        if label != blank:
+            # a new token opens a word when its piece starts one, the first token of the path always does
+            if label != prev and (pieces[label].startswith(_WORD_MARK) or not spans):
+                spans.append((frame, frame + 1))
+            else:
+                spans[-1] = (spans[-1][0], frame + 1)
+        prev = label
+    return spans
 
 
 def _is_pseudo_word(word: str) -> bool:

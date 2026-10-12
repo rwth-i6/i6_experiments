@@ -554,6 +554,64 @@ class DatasetSeqTagsJob(Job):
                 f.write(f"{t}\n")
 
 
+# word boundaries of a frame-level CTC alignment
+class CtcAlignmentHdfToWordBoundariesJob(Job):
+    """Start and end in seconds of every word of a frame-level CTC alignment."""
+
+    __sis_version__ = 1
+
+    def __init__(
+        self, *, alignment_hdf: tk.Path, spm_file: tk.Path, blank: int, frame_rate: float, returnn_root: tk.Path
+    ):
+        """
+        :param alignment_hdf: per sequence the label or the blank of every frame
+        :param spm_file: the SentencePiece model of the labels
+        :param blank: the blank index
+        :param frame_rate: frames per second
+        :param returnn_root: the RETURNN checkout that reads and writes the HDFs
+        """
+        super().__init__()
+        self.alignment_hdf = alignment_hdf
+        self.spm_file = spm_file
+        self.blank = int(blank)
+        self.frame_rate = float(frame_rate)
+        self.returnn_root = returnn_root
+        self.out_hdf = self.output_path("word_boundaries.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1})
+
+    def run(self):
+        import sys
+
+        import numpy as np
+        import sentencepiece as spm
+
+        sys.path.insert(0, self.returnn_root.get_path())
+        from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
+
+        from i6_experiments.users.sheremeta.alignment.onsets import path_to_word_spans
+
+        # the piece of every label, which tells where a word starts
+        sp = spm.SentencePieceProcessor()
+        sp.Load(self.spm_file.get_path())
+        pieces = [sp.IdToPiece(label) for label in range(sp.GetPieceSize())]
+
+        alignment = HDFDataset([self.alignment_hdf.get_path()])
+        alignment.initialize()
+        alignment.init_seq_order(epoch=1)
+
+        # a word starts with its first frame and ends with the frame after its last one
+        writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
+        for i in range(alignment.num_seqs):
+            alignment.load_seqs(i, i + 1)
+            path: List[int] = np.asarray(alignment.get_data(i, "data"), dtype=np.int64).reshape(-1).tolist()
+            spans = path_to_word_spans(path, self.blank, pieces)
+            seconds = np.asarray(spans, dtype=np.float32).reshape(1, len(spans), 2) / np.float32(self.frame_rate)
+            writer.insert_batch(seconds, seq_len=[len(spans)], seq_tag=[alignment.get_tag(i)])
+        writer.close()
+
+
 # signed offsets of an alignment against a reference word store
 class WordAlignmentOffsetJob(Job):
     """Signed offsets of the word boundaries of an alignment against a reference word store, positive is late."""
