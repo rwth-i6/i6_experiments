@@ -653,13 +653,16 @@ def mrqa_benchmark_py(
     spec = mrqa_backend(speech_backend)
     data = mrqa_data(n_per_subset, subsets)
     rag = spec.retrieval_llm is not None
-    if rag:
+    # BackendSpec.single_shard (cloud / RAG / oracle); mrqa_backend already refuses cloud and oracle backends, so this is
+    # the RAG rule for every backend MRQA accepts
+    single = spec.single_shard
+    if single:
         batch_size = 1
     name = (tag if n_per_subset is None else f"{tag}_n{n_per_subset}") + subsets_suffix(subsets)
     if inference_seed != KNOWLEDGE_INFERENCE_SEED:
         name += f"_iseed{inference_seed}"  # a decoding replicate; the default seed keeps the historical names
     if num_shards is None:
-        num_shards = 1 if rag or n_per_subset is not None else 2
+        num_shards = 1 if single or n_per_subset is not None else 2
     inference_venv = spec.inference_venv() if spec.inference_venv else moshi_venv()
     moshi_out = sharded_knowledge_inference(
         num_shards=num_shards,

@@ -85,6 +85,13 @@ class BackendSpec:
     # the knowledge pipeline threads ``data`` in as ``--oracle_dataset`` (KAME).
     needs_oracle_dataset: bool = False
 
+    @property
+    def single_shard(self) -> bool:
+        """One inference shard at batch 1: a cloud realtime API (one login-node mini_task), a RAG backend (one shared
+        vLLM retrieval server; the MoshiRAG worker asserts batch 1) or a KAME oracle backend have no sharded / batched
+        path. The ONE copy of this rule (knowledge, VoiceBench, MRQA read it). A property, not a field: not hashed."""
+        return self.cloud_api or self.retrieval_llm is not None or self.needs_oracle_dataset
+
 
 # The default backend. Its callables double as the jobs' default arguments, so existing
 # Moshi runs keep their exact Sisyphus hash (these defaults are hash-excluded; only a

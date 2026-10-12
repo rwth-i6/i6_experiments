@@ -237,7 +237,7 @@ def _inference_out_dir(
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import moshi_venv
 
     inference_venv = speech_backend.inference_venv() if speech_backend.inference_venv else moshi_venv()
-    single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None or speech_backend.needs_oracle_dataset
+    single = speech_backend.single_shard
     if single:
         batch_size = 1
     _bs_kw = {} if batch_size is None else {"batch_size": batch_size}
