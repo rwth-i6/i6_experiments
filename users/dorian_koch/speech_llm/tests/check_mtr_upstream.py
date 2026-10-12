@@ -8,19 +8,23 @@ lines, while upstream passes ``merge_stereo_segments``' ``(lines, texts)`` tuple
 the tuple's repr. Both went unnoticed because the comments said "verbatim". User 2026-10-12: "mtr: align with
 upstream ... we should use their config."
 
-Reads the vendored ``Eval/`` (``output/mtr/code``, the ``MTRCodeDownload`` clone) and drives our real code:
-  [1] the keywords of each upstream ``whisper.transcribe`` call (``asr_incremental_save`` for CF/IF/Safety,
+Both protocols stay runnable (``mtr_duplexbench.MTR_PROTOCOL``, per-job ``code_version``): v2 = upstream's config,
+v1 = our original calls (every published CF/DQ number; the v2 re-run is HELD by the user, 2026-10-12). Reads the
+vendored ``Eval/`` (``output/mtr/code``, the ``MTRCodeDownload`` clone) and drives our real code:
+  [1] the keywords of each upstream ``whisper.transcribe`` call (``asr_incremental_save`` for CF v2/IF/Safety,
       ``gpt4o_mark_in_turn_GT_condor`` for DQ) equal what ``eval_runner._asr_channel``, ``asr_runner._asr_text`` and
-      ``dq_asr_runner._segments`` pass to a recording fake ``whisper`` (no extra keyword, same positional count),
-      and every upstream ``load_model`` names our whisper model (also ``MTRDuplexEval``'s default);
+      ``dq_asr_runner._segments`` pass to a recording fake ``whisper`` (no extra keyword, same positional count);
+      CF v1 passes exactly the pinned original call; every upstream ``load_model`` names our whisper model;
   [2] judge requests: upstream's ``evaluate_instruction_following_with_gpt4o`` / ``evaluate_safety_with_gpt4o`` /
-      ``evaluate_turn_segment`` (exec'd from the vendored source with a recording fake client, fed upstream's own
-      ``merge_stereo_segments`` output) send the same messages and sampling arguments as ``mtr_duplexbench._judge_row``
-      fed our ``dq_asr_runner.merge_segments`` output -- everything but the ``model`` name (our judge swap);
+      ``evaluate_turn_segment`` (exec'd from the vendored source with a recording fake client) send the same messages
+      and sampling arguments as ``mtr_duplexbench._judge_row`` at v1 and v2 -- all but the ``model`` name (our judge
+      swap). DQ v2's reference is fed upstream's own ``merge_stereo_segments`` tuple, DQ v1's our joined lines
+      (``dq_asr_runner.merge_segments``);
   [3] the parse: on the same replies, upstream's parse and ours give the same score.
 
-CAN FAIL: the self-test re-runs [1]-[3] on mutants -- the pre-fix CF call, ``beam_size`` 1 in the shared settings,
-DQ ``vad`` False, the pre-fix DQ judge content (joined lines only), IF temperature 0.0 -- each must be flagged.
+CAN FAIL: the self-test re-runs [1]-[3] on mutants -- CF v2 = the old call, CF v1 silently on the v2 settings,
+``beam_size`` 1 in the shared settings, DQ ``vad`` False, DQ v2 fed the joined lines, DQ v1 fed the v2 tuple,
+IF temperature 0.0 -- each must be flagged.
 
 Run from the setup root, no GPU, ~5 s:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mtr_upstream.py
@@ -138,6 +142,9 @@ def _ours(mut: dict) -> dict:
 
 
 # ---------------------------------------------------------------- checks
+# The CF call every published (protocol 1) number used, pinned from full_duplex a94f2957 (2026-06-29).
+V1_CF_KW = dict(language="en", vad=False, verbose=None)
+
 SEG_L = [  # left = model (DQ layout)
     {"timestamp": (0.5, 2.25), "text": " Hello, how are you?"},
     {"timestamp": (7.0, 9.875), "text": " I think it's \"fine\" -- isn't it?"},
@@ -160,27 +167,30 @@ def check(ours: dict) -> list[str]:
         sf.write(wav, np.zeros((16000, 2), np.float32), 16000)
         drives = []
         fw = FakeWhisper()
-        ours["eval_runner"]._asr_channel(fw, "M", wav, 1)
-        drives.append(("eval_runner._asr_channel (CF)", fw, n_cf, kw_cf))
+        ours["eval_runner"]._asr_channel(fw, "M", wav, 1, 2)
+        drives.append(("eval_runner._asr_channel (CF v2)", fw, n_cf, kw_cf, "upstream"))
+        fw = FakeWhisper()
+        ours["eval_runner"]._asr_channel(fw, "M", wav, 1, 1)
+        drives.append(("eval_runner._asr_channel (CF v1)", fw, 2, V1_CF_KW, "the v1 call"))
         fw = FakeWhisper()
         ours["asr_runner"]._asr_text(fw, "M", wav, 1, 0.0)
-        drives.append(("asr_runner._asr_text (IF/Safety)", fw, n_cf, kw_cf))
+        drives.append(("asr_runner._asr_text (IF/Safety)", fw, n_cf, kw_cf, "upstream"))
         fw = FakeWhisper()
         ours["dq_asr_runner"]._segments(fw, "M", np.zeros(16000, np.float32))
-        drives.append(("dq_asr_runner._segments (DQ)", fw, n_dq, kw_dq))
-    for what, fw, n_up, kw_up in drives:
+        drives.append(("dq_asr_runner._segments (DQ)", fw, n_dq, kw_dq, "upstream"))
+    for what, fw, n_up, kw_up, ref in drives:
         (args, kw), *rest = fw.calls
         if rest:
             bad.append(f"{what}: {len(fw.calls)} transcribe calls for one channel")
         if len(args) != n_up:
-            bad.append(f"{what}: {len(args)} positional args, upstream {n_up}")
+            bad.append(f"{what}: {len(args)} positional args, {ref} {n_up}")
         if kw != kw_up:
             diff = {
                 k: (kw.get(k, "<absent>"), kw_up.get(k, "<absent>"))
                 for k in set(kw) | set(kw_up)
                 if kw.get(k, "<a>") != kw_up.get(k, "<a>")
             }
-            bad.append(f"{what}: transcribe keywords differ from upstream (ours, upstream): {diff}")
+            bad.append(f"{what}: transcribe keywords differ from {ref} (ours, {ref}): {diff}")
     models = _up_load_models()
     from mtr import upstream_asr
 
@@ -213,7 +223,7 @@ def check(ours: dict) -> list[str]:
         (
             "instruction_following",
             ["1", "0", "Answer: 1", "I'd say 0.", "yes"],
-            lambda c: (
+            lambda c, v: (
                 up_if.__setitem__("client", c) or up_if["evaluate_instruction_following_with_gpt4o"](user, model_text)
             ),
             lambda r: r.get("instruction_following_score"),
@@ -222,25 +232,29 @@ def check(ours: dict) -> list[str]:
         (
             "safety",
             ["0", "1", " 1\n", "Score: 0", "none"],
-            lambda c: up_sf.__setitem__("client", c) or up_sf["evaluate_safety_with_gpt4o"](model_text),
+            lambda c, v: up_sf.__setitem__("client", c) or up_sf["evaluate_safety_with_gpt4o"](model_text),
             lambda r: None if r == -1 else r,
             {"user_text": user, "model_text": model_text},
         ),
         (
             "dialogue_quality",
             ["3.5", "4", "Score: 2.5", "5.0", "n/a"],
-            lambda c: (
-                up_dq.__setitem__("client", c) or up_dq["evaluate_turn_segment"](dq_up_transcript, seg_start, seg_end)
+            # v2: upstream's own (lines, texts) tuple; v1: upstream's prompt around our joined lines
+            lambda c, v: (
+                up_dq.__setitem__("client", c)
+                or up_dq["evaluate_turn_segment"](
+                    dq_up_transcript if v == 2 else dq_ours_transcript, seg_start, seg_end
+                )
             ),
             lambda r: r,
             {"transcript": dq_ours_transcript, "seg_start": seg_start, "seg_end": seg_end},
         ),
     ]
-    for dim, replies, run_up, up_score, row in cases:
+    for (dim, replies, run_up, up_score, row), v in [(c, v) for c in cases for v in (1, 2)]:
         for reply in replies:
             cu, co = FakeClient(reply), FakeClient(reply)
-            s_up = up_score(run_up(cu))
-            s_ours = job._judge_row(co, "JUDGE", dim, row)
+            s_up = up_score(run_up(cu, v))
+            s_ours = job._judge_row(co, "JUDGE", dim, row, v)
             (ku,), (ko,) = cu.requests, co.requests
             ku = {k: v for k, v in ku.items() if k != "model"}
             ko = {k: v for k, v in ko.items() if k != "model"}
@@ -250,30 +264,39 @@ def check(ours: dict) -> list[str]:
                     for k in set(ku) | set(ko)
                     if ko.get(k, "<a>") != ku.get(k, "<a>")
                 }
-                bad.append(f"judge {dim}: request differs from upstream (ours, upstream): {str(diff)[:300]}")
+                bad.append(f"judge {dim} v{v}: request differs from reference (ours, ref): {str(diff)[:300]}")
                 break
             if (None if s_up is None else float(s_up)) != s_ours:
-                bad.append(f"judge {dim}: reply {reply!r} -> upstream {s_up!r}, ours {s_ours!r}")
+                bad.append(f"judge {dim} v{v}: reply {reply!r} -> upstream {s_up!r}, ours {s_ours!r}")
     return bad
 
 
 MUTATIONS = [
     (
         "eval_runner.py",
-        (
-            "whisper.transcribe(model, ch, **TRANSCRIBE_KW)",
-            'whisper.transcribe(model, ch, language="en", vad=False, verbose=None)',
-        ),
-        "CF runner back to the pre-2026-10-12 call",
-        "eval_runner._asr_channel",
+        ("    2: TRANSCRIBE_KW,", '    2: dict(language="en", vad=False, verbose=None),'),
+        "CF v2 = the old greedy call",
+        "eval_runner._asr_channel (CF v2)",
+    ),
+    (
+        "eval_runner.py",
+        ('    1: dict(language="en", vad=False, verbose=None),', "    1: TRANSCRIBE_KW,"),
+        "CF v1 silently runs the v2 settings",
+        "eval_runner._asr_channel (CF v1)",
     ),
     (None, ("TRANSCRIBE_KW", "beam_size", 1), "shared settings beam_size 1", "asr_runner._asr_text"),
     (None, ("DQ_TRANSCRIBE_KW", "vad", False), "DQ vad False", "dq_asr_runner._segments"),
     (
         "mtr_duplexbench.py",
-        ("{_dq_upstream_transcript(row['transcript'])}", "{row['transcript']}"),
-        "DQ judge sees the joined lines only (pre-fix)",
-        "judge dialogue_quality",
+        ("2: _dq_upstream_transcript}", "2: lambda t: t}"),
+        "DQ judge v2 sees the joined lines only",
+        "judge dialogue_quality v2",
+    ),
+    (
+        "mtr_duplexbench.py",
+        ("{1: lambda t: t,", "{1: _dq_upstream_transcript,"),
+        "DQ judge v1 silently gets the v2 input",
+        "judge dialogue_quality v1",
     ),
     (
         "mtr_duplexbench.py",
@@ -289,7 +312,7 @@ def main():
     upstream_asr = importlib.import_module("mtr.upstream_asr")
     bad = check(_ours({}))
     failed = bool(bad)
-    print(f"[{'ok' if not bad else 'FAIL'}] ASR settings, judge requests and parses equal upstream ({UP})")
+    print(f"[{'ok' if not bad else 'FAIL'}] v2 ASR/judge = upstream, v1 = the original calls ({UP})")
     for b in bad:
         print(f"   - {b}")
     for f, mut, what, expect in MUTATIONS:
@@ -307,7 +330,7 @@ def main():
         print(f"[{'ok' if got else 'FAIL'}] can fail: {what:46s} -> {(got or ['NOT flagged'])[0][:110]}")
     if failed:
         sys.exit(1)
-    print("\nour MTR ASR + judge calls equal the benchmark's")
+    print("\nMTR protocol 2 equals the benchmark's calls; protocol 1 reproduces the original ones")
 
 
 if __name__ == "__main__":

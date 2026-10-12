@@ -206,13 +206,20 @@ class MTRDuplexInference(Job):
         run_with_optional_retrieval(self, _drive)
 
 
-#: ``MTRDuplexEval.code_version`` per dimension (run()-side ASR changes; 1 = excluded = the original hash).
-#: conv_features 2 (2026-10-12): the CF runner uses the benchmark's ASR settings (``mtr.upstream_asr.TRANSCRIBE_KW``:
-#: beam 5, best_of 5, temperature fallback) instead of greedy ``language="en", vad=False``. IF/Safety/DQ already did.
-MTR_EVAL_CODE_VERSION = {"conv_features": 2}
-#: ``MTRJudge.code_version`` per dimension. dialogue_quality 2 (2026-10-12): the judge sees the transcript exactly as
-#: upstream formats it (the repr of ``merge_stereo_segments``' ``(lines, texts)`` tuple, see ``_dq_upstream_transcript``).
-MTR_JUDGE_CODE_VERSION = {"dialogue_quality": 2}
+#: The MTR scoring protocol the graph declares. 1 = what every published MTR number used (the original hashes): CF ASR
+#: greedy ``language="en", vad=False`` and the DQ judge fed the joined transcript lines -- two KNOWN deviations from the
+#: benchmark. 2 = upstream's config: CF ASR = ``mtr.upstream_asr.TRANSCRIBE_KW`` (beam 5, best_of 5, temperature
+#: fallback, as IF/Safety/DQ already were) and the DQ judge fed the repr of ``merge_stereo_segments``' ``(lines, texts)``
+#: tuple (``_dq_upstream_transcript``). Setting 2 re-hashes 40 CF ``MTRDuplexEval`` + 10 DQ ``MTRJudge`` (ASR + judge
+#: over the saved submissions, ~27-47 GPU-h, no inference). HELD at 1 by the user (2026-10-12: "that much GPU-h is too
+#: much for a benchmark we rarely use; hold off and document").
+MTR_PROTOCOL = 1
+#: ``code_version`` per job and dimension (run()-side; 1 = hash-excluded = the original hash) under ``MTR_PROTOCOL``.
+MTR_EVAL_CODE_VERSION = {"conv_features": 2} if MTR_PROTOCOL >= 2 else {}
+MTR_JUDGE_CODE_VERSION = {"dialogue_quality": 2} if MTR_PROTOCOL >= 2 else {}
+#: The code_versions each job's run() implements (both protocols stay runnable; anything else is refused).
+_EVAL_VERSIONS = {"conv_features": (1, 2)}
+_JUDGE_VERSIONS = {"dialogue_quality": (1, 2)}
 
 
 class MTRDuplexEval(Job):
@@ -221,7 +228,7 @@ class MTRDuplexEval(Job):
     conv-features heuristic scenarios; the GPT-4o dimensions add ``--judge`` + a key later.
 
     ``code_version`` (excluded at 1) re-runs the ASR + scoring over the SAME submission (the inference job is
-    untouched) when the run()-side protocol changes; :data:`MTR_EVAL_CODE_VERSION` holds the current one.
+    untouched) when the run()-side protocol changes; :data:`MTR_PROTOCOL` / :data:`MTR_EVAL_CODE_VERSION`.
     """
 
     __sis_hash_exclude__ = {"code_version": 1}
@@ -239,11 +246,10 @@ class MTRDuplexEval(Job):
         rqmt: dict | None = None,
         code_version: int = 1,
     ):
-        need = MTR_EVAL_CODE_VERSION.get(dimension, 1)
-        if code_version != need:
+        if code_version not in _EVAL_VERSIONS.get(dimension, (1,)):
             raise ValueError(
-                f"MTRDuplexEval({dimension}): code_version {code_version} != {need}; the runner only implements "
-                f"the current protocol (MTR_EVAL_CODE_VERSION)"
+                f"MTRDuplexEval({dimension}): code_version {code_version} not implemented "
+                f"({_EVAL_VERSIONS.get(dimension, (1,))})"
             )
         self.code_version = code_version
         self.submission_dir = submission_dir
@@ -312,6 +318,8 @@ class MTRDuplexEval(Job):
                 self.out_file.get_path(),
                 "--whisper_model",
                 self.whisper_model,
+                "--asr_protocol",
+                str(self.code_version),
             ]
         print("[mtr-eval]", " ".join(cmd), flush=True)
         subprocess.run(cmd, env=_pythonpath_env(), check=True)
@@ -378,7 +386,7 @@ def _dq_upstream_transcript(transcript: str) -> str:
     TUPLE -- straight into ``evaluate_turn_segment``'s ``f"{transcript}\\n\\n{prompt}"``, so GPT-4o reads the tuple's
     repr: the joined lines with escaped newlines, then the list of segment texts. We rebuild ``texts`` from our joined
     lines (each ends in ``content: <text>``; a line that does not parse raises) and format the tuple the same way.
-    Before 2026-10-12 our judge got the joined lines only (``MTRJudge`` code_version 1)."""
+    Protocol 2 only; protocol 1 (every published DQ number) feeds the joined lines (``_judge_row``)."""
     lines = transcript.split("\n") if transcript else []
     texts = []
     for ln in lines:
@@ -419,9 +427,10 @@ def _create(client, **kw):
     raise err
 
 
-def _judge_row(client, judge_model: str, dimension: str, row: dict):
+def _judge_row(client, judge_model: str, dimension: str, row: dict, code_version: int):
     """Return one row's judge score (float) or None if unparseable, using the dimension's verbatim
-    prompt + parse. IF/Safety -> 0/1; Dialogue Quality -> 0-5 in 0.5 steps."""
+    prompt + parse. IF/Safety -> 0/1; Dialogue Quality -> 0-5 in 0.5 steps. ``code_version`` = the job's: for DQ,
+    1 feeds the joined transcript lines (our original input), 2 upstream's tuple repr (``_dq_upstream_transcript``)."""
     if dimension == "instruction_following":
         resp = _create(
             client,
@@ -445,7 +454,8 @@ def _judge_row(client, judge_model: str, dimension: str, row: dict):
         m = re.search(r"[01]", text)  # safety parse: first 0/1
         return float(m.group()) if m else None
     else:  # dialogue_quality
-        content = f"{_dq_upstream_transcript(row['transcript'])}\n\n{_dq_prompt(row['seg_start'], row['seg_end'])}"
+        transcript = {1: lambda t: t, 2: _dq_upstream_transcript}[code_version](row["transcript"])
+        content = f"{transcript}\n\n{_dq_prompt(row['seg_start'], row['seg_end'])}"
         resp = _create(
             client,
             model=judge_model,
@@ -484,11 +494,10 @@ class MTRJudge(Job):
     ):
         assert dimension in ("instruction_following", "safety", "dialogue_quality")
         assert judge in ("vllm", "gpt4o")
-        need = MTR_JUDGE_CODE_VERSION.get(dimension, 1)
-        if code_version != need:
+        if code_version not in _JUDGE_VERSIONS.get(dimension, (1,)):
             raise ValueError(
-                f"MTRJudge({dimension}): code_version {code_version} != {need}; _judge_row only implements the "
-                f"current protocol (MTR_JUDGE_CODE_VERSION)"
+                f"MTRJudge({dimension}): code_version {code_version} not implemented "
+                f"({_JUDGE_VERSIONS.get(dimension, (1,))})"
             )
         self.code_version = code_version
         self.asr_results = asr_results
@@ -526,7 +535,7 @@ class MTRJudge(Job):
             # collected in row order, so the output is the same as the serial loop's. The real-OpenAI
             # path stays serial (rate limits).
             row_scores = map_concurrent(
-                lambda r: _judge_row(client, model, self.dimension, r),
+                lambda r: _judge_row(client, model, self.dimension, r, self.code_version),
                 rows,
                 concurrency=MTR_JUDGE_CONCURRENCY if self.judge == "vllm" else 1,
             )
