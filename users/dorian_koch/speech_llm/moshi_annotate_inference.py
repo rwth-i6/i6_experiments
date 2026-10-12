@@ -7,6 +7,9 @@ Two modes:
        audio_assistant, audio_user  (HF Audio(), mono per speaker)
        alignments  (list of [text, [start_s, end_s], "SPEAKER_MAIN"])
        duration  (float, seconds)
+       with --annotate_user (MoshiAnnotate(user_words=True), every build from 2026-10-12): also the USER
+       channel's words, by the same Whisper call, in their own columns -- ``alignments_other`` (speaker
+       :data:`USER_SPEAKER`) and ``other_ok`` -- the layout the JRE/Open Yap corpora use for the other side.
      (Legacy datasets instead have a single stereo "audio" column; the
       moshi_arrow_dataset consumer reads both formats.)
   2. Legacy file mode: converts to wav+json on disk (kept for compat).
@@ -121,6 +124,11 @@ ALIGNMENT_FEATURE = List(
 )
 
 
+#: Speaker label of the USER channel's words (``alignments_other``). The loaders ignore the field (the sides are
+#: separated by COLUMN); a distinct label keeps a leak into ``alignments`` visible to the one-speaker asserts.
+USER_SPEAKER = "user"
+
+
 # ---------------------------------------------------------------------------
 # In-memory annotation (B1)
 # ---------------------------------------------------------------------------
@@ -217,6 +225,7 @@ def annotate_hf_to_hf(
     language: str = "en",
     keep_silence_in_segments: float = 1.0,
     keep_columns: list[str] | None = None,
+    annotate_user: bool = False,
 ):
     """Read a Chatterbox TTS out_hf dataset and write an annotated HF dataset.
 
@@ -224,6 +233,11 @@ def annotate_hf_to_hf(
         audio          {"array": float32[], "sampling_rate": int}  (stereo)
         alignments     list of [text, [start, end], "SPEAKER_MAIN"]
         duration       float
+
+    ``annotate_user`` (user-text head, 2026-10-12): also ``alignments_other`` (the user channel's words: the SAME
+    ``annotate_array`` call on ``stereo[1]``, speaker :data:`USER_SPEAKER`) and ``other_ok`` (True iff that pass
+    returned >= 1 word). A failed user pass keeps the row (``other_ok`` False, no words) and is counted, so the row
+    set is the one an assistant-only build gives. The user's words never enter ``alignments``.
     """
     os.makedirs(out_dir, exist_ok=True)
 
@@ -276,7 +290,7 @@ def annotate_hf_to_hf(
     # Progress tracking and failure counters (map is single-process, so mutable
     # dicts are safe for accumulation across process_row calls).
     _progress = {"done": 0, "total": len(dataset)}
-    _counters = {"missing_audio": 0, "annotate_error": 0}
+    _counters = {"missing_audio": 0, "annotate_error": 0, "user_annotate_error": 0, "user_words": 0}
     _write_progress(0, _progress["total"])
 
     def _tick():
@@ -285,6 +299,8 @@ def annotate_hf_to_hf(
             _write_progress(_progress["done"], _progress["total"])
 
     _FAILED_SENTINEL = {"audio_assistant": None, "audio_user": None, "alignments": [], "duration": 0.0}
+    if annotate_user:
+        _FAILED_SENTINEL.update({"alignments_other": [], "other_ok": False})
 
     def process_row(row: dict) -> dict:
         _tick()
@@ -348,6 +364,26 @@ def annotate_hf_to_hf(
             for a in aligns
         ]
 
+        user_cols = {}
+        if annotate_user:
+            # The USER channel: the same Whisper call, its own column (never ``alignments``: the inner monologue).
+            try:
+                user_aligns = annotate_array(stereo[1], sample_rate, w_model, params, language=language)
+            except Exception as exc:
+                if "cuda" in repr(exc).lower():
+                    raise
+                _log.exception("Error annotating the user channel; row kept with other_ok=False.")
+                _counters["user_annotate_error"] += 1
+                user_aligns = []
+            user_cols = {
+                "alignments_other": [
+                    {"text": str(a[0]), "start": float(a[1][0]), "end": float(a[1][1]), "speaker": USER_SPEAKER}
+                    for a in user_aligns
+                ],
+                "other_ok": bool(user_aligns),
+            }
+            _counters["user_words"] += len(user_aligns)
+
         return {
             # Two mono HF Audio() columns (torchcodec-encoded in moshi_venv),
             # mirroring ChatterboxInference's per-speaker Audio storage.
@@ -361,6 +397,7 @@ def annotate_hf_to_hf(
             },
             "alignments": aligns_struct,
             "duration": duration,
+            **user_cols,
         }
 
     rows_in = len(dataset)
@@ -382,6 +419,7 @@ def annotate_hf_to_hf(
             "audio_user": Audio(),
             "alignments": ALIGNMENT_FEATURE,
             "duration": Value("float32"),
+            **({"alignments_other": ALIGNMENT_FEATURE, "other_ok": Value("bool")} if annotate_user else {}),
             **{c: dataset.features[c] for c in passthrough},
         }
     )
@@ -413,6 +451,15 @@ def annotate_hf_to_hf(
         "dropped_missing_audio": _counters["missing_audio"],
         "dropped_annotate_error": _counters["annotate_error"],
     }
+    if annotate_user:
+        # counted over every row the map saw (dropped rows included); other_ok among the kept rows is what trains
+        stats.update(
+            {
+                "user_annotate_error": _counters["user_annotate_error"],
+                "user_words": _counters["user_words"],
+                "other_ok_rows": int(sum(annotated["other_ok"])),
+            }
+        )
     with open(os.path.join(out_dir, "stats.json"), "w") as _sf:
         _json_stats.dump(stats, _sf, indent=2)
 
@@ -521,6 +568,11 @@ def main():
     )
     parser.add_argument("--whisper_model", default="medium")
     parser.add_argument(
+        "--annotate_user",
+        action="store_true",
+        help="also the user channel's words -> alignments_other + other_ok (MoshiAnnotate(user_words=True))",
+    )
+    parser.add_argument(
         "--keep_columns",
         nargs="*",
         default=None,
@@ -540,6 +592,7 @@ def main():
             sub_num_shards=args.sub_num_shards,
             whisper_model=args.whisper_model,
             keep_columns=args.keep_columns,
+            annotate_user=args.annotate_user,
         )
     else:
         # Legacy path

@@ -32,7 +32,14 @@ class MoshiAnnotate(Job):
         keep_columns: list[str] | None = None,
         env_ffmpeg_path: tk.Path | None = None,
         env_npp_venv_python: tk.AbstractPath | None = None,
+        user_words: bool = True,
     ):
+        # ``user_words`` (user, 2026-10-12: "for future synthetic and knowledge generations we always also generate the
+        # word timings"): also Whisper word timings of the USER channel -> ``alignments_other`` + ``other_ok`` (the
+        # JRE/Open Yap layout; the user-text head's targets), by the same ``annotate_array`` call as the assistant's.
+        # ON for every new declaration; hashed only when True, so ``user_words=False`` = every annotate job before
+        # 2026-10-12 (those call sites pin it). Guard ``check_user_word_timings.py``.
+        self.user_words = bool(user_words)
         # Our FFmpeg build and a venv carrying CUDA NPP, both reaching the job through a channel
         # `hash()` drops. torchcodec needs three libraries and this venv supplies none of them:
         # FFmpeg (ours), libnppicc.so.12 (NPP -- torch bundles cublas/cudnn/cufft and NOT npp), and
@@ -56,7 +63,8 @@ class MoshiAnnotate(Job):
             "gpu": 1,
             "cpu": 6,
             "mem": 16,
-            "time": 4,
+            # the user channel doubles the Whisper passes (the user turns are shorter than the answers)
+            "time": 8 if self.user_words else 4,
             # No `requires: ["system_ffmpeg"]` (dropped 2026-09-17). The tag was never a guarantee:
             # it routes to c23g, and c23g is HETEROGENEOUS -- five annotate jobs succeeded on
             # n23g*/w23g* on 09-12 and two died on r23g0004 on 09-17 with "Could not load
@@ -79,6 +87,8 @@ class MoshiAnnotate(Job):
         d["__version"] = 2  # bumped: arrow-native output format
         if not d.get("keep_columns"):
             d.pop("keep_columns", None)  # exclude at default so pre-existing hashes are unchanged
+        if not d.get("user_words"):
+            d.pop("user_words", None)  # False = every annotate job before 2026-10-12: their hashes are unchanged
         # Popped unconditionally, not declared in __sis_hash_exclude__: that form excludes an
         # argument ONLY while it equals the listed default, so a populated path would be hashed like
         # any other and every annotate job -- plus every corpus built from one -- would re-run.
@@ -131,6 +141,8 @@ class MoshiAnnotate(Job):
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
         if self.keep_columns:
             args += ["--keep_columns", *self.keep_columns]
+        if getattr(self, "user_words", False):
+            args += ["--annotate_user"]
 
         top_level_file = moshi_finetune.__file__
         assert top_level_file is not None, "Could not find moshi_finetune module file"

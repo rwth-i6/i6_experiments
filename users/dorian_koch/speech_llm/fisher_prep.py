@@ -190,7 +190,9 @@ class FisherSphToWav(Job):
 # supervision also carries `recording_id == f"{conv}_{user|agent}"`, which `_plan_windows` asserts
 # against so this convention can never drift silently.
 CUTSET_AGENT_SPEAKER = "agent"  # role label inside the Fisher CutSet supervisions (channel B)
+CUTSET_USER_SPEAKER = "user"  # role label inside the Fisher CutSet supervisions (channel A)
 MONOLOGUE_SPEAKER = "assistant"  # role label the moshi loader expects on alignment entries
+USER_WORDS_SPEAKER = "user"  # label of the user's words (``alignments_other``; the loaders separate sides by column)
 
 # Fisher transcript conventions that must NOT reach the text stream:
 #   [laughter] [noise] [mn] [sigh] [lipsmack]  -- non-speech events
@@ -248,6 +250,12 @@ class FisherToMoshiTrainData(Job):
 
     Diversity: windows are taken round-robin over *conversations* (``windows_per_conv`` each, from a
     seeded shuffle) rather than exhaustively per conversation, so a capped run spans many speakers.
+
+    ``user_words`` (2026-10-12, user: every new corpus carries the USER side's word timings; ON for new declarations):
+    each row also gets ``alignments_other`` (channel A's words, from the same LDC transcripts and spread over their
+    utterances exactly as the agent's are -- the timing source this corpus already uses for its text stream) and
+    ``other_ok`` (>= 1 user word in the window), the JRE windows' layout for the user-text head. The windows, their
+    order and ``alignments`` are unchanged. Hashed only when True: ``user_words=False`` = every Fisher corpus before.
     """
 
     def __init__(
@@ -262,6 +270,7 @@ class FisherToMoshiTrainData(Job):
         windows_per_conv: int = 2,
         max_windows: int | None = None,
         seed: int = 0,
+        user_words: bool = True,
     ):
         self.cutset = cutset
         self.wav_dir = wav_dir
@@ -272,9 +281,17 @@ class FisherToMoshiTrainData(Job):
         self.windows_per_conv = windows_per_conv
         self.max_windows = max_windows
         self.seed = seed
+        self.user_words = bool(user_words)
         self.out_dataset = self.output_path("dataset", directory=True)
         self.out_stats = self.output_path("stats.json")
         self.rqmt = {"cpu": 8, "mem": 16, "time": 8}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        if not d.get("user_words"):
+            d.pop("user_words", None)  # False = every Fisher corpus before 2026-10-12: their hashes are unchanged
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -367,7 +384,20 @@ class FisherToMoshiTrainData(Job):
                     win_start += self.stride_sec
                     continue
 
-                windows.append({"conv": cut["id"], "start": win_start, "alignments": word_alignments})
+                window = {"conv": cut["id"], "start": win_start, "alignments": word_alignments}
+                if getattr(self, "user_words", False):
+                    user_supervisions = [
+                        sup for sup in cut.get("supervisions", []) if sup.get("speaker") == CUTSET_USER_SPEAKER
+                    ]
+                    for sup in user_supervisions:
+                        assert sup.get("recording_id", "").endswith(f"_{CUTSET_USER_SPEAKER}"), (
+                            f"supervision {sup.get('id')!r} is labelled speaker={CUTSET_USER_SPEAKER!r} but belongs "
+                            f"to recording {sup.get('recording_id')!r} -- the Fisher channel<->role mapping changed"
+                        )
+                    window["alignments_other"] = self._word_alignments(
+                        user_supervisions, win_start, win_end, USER_WORDS_SPEAKER
+                    )
+                windows.append(window)
                 windows_from_this_conv += 1
                 win_start += self.stride_sec
 
@@ -386,8 +416,13 @@ class FisherToMoshiTrainData(Job):
         speaker field** -- so including the user's words here would teach the model to speak the
         user's lines.
         """
+        return self._word_alignments(agent_supervisions, win_start, win_end, MONOLOGUE_SPEAKER)
+
+    @staticmethod
+    def _word_alignments(supervisions: list[dict], win_start: float, win_end: float, speaker: str) -> list[dict]:
+        """One role's words with onset in ``[win_start, win_end)``, re-timed to the window, labelled ``speaker``."""
         word_alignments: list[dict] = []
-        for sup in agent_supervisions:
+        for sup in supervisions:
             sup_start, sup_dur = float(sup["start"]), float(sup["duration"])
             if sup_start + sup_dur <= win_start or sup_start >= win_end or sup_dur <= 0.0:
                 continue
@@ -406,7 +441,7 @@ class FisherToMoshiTrainData(Job):
                         "text": word,
                         "start": word_start - win_start,
                         "end": min(word_start + sec_per_word, win_end) - win_start,
-                        "speaker": MONOLOGUE_SPEAKER,
+                        "speaker": speaker,
                     }
                 )
         # Utterances are per-speaker-turn and already ordered, but sort anyway: the loader assumes
@@ -478,6 +513,12 @@ class FisherToMoshiTrainData(Job):
             # ... channel A (user) is the interlocutor, conditioning input only.
             "audio_user": {"bytes": user_wav, "path": ""},
             "alignments": window["alignments"],
+            # the user's words, their own column (never ``alignments``: the inner monologue)
+            **(
+                {"alignments_other": window["alignments_other"], "other_ok": bool(window["alignments_other"])}
+                if "alignments_other" in window
+                else {}
+            ),
         }
 
     # -- run ----------------------------------------------------------------------------------
@@ -512,6 +553,21 @@ class FisherToMoshiTrainData(Job):
                         "speaker": Value("string"),
                     }
                 ],
+                **(
+                    {
+                        "alignments_other": [
+                            {
+                                "text": Value("string"),
+                                "start": Value("float32"),
+                                "end": Value("float32"),
+                                "speaker": Value("string"),
+                            }
+                        ],
+                        "other_ok": Value("bool"),
+                    }
+                    if getattr(self, "user_words", False)
+                    else {}
+                ),
             }
         )
 
@@ -552,6 +608,11 @@ class FisherToMoshiTrainData(Job):
         assert dataset.num_rows == num_windows, f"wrote {dataset.num_rows} rows, planned {num_windows}"
         stats["rows"] = dataset.num_rows
         stats["mean_words_per_window"] = round(sum(len(window["alignments"]) for window in windows) / num_windows, 2)
+        if getattr(self, "user_words", False):
+            stats["other_ok_windows"] = sum(bool(window["alignments_other"]) for window in windows)
+            stats["mean_user_words_per_window"] = round(
+                sum(len(window["alignments_other"]) for window in windows) / num_windows, 2
+            )
         Path(self.out_stats.get_path()).write_text(json.dumps(stats, indent=2))
         print(f"[fisher-windows] done: {stats}", flush=True)
         shutil.rmtree(arrow_cache_dir, ignore_errors=True)

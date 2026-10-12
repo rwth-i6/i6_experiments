@@ -52,6 +52,13 @@ class KnowledgeDialogueCodes(Job):
       * ``user_augment`` (+ ``noise_pool``): the ingest's ``{"variants", "seed", "augment"}`` dict: stored augmented
         variants of the USER channel (``codes_user_aug``, ``n_user_aug``, ``user_aug_json``) made by the ingest's
         own ``podcast_mimi_encode.augment_user_variants`` from the TTS waveform, encoded like the clean codes.
+
+    ``user_words`` (user, 2026-10-12: "make sure that for future synthetic and knowledge generations we always also
+    generate the word timings"; ON for every new declaration): the rows also carry the TTS questioner's words --
+    ``alignments_other`` + ``other_ok``, the JRE windows' layout, which the user-text head reads -- taken from the
+    annotated corpora's own ``alignments_other`` (``MoshiAnnotate(user_words=True)``: Whisper on the user channel),
+    clamped and cut as the assistant's. Every input corpus must carry them (the worker refuses otherwise). Hashed only
+    when True: ``user_words=False`` = the v6 / v7 jobs (declared before; those call sites pin it).
     """
 
     def __init__(
@@ -69,6 +76,7 @@ class KnowledgeDialogueCodes(Job):
         voice_pool: tk.Path | None = None,
         user_augment: dict | None = None,
         noise_pool: tk.Path | None = None,
+        user_words: bool = True,
     ):
         names = [n for n, _ in corpora]
         assert len(set(names)) == len(names), f"corpus names must be unique: {names}"
@@ -97,6 +105,7 @@ class KnowledgeDialogueCodes(Job):
         else:
             assert noise_pool is None, "noise_pool without user_augment"
         self.noise_pool = noise_pool
+        self.user_words = bool(user_words)
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_summary = self.output_path("summary.json")
         # One GPU for the offline Mimi encode (~327 h of stereo audio for the v6 corpus); decode, loudness and the
@@ -110,6 +119,8 @@ class KnowledgeDialogueCodes(Job):
         for k in ("assistant_audio", "voice_pool", "user_augment", "noise_pool"):
             if d.get(k) is None:
                 d.pop(k, None)  # v7's opt-ins: absent at the default, so the v6 corpus keeps its hash
+        if not d.get("user_words"):
+            d.pop("user_words", None)  # False = the v6 / v7 jobs (before 2026-10-12): their hashes are unchanged
         return super().hash(d)
 
     def tasks(self):
@@ -139,6 +150,8 @@ class KnowledgeDialogueCodes(Job):
             if self.noise_pool is not None:
                 aug["noise_pool"] = self.noise_pool.get_path()
             extra += ["--user_augment", json.dumps(aug, sort_keys=True)]
+        if getattr(self, "user_words", False):
+            extra += ["--user_words"]
         cmd = [
             self.venv_python_path.get(),
             "-m",
