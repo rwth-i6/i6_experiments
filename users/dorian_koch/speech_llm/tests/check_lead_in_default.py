@@ -212,7 +212,7 @@ def check(overrides: dict[str, str] | None = None) -> tuple[list[str], int]:
 MUTATIONS = [
     (
         "speech_llm/full_duplex/moshi_family/rl/knowledge_segments.py",
-        "LEAD_IN_S = 2.0",
+        ("LEAD_IN_S = 2.0", "LEAD_IN_S = DEFAULT_LEAD_IN_S"),  # main / after branch audit8-rl
         "LEAD_IN_S = 1.5",
         "RL training lead-in drifts from the benchmark's",
         "rl/knowledge_segments.py::LEAD_IN_S: lead-in 1.5",
@@ -252,7 +252,8 @@ def main():
         print(f"   - {p}")
     for rel, old, new, what, expect in MUTATIONS:
         src = (RECIPE / rel).read_text()
-        assert src.count(old) == 1, f"self-test: {rel} no longer contains {old!r} exactly once -- update {what!r}"
+        old = next((o for o in (old if isinstance(old, tuple) else (old,)) if src.count(o) == 1), old)
+        assert isinstance(old, str), f"self-test: {rel} contains none of {old!r} exactly once -- update {what!r}"
         got = [p for p in check({rel: src.replace(old, new, 1)})[0] if expect in p]
         ok = bool(got)
         failed |= not ok
