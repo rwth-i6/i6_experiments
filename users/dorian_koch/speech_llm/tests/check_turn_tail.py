@@ -240,6 +240,7 @@ def loss_step_for(cap, src=LOSS_STEP_SRC, loss_fn=personaplex_loss, model=None):
         "depformer_skip_masked": True,
         "turn_tail_weight": cap,
         "train_row_weights": None,  # the per-row weight (2026-09-28) is off in this guard
+        "train_word_spans": None,  # ... and the flagged-word span weights (2026-09-28b)
     }
     exec(src, ns)
     return ns["loss_step"]

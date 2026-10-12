@@ -196,6 +196,8 @@ def launcher_loss_step(cfg: dict, model):
         "turn_tail_weight": None,
         # ... and so is the per-row loss weight (train_row_weights, 2026-09-28)
         "train_row_weights": None,
+        # ... and the flagged-word span weights (train_word_spans, 2026-09-28b)
+        "train_word_spans": None,
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]
