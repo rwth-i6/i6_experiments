@@ -20,6 +20,8 @@ Each launcher is checked for each CONCERN below; it must implement it or name it
   ddp                   a ``DistributedDataParallel`` wrapper is built and ``loss_step`` calls it; may
                         be opted out of only by a launcher that never reads ``WORLD_SIZE``
   loss_norm             reads the ``loss_norm`` key and every duplex-loss call passes ``weighted_mean=``
+                        (a launcher with no duplex-loss call -- RL, whose ``loss_norm`` is GRPO's
+                        ``seq_norm`` -- is judged by its opt-out alone)
   train_perf            calls ``train_perf.apply_train_perf`` (the training fast path)
 
 and, with no opt-out: ``loss_step`` never calls a ``.forward*()`` method (it bypasses DDP's reducer
@@ -175,7 +177,9 @@ def analyse(src: str) -> tuple[dict, list[str], dict]:
     duplex = [c for c in calls if _name(c.func) in DUPLEX_LOSSES]
     reads_norm = _reads_key(tree, "loss_norm")
     impl["loss_norm"] = reads_norm and bool(duplex) and all("weighted_mean" in _kw(c) for c in duplex)
-    if reads_norm and not impl["loss_norm"]:
+    # Only a launcher that HAS a duplex CE call can ignore the key: RL's ``loss_norm`` is the GRPO
+    # sequence normaliser (``grpo_loss(seq_norm=...)``), a different knob of the same name.
+    if reads_norm and duplex and not impl["loss_norm"]:
         missing = [c.lineno for c in duplex if "weighted_mean" not in _kw(c)]
         problems.append(f"reads loss_norm but the duplex loss call(s) at line(s) {missing} ignore it")
 
@@ -268,6 +272,13 @@ MUTATIONS = [
         ', weighted_mean=loss_norm == "weight")',
         ")",
         "bug 5: MoshiRAG reads loss_norm and ignores it",
+        "reads loss_norm but",
+    ),
+    (
+        "rl/launcher.py",
+        '    loss_norm = cfg.get("loss_norm", "tokens")\n',
+        '    loss_norm = cfg.get("loss_norm", "tokens")\n    _ce = duplex_ce_loss(out, codes)\n',
+        "RL gains a duplex CE call that ignores its loss_norm",
         "reads loss_norm but",
     ),
     (
