@@ -661,8 +661,40 @@ Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explan
 
 #: Bumped when a grader's scoring RULE changes in a way that makes new numbers incomparable with
 #: old ones. It is recorded per summary, so an old number keeps the version it was scored under
-#: rather than silently inheriting the new meaning.
-GRADER_SCHEMA_VERSION = 1
+#: rather than silently inheriting the new meaning. Per grader, so a judge change does not relabel
+#: alias scores whose rule did not move.
+#:   llm_judge v1 -- gemma's default sampling (no temperature, no seed), ``binary`` read unchecked
+#:                   (a missing key or odd value silently scored 0).
+#:   llm_judge v2 -- (2026-10-12, user-approved) ``JUDGE_SAMPLING`` (temperature 0 + fixed seed) and
+#:                   ``parse_judge_reply``'s strict ``binary in (0, 1)``, retried like a request
+#:                   error; exhausted retries are a counted judge error. run()-side only: no job hash
+#:                   moves, so FINISHED v1 grades stay as they are (never auto-regraded) and every
+#:                   LLMGrading that RUNS after this lands as v2 -- read ``grader.schema_version``
+#:                   before putting two judged numbers in one table (measured gap:
+#:                   projects/2026-01-speech-llm/grader_t0_measure.py).
+GRADER_SCHEMA_VERSIONS = {"llm_judge": 2, "alias_match": 1}
+GRADER_SCHEMA_VERSION = GRADER_SCHEMA_VERSIONS["llm_judge"]
+
+#: The judge's decoding: greedy, plus a fixed seed so any residual sampling is reproducible too.
+JUDGE_SEED = 42
+JUDGE_SAMPLING = {"temperature": 0.0, "seed": JUDGE_SEED}
+
+
+def parse_judge_reply(content: str) -> dict:
+    """The judge's JSON verdict, or ValueError -- never a silent default.
+
+    ``binary`` must be the int 0 or 1 (bool, "1", 2, null and a missing key are all refused), so a
+    malformed verdict is retried and, if it persists, counted in ``judge_errors`` instead of being
+    scored as a wrong answer the way v1's unchecked ``.get`` with a 0 default did.
+    """
+    grade = json.loads(content)
+    if not isinstance(grade, dict):
+        raise ValueError(f"judge reply is not a JSON object: {content[:100]!r}")
+    b = grade.get("binary")
+    if type(b) is not int or b not in (0, 1):
+        raise ValueError(f"judge reply has invalid binary {b!r}")
+    return grade
+
 
 #: A judge failure is scored as a WRONG ANSWER, not as a missing measurement, so it biases accuracy
 #: downward -- retry before accepting one. 64 concurrent workers against a single vLLM server make
@@ -684,7 +716,7 @@ def _grader_block(name: str, *, model: str | None = None) -> dict:
     3.78 -> 3.02). Read accuracy; treat quality as a style statistic.
     """
     assert name in ("llm_judge", "alias_match"), f"unknown grader {name!r}"
-    block = {"name": name, "schema_version": GRADER_SCHEMA_VERSION}
+    block = {"name": name, "schema_version": GRADER_SCHEMA_VERSIONS[name]}
     if model is not None:
         block["model"] = model
     return block
@@ -795,8 +827,10 @@ class LLMGrading(Job):
                             model=self.llm_name,
                             messages=[{"role": "user", "content": prompt}],
                             response_format={"type": "json_object"},
+                            **JUDGE_SAMPLING,
                         )
-                        grade = json.loads(resp.choices[0].message.content)
+                        # raises on an invalid verdict -> retried, then counted (schema v2)
+                        grade = parse_judge_reply(resp.choices[0].message.content)
                         break
                     except Exception as e:  # noqa: BLE001 -- any failure is retryable here
                         last_err = f"{type(e).__name__}: {e}"[:200]
@@ -809,7 +843,7 @@ class LLMGrading(Job):
                         "reasoning": f"LLM request/parse error after {JUDGE_MAX_ATTEMPTS} attempts -- {last_err}",
                     }
                 return {
-                    "binary_correct": grade.get("binary", 0),
+                    "binary_correct": grade["binary"],
                     "quality_score": grade.get("quality", 1),
                     "reasoning": grade.get("reasoning", ""),
                 }

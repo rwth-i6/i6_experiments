@@ -39,8 +39,10 @@ def check(cond, msg):
 
 # --- 1. Both graders stamp themselves, via ONE shared helper so they cannot drift.
 from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import (
-    GRADER_SCHEMA_VERSION,
+    GRADER_SCHEMA_VERSIONS,
+    JUDGE_SAMPLING,
     _grader_block,
+    parse_judge_reply,
 )
 from i6_experiments.users.dorian_koch.speech_llm.quick_knowledge_eval import summarize
 
@@ -50,11 +52,45 @@ rows = [
 ]
 s = summarize(rows)
 check(s.get("grader", {}).get("name") == "alias_match", "AliasMatchGrading's summarize() stamps alias_match")
-check(s["grader"].get("schema_version") == GRADER_SCHEMA_VERSION, "the stamp carries a schema version")
+check(s["grader"].get("schema_version") == GRADER_SCHEMA_VERSIONS["alias_match"], "the stamp carries a schema version")
 check(s["overall"]["n"] == 2 and s["overall"]["accuracy"] == 0.5, "stamping did not disturb the numbers")
 
 judged = _grader_block("llm_judge", model="google/gemma-4-31B-it")
 check(judged["name"] == "llm_judge" and judged.get("model"), "the judge stamp records its MODEL too")
+check(
+    judged["schema_version"] == 2 and s["grader"]["schema_version"] == 1,
+    "judge v2 (T0 + seed + strict binary) does not relabel the unchanged alias grader",
+)
+
+# --- 1b. Judge schema v2 (2026-10-12): deterministic decoding and a strict verdict parse. Under v1 a
+#     missing/odd ``binary`` was silently scored 0 via ``grade.get("binary", 0)``.
+check(
+    JUDGE_SAMPLING.get("temperature") == 0.0 and isinstance(JUDGE_SAMPLING.get("seed"), int),
+    "the judge decodes at temperature 0 with a fixed seed",
+)
+for ok in ('{"binary": 1, "quality": 5}', '{"binary": 0}'):
+    check(parse_judge_reply(ok)["binary"] in (0, 1), f"a valid verdict parses: {ok}")
+for bad in (
+    '{"quality": 3}',
+    '{"binary": "1"}',
+    '{"binary": true}',
+    '{"binary": 2}',
+    '{"binary": null}',
+    "[1]",
+    "nope",
+):
+    try:
+        parse_judge_reply(bad)
+        check(False, f"an invalid verdict must raise (-> retry -> judge error): {bad}")
+    except ValueError:
+        check(True, f"an invalid verdict raises (-> retry -> judge error): {bad}")
+_kb_src = open("recipe/i6_experiments/users/dorian_koch/speech_llm/knowledge_benchmark.py").read()
+check(
+    "**JUDGE_SAMPLING" in _kb_src
+    and "grade = parse_judge_reply(" in _kb_src
+    and 'grade.get("binary", 0)' not in _kb_src,
+    "LLMGrading.run sends JUDGE_SAMPLING and parses through parse_judge_reply (no silent binary default)",
+)
 try:
     _grader_block("vibes")
     check(False, "an unknown grader name must be refused")
@@ -82,7 +118,9 @@ with tempfile.TemporaryDirectory() as td:
     orphan = os.path.join(td, "orphan.json")
     with open(orphan, "w") as f:
         json.dump({"overall": {"n": 10, "accuracy": 0.1}}, f)
-    check(rb.grader_of(orphan, {"overall": {}}) == "unknown", "an unattributable summary reports 'unknown', not a guess")
+    check(
+        rb.grader_of(orphan, {"overall": {}}) == "unknown", "an unattributable summary reports 'unknown', not a guess"
+    )
 
     # A stamped summary beats any path inference -- the data is the authority.
     mis = os.path.join(td, "work/LLMGrading.XX/output")
@@ -96,11 +134,15 @@ with tempfile.TemporaryDirectory() as td:
 # --- 3. The reader cannot print one cross-grader ranking.
 src = open("read_benchmarks.py").read()
 check("by_grader" in src and "for grader in (" in src, "the ledger groups rows by grader before printing")
-check('{ROOT}/*/n*/*/summary' in src, "the ledger globs the <grader>/n<N>/<tag> layout, so neither grader can be omitted")
+check(
+    "{ROOT}/*/n*/*/summary" in src, "the ledger globs the <grader>/n<N>/<tag> layout, so neither grader can be omitted"
+)
 check("grader mismatch" in src and "n mismatch" in src, "the ledger refuses a row whose PATH and DATA disagree")
 check("ci95" in src, "the ledger prints a 95% interval, so an n=64 score cannot read like an n=1000 one")
-check("no_data" in src and "SCORED ZERO ROWS" in src,
-      "a summary that scored 0 rows is kept OUT of the ranking (a 0.0% row reads as real knowledge loss)")
+check(
+    "no_data" in src and "SCORED ZERO ROWS" in src,
+    "a summary that scored 0 rows is kept OUT of the ranking (a 0.0% row reads as real knowledge loss)",
+)
 
 # The single-table form is the actual defect; assert it is gone rather than merely that grouping exists.
 combined = "scored = sorted([r for r in rows if r[0] is not None], key=lambda r: -r[0])"
