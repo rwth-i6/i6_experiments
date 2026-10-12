@@ -68,10 +68,54 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
+# Knobs the launcher reads for a run kind but whose renderer had no line for them (2026-10-12 audit): rendered only
+# when they differ from the RLFinetune default, so every earlier config stays byte-identical.
+# self-play: moshi_family.rl.launcher main() reads these for every PersonaPlex run (advantage split / component weights)
+_SELFPLAY_EXTRA_KEYS = ("advantage_split", "scale_std", "brevity_weight", "garbled_weight", "ramble_weight")
+# base-Moshi interactivity (synthetic / codes / seamless): main() reads these unconditionally. NOT brevity/garbled/
+# ramble_weight: main() reads those only for PersonaPlex or knowledge, so rendering them would trip report_unread_config.
+_INTERACTIVITY_EXTRA_KEYS = ("log_every", "skip_zero_signal", "probe_every", "loss_norm", "lr_schedule",
+                             "advantage_split", "scale_std")  # fmt: skip
+
+
+def _init_defaults() -> dict:
+    """``RLFinetune.__init__``'s keyword defaults (the hash-relevant knobs' "unset" values)."""
+    import inspect
+
+    return {
+        n: p.default
+        for n, p in inspect.signature(RLFinetune.__init__).parameters.items()
+        if p.default is not inspect.Parameter.empty
+    }
+
+
+def _yaml_scalar(v) -> str:
+    if isinstance(v, bool):
+        return str(v).lower()
+    return f'"{v}"' if isinstance(v, str) else f"{v}"
+
+
+def _render_non_default(job: "RLFinetune", keys) -> str:
+    """One YAML line per knob in ``keys`` whose value differs from its ``__init__`` default; "" at the defaults."""
+    defaults = _init_defaults()
+    out = ""
+    for k in keys:
+        v = getattr(job, k, defaults[k])
+        if v != defaults[k]:
+            out += f"{k}: {_yaml_scalar(v)}\n"
+    return out
+
+
+def _render_interactivity_keys(job: "RLFinetune") -> str:
+    """Base-Moshi interactivity GRPO (``segment_source`` synthetic / codes / seamless): trainer knobs, only when set."""
+    return _render_non_default(job, _INTERACTIVITY_EXTRA_KEYS)
+
+
 def _render_selfplay_keys(job: "RLFinetune") -> str:
     """PersonaPlex self-play GRPO keys (``moshi_family.rl.launcher._build_personaplex_selfplay``), rendered only for
     ``segment_source="selfplay"``."""
-    return f"""family: "{job.family}"
+    return (
+        f"""family: "{job.family}"
 selfplay_policy: "{job.selfplay_policy}"
 reward_transcript: "{job.reward_transcript}"
 judge_rubric: "{job.out_judge_rubric.get()}"
@@ -85,7 +129,10 @@ log_every: {job.log_every}
 skip_zero_signal: {str(bool(job.skip_zero_signal)).lower()}
 loss_norm: "{job.loss_norm}"
 lr_schedule: "{job.lr_schedule}"
-""" + _render_partner_key(job)
+"""
+        + _render_non_default(job, _SELFPLAY_EXTRA_KEYS)
+        + _render_partner_key(job)
+    )
 
 
 def _render_multitask_key(job: "RLFinetune") -> str:
@@ -165,7 +212,11 @@ seed: {job.seed}
         + (
             _render_selfplay_keys(job)
             if getattr(job, "segment_source", None) == "selfplay"
-            else _render_knowledge_keys(job) + _render_multitask_key(job)
+            else (
+                _render_knowledge_keys(job) + _render_multitask_key(job)
+                if getattr(job, "segment_source", None) in ("knowledge", "multitask")
+                else _render_interactivity_keys(job)
+            )
         )
         + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
         + render_train_perf_keys(
@@ -176,6 +227,75 @@ seed: {job.seed}
             who="RL GRPO",
         )
     )
+
+
+_KNOWLEDGE_SOURCES, _SELFPLAY_SOURCES = ("knowledge", "multitask"), ("selfplay", "multitask")
+#: Hash-relevant knobs that legitimately reach the run by another route than a same-named key of config.yaml:
+#: knob -> (where it goes, the segment_sources that consume it; None = every run). Anything else that differs from its
+#: __init__ default must appear in the rendered config (check_knobs_rendered).
+KNOBS_CONSUMED_ELSEWHERE = {
+    "rqmt": ("the run Task's SLURM request (not hashed when None)", None),
+    "card": ("experiment_card.json/.md (not hashed)", None),
+    "quality_judge": ("run(): the co-launched vLLM judge (RL_JUDGE_* env)", None),
+    "judge_max_model_len": ("run(): the vLLM judge's max_model_len", None),
+    "launcher_fixes": ("render_launcher_fix_keys (each set key checked below)", None),
+    "train_perf": ("render_train_perf_keys (each set key checked below)", None),
+    "knowledge_questions": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "knowledge_audio": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "knowledge_exclude": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "n_probe": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "knowledge_sources": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "knowledge_base_category": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "knowledge_balance": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "n_probe_per_category": ("knowledge_manifest.json", _KNOWLEDGE_SOURCES),
+    "selfplay_scenarios": ("selfplay_manifest.json", _SELFPLAY_SOURCES),
+    "n_probe_scenarios": ("selfplay_manifest.json", _SELFPLAY_SOURCES),
+    "judge_rubric": ("judge_rubric.json (the rubric payload)", _SELFPLAY_SOURCES),
+    "selfplay_reward": ("judge_rubric.json (the payload's reward spec)", _SELFPLAY_SOURCES),
+}
+#: knob -> its config key when the names differ
+KNOB_CONFIG_KEY = {"knowledge_reward": "reward"}
+
+
+def unrendered_knobs(job: "RLFinetune", text: str) -> list:
+    """The hash-relevant knobs of ``job`` that differ from their ``__init__`` default but reach neither the rendered
+    launcher config ``text`` (as a top-level ``key: `` line or a nested JSON ``"key": ``; a ``tk.Path`` value must
+    appear verbatim) nor a route in :data:`KNOBS_CONSUMED_ELSEWHERE` that this run kind uses. Empty = all applied."""
+    source = getattr(job, "segment_source", "synthetic")
+    bad = []
+
+    def rendered(key, value=None):
+        if f"\n{key}: " not in text and f'"{key}": ' not in text:
+            return False
+        return not hasattr(value, "get_path") or value.get() in text
+
+    for name, default in _init_defaults().items():
+        value = getattr(job, name, default)
+        if value == default:
+            continue
+        if name in KNOBS_CONSUMED_ELSEWHERE:
+            consumers = KNOBS_CONSUMED_ELSEWHERE[name][1]
+            if consumers is not None and source not in consumers:
+                bad.append(name)
+            elif name in ("launcher_fixes", "train_perf"):
+                bad += [f"{name}.{k}" for k, v in sorted(value.items()) if v is not None and not rendered(k)]
+            continue
+        if not rendered(KNOB_CONFIG_KEY.get(name, name), value):
+            bad.append(name)
+    return bad
+
+
+def check_knobs_rendered(job: "RLFinetune", text: str) -> None:
+    """write_config's guard: a hashed knob the launcher never sees trains silently without it (2026-10-02: init_lora
+    was not rendered for self-play, so a run "from p6" would have started from released PersonaPlex; 2026-10-12:
+    self-play advantage_split/scale_std/brevity/garbled and the base-Moshi trainer knobs)."""
+    bad = unrendered_knobs(job, text)
+    if bad:
+        raise RuntimeError(
+            f"RLFinetune({getattr(job, 'segment_source', '?')}): knob(s) {bad} differ from their default but are not "
+            "rendered into the launcher config (nor consumed via KNOBS_CONSUMED_ELSEWHERE) -- they would change the "
+            "hash and nothing else"
+        )
 
 
 def _rl_render_shim(job: "RLFinetune", _batch_size: int, _max_steps: int) -> str:
@@ -689,11 +809,7 @@ class RLFinetune(Job):
             with open(self.out_judge_rubric, "w") as f:
                 json.dump(self.judge_rubric_payload, f, indent=1)
         text = _render_rl_config(self)
-        # a hashed knob the launcher never sees trains silently without it (2026-10-02: init_lora was not rendered for
-        # self-play, so a run "from p6" would have started from released PersonaPlex)
-        for key in ("init_lora", "selfplay_partner"):
-            if getattr(self, key, None) is not None:
-                assert f"\n{key}: " in text, f"{key} is set but not rendered into the launcher config"
+        check_knobs_rendered(self, text)  # every non-default hashed knob reaches the launcher
         with open(self.out_config, "w") as f:
             f.write(text)
 
