@@ -60,6 +60,9 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         keys += f'knowledge_judge_version: "{job.knowledge_judge_version}"\n'
     if getattr(job, "text_teacher", None):  # absent at the default (2026-10-11): text-mode OPD, rl.text_teacher
         keys += f'text_teacher: "{job.text_teacher}"\ntext_teacher_weight: {job.text_teacher_weight}\n'
+    if getattr(job, "aux_tasks", None):  # absent at the default (2026-10-12): auxiliary prompt tasks, rl.aux_tasks
+        mix = ", ".join(f"{k}: {float(v)}" for k, v in sorted(job.aux_tasks.items()))
+        keys += f"aux_tasks: {{{mix}}}\nquestion_draw_offset: {job.question_draw_offset}\naux_seed: {job.aux_seed}\n"
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -258,6 +261,10 @@ class RLFinetune(Job):
         # text-mode on-policy distillation (2026-10-11, moshi_family.rl.text_teacher): excluded at their defaults (off)
         "text_teacher": None,
         "text_teacher_weight": 0.0,
+        # auxiliary prompt tasks (2026-10-12, moshi_family.rl.aux_tasks): excluded at their defaults (off)
+        "aux_tasks": None,
+        "question_draw_offset": 0,
+        "aux_seed": 0,
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
@@ -346,6 +353,9 @@ class RLFinetune(Job):
         knowledge_judge_version: str = "v1",
         text_teacher: str | None = None,
         text_teacher_weight: float = 0.0,
+        aux_tasks: dict | None = None,
+        question_draw_offset: int = 0,
+        aux_seed: int = 0,
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
         conversation_s: float = 30.0,
@@ -579,6 +589,21 @@ class RLFinetune(Job):
         ), "text_teacher: PersonaPlex single-question knowledge GRPO only"
         self.text_teacher = text_teacher
         self.text_teacher_weight = float(text_teacher_weight)
+        # auxiliary prompt tasks (moshi_family.rl.aux_tasks): ``{"knowledge": w, "sysq": w, "echo": w}`` per-draw task
+        # weights; ``question_draw_offset``: training draws start at that pool index (continuing from an RL init)
+        assert aux_tasks is None or (
+            set(aux_tasks) <= {"knowledge", "sysq", "echo"} and sum(float(v) for v in aux_tasks.values()) > 0
+        ), aux_tasks
+        assert aux_tasks is None or (
+            family == "personaplex" and segment_source == "knowledge" and questions_per_episode == 1
+        ), "aux_tasks: PersonaPlex single-question knowledge GRPO only"
+        assert aux_tasks is not None or (question_draw_offset == 0 and aux_seed == 0), (
+            "draw offset / seed: aux_tasks only"
+        )
+        assert text_teacher is None or aux_tasks is None, "aux_tasks with text_teacher: not implemented"
+        self.aux_tasks = dict(sorted(aux_tasks.items())) if aux_tasks else None
+        self.question_draw_offset = int(question_draw_offset)
+        self.aux_seed = int(aux_seed)
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
