@@ -63,6 +63,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
     if getattr(job, "aux_tasks", None):  # absent at the default (2026-10-12): auxiliary prompt tasks, rl.aux_tasks
         mix = ", ".join(f"{k}: {float(v)}" for k, v in sorted(job.aux_tasks.items()))
         keys += f"aux_tasks: {{{mix}}}\nquestion_draw_offset: {job.question_draw_offset}\naux_seed: {job.aux_seed}\n"
+        if getattr(job, "aux_prompt_set", "fixed") != "fixed":  # absent at the default
+            keys += f'aux_prompt_set: "{job.aux_prompt_set}"\n'
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -265,6 +267,7 @@ class RLFinetune(Job):
         "aux_tasks": None,
         "question_draw_offset": 0,
         "aux_seed": 0,
+        "aux_prompt_set": "fixed",
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
@@ -356,6 +359,7 @@ class RLFinetune(Job):
         aux_tasks: dict | None = None,
         question_draw_offset: int = 0,
         aux_seed: int = 0,
+        aux_prompt_set: str = "fixed",
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
         conversation_s: float = 30.0,
@@ -604,6 +608,9 @@ class RLFinetune(Job):
         self.aux_tasks = dict(sorted(aux_tasks.items())) if aux_tasks else None
         self.question_draw_offset = int(question_draw_offset)
         self.aux_seed = int(aux_seed)
+        # "fixed" = the probes' own wordings; "varied" = 10 training paraphrases per task (rl.aux_tasks, 2026-10-12)
+        assert aux_prompt_set in ("fixed", "varied") and (aux_prompt_set == "fixed" or aux_tasks), aux_prompt_set
+        self.aux_prompt_set = aux_prompt_set
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
