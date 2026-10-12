@@ -12,7 +12,7 @@ import gzip
 import json
 import math
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sisyphus import Job, Task, tk
 
@@ -27,6 +27,16 @@ def _subset_of(seq_tag: str, subset_regex: Optional[str]) -> str:
 def _norm_label(word: str) -> str:
     # casefold + strip non-alphanumerics so MFA and SPM word spellings compare fairly
     return "".join(c for c in str(word).casefold() if c.isalnum())
+
+
+def _drop_pseudo_words(words: Sequence[Tuple[str, float, float]]) -> List[Tuple[str, float, float]]:
+    """
+    Leaves out the entries of an MFA word alignment that stand for no spoken word.
+
+    :param words: (word, start, end) records
+    :return: the records of the spoken words, the ones in angle brackets dropped
+    """
+    return [(word, start, end) for word, start, end in words if not (word.startswith("<") and word.endswith(">"))]
 
 
 def _load_onsets(store_path: str, *, unit: str, blank: int, frame_rate: float, sp):
@@ -542,3 +552,140 @@ class DatasetSeqTagsJob(Job):
         with open(self.out_seq_tags.get_path(), "w", encoding="utf-8") as f:
             for t in tags:
                 f.write(f"{t}\n")
+
+
+# signed offsets of an alignment against a reference word store
+class WordAlignmentOffsetJob(Job):
+    """Signed offsets of the word boundaries of an alignment against a reference word store, positive is late."""
+
+    __sis_version__ = 1
+
+    # the boundary errors within these many milliseconds are counted
+    TOLERANCES_MS = (20.0, 50.0, 100.0)
+
+    def __init__(self, *, word_boundaries_hdf: tk.Path, reference_store: tk.Path, returnn_root: tk.Path):
+        """
+        :param word_boundaries_hdf: per sequence the start and end seconds of every word of the alignment [words, 2]
+        :param reference_store: gzipped JSONL of ``{seq_tag, words}`` with (word, start, end) records in seconds
+        :param returnn_root: the RETURNN checkout that reads the HDF
+        """
+        super().__init__()
+        self.word_boundaries_hdf = word_boundaries_hdf
+        self.reference_store = reference_store
+        self.returnn_root = returnn_root
+        self.out_summary = self.output_path("summary.json")
+        self.out_report = self.output_path("report.txt")
+        self.out_skipped = self.output_path("skipped.jsonl")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1})
+
+    def run(self):
+        import sys
+
+        import numpy as np
+
+        sys.path.insert(0, self.returnn_root.get_path())
+        from returnn.datasets.hdf import HDFDataset
+
+        from i6_experiments.users.sheremeta.alignment.metrics import (FailureCounts, deviation_stats,
+                                                                     format_stats_table, offset_stats,
+                                                                     onset_failure_reason, word_offsets_ms)
+
+        # start and end of every spoken word of the reference
+        reference: Dict[str, np.ndarray] = {}
+        with gzip.open(self.reference_store.get_path(), "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                spans = [(start, end) for _word, start, end in _drop_pseudo_words(rec["words"])]
+                reference[str(rec["seq_tag"])] = np.asarray(spans, dtype=np.float64).reshape(-1, 2)
+
+        # the word boundaries of the alignment
+        hdf = HDFDataset([self.word_boundaries_hdf.get_path()])
+        hdf.initialize()
+        hdf.init_seq_order(epoch=1)
+        aligned: Dict[str, np.ndarray] = {}
+        for i in range(hdf.num_seqs):
+            hdf.load_seqs(i, i + 1)
+            aligned[str(hdf.get_tag(i))] = np.asarray(hdf.get_data(i, "data"), dtype=np.float64).reshape(-1, 2)
+
+        # sequences outside the reference are reported, they are no failure of the alignment
+        skipped: List[Dict[str, Any]] = [
+            {"seq_tag": tag, "reason": "unexpected_output"} for tag in sorted(set(aligned) - set(reference))
+        ]
+        unexpected = len(skipped)
+
+        # pair every reference sequence with its alignment, word by word
+        failures = FailureCounts()
+        offsets: Dict[str, List[np.ndarray]] = {"start": [], "end": [], "center": []}
+        n_utts = 0
+        for tag in sorted(reference):
+            ref = reference[tag]
+            if tag not in aligned:
+                failures.add("missing_output")
+                skipped.append({"seq_tag": tag, "reason": "missing_output"})
+                continue
+
+            spans = aligned[tag]
+            if len(spans) != len(ref):
+                failures.add("count_mismatch")
+                skipped.append({"seq_tag": tag, "reason": "count_mismatch",
+                                "n_alignment": len(spans), "n_reference": len(ref)})
+                continue
+
+            reason = onset_failure_reason(spans[:, 0]) or onset_failure_reason(spans[:, 1])
+            if reason is None and np.any(spans[:, 1] < spans[:, 0]):
+                reason = "nonmonotonic_output"
+            if reason:
+                failures.add(reason)
+                skipped.append({"seq_tag": tag, "reason": reason})
+                continue
+
+            utt_offsets = word_offsets_ms(spans, ref)
+            for key, values in utt_offsets.items():
+                offsets[key].append(values)
+            n_utts += 1
+
+        # pool the words of all sequences
+        pooled = {key: np.concatenate(values) if values else np.zeros(0) for key, values in offsets.items()}
+        stats = {key: offset_stats(values) for key, values in pooled.items()}
+        abs_start, abs_end = np.abs(pooled["start"]), np.abs(pooled["end"])
+        wbe_ms = float(np.mean(0.5 * (abs_start + abs_end))) if abs_start.size else float("nan")
+        boundary_abs = deviation_stats(np.concatenate([abs_start, abs_end]).tolist(), tolerances=self.TOLERANCES_MS)
+
+        with open(self.out_summary.get_path(), "w") as f:
+            json.dump(_json_safe({
+                "attempted_utts": len(reference),
+                "n_utts": n_utts,
+                "n_words": int(pooled["start"].size),
+                "unexpected_outputs": unexpected,
+                "failures": failures.as_dict(),
+                "failure_rate": failures.rate(len(reference)),
+                **{key: s.as_row() for key, s in stats.items()},
+                "wbe_ms": wbe_ms,
+                "boundary_abs": boundary_abs.as_row(),
+            }), f, indent=1)
+        _write_skipped(self.out_skipped.get_path(), skipped)
+
+        header = f"{'boundary':24s} {'n':>8s} {'mean':>8s} {'median':>8s} {'P90':>8s}"
+        lines = [
+            "word alignment offsets against the reference in ms, alignment minus reference, positive is late",
+            f"attempted={len(reference)}  used={n_utts}  words={int(pooled['start'].size)}"
+            f"  unexpected(outside reference)={unexpected}",
+            f"failures: {failures.as_dict()}  rate={100 * failures.rate(len(reference)):.2f}%",
+            "",
+            header,
+            "-" * len(header),
+        ]
+        for key, s in stats.items():
+            lines.append(f"{key:24s} {s.n:8d} {s.mean_ms:8.1f} {s.median_ms:8.1f} {s.p90_ms:8.1f}")
+        lines += [
+            "",
+            f"word boundary error: {wbe_ms:.1f} ms",
+            format_stats_table({"start and end": boundary_abs}, value_label="absolute error (ms)"),
+        ]
+        with open(self.out_report.get_path(), "w") as f:
+            f.write("\n".join(lines) + "\n")

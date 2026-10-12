@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import numpy.typing as npt
 
 # report the fraction of boundaries at or below each tolerance, in milliseconds
 DEFAULT_TOL_MS = (20.0, 40.0, 80.0)
@@ -442,6 +443,61 @@ def aggregate_agreement(
         attempted_utts=attempted_utts if attempted_utts is not None else len(per_utt),
         flagged=flagged[:top_k_flag],
     )
+
+
+# signed offsets against a reference alignment
+@dataclass
+class OffsetStats:
+    """Summary statistics for signed boundary offsets in milliseconds, positive is late."""
+
+    n: int
+    mean_ms: float
+    median_ms: float
+    p90_ms: float
+
+    def as_row(self) -> Dict[str, float]:
+        """
+        :return: the statistics by name
+        """
+        return {"n": self.n, "mean_ms": self.mean_ms, "median_ms": self.median_ms, "p90_ms": self.p90_ms}
+
+
+def offset_stats(offsets_ms: npt.ArrayLike) -> OffsetStats:
+    """
+    Summarizes signed offsets.
+
+    :param offsets_ms: the offsets in milliseconds
+    :return: their count, mean, median and 90th percentile, NaN for an empty input
+    """
+    d = np.asarray(offsets_ms, dtype=np.float64)
+    if d.size == 0:
+        return OffsetStats(0, float("nan"), float("nan"), float("nan"))
+    if not np.all(np.isfinite(d)):
+        raise ValueError("offsets contain NaN or infinite values")
+
+    return OffsetStats(
+        n=int(d.size),
+        mean_ms=float(np.mean(d)),
+        median_ms=float(np.median(d)),
+        p90_ms=float(np.percentile(d, 90)),
+    )
+
+
+def word_offsets_ms(start_ends_s: npt.ArrayLike, ref_start_ends_s: npt.ArrayLike) -> Dict[str, np.ndarray]:
+    """
+    Computes how far the word boundaries of an alignment lie behind those of a reference.
+
+    :param start_ends_s: start and end seconds of every word of the alignment [words, 2]
+    :param ref_start_ends_s: start and end seconds of every word of the reference [words, 2]
+    :return: the offsets per word in milliseconds under "start", "end" and "center", positive is late
+    """
+    aligned = np.asarray(start_ends_s, dtype=np.float64).reshape(-1, 2)
+    ref = np.asarray(ref_start_ends_s, dtype=np.float64).reshape(-1, 2)
+    if aligned.shape != ref.shape:
+        raise ValueError(f"word count mismatch: {aligned.shape[0]} vs {ref.shape[0]}")
+
+    diff_ms = (aligned - ref) * 1000.0
+    return {"start": diff_ms[:, 0], "end": diff_ms[:, 1], "center": diff_ms.mean(axis=1)}
 
 
 # human-readable reporting
