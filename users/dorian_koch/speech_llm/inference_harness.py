@@ -54,22 +54,24 @@ def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, 
 
 
 def _moshi_family_pythonpath() -> str:
-    """Dir to put on PYTHONPATH so ``python -m moshi_family.<driver>`` resolves the local
-    library (its drivers import the top-level package name ``moshi_family``, which lives at
-    ``recipe/speech_llm/full_duplex/moshi_family``). Derived from THIS file's location, not by
-    importing ``speech_llm`` -- the recipe top-level is not importable by that name in a Sisyphus
-    *worker* (jobs are imported as ``i6_experiments.users.dorian_koch.speech_llm...``, so only
-    ``i6_experiments`` is on the worker's sys.path; ``import speech_llm`` raises ModuleNotFound)."""
-    # Walk UP from this file's (unresolved) absolute path to the recipe root that holds
-    # ``speech_llm/full_duplex/moshi_family``. Do NOT ``.resolve()``: ``i6_experiments`` is a
-    # symlink into a shared checkout, so resolving leaves the recipe tree; the ``recipe/`` dir
-    # (which also carries ``speech_llm/``) is only on the *unresolved* path.
-    here = Path(os.path.abspath(__file__))
-    for parent in here.parents:
-        cand = parent / "speech_llm" / "full_duplex"
-        if (cand / "moshi_family").is_dir():
-            return str(cand)
-    raise RuntimeError(f"could not locate speech_llm/full_duplex/moshi_family above {here}")
+    """Dir to put on PYTHONPATH so ``python -m moshi_family.<driver>`` resolves the local library
+    (``common.moshi_family_lib_parent``: ``recipe/speech_llm/full_duplex``, found by an UNRESOLVED walk up from the
+    recipe tree -- the recipe top level is not importable as ``speech_llm`` in a Sisyphus worker)."""
+    from .common import moshi_family_lib_parent
+
+    lib = moshi_family_lib_parent()
+    if not os.path.isdir(os.path.join(lib, "moshi_family")):
+        raise RuntimeError(f"could not locate speech_llm/full_duplex/moshi_family at {lib}")
+    return lib
+
+
+#: Offline drivers whose every HF file is in the shared cache (verified 2026-10-12 with local_files_only: model,
+#: Mimi, text tokenizer, PersonaPlex voices.tgz / config.json for nvidia/personaplex-7b-v1,
+#: kyutai/personaplex-rl-seamless, kyutai/moshiko|moshika-pytorch-bf16, kyutai/moshika-rl-seamless; a repo without
+#: config.json raises LocalEntryNotFoundError, which loaders' ``except EntryNotFoundError`` still catches). They run
+#: with HF offline mode (``common.worker_env``). Every other driver (Audex: the trunk downloads lazily; MoshiRAG,
+#: KAME, FLM-Audio, fork scripts) stays online.
+HF_OFFLINE_DRIVERS = frozenset({"moshi_family.offline_inference", "moshi_family.personaplex.offline_inference"})
 
 
 @dataclass
@@ -247,11 +249,10 @@ def run_offline_driver(
         else:
             cmd += ["--seed", str(seed)]
     cmd += list(extra_args)
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    if pythonpath:
-        existing = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = pythonpath + ((os.pathsep + existing) if existing else "")
+    from .common import worker_env
+
+    # HF_HOME/HF_HUB_CACHE as every job (settings.py sets HF_HOME; HF_HUB_CACHE = its hub/), offline per driver
+    env = worker_env(offline=module in HF_OFFLINE_DRIVERS, pythonpath=pythonpath or None)
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items()})
     print("[offline]", " ".join(cmd), flush=True)

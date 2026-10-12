@@ -35,7 +35,7 @@ import re
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server
+from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server, worker_env
 
 #: Caps every MonologueRows summary tabulates (rows / hours kept at each), whatever its own cap.
 STRETCH_CAPS = (10.0, 15.0, 20.0, 25.0, 30.0)
@@ -1004,14 +1004,8 @@ class CensorFlaggedWords(Job):
         yield Task("merge", rqmt={"cpu": 2, "mem": 16, "time": 1})
 
     def run(self, shard: int):
-        from pathlib import Path
-
-        # podcast_ingest._moshi_pythonpath's two entries (moshi_family + the recipe root for ``moshi``), inlined: importing
-        # podcast_ingest in the worker pulls i6_core, which the job's worker does not have
-        root = next(str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists())
-        pp = os.pathsep.join([os.path.join(root, "speech_llm", "full_duplex"), root])
-        env = dict(os.environ)
-        env["PYTHONPATH"] = pp + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        # moshi_family + the recipe root (for ``moshi``); common, not podcast_ingest (which pulls i6_core in the worker)
+        env = worker_env(offline=False)
         cmd = [
             self.venv_python_path.get(),
             "-m",

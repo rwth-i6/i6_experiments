@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .podcast_ingest import _moshi_pythonpath
+from .common import worker_env
 
 
 class PersonaPlexVoiceEmbeddings(Job):
@@ -26,9 +25,7 @@ class PersonaPlexVoiceEmbeddings(Job):
         yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 48, "time": 1, "gpu_mem_gb": 40})
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        env.setdefault("HF_HUB_OFFLINE", "1")
+        env = worker_env(offline=True)
         cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.voice_embeddings"]
         cmd += ["--out_dir", self.out_dir.get_path(), "--hf_repo", self.hf_repo]
         for name, path in self.wavs.items():

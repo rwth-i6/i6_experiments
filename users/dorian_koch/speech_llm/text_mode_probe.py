@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .podcast_ingest import _moshi_pythonpath
+from .common import worker_env
 
 
 class TextModeKnowledgeProbe(Job):
@@ -54,8 +53,7 @@ class TextModeKnowledgeProbe(Job):
         yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 48, "time": 2, "gpu_mem_gb": 40})
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=True)
         cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.text_mode_probe"]
         cmd += ["--family", self.family, "--hf_repo", self.hf_repo]
         cmd += ["--questions", self.questions.get_path(), "--out", self.out_json.get_path()]

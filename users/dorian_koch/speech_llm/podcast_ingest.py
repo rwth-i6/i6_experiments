@@ -59,6 +59,7 @@ from sisyphus import Job, Task, tk
 from i6_experiments.users.dorian_koch.speech_llm.common import (
     job_progress_fraction,
     moshi_family_lib_parent,
+    moshi_pythonpath,
     run_worker_script,
 )
 from i6_experiments.users.dorian_koch.speech_llm.tts import InstallFFmpeg
@@ -125,26 +126,8 @@ def _stable_id(key: str) -> str:
 
 
 def _moshi_pythonpath() -> str:
-    """PYTHONPATH for a worker that imports both ``moshi_family`` and ``moshi``.
-
-    🔴 TWO entries are required and only one is obvious. ``speech_llm/full_duplex`` provides
-    ``moshi_family``; the **recipe root** provides ``moshi`` itself (kyutai's package). A worker
-    given only the first dies on ``from moshi.models import loaders`` -- a ModuleNotFoundError
-    about five seconds in, *after* the GPU has been allocated. That is exactly how the first
-    podcast smoke test failed, and ``mimi_aug_probe`` had already been fixed the same way; the
-    lesson simply had not been carried across.
-    """
-    from pathlib import Path
-
-    root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
-    if not root:
-        raise RuntimeError("could not locate the recipe root from podcast_ingest.py")
-    parts = []
-    lib_parent = os.path.join(root, "speech_llm", "full_duplex")
-    if os.path.isdir(lib_parent):
-        parts.append(lib_parent)
-    parts.append(root)
-    return os.pathsep.join(parts)
+    """``common.moshi_pythonpath`` (``moshi_family`` + the recipe root); kept under this name for its callers."""
+    return moshi_pythonpath()
 
 
 class PodcastWorkIndex(Job):

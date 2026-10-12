@@ -14,10 +14,9 @@ the design turns on whether the round trip moves the codes less than the augment
 from sisyphus import Job, Task, tk
 
 from .common import (
-    HF_CACHE_DIR,
-    HF_HOME_DIR,
     add_cuda_npp_to_env,
     add_venv_python_lib_to_env,
+    moshi_pythonpath,
     run_worker_script,
 )
 from .tts import InstallFFmpeg
@@ -69,7 +68,6 @@ class MimiAugmentationProbe(Job):
 
     def run(self):
         import os
-        from pathlib import Path
 
         worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimi_aug_probe_worker.py")
 
@@ -80,13 +78,6 @@ class MimiAugmentationProbe(Job):
         # GPU is allocated (hit 2026-09-18, job 4220940).
         # ⚠ Walk up UNRESOLVED: `recipe/` is a symlink tree, so resolving would land in projects/
         # and miss the sibling packages. Same reasoning as `launch_training` in finetune.py.
-        recipe_root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
-        extra_paths = []
-        if recipe_root:
-            lib_parent = os.path.join(recipe_root, "speech_llm", "full_duplex")
-            if os.path.isdir(lib_parent):
-                extra_paths.append(lib_parent)
-            extra_paths.append(recipe_root)
 
         def env_hook(env):
             if self.env_ffmpeg_path is not None:
@@ -114,10 +105,9 @@ class MimiAugmentationProbe(Job):
                 self.hf_repo,
             ],
             log_label="mimi_aug_probe",
+            # HF_HOME + HF_HUB_CACHE come from run_worker_script (with_hf_home)
             extra_env={
-                "HF_HOME": HF_HOME_DIR.get(),
-                "HF_HUB_CACHE": HF_CACHE_DIR.get(),
-                "PYTHONPATH": os.pathsep.join(extra_paths + [os.environ.get("PYTHONPATH", "")]).strip(os.pathsep),
+                "PYTHONPATH": os.pathsep.join([moshi_pythonpath(), os.environ.get("PYTHONPATH", "")]).strip(os.pathsep)
             },
             env_hook=env_hook,
         )

@@ -25,8 +25,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import job_progress_fraction
-from .podcast_ingest import _moshi_pythonpath
+from .common import job_progress_fraction, worker_env
 
 #: PersonaPlex's QA role, verbatim from the paper (section 3.2.1) and ``personaplex.engine.DEFAULT_SYSTEM_PROMPT``.
 PERSONAPLEX_QA_ROLE = (
@@ -124,8 +123,7 @@ class KnowledgeDialogueCodes(Job):
         return None if f is None else f"{100 * f:.1f}% of rows encoded"
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=False)
         if getattr(self, "voice_pool", None) is not None:
             voice_args = ["--voice_pool", self.voice_pool.get_path()]
         else:
@@ -197,8 +195,7 @@ class KnowledgeConcatMeta(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=False)
         cmd = [
             self.venv_python_path.get(),
             "-m",
@@ -283,9 +280,7 @@ class KnowledgeKnownScore(Job):
     def run(self):
         import shutil
 
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        env.setdefault("HF_HUB_OFFLINE", "1")
+        env = worker_env(offline=True)
         out = self.out_dir.get_path()
         cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.knowledge_known_score"]
         cmd += ["--codes", self.codes.get_path(), "--dialogues", self.dialogues.get_path(), "--out", out]
@@ -344,8 +339,7 @@ class KnowledgeVoicePool(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=False)
         excl = os.path.abspath("exclude_episodes.json")
         with open(excl, "w") as f:
             json.dump(self.exclude_episodes, f)

@@ -29,7 +29,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .podcast_ingest import _moshi_pythonpath
+from .common import worker_env
 from .speech_inference import assert_checkpoint_will_exist
 
 #: Weights file of each overlay kind in ``run_dir/checkpoints/checkpoint_<step>/consolidated/``.
@@ -148,8 +148,7 @@ class PersonaHeldoutSet(Job):
                 cmd += ["--exclude_episodes_file", path]
         else:
             cmd += ["--train", self.train.get_path()]
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=False)
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
 
@@ -202,9 +201,7 @@ class PersonaHeldoutLoss(Job):
         return None if d is None else f"{d.get('done')}/{d.get('total')} windows"
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        env.setdefault("HF_HUB_OFFLINE", "1")
+        env = worker_env(offline=True)
         cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.heldout_loss"]
         cmd += ["--train_config", self.train_config.get_path(), "--out", self.out_dir.get_path()]
         cmd += ["--seed", str(self.seed)]
@@ -268,9 +265,7 @@ class PersonaHeldoutTurnPos(Job):
         return None if d is None else f"{d.get('done')}/{d.get('total')} window evals"
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        env.setdefault("HF_HUB_OFFLINE", "1")
+        env = worker_env(offline=True)
         cmd = [self.venv_python_path.get(), "-u", "-m", "moshi_family.personaplex.heldout_turnpos"]
         cmd += ["--train_config", self.train_config.get_path(), "--set", self.heldout.get_path()]
         cmd += ["--out", self.out_dir.get_path(), "--gap", str(self.gap_s), "--seed", str(self.seed)]

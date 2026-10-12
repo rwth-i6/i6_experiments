@@ -14,7 +14,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .podcast_ingest import _moshi_pythonpath
+from .common import moshi_pythonpath, worker_env
 
 
 class PersonaSelfPlay(Job):
@@ -95,8 +95,7 @@ class PersonaSelfPlay(Job):
             return None
 
     def run(self):
-        env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env = worker_env(offline=True)
         cmd = [
             self.venv_python_path.get(),
             "-m",
@@ -176,9 +175,8 @@ class SelfPlayTranscribe(Job):
 
         from datasets import load_from_disk
 
-        env = dict(os.environ)
-        pypath = _moshi_pythonpath()
-        env["PYTHONPATH"] = pypath + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        pypath = moshi_pythonpath()
+        env = worker_env(offline=True)
         wav_dir = os.path.abspath("wav_scratch")
         subprocess.run(
             [

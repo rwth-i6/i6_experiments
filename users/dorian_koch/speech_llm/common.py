@@ -424,12 +424,56 @@ def moshi_family_lib_parent() -> str:
     rather than in a job module so that any job's ``run()`` can call it: importing ``podcast_ingest``
     at run time pulls in ``i6_core``, which job environments do not have.
     """
+    return os.path.join(recipe_root(), "speech_llm", "full_duplex")
+
+
+def recipe_root() -> str:
+    """The recipe root (the dir holding ``i6_experiments``, ``speech_llm``, ``moshi``), found by walking UP the
+    UNRESOLVED path of this file: ``recipe/`` is a symlink tree, and resolving lands in ``projects/``, which lacks the
+    sibling packages."""
     from pathlib import Path
 
     root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
     if not root:
         raise RuntimeError("could not locate the recipe root from common.py")
-    return os.path.join(root, "speech_llm", "full_duplex")
+    return root
+
+
+def moshi_pythonpath() -> str:
+    """PYTHONPATH for a worker that imports both ``moshi_family`` and ``moshi``.
+
+    🔴 TWO entries are required and only one is obvious. ``speech_llm/full_duplex`` provides ``moshi_family``; the
+    **recipe root** provides ``moshi`` itself (kyutai's package). A worker given only the first dies on
+    ``from moshi.models import loaders`` -- a ModuleNotFoundError about five seconds in, *after* the GPU has been
+    allocated (the first podcast smoke test; ``mimi_aug_probe`` had hit it before)."""
+    root = recipe_root()
+    lib_parent = os.path.join(root, "speech_llm", "full_duplex")
+    return os.pathsep.join([*([lib_parent] if os.path.isdir(lib_parent) else []), root])
+
+
+def worker_env(*, offline: bool, pythonpath: str | None = "moshi", hf_cache: bool = True) -> dict:
+    """The environment of a job's worker subprocess: ``os.environ`` + ``PYTHONUNBUFFERED`` + a PYTHONPATH prefix + the
+    HF cache + (``offline``) HF offline mode. Run()-side only, never hashed.
+
+    ``pythonpath``: "moshi" = :func:`moshi_pythonpath` (``moshi_family`` + the recipe root), "lib" =
+    :func:`moshi_family_lib_parent` only (the offline drivers: the recipe root would put ``recipe/moshi`` ahead of a
+    venv's own ``moshi``), any other string = that prefix, None = leave PYTHONPATH alone. ``hf_cache``: ``HF_HOME`` +
+    ``HF_HUB_CACHE`` (both, see ``HF_HOME_DIR``). ``offline``: ``HF_HUB_OFFLINE`` + ``TRANSFORMERS_OFFLINE`` = 1
+    (unless already set): no hub calls, no download / Xet re-verification of a 16 GB checkpoint, no dependence on
+    writable cache space. Only for a worker whose every HF file is already in ``HF_CACHE_DIR`` -- a missing one fails
+    the job instead of downloading."""
+    env = dict(os.environ)
+    env["PYTHONUNBUFFERED"] = "1"
+    prefix = {"moshi": moshi_pythonpath, "lib": moshi_family_lib_parent}.get(pythonpath, lambda: pythonpath)()
+    if prefix:
+        env["PYTHONPATH"] = prefix + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    if hf_cache:
+        env["HF_HOME"] = HF_HOME_DIR.get()
+        env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
+    if offline:
+        env.setdefault("HF_HUB_OFFLINE", "1")
+        env.setdefault("TRANSFORMERS_OFFLINE", "1")
+    return env
 
 
 def run_worker_script(

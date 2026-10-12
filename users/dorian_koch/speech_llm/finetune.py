@@ -27,7 +27,7 @@ from typing import Callable
 
 from sisyphus import Job, Task
 
-from .common import HF_CACHE_DIR, HF_HOME_DIR, last_jsonl_value
+from .common import HF_CACHE_DIR, last_jsonl_value, moshi_family_lib_parent, recipe_root, worker_env
 from .moshi_arrow_config import ArrowDataConfig
 
 
@@ -212,8 +212,12 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     port_key = os.environ.get("SLURM_JOB_ID") or cuda_devices
     port_offset = int(hashlib.md5(port_key.encode()).hexdigest()[:4], 16) % 4000
 
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
+    # The base model + tokenizer are pre-staged into the HF cache by the eval graph, so training runs HF-offline: no
+    # HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB checkpoint every run and (b) does not
+    # depend on writable HF cache space (the shared hpcwork cache can be full -- a Xet "Background writer channel
+    # closed" download error is that symptom). HF_HUB_CACHE points AT the hub dir (HF appends "/hub" to HF_HOME;
+    # common.HF_HOME_DIR). PYTHONPATH is built below (the adapter's fork dirs).
+    env = worker_env(offline=True, pythonpath=None)
     # The in-loop knowledge probe generates on the SAME model training uses. moshi's generation and
     # training forward share torch.compile'd fns (``torch_compile_lazy``, e.g. ``apply_rope``) + CUDA
     # graphs; letting the probe's generation shapes into the compile cache poisons the guards
@@ -224,18 +228,6 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     if getattr(job, "knowledge_probe_data", None) is not None:
         env["NO_TORCH_COMPILE"] = "1"
         env["NO_CUDA_GRAPH"] = "1"
-    env["HF_HOME"] = HF_HOME_DIR.get()
-    # The base model + tokenizer are pre-staged into HF_HOME by the eval graph, so force offline
-    # loading: this skips any HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB
-    # checkpoint every run and (b) does not depend on writable HF cache space (the shared hpcwork
-    # cache can be full -- a Xet "Background writer channel closed" download error is that symptom).
-    env["HF_HUB_OFFLINE"] = "1"
-    env["TRANSFORMERS_OFFLINE"] = "1"
-    # HF_CACHE_DIR already points AT the hub cache dir (".../common_hf_home/hub", which holds the
-    # models--* trees), so it is HF_HUB_CACHE -- NOT HF_HOME. HF appends "/hub" to HF_HOME, so setting
-    # HF_HOME to it makes HF look in ".../hub/hub/models--*" and miss the pre-staged model. Point
-    # HF_HUB_CACHE straight at the real dir so offline resolve (refs/main -> snapshot -> blob) works.
-    env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
     env["MASTER_ADDR"] = "localhost"
     env["MASTER_PORT"] = str(20000 + port_offset)  # unique per SLURM job -> no EADDRINUSE across co-located jobs
     print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of SLURM_JOB_ID/CUDA_VISIBLE_DEVICES")
@@ -321,15 +313,14 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # ``i6_experiments.__file__.resolve()`` would land in projects/ -- which lacks the recipe/<fork>
     # symlinks (e.g. recipe/moshi_finetune -> projects/moshi-finetune; there is no projects/
     # moshi_finetune), breaking the launcher's ``import <fork>``. Keep it unresolved.
-    recipe_root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
-    if recipe_root:
-        extra_paths.append(recipe_root)
-        # Lib launchers (``-m moshi_family.<...>``) live under recipe/speech_llm/full_duplex, which is
-        # NOT recipe_root; add it so the owned moshi_family package imports (harmless for fork
-        # launchers -- it is just one more importable dir on the path).
-        lib_parent = os.path.join(recipe_root, "speech_llm", "full_duplex")
-        if os.path.isdir(lib_parent):
-            extra_paths.append(lib_parent)
+    root = recipe_root()
+    extra_paths.append(root)
+    # Lib launchers (``-m moshi_family.<...>``) live under recipe/speech_llm/full_duplex, which is
+    # NOT the recipe root; add it so the owned moshi_family package imports (harmless for fork
+    # launchers -- it is just one more importable dir on the path).
+    lib_parent = moshi_family_lib_parent()
+    if os.path.isdir(lib_parent):
+        extra_paths.append(lib_parent)
     if env.get("PYTHONPATH"):
         extra_paths.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(extra_paths)
