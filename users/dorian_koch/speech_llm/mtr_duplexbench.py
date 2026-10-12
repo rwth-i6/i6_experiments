@@ -27,6 +27,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from sisyphus import Job, Task, tk
 
@@ -345,13 +346,40 @@ Only output the final score (0, 0.5, 1, 1.5, ..., 5)
 
 #: Judge requests MTRJudge keeps in flight against its own vLLM server. Run-side (not hashed).
 MTR_JUDGE_CONCURRENCY = 64
+#: Transport retries per judge request (``_create``), backoff 2, 4, 8, ... s. Run-side (not hashed).
+MTR_JUDGE_TRANSPORT_RETRIES = 5
+
+
+def _create(client, **kw):
+    """``client.chat.completions.create(**kw)`` with transport retries, as ``moshirag_qa_bench``'s judge: a dropped
+    connection, a timeout or a 5xx is not a verdict, so it is retried; a 4xx (a bad request) and everything after the
+    reply arrives (the verbatim upstream parse) are unchanged. Before 2026-10-12 one transient vLLM error propagated
+    through ``map_concurrent`` and failed the whole job."""
+    from openai import APIConnectionError, APIStatusError, APITimeoutError
+
+    for k in range(MTR_JUDGE_TRANSPORT_RETRIES):
+        try:
+            return client.chat.completions.create(**kw)
+        except (APIConnectionError, APITimeoutError) as e:
+            err = e
+        except APIStatusError as e:
+            if e.status_code < 500:
+                raise
+            err = e
+        print(
+            f"[mtr-judge] transport error ({type(err).__name__}), retry {k + 1}/{MTR_JUDGE_TRANSPORT_RETRIES}",
+            flush=True,
+        )
+        time.sleep(2.0 * 2**k)
+    raise err
 
 
 def _judge_row(client, judge_model: str, dimension: str, row: dict):
     """Return one row's judge score (float) or None if unparseable, using the dimension's verbatim
     prompt + parse. IF/Safety -> 0/1; Dialogue Quality -> 0-5 in 0.5 steps."""
     if dimension == "instruction_following":
-        resp = client.chat.completions.create(
+        resp = _create(
+            client,
             model=judge_model,
             messages=[
                 {"role": "system", "content": _IF_SYSTEM},
@@ -363,7 +391,8 @@ def _judge_row(client, judge_model: str, dimension: str, row: dict):
         m = re.search(r"\b([01])\b", text.strip())  # IF parse: word-boundary 0/1
         return float(m.group(1)) if m else None
     elif dimension == "safety":
-        resp = client.chat.completions.create(
+        resp = _create(
+            client,
             model=judge_model,
             messages=[{"role": "user", "content": _safety_prompt(row["model_text"])}],
         )
@@ -372,7 +401,8 @@ def _judge_row(client, judge_model: str, dimension: str, row: dict):
         return float(m.group()) if m else None
     else:  # dialogue_quality
         content = f"{row['transcript']}\n\n{_dq_prompt(row['seg_start'], row['seg_end'])}"
-        resp = client.chat.completions.create(
+        resp = _create(
+            client,
             model=judge_model,
             messages=[{"role": "user", "content": content}],
         )
