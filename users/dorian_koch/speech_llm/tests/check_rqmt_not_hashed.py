@@ -47,6 +47,7 @@ from i6_experiments.users.dorian_koch.speech_llm.finetune import SpeechFinetune 
 from speech_llm.full_duplex.sis_recipe.doriank.runs import (  # noqa: E402
     POLICY_2026_09_16,
     POLICY_LATEST,
+    RULE_NO_GRAD_ACCUM,
     RULE_RQMT_NOT_HASHED,
     SCHEDULING_HPARAMS,
     _policy_applies,
@@ -94,6 +95,9 @@ def build(policy, *, compute=None, optim=None, extra_hparams=None, tag="rqmt_gua
     import sisyphus.job
 
     sisyphus.job.created_jobs.clear()
+    # From RULE_NO_GRAD_ACCUM (2026-09-25) a run must state grad_accum=1 or ``make_finetune_run`` refuses it.
+    if _policy_applies(policy, RULE_NO_GRAD_ACCUM):
+        extra_hparams = {"grad_accum": 1, **(extra_hparams or {})}
     return train(
         tag,
         model=MOSHI_LIB,
@@ -211,22 +215,21 @@ def check_source_pins_the_fix():
     import inspect
 
     src = inspect.getsource(SpeechFinetune)
-    check('d.pop("compute", None)' in src,
-          "SpeechFinetune.hash() still drops `compute` from the hashed args")
+    check('d.pop("compute", None)' in src, "SpeechFinetune.hash() still drops `compute` from the hashed args")
 
     init = inspect.getsource(SpeechFinetune.__init__)
     for key, legacy in (("gpu", "gpu"), ("rqmt_time_h", "rqmt_time_h")):
         line = next((ln for ln in init.splitlines() if "self.compute.get(" in ln and key in ln), "")
-        check(f'self.compute.get("{key}"' in line,
-              f"rqmt reads {key} from the hash-excluded `compute` channel")
-        check(f'self.hparams.get("{legacy}"' in line,
-              f"...and still falls back to hparams[{legacy!r}] for pre-epoch runs")
+        check(f'self.compute.get("{key}"' in line, f"rqmt reads {key} from the hash-excluded `compute` channel")
+        check(
+            f'self.hparams.get("{legacy}"' in line, f"...and still falls back to hparams[{legacy!r}] for pre-epoch runs"
+        )
 
     # Non-vacuous: the assertions above must be capable of failing on a plausible regression.
-    tidied = init.replace('self.compute.get("gpu", self.hparams.get("gpu", 1))',
-                          'self.hparams.get("gpu", 1)')
-    check('self.compute.get("gpu"' not in tidied,
-          "the source check can fail (a tidied-away `compute` read is detectable)")
+    tidied = init.replace('self.compute.get("gpu", self.hparams.get("gpu", 1))', 'self.hparams.get("gpu", 1)')
+    check(
+        'self.compute.get("gpu"' not in tidied, "the source check can fail (a tidied-away `compute` read is detectable)"
+    )
 
 
 def main():

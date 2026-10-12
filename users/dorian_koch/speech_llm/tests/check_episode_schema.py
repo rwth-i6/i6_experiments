@@ -98,7 +98,10 @@ spec.loader.exec_module(pme)
 
 print("[2] the DIALOGUE schema must be exactly what it was before the episode branch existed")
 d = pme.part_features("dialogue")
-expected_dialogue = set(BASE) - {"spans_json"} | {"xcorr", "turns_json", "n_speakers"}
+# + the precomputed user-stream augmentation columns (full_duplex b9c2cad4, 2026-09-22: shared by both row modes,
+# empty with n_user_aug = 0 when a corpus is built without them).
+USER_AUG = {"codes_a_aug", "codes_b_aug", "n_user_aug", "user_aug_json"}
+expected_dialogue = set(BASE) - {"spans_json"} | {"xcorr", "turns_json", "n_speakers"} | USER_AUG
 check(
     "dialogue column set is unchanged",
     set(d) == expected_dialogue,
@@ -184,7 +187,8 @@ wtree = ast.parse(worker)
 sent = False
 for node in ast.walk(wtree):
     if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "run":
-        for arg in node.args:
+        # the argv may be ``[...] + ([...] if ... else [])`` (785736e0), so look at every list literal in it
+        for arg in (n for a in node.args for n in ast.walk(a)):
             if not isinstance(arg, ast.List):
                 continue
             vals = [x.value for x in arg.elts if isinstance(x, ast.Constant)]

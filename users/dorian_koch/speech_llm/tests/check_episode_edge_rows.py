@@ -364,14 +364,14 @@ def loader_part():
 
     # ---- 8 ----
     small = npy(keep[:20], "small.npy")
-    # 2 batches per epoch (the 4 left over are built, then dropped: item_meta records them too, so the expected rows
-    # come from the permutations, not from a longer run's entries)
+    # 2 batches per epoch (the 4 left over are built, then dropped; since full_duplex 52ceaed5 item_meta records only
+    # yielded batches, so epoch 1 starts at entry 16; the expected rows come from the permutations, not a longer run)
     prng = np.random.default_rng(0)
     p0, p1 = keep[:20][prng.permutation(20)], keep[:20][prng.permutation(20)]
     mfull: list = []
     plain(mfull, rows=small, n_b=4)
     ck(
-        jre_rows(mfull)[:16] == p0[:16].tolist() and jre_rows(mfull)[20:36] == p1[:16].tolist(),
+        jre_rows(mfull)[:16] == p0[:16].tolist() and jre_rows(mfull)[16:32] == p1[:16].tolist(),
         "[8] a 20-row subset: epoch 0 = its first permutation, epoch 1 its second",
     )
     mskip: list = []

@@ -198,6 +198,8 @@ def launcher_loss_step(cfg: dict, model):
         "train_row_weights": None,
         # ... and the flagged-word span weights (train_word_spans, 2026-09-28b)
         "train_word_spans": None,
+        # ... and the user-text head (user_text_loss_weight, eef4e848, default off): main()'s user_head is None
+        "user_head": None,
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]

@@ -27,6 +27,7 @@ Run from the setup root, no GPU needed:
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_path_hash_pinning.py
 """
 
+import ast
 import hashlib
 import os
 import sys
@@ -64,8 +65,10 @@ def digest(path):
 # --- 1. pinning is still a no-op for a path that has NOT moved -----------------------------------
 for p in PINNED:
     if tk.Path(p)._sis_hash() != tk.Path(p, hash_overwrite=p)._sis_hash():
-        failures.append(f"hash_overwrite is no longer identity-preserving for {p!r} -- every pin in "
-                        f"the recipe just became a different hash")
+        failures.append(
+            f"hash_overwrite is no longer identity-preserving for {p!r} -- every pin in "
+            f"the recipe just became a different hash"
+        )
 print(f"[ok] identity holds      hash_overwrite=p == bare Path(p) for all {len(PINNED)} pinned paths")
 
 # --- 2. the frozen literals still produce the hashes the job dirs were built with -----------------
@@ -91,10 +94,24 @@ src = (RECIPE / "speech_llm/full_duplex/sis_recipe/doriank/training.py").read_te
 if "_FISHER_HASH_ROOT" not in src or "hash_overwrite" not in src:
     failures.append("training.py no longer pins the Fisher paths")
 if src.count("_fisher_path(") < 4:
-    failures.append(f"expected 4+ _fisher_path() call sites in training.py, found {src.count('_fisher_path(')} "
-                    f"-- a Fisher path added without pinning?")
-if 'tk.Path(f"{_fisher_root}' in src:
-    failures.append("training.py builds a Fisher tk.Path directly from _fisher_root -- that path is unpinned")
+    failures.append(
+        f"expected 4+ _fisher_path() call sites in training.py, found {src.count('_fisher_path(')} "
+        f"-- a Fisher path added without pinning?"
+    )
+# A tk.Path built from _fisher_root WITHOUT hash_overwrite= is unpinned (AST, so the helper's own pinned call, which
+# ruff put on one line in b4ca9a00, does not read as a hit).
+_unpinned = [
+    n.lineno
+    for n in ast.walk(ast.parse(src))
+    if isinstance(n, ast.Call)
+    and isinstance(n.func, ast.Attribute)
+    and n.func.attr == "Path"
+    and n.args
+    and "_fisher_root" in ast.unparse(n.args[0])
+    and not any(k.arg == "hash_overwrite" for k in n.keywords)
+]
+if _unpinned:
+    failures.append(f"training.py builds a Fisher tk.Path directly from _fisher_root (line {_unpinned}) -- unpinned")
 rl_src = (RECIPE / "speech_llm/full_duplex/sis_recipe/doriank/track_rl.py").read_text()
 if "hash_overwrite=_RL_SALVAGE_RUNDIR" not in rl_src:
     failures.append("track_rl.py no longer pins its absolute work/ rundir")
