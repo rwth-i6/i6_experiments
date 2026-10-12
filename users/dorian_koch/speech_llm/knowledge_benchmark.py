@@ -702,6 +702,11 @@ def parse_judge_reply(content: str) -> dict:
 JUDGE_MAX_ATTEMPTS = 4
 JUDGE_RETRY_BACKOFF_S = 2.0
 
+#: The judge server's context and memory share. They trade against each other; the arithmetic is in
+#: LLMGrading.run(). 4096 / 0.85 until 2026-10-12 (one 218-alias question overflowed it).
+JUDGE_MAX_MODEL_LEN = 5120
+JUDGE_GPU_MEM_UTIL = 0.86
+
 
 def _grader_block(name: str, *, model: str | None = None) -> dict:
     """Identity of the grader that produced a summary, written INTO the summary.
@@ -749,8 +754,8 @@ class LLMGrading(Job):
         self.llm_name = llm_name
         self.out_eval = self.output_path("eval_results.jsonl")
         self.out_summary = self.output_path("summary.json")
-        # Grading prompts are <1k tokens, so we serve the judge with a small max_model_len (8192, see
-        # run()) -> its KV cache fits c25g's 80 GiB H100 at TP=1, so we keep the default (fast) c25g GPU
+        # Grading prompts are short (worst ~4.1k tokens), so we serve the judge with a small
+        # max_model_len (JUDGE_MAX_MODEL_LEN, see run()) -> its KV cache fits c25g's 80 GiB H100 at TP=1, so we keep the default (fast) c25g GPU
         # routing instead of pinning the judge to the scarce c23g big-GPU queue.
         self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
 
@@ -768,31 +773,41 @@ class LLMGrading(Job):
             for line in f:
                 results.append(json.loads(line))
 
-        # Both numbers are MEASURED, and they trade against each other -- pick them together.
+        # Both numbers are MEASURED, and they trade against each other -- pick them together
+        # (JUDGE_MAX_MODEL_LEN / JUDGE_GPU_MEM_UTIL, module level; run()-side, so no hash moves).
         #
-        # Prompt: over all 1,000 real graded rows the worst prompt is 8,905 chars (~2,544 tokens;
-        # median 249, p95 480). The long tail is the `aliases` list, not the transcription -- the
-        # old "<1k tokens" claim in vllm_server's docstring was wrong. The completion is a short
-        # JSON verdict (~200 tokens). So 4096 is ~1.6x the worst case end to end.
+        # Prompt (re-measured 2026-10-12 with the real tokenizer + chat template): median ~280 tokens,
+        # p99 ~710, next-worst ~900 -- and ONE outlier, "What does the usual base of a Florentine
+        # biscuit consist of?", whose TriviaQA alias list has 218 entries (Kids Next Door episode
+        # titles: 7,901 chars, very token-dense) -> 4,050-4,104 tokens depending on the reply. The old
+        # "8,905 chars ~ 2,544 tokens" estimate was that row, under-counted 1.6x. At 4096 it was
+        # 154 of the 157 judge errors in all 236 registered tags: either a 400 (prompt > 4096) or a
+        # verdict cut off after the ~0-46 completion tokens left ("Unterminated string"). The
+        # completion is a short JSON verdict (~50-200 tokens), so 5120 covers it with ~800 to spare.
         #
-        # KV budget on c25g, derived from two real vLLM startups on this model (79.18 GiB card):
+        # KV budget on c25g (79.18 GiB card), from real vLLM startups on this model:
         #     KV_available(util) = util * 79.18 - 63.05 GiB      [63.05 = weights + overhead]
-        #     KV_needed(len)     = 6.89 GiB * len / 8192
-        # 4096 needs 3.45 GiB; at util 0.85 there is 4.25 GiB. Fits, with residue tolerance of
-        # (1 - 0.85) * 79.18 = 11.9 GiB -- which covers the 10.8 GiB of someone else's memory that
-        # killed this job on n25g0004 (2026-09-06).
+        #     KV_needed(len)     = len * 0.941 MiB  [measured: 4.25 GiB = 4,624 tokens at util 0.85,
+        #                                            grader_t0_measure 2026-10-12; the old 6.89 GiB/8192
+        #                                            figure under-read it by ~8%]
+        # vLLM refuses to start unless KV holds one max_model_len sequence.
+        #     4096 @ 0.85: needs 3.76, has 4.25, headroom (1-util)*79.18 = 11.9 GiB  (until 2026-10-12)
+        #     5120 @ 0.86: needs 4.71, has 5.04 (~5,490 tokens), headroom 11.1 GiB   <- current
+        #     6144:        needs 5.65 -> util >= 0.868 -> headroom <= 10.5 GiB: too little
+        #     8192:        needs 7.53 -> util >= 0.891 -> headroom 8.6 GiB: does NOT fit
+        # The headroom must cover the 10.8 GiB of someone else's memory that killed this job on
+        # n25g0004 (2026-09-06). c23g's 94 GB cards have far more of everything.
         #
-        # ⚠ The obvious-looking 8192 @ 0.85 does NOT work: 8192 needs 6.89 GiB against 4.25
-        # available. That was tried and failed the same day; lowering util without re-checking
-        # KV_needed is exactly the half-of-the-arithmetic mistake this comment exists to stop.
+        # ⚠ Lowering util or raising len without redoing BOTH lines is exactly the half-of-the-
+        # arithmetic mistake this comment exists to stop (8192 @ 0.85 was tried and failed).
         # enforce_eager is deliberately NOT set here -- see vllm_server's docstring for the
         # measurement that withdrew it. On a WARM node compile is only ~11 s and capture ~8 s, so
         # eager would buy ~19 s of boot and pay it back in slower decoding over ~1,000 requests,
         # which is very likely a net loss. The [vllm-timing] line is what will settle it.
         with vllm_server(
             self.llm_name,
-            max_model_len=4096,
-            gpu_memory_utilization=0.85,
+            max_model_len=JUDGE_MAX_MODEL_LEN,
+            gpu_memory_utilization=JUDGE_GPU_MEM_UTIL,
         ) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()  # block until the server is ready to serve
