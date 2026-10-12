@@ -978,10 +978,11 @@ def knowledge_benchmark_py(
             c23g. Hash-excluded at ``None`` on the job, so passing it re-runs only the tag that
             opts in.
         inference_seed: RNG seed for the model's decoding (backlog E1). ``None`` (default) is the
-            historical unseeded behaviour. ⚠ Only the **lib** backends honour it -- the fork drivers
-            have their own argparse and are deliberately not sent ``--seed`` (they would exit(2)
-            after the GPU is allocated), so setting this on a fork-backend tag silently does
-            nothing. Hash-excluded at ``None``, so it re-runs only the tag that opts in.
+            historical unseeded behaviour. ⚠ Only the **lib** (``offline_module``) and served backends
+            honour it -- the fork drivers (``offline_script``) have their own argparse and are not sent
+            ``--seed`` (they would exit(2) after the GPU is allocated), so a fork-backend tag given a seed
+            is refused at graph build (it used to be dropped silently: a tag that claims a seed it never
+            had). Hash-excluded at ``None``, so it re-runs only the tag that opts in.
 
             **The standing rule, so this is not re-litigated (user, 2026-09-15: "E1 is obvious"):
             pass ``inference_seed=KNOWLEDGE_INFERENCE_SEED`` on NEW tags; never retro-seed an
@@ -1096,6 +1097,13 @@ def knowledge_benchmark_py(
         return
 
     # --- model-dependent stages (namespaced by tag) -------------------------
+
+    # A fork driver never sees the seed (SpeechInference._offline drops it; check_offline_driver_cli): refuse it here,
+    # at graph build, instead of declaring a "seeded" tag that runs unseeded.
+    assert inference_seed is None or speech_backend.offline_module or not speech_backend.offline_script, (
+        f"{tag}: inference_seed={inference_seed} on fork-driver backend {speech_backend.name!r} "
+        f"(offline_script={speech_backend.offline_script!r}); only lib (offline_module) and served backends take a seed"
+    )
 
     # Optional trained-weights overlay for a fine-tuned model (shared resolvers). PersonaPlex
     # uses a partial state_dict (trained_heads.safetensors, no config); Moshi uses a LoRA adapter.

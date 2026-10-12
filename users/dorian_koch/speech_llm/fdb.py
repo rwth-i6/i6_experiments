@@ -440,6 +440,12 @@ def fdb_benchmark_py(
     else:
         lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step, moshi_overlay_kind)
 
+    # The offline path gets "--seed" in its driver args (moshified_fdb_eval); a fork driver (offline_script, own argparse)
+    # would exit(2) on it after the GPU is allocated -- refuse it at graph build instead.
+    assert seed is None or backend.server is not None or backend.offline_module or not backend.offline_script, (
+        f"{tag}: seed={seed} on fork-driver backend {backend.name!r} (offline_script={backend.offline_script!r}); "
+        f"only lib (offline_module) and served backends take a seed"
+    )
     asr_venv_python = fdb_asr_venv()
     eval_jobs: dict = {}
     # ``tasks`` lets a caller (e.g. the seed-variance sweep) run a subset -- e.g. only
