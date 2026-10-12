@@ -537,10 +537,19 @@ def _render_personaplex_lora_config(
             ut += f"user_text_lr: {_yaml_float(hp['user_text_lr'])}\n"
         if hp.get("user_text_head_warmup_steps"):
             ut += f"user_text_head_warmup_steps: {int(hp['user_text_head_warmup_steps'])}\n"
+        # the knowledge items' user words too (2026-10-12; rendered ONLY when set: every earlier config byte-identical)
+        if hp.get("knowledge_user_text"):
+            if not hp.get("knowledge_data"):
+                raise ValueError(f"{who}: knowledge_user_text needs knowledge_data")
+            ut += "knowledge_user_text: true\n"
         perf = ut + perf
-    elif any(hp.get(k) for k in ("user_text_delay_frames", "user_text_lr", "user_text_head_warmup_steps")):
+    elif any(
+        hp.get(k)
+        for k in ("user_text_delay_frames", "user_text_lr", "user_text_head_warmup_steps", "knowledge_user_text")
+    ):
         raise ValueError(
-            f"{who}: user_text_delay_frames / user_text_lr / user_text_head_warmup_steps without user_text_loss_weight"
+            f"{who}: user_text_delay_frames / user_text_lr / user_text_head_warmup_steps / knowledge_user_text without "
+            "user_text_loss_weight"
         )
     # AdamW decoupled weight decay (2026-09-25, ablation ab2_wd): rendered ONLY when set; absent = 0.0 in the
     # launcher, so every earlier config is byte-identical.
