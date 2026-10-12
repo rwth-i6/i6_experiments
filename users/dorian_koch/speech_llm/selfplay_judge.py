@@ -21,7 +21,7 @@ import os
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server
+from .common import json_schema_format, map_concurrent, vllm_gpu_mem_gb, vllm_server
 
 #: Versioned rubrics. The CONTENT is hashed into every job (``rubric_digest``): editing one re-runs.
 COHERENCE_RUBRICS = {
@@ -103,6 +103,15 @@ def bootstrap_ci(xs: list[float], n_boot: int = 10000, seed: int = 0) -> tuple[f
     return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
 
 
+#: Coherence judge versions (``summary.json["judge_version"]``; a summary without the field is v1):
+#:   1 -- ``guided_json=True`` sent ``extra_body={"guided_json": ...}``, which vLLM >= 0.19 IGNORES: unconstrained
+#:        replies, kept valid by the parser + 5 retries. Every coherence number up to 2026-10-12.
+#:   2 -- (2026-10-12) ``guided_json=True`` enforces the schema (``common.json_schema_format``); same rubric,
+#:        sampling and seeds. Hashed only when != 1 (v1 jobs keep their hash); ``guided_json=False`` = no constraint
+#:        in either version.
+COHERENCE_JUDGE_VERSION = 2
+
+
 class SelfPlayCoherenceJudge(Job):
     """Rate every conversation of several self-play runs (and optionally their real windows) for coherence.
 
@@ -125,8 +134,10 @@ class SelfPlayCoherenceJudge(Job):
         llm_name: str = "openai/gpt-oss-120b",
         temperature: float = 0.3,
         guided_json: bool = True,
+        judge_version: int = COHERENCE_JUDGE_VERSION,
     ):
         assert rubric in COHERENCE_RUBRICS, rubric
+        assert judge_version in (1, 2), judge_version
         assert runs and "real" not in runs, "'real' is the label of real_data"
         self.runs = {str(k): v for k, v in sorted(runs.items())}
         self.real_data = real_data
@@ -135,9 +146,12 @@ class SelfPlayCoherenceJudge(Job):
         self.llm_name = llm_name
         self.temperature = float(temperature)
         self.guided_json = bool(guided_json)
+        self.judge_version = int(judge_version)
         self.out_rows = self.output_path("rows.jsonl")
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    __sis_hash_exclude__ = {"judge_version": 1}  # v1 jobs keep their pre-2026-10-12 hash
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -193,8 +207,16 @@ class SelfPlayCoherenceJudge(Job):
 
         items = self._items()
         rubric = COHERENCE_RUBRICS[self.rubric]["instruction"]
-        llm_name, temp, guided = self.llm_name, self.temperature, self.guided_json
-        print(f"[coherence] {len(items)} conversations over {sorted({it['label'] for it in items})}", flush=True)
+        llm_name, temp = self.llm_name, self.temperature
+        # v1's guided_json was ignored by vLLM: nothing constrained decoding
+        constraint = (
+            json_schema_format(_JUDGE_JSON_SCHEMA, "coherence") if self.guided_json and self.judge_version >= 2 else {}
+        )
+        print(
+            f"[coherence] {len(items)} conversations over {sorted({it['label'] for it in items})}, "
+            f"judge v{self.judge_version} ({'schema enforced' if constraint else 'unconstrained'})",
+            flush=True,
+        )
 
         def judge(client, it):
             msg = rubric.format(duration=it["dur"], n_a=it["n_a"], n_b=it["n_b"], transcript=it["transcript"])
@@ -203,14 +225,13 @@ class SelfPlayCoherenceJudge(Job):
             err = ""
             for attempt in range(5):
                 try:
-                    kw = {"extra_body": {"guided_json": _JUDGE_JSON_SCHEMA}} if guided else {}
                     resp = client.chat.completions.create(
                         model=llm_name,
                         messages=[{"role": "user", "content": msg}],
                         seed=(seed + attempt) % (2**31),
                         temperature=temp,
                         max_tokens=4096,  # GPT-OSS reasons before it answers
-                        **kw,
+                        **constraint,
                     )
                     raw = (resp.choices[0].message.content or "").strip()
                     parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
@@ -253,7 +274,13 @@ class SelfPlayCoherenceJudge(Job):
                 "hist": {str(k): s.count(k) for k in (1, 2, 3, 4, 5)},
             }
 
-        summary = {"rubric": self.rubric, "rubric_digest": self.rubric_digest, "llm_name": llm_name, "labels": {}}
+        summary = {
+            "rubric": self.rubric,
+            "rubric_digest": self.rubric_digest,
+            "llm_name": llm_name,
+            "judge_version": self.judge_version,
+            "labels": {},
+        }
         for label in sorted({it["label"] for it in items}):
             rows = [(it, o) for it, o in zip(items, outs) if it["label"] == label]
             summary["labels"][label] = {

@@ -35,7 +35,7 @@ import re
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server, worker_env
+from .common import json_schema_format, map_concurrent, vllm_gpu_mem_gb, vllm_server, worker_env
 
 #: Caps every MonologueRows summary tabulates (rows / hours kept at each), whatever its own cap.
 STRETCH_CAPS = (10.0, 15.0, 20.0, 25.0, 30.0)
@@ -668,7 +668,7 @@ def label_safety(items: list, url: str, llm_name: str, rubric: str, concurrency:
                     seed=(seed + attempt) % (2**31),
                     temperature=0.0,
                     max_tokens=4096,  # GPT-OSS reasons before it answers
-                    extra_body={"guided_json": _SAFETY_JSON_SCHEMA},
+                    **json_schema_format(_SAFETY_JSON_SCHEMA, "safety"),  # enforced 2026-10-12+ (was ignored)
                 )
                 raw = (resp.choices[0].message.content or "").strip()
                 parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])

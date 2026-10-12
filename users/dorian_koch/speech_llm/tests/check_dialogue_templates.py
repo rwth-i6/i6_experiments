@@ -264,7 +264,8 @@ print(
 
 
 # --- generator output contract (migrated from test_pipeline.py) ---------------------------------
-# The schema is passed to vLLM as guided_json, so it is what actually constrains generation. An
+# The schema is passed to vLLM as response_format json_schema (common.json_schema_format; the guided_json sent
+# until 2026-10-12 was ignored), so it is what actually constrains generation. An
 # empty-text turn survives TTS as a zero-length clip and poisons the alignment.
 
 _valid = [{"speaker": "user", "text": "Hello"}, {"speaker": "assistant", "text": "Hi"}]

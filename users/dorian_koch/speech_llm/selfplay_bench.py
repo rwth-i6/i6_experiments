@@ -41,7 +41,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
+from .common import json_schema_format, map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
 from .podcast_ingest import _moshi_pythonpath
 from .selfplay_judge import EMPTY_TRANSCRIPT, two_sided_transcript  # noqa: F401  -- the v1 transcript builder
 
@@ -765,6 +765,16 @@ def score_stats(by_prompt: dict) -> dict:
     }
 
 
+#: spj2 judge versions (recorded as ``summary.json["judge_version"]``; a summary without the field is v1):
+#:   1 -- ``extra_body={"guided_json": SPJ2_JSON_SCHEMA}``, which vLLM >= 0.19 IGNORES: the reply was unconstrained
+#:        and only ``parse_judge_reply`` + 5 retries (new seed each) kept it valid. Every spj2 number up to 2026-10-12.
+#:   2 -- (2026-10-12, user: "fix vllm and move to a new judge version") the schema is enforced
+#:        (``common.json_schema_format``); same rubric, sampling, seeds and parser. ``judge_version`` is hashed only
+#:        when != 1, so a v1 job keeps its hash (and its finished rows) and every default job is v2 -- a NEW work dir;
+#:        the v1 dirs stay on disk and keep their rows (read them for any number reported under v1).
+SPJ2_JUDGE_VERSION = 2
+
+
 class SelfPlayJudgeV2(Job):
     """Rate self-play conversations of a scenario set (``SelfPlayScenarioSet`` rows run through ``PersonaSelfPlay``
     + ``SelfPlayTranscribe``) with ``SPJ2_RUBRICS[rubric]``: four 1-5 scores per conversation from one guided-JSON
@@ -783,10 +793,13 @@ class SelfPlayJudgeV2(Job):
         rubric: str = "spj2_judge_v1",
         llm_name: str = "openai/gpt-oss-120b",
         temperature: float = 0.3,
+        judge_version: int = SPJ2_JUDGE_VERSION,
     ):
         assert rubric in SPJ2_RUBRICS, rubric
         assert runs
+        assert judge_version in (1, 2), judge_version
         self.runs = {str(k): v for k, v in sorted(runs.items())}
+        self.judge_version = int(judge_version)
         self.rubric = rubric
         self.rubric_digest = judge_rubric_digest(rubric)  # in the hash via hash() below
         self.llm_name = llm_name
@@ -794,6 +807,8 @@ class SelfPlayJudgeV2(Job):
         self.out_rows = self.output_path("rows.jsonl")
         self.out_summary = self.output_path("summary.json")
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    __sis_hash_exclude__ = {"judge_version": 1}  # v1 jobs keep their pre-2026-10-12 hash
 
     @classmethod
     def hash(cls, parsed_args):
@@ -851,7 +866,13 @@ class SelfPlayJudgeV2(Job):
 
         items = self.items()
         rubric, llm_name, temp = self.rubric, self.llm_name, self.temperature
-        print(f"[spj2-judge] {len(items)} conversations over {sorted({it['label'] for it in items})}", flush=True)
+        # v1 sent the ignored guided_json, i.e. nothing that constrains decoding
+        constraint = json_schema_format(SPJ2_JSON_SCHEMA, "spj2") if self.judge_version >= 2 else {}
+        print(
+            f"[spj2-judge] {len(items)} conversations over {sorted({it['label'] for it in items})}, "
+            f"judge v{self.judge_version} ({'schema enforced' if constraint else 'unconstrained'})",
+            flush=True,
+        )
 
         def judge(client, it):
             msg = render_judge_message(
@@ -874,7 +895,7 @@ class SelfPlayJudgeV2(Job):
                         seed=(seed + attempt) % (2**31),
                         temperature=temp,
                         max_tokens=6144,  # GPT-OSS reasons before it answers
-                        extra_body={"guided_json": SPJ2_JSON_SCHEMA},
+                        **constraint,
                     )
                     return {"judged": parse_judge_reply(resp.choices[0].message.content), "error": ""}
                 except Exception as e:  # API error, empty or unparsable reply: retry
@@ -896,7 +917,14 @@ class SelfPlayJudgeV2(Job):
             for it, o in zip(items, outs):
                 f.write(json.dumps({**it, **o}) + "\n")
         summary = summarize_rows([{**it, **o} for it, o in zip(items, outs)])
-        summary.update({"rubric": self.rubric, "rubric_digest": self.rubric_digest, "llm_name": llm_name})
+        summary.update(
+            {
+                "rubric": self.rubric,
+                "rubric_digest": self.rubric_digest,
+                "llm_name": llm_name,
+                "judge_version": self.judge_version,
+            }
+        )
         json.dump(summary, open(self.out_summary.get_path(), "w"), indent=2)
         for label, s in summary["labels"].items():
             print(f"[spj2-judge] {label}: " + fmt_label(s), flush=True)
@@ -1229,7 +1257,8 @@ class SelfPlayScenarioGen(Job):
                         seed=(c["seed"] + attempt) % (2**31),
                         temperature=self.temperature,
                         max_tokens=8192,
-                        extra_body={"guided_json": _SP_TRAIN_JSON_SCHEMA},
+                        # enforced from 2026-10-12 (run()-side; the finished build was unconstrained)
+                        **json_schema_format(_SP_TRAIN_JSON_SCHEMA, "sp_train_scenarios"),
                     )
                     raw = resp.choices[0].message.content or ""
                     d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])

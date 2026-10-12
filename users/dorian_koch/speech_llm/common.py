@@ -340,6 +340,21 @@ def vllm_server(
             )
 
 
+def json_schema_format(schema: dict, name: str = "reply") -> dict:
+    """The ``chat.completions.create`` kwargs that make our vLLM server ENFORCE ``schema`` at decode time:
+    ``response_format={"type": "json_schema", ...}`` (vLLM structured outputs). On gpt-oss vLLM auto-selects the
+    ``openai_gptoss`` reasoning parser, so the constraint applies to the final answer only: the reasoning is untouched
+    (probe 2026-10-12, gpt-oss-20b on 0.30.0: identical reasoning, 6/6 replies schema-valid vs 0/6 unconstrained).
+
+    NOT ``extra_body={"guided_json": ...}``: vLLM removed the ``guided_*`` request fields; 0.19.1 (the setup .venv)
+    and 0.30.0 (``vllm_venv_v030``) accept them with HTTP 200 and decode UNCONSTRAINED (0.30 logs a warning, 0.19
+    only at debug). Every guided_json judge in this package (spj2, coherence, persona/profile/content prompts, safety
+    labels, dialogue generation, self-play training scenarios) therefore ran unconstrained until 2026-10-12. The same
+    request form as the training self-play judge (``moshi_family/rl/selfplay_reward.py``). Guard:
+    ``tests/check_json_constraint.py``."""
+    return {"response_format": {"type": "json_schema", "json_schema": {"name": name, "schema": schema}}}
+
+
 # ---------------------------------------------------------------------------
 # Worker-script subprocess launcher (shared by the Job.run() wrappers that shell
 # out to a sibling worker script in their own venv).

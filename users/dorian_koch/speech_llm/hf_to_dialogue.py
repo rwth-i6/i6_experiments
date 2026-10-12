@@ -10,7 +10,7 @@ style diversity and avoid the "That would be …" monoculture.
 from sisyphus import Job, Task, tk
 import os
 import hashlib
-from .common import vllm_gpu_mem_gb, vllm_server, write_progress
+from .common import json_schema_format, vllm_gpu_mem_gb, vllm_server, write_progress
 from datasets import (
     load_from_disk,
     Dataset,
@@ -770,7 +770,9 @@ def make_dialogue_gen(
                     messages=messages,
                     seed=(seed + attempt) % (2**31),
                     temperature=temp,
-                    extra_body={"guided_json": _DIALOGUE_JSON_SCHEMA},
+                    # enforced 2026-10-12+ (run()-side; finished corpora were generated unconstrained: vLLM
+                    # ignored the guided_json they sent)
+                    **json_schema_format(_DIALOGUE_JSON_SCHEMA, "dialogue"),
                     max_tokens=800,
                 )
             except Exception as e:

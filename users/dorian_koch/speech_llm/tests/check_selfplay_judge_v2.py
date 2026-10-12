@@ -261,7 +261,8 @@ class StubClient:
         self.completions = self
 
     def create(self, *, messages, seed, **kw):
-        assert kw["extra_body"]["guided_json"] == b.SPJ2_JSON_SCHEMA
+        # judge v2: the schema is ENFORCED via response_format (vLLM ignores extra_body guided_json)
+        assert "extra_body" not in kw and kw["response_format"]["json_schema"]["schema"] == b.SPJ2_JSON_SCHEMA
         key = messages[0]["content"]
         n = StubClient.calls.get(key, 0)
         StubClient.calls[key] = n + 1
