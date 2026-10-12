@@ -46,6 +46,11 @@ SAVE_EVERY = 500
 #: writes at every ``save_every`` multiple and at ``max_steps``. PersonaPlex heads live elsewhere.
 CHECKPOINT_DIR_KINDS = ("lora", "full", "audex_stage0")
 
+#: The knowledge benchmark's lead-in: seconds of user-channel silence before the question. The recipe-side copy of
+#: ``moshi_family.offline_cli.DEFAULT_LEAD_IN_S`` (the drivers' default, and RL's ``knowledge_segments.LEAD_IN_S``);
+#: ``tests/check_lead_in_default.py`` keeps every copy equal.
+DEFAULT_LEAD_IN_S = 2.0
+
 
 def impossible_checkpoint_reason(step, *, max_steps, save_every: int = SAVE_EVERY, save_steps=()):
     """Why ``step`` can NEVER be a checkpoint of a run that stops at ``max_steps`` and saves every
@@ -355,7 +360,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         in_dir: tk.Path | None = None,
         shard: int | None = None,
         num_shards: int | None = None,
-        lead_in_s: float = 2.0,
+        lead_in_s: float = DEFAULT_LEAD_IN_S,
         capture_s: float = 24.0,
         batch_size: int = 32,
         oracle_dataset: tk.Path | None = None,
