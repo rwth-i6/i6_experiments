@@ -41,7 +41,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server
+from .common import map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
 from .podcast_ingest import _moshi_pythonpath
 from .selfplay_judge import EMPTY_TRANSCRIPT, two_sided_transcript  # noqa: F401  -- the v1 transcript builder
 
@@ -425,7 +425,7 @@ class EvalVoiceCodes(Job):
 
     def run(self):
         env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONPATH"] = prepend_pythonpath(_moshi_pythonpath(), env.get("PYTHONPATH"))
         cmd = [
             self.venv_python_path.get(),
             "-m",

@@ -3,6 +3,7 @@ from .common import (
     add_venv_python_lib_to_env,
     job_progress_fraction,
     merge_hf_parts,
+    prepend_pythonpath,
     run_worker_script,
     run_worker_script_per_gpu,
 )
@@ -134,8 +135,7 @@ class MoshiAnnotate(Job):
         top_level_file = moshi_finetune.__file__
         assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = str(Path(top_level_file).parent.parent)
-        existing = os.environ.get("PYTHONPATH")
-        pythonpath = f"{package_base_dir}{os.pathsep}{existing}" if existing else package_base_dir
+        pythonpath = prepend_pythonpath(package_base_dir, os.environ.get("PYTHONPATH"))
 
         # Per-GPU fan-out (backlog G1): contiguous sub-shards of this job's shard, one annotated
         # part per worker, concatenated in order (row order identical to a single worker's) with

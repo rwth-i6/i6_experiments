@@ -33,7 +33,7 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
-from .common import map_concurrent, vllm_gpu_mem_gb, vllm_server
+from .common import map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
 from .podcast_ingest import WINDOW_SELECT_KEYS, _moshi_pythonpath, select_windows
 
 #: The paper's Minimal level, verbatim, and the opener every LLM level starts with.
@@ -602,7 +602,7 @@ class VoicePromptCodes(Job):
 
     def run(self):
         env = dict(os.environ)
-        env["PYTHONPATH"] = _moshi_pythonpath() + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONPATH"] = prepend_pythonpath(_moshi_pythonpath(), env.get("PYTHONPATH"))
         parts_dirs = [os.path.join(d.get_path(), "parts") for d in self.episode_shard_dirs]
         cmd = [
             self.venv_python_path.get(),

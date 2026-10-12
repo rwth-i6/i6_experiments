@@ -34,6 +34,8 @@ import subprocess
 
 from sisyphus import Job, Task, tk
 
+from .common import prepend_pythonpath
+
 #: Upstream repo + the exact commit we vendor. Pinned because the SCORER is the measurement: an
 #: unpinned clone would silently re-define the metric between two of our own runs.
 TURNBENCH_REPO = "https://github.com/SesameAILabs/turnbench"
@@ -137,7 +139,7 @@ class TurnBenchScore(Job):
         if self.dataset:
             cmd += ["--dataset", self.dataset]
         env = os.environ.copy()
-        env["PYTHONPATH"] = repo + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONPATH"] = prepend_pythonpath(repo, env.get("PYTHONPATH"))
         # rich wraps to the terminal width, and a wrapped table is unparseable. Pin it wide.
         env["COLUMNS"] = "240"
         env["TERM"] = "dumb"

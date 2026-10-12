@@ -38,12 +38,13 @@ DEFAULT_MOSHI_REPO = "kyutai/moshiko-pytorch-bf16"
 def _pythonpath_env() -> dict:
     """Subprocess env with PYTHONPATH = speech_llm/full_duplex (so ``import mtr`` + ``moshi_family``
     resolve), reusing the moshi_family seam."""
+    from .common import prepend_pythonpath
     from .inference_harness import _moshi_family_pythonpath
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     pp = _moshi_family_pythonpath()
-    env["PYTHONPATH"] = pp + ((os.pathsep + env["PYTHONPATH"]) if env.get("PYTHONPATH") else "")
+    env["PYTHONPATH"] = prepend_pythonpath(pp, env.get("PYTHONPATH"))
     return env
 
 

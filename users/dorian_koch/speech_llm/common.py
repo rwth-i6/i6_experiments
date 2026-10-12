@@ -439,6 +439,14 @@ def recipe_root() -> str:
     return root
 
 
+def prepend_pythonpath(prefix: str, existing: str | None) -> str:
+    """``prefix`` ahead of an ``existing`` PYTHONPATH value (None / "" = just ``prefix``). The one spelling of the idiom
+    for every job that PREPENDS to the inherited PYTHONPATH (``worker_env``, the voice-code / TurnBench / MTR / Moshi
+    annotate jobs). Jobs passing ``extra_env={"PYTHONPATH": ...}`` to ``run_worker_script`` REPLACE it instead, on
+    purpose (standalone worker scripts); ``check_pythonpath_prepend.py`` keeps both kinds apart."""
+    return prefix + (os.pathsep + existing if existing else "")
+
+
 def moshi_pythonpath() -> str:
     """PYTHONPATH for a worker that imports both ``moshi_family`` and ``moshi``.
 
@@ -466,7 +474,7 @@ def worker_env(*, offline: bool, pythonpath: str | None = "moshi", hf_cache: boo
     env["PYTHONUNBUFFERED"] = "1"
     prefix = {"moshi": moshi_pythonpath, "lib": moshi_family_lib_parent}.get(pythonpath, lambda: pythonpath)()
     if prefix:
-        env["PYTHONPATH"] = prefix + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONPATH"] = prepend_pythonpath(prefix, env.get("PYTHONPATH"))
     if hf_cache:
         env["HF_HOME"] = HF_HOME_DIR.get()
         env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
