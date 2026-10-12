@@ -135,10 +135,12 @@ def train_rl(dtype, master: bool):
         log=lambda m: None,
     )
 
-    def grpo_step(axis, context_s):  # the rollout + reward + GRPO loss, replaced by a plain regression
+    # The rollout + reward + GRPO loss, replaced by a plain regression; same signature as
+    # ``RLTrainer._grpo_step`` (``step`` added in full_duplex 81e47868, 2026-09-29).
+    def grpo_step(axis, context_s, step=0):
         loss = ((layer(x.to(dtype)).float() - y) ** 2).mean()
         loss.backward()
-        return {"loss": float(loss.detach()), "kl": 0.0, "reward_mean": 0.0, "clip_frac": 0.0}
+        return {"loss": float(loss.detach()), "kl": 0.0, "reward_mean": 0.0, "clip_frac": 0.0, "ratio": 1.0}
 
     trainer._grpo_step = grpo_step
     trainer.run()

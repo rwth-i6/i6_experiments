@@ -366,11 +366,16 @@ def check_training_ranks():
 
     import inspect
 
-    src = inspect.getsource(finetune.launch_training)
-    fixed = '    declared = int((getattr(job, "compute", None) or {}).get("gpu", job.hparams.get("gpu", 1)))\n'
+    # The read lives in ``declared_train_gpus`` since i6 c2c651562 (2026-09-29; it was inline in launch_training).
+    assert "declared = declared_train_gpus(job)" in inspect.getsource(finetune.launch_training)
+    src = inspect.getsource(finetune.declared_train_gpus)
+    fixed = '    return int((getattr(job, "compute", None) or {}).get("gpu", (getattr(job, "hparams", None) or {}).get("gpu", 1)))\n'
     assert fixed in src, "mutation anchor moved: update check_training_ranks"
-    ns = dict(vars(finetune))  # the real module globals, with launch_training re-defined from the pre-fix line
-    exec(compile(src.replace(fixed, '    declared = int(job.hparams.get("gpu", 1))\n'), finetune.__file__, "exec"), ns)
+    # The real module globals with declared_train_gpus re-defined from the pre-fix read (hparams only); the real
+    # launch_training is re-defined in the same namespace, so it calls the mutant.
+    ns = dict(vars(finetune))
+    exec(compile(src.replace(fixed, '    return int(job.hparams.get("gpu", 1))\n'), finetune.__file__, "exec"), ns)
+    exec(compile(inspect.getsource(finetune.launch_training), finetune.__file__, "exec"), ns)
     mut = types.SimpleNamespace(launch_training=ns["launch_training"])
     got = _torchrun_nproc(job({}, {"gpu": 4}), "0,1,2,3", finetune=mut)
     assert got == 1, f"the pre-fix launch_training gave {got} ranks -- this check cannot see the bug"

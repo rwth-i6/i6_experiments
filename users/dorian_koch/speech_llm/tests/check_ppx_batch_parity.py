@@ -182,7 +182,7 @@ def main():
         for mutant in ("leak", "order", "bvar", "late"):
             try:
                 if mutant == "order":
-                    engine._stream_group = lambda m, a, B: orig(m, a, B)[::-1]
+                    engine._stream_group = lambda m, a, B, **kw: orig(m, a, B, **kw)[::-1]
                     got = run(d, clips, 3, f"mut_{mutant}")
                     r1 = ref
                 else:
