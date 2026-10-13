@@ -110,6 +110,8 @@ AT_N_ARMS = {
     "ab2_usertext_kn_w02",
     "ab2_usertext_kn_w02_mid",
     "ab2_constlr",
+    # 2026-10-13: the CTC variant of the user-text head loss
+    "ab2_usertext_kn_w02_ctc",
 }
 check(at_n == sorted({BASE_N} | AT_N_ARMS), f"the arms at 09-29 = ab2_base_0929 + {sorted(AT_N_ARMS)} ({at_n})")
 check(

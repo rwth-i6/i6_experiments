@@ -34,7 +34,17 @@ LP phase (``detach``): the head learns while the backbone's gradient is bit-iden
   7. LR SCHEDULE (``lr_schedule``, 2026-10-13; the REAL ``run_training`` on a tiny model, 3 param groups, warmup 3 of
      10 steps): "cosine" = ``cosine_lr_scale`` exactly (every group, every step; the pre-change schedule); "constant" =
      the same warmup, then every group at its base LR to the last step.
-``--selftest``: nine mutants (delay 0, hook feeding back, detached capture, PAD weight 1.0 in the head loss, LP phase
+  8. CTC LOSS (``user_text_loss_kind: "ctc"``, 2026-10-13, ablation ab2_usertext_kn_w02_ctc; the real
+     ``user_text_ctc_spans`` / ``user_text_ctc_loss`` / ``add_user_text_loss``): (a) spans = an independent
+     frame-by-frame rule (word frames +- the delay, merged, valid frames only, EPAD never a label) on random loader-format
+     targets + a hand case; (b) the loss = an independent numpy CTC forward algorithm per span (blank = PAD) + the
+     outside frames' weighted CE, over the CE's own denominator (both normalisations), its two logged parts sum to it;
+     (c) without user words it IS the framewise CE; (d) a perfect peaky head scores ~0 at lag 0 / +1 / +2 / -2 and when
+     it holds each token 2 frames (stutter), while the framewise CE of the +1 head and the CTC of wrong words are large
+     (CAN FAIL); (e) through ``add_user_text_loss`` on a tiny LMModel + LoRA with a bf16 hidden state: finite, the head
+     and the LoRA get gradient, LP detaches (backbone grad = knob-off), kind "ce" = the default call.
+``--selftest``: 17 mutants -- CTC: blank = EPAD, span margin 1, spans ignore loss_mask, EPAD as a label, outside PAD CE
+dropped, normalised per label token, CTC on bf16 logits, kind ignored by add_user_text_loss; and the nine before (delay 0, hook feeding back, detached capture, PAD weight 1.0 in the head loss, LP phase
 not detached, collate padding the user row with 0; mid: the wrong layer, LP not detached; constant decaying like
 cosine) must each fail. (The capture also ignores hook calls inside backward, in case a checkpoint recompute re-ran the
 layer's hooks; measured on torch 2.12: it does not, even with early stop off, so no mutant can exercise it -- 6a checks
@@ -618,6 +628,252 @@ def part_lr():
     )
 
 
+def ref_ctc_nll(lp, labels, blank):
+    """Independent reference: the CTC forward algorithm (Graves et al. 2006) in log space, numpy, one sequence.
+    ``lp [T, V]`` log-probs. Returns -log p(labels | lp); inf when infeasible."""
+    ext = [blank]
+    for lab in labels:
+        ext += [lab, blank]
+    S, T = len(ext), lp.shape[0]
+    alpha = np.full((T, S), -np.inf)
+    alpha[0, 0] = lp[0, blank]
+    if S > 1:
+        alpha[0, 1] = lp[0, ext[1]]
+    for t in range(1, T):
+        for s in range(S):
+            a = [alpha[t - 1, s]]
+            if s >= 1:
+                a.append(alpha[t - 1, s - 1])
+            if s >= 2 and ext[s] != blank and ext[s] != ext[s - 2]:
+                a.append(alpha[t - 1, s - 2])
+            alpha[t, s] = np.logaddexp.reduce(a) + lp[t, ext[s]]
+    end = alpha[T - 1, S - 1] if S == 1 else np.logaddexp(alpha[T - 1, S - 1], alpha[T - 1, S - 2])
+    return -float(end)
+
+
+def ref_spans(tgt, mask, margin, epad):
+    """Independent reference of the span rule, frame by frame: a valid frame is inside iff some valid word frame lies
+    within +-margin; spans = maximal runs; labels = the word frames' targets in order."""
+    out = []
+    B, T = tgt.shape
+    for b in range(B):
+        valid = [bool(mask[b, f]) and int(tgt[b, f]) != tdc.USER_TEXT_IGNORE for f in range(T)]
+        word = [valid[f] and int(tgt[b, f]) not in (tdc.TEXT_PADDING_ID, epad) for f in range(T)]
+        inside = [
+            valid[f] and any(word[g] for g in range(max(0, f - margin), min(T, f + margin + 1))) for f in range(T)
+        ]
+        f = 0
+        while f < T:
+            if inside[f]:
+                e = f
+                while e < T and inside[e]:
+                    e += 1
+                out.append((b, f, e, [int(tgt[b, g]) for g in range(f, e) if word[g]]))
+                f = e
+            else:
+                f += 1
+    return out
+
+
+def ctc_case(seed=5, B=3, T=120, V=40):
+    """Random user-text targets in the loader's format: IGNORE prompt, PAD, EPAD before each word after a pause, word
+    tokens (ids >= 4), a short loss-mask tail cut, one row without targets."""
+    g = np.random.default_rng(seed)
+    tgt = torch.full((B, T), tdc.TEXT_PADDING_ID, dtype=torch.long)
+    tgt[:, :4] = tdc.USER_TEXT_IGNORE
+    for b in range(B - 1):
+        f = 6
+        prev = -1
+        while f < T - 12:  # no word in the last frames: the late / early shifts of 8d stay inside every span
+            if g.random() < 0.35:
+                n = int(g.integers(1, 4))
+                tgt[b, f - 1] = tdc.TEXT_EPAD_ID if tgt[b, f - 2] == tdc.TEXT_PADDING_ID else tgt[b, f - 1]
+                for k in range(n):
+                    y = int(g.integers(4, V))
+                    while y == prev:  # no two equal labels in a row (CTC would need a blank between them)
+                        y = int(g.integers(4, V))
+                    tgt[b, f + k], prev = y, y
+                f += n + int(g.integers(0, 14))
+            else:
+                f += 1
+    tgt[B - 1] = tdc.USER_TEXT_IGNORE  # a row without user words
+    mask = torch.ones(B, T, dtype=torch.bool)
+    mask[:, :4] = False
+    mask[0, T - 3 :] = False  # right padding of a shorter row
+    logits = torch.from_numpy(g.normal(0, 2.0, (B, T, V))).float()
+    return logits, tgt, mask
+
+
+CTC_KW = dict(text_pad_weight=0.3, text_epad_id=tdc.TEXT_EPAD_ID, text_epad_weight=1.0)
+
+
+def part_ctc():
+    import torch.nn.functional as F
+
+    logits, tgt, mask = ctc_case()
+    m = D
+    # 8a spans = the independent frame-by-frame rule (margin, merge, clipped to valid frames, EPAD never a label)
+    got = tdc.user_text_ctc_spans(tgt, mask, margin=m, text_epad_id=tdc.TEXT_EPAD_ID)
+    exp = ref_spans(tgt, mask, m, tdc.TEXT_EPAD_ID)
+    hand_t = torch.full((1, 30), tdc.TEXT_PADDING_ID, dtype=torch.long)
+    hand_t[0, :3] = tdc.USER_TEXT_IGNORE
+    hand_t[0, 4], hand_t[0, 5], hand_t[0, 6], hand_t[0, 11], hand_t[0, 25] = 0, 7, 8, 9, 10
+    hand_m = torch.ones(1, 30, dtype=torch.bool)
+    hand_m[0, 27:] = False
+    hand = tdc.user_text_ctc_spans(hand_t, hand_m, margin=2, text_epad_id=tdc.TEXT_EPAD_ID)
+    hand_exp = [(0, 3, 14, [7, 8, 9]), (0, 23, 27, [10])]  # 5-2=3 (IGNORE before), 11+2 -> 13; 25 +-2 cut at 27
+    check(
+        "8a CTC spans = the frame-by-frame reference (margin = delay, merged, valid frames only, no EPAD label)",
+        got == exp and hand == hand_exp and len(got) >= 4,
+        f"{len(got)} spans; hand {hand}",
+    )
+    # 8b the loss = (sum of span CTC NLLs by the numpy forward algorithm + outside weighted CE) / the CE's denominator
+    ok = True
+    for wm in (True, False):
+        loss, comps = tdc.user_text_ctc_loss(logits, tgt, mask, margin=m, weighted_mean=wm, **CTC_KW)
+        lp = F.log_softmax(logits.double(), -1).numpy()
+        ctc_num = sum(ref_ctc_nll(lp[b, s:e], lab, tdc.TEXT_PADDING_ID) for b, s, e, lab in exp)
+        inside = np.zeros(tgt.shape, bool)
+        for b, s, e, _ in exp:
+            inside[b, s:e] = True
+        valid = ((tgt != tdc.USER_TEXT_IGNORE) & mask).numpy()
+        t_np = tgt.numpy()
+        w = np.where(t_np == tdc.TEXT_PADDING_ID, 0.3, 1.0)
+        w = np.where(t_np == tdc.TEXT_EPAD_ID, 1.0, w) * valid
+        ce = -np.take_along_axis(lp, np.clip(t_np, 0, None)[..., None], -1)[..., 0]
+        pad_num = float((ce * w * ~inside).sum())
+        den = float(w.sum()) if wm else float(valid.sum())
+        ref = (ctc_num + pad_num) / den
+        ok &= abs(float(loss) - ref) < 1e-4 * max(1.0, abs(ref))
+        ok &= abs(comps["user_text_ctc"] + comps["user_text_pad_ce"] - float(loss)) < 1e-4
+        ok &= abs(comps["user_text_ctc"] - ctc_num / den) < 1e-4 and comps["user_text_ctc_inf"] == 0
+    check(
+        "8b CTC loss = numpy forward-algorithm CTC per span + outside PAD CE, over the CE's denominator",
+        ok,
+        f"{ref:.4f}",
+    )
+    # 8c no word in the batch -> exactly the framewise CE (the outside part IS user_text_loss's)
+    t0 = tgt.clone()
+    t0[(t0 != tdc.USER_TEXT_IGNORE)] = tdc.TEXT_PADDING_ID
+    a, _ = tdc.user_text_ctc_loss(logits, t0, mask, margin=m, weighted_mean=True, **CTC_KW)
+    b_, _ = tdc.user_text_loss(logits, t0, mask, weighted_mean=True, **CTC_KW)
+    check("8c no user words: CTC variant = the framewise CE", torch.allclose(a, b_, atol=1e-5), f"{float(a):.4f}")
+
+    # 8d alignment-free: a head emitting every label 0..2 frames late or 2 early, or holding a word for 2 frames
+    # (stutter), scores ~0 and the same; the framewise CE of the same logits does not (CAN FAIL)
+    def peaky(shift, hold=1, wrong=False):
+        lg = torch.full(logits.shape, -30.0)
+        lg[..., tdc.TEXT_PADDING_ID] = 30.0
+        for b, s, e, lab in exp:
+            frames = [f for f in range(s, e) if int(tgt[b, f]) not in (tdc.TEXT_PADDING_ID, tdc.TEXT_EPAD_ID)]
+            for f, y in zip(frames, lab):
+                for h in range(hold):
+                    g_ = min(max(f + shift + h, s), e - 1)
+                    lg[b, g_] = -30.0
+                    lg[b, g_, (y + 1 - 4) % (lg.shape[-1] - 4) + 4 if wrong else y] = 30.0
+        return lg
+
+    vals = {}
+    for name, lg in {
+        "aligned": peaky(0),
+        "late1": peaky(1),
+        "late2": peaky(2),
+        "early2": peaky(-2),
+        "stutter": peaky(0, hold=2),
+    }.items():
+        vals[name] = float(tdc.user_text_ctc_loss(lg, tgt, mask, margin=m, weighted_mean=True, **CTC_KW)[0])
+    ce_late = float(tdc.user_text_loss(peaky(1), tgt, mask, weighted_mean=True, **CTC_KW)[0])
+    bad = float(tdc.user_text_ctc_loss(peaky(0, wrong=True), tgt, mask, margin=m, weighted_mean=True, **CTC_KW)[0])
+    ok = max(vals.values()) < 1e-3 and ce_late > 5.0 and bad > 5.0
+    check(
+        "8d CTC ~0 for a perfect prediction at any lag in the span and for stutter; wrong words / framewise CE of "
+        "the late one are large (CAN FAIL)",
+        ok,
+        f"{ {k: round(v, 5) for k, v in vals.items()} } ce_late {ce_late:.2f} wrong {bad:.2f}",
+    )
+
+    # 8e through the launcher's composition on a tiny LMModel + LoRA (bf16 hidden): finite, the head and the LoRA get
+    # gradient, kind "ce" (the default) = the pre-change call, LP -> backbone grad = knob-off grad
+    from moshi_family.build import LoraConfig, apply_lora_to
+    from moshi_family.train_loop import is_lora_param
+
+    base = tiny_lm()
+    apply_lora_to(base, LoraConfig(rank=4, scaling=2.0), dtype=torch.float32)
+    for n, p in base.named_parameters():
+        p.requires_grad = is_lora_param(n)
+    with torch.no_grad():
+        for n, p in base.named_parameters():
+            if "lora_B" in n:
+                p.normal_(0, 0.02, generator=torch.Generator().manual_seed(3))
+    T = 24
+    g = torch.Generator().manual_seed(2)
+    codes = torch.randint(0, 50, (2, 17, T), generator=g)
+    codes[:, 0] = torch.randint(4, 100, (2, T), generator=g)
+    lmask = torch.ones(2, T, dtype=torch.bool)
+    lmask[:, :3] = False
+    utgt = torch.full((2, T), tdc.TEXT_PADDING_ID, dtype=torch.long)
+    utgt[:, :3] = tdc.USER_TEXT_IGNORE
+    utgt[0, 9:12] = torch.tensor([11, 12, 13])
+    utgt[1, 15:17] = torch.tensor([21, 22])
+
+    def run(mode, detach=False, bf16=False, **kw):
+        mm = copy.deepcopy(base)
+        head = tdc.make_user_text_head(mm)
+        with torch.no_grad():
+            head.weight.normal_(0, 0.05, generator=torch.Generator().manual_seed(4))
+        cap = tdc.TextHeadInputCapture(mm.text_linear)
+        out = mm.forward_train(codes)
+        main = td.personaplex_loss(
+            out,
+            codes,
+            lmask,
+            dep_q=16,
+            weighted_mean=True,
+            text_epad_id=tdc.TEXT_EPAD_ID,
+            return_components=True,
+            text_epad_weight=1.0,
+        )
+        if bf16:
+            orig_pop = cap.pop
+            cap.pop = lambda b, t: orig_pop(b, t).to(torch.bfloat16)
+        if mode is None:
+            total, comps = main
+        else:
+            total, comps = tdc.add_user_text_loss(
+                main,
+                head=head,
+                capture=cap,
+                targets=utgt,
+                loss_mask=lmask,
+                weight=1.0,
+                detach=detach,
+                weighted_mean=True,
+                **CTC_KW,
+                **kw,
+            )
+        total.backward()
+        gr = {n: p.grad.clone() for n, p in mm.named_parameters() if p.requires_grad}
+        return total.detach(), comps, gr, head
+
+    l_off, _, g_off, _ = run(None)
+    l_ce, c_ce, _, _ = run("ce")
+    l_ce2, _, _, _ = run("ce", kind="ce")
+    l_ctc, c_ctc, g_ctc, h_ctc = run("ctc", kind="ctc", ctc_margin=D, bf16=True)
+    _, c_lp, g_lp, h_lp = run("ctc", detach=True, kind="ctc", ctc_margin=D)
+    ok = bool(torch.isfinite(l_ctc)) and "user_text_ctc" in c_ctc and "user_text_ctc" not in c_ce
+    ok &= torch.equal(l_ce, l_ce2)
+    ok &= h_ctc.weight.grad is not None and bool(torch.isfinite(h_ctc.weight.grad).all())
+    ok &= float(h_ctc.weight.grad.abs().sum()) > 0
+    ok &= any(not torch.allclose(g_off[n], g_ctc[n]) for n in g_off)
+    ok &= all(torch.equal(g_off[n], g_lp[n]) for n in g_off) and float(h_lp.weight.grad.abs().sum()) > 0
+    ok &= abs(float(l_ctc - l_off) - c_ctc["user_text_loss"]) < 1e-3 * max(1.0, c_ctc["user_text_loss"])
+    check(
+        "8e add_user_text_loss kind ctc (bf16 hidden): finite, head + LoRA gradient, LP detaches, kind ce = default",
+        ok,
+        f"ctc parts {c_ctc.get('user_text_ctc', 0):.3f} + {c_ctc.get('user_text_pad_ce', 0):.3f}",
+    )
+
+
 def run_all():
     FAILS.clear()
     part_collate()
@@ -627,6 +883,7 @@ def run_all():
     part_mix()
     part_lr()
     part_mid()
+    part_ctc()
     return list(FAILS)
 
 
@@ -677,7 +934,41 @@ def selftest():
     def m_const_decays(step, warmup, max_steps, schedule="cosine"):
         return _tl.cosine_lr_scale(step, warmup, max_steps)
 
+    orig_spans, orig_ctc, orig_blank = tdc.user_text_ctc_spans, tdc.user_text_ctc_loss, tdc.USER_TEXT_CTC_BLANK
+
+    def m_spans_margin1(targets, loss_mask, *, margin, text_epad_id=None):
+        return orig_spans(targets, loss_mask, margin=1, text_epad_id=text_epad_id)
+
+    def m_spans_nomask(targets, loss_mask, *, margin, text_epad_id=None):
+        return orig_spans(targets, torch.ones_like(loss_mask), margin=margin, text_epad_id=text_epad_id)
+
+    def m_spans_epad_label(targets, loss_mask, *, margin, text_epad_id=None):
+        return orig_spans(targets, loss_mask, margin=margin, text_epad_id=None)
+
+    def m_ctc_no_pad(*a, **k):
+        loss, comps = orig_ctc(*a, **k)
+        return loss - comps["user_text_pad_ce"], comps
+
+    def m_ctc_per_token(*a, **k):
+        loss, comps = orig_ctc(*a, **k)
+        return loss * 0 + comps["ctc_user_text_per_token"] + comps["user_text_pad_ce"], comps
+
+    def m_ctc_bf16(logits, *a, **k):
+        return orig_ctc(logits.to(torch.bfloat16), *a, **k)
+
+    def m_kind_ignored(*a, **k):
+        k.pop("kind", None), k.pop("ctc_margin", None)
+        return orig_add(*a, **k)
+
     mutants = {
+        "ctc blank = EPAD": (lambda: setattr(tdc, "USER_TEXT_CTC_BLANK", tdc.TEXT_EPAD_ID), part_ctc),
+        "ctc spans margin 1": (lambda: setattr(tdc, "user_text_ctc_spans", m_spans_margin1), part_ctc),
+        "ctc spans ignore loss_mask": (lambda: setattr(tdc, "user_text_ctc_spans", m_spans_nomask), part_ctc),
+        "ctc EPAD as a label": (lambda: setattr(tdc, "user_text_ctc_spans", m_spans_epad_label), part_ctc),
+        "ctc outside PAD CE dropped": (lambda: setattr(tdc, "user_text_ctc_loss", m_ctc_no_pad), part_ctc),
+        "ctc normalised per label token": (lambda: setattr(tdc, "user_text_ctc_loss", m_ctc_per_token), part_ctc),
+        "ctc on bf16 logits": (lambda: setattr(tdc, "user_text_ctc_loss", m_ctc_bf16), part_ctc),
+        "loss kind ignored": (lambda: setattr(tdc, "add_user_text_loss", m_kind_ignored), part_ctc),
         "mid: wrong layer": (lambda: setattr(tdc, "make_user_text_capture", m_wrong_layer), part_mid),
         "mid: LP phase not detached": (lambda: setattr(tdc, "add_user_text_loss", m_lp_ignored), part_mid),
         "constant lr decays": (lambda: setattr(_tl, "lr_scale", m_const_decays), part_lr),
@@ -700,6 +991,8 @@ def selftest():
             tdc.TextHeadInputCapture._hook, tdc._collate_with_long_extra = orig_hook, orig_collate_long
             tdc.make_user_text_capture, tdc.LayerOutputCapture._hook = orig_capture, orig_layer_hook
             _tl.lr_scale = orig_lr_scale
+            tdc.user_text_ctc_spans, tdc.user_text_ctc_loss = orig_spans, orig_ctc
+            tdc.USER_TEXT_CTC_BLANK = orig_blank
         results[name] = bool(FAILS)
         print(f"MUTANT {name}: {'caught' if FAILS else 'NOT CAUGHT'} {FAILS[:2]}", flush=True)
     return results

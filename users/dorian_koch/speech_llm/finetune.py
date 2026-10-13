@@ -548,6 +548,12 @@ def _render_personaplex_lora_config(
         # "last" (= text_linear's input); an int = the residual stream after transformer layer k (0-based)
         if hp.get("user_text_layer") not in (None, "last"):
             ut += f"user_text_layer: {int(hp['user_text_layer'])}\n"
+        # the head's loss (2026-10-13, ablation ab2_usertext_kn_w02_ctc): rendered ONLY when not the default "ce"
+        # (framewise CE); "ctc" = CTC within each user turn span + PAD CE outside (train_data_common.user_text_ctc_loss)
+        if hp.get("user_text_loss_kind") not in (None, "ce"):
+            if hp["user_text_loss_kind"] != "ctc":
+                raise ValueError(f"{who}: user_text_loss_kind must be 'ce' or 'ctc', got {hp['user_text_loss_kind']!r}")
+            ut += f'user_text_loss_kind: "{hp["user_text_loss_kind"]}"\n'
         # the knowledge items' user words too (2026-10-12; rendered ONLY when set: every earlier config byte-identical)
         if hp.get("knowledge_user_text"):
             if not hp.get("knowledge_data"):
@@ -563,7 +569,7 @@ def _render_personaplex_lora_config(
             "knowledge_user_text",
             "user_text_layer",
         )
-    ):
+    ) or hp.get("user_text_loss_kind") not in (None, "ce"):
         raise ValueError(
             f"{who}: user_text_delay_frames / user_text_lr / user_text_head_warmup_steps / knowledge_user_text without "
             "user_text_loss_weight"
