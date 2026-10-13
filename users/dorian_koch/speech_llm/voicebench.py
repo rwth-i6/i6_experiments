@@ -35,6 +35,7 @@ from .knowledge_benchmark import (
     sharded_knowledge_inference,
 )
 from .speech_backends import MOSHI_BACKEND
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 # Pinned upstream commit — reproducibility contract. Bumping this re-hashes the whole chain (intended).
 VOICEBENCH_REPO = "https://github.com/MatthewCYM/VoiceBench.git"
@@ -136,6 +137,17 @@ class VoiceBenchResponses(Job):
         # Their filename convention: {model}-{data}-{split}-{modality}.jsonl
         self.out_jsonl = self.output_path(f"{model_tag}-{subset}-test-audio.jsonl")
         self.rqmt = {"gpu": 1, "cpu": 2, "mem": 8, "time": 2}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The model tag is not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {k: v for k, v in a.items() if k != "model_tag"},
+            base_hash=lambda a: super(VoiceBenchResponses, cls).hash(a),
+            labels=lambda a: a["model_tag"],
+        )
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

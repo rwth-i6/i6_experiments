@@ -42,6 +42,7 @@ import subprocess
 from sisyphus import Job, Task, tk
 
 from .common import json_schema_format, map_concurrent, prepend_pythonpath, vllm_gpu_mem_gb, vllm_server
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 from .podcast_ingest import _moshi_pythonpath
 from .selfplay_judge import EMPTY_TRANSCRIPT, two_sided_transcript  # noqa: F401  -- the v1 transcript builder
 
@@ -812,9 +813,16 @@ class SelfPlayJudgeV2(Job):
 
     @classmethod
     def hash(cls, parsed_args):
-        """The rubric TEXT is part of the hash (see ``SelfPlayScenarioSet.hash``)."""
-        return super(SelfPlayJudgeV2, cls).hash(
-            {**parsed_args, "rubric_digest": judge_rubric_digest(parsed_args["rubric"])}
+        """The rubric TEXT is part of the hash (see ``SelfPlayScenarioSet.hash``); the run labels are not, for a new
+        job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {**a, "runs": values_canon(a["runs"])},
+            base_hash=lambda a: super(SelfPlayJudgeV2, cls).hash(
+                {**a, "rubric_digest": judge_rubric_digest(a["rubric"])}
+            ),
+            labels=lambda a: sorted(a["runs"]),
         )
 
     def tasks(self):
@@ -985,6 +993,20 @@ class SelfPlayJudgeV2Table(Job):
         assert set(self.order) == set(self.judges), "order must list every judged label once"
         self.out_json = self.output_path("table.json")
         self.out_md = self.output_path("table.md")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """Labels (``judges`` keys, ``reference``, ``order``) are not hashed for a new job (``label_free_hash``): the reference is its rows file, the order only lays out the table."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {
+                "judges": values_canon(a["judges"]),
+                "reference": None if a["reference"] is None else hash_bytes(a["judges"][a["reference"]]),
+            },
+            base_hash=lambda a: super(SelfPlayJudgeV2Table, cls).hash(a),
+            labels=lambda a: (sorted(a["judges"]), a["reference"], a["order"]),
+        )
 
     def tasks(self):
         yield Task("run", mini_task=True)

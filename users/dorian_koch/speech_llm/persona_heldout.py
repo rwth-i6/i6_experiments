@@ -30,6 +30,7 @@ import subprocess
 from sisyphus import Job, Task, tk
 
 from .common import worker_env
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 from .speech_inference import assert_checkpoint_will_exist
 
 #: Weights file of each overlay kind in ``run_dir/checkpoints/checkpoint_<step>/consolidated/``.
@@ -250,6 +251,17 @@ class PersonaHeldoutTurnPos(Job):
         # PersonaHeldoutLoss's per checkpoint (one 7B in bf16, a full-FT overlay read beside it), 1 h per 2 checkpoints
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 1 + len(self.evals) // 2, "gpu_mem_gb": 80}
 
+    @classmethod
+    def hash(cls, parsed_args):
+        """Run labels are not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {**a, "evals": values_canon(a["evals"])},
+            base_hash=lambda a: super(PersonaHeldoutTurnPos, cls).hash(a),
+            labels=lambda a: sorted(a["evals"]),
+        )
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
@@ -287,6 +299,20 @@ class PersonaHeldoutSummary(Job):
         self.gap_sets = tuple(gap_sets)
         self.seed = int(seed)
         self.out_summary = self.output_path("summary.json")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The entries' ``run`` names are not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {
+                **a,
+                "entries": sorted(hash_bytes({k: v for k, v in dict(e).items() if k != "run"}) for e in a["entries"]),
+            },
+            base_hash=lambda a: super(PersonaHeldoutSummary, cls).hash(a),
+            labels=lambda a: [dict(e).get("run") for e in a["entries"]],
+        )
 
     def tasks(self):
         yield Task("run", mini_task=True)

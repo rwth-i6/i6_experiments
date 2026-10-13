@@ -107,11 +107,11 @@ AT_N_ARMS = {
     "ab2_know_known",
     "ab2_usertext",
     # 2026-10-13: the user-text head on the knowledge rows (+ its mid-layer variant) and the constant-LR baseline ablation
-    "ab2_usertext_kn_w02",
-    "ab2_usertext_kn_w02_mid",
-    "ab2_constlr",
+    "ab2_usertext_plus_knowledge_rows_weight0p2",
+    "ab2_usertext_plus_knowledge_rows_weight0p2_head_after_layer16",
+    "ab2_baseline_constant_lr_after_warmup",
     # 2026-10-13: the CTC variant of the user-text head loss
-    "ab2_usertext_kn_w02_ctc",
+    "ab2_usertext_plus_knowledge_rows_weight0p2_ctc_within_turns",
     # 2026-10-13: knowledge-row user-text targets at the original weight 0.05 (attributes kn_w02's two changes)
     "ab2_usertext_plus_knowledge_rows_weight0p05",
 }

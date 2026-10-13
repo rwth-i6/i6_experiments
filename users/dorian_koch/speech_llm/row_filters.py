@@ -36,6 +36,7 @@ import re
 from sisyphus import Job, Task, tk
 
 from .common import json_schema_format, map_concurrent, vllm_gpu_mem_gb, vllm_server, worker_env
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 #: Caps every MonologueRows summary tabulates (rows / hours kept at each), whatever its own cap.
 STRETCH_CAPS = (10.0, 15.0, 20.0, 25.0, 30.0)
@@ -1127,6 +1128,17 @@ class SelfPlayLexiconRates(Job):
         self.lexicon_digest = lexicon_digest(lexicon)
         self.out_summary = self.output_path("summary.json")
         self.out_md = self.output_path("table.md")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """Run labels are not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {**a, "runs": values_canon(a["runs"])},
+            base_hash=lambda a: super(SelfPlayLexiconRates, cls).hash(a),
+            labels=lambda a: sorted(a["runs"]),
+        )
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 1})

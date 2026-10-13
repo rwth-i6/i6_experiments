@@ -15,6 +15,7 @@ import subprocess
 from sisyphus import Job, Task, tk
 
 from .common import moshi_pythonpath, worker_env
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 
 class PersonaSelfPlay(Job):
@@ -79,6 +80,17 @@ class PersonaSelfPlay(Job):
 
     #: Added 2026-09-23 (text-temperature grid); every earlier self-play keeps its hash.
     __sis_hash_exclude__ = {"temp_text": None, "text_sampler": None}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """``label_a`` / ``label_b`` only name the models in the output rows: not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {k: v for k, v in a.items() if k not in ("label_a", "label_b")},
+            base_hash=lambda a: super(PersonaSelfPlay, cls).hash(a),
+            labels=lambda a: (a["label_a"], a["label_b"]),
+        )
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

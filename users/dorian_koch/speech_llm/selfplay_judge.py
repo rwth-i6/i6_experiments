@@ -22,6 +22,7 @@ import os
 from sisyphus import Job, Task, tk
 
 from .common import json_schema_format, map_concurrent, vllm_gpu_mem_gb, vllm_server
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 #: Versioned rubrics. The CONTENT is hashed into every job (``rubric_digest``): editing one re-runs.
 COHERENCE_RUBRICS = {
@@ -152,6 +153,17 @@ class SelfPlayCoherenceJudge(Job):
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
 
     __sis_hash_exclude__ = {"judge_version": 1}  # v1 jobs keep their pre-2026-10-12 hash
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """Run labels are not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {**a, "runs": values_canon(a["runs"])},
+            base_hash=lambda a: super(SelfPlayCoherenceJudge, cls).hash(a),
+            labels=lambda a: sorted(a["runs"]),
+        )
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

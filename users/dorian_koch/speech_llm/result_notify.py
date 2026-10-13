@@ -21,6 +21,7 @@ import os
 import time
 
 from sisyphus import Job, Task, tk
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 
 class ResultNotify(Job):
@@ -34,6 +35,17 @@ class ResultNotify(Job):
         self.results = results  # {label: tk.Path}  (a summary.json, a run_dir, any output to wait on)
         self.note = note
         self.out_digest = self.output_path("result.json")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The tag is not hashed for a new job (``label_free_hash``); the ``results`` keys (result kinds) are."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {k: v for k, v in a.items() if k != "tag"},
+            base_hash=lambda a: super(ResultNotify, cls).hash(a),
+            labels=lambda a: a["tag"],
+        )
 
     def tasks(self):
         yield Task("run", mini_task=True)

@@ -27,6 +27,7 @@ import json
 import re
 
 from sisyphus import Job, Task, tk
+from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 _TOK = re.compile(r"[a-z0-9']+")
 _P = 1000003  # rolling-hash multiplier (uint64 arithmetic wraps)
@@ -100,6 +101,17 @@ class SelfPlayCopyStats(Job):
         self.n_examples = int(n_examples)
         self.out_summary = self.output_path("summary.json")
         self.out_examples = self.output_path("examples.jsonl")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """Run labels are not hashed for a new job (``label_free_hash``)."""
+        return label_free_hash(
+            cls,
+            parsed_args,
+            canon=lambda a: {**a, "runs": values_canon(a["runs"])},
+            base_hash=lambda a: super(SelfPlayCopyStats, cls).hash(a),
+            labels=lambda a: sorted(a["runs"]),
+        )
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 4, "mem": 48, "time": 4})
