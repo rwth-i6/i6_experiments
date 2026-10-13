@@ -39,6 +39,7 @@ from i6_core.returnn.config import ReturnnConfig
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module, disable_register_output
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.utils.numa_pin import numa_pin_config_code, socket_slice_pin_config_code
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as _aed_train_exp,
     model_recog_while_loop as _aed_model_recog_while_loop,
@@ -1567,7 +1568,8 @@ def py_aed_graphc_loquacious():
         {},
         config_overrides={**_loq_v2_packed_overrides, "train._rel_pos_att_bwd_delta_recompute": True},
     )
-    _loq_epoch_boundary_timing(exp_fixdelta.get_training_job().returnn_config)
+    # the epoch boundary timing (_loq_epoch_boundary_timing) runs at FZJ instead, see py_epoch_boundary_timing_fzj
+    # (the RZ c25g nodes were in maintenance on 2026-10-07)
     exp_scale_small, _, _ = loq_train(
         "base-graphc-v2-small-fixdelta",
         {},
@@ -1735,6 +1737,8 @@ def py_aed_graphc_loquacious():
     # branch from v2's ep-6 checkpoint with FRESH Adam moments (the opt state was pruned), LR pinned 7e-5;
     # ALL four arms collapsed, padded included -> a fresh-Adam artifact, no conclusion;
     # lesson: never bisect from a checkpoint without its optimizer state.
+
+    return exp_fixdelta
 
 
 def _loq_text_seq_len_stats():
@@ -2818,38 +2822,25 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # the profiled cell attributes it (record_function reduce_grads in the chrome trace).
     # The 1-rank cell differs from the warmup0 twin only in the eager optimizer step.
     _dist_graph_opts = {**_v2_graph_opts, "warmup_steps": 0, "capture_optimizer": False}
-    # Pin each rank (and the workers it forks) to the cores of its GPU's NUMA node.
-    # Bench-only probe via the config (no RETURNN / sisyphus / torchrun code pins anything):
-    # nvidia-smi lists GPUs in PCI order, CUDA_DEVICE_ORDER makes the CUDA index follow it,
-    # sysfs gives the NUMA node of that PCI device and the node's cpulist.
-    _numa_pin_code = (
-        "import os as _os, subprocess as _sp\n"
-        "_os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'\n"
-        "_lr = int(_os.environ['LOCAL_RANK'])\n"
-        "_bus = sorted(_sp.check_output(['nvidia-smi', '--query-gpu=pci.bus_id', '--format=csv,noheader'], text=True).split())\n"
-        "_dev = '0000:' + _bus[_lr].split(':', 1)[1].lower()\n"
-        "with open(f'/sys/bus/pci/devices/{_dev}/numa_node') as _f:\n"
-        "    _numa = int(_f.read())\n"
-        "assert _numa >= 0, f'no NUMA node for {_dev}'\n"
-        "with open(f'/sys/devices/system/node/node{_numa}/cpulist') as _f:\n"
-        "    _cl = _f.read().strip()\n"
-        "_cpus = set()\n"
-        "for _part in _cl.split(','):\n"
-        "    _a, _, _b = _part.partition('-')\n"
-        "    _cpus.update(range(int(_a), int(_b or _a) + 1))\n"
-        "_allowed = _os.sched_getaffinity(0)\n"
-        "_cpus &= _allowed\n"
-        "assert _cpus, f'no allowed cpus on numa node {_numa}: {_cl} vs {sorted(_allowed)}'\n"
-        "_os.sched_setaffinity(0, _cpus)\n"
-        "print(f'NUMA pin: local rank {_lr} gpu {_dev} numa {_numa} cpus {len(_cpus)} of {len(_allowed)}: {sorted(_cpus)}')\n"
-    )
-    for _tag, _nproc, _steps, _profile, _pin in [
-        ("1gpu", None, 300, False, False),
-        ("1gpu-profiled", None, 31, True, False),
-        ("4gpu-gradexplicit", 4, 300, False, False),
-        ("4gpu-gradexplicit-profiled", 4, 31, True, False),
-        ("4gpu-gradexplicit-numapin", 4, 300, False, True),
-        ("4gpu-gradexplicit-numapin-profiled", 4, 31, True, True),
+    # Pin each rank (and the workers it forks): numapin = the cores of its GPU's NUMA node (12 of 96 here),
+    # socketslice = the returnn#1951 selection (the node is below the share of 24 here, so the socket,
+    # split into two slices of 24 among its two GPUs), see numa_pin.py.
+    _pin_codes = {"numapin": numa_pin_config_code(), "socketslice": socket_slice_pin_config_code()}
+    # optim-eager: the first measurement, eager optimizer step in every arm (1gpu 0.331, 4gpu 0.389 s/step).
+    # optim-captured: the arms of the pin A/B, all with torch_optimizer_step (the optimizer step compiled
+    # and captured as its own graph after the reduce), the setting every new experiment uses (AZ 2026-10-07),
+    # so only the variable under test differs between arms.
+    for _group, _tag, _nproc, _steps, _profile, _pin in [
+        ("eager", "1gpu", None, 300, False, False),
+        ("eager", "1gpu-profiled", None, 31, True, False),
+        ("eager", "4gpu-gradexplicit", 4, 300, False, False),
+        ("eager", "4gpu-gradexplicit-profiled", 4, 31, True, False),
+        ("captured", "1gpu", None, 300, False, False),
+        ("captured", "4gpu-gradexplicit", 4, 300, False, False),
+        ("captured", "4gpu-gradexplicit-numapin", 4, 300, False, "numapin"),
+        ("captured", "4gpu-gradexplicit-socketslice", 4, 300, False, "socketslice"),
+        ("captured", "4gpu-gradexplicit-profiled", 4, 31, True, False),
+        ("captured", "4gpu-gradexplicit-numapin-profiled", 4, 31, True, "numapin"),
     ]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
@@ -2857,12 +2848,14 @@ def _loq_cost_decomposition(cfg, classes_cap):
             num_steps=_steps,
             version=23,
             num_processes=_nproc,
-            extra_config_code=_numa_pin_code if _pin else None,
+            extra_config_code=_pin_codes[_pin] if _pin else None,
             config_overrides={
                 "behavior_version": 29,
                 "packed_tensors": _v2_packed_tensors,
                 "torch_cuda_graph": _dist_graph_opts,
                 **({"torch_distributed": {"reduce_type": "grad_explicit"}} if _nproc else {}),
+                # AdamW with capturable=True keeps its step counter as a tensor, no dynamic_state_keys
+                **({"torch_optimizer_step": {}} if _group == "captured" else {}),
                 **(
                     {
                         "torch_profile": {
@@ -2874,7 +2867,7 @@ def _loq_cost_decomposition(cfg, classes_cap):
                 ),
             },
         )
-        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-optim-eager-{_tag}.json", job.out_results)
+        tk.register_output(f"returnn/loq-bench-fixdelta-graphc-optim-{_group}-{_tag}.json", job.out_results)
 
 
 def _loq_batch_size_factor():
@@ -3363,34 +3356,42 @@ def _loq_epoch_boundary_timing(cfg: ReturnnConfig):
     1 GPU as the trainings, and 4 GPUs on one node
     (grad_explicit, the distributed mode a captured step supports; no data sharding, so ~210 steps per rank).
     """
-    from i6_core.tools.git import CloneGitRepositoryJob
-
-    returnn_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn", commit="42f7235a14c484219b26630a24f247aa6cdeb162"
-    ).out_repository
     for nproc_tag, nproc in [("1gpu", None), ("4gpu", 4)]:
         for preload in [False, True]:
             for repeat in [0, 1]:
                 job = EpochBoundaryTimingJob(
-                    returnn_config=cfg,
-                    returnn_root=returnn_root,
-                    num_epochs=5,
-                    partition_epoch=424,
-                    config_overrides={
-                        "torch_preload_next_train_epoch": preload,
-                        **({"torch_distributed": {"reduce_type": "grad_explicit"}} if nproc else {}),
-                    },
-                    # grad_explicit reduces between the step and the optimizer, so no optimizer capture
-                    extra_config_code=(
-                        "torch_cuda_graph = dict(torch_cuda_graph, capture_optimizer=False)\n" if nproc else None
-                    ),
-                    num_processes=nproc,
-                    repeat=repeat,
+                    **_epoch_boundary_run_kwargs(cfg, preload=preload, num_processes=nproc, repeat=repeat)
                 )
                 tk.register_output(
                     f"returnn/loq-epoch-boundary-{nproc_tag}-{'preload' if preload else 'orig'}-r{repeat}.json",
                     job.out_results,
                 )
+
+
+def _epoch_boundary_run_kwargs(
+    cfg: ReturnnConfig, *, preload: bool, num_processes: Optional[int], repeat: int
+) -> Dict[str, Any]:
+    """:return: kwargs of one :class:`EpochBoundaryTimingJob` run of the comparison, the same at RZ and FZJ"""
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    return dict(
+        returnn_config=cfg,
+        returnn_root=CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn", commit="42f7235a14c484219b26630a24f247aa6cdeb162"
+        ).out_repository,
+        num_epochs=5,
+        partition_epoch=424,
+        config_overrides={
+            "torch_preload_next_train_epoch": preload,
+            **({"torch_distributed": {"reduce_type": "grad_explicit"}} if num_processes else {}),
+        },
+        # grad_explicit reduces between the step and the optimizer, so no optimizer capture
+        extra_config_code=(
+            "torch_cuda_graph = dict(torch_cuda_graph, capture_optimizer=False)\n" if num_processes else None
+        ),
+        num_processes=num_processes,
+        repeat=repeat,
+    )
 
 
 class EpochBoundaryTimingJob(Job):
@@ -3567,3 +3568,105 @@ class EpochBoundaryTimingJob(Job):
         }
         with open(self.out_results.get_path(), "wt", encoding="utf-8") as f:
             json.dump(res, f, indent=1)
+
+
+def py_epoch_boundary_timing_fzj():
+    """
+    The :func:`_loq_epoch_boundary_timing` comparison at FZJ (AZ 2026-10-07, the RZ c25g nodes are in maintenance).
+    Same config and data: the Loq dataset jobs exist at FZJ with the same hashes.
+    FZJ bills whole 4-GPU nodes, so the 1-GPU runs share one node (:class:`BatchedEpochBoundaryTimingJob`).
+    The paper graph is only built for the config, with output registration disabled,
+    so this schedules nothing but the timing jobs.
+    """
+    with disable_register_output():
+        exp_fixdelta = py_aed_graphc_loquacious()
+    cfg = exp_fixdelta.get_training_job().returnn_config
+    # orig and preload alternate over the GPUs of the node
+    job = BatchedEpochBoundaryTimingJob(
+        {
+            f"{'preload' if preload else 'orig'}-r{repeat}": _epoch_boundary_run_kwargs(
+                cfg, preload=preload, num_processes=None, repeat=repeat
+            )
+            for repeat in [0, 1]
+            for preload in [False, True]
+        }
+    )
+    for name, out in job.out_results.items():
+        tk.register_output(f"returnn/loq-epoch-boundary-fzj-1gpu-{name}.json", out)
+    for preload in [False, True]:
+        for repeat in [0, 1]:
+            job = EpochBoundaryTimingJob(
+                **_epoch_boundary_run_kwargs(cfg, preload=preload, num_processes=4, repeat=repeat)
+            )
+            tk.register_output(
+                f"returnn/loq-epoch-boundary-fzj-4gpu-{'preload' if preload else 'orig'}-r{repeat}.json",
+                job.out_results,
+            )
+
+
+class BatchedEpochBoundaryTimingJob(Job):
+    """
+    Several single-GPU :class:`EpochBoundaryTimingJob` runs at the same time on one node, one GPU each:
+    at FZJ, a job always gets (and is billed for) a whole 4-GPU node.
+    The runs also share the node, the filesystem and the time window,
+    so they compare better than separate jobs.
+    """
+
+    def __init__(self, runs: Dict[str, Dict[str, Any]]):
+        """
+        :param runs: name -> kwargs of one single-GPU :class:`EpochBoundaryTimingJob` run
+        """
+        assert runs
+        for name, run in runs.items():
+            assert name and "/" not in name, f"run name {name!r} must be a path component"
+            assert not run.get("num_processes"), f"run {name!r}: single-GPU runs only"
+        self.runs = runs
+        n = len(runs)
+        self.rqmt = {"gpu": n, "cpu": 24 * n, "mem": 100 * n, "time": 4}
+        self.out_results = {name: self.output_path(f"outputs/{name}/results.json") for name in runs}
+        self.out_logs = {name: self.output_path(f"outputs/{name}/returnn.log") for name in runs}
+
+    def tasks(self):
+        """tasks"""
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        """one forked process per run, each with its own GPU and work dir"""
+        import multiprocessing
+        import os
+
+        cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+        gpu_ids = cvd.split(",") if cvd else [str(i) for i in range(len(self.runs))]
+        assert len(gpu_ids) >= len(self.runs), f"GPUs {gpu_ids} for runs {list(self.runs)}"
+        # fork is fine: this process only starts subprocesses, it never initializes CUDA
+        ctx = multiprocessing.get_context("fork")
+        procs = {}
+        for (name, run), gpu in zip(self.runs.items(), gpu_ids):
+            os.makedirs(os.path.dirname(self.out_results[name].get_path()), exist_ok=True)
+            procs[name] = ctx.Process(
+                target=_run_epoch_boundary_cell,
+                kwargs=dict(
+                    run=run,
+                    gpu=gpu,
+                    work_dir=os.path.abspath(f"runs/{name}"),
+                    out_results=self.out_results[name],
+                    out_log=self.out_logs[name],
+                ),
+            )
+            procs[name].start()
+        for proc in procs.values():
+            proc.join()
+        failed = {name: proc.exitcode for name, proc in procs.items() if proc.exitcode != 0}
+        assert not failed, f"runs failed (exit codes): {failed}"
+
+
+def _run_epoch_boundary_cell(*, run: Dict[str, Any], gpu: str, work_dir: str, out_results: tk.Path, out_log: tk.Path):
+    import os
+    import types
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+    os.makedirs(work_dir, exist_ok=True)
+    os.chdir(work_dir)
+    defaults = {"config_overrides": None, "extra_config_code": None, "num_processes": None, "repeat": 0}
+    spec = types.SimpleNamespace(**{**defaults, **run, "out_results": out_results, "out_log": out_log})
+    EpochBoundaryTimingJob.run(spec)
