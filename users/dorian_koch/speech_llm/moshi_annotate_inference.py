@@ -465,6 +465,114 @@ def annotate_hf_to_hf(
 
 
 # ---------------------------------------------------------------------------
+# User-only add-on pass over an ALREADY annotated dataset (backfill, 2026-10-13)
+# ---------------------------------------------------------------------------
+
+
+def annotate_user_only(
+    in_hf_path: str,
+    out_dir: str,
+    *,
+    sub_shard: int | None = None,
+    sub_num_shards: int | None = None,
+    whisper_model: str = "medium",
+    language: str = "en",
+    keep_silence_in_segments: float = 1.0,
+):
+    """The ``--annotate_user`` pass alone, over an annotated dataset (``annotate_hf_to_hf``'s output) that has none:
+    per row the SAME ``annotate_array`` call (same model, Params, decoding) on the stored ``audio_user`` (the user
+    channel the codes builder reads; lossless WAV), written as a row-aligned SIDECAR ``{id, alignments_other,
+    other_ok}`` -- the columns ``--annotate_user`` adds, same feature, speaker :data:`USER_SPEAKER`, ``other_ok`` = >= 1
+    word. The annotated dataset (its ``alignments``: the assistant pass) is not touched, so a corpus built from it
+    keeps its assistant words bit-identical (``MoshiAnnotateUserWords``; user, 2026-10-13: backfill v6). Reads the
+    arrow table's bytes (soundfile), never a datasets Audio() decode, so no torchcodec is needed."""
+    import io
+
+    os.makedirs(out_dir, exist_ok=True)
+    table = load_from_disk(in_hf_path).data.table
+    for col in ("id", "audio_user"):
+        if col not in table.column_names:
+            raise RuntimeError(f"{in_hf_path}: no {col!r} column (an annotate_hf_to_hf output?): {table.column_names}")
+    lo, hi = 0, table.num_rows
+    if sub_shard is not None and sub_num_shards is not None:
+        div, mod = divmod(table.num_rows, sub_num_shards)  # contiguous, as annotate_hf_to_hf's sub-shards
+        lo = sub_shard * div + min(sub_shard, mod)
+        hi = lo + div + (1 if sub_shard < mod else 0)
+        assert hi > lo, f"sub-shard {sub_shard}/{sub_num_shards} is empty"
+    node = os.uname().nodename
+    cancel = _watchdog(LOAD_TIMEOUT_S, f"CUDA init + whisper.load_model({whisper_model}) on {node}")
+    try:
+        device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
+        w_model = whisper.load_model(whisper_model, device=device)
+    finally:
+        cancel()
+    params = Params(
+        egs=Path("/dev/null"),
+        verbose=False,
+        lang=language,
+        whisper_model=whisper_model,
+        keep_silence_in_segments=keep_silence_in_segments,
+        rerun_errors=False,
+        shards=1,
+        shard=0,
+    )  # exactly annotate_hf_to_hf's
+    _log.info(
+        "user-only pass on %s: rows [%d, %d) of %d, Whisper %s on %s (%s)",
+        in_hf_path,
+        lo,
+        hi,
+        table.num_rows,
+        whisper_model,
+        device,
+        node,
+    )
+    import time as _time
+
+    ids, words, oks = [], [], []
+    counters = {"user_annotate_error": 0, "user_words": 0, "audio_sec": 0.0}
+    t0 = _time.time()
+    _write_progress(0, hi - lo)
+    for k, i in enumerate(range(lo, hi)):
+        ids.append(table.column("id")[i].as_py())
+        x, sr = sf.read(io.BytesIO(table.column("audio_user")[i].as_py()["bytes"]), dtype="float32", always_2d=True)
+        x = np.ascontiguousarray(x.mean(axis=1), dtype=np.float32)
+        counters["audio_sec"] += x.shape[0] / sr
+        try:
+            aligns = annotate_array(x, sr, w_model, params, language=language)
+        except Exception as exc:
+            if "cuda" in repr(exc).lower():
+                raise
+            _log.exception("Error annotating the user channel of row %d; kept with other_ok=False.", i)
+            counters["user_annotate_error"] += 1
+            aligns = []
+        words.append(
+            [
+                {"text": str(a[0]), "start": float(a[1][0]), "end": float(a[1][1]), "speaker": USER_SPEAKER}
+                for a in aligns
+            ]
+        )
+        oks.append(bool(aligns))
+        counters["user_words"] += len(aligns)
+        if (k + 1) % 50 == 0 or i + 1 == hi:
+            _write_progress(k + 1, hi - lo)
+            el = _time.time() - t0
+            _log.info("user-only: %d/%d rows, %.0f s, %.3f s/row", k + 1, hi - lo, el, el / (k + 1))
+    feats = Features({"id": Value("string"), "alignments_other": ALIGNMENT_FEATURE, "other_ok": Value("bool")})
+    Dataset.from_dict({"id": ids, "alignments_other": words, "other_ok": oks}, features=feats).save_to_disk(out_dir)
+    stats = {
+        "rows": len(ids),
+        "other_ok_rows": int(sum(oks)),
+        "user_annotate_error": counters["user_annotate_error"],
+        "user_words": counters["user_words"],
+        "whisper_sec": round(_time.time() - t0, 1),
+        "audio_sec": round(counters["audio_sec"], 1),
+    }
+    with open(os.path.join(out_dir, "stats.json"), "w") as f:
+        json.dump(stats, f, indent=2)
+    _log.info("user-only pass wrote %s: %s", out_dir, stats)
+
+
+# ---------------------------------------------------------------------------
 # Legacy file-based path (kept for backward compat, used by old MoshiAnnotate)
 # ---------------------------------------------------------------------------
 
@@ -562,9 +670,10 @@ def main():
     parser.add_argument("--sub_num_shards", type=int, required=False)
     parser.add_argument(
         "--mode",
-        choices=["arrow", "legacy"],
+        choices=["arrow", "legacy", "user_only"],
         default="arrow",
-        help="'arrow' emits an HF dataset (new default); 'legacy' writes wav+json files.",
+        help="'arrow' emits an HF dataset (new default); 'legacy' writes wav+json files; 'user_only': --in_hf is an "
+        "annotated dataset, write the user channel's words as a sidecar (MoshiAnnotateUserWords).",
     )
     parser.add_argument("--whisper_model", default="medium")
     parser.add_argument(
@@ -582,7 +691,18 @@ def main():
 
     init_logging(False)
 
-    if args.mode == "arrow":
+    if args.mode == "user_only":
+        assert args.in_hf_shard is None and not args.keep_columns and not args.annotate_user, (
+            "user_only: sub-shards only"
+        )
+        annotate_user_only(
+            args.in_hf,
+            args.out_dir,
+            sub_shard=args.sub_shard,
+            sub_num_shards=args.sub_num_shards,
+            whisper_model=args.whisper_model,
+        )
+    elif args.mode == "arrow":
         annotate_hf_to_hf(
             in_hf_path=args.in_hf,
             out_dir=args.out_dir,

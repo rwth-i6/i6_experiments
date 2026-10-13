@@ -20,9 +20,15 @@ labels a channel's words by its signal), the real ``knowledge_codes`` worker (CP
      ``alignments_other``; the loader's user-text row = those words delayed 6 frames (IGNORE when ``other_ok`` false),
      the assistant text row unchanged; a corpus WITHOUT user timings is refused by ``--user_words`` and by
      ``persona_item_builder(user_text_delay=)``.
+  BACKFILL (2026-10-13, user: "just backfill"; an existing corpus gets the user words as NEW jobs): a4 the add-on user
+     pass (``annotate_user_only``, ``MoshiAnnotateUserWords``) over an assistant-only annotated dataset gives exactly the
+     ``alignments_other`` / ``other_ok`` the one-pass ``annotate_user`` build gives; c6 ``knowledge_user_words``
+     (``KnowledgeAttachUserWords``) on the assistant-only codes build + that sidecar = the ``--user_words`` codes build,
+     every column and the schema; c7 a sidecar not row-aligned with its annotated corpus is refused.
 ``--selftest``: each stage's mutants (a new declaration pinned off, the default flipped off, ``run()`` not passing the
 flag, the user pass reading the assistant channel, user words merged into ``alignments``, the codes worker dropping /
-mixing up / not clamping them) must each fail.
+mixing up / not clamping them; the backfill pass reading the assistant channel, the attach worker not clamping / taking
+the assistant's words) must each fail.
 
 Setup root (the graph stage runs here; the other two in their venvs, launched by this script; ~4 min):
     CUDA_HOME=/usr HF_HUB_OFFLINE=1 .venv/bin/python \\
@@ -47,8 +53,8 @@ STAGE_PY = {
 }
 MUTANTS = {
     "graph": ["new_off", "default_off", "run_no_flag"],
-    "annotate": ["user_from_assistant", "merge", "flag_off"],
-    "codes": ["drop", "merge", "wrong_side", "no_clamp"],
+    "annotate": ["user_from_assistant", "merge", "flag_off", "backfill_assistant"],
+    "codes": ["drop", "merge", "wrong_side", "no_clamp", "attach_no_clamp", "attach_wrong_side"],
 }
 BUILDERS = ("MoshiAnnotate", "KnowledgeDialogueCodes", "FisherToMoshiTrainData")
 # Every builder job of the graph on 2026-10-12, before user_words existed (hash_snapshot): they keep user_words=False.
@@ -389,6 +395,29 @@ def stage_annotate(mutant, tmp):
         and off.column("id").to_pylist() == on.column("id").to_pylist() == ["row0", "row1", "row2"],
         f"({off.column_names})",
     )
+    # a4 BACKFILL: the user pass alone over the assistant-only output (its stored audio_user)
+    src_bf = out_off
+    if mutant == "backfill_assistant":  # the add-on pass reads the assistant channel
+        d = load_from_disk(out_off)
+        src_bf = os.path.join(tmp, "ann_off_mut")
+        d.remove_columns(["audio_user"]).add_column(
+            "audio_user", d.data.table.column("audio_assistant").to_pylist(), feature=d.features["audio_assistant"]
+        ).save_to_disk(src_bf)
+    side = os.path.join(tmp, "side_off")
+    os.chdir(tmp)
+    try:
+        mai.annotate_user_only(src_bf, side)
+    finally:
+        os.chdir(cwd)
+    st = load_from_disk(side).data.table
+    check(
+        "a4 backfill: the add-on user pass = the one-pass build's alignments_other / other_ok, row-aligned",
+        st.column_names == ["id", "alignments_other", "other_ok"]
+        and st.column("id").to_pylist() == off.column("id").to_pylist()
+        and st.column("alignments_other").to_pylist() == on.column("alignments_other").to_pylist()
+        and st.column("other_ok").to_pylist() == on.column("other_ok").to_pylist(),
+        f"({[texts(a) for a in st.column('alignments_other').to_pylist()]})",
+    )
 
 
 # ------------------------------------------------------------------------------------------------ codes + loader (moshi_family_venv)
@@ -511,6 +540,55 @@ def stage_codes(mutant, tmp):
         refused == ["loader", "worker"],
         f"({refused})",
     )
+    # c6 / c7 BACKFILL: the assistant-only codes build + the add-on sidecar (annotate stage a4) -> the attach worker
+    import moshi_family.knowledge_user_words as kuw
+
+    side = os.path.join(tmp, "side_off")
+    plain_off = build(os.path.join(tmp, "codes_plain_off"), ann_off, False)
+    loud = json.dumps({"target_lufs": -24.0, "max_gain_db": 10.0, "min_lufs": -45.0})
+
+    def attach(out, side_dir):
+        argv = ["--codes", os.path.join(tmp, "codes_plain_off"), "--out", out, "--loudness_norm", loud]
+        argv += ["--max_sec", "60", "--workers", "1", "--progress", os.path.join(tmp, "progress.json")]
+        kuw.main(argv + [f"k={ann_off}={side_dir}"])
+        return tdc.read_arrow_table(out)
+
+    if mutant in ("attach_no_clamp", "attach_wrong_side"):
+        inner = kc.prepare_row
+
+        def prep_attach(table, i, *a, **k):
+            a_, u_, al, info = inner(table, i, *a, **k)
+            if mutant == "attach_no_clamp":
+                raw = tdc.normalize_alignments(table.column("alignments_other")[i].as_py())
+                info["user_words"] = (raw, bool(raw))
+            else:
+                info["user_words"] = (al, True)
+            return a_, u_, al, info
+
+        kc.prepare_row = prep_attach
+    got = attach(os.path.join(tmp, "codes_attached"), side)
+    kc.prepare_row = prepare
+    diff = [
+        c for c in on.column_names if c not in got.column_names or got.column(c).to_pylist() != on.column(c).to_pylist()
+    ]
+    check(
+        "c6 backfill: assistant-only codes + attached user words = the --user_words build (every column, schema)",
+        not diff
+        and got.column_names == on.column_names
+        and plain_off.column("codes_user").to_pylist() == got.column("codes_user").to_pylist(),
+        f"(differing {diff}; columns {got.column_names[-3:]})",
+    )
+    from datasets import load_from_disk as _lfd
+
+    sd = _lfd(side)
+    perm = os.path.join(tmp, "side_perm")
+    sd.select(list(range(sd.num_rows))[::-1]).save_to_disk(perm)
+    try:
+        attach(os.path.join(tmp, "codes_attached_perm"), perm)
+        refused_perm = False
+    except RuntimeError:
+        refused_perm = True
+    check("c7 backfill: a sidecar not row-aligned with its annotated corpus is refused", refused_perm)
 
 
 # ------------------------------------------------------------------------------------------------ driver
@@ -553,7 +631,7 @@ def main():
             for m in ms:
                 mtmp = tempfile.mkdtemp(prefix=f"m_{m}_", dir=tmp)
                 if stage == "codes":  # the codes stage reads the (unmutated) annotate stage's output
-                    for d in ("ann_on", "ann_off"):
+                    for d in ("ann_on", "ann_off", "side_off"):
                         os.symlink(os.path.join(tmp, d), os.path.join(mtmp, d))
                 c = run_stage(stage, m, mtmp, tmp)
                 caught.append(c != 0)

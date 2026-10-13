@@ -177,6 +177,13 @@ def write_finetune_config(job: "SpeechFinetune", adapter: FinetuneAdapter) -> No
     # Persist our data/augmentation config beside config.yaml; the launcher loads it
     # at training time (avoids touching the fork's TrainArgs schema).
     ArrowDataConfig(jitter_max_sec=job.audio_jitter_sec).save_beside(job.out_config.get())
+    # lr_schedule (2026-10-13) is rendered by the PersonaPlex LoRA / full renderer only: refuse it elsewhere rather than
+    # train a silent cosine
+    if (getattr(job, "hparams", None) or {}).get("lr_schedule") not in (None, "cosine") and adapter.name not in (
+        "personaplex_lib_lora",
+        "personaplex_lib_full",
+    ):
+        raise ValueError(f"{adapter.name}: lr_schedule is implemented for the PersonaPlex launcher only")
     text = adapter.render_config(job, batch_size, max_steps)
     with open(job.out_config, "w") as f:
         f.write(text)
@@ -537,6 +544,10 @@ def _render_personaplex_lora_config(
             ut += f"user_text_lr: {_yaml_float(hp['user_text_lr'])}\n"
         if hp.get("user_text_head_warmup_steps"):
             ut += f"user_text_head_warmup_steps: {int(hp['user_text_head_warmup_steps'])}\n"
+        # the head's input layer (2026-10-13, ablation ab2_usertext_kn_w02_mid): rendered ONLY when not the default
+        # "last" (= text_linear's input); an int = the residual stream after transformer layer k (0-based)
+        if hp.get("user_text_layer") not in (None, "last"):
+            ut += f"user_text_layer: {int(hp['user_text_layer'])}\n"
         # the knowledge items' user words too (2026-10-12; rendered ONLY when set: every earlier config byte-identical)
         if hp.get("knowledge_user_text"):
             if not hp.get("knowledge_data"):
@@ -545,7 +556,13 @@ def _render_personaplex_lora_config(
         perf = ut + perf
     elif any(
         hp.get(k)
-        for k in ("user_text_delay_frames", "user_text_lr", "user_text_head_warmup_steps", "knowledge_user_text")
+        for k in (
+            "user_text_delay_frames",
+            "user_text_lr",
+            "user_text_head_warmup_steps",
+            "knowledge_user_text",
+            "user_text_layer",
+        )
     ):
         raise ValueError(
             f"{who}: user_text_delay_frames / user_text_lr / user_text_head_warmup_steps / knowledge_user_text without "
@@ -555,6 +572,12 @@ def _render_personaplex_lora_config(
     # launcher, so every earlier config is byte-identical.
     if hp.get("weight_decay") is not None:
         perf = f"weight_decay: {_yaml_float(hp['weight_decay'])}\n" + perf
+    # The LR schedule of every param group (2026-10-13, ablation ab2_constlr; train_loop.lr_scale): rendered ONLY when
+    # not the default cosine, so every earlier config is byte-identical.
+    if hp.get("lr_schedule") not in (None, "cosine"):
+        if hp["lr_schedule"] != "constant":
+            raise ValueError(f"{who}: lr_schedule must be 'cosine' or 'constant', got {hp['lr_schedule']!r}")
+        perf = f'lr_schedule: "{hp["lr_schedule"]}"\n' + perf
     # Assistant-side loss down-weight on long turns (2026-09-25, ablation ab2_turntail03): turn_tail_weight on the
     # assistant's text + audio targets more than turn_tail_s (default 10) into a continuous assistant turn. Rendered
     # ONLY when set (absent = off, every earlier config byte-identical); turn_tail_s always with it, turn_tail_gap_s

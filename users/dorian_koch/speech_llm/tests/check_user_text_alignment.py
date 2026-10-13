@@ -50,7 +50,9 @@ import moshi_family.knowledge_concat as kcat  # noqa: E402
 import moshi_family.train_data_common as tdc  # noqa: E402
 from moshi_family.personaplex import train_data as td  # noqa: E402
 
-FX = "/hpcwork/p0023999/tt201262/user_words/fixture"
+#: the fixture (codes + meta.npz); CHECK_UTA_FIXTURE=<dir> runs the same checks on another build of the same 20 rows, e.g.
+#: ``.../fixture_ctc`` (2026-10-13: user words by CTC forced alignment, ``ctc_user_words`` + ``knowledge_user_words``)
+FX = os.environ.get("CHECK_UTA_FIXTURE", "/hpcwork/p0023999/tt201262/user_words/fixture")
 P4, V6, V6_META = (
     "output/persona_v4/p1_data",
     "output/persona_knowledge/v6_codes",

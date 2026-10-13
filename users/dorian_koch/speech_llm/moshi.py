@@ -188,6 +188,97 @@ class MoshiAnnotate(Job):
             merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
 
 
+class MoshiAnnotateUserWords(Job):
+    """The USER channel's Whisper word timings of an ALREADY annotated dataset, as a row-aligned sidecar
+    ``{id, alignments_other, other_ok}`` (user, 2026-10-13: "just backfill ... Lets do user word timings on the
+    knowledge rows too").
+
+    The add-on half of ``MoshiAnnotate(user_words=True)``: the same worker script, the same ``annotate_array`` call
+    (Whisper medium, beam 5 / best_of 5, temperature fallback, auditok VAD > 10 s, ``keep_silence_in_segments`` 1.0) on
+    the stored ``audio_user`` of ``in_hf`` (``moshi_annotate_inference.annotate_user_only``), so backfilled corpora and
+    new ones carry user words from ONE timing source. A re-run of ``MoshiAnnotate(user_words=True)`` would redo the
+    assistant pass too, whose temperature fallback can change the assistant's words (a second change): this keeps them
+    bit-identical (the input is only read). ``KnowledgeAttachUserWords`` joins the sidecar onto a codes corpus.
+    Per-GPU fan-out as ``MoshiAnnotate``. Output ``out_hf`` (sidecar dataset + stats.json)."""
+
+    def __init__(
+        self,
+        *,
+        venv_python_path: tk.AbstractPath,
+        in_hf: tk.Path,
+        env_ffmpeg_path: tk.Path | None = None,
+        env_npp_venv_python: tk.AbstractPath | None = None,
+    ):
+        self.venv_python_path = venv_python_path
+        self.in_hf = in_hf
+        # hash-dropped (as MoshiAnnotate's): they only decide whether the worker's imports load
+        self.env_ffmpeg_path = env_ffmpeg_path
+        self.env_npp_venv_python = env_npp_venv_python
+        self.out_hf = self.output_path("out_hf", directory=True)
+        # one Whisper pass over the user channel (~0.2-0.6 s/row on c23g; a 7,500-row v6 slice < 1.5 h)
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4, "gpu_mem_gb": 20}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        d.pop("env_ffmpeg_path", None)
+        d.pop("env_npp_venv_python", None)
+        return super().hash(d)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        f = job_progress_fraction(self)
+        return None if f is None else f"{100 * f:.1f}% of rows (user pass)"
+
+    def run(self):
+        import sys
+
+        recipe_root = next((str(p) for p in Path(__file__).parents if (p / "moshi_finetune").exists()), None)
+        assert recipe_root, f"could not locate recipe root (dir holding moshi_finetune) from {__file__}"
+        if recipe_root not in sys.path:
+            sys.path.insert(0, recipe_root)
+        import moshi_finetune
+
+        script = Path(__file__).resolve().parent / "moshi_annotate_inference.py"
+        out_hf = self.out_hf.get()
+        pythonpath = prepend_pythonpath(str(Path(moshi_finetune.__file__).parent.parent), os.environ.get("PYTHONPATH"))
+
+        def args_for(k, n):
+            a = ["--in_hf", self.in_hf.get(), "--out_dir", out_hf, "--mode", "user_only"]
+            if n > 1:
+                a += ["--sub_shard", k, "--sub_num_shards", n]
+                a[a.index("--out_dir") + 1] = f"{out_hf}.part{k}"
+            return a
+
+        def env_hook(env):
+            if self.env_ffmpeg_path is not None:
+                InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
+            if self.env_npp_venv_python is not None:
+                add_cuda_npp_to_env(self.env_npp_venv_python.get(), env)
+            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+
+        n = run_worker_script_per_gpu(
+            self.venv_python_path.get(),
+            script,
+            args_for,
+            log_label="Moshi annotate (user only)",
+            extra_env={"PYTHONPATH": pythonpath},
+            env_hook=env_hook,
+        )
+        if n > 1:
+            merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
+        from datasets import load_from_disk
+
+        side, src = load_from_disk(out_hf).data.table, load_from_disk(self.in_hf.get()).data.table
+        if side.column("id").to_pylist() != src.column("id").to_pylist():
+            raise RuntimeError(f"{out_hf}: the sidecar is not row-aligned with {self.in_hf.get()}")
+
+
 class SplitAnnotatedDataset(Job):
     """Deterministic train/val split of an annotated HF dataset by hashing a key column.
 

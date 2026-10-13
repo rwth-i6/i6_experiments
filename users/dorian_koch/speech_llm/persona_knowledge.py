@@ -224,6 +224,128 @@ class KnowledgeConcatMeta(Job):
         subprocess.run(cmd, env=env, check=True)
 
 
+class KnowledgeUserWordsCTC(Job):
+    """The USER side's word timings of TTS'd knowledge dialogues by CTC forced alignment of the KNOWN script
+    (backfill; user, 2026-10-13: "just backfill ... Lets do user word timings on the knowledge rows too"; worker
+    ``moshi_family.ctc_user_words``: torchaudio's MMS_FA aligner as published, per user turn of the TTS script on the
+    annotated user channel inside the turn's TTS span). Chosen over the annotate stage's Whisper user pass
+    (``MoshiAnnotateUserWords``) on cost: that pass measured ~1x the assistant pass, ~10 GPU-h for the 60,000 v6 rows,
+    above the ~6 GPU-h bound; the two agree on onsets (220 seeded v6 rows: |CTC - Whisper| median 0.48 Mimi frames, 82%
+    within 1 frame, 97% within 2; rl_alignment.md "User word timings").
+
+    ``corpora``: ``[(name, annotated dir, ChatterboxInference dir)]``. Output per corpus ``out_sidecars[name]`` (the
+    ``{id, alignments_other, other_ok}`` sidecar ``KnowledgeAttachUserWords`` reads, row-aligned with the annotated
+    corpus) + ``out_summary``. The MMS_FA weights come from torch hub (``~/.cache/torch``)."""
+
+    def __init__(self, *, corpora: list, venv_python_path: tk.Path):
+        names = [c[0] for c in corpora]
+        assert len(set(names)) == len(names), f"corpus names must be unique: {names}"
+        assert all(len(c) == 3 for c in corpora), "corpora: [(name, annotated dir, TTS dir)]"
+        self.corpora = [(str(n), a, t) for n, a, t in corpora]
+        self.venv_python_path = venv_python_path
+        self.out_root = self.output_path("sidecars", directory=True)
+        self.out_sidecars = {n: self.out_root.join_right(n) for n in names}
+        self.out_summary = self.out_root.join_right("summary.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 20}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        f = job_progress_fraction(self)
+        return None if f is None else f"{100 * f:.1f}% of rows aligned"
+
+    def run(self):
+        env = worker_env(offline=False)
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.ctc_user_words",
+            "--out_root",
+            self.out_root.get_path(),
+            "--device",
+            "cuda",
+            "--progress",
+            "progress.json",
+        ] + [f"{n}={a.get_path()}={t.get_path()}" for n, a, t in self.corpora]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+        if not os.path.isfile(self.out_summary.get_path()):
+            raise RuntimeError(f"worker wrote no {self.out_summary.get_path()}")
+
+
+class KnowledgeAttachUserWords(Job):
+    """An existing knowledge codes corpus + the USER side's word timings (backfill; user, 2026-10-13: "just backfill
+    ... Lets do user word timings on the knowledge rows too"; worker ``moshi_family.knowledge_user_words``).
+
+    ``codes``: a ``KnowledgeDialogueCodes(user_words=False)`` dataset (v6); ``corpora``: ``[(name, annotated dir,
+    MoshiAnnotateUserWords sidecar)]`` with the codes build's names, in its order; ``loudness_norm`` / ``max_sec``:
+    the codes build's. Output ``out_dir`` = ``codes`` with every column bit-identical (nothing re-encoded) +
+    ``alignments_other`` / ``other_ok`` exactly as ``KnowledgeDialogueCodes(user_words=True)`` writes them (the
+    builder's own ``prepare_row``: the user words clamped to the user channel's speech onset, cut at ``max_sec``),
+    + ``out_summary``. Fails unless the recomputed assistant words and durations equal the stored build's on every
+    row. Row ids unchanged, so the codes corpus's ``KnowledgeConcatMeta`` (keyed by id, built from the assistant side)
+    serves it as is. CPU only (decode + loudness of every row)."""
+
+    def __init__(
+        self,
+        *,
+        codes: tk.Path,
+        corpora: list,
+        loudness_norm: dict,
+        max_sec: float,
+        venv_python_path: tk.Path,
+    ):
+        names = [c[0] for c in corpora]
+        assert len(set(names)) == len(names), f"corpus names must be unique: {names}"
+        assert all(len(c) == 3 for c in corpora), "corpora: [(name, annotated dir, user-words sidecar)]"
+        self.codes = codes
+        self.corpora = [(str(n), a, s) for n, a, s in corpora]
+        self.loudness_norm = dict(loudness_norm)
+        self.max_sec = float(max_sec)
+        self.venv_python_path = venv_python_path
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_summary = self.output_path("summary.json")
+        self.rqmt = {"cpu": 8, "mem": 48, "time": 6}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def info(self):
+        f = job_progress_fraction(self)
+        return None if f is None else f"{100 * f:.1f}% of rows"
+
+    def run(self):
+        env = worker_env(offline=False)
+        cmd = [
+            self.venv_python_path.get(),
+            "-m",
+            "moshi_family.knowledge_user_words",
+            "--codes",
+            self.codes.get_path(),
+            "--out",
+            self.out_dir.get_path(),
+            "--loudness_norm",
+            json.dumps(self.loudness_norm, sort_keys=True),
+            "--max_sec",
+            str(self.max_sec),
+            "--workers",
+            str(self.rqmt["cpu"]),
+            "--progress",
+            "progress.json",
+        ] + [f"{n}={a.get_path()}={s.get_path()}" for n, a, s in self.corpora]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=env, check=True)
+        if not os.path.isfile(self.out_summary.get_path()):
+            raise RuntimeError(f"worker wrote no {self.out_summary.get_path()}")
+
+
 class KnowledgeKnownScore(Job):
     """Which TriviaQA-train questions does base PersonaPlex already know? (ablation ab2_know_known, 2026-09-29; worker
     ``moshi_family.personaplex.knowledge_known_score``, whose docstring has the method.)

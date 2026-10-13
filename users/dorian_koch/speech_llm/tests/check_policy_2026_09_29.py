@@ -102,7 +102,15 @@ check(
 at_n = sorted(t for t, p in tp.PPX_POLICY.items() if p == N)
 #: the one-change arms declared at 09-29 so far (2026-09-29: knowledge-only, known-only knowledge mix; 2026-10-12: the
 #: user-text head, track_persona_usertext); a new one is added here
-AT_N_ARMS = {"ab2_knowonly_3p", "ab2_know_known", "ab2_usertext"}
+AT_N_ARMS = {
+    "ab2_knowonly_3p",
+    "ab2_know_known",
+    "ab2_usertext",
+    # 2026-10-13: the user-text head on the knowledge rows (+ its mid-layer variant) and the constant-LR baseline ablation
+    "ab2_usertext_kn_w02",
+    "ab2_usertext_kn_w02_mid",
+    "ab2_constlr",
+}
 check(at_n == sorted({BASE_N} | AT_N_ARMS), f"the arms at 09-29 = ab2_base_0929 + {sorted(AT_N_ARMS)} ({at_n})")
 check(
     ab2h.ab2h_policy("some_new_arm") == N

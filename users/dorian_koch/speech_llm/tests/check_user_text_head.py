@@ -25,8 +25,20 @@ shared ``make_user_text_head`` / ``TextHeadInputCapture`` / ``add_user_text_loss
      (never fed back); the adapter checkpoint (``save_trained_params(is_lora_param)``) has the same keys with the head
      as without and reloads onto an engine-style model.
 LP phase (``detach``): the head learns while the backbone's gradient is bit-identical to the knob-off one.
-``--selftest``: six mutants (delay 0, hook feeding back, detached capture, PAD weight 1.0 in the head loss, LP phase
-not detached, collate padding the user row with 0) must each fail.
+  6. MID LAYER (``user_text_layer``, 2026-10-13; tiny 4-layer LMModel + LoRA, gradient checkpointing ON and the training
+     fast path as the launcher applies them, the real ``forward_train``): the capture = ``lm.transformer.layers[k]``'s
+     output (an independent hook's copy), untouched by the backward (full recompute); the head = a fresh
+     norm of out_norm's type (fp32, identity scale) + the zero-init fp32 Linear; the user-text CE alone reaches LoRA
+     params of layers <= k and NOT of layers > k (nor the depformer); LP (``detach``): no backbone gradient at all;
+     the default (``"last"``) keeps the plain Linear head on text_linear's input.
+  7. LR SCHEDULE (``lr_schedule``, 2026-10-13; the REAL ``run_training`` on a tiny model, 3 param groups, warmup 3 of
+     10 steps): "cosine" = ``cosine_lr_scale`` exactly (every group, every step; the pre-change schedule); "constant" =
+     the same warmup, then every group at its base LR to the last step.
+``--selftest``: nine mutants (delay 0, hook feeding back, detached capture, PAD weight 1.0 in the head loss, LP phase
+not detached, collate padding the user row with 0; mid: the wrong layer, LP not detached; constant decaying like
+cosine) must each fail. (The capture also ignores hook calls inside backward, in case a checkpoint recompute re-ran the
+layer's hooks; measured on torch 2.12: it does not, even with early stop off, so no mutant can exercise it -- 6a checks
+the capture is untouched after backward.)
 
 moshi_family venv, CPU, ~3 min (setup root):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && HF_HUB_OFFLINE=1 python \\
@@ -410,6 +422,202 @@ def part_model():
     check("5f the adapter checkpoint has the same keys with the head and reloads", keys_ok)
 
 
+def tiny_lm4():
+    from moshi_family.personaplex.models import loaders
+    from moshi_family.personaplex.models.lm import LMModel
+
+    torch.manual_seed(0)
+    kw = dict(loaders._lm_kwargs)
+    kw.update(
+        dim=64,
+        num_heads=4,
+        num_layers=4,
+        hidden_scale=2.0,
+        text_card=100,
+        context=64,
+        depformer_dim=32,
+        depformer_dim_feedforward=64,
+        depformer_num_heads=2,
+        depformer_num_layers=1,
+        dep_q=16,
+    )
+    return LMModel(device="cpu", dtype=torch.float32, **kw)
+
+
+MID_K = 1  # tiny model: the head on the output of layer 1 of 4 (the run: 15 of 32)
+
+
+def part_mid():
+    import re
+
+    from moshi_family.build import LoraConfig, apply_lora_to
+    from moshi_family.train_loop import is_lora_param
+
+    m = tiny_lm4()
+    apply_lora_to(m, LoraConfig(rank=4, scaling=2.0), dtype=torch.float32)
+    for n, p in m.named_parameters():
+        p.requires_grad = is_lora_param(n)
+    with torch.no_grad():
+        for n, p in m.named_parameters():
+            if "lora_B" in n:
+                p.normal_(0, 0.02, generator=torch.Generator().manual_seed(3))
+    m.transformer.checkpointing = True  # the launcher's gradient checkpointing (non-reentrant)
+    try:
+        from moshi_family.train_perf import apply_train_perf
+
+        perf = apply_train_perf(m, contiguous_step_inputs=True, fused_causal_attention=True, fused_lora_add=True)
+    except Exception as e:  # noqa: BLE001  (reported; the rest still runs)
+        perf = f"not applicable on CPU: {e!r}"[:80]
+    print(f"  part 6: train_perf {perf}", flush=True)
+    m.train()
+    T = 12
+    g = torch.Generator().manual_seed(2)
+    codes = torch.randint(0, 50, (2, 17, T), generator=g)
+    codes[:, 0] = torch.randint(4, 100, (2, T), generator=g)
+    mask = torch.ones(2, T, dtype=torch.bool)
+    mask[:, :3] = False
+    tgt = torch.randint(0, 100, (2, T), generator=g)
+    tgt[:, :3] = tdc.USER_TEXT_IGNORE
+    kw = dict(text_pad_weight=0.3, text_epad_id=tdc.TEXT_EPAD_ID, text_epad_weight=1.0, weighted_mean=True)
+
+    def run(detach):
+        for p in m.parameters():
+            p.grad = None
+        ref = {}
+
+        def ref_hook(_m, _i, o):  # returns None: a returned value would REPLACE the layer output
+            ref.setdefault("x", (o[0] if isinstance(o, tuple) else o).detach().clone())
+
+        h_ref = m.transformer.layers[MID_K].register_forward_hook(ref_hook)
+        head = tdc.make_user_text_head(m, layer=MID_K)
+        with torch.no_grad():
+            head[1].weight.normal_(0, 0.05, generator=torch.Generator().manual_seed(4))
+        cap = tdc.make_user_text_capture(m, MID_K)
+        m.forward_train(codes)
+        h_ref.remove()
+        same = cap._hidden is not None and torch.equal(cap._hidden.detach(), ref["x"])
+        zero = torch.zeros((), requires_grad=False)
+        total, _ = tdc.add_user_text_loss(
+            (zero, {}), head=head, capture=cap, targets=tgt, loss_mask=mask, weight=1.0, detach=detach, **kw
+        )
+        # worst case: recompute the WHOLE checkpointed layer in backward (torch stops early by default, before the
+        # layer returns and its hooks run), so a capture hook that ignored backward would be overwritten here
+        from torch.utils.checkpoint import set_checkpoint_early_stop
+
+        with set_checkpoint_early_stop(False):
+            total.backward()
+        no_overwrite = cap._hidden is None
+        cap.close()
+        layer_grad = {}
+        other = 0.0
+        for n, p in m.named_parameters():
+            if not p.requires_grad:
+                continue
+            gsum = 0.0 if p.grad is None else float(p.grad.abs().sum())
+            mm = re.match(r"transformer\.layers\.(\d+)\.", n)
+            if mm:
+                layer_grad[int(mm.group(1))] = layer_grad.get(int(mm.group(1)), 0.0) + gsum
+            else:
+                other += gsum
+        head_g = sum(float(p.grad.abs().sum()) for p in head.parameters() if p.grad is not None)
+        return same, no_overwrite, layer_grad, other, head_g, head
+
+    same, no_ow, lg, other, hg, head = run(detach=False)
+    check(
+        "6a mid capture = the output of transformer.layers[k] (checkpointing + fast path); the recompute does not "
+        "overwrite it",
+        same and no_ow,
+        f"(same {same}, untouched after backward {no_ow})",
+    )
+    norm = head[0]
+    norm_ok = (
+        type(norm) is type(m.out_norm)
+        and all(p.dtype == torch.float32 for p in head.parameters())
+        and all(float(p.detach().abs().sum()) > 0 for n, p in norm.named_parameters() if not n.endswith("bias"))
+        and isinstance(head[1], torch.nn.Linear)
+    )
+    check("6b mid head = fresh norm of out_norm's type (fp32) + Linear", norm_ok, f"({type(norm).__name__})")
+    below = all(lg.get(i, 0.0) > 0 for i in range(MID_K + 1))
+    above = all(lg.get(i, 0.0) == 0 for i in range(MID_K + 1, len(m.transformer.layers)))
+    check(
+        "6c the user-text CE reaches LoRA of layers <= k only (none above k, none outside the stack); the head learns",
+        below and above and other == 0 and hg > 0,
+        f"(per-layer |g| {[round(lg.get(i, 0.0), 6) for i in range(len(m.transformer.layers))]}, other {other:.3g})",
+    )
+    _, _, lg3, other3, hg3, _ = run(detach=True)
+    check(
+        "6d LP phase on the mid layer: no backbone gradient at all, the head learns",
+        all(v == 0 for v in lg3.values()) and other3 == 0 and hg3 > 0,
+        f"({lg3})",
+    )
+    d_head = tdc.make_user_text_head(m)
+    d_cap = tdc.make_user_text_capture(m, "last")
+    check(
+        "6e default ('last'): a plain Linear head on text_linear's input (TextHeadInputCapture)",
+        isinstance(d_head, torch.nn.Linear)
+        and type(d_cap) is tdc.TextHeadInputCapture
+        and tdc.user_text_layer_index(m, None) is None,
+    )
+    d_cap.close()
+
+
+def part_lr():
+    import math
+
+    from moshi_family import train_loop as tl
+
+    def lrs_of(schedule):
+        torch.manual_seed(0)
+        mods = [torch.nn.Linear(3, 1) for _ in range(3)]
+        base = [1e-3, 2e-3, 5e-4]
+        opt = torch.optim.AdamW([{"params": list(mm.parameters()), "lr": b} for mm, b in zip(mods, base)])
+        seen = []
+
+        def loss_step(_batch):
+            seen.append([gr["lr"] for gr in opt.param_groups])
+            x = torch.ones(1, 3)
+            return sum(mm(x).sum() for mm in mods), {}
+
+        def batches():
+            while True:
+                yield None
+
+        out = tempfile.mkdtemp(prefix="check_uthead_lr_")
+        tl.run_training(
+            optimizer=opt,
+            base_lrs=base,
+            group_names=["a", "b", "c"],
+            trainable_params=[p for mm in mods for p in mm.parameters()],
+            batch_iter=batches(),
+            loss_step=loss_step,
+            save_fn=lambda *_a, **_k: None,
+            cfg=tl.TrainConfig(
+                max_steps=10,
+                grad_accum=1,
+                warmup_steps=3,
+                save_every=1000,
+                log_every=1000,
+                track_weight_delta=False,
+                lr_schedule=schedule,
+            ),
+            out_dir=out,
+            log=lambda *_a: None,
+        )
+        return base, seen
+
+    base, cos = lrs_of("cosine")
+    exp_cos = [[b * tl.cosine_lr_scale(s, 3, 10) for b in base] for s in range(1, 11)]
+    check("7a lr_schedule cosine = cosine_lr_scale exactly (every group, every step)", cos == exp_cos, f"({cos[-1]})")
+    base, const = lrs_of("constant")
+    exp_c = [[b * (s / 3 if s < 3 else 1.0) for b in base] for s in range(1, 11)]
+    check(
+        "7b lr_schedule constant: the same warmup, then every group at its base LR to the end",
+        len(const) == 10
+        and all(math.isclose(x, y, rel_tol=0, abs_tol=0) for r, e in zip(const, exp_c) for x, y in zip(r, e)),
+        f"({const[2]} .. {const[-1]})",
+    )
+
+
 def run_all():
     FAILS.clear()
     part_collate()
@@ -417,6 +625,8 @@ def run_all():
     part_model()
     part_items()
     part_mix()
+    part_lr()
+    part_mid()
     return list(FAILS)
 
 
@@ -456,7 +666,21 @@ def selftest():
         u[u == tdc.USER_TEXT_IGNORE] = 0
         return out
 
+    orig_capture, orig_layer_hook = tdc.make_user_text_capture, tdc.LayerOutputCapture._hook
+    from moshi_family import train_loop as _tl
+
+    orig_lr_scale = _tl.lr_scale
+
+    def m_wrong_layer(lm, layer=None):
+        return orig_capture(lm, None if layer in (None, "last") else int(layer) + 1)
+
+    def m_const_decays(step, warmup, max_steps, schedule="cosine"):
+        return _tl.cosine_lr_scale(step, warmup, max_steps)
+
     mutants = {
+        "mid: wrong layer": (lambda: setattr(tdc, "make_user_text_capture", m_wrong_layer), part_mid),
+        "mid: LP phase not detached": (lambda: setattr(tdc, "add_user_text_loss", m_lp_ignored), part_mid),
+        "constant lr decays": (lambda: setattr(_tl, "lr_scale", m_const_decays), part_lr),
         "delay 0": (lambda: setattr(td, "user_text_targets", m_delay0), part_items),
         "hook feeds back": (lambda: setattr(tdc.TextHeadInputCapture, "_hook", m_feedback), part_model),
         "detached capture": (lambda: setattr(tdc.TextHeadInputCapture, "_hook", m_detach), part_model),
@@ -474,6 +698,8 @@ def selftest():
         finally:
             td.user_text_targets, tdc.user_text_loss, tdc.add_user_text_loss = orig_targets, orig_loss, orig_add
             tdc.TextHeadInputCapture._hook, tdc._collate_with_long_extra = orig_hook, orig_collate_long
+            tdc.make_user_text_capture, tdc.LayerOutputCapture._hook = orig_capture, orig_layer_hook
+            _tl.lr_scale = orig_lr_scale
         results[name] = bool(FAILS)
         print(f"MUTANT {name}: {'caught' if FAILS else 'NOT CAUGHT'} {FAILS[:2]}", flush=True)
     return results
