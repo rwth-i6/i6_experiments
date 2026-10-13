@@ -18,7 +18,7 @@ class ScaleTuningJob(Job):
     """
 
     __sis_version__ = 2
-    __sis_hash_exclude__ = {"max_scales": None}
+    __sis_hash_exclude__ = {"max_scales": None, "behavior_version": None}
 
     def __init__(
         self,
@@ -30,6 +30,7 @@ class ScaleTuningJob(Job):
         negative_scales: Optional[Set[str]] = None,
         scale_relative_to: Optional[Dict[str, str]] = None,
         max_scales: Optional[Dict[str, float]] = None,
+        behavior_version: Optional[int] = None,
         returnn_python_exe: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
@@ -48,6 +49,7 @@ class ScaleTuningJob(Job):
             This can make the tuning more stable.
         :param max_scales: name -> max scale. if given, the scale will be limited to this value.
             The default is 2.0.
+        :param behavior_version: RETURNN behavior version of the tool (``--behavior-version``).
         :param returnn_python_exe:
         :param returnn_root:
         """
@@ -59,6 +61,7 @@ class ScaleTuningJob(Job):
         self.negative_scales = negative_scales
         self.scale_relative_to = scale_relative_to
         self.max_scales = max_scales
+        self.behavior_version = behavior_version
         self.returnn_python_exe = returnn_python_exe
         self.returnn_root = returnn_root
 
@@ -89,6 +92,8 @@ class ScaleTuningJob(Job):
             cmd += sum((list(item) for item in self.scale_relative_to.items()), ["--scale-relative-to"])
         if self.max_scales is not None:
             cmd += sum(([name, str(scale)] for name, scale in self.max_scales.items()), ["--max-scales"])
+        if self.behavior_version is not None:
+            cmd += ["--behavior-version", str(self.behavior_version)]
         if self.rqmt.get("gpu", 0) > 0:
             cmd += ["--device", "cuda"]
         else:
