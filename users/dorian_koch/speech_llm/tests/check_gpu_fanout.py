@@ -268,7 +268,7 @@ def check_wiring():
     assert src["knowledge_benchmark.py"].count("run_worker_script_per_gpu(") == 2, (
         "ChatterboxSingleSpeakerInference + WhisperTranscription"
     )
-    assert src["moshi.py"].count("run_worker_script_per_gpu(") == 1, "MoshiAnnotate"
+    assert src["moshi.py"].count("run_worker_script_per_gpu(") == 2, "MoshiAnnotate + MoshiAnnotateUserWords"
     assert src["voicebench.py"].count("run_worker_script_per_gpu(") == 1, "VoiceBenchResponses"
     assert "def _driver_shards" in src["speech_inference.py"] and "nested_shard(" in src["speech_inference.py"]
     assert 'name=f"offline_manifest.gpu{k}.json"' in src["speech_inference.py"], "FDB manifests per GPU"
