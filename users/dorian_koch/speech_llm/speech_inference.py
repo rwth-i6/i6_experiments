@@ -26,6 +26,7 @@ from sisyphus import Job, Task, tk
 
 from .clip_store import is_clip_dataset, materialise_clips, open_clips, write_clips
 from .common import nested_shard, visible_gpus
+from .file_tree_store import is_tree_dataset, pack_tree
 
 from .inference_harness import (
     BackendInferenceMixin,
@@ -327,6 +328,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         # re-hashes. fdb mode ignores it -- its nested <ind>/output.wav layout is read directly by
         # the benchmark's NeMo ASR, which we do not own.
         "storage": "wav",
+        # (fdb mode: since 2026-10-14 the output is ALWAYS a packed tree, file_tree_store; that is a run()-side
+        # change with no knob, so no hash moves -- see _run_fdb.)
         # Opt-in text-logit probe (knowledge mode, PersonaPlex lib driver only): the first ``max_clips`` clips of
         # this job's shard, and a per-frame dump of the inner-monologue text logits (moshi_family/personaplex/
         # text_logits.py). Excluded at the defaults so no existing job re-hashes.
@@ -430,7 +433,7 @@ class SpeechInference(BackendInferenceMixin, Job):
             )
 
         assert storage in ("wav", "hf"), f"storage must be 'wav' or 'hf', got {storage!r}"
-        # fdb mode always writes the nested wav layout the benchmark's own ASR expects.
+        # fdb mode keeps "wav" here so no hash moves; its output layout is fixed in _run_fdb (a packed tree).
         self.storage = storage if mode == "knowledge" else "wav"
         self.out_dir = self.output_path("speech_output", directory=True)
 
@@ -699,7 +702,18 @@ class SpeechInference(BackendInferenceMixin, Job):
         files = fdb_files_for_tasks(Path(self.fdb_data.get_path()), [self.fdb_task])
         assert len(files) > 0, f"No files found for task {self.fdb_task} in dataset {self.fdb_data.get_path()}"
 
-        out_root = Path(self.out_dir.get_path())
+        # The benchmark's ASR and evaluators need the nested <item>/output.wav tree, but stored as files it costs ~6
+        # inodes per item (306K over 433 jobs, 2026-10-14). So the tree is built in a scratch dir inside the job's
+        # work dir (Lustre, like clip_scratch: a retry resumes from it and it stays inspectable) and packed into ONE
+        # arrow dataset at the end (file_tree_store: bytes verbatim, every json validated). Readers unpack it with
+        # file_tree_store.tree_root; finished outputs from before 2026-10-14 are plain trees and read the same way.
+        final_dir = Path(self.out_dir.get_path())
+        out_root = Path("fdb_scratch").absolute()
+        if not out_root.exists() and final_dir.is_dir() and any(final_dir.iterdir()) and not is_tree_dataset(final_dir):
+            # A run interrupted under the old code left a partial tree in output/: resume from it.
+            final_dir.rename(out_root)
+            final_dir.mkdir()
+        out_root.mkdir(parents=True, exist_ok=True)
         items = [(inp, out_root / str(inp.parent.name) / "output.wav") for _task, inp in files]
         if self.offline_script is not None or self.offline_module is not None:
             assert self.venv_python_path is not None, "offline FDB needs venv_python_path (the model venv)"
@@ -750,8 +764,12 @@ class SpeechInference(BackendInferenceMixin, Job):
         asr_task = (
             "user_interruption" if FDB_TASK_MAP.get(self.fdb_task, self.fdb_task) == "user_interruption" else "default"
         )
-        cmd = [self.asr_venv_python.get(), asr_script, "--root_dir", self.out_dir.get_path(), "--task", asr_task]
+        cmd = [self.asr_venv_python.get(), asr_script, "--root_dir", str(out_root), "--task", asr_task]
         print("[asr]", " ".join(cmd), flush=True)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         subprocess.run(cmd, env=env, check=True)
+
+        n = pack_tree(out_root, final_dir)
+        print(f"[fdb] packed {n} files of {out_root} into {final_dir}", flush=True)
+        shutil.rmtree(out_root)

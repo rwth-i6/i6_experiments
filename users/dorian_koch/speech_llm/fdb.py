@@ -7,6 +7,7 @@ import os
 import sys
 import subprocess
 from .common import vllm_gpu_mem_gb, vllm_server
+from .file_tree_store import tree_root
 from .speech_inference import SpeechInference
 from .inference_harness import FDB_TASK_MAP
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
@@ -234,6 +235,13 @@ class FullDuplexBenchEval_Evaluation(Job):
             yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        # The inference output is a packed tree since 2026-10-14 (file_tree_store); the evaluator walks files, so it
+        # runs on a temporary unpack (or the plain tree of an older job). Anything it writes into the tree
+        # (eval_user_interruption: <item>/rating.json) stays in the temp dir and never mutates the upstream output.
+        with tree_root(self.in_audios.get_path()) as root:
+            self._run(root)
+
+    def _run(self, root: str):
         import moshified_fdb_v1_v15
 
         mapped_task = FDB_TASK_MAP.get(self.fdb_task, self.fdb_task)
@@ -251,7 +259,7 @@ class FullDuplexBenchEval_Evaluation(Job):
                 "--task",
                 mapped_task,
                 "--root_dir",
-                self.in_audios.get_path(),
+                root,
                 "--out-json",
                 self.out_eval.get_path(),
             ]
@@ -272,7 +280,7 @@ class FullDuplexBenchEval_Evaluation(Job):
             "--task",
             mapped_task,
             "--root_dir",
-            self.in_audios.get_path(),
+            root,
         ]
         with open(self.out_log, "w", encoding="utf-8") as f:
             tee = Tee(sys.stdout, f)
@@ -314,11 +322,15 @@ class FDBTurnTakingRescore(Job):
 
         fork_eval_dir = os.path.join(os.path.dirname(moshified_fdb_v1_v15.__file__), "evaluation")
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fdb_turn_taking_v2.py")
+        with tree_root(self.in_audios.get_path()) as root:  # packed tree (file_tree_store) or a plain one
+            self._score(script, fork_eval_dir, root)
+
+    def _score(self, script: str, fork_eval_dir: str, root: str):
         cmd = [
             self.eval_venv_python.get(),
             script,
             "--root_dir",
-            self.in_audios.get_path(),
+            root,
             "--fork_eval_dir",
             fork_eval_dir,
             "--out-json",
