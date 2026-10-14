@@ -24,6 +24,7 @@ class ReturnnDatasetToTextDictJob(Job):
         vocab: Optional[Dict[str, Any]] = None,
         raw_replacement_list: Sequence[Tuple[str, str]] = (),
         raw_final_strip: bool = False,
+        lowercase: bool = False,
     ):
         """
         :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
@@ -49,6 +50,7 @@ class ReturnnDatasetToTextDictJob(Job):
         self.vocab = vocab
         self.raw_replacement_list = raw_replacement_list
         self.raw_final_strip = raw_final_strip
+        self.lowercase = lowercase
 
         self.out_txt = self.output_path("out.txt.gz")
 
@@ -59,6 +61,8 @@ class ReturnnDatasetToTextDictJob(Job):
         parsed_args = parsed_args.copy()
         parsed_args.pop("returnn_dataset_ext_non_hashed")
         parsed_args.pop("multi_proc_dataset_opts")
+        if not parsed_args.get("lowercase", False):
+            parsed_args.pop("lowercase")
         return super().hash(parsed_args)
 
     def tasks(self):
@@ -172,6 +176,8 @@ class ReturnnDatasetToTextDictJob(Job):
                         s = s.replace(old, new)
                     if self.raw_final_strip:
                         s = s.strip()
+                    if self.lowercase:
+                        s = s.lower()
                     f.write(f"{seq_tag!r}: {s!r},\n")
                     seq_idx += 1
                 f.write("}\n")
