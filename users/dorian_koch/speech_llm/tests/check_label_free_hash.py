@@ -7,7 +7,8 @@ label-keyed hash is one of the jobs on disk on 2026-10-13 (``label_hash_legacy.p
   [1] UNIT, every class, built through sisyphus's own constructor: two jobs that differ ONLY in their labels are one job;
       a different input path is a different job; the label-free hash differs from the label-keyed one; a job whose
       label-keyed hash is listed as legacy keeps it (and keeps hashing its labels). CAN FAIL: the same comparison with
-      the label-keyed view (a mutant ``canon`` that keeps the labels) finds the rename.
+      the label-keyed view (a mutant ``canon`` that keeps the labels) finds the rename. A legacy arm renamed
+      later (``RENAMED_RUNS``, the three short-named arms 2026-10-14) keeps its legacy hash, and moves without the entry.
   [2] REAL GRAPH (two child processes, ~3 min each, in parallel): the whole graph as declared, and the graph with every
       arm declared from 2026-10-13 on RENAMED (``RENAME``: the four user-text arms, the constant-LR arm, the T 1 RL arm
       and the eval suffixes) -> the multiset of (class, hash) is identical. The rename must have taken effect (output
@@ -200,6 +201,17 @@ def unit() -> None:
         try:
             check(hid(cls, b(old, x)) == legacy_old, f"{n}: a legacy job keeps its label-keyed hash")
             check(hid(cls, b(new, x)) == h_new, f"{n}: ... and the same arms renamed are a label-free (new) job")
+            # a legacy arm renamed later (RENAMED_RUNS new -> old) keeps its legacy hash; CAN FAIL: without the entry
+            saved_map = dict(lfh.RENAMED_RUNS)
+            lfh.RENAMED_RUNS.clear()
+            lfh.RENAMED_RUNS[new[0]] = old[0]
+            try:
+                check(hid(cls, b(new, x)) == legacy_old, f"{n}: a legacy arm renamed via RENAMED_RUNS keeps its hash")
+                lfh.RENAMED_RUNS.clear()
+                check(hid(cls, b(new, x)) != legacy_old, f"{n}: CAN FAIL -- without the RENAMED_RUNS entry it moves")
+            finally:
+                lfh.RENAMED_RUNS.clear()
+                lfh.RENAMED_RUNS.update(saved_map)
         finally:
             label_hash_legacy.LEGACY_LABEL_HASHED[n] = saved
 
