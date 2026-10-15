@@ -1,5 +1,7 @@
 from sisyphus import Job, Task, tk
+import pyarrow as pa
 from datasets import (
+    Dataset,
     load_dataset,
     load_from_disk,
     concatenate_datasets,
@@ -53,8 +55,12 @@ class HfMergeShards(Job):
             for i, p in enumerate(self.shard_paths):
                 ds = datasets[i]
                 assert "id" in ds.column_names
-                # Prefix the existing ID with the shard index
-                datasets[i] = ds.map(lambda x: {"id": f"shard_{i}_{x['id']}"}, num_proc=4)
+                # Prefix the existing ID with the shard index. Rewrite only that column: ds.map() rewrote every row
+                # (audio included) into cache-*.arrow inside the INPUT shard's output dir (562 GiB by 2026-10-15;
+                # guard check_hf_merge_no_cache.py).
+                ids = pa.array([f"shard_{i}_{x}" for x in ds["id"]], type=pa.string())
+                table = ds.data.set_column(ds.column_names.index("id"), "id", ids)
+                datasets[i] = Dataset(table, info=ds.info.copy(), split=ds.split)
 
         merged = concatenate_datasets(datasets)
         merged.save_to_disk(self.out_hf.get())
