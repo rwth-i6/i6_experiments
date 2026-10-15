@@ -187,8 +187,8 @@ print("[ok] pruning keeps every checkpoint's weights and only the newest resume 
 
 found = find_latest_checkpoint(prune_root, weights_name="lora.safetensors")
 assert found is not None and found[0] == 200, found
-# If the newest sidecar is lost (a kill mid-write), keep_last=2 leaves a REAL fallback rather than
-# sending the run back to step 0. This is why the default is 2 and not 1.
+# With keep_last=2, a lost newest sidecar falls back to the one before. (The default is 1 since 2026-10-15;
+# that is safe because launchers prune only after the new sidecar is written -- checked below.)
 os.remove(ckpt_dir(prune_root, 200) / TRAINER_STATE_NAME)
 found = find_latest_checkpoint(prune_root, weights_name="lora.safetensors")
 assert found is not None and found[0] == 150, found
@@ -204,5 +204,64 @@ print("[ok] resume lands on the newest kept sidecar, falls back once, then refus
 assert prune_optimizer_state(prune_root / "nope", keep_last=2, log=lambda m: None) == 0
 assert prune_optimizer_state(prune_root, keep_last=0, log=lambda m: None) == 0
 print("[ok] pruning a missing dir, or with keep_last < 1, is a no-op rather than an error")
+
+# --- the default (user, 2026-10-15): optimizer state only at the NEWEST checkpoint -------------------------
+# Safe because every launcher saves the new sidecar (tmp -> rename) BEFORE pruning: a job killed mid-save
+# has not pruned yet, so the previous checkpoint is still resumable; a completed save leaves the newest one.
+one_root = Path(tempfile.mkdtemp(prefix="ckpt-prune1-"))
+for s_ in (50, 100, 150):
+    d = ckpt_dir(one_root, s_)
+    d.mkdir(parents=True, exist_ok=True)
+    save_trained_params(d / "lora.safetensors", m_p, predicate=is_lora_param)
+    save_trainer_state(d, step=s_, optimizer=opt_p)
+    prune_optimizer_state(one_root, log=lambda m: None)  # the launchers' order: save, then prune
+    kept = sorted(
+        p.parent.parent.name for p in one_root.glob(f"checkpoints/checkpoint_*/consolidated/{TRAINER_STATE_NAME}")
+    )
+    assert kept == [f"checkpoint_{s_:06d}"], (s_, kept)
+assert all((ckpt_dir(one_root, s_) / "lora.safetensors").exists() for s_ in (50, 100, 150))
+# A kill mid-save of step 200: weights written, sidecar never renamed into place, prune never reached.
+d = ckpt_dir(one_root, 200)
+d.mkdir(parents=True, exist_ok=True)
+save_trained_params(d / "lora.safetensors", m_p, predicate=is_lora_param)
+(d / (TRAINER_STATE_NAME + ".tmp")).write_bytes(b"\0" * 64)
+found = find_latest_checkpoint(one_root, weights_name="lora.safetensors")
+assert found is not None and found[0] == 150, f"a mid-save kill must resume from step 150: {found}"
+print("[ok] default keep_last=1: newest sidecar only, weights everywhere, a mid-save kill resumes from the last one")
+
+
+# Every launcher that writes a per-checkpoint sidecar must also prune it, AFTER saving: on 2026-10-15 the RL,
+# Audex and MoshiRAG launchers never pruned (1.5 TiB of trainer_state.pt on /hpcwork, every checkpoint).
+def unpruned_launchers(moshi_family_dir: Path) -> list:
+    """Launcher files whose last ``save_trainer_state(`` call is not followed by ``prune_optimizer_state(``."""
+    bad = []
+    for f in sorted(moshi_family_dir.rglob("*.py")):
+        if "tests" in f.parts or f.name == "train_loop.py":
+            continue
+        src = f.read_text()
+        calls = [i for i in range(len(src)) if src.startswith("save_trainer_state(", i) and src[i - 4 : i] != "def "]
+        if not calls:
+            continue
+        # The PersonaPlex heads layout keeps ONE flat sidecar, rewritten in place: nothing to prune there.
+        calls = [i for i in calls if 'out_dir / "consolidated", step=step' not in src[i : i + 80]]
+        for i in calls:
+            if "prune_optimizer_state(" not in src[i : i + 400]:
+                bad.append(f"{f.relative_to(moshi_family_dir)}:{src.count(chr(10), 0, i) + 1}")
+    return bad
+
+
+MF = Path(os.getcwd()) / "recipe" / "speech_llm" / "full_duplex" / "moshi_family"
+bad = unpruned_launchers(MF)
+assert not bad, f"save_trainer_state without a following prune_optimizer_state: {bad}"
+# ...and the scan can fail: a copy of the RL launcher with its prune removed is reported.
+fake = Path(tempfile.mkdtemp(prefix="unpruned-")) / "moshi_family"
+(fake / "rl").mkdir(parents=True)
+rl_src = (MF / "rl" / "launcher.py").read_text()
+assert "prune_optimizer_state(out_dir" in rl_src
+(fake / "rl" / "launcher.py").write_text(rl_src.replace("prune_optimizer_state(out_dir", "pass  # (out_dir"))
+assert unpruned_launchers(fake) == [
+    next(x for x in [f"rl/launcher.py:{rl_src.count(chr(10), 0, rl_src.index('save_trainer_state(ckpt_dir')) + 1}"])
+], unpruned_launchers(fake)
+print("[ok] every launcher prunes after saving its sidecar (and the scan reports one that does not)")
 
 print("\ncheckpoint/resume round-trips, and refuses every partial checkpoint")
