@@ -561,7 +561,15 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
     __sis_version__ = 1
 
     def __init__(
-        self, *, alignment_hdf: tk.Path, spm_file: tk.Path, blank: int, frame_rate: float, returnn_root: tk.Path
+        self,
+        *,
+        alignment_hdf: tk.Path,
+        spm_file: tk.Path,
+        blank: int,
+        frame_rate: float,
+        returnn_root: tk.Path,
+        merge_repeats: bool = True,
+        frame_offset: int = 0,
     ):
         """
         :param alignment_hdf: per sequence the label or the blank of every frame
@@ -569,6 +577,8 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         :param blank: the blank index
         :param frame_rate: frames per second
         :param returnn_root: the RETURNN checkout that reads and writes the HDFs
+        :param merge_repeats: whether a label on adjacent frames is one token, as in a CTC path, else every frame is one
+        :param frame_offset: the frame that is second 0, the delay of a delayed text stream
         """
         super().__init__()
         self.alignment_hdf = alignment_hdf
@@ -576,6 +586,8 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         self.blank = int(blank)
         self.frame_rate = float(frame_rate)
         self.returnn_root = returnn_root
+        self.merge_repeats = merge_repeats
+        self.frame_offset = int(frame_offset)
         self.out_hdf = self.output_path("word_boundaries.hdf")
 
     def tasks(self):
