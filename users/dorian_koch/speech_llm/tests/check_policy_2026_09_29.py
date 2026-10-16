@@ -91,7 +91,7 @@ NEW_KEYS = sorted(
 )
 
 print("[1] epochs, pins, baselines")
-check(B < N == runs.POLICY_LATEST and N in runs.KNOWN_POLICIES, "09-28b < 09-29 = POLICY_LATEST, known")
+check(B < N <= runs.POLICY_LATEST and N in runs.KNOWN_POLICIES, "09-28b < 09-29 <= POLICY_LATEST (10-16 since 2026-10-16), known")
 check(
     runs.RULE_PPX_WORDMASK == N == runs.RULE_PPX_OPENYAP_MIX
     and runs.PPX_WORD_WEIGHT == 0.0
