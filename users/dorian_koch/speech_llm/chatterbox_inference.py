@@ -351,6 +351,12 @@ def main():
         default=None,
         help="Input columns to pass through to the output unchanged (e.g. RAG reference_text).",
     )
+    parser.add_argument(
+        "--id_prefix",
+        type=str,
+        default="",
+        help="Prepended to every output id (ChatterboxInference.sharded(ids_at_source=True) passes shard_{s}_).",
+    )
     args = parser.parse_args()
 
     SPEAKER_ALIAS = json.loads(args.speaker_alias)
@@ -471,7 +477,7 @@ def main():
                         raise FileNotFoundError(f"Audio file for speaker {speaker} not found in dialogue {i}")
                     speaker_audio[speaker] = audio_path
                 row = {
-                    "id": f"dialogue_{i}",
+                    "id": f"{args.id_prefix}dialogue_{i}",
                     "speaker_audio": {
                         "speaker": list(speaker_audio.keys()),
                         "audio": list(speaker_audio.values()),

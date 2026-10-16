@@ -9,7 +9,9 @@ Drives the real ``HfMergeShards.run`` and ``MergeMoshiOutputsViaSymlinks.merge``
 OLD behaviour (``concatenate_datasets(parts).save_to_disk``, i.e. the code before the change) row by row, feature by
 feature, fingerprint, format and both JSON files (``_data_files`` aside); checks the output holds no data copy; that
 the id-rewrite merge and shards ``concatenate_datasets`` must cast still copy (and still equal the old output); that a
-duplicate clip index still raises and a zero-row clip shard is still skipped.
+duplicate clip index still raises and a zero-row clip shard is still skipped. TTS (``ChatterboxInference.sharded``):
+the default builds the very same jobs as before, ``ids_at_source=True`` gives shard s ``id_prefix="shard_{s}_"`` and
+a link merge, and its merged rows equal the old ``add_shard_to_id`` copy's.
 
 Run from the setup root, no GPU needed:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_zero_copy_merge.py
@@ -162,6 +164,54 @@ def main():
             assert "overlap" in str(e)
         else:
             raise AssertionError("duplicate clip index no longer raises")
+
+        # 6. TTS ids at the source: the jobs ...
+        from i6_experiments.users.dorian_koch.speech_llm.tts import ChatterboxInference
+        from sisyphus import tk
+
+        kw = dict(in_hf=tk.Path("/x/in_hf"), venv_python_path=tk.Path("/x/py"), speaker_dir=tk.Path("/x/spk"))
+        old_m = ChatterboxInference.sharded(num_shards=3, **kw).creator
+        same_m = ChatterboxInference.sharded(num_shards=3, ids_at_source=False, **kw).creator
+        new_m = ChatterboxInference.sharded(num_shards=3, ids_at_source=True, **kw).creator
+        assert old_m._sis_id() == same_m._sis_id() and old_m.add_shard_to_id, "default TTS merge changed"
+        assert all(p.creator.id_prefix is None for p in old_m.shard_paths), "default TTS shards got a prefix"
+        assert not new_m.add_shard_to_id, "ids_at_source merge still rewrites ids"
+        assert [p.creator.id_prefix for p in new_m.shard_paths] == [f"shard_{i}_" for i in range(3)]
+        assert [p.creator.shard for p in new_m.shard_paths] == [0, 1, 2]
+        src = open(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chatterbox_inference.py")
+        ).read()
+        assert '"id": f"{args.id_prefix}dialogue_{i}"' in src and '"--id_prefix"' in src, "worker ignores --id_prefix"
+        # ... and the data: old shards + add_shard_to_id copy == prefixed shards + link merge
+        tts_feats = Features(
+            {
+                "id": Value("string"),
+                "speaker_audio": {"speaker": Sequence(Value("string")), "audio": Sequence(Value("binary"))},
+            }
+        )
+
+        def tts_rows(i, prefix):
+            return {
+                "id": [f"{prefix}dialogue_{k}" for k in range(30)],
+                "speaker_audio": [
+                    {"speaker": ["A", "B"], "audio": [bytes([i, k]) * 40, bytes([k]) * 30]} for k in range(30)
+                ],
+            }
+
+        old_sh = [shard(tmp, f"tts_old{i}", tts_rows(i, ""), tts_feats) for i in range(3)]
+        new_sh = [shard(tmp, f"tts_new{i}", tts_rows(i, f"shard_{i}_"), tts_feats) for i in range(3)]
+        ref6, out6 = os.path.join(tmp, "ref_tts"), os.path.join(tmp, "new_tts")
+        HfMergeShards.run(
+            types.SimpleNamespace(shard_paths=[P(x) for x in old_sh], add_shard_to_id=True, out_hf=P(ref6))
+        )
+        HfMergeShards.run(
+            types.SimpleNamespace(shard_paths=[P(x) for x in new_sh], add_shard_to_id=False, out_hf=P(out6))
+        )
+        a, b = load_from_disk(out6), load_from_disk(ref6)
+        assert a.to_dict() == b.to_dict() and a.features == b.features and a.column_names == b.column_names, (
+            "TTS merge differs"
+        )
+        linked_only(out6, new_sh, "TTS ids_at_source")
 
         # 5. a rerun into the same dir replaces its own links (sisyphus reruns a mini_task in place)
         HfMergeShards.run(

@@ -181,6 +181,7 @@ class ChatterboxInference(Job):
         shard: int | None = None,
         num_shards: int | None = None,
         keep_columns: list[str] | None = None,
+        id_prefix: str | None = None,
         rqmt: dict[str, int] | None = None,
     ):
         self.in_json = in_json
@@ -195,6 +196,10 @@ class ChatterboxInference(Job):
         # Input columns to carry through TTS to the output (e.g. RAG ``reference_text``). Hash-excluded
         # at the default (None) so existing TTS hashes are unchanged; only an opt-in caller re-runs.
         self.keep_columns = keep_columns
+        # Prepended to every output id (``f"{id_prefix}dialogue_{i}"``): ``sharded(ids_at_source=True)`` passes
+        # ``shard_{s}_`` so the merge needs no id rewrite and can link instead of copy (check_zero_copy_merge).
+        # Hash-excluded at the default (None): existing TTS hashes are unchanged.
+        self.id_prefix = id_prefix
         if with_audio_output:
             self.out_dir = self.output_path("chatterbox_output", directory=True)
         else:
@@ -224,18 +229,25 @@ class ChatterboxInference(Job):
         d["__version"] = 3
         if not d.get("keep_columns"):
             d.pop("keep_columns", None)  # exclude at default so pre-existing hashes are unchanged
+        if not d.get("id_prefix"):
+            d.pop("id_prefix", None)  # same: only ids_at_source shards hash it
         return super().hash(d)
 
     @staticmethod
-    def sharded(*, num_shards: int, **kwargs) -> tk.Path:
+    def sharded(*, num_shards: int, ids_at_source: bool = False, **kwargs) -> tk.Path:
+        """``ids_at_source`` (2026-10-16; use it for every NEW corpus): each shard writes ``shard_{s}_dialogue_{i}``
+        itself, so ``HfMergeShards`` needs no id rewrite and LINKS the shards instead of copying them. The merged
+        dataset is identical to the default path's (``add_shard_to_id`` makes the same ``shard_{s}_{id}``; guard
+        check_zero_copy_merge). Default False keeps every existing corpus's hashes and its copying merge."""
         assert "in_hf" in kwargs, "Sharding only supported for HF input"
         if num_shards == 1:
             return ChatterboxInference(**kwargs).out_hf
         assert num_shards > 1
         shards = []
         for shard in range(num_shards):
-            shards.append(ChatterboxInference(shard=shard, num_shards=num_shards, **kwargs))
-        return HfMergeShards(shard_paths=[s.out_hf for s in shards], add_shard_to_id=True).out_hf
+            prefix = {"id_prefix": f"shard_{shard}_"} if ids_at_source else {}
+            shards.append(ChatterboxInference(shard=shard, num_shards=num_shards, **prefix, **kwargs))
+        return HfMergeShards(shard_paths=[s.out_hf for s in shards], add_shard_to_id=not ids_at_source).out_hf
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -267,6 +279,8 @@ class ChatterboxInference(Job):
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
         if self.keep_columns:
             args += ["--keep_columns", *self.keep_columns]
+        if self.id_prefix:
+            args += ["--id_prefix", self.id_prefix]
 
         # torchcodec needs BOTH our FFmpeg libs and CUDA NPP on LD_LIBRARY_PATH. Supplying both is
         # what makes this job node-independent; c23g merely happened to provide them system-wide.
