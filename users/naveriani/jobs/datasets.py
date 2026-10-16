@@ -370,16 +370,21 @@ def _cheap_norm(s):
     return " ".join(re.sub(r"[^A-Z' ]", " ", s).split())
 
 
-def _doc_sents(text, min_words=8, max_words=40):
-    # a document's filtered, cheap-normalised sentences, long ones cut at max_words
+def _doc_sent_pairs(text, min_words=8, max_words=40):
+    # a document's filtered sentences as (original, cheap-normalised piece), long ones cut at max_words
     out = []
     for para in re.split(r"\n\s*\n", text):
         for s in _SENT_END.split(" ".join(para.split())):
             s = _BULLET.sub("", s)
             if len(s.split()) >= min_words and _keep_sentence(s):
                 w = _cheap_norm(s).split()
-                out += [" ".join(w[i : i + max_words]) for i in range(0, len(w), max_words) if len(w[i:]) >= min_words]
+                n = max_words
+                out += [(s, " ".join(w[i : i + n])) for i in range(0, len(w), n) if len(w[i:]) >= min_words]
     return out
+
+
+def _doc_sents(text, min_words=8, max_words=40):
+    return [n for _, n in _doc_sent_pairs(text, min_words, max_words)]
 
 
 def _auc(scores, labels):
@@ -486,3 +491,78 @@ class TrainFastTextJob(Job):
         }
         with open(self.out_stats.get_path(), "w") as f:
             json.dump(st, f, indent=1)
+
+
+_models = None
+
+
+def _init_models(models):
+    # the fastText selectors, loaded once per pool worker
+    global _models
+    import fasttext
+
+    _models = {k: fasttext.load_model(p) for k, p in models.items()}
+
+
+def _score_doc(args):
+    rel, i, text, sent_min_p = args
+    pairs, p, sel = _doc_sent_pairs(text), {}, {}
+    sents = [n for _, n in pairs]
+    for k, m in _models.items():
+        if not sents:
+            break
+        labels, probs = m.predict(sents, k=2)
+        sc = [float(dict(zip(lb, pr)).get("__label__pos", 0.0)) for lb, pr in zip(labels, probs)]
+        p[k] = round(sum(sc) / len(sc), 4)
+        for j, x in enumerate(sc):
+            if sent_min_p is not None and x >= sent_min_p:
+                sel.setdefault(j, {})[k] = round(x, 4)
+    r = {"file": rel, "doc": i, "words": len(text.split()), "sent_words": sum(len(s.split()) for s in sents), "p": p}
+    if sent_min_p is not None:
+        # the original text of the sentences with P >= sent_min_p for any selector, and those P
+        r["sents"] = [[pairs[j][0], sel[j]] for j in sorted(sel)]
+    return r
+
+
+class ScoreDocsJob(Job):
+    # documents of a jsonl dataset dir scored by fastText source selectors (TrainFastTextJob): mean P(pos) over the
+    # document's filtered, cheap-normalised sentences, as in training. One jsonl.gz line per document: file, line
+    # index, words, words in scored sentences, P per selector (empty if no sentence passes the filters);
+    # with sent_min_p also the sentences that reach it for any selector (original text + P), for sentence selection
+    def __init__(self, data_dir, files, models, *, max_docs=None, sent_min_p=None, num_tasks=1):
+        super().__init__()
+        self.data_dir = data_dir
+        self.files = files
+        self.models = models
+        self.max_docs = max_docs
+        self.sent_min_p = sent_min_p
+        self.num_tasks = num_tasks
+        self.out_dir = self.output_path("data")  # a symlink into gs.SCRATCH_DIR if set
+        self.out_scores = [self.out_dir.join_right(f"scores-{i:03d}.jsonl.gz") for i in range(num_tasks)]
+        self.rqmt = {"cpu": 3, "mem": 32, "time": 24}
+
+    def tasks(self):
+        yield Task("link", mini_task=True)
+        yield Task("run", rqmt=self.rqmt, args=[[i] for i in range(self.num_tasks)])
+
+    def link(self):
+        _scratch_link(self)
+
+    def _docs(self, task):
+        files = self.files
+        if isinstance(files, tk.Path):
+            files = open(files.get_path()).read().split()
+        for rel in files[task :: self.num_tasks]:
+            with gzip.open(os.path.join(self.data_dir.get_path(), rel), "rt") as f:
+                for i, ln in enumerate(f):
+                    if i == self.max_docs:
+                        break
+                    yield rel, i, json.loads(ln)["text"], self.sent_min_p
+
+    def run(self, task):
+        _recipe_on_path()
+        models = {k: p.get_path() for k, p in self.models.items()}
+        with Pool(self.rqmt["cpu"], initializer=_init_models, initargs=(models,)) as pool:
+            with gzip.open(self.out_scores[task].get_path(), "wt") as f:
+                for r in pool.imap(_score_doc, self._docs(task), chunksize=64):
+                    f.write(json.dumps(r) + "\n")

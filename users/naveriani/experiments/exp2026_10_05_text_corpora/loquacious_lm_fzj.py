@@ -81,12 +81,13 @@ def py():
     # )
     # std_lm_recogs(f"{prefix}/recog/base/lm-gutenberg-n24", lm_books.get_last_fixed_epoch())
 
-    # book detector, the LibriHeavy selector: LibriHeavy transcripts vs random Dolma sentences (no books, no papers).
-    # Probe 2026-10-16: valid AUC 0.981, mean P(book) LibriHeavy 0.94 vs 0.17-0.29 for the other sources;
-    # Dolma docs with mean P(book) > 0.8: ~1 % of web words, ~5B words in all of Dolma, classic literature on the web
-    book = TrainFastTextJob(get_hf_text_only(), dolma_.out_dir, subset.out_files, source="libriheavy")
-    book.add_alias(f"{prefix}/data/fasttext/libriheavy")
-    tk.register_output(f"{prefix}/data/fasttext/libriheavy/stats.json", book.out_stats)
+    # source selectors: the transcripts of one Loquacious source vs random Dolma sentences (no books, no papers).
+    # LibriHeavy (book detector) probe 2026-10-16: valid AUC 0.981, mean P(book) LibriHeavy 0.94 vs 0.17-0.29 for the
+    # other sources; Dolma docs with mean P(book) > 0.8: ~1 % of web words, ~5B words in all of Dolma
+    for src in ["libriheavy", "yodas", "peoplesspeech", "commonvoice", "voxpopuli"]:
+        sel = TrainFastTextJob(get_hf_text_only(), dolma_.out_dir, subset.out_files, source=src)
+        sel.add_alias(f"{prefix}/data/fasttext/{src}")
+        tk.register_output(f"{prefix}/data/fasttext/{src}/stats.json", sel.out_stats)
 
 
 def _lm_text(texts, split):
