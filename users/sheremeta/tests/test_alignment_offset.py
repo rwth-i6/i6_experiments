@@ -130,3 +130,13 @@ def test_sequences_that_cannot_be_paired_are_counted_and_listed(tmp_path: pathli
         ("seq-9", "unexpected_output"),
     }
     assert summary["start"] == {"n": 2, "mean_ms": 250.0, "median_ms": 250.0, "p90_ms": 250.0}
+
+
+def test_words_the_model_times_before_zero_are_kept(tmp_path: pathlib.Path):
+    reference: Dict[str, List[List[Any]]] = {"seq-0": [["a", 0.1, 0.3], ["b", 0.5, 0.75]]}
+    boundaries: Dict[str, List[Tuple[float, float]]] = {"seq-0": [(-0.2, 0.0), (0.5, 0.75)]}
+
+    summary, skipped = _run(tmp_path, reference, boundaries)
+
+    assert skipped == [] and summary["n_words"] == 2
+    assert abs(summary["start"]["mean_ms"] - (-150.0)) < 1e-3, summary["start"]

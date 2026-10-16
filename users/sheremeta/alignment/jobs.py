@@ -618,8 +618,9 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         for i in range(alignment.num_seqs):
             alignment.load_seqs(i, i + 1)
             path: List[int] = np.asarray(alignment.get_data(i, "data"), dtype=np.int64).reshape(-1).tolist()
-            spans = path_to_word_spans(path, self.blank, pieces)
-            seconds = np.asarray(spans, dtype=np.float32).reshape(1, len(spans), 2) / np.float32(self.frame_rate)
+            spans = path_to_word_spans(path, self.blank, pieces, merge_repeats=self.merge_repeats)
+            frames = np.asarray(spans, dtype=np.float32).reshape(1, len(spans), 2) - np.float32(self.frame_offset)
+            seconds = frames / np.float32(self.frame_rate)
             writer.insert_batch(seconds, seq_len=[len(spans)], seq_tag=[alignment.get_tag(i)])
         writer.close()
 
@@ -660,7 +661,7 @@ class WordAlignmentOffsetJob(Job):
 
         from i6_experiments.users.sheremeta.alignment.metrics import (FailureCounts, deviation_stats,
                                                                      format_stats_table, offset_stats,
-                                                                     onset_failure_reason, word_offsets_ms)
+                                                                     word_offsets_ms)
 
         # start and end of every spoken word of the reference
         reference: Dict[str, np.ndarray] = {}
@@ -706,8 +707,11 @@ class WordAlignmentOffsetJob(Job):
                                 "n_alignment": len(spans), "n_reference": len(ref)})
                 continue
 
-            reason = onset_failure_reason(spans[:, 0]) or onset_failure_reason(spans[:, 1])
-            if reason is None and np.any(spans[:, 1] < spans[:, 0]):
+            # a word the model times before second 0 is kept, only times that run backwards fail
+            reason = None
+            if not np.all(np.isfinite(spans)):
+                reason = "nonfinite_output"
+            elif np.any(np.diff(spans, axis=0) < 0) or np.any(spans[:, 1] < spans[:, 0]):
                 reason = "nonmonotonic_output"
             if reason:
                 failures.add(reason)
