@@ -195,7 +195,17 @@ for _, p in DECLARED:
 print(f"       RLFinetune by declared policy: {dict(sorted(by.items()))}")
 #: the pre-10-16 arms that state t1 themselves: the T1 ablations (continuation + from released) and the continuation's smoke
 EXPECTED_OLD_T1 = 3
-check(not any(p == NEW for _, p in DECLARED), "no graph arm is declared at 10-16 yet (2026-10-16)")
+#: arms declared at 10-16 (first: the question-in-prompt distillation smokes + the teacher grading pass, 2026-10-16) get
+#: t1 + greedy reward Whisper from the policy; only the grading pass states the released sampler (gap-ladder rung B's)
+new_jobs = [j for j, p in DECLARED if p == NEW]
+check(
+    bool(new_jobs) and all(j.quality_asr_num_beams == 1 for j in new_jobs),
+    f"{len(new_jobs)} arm(s) at 10-16, greedy Whisper",
+)
+check(
+    all((j.rollout_text_sampler == "t1") != bool(getattr(j, "teacher_grade_questions", 0)) for j in new_jobs),
+    "10-16 arms sample t1; the teacher grading pass alone samples released",
+)
 check(len(old_t1) == EXPECTED_OLD_T1, f"pre-10-16 arms sampling t1 = the {EXPECTED_OLD_T1} T1 ablation jobs ({old_t1})")
 
 print("[5] CAN FAIL")
