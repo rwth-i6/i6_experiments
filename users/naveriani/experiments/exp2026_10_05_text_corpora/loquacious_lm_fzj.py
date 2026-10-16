@@ -5,9 +5,15 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.tensor import Dim, batch_dim
 from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
 
-from i6_experiments.users.naveriani.jobs.datasets import DownloadUrlsJob, NormalizeTextJob, RandomFileSubsetJob
+from i6_experiments.users.naveriani.experiments.exp2026_10_05_text_corpora.loquacious_lm import (
+    dolma,
+    dolma_random,
+    gutenberg,
+)
+from i6_experiments.users.naveriani.jobs.datasets import TrainFastTextJob
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.datasets.loquacious import (
+    get_hf_text_only,
     get_loquacious_text_only_dataset,
     get_loquacious_train_subset_dataset_v2,
     get_vocab_by_str,
@@ -19,7 +25,6 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc import model_recog_with_recomb
 from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import train as train_chunked_ctc
-from i6_experiments.users.zeyer.external_models.huggingface import DownloadHuggingFaceRepoJobV2
 from i6_experiments.users.zeyer.train_v4 import ModelDefWithCfg, train
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output, get_setup_prefix_for_module
@@ -30,31 +35,12 @@ from diffusion_lm_2025.sis_recipe.diffusion_recog_batched import run_battery
 
 def py():
     prefix = get_setup_prefix_for_module(__name__)
-    # the HF repo has only the url lists, the data is on olmo-data.org
-    urls = DownloadHuggingFaceRepoJobV2(repo_id="allenai/dolma", repo_type="dataset", include=["urls/*"])
-    urls.add_alias(f"{prefix}/data/dolma/urls")
-    # natural-language text only (~4.2 TB gz), no code, math or LaTeX
-    srcs = [
-        "books",
-        "c4-filtered",
-        "cc_en_head",
-        "cc_en_middle",
-        "cc_en_tail",
-        "cc_news_head",
-        "cc_news_middle",
-        "cc_news_tail",
-        "falcon-refinedweb-filtered",
-        "pes2o",
-        "reddit",
-        "wiki",
-        "wikiref_megawika",
-    ]
-    # https://olmo-data.org/dolma-v1_7/<source>/<file>.json.gz -> dolma/v1_7/<source>/<file>.json.gz
-    dolma = DownloadUrlsJob(
-        (urls.out_hub_cache_dir, "urls/v1_7.txt"), name="dolma/v1_7", include=[f"*/{s}/*" for s in srcs], strip=1
-    )
-    dolma.add_alias(f"{prefix}/data/dolma/v1_7")
-    tk.register_output(f"{prefix}/data/dolma/v1_7/stats.json", dolma.out_stats)
+    dolma_ = dolma(prefix)
+    tk.register_output(f"{prefix}/data/dolma/v1_7/stats.json", dolma_.out_stats)
+    subset, docs = dolma_random(prefix, dolma_)
+    tk.register_output(f"{prefix}/data/dolma-random-10x/docs-stats.json", docs.out_stats)
+    books = gutenberg(prefix, dolma_)
+    tk.register_output(f"{prefix}/data/gutenberg/docs-stats.json", books.out_stats)
 
     # 24L LMs with the Loquacious vocab, 5 full epochs each, with rescoring + first pass on Albert's base AM.
     # The 4 ranks do not shard the data, each sees a full subepoch: nEp = single-GPU subepochs / 4 (epEq).
@@ -73,19 +59,34 @@ def py():
         f"{prefix}/lm/trafo-n24-d1024-lsLm-nFullEp5-100epEq-nEp25-spm10k-ddp4-packed20k-graphc", ls_text, "data", 25
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-ls-n24", lm_ls.get_last_fixed_epoch())
-    # and on random Dolma files (weighted by size) with 10x the transcript words, normalised like the transcripts
-    subset = RandomFileSubsetJob(dolma.out_dir, num_words=10 * 235_900_000)
-    subset.add_alias(f"{prefix}/data/dolma-random-10x/files")
-    norm = NormalizeTextJob(dolma.out_dir, subset.out_files)
-    norm.add_alias(f"{prefix}/data/dolma-random-10x/normalize")
-    tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
-    lm_dolma = train_lm(
-        f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
-        _lm_text(norm.out_texts, split=60),
-        "data",
-        75,
-    )
-    std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
+    # and on random Dolma documents with 10x the transcript words, normalised like the transcripts (NeMo, on RZ in
+    # loquacious_lm.py). Enable once its job folder is copied back, else the normalisation starts on the login node
+    # norm = normalize(prefix, "dolma-random-10x", docs)
+    # tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
+    # lm_dolma = train_lm(
+    #     f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+    #     _lm_text(norm.out_texts, split=60),
+    #     "data",
+    #     75,
+    # )
+    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
+    # and on all of Project Gutenberg (Dolma books, ~3.5B words, split 80 = ~44M words per subepoch), same protocol
+    # norm_books = normalize(prefix, "gutenberg", books)
+    # tk.register_output(f"{prefix}/data/gutenberg/stats.json", norm_books.out_stats)
+    # lm_books = train_lm(
+    #     f"{prefix}/lm/trafo-n24-d1024-gutenberg-nFullEp5-400epEq-nEp100-spm10k-ddp4-packed20k-graphc",
+    #     _lm_text(norm_books.out_texts, split=80),
+    #     "data",
+    #     100,
+    # )
+    # std_lm_recogs(f"{prefix}/recog/base/lm-gutenberg-n24", lm_books.get_last_fixed_epoch())
+
+    # book detector, the LibriHeavy selector: LibriHeavy transcripts vs random Dolma sentences (no books, no papers).
+    # Probe 2026-10-16: valid AUC 0.981, mean P(book) LibriHeavy 0.94 vs 0.17-0.29 for the other sources;
+    # Dolma docs with mean P(book) > 0.8: ~1 % of web words, ~5B words in all of Dolma, classic literature on the web
+    book = TrainFastTextJob(get_hf_text_only(), dolma_.out_dir, subset.out_files, source="libriheavy")
+    book.add_alias(f"{prefix}/data/fasttext/libriheavy")
+    tk.register_output(f"{prefix}/data/fasttext/libriheavy/stats.json", book.out_stats)
 
 
 def _lm_text(texts, split):
