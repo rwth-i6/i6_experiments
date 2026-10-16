@@ -65,6 +65,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         keys += f"aux_tasks: {{{mix}}}\nquestion_draw_offset: {job.question_draw_offset}\naux_seed: {job.aux_seed}\n"
         if getattr(job, "aux_prompt_set", "fixed") != "fixed":  # absent at the default
             keys += f'aux_prompt_set: "{job.aux_prompt_set}"\n'
+        if getattr(job, "aux_echo_metric", "wer") != "wer":  # absent at the default (2026-10-16)
+            keys += f'aux_echo_metric: "{job.aux_echo_metric}"\n'
     return keys + (f'init_lora: "{job.init_lora.get()}"\n' if getattr(job, "init_lora", None) is not None else "")
 
 
@@ -392,6 +394,8 @@ class RLFinetune(Job):
         "question_draw_offset": 0,
         "aux_seed": 0,
         "aux_prompt_set": "fixed",
+        # the echo reward's error rate (2026-10-16, rl.aux_tasks.ECHO_METRICS): excluded at "wer" (every run before)
+        "aux_echo_metric": "wer",
         # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
@@ -486,6 +490,7 @@ class RLFinetune(Job):
         question_draw_offset: int = 0,
         aux_seed: int = 0,
         aux_prompt_set: str = "fixed",
+        aux_echo_metric: str = "wer",
         selfplay_scenarios=None,
         selfplay_policy: str = "shared",
         conversation_s: float = 30.0,
@@ -738,6 +743,12 @@ class RLFinetune(Job):
         # "fixed" = the probes' own wordings; "varied" = 10 training paraphrases per task (rl.aux_tasks, 2026-10-12)
         assert aux_prompt_set in ("fixed", "varied") and (aux_prompt_set == "fixed" or aux_tasks), aux_prompt_set
         self.aux_prompt_set = aux_prompt_set
+        # the echo reward: 1 - min(1, WER) ("wer", every run before 2026-10-16) or 1 - min(1, CER) ("cer"; user
+        # 2026-10-16: "RL runs on echoing should be rewarded with CER, not WER"). Only meaningful with an echo task.
+        assert aux_echo_metric in ("wer", "cer") and (
+            aux_echo_metric == "wer" or float((aux_tasks or {}).get("echo", 0)) > 0
+        ), f"aux_echo_metric {aux_echo_metric!r}: 'cer' needs an echo task in aux_tasks"
+        self.aux_echo_metric = aux_echo_metric
         # the rollout TEXT sampler: "released" = the model's own (T 0.7 / top-k 25), "t1" = T 1 without top-k / top-p,
         # i.e. the pi GRPO trains (on-policy; Kolibri tech report). Rollouts and in-loop probes; audio unchanged.
         assert rollout_text_sampler in ("released", "t1"), rollout_text_sampler
