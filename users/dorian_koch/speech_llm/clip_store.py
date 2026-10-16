@@ -42,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .clip_codec import COL_AUDIO_FLAC, decode_row, encode_exact
+from .clip_codec import COL_AUDIO_FLAC, decode_row, encode_exact, numpy_rows
 
 #: Column names in the arrow layout. ``audio`` holds the raw samples; keeping the sample rate
 #: per-row (rather than as dataset metadata) means a mixed-rate merge is representable instead of
@@ -322,7 +322,7 @@ def materialise_clips(src, out_dir) -> None:
     # batches behind us, so peak is ONE clip regardless of corpus size.
     from datasets import load_from_disk
 
-    ds = load_from_disk(str(src)).with_format("numpy")
+    ds = numpy_rows(load_from_disk(str(src)))  # not .with_format("numpy"): it strips audio_flac's trailing NULs
     has_mono = COL_MONOLOGUE in ds.column_names
     for row in ds:
         i = int(row[COL_INDEX])
@@ -484,7 +484,7 @@ def repack_wav_dir(path, *, dry_run=True, follow_symlinks=False):
     # fitted 91 dirs into a day's walltime. with_format("numpy") hands back the arrays directly.
     from datasets import load_from_disk
 
-    ds = load_from_disk(str(tmp)).with_format("numpy")
+    ds = numpy_rows(load_from_disk(str(tmp)))  # not .with_format("numpy"): it strips audio_flac's trailing NULs
     if len(ds) != len(items):
         shutil.rmtree(tmp)
         raise ValueError(f"{path}: wrote {len(ds)} clips, expected {len(items)}")

@@ -27,9 +27,22 @@ def audio_columns(column_names) -> list:
     return [c for c in (COL_AUDIO, COL_AUDIO_FLAC) if c in column_names]
 
 
+def numpy_rows(ds):
+    """``ds`` in numpy format for sequential reads, with ``audio_flac`` left as Python ``bytes``.
+
+    ⚠ ``datasets``' numpy format hands binary values over as ``np.bytes_``, which DROPS TRAILING NUL BYTES -- and a
+    FLAC stream ends in a CRC-16, so ~1 in 256 clips ends in a NUL byte (found 2026-10-16: "flac decoder lost sync").
+    Every numpy-format reader of a clip store goes through here.
+    """
+    cols = [c for c in ds.column_names if c != COL_AUDIO_FLAC]
+    return ds.with_format("numpy", columns=cols, output_all_columns=True)
+
+
 def decode_row(row) -> np.ndarray:
     """A row's samples as float32 -- for ``audio`` exactly ``np.asarray(row["audio"], dtype=np.float32)``."""
     flac = row.get(COL_AUDIO_FLAC)
+    if isinstance(flac, np.bytes_):
+        raise TypeError("audio_flac read in numpy format has lost its trailing NUL bytes: read via numpy_rows(ds)")
     if flac is not None:
         import soundfile as sf
 

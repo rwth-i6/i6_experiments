@@ -64,6 +64,16 @@ def _clips():
         q[:200] = 0
         clips[i] = (q / 32768.0).astype(np.float32)
     clips[9] = rng.uniform(-0.5, 0.5, SR // 3).astype(np.float32)  # not int16-valued: must stay float
+    # a clip whose FLAC bytes END IN NUL (~1 in 256 do: the stream ends in a CRC-16): datasets' numpy format strips
+    # trailing NULs from binary values (2026-10-16, "flac decoder lost sync") -- every reader must survive it
+    for seed in range(5000):
+        q = np.random.default_rng(1000 + seed).integers(-30000, 30000, SR // 10)
+        x = (q / 32768.0).astype(np.float32)
+        raw = clip_codec.encode_exact(x, SR)
+        if raw is not None and raw.endswith(b"\x00"):
+            clips[11] = x
+            break
+    assert 11 in clips, "no FLAC stream ending in a NUL byte found"
     return clips
 
 
@@ -122,7 +132,7 @@ def _check_readers(tmp, name, path, want):
     qd = os.path.join(tmp, "q")
     if not os.path.exists(qd):
         Dataset.from_dict(
-            {"question": [f"q{i}" for i in range(10)], "answer": ["a"] * 10, "aliases": [["a"]] * 10}
+            {"question": [f"q{i}" for i in range(12)], "answer": ["a"] * 12, "aliases": [["a"]] * 12}
         ).save_to_disk(qd)
     man = os.path.join(tmp, f"man_{name}.json")
     Path(man).write_text(json.dumps({"questions": qd, "audio": path}))
@@ -146,10 +156,31 @@ def main():
     clips = _clips()
     for i, x in clips.items():
         raw = clip_codec.encode_exact(x, SR)
+        if i == 11:
+            assert raw.endswith(b"\x00")
         if i == 9:
             assert raw is None, "a non-int16 clip must not be FLAC-encoded"
         else:
             assert raw is not None and np.array_equal(clip_codec.decode_row({clip_codec.COL_AUDIO_FLAC: raw}), x)
+    from datasets import Features as _F, Value as _V
+
+    nul = clip_codec.encode_exact(clips[11], SR)
+    stripped = Dataset.from_dict({"audio_flac": [nul]}, features=_F({"audio_flac": _V("binary")})).with_format("numpy")[
+        0
+    ]
+    try:
+        clip_codec.decode_row(stripped)
+        raise AssertionError("decode_row decoded a numpy-format (NUL-stripped) audio_flac")
+    except TypeError:
+        pass
+    assert (
+        clip_codec.decode_row(
+            clip_codec.numpy_rows(Dataset.from_dict({"audio_flac": [nul]}, features=_F({"audio_flac": _V("binary")})))[
+                0
+            ]
+        ).shape
+        == clips[11].shape
+    )
     for bad in (
         np.array([0.1, 0.2], np.float32),
         np.array([1.0], np.float32),
@@ -176,23 +207,23 @@ def main():
         write_clips(new, [(i, x, SR) for i, x in clips.items()])
         ds = load_from_disk(new)
         flac_rows = {int(r["index"]) for r in ds if r["audio_flac"] is not None}
-        assert flac_rows == {0, 3, 7}, f"write_clips stored {sorted(flac_rows)} as FLAC, want the int16 clips 0/3/7"
+        assert flac_rows == {0, 3, 7, 11}, f"write_clips stored {sorted(flac_rows)} as FLAC, want the int16 clips"
         _check_readers(tmp, "write_clips", new, clips)
         # shards with different content share one schema, so their merge links (no second copy) ...
         sa, sb = os.path.join(tmp, "shard_a"), os.path.join(tmp, "shard_b")
-        write_clips(sa, [(0, clips[0], SR)])
+        write_clips(sa, [(0, clips[0], SR), (11, clips[11], SR)])
         write_clips(sb, [(9, clips[9], SR)], monologues={9: "hm"})
         assert load_from_disk(sa).features == load_from_disk(sb).features, "shard schemas differ: the merge would copy"
         lm = os.path.join(tmp, "link_merge")
         merge_clip_datasets(lm, [sa, sb], link=True)
         assert all(os.path.islink(os.path.join(lm, f)) for f in os.listdir(lm) if f.endswith(".arrow")), "merge copied"
-        _check_readers(tmp, "link_merge", lm, {0: clips[0], 9: clips[9]})
+        _check_readers(tmp, "link_merge", lm, {i: clips[i] for i in (0, 9, 11)})
         # ... and an old float shard still merges with a new one (copied: the schemas differ)
         so = os.path.join(tmp, "shard_old")
         _old_store(so, {3: clips[3], 7: clips[7]})
         mm = os.path.join(tmp, "mixed_merge")
         merge_clip_datasets(mm, [sa, so, sb], link=True)
-        _check_readers(tmp, "mixed_merge", mm, {i: clips[i] for i in (0, 3, 7, 9)})
+        _check_readers(tmp, "mixed_merge", mm, {i: clips[i] for i in (0, 3, 7, 9, 11)})
     print(
         "check_clip_codec: OK (copies identical; float, FLAC-only, hybrid, write_clips and merged stores decode identically in 5 readers)"
     )
