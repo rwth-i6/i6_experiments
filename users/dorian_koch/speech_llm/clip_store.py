@@ -42,6 +42,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .clip_codec import decode_row
+
 #: Column names in the arrow layout. ``audio`` holds the raw samples; keeping the sample rate
 #: per-row (rather than as dataset metadata) means a mixed-rate merge is representable instead of
 #: silently wrong.
@@ -232,7 +234,7 @@ class _ArrowClips(Mapping):
 
     def __getitem__(self, key):
         row = self._ds[self._row_of[int(key)]]
-        return np.asarray(row[COL_AUDIO], dtype=np.float32), int(row[COL_SR])
+        return decode_row(row), int(row[COL_SR])  # clip_codec: ``audio`` floats or exact ``audio_flac``
 
     def sidecar(self, key, kind="monologue"):
         col = COL_MONOLOGUE if kind == "monologue" else COL_TRACE
@@ -295,7 +297,7 @@ def materialise_clips(src, out_dir) -> None:
     has_mono = COL_MONOLOGUE in ds.column_names
     for row in ds:
         i = int(row[COL_INDEX])
-        sf.write(out_dir / f"{i}.wav", np.asarray(row[COL_AUDIO], dtype=np.float32), int(row[COL_SR]))
+        sf.write(out_dir / f"{i}.wav", decode_row(row), int(row[COL_SR]))
         if has_mono:
             mono = row[COL_MONOLOGUE]
             if mono is not None and str(mono):
@@ -451,7 +453,7 @@ def repack_wav_dir(path, *, dry_run=True, follow_symlinks=False):
             shutil.rmtree(tmp)
             raise ValueError(f"{path}: clip {i} missing from the written dataset")
         row = ds[row_of[i]]
-        got = np.asarray(row[COL_AUDIO], dtype=np.float32)
+        got = decode_row(row)
         if int(row[COL_SR]) != sr or got.shape != audio.shape or not np.array_equal(got, audio):
             shutil.rmtree(tmp)
             raise ValueError(f"{path}: clip {i} does not round-trip -- refusing to delete originals")

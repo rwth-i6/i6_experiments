@@ -73,6 +73,32 @@ def check_duration_column_and_offset_fallback():
     print("[ok] durations from the duration column, and from arrow offsets, agree")
 
 
+def check_flac_rows_fall_back_to_headers():
+    """FLAC rows (no ``duration`` column): the WAV byte-length arithmetic would be wrong, read headers."""
+    import soundfile as sf
+    from datasets import Dataset
+
+    secs = [3.5, 20.0, 41.25]
+    rng = np.random.default_rng(0)
+
+    def flac(s):
+        buf = io.BytesIO()
+        sf.write(buf, rng.integers(-3000, 3000, int(s * SR)).astype("<i2"), SR, format="FLAC", subtype="PCM_16")
+        return buf.getvalue()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "work", "SomeJob.flac", "output", "dataset")
+        Dataset.from_dict(
+            {
+                "id": ["0", "1", "2"],
+                "audio_assistant": [{"bytes": flac(s), "path": f"{i}.flac"} for i, s in enumerate(secs)],
+            }
+        ).save_to_disk(path)
+        got = _durations(_table(path))
+        assert np.allclose(got, secs, atol=1e-3), (got, secs)
+    print("[ok] FLAC rows: durations from their headers")
+
+
 def check_epoch_arithmetic_is_per_corpus():
     """A weighted mix is covered at DIFFERENT rates per corpus -- the whole point of the job."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +223,7 @@ def check_provenance_is_not_hashed():
 
 if __name__ == "__main__":
     check_duration_column_and_offset_fallback()
+    check_flac_rows_fall_back_to_headers()
     check_epoch_arithmetic_is_per_corpus()
     check_no_slack_rows_are_counted()
     check_label_is_not_output()

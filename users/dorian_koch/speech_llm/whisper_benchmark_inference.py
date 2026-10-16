@@ -19,6 +19,11 @@ import torchaudio
 from datasets import load_from_disk
 from faster_whisper import WhisperModel, BatchedInferencePipeline
 
+try:
+    from .clip_codec import decode_row
+except ImportError:  # run as a script under the job venv: the sibling file
+    from clip_codec import decode_row
+
 
 TARGET_SR = 16000
 
@@ -41,7 +46,7 @@ class _LazyArrowClips:
 
     def __getitem__(self, i):
         r = self._ds[self._row[i]]
-        return np.asarray(r["audio"], dtype=np.float32), int(r["sampling_rate"])
+        return decode_row(r), int(r["sampling_rate"])  # clip_codec: ``audio`` floats or exact ``audio_flac``
 
 
 # NOTE: deliberately duplicated across the standalone worker scripts -- see the note in

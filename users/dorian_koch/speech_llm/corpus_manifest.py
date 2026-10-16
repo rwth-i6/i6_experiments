@@ -8,7 +8,8 @@ be recomputed by hand from row counts and durations every time it was needed. Th
 It is nearly free: our corpora carry a ``duration`` column, so the whole manifest is a read of one
 float column per corpus (0.1-0.7 s for 60k rows) with no audio decoded. A corpus without that column
 falls back to arrow's binary offsets -- ``pyarrow.compute.binary_length`` on the WAV bytes, which
-reads the offsets buffer and not the data.
+reads the offsets buffer and not the data. FLAC bytes (no ``RIFF`` header) are compressed, so there
+each row's header is read instead (``soundfile.info``).
 
 ⚠ Never call ``combine_chunks()`` on the audio column to do that: our corpora exceed the 2 GB offset
 limit of a single arrow array and it raises ``offset overflow while concatenating arrays``. Iterate
@@ -53,11 +54,23 @@ def _durations(table) -> "np.ndarray | None":
     import pyarrow.compute as pc
 
     raw = table.column(audio_col)[0].as_py()["bytes"]
+    col = table.column(audio_col)
+    if raw[:4] != b"RIFF":
+        # Compressed audio (FLAC, 2026-10-16): byte length says nothing about duration -- read each
+        # row's header. Touches every row's bytes, so slower than the WAV path, but no audio decode.
+        import soundfile as sf
+
+        out = []
+        for chunk in col.chunks if col.num_chunks else [col]:
+            field = chunk.field("bytes")
+            for j in range(len(field)):
+                info = sf.info(io.BytesIO(field[j].as_py()))
+                out.append(info.frames / info.samplerate)
+        return np.asarray(out, dtype="float64")
     with wave.open(io.BytesIO(raw)) as w:
         sr, ch, sw, frames = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()
     header = len(raw) - frames * ch * sw  # WAV headers are not a fixed 44 bytes
     lens = []
-    col = table.column(audio_col)
     for chunk in col.chunks if col.num_chunks else [col]:
         lens.append(np.asarray(pc.binary_length(chunk.field("bytes")), dtype="float64"))
     return (np.concatenate(lens) - header) / (sr * ch * sw)
