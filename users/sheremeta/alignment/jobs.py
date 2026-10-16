@@ -763,3 +763,198 @@ class WordAlignmentOffsetJob(Job):
         ]
         with open(self.out_report.get_path(), "w") as f:
             f.write("\n".join(lines) + "\n")
+
+
+def _read_paths(hdf_path: str) -> Dict[str, Any]:
+    """
+    :param hdf_path: an HDF of one label per frame, the RETURNN checkout on the python path
+    :return: per sequence tag the label of every frame
+    """
+    import numpy as np
+    from returnn.datasets.hdf import HDFDataset
+
+    hdf = HDFDataset([hdf_path])
+    hdf.initialize()
+    hdf.init_seq_order(epoch=1)
+    paths = {}
+    for i in range(hdf.num_seqs):
+        hdf.load_seqs(i, i + 1)
+        paths[str(hdf.get_tag(i))] = np.asarray(hdf.get_data(i, "data"), dtype=np.int64).reshape(-1)
+    return paths
+
+
+def _counts(values) -> Dict[str, int]:
+    """
+    :param values: integers
+    :return: how often every value occurs, keyed by the value in ascending order
+    """
+    import numpy as np
+
+    keys, counts = np.unique(np.asarray(values, dtype=np.int64), return_counts=True)
+    return {str(int(k)): int(c) for k, c in zip(keys, counts)}
+
+
+# frame offsets of every token of a path against the frames of the same token in its targets
+class TokenFrameOffsetJob(Job):
+    """Frame offset of every token of a path against the same token in the target codes, positive is late."""
+
+    __sis_version__ = 1
+
+    def __init__(
+        self, *, path_hdf: tk.Path, target_hdf: tk.Path, blank: int, frame_rate: float, returnn_root: tk.Path
+    ):
+        """
+        :param path_hdf: per sequence the label or the blank of every frame of the path
+        :param target_hdf: per sequence the label or the blank of every frame of the targets, on the frames of the path
+        :param blank: the code of a frame without a label, in both files
+        :param frame_rate: frames per second
+        :param returnn_root: the RETURNN checkout that reads the HDFs
+        """
+        super().__init__()
+        self.path_hdf = path_hdf
+        self.target_hdf = target_hdf
+        self.blank = int(blank)
+        self.frame_rate = float(frame_rate)
+        self.returnn_root = returnn_root
+        self.out_summary = self.output_path("summary.json")
+        self.out_report = self.output_path("report.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1})
+
+    def run(self):
+        import sys
+
+        import numpy as np
+
+        sys.path.insert(0, self.returnn_root.get_path())
+        paths = _read_paths(self.path_hdf.get_path())
+        targets = _read_paths(self.target_hdf.get_path())
+
+        # every non-blank frame is one token, the tokens of a path and of its targets pair up in order
+        failures = {"label_mismatch": 0, "missing_target": 0}
+        offsets: List[np.ndarray] = []
+        for tag, path in paths.items():
+            if tag not in targets:
+                failures["missing_target"] += 1
+                continue
+            path_frames = np.flatnonzero(path != self.blank)
+            target_frames = np.flatnonzero(targets[tag] != self.blank)
+            if not np.array_equal(path[path_frames], targets[tag][target_frames]):
+                failures["label_mismatch"] += 1
+                continue
+            offsets.append(path_frames - target_frames)
+
+        pooled = np.concatenate(offsets) if offsets else np.zeros(0, dtype=np.int64)
+        frames = None
+        if pooled.size:
+            frames = {
+                "mean": float(np.mean(pooled)),
+                "median": float(np.median(pooled)),
+                "p90": float(np.percentile(pooled, 90)),
+            }
+        summary = {
+            "attempted_utts": len(paths),
+            "n_utts": len(offsets),
+            "n_tokens": int(pooled.size),
+            "failures": failures,
+            "offset_frames": frames,
+            "offset_ms": {key: 1000.0 * value / self.frame_rate for key, value in frames.items()} if frames else None,
+            "share_exact": float(np.mean(pooled == 0)) if pooled.size else None,
+            "histogram_frames": _counts(pooled),
+        }
+        with open(self.out_summary.get_path(), "w") as f:
+            json.dump(_json_safe(summary), f, indent=1)
+
+        lines = [
+            "token frame offsets of the path against its targets, path minus target, positive is late",
+            f"attempted={len(paths)}  used={len(offsets)}  tokens={pooled.size}  failures={failures}",
+        ]
+        if frames:
+            lines += [
+                f"mean {frames['mean']:.3f} frames ({summary['offset_ms']['mean']:.1f} ms), median {frames['median']:.1f}, "
+                f"P90 {frames['p90']:.1f}, exactly on the target frame {100 * summary['share_exact']:.1f}%",
+                "frames: " + "  ".join(f"{k}:{v}" for k, v in summary["histogram_frames"].items()),
+            ]
+        with open(self.out_report.get_path(), "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+
+# how a path places the tokens of every word
+class WordPackingJob(Job):
+    """Whether a path puts the tokens of a word on adjacent frames, and the blank frames inside and between words."""
+
+    __sis_version__ = 1
+
+    def __init__(self, *, path_hdf: tk.Path, spm_file: tk.Path, blank: int, returnn_root: tk.Path):
+        """
+        :param path_hdf: per sequence the label or the blank of every frame, every non-blank frame one token
+        :param spm_file: the SentencePiece model of the labels, its word start pieces open the words
+        :param blank: the code of a frame without a label
+        :param returnn_root: the RETURNN checkout that reads the HDF
+        """
+        super().__init__()
+        self.path_hdf = path_hdf
+        self.spm_file = spm_file
+        self.blank = int(blank)
+        self.returnn_root = returnn_root
+        self.out_summary = self.output_path("summary.json")
+        self.out_report = self.output_path("report.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1})
+
+    def run(self):
+        import sys
+
+        import numpy as np
+        import sentencepiece as spm
+
+        from i6_experiments.users.sheremeta.alignment.onsets import _WORD_MARK
+
+        sys.path.insert(0, self.returnn_root.get_path())
+        sp = spm.SentencePieceProcessor()
+        sp.Load(self.spm_file.get_path())
+        pieces = [sp.IdToPiece(label) for label in range(sp.GetPieceSize())]
+
+        # the frames of every word, a token whose piece starts a word opens one
+        inner_gaps: List[int] = []
+        between_gaps: List[int] = []
+        num_words = num_multi = num_packed = 0
+        for path in _read_paths(self.path_hdf.get_path()).values():
+            words: List[List[int]] = []
+            for frame in np.flatnonzero(path != self.blank).tolist():
+                if pieces[int(path[frame])].startswith(_WORD_MARK) or not words:
+                    words.append([frame])
+                else:
+                    words[-1].append(frame)
+            for i, frames in enumerate(words):
+                gaps = np.diff(frames) - 1
+                inner_gaps.extend(gaps.tolist())
+                num_words += 1
+                if len(frames) > 1:
+                    num_multi += 1
+                    num_packed += int(not gaps.any())
+                if i > 0:
+                    between_gaps.append(frames[0] - words[i - 1][-1] - 1)
+
+        summary = {
+            "n_words": num_words,
+            "n_multi_token_words": num_multi,
+            "share_packed": num_packed / num_multi if num_multi else None,
+            "inner_gap_mean": float(np.mean(inner_gaps)) if inner_gaps else None,
+            "inner_gap_histogram": _counts(inner_gaps),
+            "between_gap_mean": float(np.mean(between_gaps)) if between_gaps else None,
+            "between_gap_histogram": _counts(between_gaps),
+        }
+        with open(self.out_summary.get_path(), "w") as f:
+            json.dump(_json_safe(summary), f, indent=1)
+
+        lines = [
+            f"words={num_words}  with several tokens={num_multi}  packed={num_packed}"
+            + (f" ({100 * summary['share_packed']:.1f}%)" if num_multi else ""),
+            "blank frames inside words: " + "  ".join(f"{k}:{v}" for k, v in summary["inner_gap_histogram"].items()),
+            "blank frames between words: " + "  ".join(f"{k}:{v}" for k, v in summary["between_gap_histogram"].items()),
+        ]
+        with open(self.out_report.get_path(), "w") as f:
+            f.write("\n".join(lines) + "\n")
