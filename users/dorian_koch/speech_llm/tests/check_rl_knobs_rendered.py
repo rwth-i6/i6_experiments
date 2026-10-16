@@ -49,7 +49,7 @@ def selfplay(**kw):
 
 def write_config(job, tmp):
     """The real write_config, its outputs redirected to ``tmp``; returns the rendered config text."""
-    for attr in ("out_rundir", "out_config", "out_selfplay_manifest", "out_judge_rubric"):
+    for attr in ("out_rundir", "out_config", "out_selfplay_manifest", "out_judge_rubric", "out_knowledge_manifest"):
         if hasattr(job, attr):
             setattr(job, attr, tk.Path(os.path.join(tmp, attr)))
     job.write_config()
@@ -107,7 +107,45 @@ def unit():
                 raises(lambda: write_config(job_fn(), tmp), drop)
         finally:
             setattr(rf, attr, keep)
-    print("check_rl_knobs_rendered: unit ok (defaults byte-stable, knobs rendered, 3 mutants + 2 misuses caught)")
+    qctx_unit()
+    print("check_rl_knobs_rendered: unit ok (defaults byte-stable, knobs rendered, 5 mutants + 2 misuses caught)")
+
+
+KQ = tk.Path("/dev/null/questions", hash_overwrite="knobs_guard_questions")
+GATE = tk.Path("/dev/null/teacher_grades.jsonl", hash_overwrite="knobs_guard_gate")
+
+
+def know(**kw):
+    return rl(family="personaplex", segment_source="knowledge", knowledge_questions=KQ, knowledge_audio=KQ,
+              quality_judge="judge", reward_transcript="asr", skip_zero_signal=True, **kw)  # fmt: skip
+
+
+def qctx_unit():
+    """Question-in-prompt OPD (2026-10-16): the teacher gate, opd_only and the grading pass are hash-neutral at their
+    defaults, absent from the render then, rendered when set; mutants: a dropped render line -> write_config refuses."""
+    qctx = dict(text_teacher="qctx_speech", text_teacher_weight=0.1)
+    sid = know(**qctx)._sis_id()
+    assert know(**qctx, text_teacher_gate=None, opd_only=False, teacher_grade_questions=0)._sis_id() == sid
+    assert know(**qctx, text_teacher_gate=GATE)._sis_id() != sid != know(**qctx, opd_only=True)._sis_id()
+    plain = rf._render_rl_config(know(**qctx))
+    assert not [k for k in ("text_teacher_gate", "opd_only", "teacher_grade_questions") if k in plain], plain
+    full = dict(**qctx, text_teacher_gate=GATE, opd_only=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        text = write_config(know(**full), tmp)
+        for line in ('text_teacher: "qctx_speech"', f'text_teacher_gate: "{GATE.get()}"', "opd_only: true"):
+            assert f"\n{line}\n" in text, line
+    with tempfile.TemporaryDirectory() as tmp:
+        assert "\nteacher_grade_questions: 8000\n" in write_config(know(teacher_grade_questions=8000), tmp)
+    keep = rf._render_knowledge_keys
+    for drop, kw in (("text_teacher_gate", full), ("opd_only", full)):
+        rf._render_knowledge_keys = lambda job, d=drop: "".join(
+            x for x in keep(job).splitlines(keepends=True) if not x.startswith(d + ":")
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                raises(lambda: write_config(know(**kw), tmp), drop)
+        finally:
+            rf._render_knowledge_keys = keep
 
 
 def graph():

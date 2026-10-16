@@ -60,6 +60,12 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         keys += f'knowledge_judge_version: "{job.knowledge_judge_version}"\n'
     if getattr(job, "text_teacher", None):  # absent at the default (2026-10-11): text-mode OPD, rl.text_teacher
         keys += f'text_teacher: "{job.text_teacher}"\ntext_teacher_weight: {job.text_teacher_weight}\n'
+    if getattr(job, "text_teacher_gate", None) is not None:  # absent at the default (2026-10-16): the qctx teacher gate
+        keys += f'text_teacher_gate: "{job.text_teacher_gate.get()}"\n'
+    if getattr(job, "opd_only", False):  # absent at the default (2026-10-16): distillation only, no GRPO advantage
+        keys += "opd_only: true\n"
+    if getattr(job, "teacher_grade_questions", 0):  # absent at the default (2026-10-16): the graded teacher pass
+        keys += f"teacher_grade_questions: {job.teacher_grade_questions}\n"
     if getattr(job, "aux_tasks", None):  # absent at the default (2026-10-12): auxiliary prompt tasks, rl.aux_tasks
         mix = ", ".join(f"{k}: {float(v)}" for k, v in sorted(job.aux_tasks.items()))
         keys += f"aux_tasks: {{{mix}}}\nquestion_draw_offset: {job.question_draw_offset}\naux_seed: {job.aux_seed}\n"
@@ -389,6 +395,11 @@ class RLFinetune(Job):
         # text-mode on-policy distillation (2026-10-11, moshi_family.rl.text_teacher): excluded at their defaults (off)
         "text_teacher": None,
         "text_teacher_weight": 0.0,
+        # question-in-prompt OPD (2026-10-16): the teacher gate (a graded teacher pass's teacher_grades.jsonl) and the
+        # grading pass itself; excluded at their defaults (off)
+        "text_teacher_gate": None,
+        "teacher_grade_questions": 0,
+        "opd_only": False,
         # auxiliary prompt tasks (2026-10-12, moshi_family.rl.aux_tasks): excluded at their defaults (off)
         "aux_tasks": None,
         "question_draw_offset": 0,
@@ -486,6 +497,9 @@ class RLFinetune(Job):
         knowledge_judge_version: str = "v1",
         text_teacher: str | None = None,
         text_teacher_weight: float = 0.0,
+        text_teacher_gate=None,
+        teacher_grade_questions: int = 0,
+        opd_only: bool = False,
         aux_tasks: dict | None = None,
         question_draw_offset: int = 0,
         aux_seed: int = 0,
@@ -717,14 +731,33 @@ class RLFinetune(Job):
         assert int(quality_asr_num_beams) >= 1, quality_asr_num_beams
         self.quality_asr_num_beams = int(quality_asr_num_beams)
         # text-mode OPD (moshi_family.rl.text_teacher): "base_text" = the frozen base LM in text-only mode as a per-token
-        # teacher on the reply's content tokens, reverse KL x text_teacher_weight next to the GRPO loss
-        assert text_teacher in (None, "base_text"), text_teacher
+        # teacher on the reply's content tokens, reverse KL x text_teacher_weight next to the GRPO loss; "qctx_speech"
+        # (2026-10-16) = the frozen init with the question in its system prompt (gap-ladder rung B) on every reply frame
+        assert text_teacher in (None, "base_text", "qctx_speech"), text_teacher
         assert (text_teacher is None) == (float(text_teacher_weight) == 0.0), (text_teacher, text_teacher_weight)
         assert text_teacher is None or (
             family == "personaplex" and segment_source == "knowledge" and questions_per_episode == 1
         ), "text_teacher: PersonaPlex single-question knowledge GRPO only"
         self.text_teacher = text_teacher
         self.text_teacher_weight = float(text_teacher_weight)
+        # ``text_teacher_gate``: a graded teacher pass's ``out_teacher_grades`` -- on a question the teacher got wrong
+        # only the PAD/EPAD frames are distilled (the judge reward is the only content signal there)
+        assert text_teacher_gate is None or text_teacher == "qctx_speech", "text_teacher_gate: qctx_speech only"
+        self.text_teacher_gate = text_teacher_gate
+        # ``teacher_grade_questions`` = N: no training; ONE rollout of released PersonaPlex with the question in the
+        # system prompt on each of the first N training draws, graded by this job's reward -> out_teacher_grades
+        assert not teacher_grade_questions or (
+            family == "personaplex" and segment_source == "knowledge" and questions_per_episode == 1
+            and text_teacher is None and init_lora is None and rollout_text_sampler == "released"
+            and reward_transcript == "asr"
+        ), "teacher_grade_questions: released PersonaPlex, single-question knowledge, ASR transcripts, released sampler"  # fmt: skip
+        self.teacher_grade_questions = int(teacher_grade_questions)
+        # ``opd_only``: the GRPO advantage is zeroed, every group takes the distillation-only update (rollouts still
+        # judged and logged; moshi_family.rl.trainer.RLTrainerConfig.opd_only)
+        assert not opd_only or (text_teacher is not None and skip_zero_signal), (
+            "opd_only: needs text_teacher + skip_zero_signal"
+        )
+        self.opd_only = bool(opd_only)
         # auxiliary prompt tasks (moshi_family.rl.aux_tasks): ``{"knowledge": w, "sysq": w, "echo": w}`` per-draw task
         # weights; ``question_draw_offset``: training draws start at that pool index (continuing from an RL init)
         assert aux_tasks is None or (
@@ -767,6 +800,8 @@ class RLFinetune(Job):
         self.seed = seed
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
+        if self.teacher_grade_questions:  # the graded teacher pass (launcher.teacher_grade_pass)
+            self.out_teacher_grades = self.out_rundir.join_right("teacher_grades.jsonl")
         if segment_source in ("knowledge", "multitask"):
             self.out_knowledge_manifest = self.output_path("knowledge_manifest.json")
         if segment_source in ("selfplay", "multitask"):
