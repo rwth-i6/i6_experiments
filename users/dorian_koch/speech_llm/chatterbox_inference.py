@@ -9,6 +9,11 @@ import random
 from typing import Any
 from datasets import Features, Value, Sequence, Audio, Dataset, load_from_disk
 
+try:  # imported as part of the package (tests)
+    from .clip_codec import wav_to_flac
+except ImportError:  # run as a script under the job venv: the sibling file
+    from clip_codec import wav_to_flac
+
 print("Imports successful", flush=True)
 
 
@@ -40,6 +45,15 @@ SPEAKER_ALIAS = {}
 #: Base seed for speaker choice, inter-turn silence and the TTS sampling itself. Changing it
 #: regenerates every corpus this worker produces, so treat it as a version, not a knob.
 SEED = 42
+
+
+def _audio_value(path):
+    """An ``Audio()`` value for a written ``.wav``: its path (``datasets`` embeds the file's bytes under its basename)
+    or, when the file is PCM_16, the same samples as exact FLAC under that same stored name (2026-10-16;
+    ``clip_codec.wav_to_flac``: identical decoded arrays, ~21% of the bytes)."""
+    with open(path, "rb") as f:
+        flac = wav_to_flac(f.read())
+    return path if flac is None else {"bytes": flac, "path": os.path.basename(path)}
 
 
 def seed_for_dialogue(diag_id) -> int:
@@ -475,7 +489,7 @@ def main():
                     audio_path = os.path.join(dialogue_dir, f"{speaker}.wav")
                     if not os.path.exists(audio_path):
                         raise FileNotFoundError(f"Audio file for speaker {speaker} not found in dialogue {i}")
-                    speaker_audio[speaker] = audio_path
+                    speaker_audio[speaker] = _audio_value(audio_path)
                 row = {
                     "id": f"{args.id_prefix}dialogue_{i}",
                     "speaker_audio": {

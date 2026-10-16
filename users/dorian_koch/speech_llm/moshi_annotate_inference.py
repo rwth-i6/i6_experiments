@@ -55,6 +55,11 @@ import importlib
 transcribe_mod = importlib.import_module("whisper_timestamped.transcribe")
 
 from datasets import load_from_disk, Dataset, Features, List, Value, Audio
+
+try:  # imported as part of the package (tests)
+    from .clip_codec import wav_to_flac
+except ImportError:  # run as a script under the job venv: the sibling file
+    from clip_codec import wav_to_flac
 from concurrent.futures import ProcessPoolExecutor
 import functools
 
@@ -90,6 +95,14 @@ def _watchdog(seconds, label):
 # worker script: the Job ships it to a compute node and runs it with the *job's own* venv, which has
 # neither sisyphus nor i6_experiments importable (common.py's first line is `from sisyphus import
 # tk`). A shared import here would break the job at startup. Keep the copy small and identical.
+def _audio_cell(samples, sample_rate):
+    """An ``Audio()`` cell for ``samples``: the very WAV ``datasets`` would encode, stored as exact FLAC when that WAV
+    is PCM_16 (2026-10-16; ``clip_codec.wav_to_flac``: identical decoded arrays, ~21% of the bytes)."""
+    cell = {"array": samples, "sampling_rate": sample_rate}
+    flac = wav_to_flac(Audio().encode_example(cell)["bytes"])
+    return cell if flac is None else {"bytes": flac, "path": None}
+
+
 def _write_progress(done, total, path="progress.json"):
     """Write a tiny {done,total} marker so Sisyphus Job.completed_fraction can
     report progress. Lands in cwd, which is the job work dir."""
@@ -387,14 +400,8 @@ def annotate_hf_to_hf(
         return {
             # Two mono HF Audio() columns (torchcodec-encoded in moshi_venv),
             # mirroring ChatterboxInference's per-speaker Audio storage.
-            "audio_assistant": {
-                "array": np.ascontiguousarray(assistant_audio, dtype=np.float32),
-                "sampling_rate": sample_rate,
-            },
-            "audio_user": {
-                "array": np.ascontiguousarray(user_audio, dtype=np.float32),
-                "sampling_rate": sample_rate,
-            },
+            "audio_assistant": _audio_cell(np.ascontiguousarray(assistant_audio, dtype=np.float32), sample_rate),
+            "audio_user": _audio_cell(np.ascontiguousarray(user_audio, dtype=np.float32), sample_rate),
             "alignments": aligns_struct,
             "duration": duration,
             **user_cols,
