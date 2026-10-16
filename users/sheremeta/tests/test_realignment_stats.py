@@ -121,3 +121,15 @@ def test_a_key_of_the_forward_dataset_is_written_per_sequence(tmp_path: pathlib.
     written.init_seq_order(epoch=1)
     written.load_seqs(0, 2)
     assert [written.get_data(i, "data").tolist() for i in range(2)] == [[4, 1, 4], [2, 4]]
+
+
+def test_datasets_that_differ_only_in_the_prolog_appended_after_the_config_get_jobs_of_their_own():
+    dataset = {"class": "StaticDataset", "data": CodeWrapper("_seqs"), "output_dim": {"codes": [5, 1]}}
+    ids = set()
+    for codes in ("[4, 1, 4]", "[2, 4]"):
+        # the way a recipe attaches a split, its prolog appended to a config whose prolog hash is already set
+        config = ReturnnConfig(config={"forward_data": dataset}, python_prolog="import numpy\n")
+        config.python_prolog = [config.python_prolog, f"_seqs = [{{'codes': numpy.array({codes}, 'int32')}}]\n"]
+        job = ReturnnConfigDatasetToHdfJob(returnn_config=config, data_key="codes", returnn_root=tk.Path(_RETURNN_ROOT))
+        ids.add(job._sis_id())
+    assert len(ids) == 2

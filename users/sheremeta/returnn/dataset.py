@@ -22,6 +22,11 @@ class ReturnnConfigDatasetToHdfJob(Job):
         self.dataset_key = dataset_key
         self.out_hdf = self.output_path("data.hdf")
 
+    @classmethod
+    def hash(cls, parsed_args):
+        # the dataset is defined in the prolog, all of which is hashed, also the part added after the config was built
+        return super().hash({**parsed_args, "python_prolog": parsed_args["returnn_config"].python_prolog})
+
     def tasks(self):
         yield Task("run", rqmt={"cpu": 2, "mem": 8, "time": 2})
 
