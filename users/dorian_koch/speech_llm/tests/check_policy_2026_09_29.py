@@ -114,6 +114,8 @@ AT_N_ARMS = {
     "ab2_usertext_plus_knowledge_rows_weight0p2_ctc_within_turns",
     # 2026-10-13: knowledge-row user-text targets at the original weight 0.05 (attributes kn_w02's two changes)
     "ab2_usertext_plus_knowledge_rows_weight0p05",
+    # 2026-10-16: the CTC head after layer 16 (user: "just do ctc after layer 16 to test")
+    "ab2_usertext_plus_knowledge_rows_weight0p2_ctc_within_turns_head_after_layer16",
 }
 check(at_n == sorted({BASE_N} | AT_N_ARMS), f"the arms at 09-29 = ab2_base_0929 + {sorted(AT_N_ARMS)} ({at_n})")
 check(
