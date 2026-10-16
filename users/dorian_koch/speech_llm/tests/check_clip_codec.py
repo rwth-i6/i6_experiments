@@ -25,6 +25,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.getcwd(), "recipe"))
+sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "sisyphus"))  # merge_clip_datasets(link=True) -> jobs.hf
 sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex"))
 
 import datasets  # noqa: E402
@@ -32,7 +33,12 @@ import numpy as np  # noqa: E402
 from datasets import Dataset, Features, Sequence, Value, load_from_disk  # noqa: E402
 
 from i6_experiments.users.dorian_koch.speech_llm import clip_codec  # noqa: E402
-from i6_experiments.users.dorian_koch.speech_llm.clip_store import materialise_clips, open_clips, write_clips  # noqa: E402
+from i6_experiments.users.dorian_koch.speech_llm.clip_store import (  # noqa: E402
+    materialise_clips,
+    merge_clip_datasets,
+    open_clips,
+    write_clips,
+)
 
 datasets.disable_progress_bars()
 D = os.path.join(os.getcwd(), "recipe/i6_experiments/users/dorian_koch/speech_llm")
@@ -59,6 +65,19 @@ def _clips():
         clips[i] = (q / 32768.0).astype(np.float32)
     clips[9] = rng.uniform(-0.5, 0.5, SR // 3).astype(np.float32)  # not int16-valued: must stay float
     return clips
+
+
+def _old_store(path, clips):
+    """What ``write_clips`` wrote before 2026-10-16: float rows only, column types inferred."""
+    Dataset.from_dict(
+        {
+            "index": list(clips),
+            "audio": list(clips.values()),
+            "sampling_rate": [SR] * len(clips),
+            "monologue": [None] * len(clips),
+            "trace_json": [None] * len(clips),
+        }
+    ).save_to_disk(path)
 
 
 def _store(path, clips, *, flac_only):
@@ -140,7 +159,7 @@ def main():
         assert clip_codec.encode_exact(bad, SR) is None, bad
     with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR", "/tmp")) as tmp:
         old = os.path.join(tmp, "old")
-        write_clips(old, [(i, x, SR) for i, x in clips.items()])
+        _old_store(old, clips)
         # references: what the readers produce from the old float layout
         materialise_clips(old, os.path.join(tmp, "ref_wav"))
         from moshi_family.offline_cli import _materialise_arrow_clips
@@ -152,8 +171,30 @@ def main():
         _check_readers(tmp, "old", old, clips)
         _check_readers(tmp, "flac_only", flac_only, {i: clips[i] for i in kept})
         _check_readers(tmp, "hybrid", hybrid, clips)
+        # the writer (FLAC step 2): int16-valued clips as FLAC, the rest as floats, one declared schema
+        new = os.path.join(tmp, "write_clips")
+        write_clips(new, [(i, x, SR) for i, x in clips.items()])
+        ds = load_from_disk(new)
+        flac_rows = {int(r["index"]) for r in ds if r["audio_flac"] is not None}
+        assert flac_rows == {0, 3, 7}, f"write_clips stored {sorted(flac_rows)} as FLAC, want the int16 clips 0/3/7"
+        _check_readers(tmp, "write_clips", new, clips)
+        # shards with different content share one schema, so their merge links (no second copy) ...
+        sa, sb = os.path.join(tmp, "shard_a"), os.path.join(tmp, "shard_b")
+        write_clips(sa, [(0, clips[0], SR)])
+        write_clips(sb, [(9, clips[9], SR)], monologues={9: "hm"})
+        assert load_from_disk(sa).features == load_from_disk(sb).features, "shard schemas differ: the merge would copy"
+        lm = os.path.join(tmp, "link_merge")
+        merge_clip_datasets(lm, [sa, sb], link=True)
+        assert all(os.path.islink(os.path.join(lm, f)) for f in os.listdir(lm) if f.endswith(".arrow")), "merge copied"
+        _check_readers(tmp, "link_merge", lm, {0: clips[0], 9: clips[9]})
+        # ... and an old float shard still merges with a new one (copied: the schemas differ)
+        so = os.path.join(tmp, "shard_old")
+        _old_store(so, {3: clips[3], 7: clips[7]})
+        mm = os.path.join(tmp, "mixed_merge")
+        merge_clip_datasets(mm, [sa, so, sb], link=True)
+        _check_readers(tmp, "mixed_merge", mm, {i: clips[i] for i in (0, 3, 7, 9)})
     print(
-        "check_clip_codec: OK (copies identical; float, FLAC-only and hybrid layouts decode identically in 5 readers)"
+        "check_clip_codec: OK (copies identical; float, FLAC-only, hybrid, write_clips and merged stores decode identically in 5 readers)"
     )
 
 

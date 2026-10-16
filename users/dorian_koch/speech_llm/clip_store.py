@@ -42,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .clip_codec import decode_row
+from .clip_codec import COL_AUDIO_FLAC, decode_row, encode_exact
 
 #: Column names in the arrow layout. ``audio`` holds the raw samples; keeping the sample rate
 #: per-row (rather than as dataset metadata) means a mixed-rate merge is representable instead of
@@ -56,6 +56,29 @@ COL_SR = "sampling_rate"
 #: in the arrow layout rather than an afterthought.
 COL_MONOLOGUE = "monologue"
 COL_TRACE = "trace_json"
+
+
+def clip_features():
+    """The declared schema of a store ``write_clips`` writes (2026-10-16, FLAC step 2).
+
+    A row holds its samples as ``audio`` floats or, when that is exact, as ``audio_flac`` (``clip_codec``), the other
+    column null. Every column is declared because inferred types depend on content (an all-None ``monologue`` infers
+    ``null``, a store with no float row would type ``audio`` ``null``): with them declared, every shard of a sharded
+    job has the same arrow schema and its merge links instead of copying (``jobs.hf.save_linked``).
+    """
+    from datasets import Features, List, Value
+
+    return Features(
+        {
+            COL_INDEX: Value("int64"),
+            COL_AUDIO: List(Value("float32")),
+            COL_AUDIO_FLAC: Value("binary"),
+            COL_SR: Value("int64"),
+            COL_MONOLOGUE: Value("string"),
+            COL_TRACE: Value("string"),
+        }
+    )
+
 
 _WAV_RE = re.compile(r"^(\d+)\.wav$")
 
@@ -126,7 +149,9 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     def _empty():
-        return {COL_INDEX: [], COL_AUDIO: [], COL_SR: [], COL_MONOLOGUE: [], COL_TRACE: []}
+        return {COL_INDEX: [], COL_AUDIO: [], COL_AUDIO_FLAC: [], COL_SR: [], COL_MONOLOGUE: [], COL_TRACE: []}
+
+    features = clip_features()
 
     # Staging honours $TMPDIR, which SLURM points at node-local NVMe -- so the parts never land on
     # the volume we are writing into. See CLAUDE.md: a tool must stage OFF the volume it is filling.
@@ -140,7 +165,7 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
             if not rows[COL_INDEX]:
                 return
             part = os.path.join(tmpdir, f"part{len(parts):05d}")
-            Dataset.from_dict(rows).save_to_disk(part)
+            Dataset.from_dict(rows, features=features).save_to_disk(part)
             parts.append(part)
             rows, used = _empty(), 0
 
@@ -167,7 +192,11 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
                 flush()
             used += arr.size
             rows[COL_INDEX].append(index)
-            rows[COL_AUDIO].append(arr)
+            # FLAC only where it is lossless (int16-valued samples: every Moshi-family reply), else the floats as
+            # before; readers decode both to the identical float32 array (clip_codec, check_clip_codec.py).
+            flac = encode_exact(arr, sr)
+            rows[COL_AUDIO].append(None if flac is not None else arr)
+            rows[COL_AUDIO_FLAC].append(flac)
             rows[COL_SR].append(int(sr))
             rows[COL_MONOLOGUE].append(monologues.get(index))
             rows[COL_TRACE].append(traces.get(index))
@@ -175,7 +204,7 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
         if not parts:
             # Everything fit in one chunk (the common case, and every empty write): straight out,
             # no staging round trip.
-            Dataset.from_dict(rows).save_to_disk(out_path)
+            Dataset.from_dict(rows, features=features).save_to_disk(out_path)
             return
         flush()
 
@@ -304,6 +333,16 @@ def materialise_clips(src, out_dir) -> None:
                 (out_dir / f"{i}.txt").write_text(str(mono))
 
 
+def _as_declared(ds):
+    """A store written before 2026-10-16 (``audio`` floats only, inferred types) in ``clip_features`` form, so it
+    concatenates with newer shards: ``audio_flac`` all null, absent sidecars null. Same rows and decoded samples."""
+    feats = clip_features()
+    for col in feats:
+        if col not in ds.column_names:
+            ds = ds.add_column(col, [None] * len(ds))
+    return ds.select_columns(list(feats)).cast(feats)
+
+
 def merge_clip_datasets(out_path, in_paths, *, link: bool = False) -> None:
     """Concatenate sharded arrow clip stores into one.
 
@@ -331,6 +370,8 @@ def merge_clip_datasets(out_path, in_paths, *, link: bool = False) -> None:
                 pass
         parts.append(load_from_disk(str(p)))
     parts = [p for p in parts if len(p) > 0]
+    if any(COL_AUDIO_FLAC in p.column_names for p in parts):
+        parts = [p if COL_AUDIO_FLAC in p.column_names else _as_declared(p) for p in parts]
     if not parts:
         raise ValueError(
             f"every shard is empty, so there is nothing to merge: {list(in_paths)}. The producing "
