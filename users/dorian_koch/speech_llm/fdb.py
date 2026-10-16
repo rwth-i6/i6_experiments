@@ -381,6 +381,7 @@ def moshified_fdb_eval(
         # Intra-GPU batch (offline lib drivers; PersonaPlex's _run_pairs_batched): B clips per forward. Part of
         # the hashed args (the per-row random draws differ from B=1); None = the serial B=1 path, no hash change.
         + (("--batch_size", str(int(batch_size))) if (backend.server is None and batch_size) else ()),
+        extra_inputs=backend.extra_inputs if backend.server is None else (),
         # RAG retrieval (MoshiRAG) only applies to the offline/server-less path.
         retrieval_llm=backend.retrieval_llm if backend.server is None else None,
         lora_weights=lora_weights,

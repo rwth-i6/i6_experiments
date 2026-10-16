@@ -8,9 +8,12 @@ deleted ``RLFinetune.FESvleKrAwPk``'s checkpoint_1400 because ``ResolveOverlayCh
 run dir by raw path (``track_rl.py`` salvage); its 17 finished evals can no longer be re-run. User: "This should never
 happen ... make sure this doesnt become a pattern".
 
-Checks every graph job's inputs (creator-less path into a job dir under work/) and attributes (any string naming a
-job dir under work/). ``KNOWN`` lists the sites that existed when the guard was written, each to be converted;
-anything else fails. ``--strict`` ignores ``KNOWN`` (shows the guard can fail; lists the debt).
+Checks every graph job's inputs (creator-less path into a job dir under work/) and attributes (a string naming a job
+dir under work/ is allowed ONLY if that job is also a recorded input of the reader, e.g. ``SpeechInference``'s
+``offline_extra_args`` string plus the same output in ``extra_inputs``: the hash keeps the string, the dependency is
+real). ``KNOWN`` lists deliberate exceptions; anything else fails. ``--strict`` ignores ``KNOWN``.
+2026-10-16: the four sites found at creation (TEXT_PROBE_QUESTIONS, VOICE_WAVS_JOB['know'], two --voice_prompt_dir
+dirs) were converted the same day, 0 hashes moved.
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_no_raw_job_paths.py
@@ -32,10 +35,6 @@ from sisyphus.loader import config_manager  # noqa: E402
 JOB_DIR = re.compile(r"(?:^|/)work/(?:.+?/)?([A-Za-z0-9_]+\.[A-Za-z0-9_-]{12})(?:/|$)")
 #: target job (Class.hash) -> where the raw path is built. Convert these; never add to this list.
 KNOWN = {
-    "WhisperTranscription.0PVfJQhs735o": "track_persona_depth.py TEXT_PROBE_QUESTIONS (tk.Path + --question_context)",
-    "AggregateFoldersJob.2XetebWr32eR": "track_persona_voice.py VOICE_WAVS_JOB['know']",
-    "PersonaPlexVoiceEmbeddings.VctSI5odjmlk": "track_persona_voice.py emb_dir -> speech_backends --voice_prompt_dir",
-    "PersonaPlexVoiceEmbeddings.ybVCyz9vm6dB": "track_persona_voice.py emb_dir -> speech_backends --voice_prompt_dir",
     "CreateVenv.vllm_venv_v030": "common.py _VLLM_VENV_JOB (deliberate: hash_overwrite-fixed id, documented)",
 }
 
@@ -60,6 +59,7 @@ def main():
     found = {}
     for j in tk.sis_graph.jobs():
         reader = f"{type(j).__name__}.{os.path.basename(j._sis_path()).split('.')[-1]}"
+        deps = {os.path.basename(p.creator._sis_path()) for p in j._sis_inputs if p.creator is not None}
         for p in j._sis_inputs:
             if p.creator is None:
                 m = JOB_DIR.search(str(p))
@@ -70,7 +70,7 @@ def main():
                 continue
             for s in strings(v):
                 m = JOB_DIR.search(s)
-                if m:
+                if m and m.group(1) not in deps:  # named as a string AND not a recorded dependency
                     found.setdefault(m.group(1), set()).add(f"{reader}.{k}")
     bad = {t: r for t, r in found.items() if strict or t not in KNOWN}
     for t, r in sorted(found.items()):
@@ -78,7 +78,7 @@ def main():
         print(f"{tag:5s} {t}  read by {len(r)}: {sorted(r)[:3]}  ({KNOWN.get(t, 'NEW raw path')})")
     if bad:
         raise SystemExit(f"check_no_raw_job_paths: {len(bad)} job dir(s) reached by raw path (pass the job's output)")
-    print(f"check_no_raw_job_paths: OK ({len(found)} known raw-path site(s) left to convert, no new ones)")
+    print(f"check_no_raw_job_paths: OK ({len(found)} deliberate exception(s), no raw-path reader)")
 
 
 if __name__ == "__main__":

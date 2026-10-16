@@ -476,6 +476,11 @@ def sharded_knowledge_inference(*, num_shards: int, rqmt_override: dict | None =
     return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
 
 
+#: ``"<bench prefix>/<tag>"`` -> the tag's ``WhisperTranscription`` job, filled as ``knowledge_benchmark_py`` declares
+#: it, so a later reader takes the job's OUTPUT instead of a raw path into its work dir (check_no_raw_job_paths).
+KNOWLEDGE_TRANSCRIPTIONS: dict = {}
+
+
 class WhisperTranscription(Job):
     """Transcribe Moshi response audio using Whisper."""
 
@@ -1160,6 +1165,7 @@ def knowledge_benchmark_py(
         else None,
         offline_module=speech_backend.offline_module,
         offline_extra_args=speech_backend.offline_extra_args,
+        extra_inputs=speech_backend.extra_inputs,
         server=speech_backend.server,
         file_client=speech_backend.file_client,
         ws_url=speech_backend.ws_url,
@@ -1197,6 +1203,7 @@ def knowledge_benchmark_py(
         model_size=whisper_model,
     )
     tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
+    KNOWLEDGE_TRANSCRIPTIONS[f"{_bench}/{tag}"] = transcription
 
     # 7. LLM grading
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)

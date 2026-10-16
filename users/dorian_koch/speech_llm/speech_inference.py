@@ -340,6 +340,12 @@ class SpeechInference(BackendInferenceMixin, Job):
     #: The only driver that implements ``--text_logits_out``.
     TEXT_LOGITS_MODULE = "moshi_family.personaplex.offline_inference"
 
+    @classmethod
+    def hash(cls, parsed_args):
+        # ``extra_inputs`` only records dependencies (paths the offline args name as strings); it never changes what
+        # the job computes, so it never enters the hash: converting a raw path into one moves no existing job.
+        return super().hash({k: v for k, v in parsed_args.items() if k != "extra_inputs"})
+
     def __init__(
         self,
         *,
@@ -352,6 +358,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         offline_script: str | None = None,
         offline_module: str | None = None,
         offline_extra_args: tuple = (),
+        extra_inputs: tuple = (),
         cloud_api: bool = False,
         retrieval_llm: str | None = None,
         lora_weights: tk.Path | None = None,
@@ -387,6 +394,10 @@ class SpeechInference(BackendInferenceMixin, Job):
         self.offline_script = offline_script
         self.offline_module = offline_module
         self.offline_extra_args = tuple(offline_extra_args)
+        # Job outputs that ``offline_extra_args`` names as path strings (``--voice_prompt_dir``, ``--question_context``):
+        # held here so Sisyphus records the dependency (the reader waits, and cleanup sees it). Not hashed (``hash``).
+        # Never pass another job's file as a bare string without listing its output here (check_no_raw_job_paths).
+        self.extra_inputs = tuple(extra_inputs)
         # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task.
         self.cloud_api = cloud_api
         # RAG retrieval LLM served (vllm_server) as the offline driver's retrieval backend (MoshiRAG).

@@ -62,6 +62,9 @@ class BackendSpec:
     offline_module: str | None = None
     # Extra CLI args appended to the offline driver (e.g. ``("--voice", "NATM1")``).
     offline_extra_args: tuple[str, ...] = ()
+    # Job outputs (``tk.Path``) that ``offline_extra_args`` names as strings; forwarded to
+    # ``SpeechInference(extra_inputs=)`` so the dependency is recorded. Never hashed.
+    extra_inputs: tuple = ()
     # Lazy ``() -> tk.Path`` for the interpreter the offline driver runs under; ``None``
     # => the knowledge pipeline falls back to ``moshi_venv()``. (FDB passes its own.)
     inference_venv: Callable | None = None
@@ -263,6 +266,7 @@ def personaplex_family_backend_spec(
     temp_text: float | None = None,
     voice: str | None = None,
     voice_prompt_dir: str | None = None,
+    extra_inputs: tuple = (),
 ) -> BackendSpec:
     """PersonaPlex via the local ``moshi_family.personaplex`` sub-package (latest torch, owned code).
 
@@ -300,6 +304,7 @@ def personaplex_family_backend_spec(
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.personaplex.offline_inference",
         offline_extra_args=extra,
+        extra_inputs=tuple(extra_inputs),
         inference_venv=_venv,
         # rqmt is not hashed. 16 GB (the SpeechInference default) is below what io_prefetch needs to read the
         # 16.7 GB checkpoint into the page cache, so every PersonaPlex FDB job page-faulted it in instead: 18-895 s
