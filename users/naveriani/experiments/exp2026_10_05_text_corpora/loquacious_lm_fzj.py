@@ -56,10 +56,13 @@ def py():
     dolma.add_alias(f"{prefix}/data/dolma/v1_7")
     tk.register_output(f"{prefix}/data/dolma/v1_7/stats.json", dolma.out_stats)
 
-    # 24L LMs with the Loquacious vocab, 5 full epochs each, with rescoring + first pass on Albert's base AM:
-    # on the Loquacious transcripts only (236M words), the reference for the external-text LMs
+    # 24L LMs with the Loquacious vocab, 5 full epochs each, with rescoring + first pass on Albert's base AM.
+    # The 4 ranks do not shard the data, each sees a full subepoch: nEp = single-GPU subepochs / 4 (epEq).
+    # On the Loquacious transcripts only (236M words), the reference for the external-text LMs
     loq_text = get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=10, train_seq_ordering="random")
-    lm = train_lm(f"{prefix}/lm/trafo-n24-d1024-nFullEp5-nEp50-spm10k-ddp4-packed20k-graphc", loq_text, "text", 50)
+    lm = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-nFullEp5-50epEq-nEp13-spm10k-ddp4-packed20k-graphc", loq_text, "text", 13
+    )
     std_lm_recogs(f"{prefix}/recog/base/lm-n24", lm.get_last_fixed_epoch())
     # and on the LibriSpeech LM corpus (803M words of books); its seq-len stats jobs are not needed here
     with disable_register_output():
@@ -67,7 +70,7 @@ def py():
             vocab=get_vocab_by_str("spm10k"), train_epoch_split=20, train_sort_order="random"
         )
     lm_ls = train_lm(
-        f"{prefix}/lm/trafo-n24-d1024-lsLm-nFullEp5-nEp100-spm10k-ddp4-packed20k-graphc", ls_text, "data", 100
+        f"{prefix}/lm/trafo-n24-d1024-lsLm-nFullEp5-100epEq-nEp25-spm10k-ddp4-packed20k-graphc", ls_text, "data", 25
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-ls-n24", lm_ls.get_last_fixed_epoch())
     # and on random Dolma files (weighted by size) with 10x the transcript words, normalised like the transcripts
@@ -77,10 +80,10 @@ def py():
     norm.add_alias(f"{prefix}/data/dolma-random-10x/normalize")
     tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
     lm_dolma = train_lm(
-        f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-nEp300-spm10k-ddp4-packed20k-graphc",
+        f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
         _lm_text(norm.out_texts, split=60),
         "data",
-        300,
+        75,
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
 
