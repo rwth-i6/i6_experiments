@@ -2,8 +2,10 @@ from sisyphus import tk
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.tensor import Dim, batch_dim
+from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
 
-from i6_experiments.users.naveriani.jobs.datasets import DownloadUrlsJob
+from i6_experiments.users.naveriani.jobs.datasets import DownloadUrlsJob, NormalizeTextJob, RandomFileSubsetJob
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_text_only_dataset,
@@ -68,6 +70,53 @@ def py():
         f"{prefix}/lm/trafo-n24-d1024-lsLm-nFullEp5-nEp100-spm10k-ddp4-packed20k-graphc", ls_text, "data", 100
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-ls-n24", lm_ls.get_last_fixed_epoch())
+    # and on random Dolma files (weighted by size) with 10x the transcript words, normalised like the transcripts
+    subset = RandomFileSubsetJob(dolma.out_dir, num_words=10 * 235_900_000)
+    subset.add_alias(f"{prefix}/data/dolma-random-10x/files")
+    norm = NormalizeTextJob(dolma.out_dir, subset.out_files)
+    norm.add_alias(f"{prefix}/data/dolma-random-10x/normalize")
+    tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
+    lm_dolma = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-nEp300-spm10k-ddp4-packed20k-graphc",
+        _lm_text(norm.out_texts, split=60),
+        "data",
+        300,
+    )
+    std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
+
+
+def _lm_text(texts, split):
+    # LmDataset over normalised text files with the Loquacious vocab, dev = the Loquacious dev transcripts
+    vocab = get_vocab_by_str("spm10k")
+    loq_dev = get_loquacious_text_only_dataset(vocab="spm10k").get_eval_datasets()["dev"]
+    return DatasetConfigStatic(
+        extern_data={
+            "data": {
+                "dim_tags": [batch_dim, Dim(None, name="out-spatial")],
+                "sparse_dim": Dim(vocab.get_num_classes(), name="vocab"),
+                "vocab": vocab.get_opts(),
+            }
+        },
+        default_input="data",
+        default_target="data",
+        train_dataset={
+            "class": "LmDataset",
+            "corpus_file": texts,
+            "orth_vocab": vocab.get_opts(),
+            "seq_end_symbol": None,
+            "unknown_symbol": None,
+            "partition_epoch": split,
+            "seq_ordering": "random",
+        },
+        eval_datasets={
+            "dev": {
+                "class": "MetaDataset",
+                "datasets": {"loq": loq_dev},
+                "data_map": {"data": ("loq", "text")},
+                "seq_order_control_dataset": "loq",
+            }
+        },
+    )
 
 
 def train_lm(name, ds, key, n_ep, num_layers=24, batch=20_000, max_seqs=800):
