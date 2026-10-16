@@ -10,7 +10,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
 from sisyphus import tk
 
-from i6_experiments.users.sheremeta.alignment.jobs import TokenFrameOffsetJob, WordPackingJob
+from i6_experiments.users.sheremeta.alignment.jobs import DelayedPathToCtcPathJob, TokenFrameOffsetJob, WordPackingJob
 from i6_experiments.users.sheremeta.returnn.dataset import ReturnnConfigDatasetToHdfJob
 from i6_experiments.users.sheremeta.tests.test_ctc_word_boundaries import _train_spm
 
@@ -78,6 +78,27 @@ def test_packing_counts_the_pad_frames_inside_and_between_words(tmp_path: pathli
     assert summary["share_packed"] == 0.5
     assert summary["inner_gap_histogram"] == {"0": len(first) - 1 + len(second) - 2, "1": 1}
     assert summary["between_gap_histogram"] == {"2": 1}
+
+
+def test_a_realignment_is_stored_on_the_frames_of_the_audio_with_the_moved_tokens_counted(tmp_path: pathlib.Path):
+    pad, blank, delay = 3, 9, 2
+    # three audio frames after the delay and the frame past them, one token on the last frame of the pad
+    paths = _write_paths(tmp_path / "paths.hdf", {"seq-0": [3, 3, 5, 5, 3, 3], "seq-1": [3, 3, 3, 4, 3, 6]}, blank)
+
+    job = DelayedPathToCtcPathJob(
+        path_hdf=paths, pad_id=pad, blank=blank, delay_frames=delay, returnn_root=tk.Path(_RETURNN_ROOT)
+    )
+    job.out_hdf = tk.Path(str(tmp_path / "alignment.hdf"))
+    job.out_summary = tk.Path(str(tmp_path / "summary.json"))
+    job.run()
+
+    stored = HDFDataset([str(tmp_path / "alignment.hdf")])
+    stored.initialize()
+    stored.init_seq_order(epoch=1)
+    stored.load_seqs(0, 2)
+    by_tag = {stored.get_tag(i): stored.get_data(i, "data").tolist() for i in range(2)}
+    assert by_tag == {"seq-0": [5, 5, 9], "seq-1": [9, 4, 6]}
+    assert json.loads((tmp_path / "summary.json").read_text()) == {"n_seqs": 2, "n_tokens": 4, "n_moved": 1}
 
 
 def test_a_key_of_the_forward_dataset_is_written_per_sequence(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):

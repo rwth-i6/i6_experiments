@@ -958,3 +958,55 @@ class WordPackingJob(Job):
         ]
         with open(self.out_report.get_path(), "w") as f:
             f.write("\n".join(lines) + "\n")
+
+
+# a path on the delayed frames as a stored alignment on the frames of the audio
+class DelayedPathToCtcPathJob(Job):
+    """Stores the paths of a delayed text stream on the frames of the audio, in the format of a CTC alignment HDF."""
+
+    __sis_version__ = 1
+
+    def __init__(self, *, path_hdf: tk.Path, pad_id: int, blank: int, delay_frames: int, returnn_root: tk.Path):
+        """
+        :param path_hdf: per sequence the token or the pad of every frame, ``delay_frames + 1`` frames longer than the
+            audio
+        :param pad_id: the code of a frame without a token in the paths
+        :param blank: the code of a frame without a token in the stored alignment, the vocabulary size
+        :param delay_frames: frames the paths lag the audio
+        :param returnn_root: the RETURNN checkout that reads and writes the HDFs
+        """
+        super().__init__()
+        self.path_hdf = path_hdf
+        self.pad_id = int(pad_id)
+        self.blank = int(blank)
+        self.delay_frames = int(delay_frames)
+        self.returnn_root = returnn_root
+        self.out_hdf = self.output_path("alignment.hdf")
+        self.out_summary = self.output_path("summary.json")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 2})
+
+    def run(self):
+        import sys
+
+        sys.path.insert(0, self.returnn_root.get_path())
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        from i6_experiments.users.sheremeta.alignment.onsets import delayed_path_to_ctc_path
+
+        # every sequence moved back by the delay, the tokens that left their own frame counted
+        writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=self.blank + 1, ndim=1)
+        num_seqs = num_tokens = num_moved = 0
+        for tag, path in _read_paths(self.path_hdf.get_path()).items():
+            stored, moved = delayed_path_to_ctc_path(
+                path, pad_id=self.pad_id, blank=self.blank, delay_frames=self.delay_frames
+            )
+            writer.insert_batch(stored[None, :], seq_len={0: [stored.shape[0]]}, seq_tag=[tag])
+            num_seqs += 1
+            num_tokens += int((stored != self.blank).sum())
+            num_moved += moved
+        writer.close()
+
+        with open(self.out_summary.get_path(), "w") as f:
+            json.dump({"n_seqs": num_seqs, "n_tokens": num_tokens, "n_moved": num_moved}, f, indent=1)
