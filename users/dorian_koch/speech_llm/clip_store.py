@@ -302,8 +302,12 @@ def materialise_clips(src, out_dir) -> None:
                 (out_dir / f"{i}.txt").write_text(str(mono))
 
 
-def merge_clip_datasets(out_path, in_paths) -> None:
+def merge_clip_datasets(out_path, in_paths, *, link: bool = False) -> None:
     """Concatenate sharded arrow clip stores into one.
+
+    ``link=True`` (``MergeMoshiOutputsViaSymlinks``, 2026-10-16): write the merge as links to the shards' arrow files
+    (``jobs.hf.save_linked``: the same dataset, no second copy) whenever that is exact; else the copy below. Only for
+    shards that are other jobs' outputs -- never for a job's own temp parts (the GPU fan-out merge keeps copying).
 
     This is what replaces ``MergeMoshiOutputsViaSymlinks`` under ``storage="hf"``: the symlink merge
     spends one inode per clip *again*, doubling the cost of every sharded run, whereas concatenating
@@ -335,6 +339,11 @@ def merge_clip_datasets(out_path, in_paths) -> None:
     seen = merged[COL_INDEX]
     if len(set(seen)) != len(seen):
         raise ValueError("shards overlap: the same clip index appears in more than one shard")
+    if link:
+        from i6_experiments.users.dorian_koch.jobs.hf import save_linked
+
+        if save_linked(merged, parts, str(out_path)):
+            return
     merged.save_to_disk(str(out_path))
 
 

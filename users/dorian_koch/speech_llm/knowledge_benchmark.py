@@ -438,7 +438,8 @@ class MergeMoshiOutputsViaSymlinks(Job):
         # Concatenation costs a handful of files no matter how many shards.
         srcs = [d.get() for d in self.in_dirs]
         if srcs and is_clip_dataset(srcs[0]):
-            merge_clip_datasets(out, srcs)
+            # zero-copy: links to the shard jobs' arrow files (the same dataset; 2026-10-16, check_zero_copy_merge)
+            merge_clip_datasets(out, srcs, link=True)
             return
         os.makedirs(out, exist_ok=True)
         for in_dir in self.in_dirs:
