@@ -105,7 +105,7 @@ at_n = sorted(t for t, p in tp.PPX_POLICY.items() if p == N)
 AT_N_ARMS = {
     "ab2_knowonly_3p",
     "ab2_know_known",
-    "ab2_usertext",
+    "ab2_base_0929_plus_user_text_head_ce_weight0p05",  # ab2_usertext, renamed 2026-10-13 (8b863c3d)
     # 2026-10-13: the user-text head on the knowledge rows (+ its mid-layer variant) and the constant-LR baseline ablation
     "ab2_usertext_plus_knowledge_rows_weight0p2",
     "ab2_usertext_plus_knowledge_rows_weight0p2_head_after_layer16",
