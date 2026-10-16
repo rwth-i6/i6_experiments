@@ -2,7 +2,9 @@
 
 A clip store row stores its mono samples either as ``audio`` (list<float32>, every store written before 2026-10-16)
 or as ``audio_flac`` (FLAC PCM_16 bytes). FLAC is used only when it is EXACT: ``encode_exact`` returns None unless
-every sample is an int16 value / 32768 and the FLAC decodes back bit for bit (then the writer keeps ``audio``).
+every sample is an int16 value / 32768 and the FLAC decodes back bit for bit (then the writer keeps ``audio``). A
+store may carry both columns, decided per row: a row's ``audio_flac`` is null when that row kept ``audio`` (and vice
+versa), since a streaming writer cannot know in advance whether every clip will be exact.
 So both layouts decode to identical float32 arrays and every reader stays exact (user: "new behaviour exactly matches
 old behaviour"; guard check_clip_codec.py). Both layouts are read forever.
 
@@ -20,17 +22,18 @@ COL_AUDIO_FLAC = "audio_flac"
 COL_SR = "sampling_rate"
 
 
-def audio_column(column_names) -> str:
-    """The audio column a clip store has: ``audio_flac`` if present, else ``audio``."""
-    return COL_AUDIO_FLAC if COL_AUDIO_FLAC in column_names else COL_AUDIO
+def audio_columns(column_names) -> list:
+    """The audio columns a clip store has (``audio`` and/or ``audio_flac``), for ``select_columns``."""
+    return [c for c in (COL_AUDIO, COL_AUDIO_FLAC) if c in column_names]
 
 
 def decode_row(row) -> np.ndarray:
     """A row's samples as float32 -- for ``audio`` exactly ``np.asarray(row["audio"], dtype=np.float32)``."""
-    if COL_AUDIO_FLAC in row:
+    flac = row.get(COL_AUDIO_FLAC)
+    if flac is not None:
         import soundfile as sf
 
-        x, _ = sf.read(io.BytesIO(bytes(row[COL_AUDIO_FLAC])), dtype="float32", always_2d=False)
+        x, _ = sf.read(io.BytesIO(bytes(flac)), dtype="float32", always_2d=False)
         return x
     return np.asarray(row[COL_AUDIO], dtype=np.float32)
 
