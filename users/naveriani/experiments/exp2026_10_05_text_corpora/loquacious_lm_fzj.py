@@ -7,12 +7,16 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
 
 from i6_experiments.users.naveriani.experiments.exp2026_10_05_text_corpora.loquacious_lm import (
     dolma,
+    dolma_pool,
     dolma_random,
     gutenberg,
+    normalize,
+    selectors,
 )
-from i6_experiments.users.naveriani.jobs.datasets import TrainFastTextJob
+from i6_experiments.users.naveriani.jobs.datasets import HfTextJob
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.datasets.loquacious import (
+    get_hf_random_sorted_subset,
     get_hf_text_only,
     get_loquacious_text_only_dataset,
     get_loquacious_train_subset_dataset_v2,
@@ -60,40 +64,52 @@ def py():
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-ls-n24", lm_ls.get_last_fixed_epoch())
     # and on random Dolma documents with 10x the transcript words, normalised like the transcripts (NeMo, on RZ in
-    # loquacious_lm.py). Enable once its job folder is copied back, else the normalisation starts on the login node
-    # norm = normalize(prefix, "dolma-random-10x", docs)
-    # tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
-    # lm_dolma = train_lm(
-    #     f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
-    #     _lm_text(norm.out_texts, split=60),
+    # loquacious_lm.py, job folder copied back). 2.49B words after normalisation, split 60 = ~41M words per subepoch
+    norm = normalize(prefix, "dolma-random-10x", docs)
+    tk.register_output(f"{prefix}/data/dolma-random-10x/stats.json", norm.out_stats)
+    lm_dolma = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-dolmaRandom10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+        _lm_text(norm.out_texts, split=60),
+        "data",
+        75,
+    )
+    std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
+    # and on all of Project Gutenberg (Dolma books, decontaminated, 3.48B words after normalisation, split 80 =
+    # ~44M words per subepoch), same protocol
+    norm_books = normalize(prefix, "gutenberg", books)
+    tk.register_output(f"{prefix}/data/gutenberg/stats.json", norm_books.out_stats)
+    lm_books = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-gutenberg-nFullEp5-400epEq-nEp100-spm10k-ddp4-packed20k-graphc",
+        _lm_text(norm_books.out_texts, split=80),
+        "data",
+        100,
+    )
+    std_lm_recogs(f"{prefix}/recog/base/lm-gutenberg-n24", lm_books.get_last_fixed_epoch())
+    # and on the fastText source selection from the pool, same words as the random set (scored, selected and
+    # normalised on RZ). Enable once the normalised folder is copied here, else the scoring starts on the login node
+    # sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
+    # norm_sel = normalize(prefix, "dolma-selected-10x", sel)
+    # lm_sel = train_lm(
+    #     f"{prefix}/lm/trafo-n24-d1024-dolmaSelected10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+    #     _lm_text(norm_sel.out_texts, split=60),
     #     "data",
     #     75,
     # )
-    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random10x-n24", lm_dolma.get_last_fixed_epoch())
-    # and on all of Project Gutenberg (Dolma books, ~3.5B words, split 80 = ~44M words per subepoch), same protocol
-    # norm_books = normalize(prefix, "gutenberg", books)
-    # tk.register_output(f"{prefix}/data/gutenberg/stats.json", norm_books.out_stats)
-    # lm_books = train_lm(
-    #     f"{prefix}/lm/trafo-n24-d1024-gutenberg-nFullEp5-400epEq-nEp100-spm10k-ddp4-packed20k-graphc",
-    #     _lm_text(norm_books.out_texts, split=80),
-    #     "data",
-    #     100,
-    # )
-    # std_lm_recogs(f"{prefix}/recog/base/lm-gutenberg-n24", lm_books.get_last_fixed_epoch())
+    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected10x-n24", lm_sel.get_last_fixed_epoch())
 
-    # source selectors: the transcripts of one Loquacious source vs random Dolma sentences (no books, no papers).
-    # LibriHeavy (book detector) probe 2026-10-16: valid AUC 0.981, mean P(book) LibriHeavy 0.94 vs 0.17-0.29 for the
-    # other sources; Dolma docs with mean P(book) > 0.8: ~1 % of web words, ~5B words in all of Dolma
-    for src in ["libriheavy", "yodas", "peoplesspeech", "commonvoice", "voxpopuli"]:
-        sel = TrainFastTextJob(get_hf_text_only(), dolma_.out_dir, subset.out_files, source=src)
-        sel.add_alias(f"{prefix}/data/fasttext/{src}")
+    for src, sel in selectors(prefix, dolma_, subset).items():
         tk.register_output(f"{prefix}/data/fasttext/{src}/stats.json", sel.out_stats)
+    # the pool to select from, scored and selected on RZ (loquacious_lm.py) after copying this folder there
+    _, pool_files = dolma_pool(prefix, dolma_)
+    tk.register_output(f"{prefix}/data/dolma-pool/files", pool_files.out_dir)
 
 
 def _lm_text(texts, split):
     # LmDataset over normalised text files with the Loquacious vocab, dev = the Loquacious dev transcripts
     vocab = get_vocab_by_str("spm10k")
-    loq_dev = get_loquacious_text_only_dataset(vocab="spm10k").get_eval_datasets()["dev"]
+    # dev = the same 5000 Loquacious dev transcripts as the transcript LM, as LmDataset text (a MetaDataset around
+    # the HF dev dataset crashed at the first dev eval)
+    loq_dev = HfTextJob(get_hf_random_sorted_subset(get_hf_text_only(), "dev", take_n=5000)).out_text
     return DatasetConfigStatic(
         extern_data={
             "data": {
@@ -115,10 +131,11 @@ def _lm_text(texts, split):
         },
         eval_datasets={
             "dev": {
-                "class": "MetaDataset",
-                "datasets": {"loq": loq_dev},
-                "data_map": {"data": ("loq", "text")},
-                "seq_order_control_dataset": "loq",
+                "class": "LmDataset",
+                "corpus_file": loq_dev,
+                "orth_vocab": vocab.get_opts(),
+                "seq_end_symbol": None,
+                "unknown_symbol": None,
             }
         },
     )

@@ -27,8 +27,8 @@ def py():
         tk.register_output(f"{prefix}/data/{name}/stats.json", norm.out_stats)
     sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
     tk.register_output(f"{prefix}/data/dolma-selected-10x/stats.json", sel.out_stats)
-    # norm = normalize(prefix, "dolma-selected-10x", sel)
-    # tk.register_output(f"{prefix}/data/dolma-selected-10x/norm-stats.json", norm.out_stats)
+    norm = normalize(prefix, "dolma-selected-10x", sel)
+    tk.register_output(f"{prefix}/data/dolma-selected-10x/norm-stats.json", norm.out_stats)
 
 
 def dolma(prefix):

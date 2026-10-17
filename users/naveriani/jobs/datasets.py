@@ -167,6 +167,25 @@ class RandomFileSubsetJob(Job):
             json.dump({"files": len(est), "est_words": sum(est.values()), "keep": keep, "per_file": est}, f, indent=1)
 
 
+class HfTextJob(Job):
+    # one column of an HF dataset (save_to_disk dir of a single split) as a gzipped text file, one line per row
+    def __init__(self, hf_data_dir, *, column="text"):
+        super().__init__()
+        self.hf_data_dir = hf_data_dir
+        self.column = column
+        self.out_text = self.output_path("text.txt.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import datasets
+
+        ds = datasets.load_from_disk(self.hf_data_dir.get_path())
+        with gzip.open(self.out_text.get_path(), "wt") as f:
+            f.write("".join(t + "\n" for t in ds[self.column]))
+
+
 class LinkFilesJob(Job):
     # a folder with symlinks to the given files of a dataset dir (same relative paths), to copy just this subset to
     # another cluster (rsync -L)
