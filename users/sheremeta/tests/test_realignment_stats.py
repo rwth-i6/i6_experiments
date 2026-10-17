@@ -11,7 +11,10 @@ from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
 from sisyphus import tk
 
 from i6_experiments.users.sheremeta.alignment.jobs import DelayedPathToCtcPathJob, TokenFrameOffsetJob, WordPackingJob
-from i6_experiments.users.sheremeta.returnn.dataset import ReturnnConfigDatasetToHdfJob
+from i6_experiments.users.sheremeta.returnn.dataset import (
+    ReturnnConfigDatasetDroppedLabelsJob,
+    ReturnnConfigDatasetToHdfJob,
+)
 from i6_experiments.users.sheremeta.tests.test_ctc_word_boundaries import _train_spm
 
 _RETURNN_ROOT = os.path.dirname(os.path.dirname(returnn.__file__))
@@ -121,6 +124,60 @@ def test_a_key_of_the_forward_dataset_is_written_per_sequence(tmp_path: pathlib.
     written.init_seq_order(epoch=1)
     written.load_seqs(0, 2)
     assert [written.get_data(i, "data").tolist() for i in range(2)] == [[4, 1, 4], [2, 4]]
+
+
+def test_the_labels_the_text_codes_leave_out_are_counted_per_sequence(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+):
+    # every label placed, the last label left out, and codes that are not the labels in order, blank 9
+    prolog = (
+        "import numpy\n"
+        "def _seq(codes, labels):\n"
+        "    return {'data': numpy.zeros((len(codes), 1), 'float32'), 'codes': numpy.array(codes, 'int32'),\n"
+        "            'labels': numpy.array(labels, 'int32')}\n"
+        "_seqs = [_seq([9, 4, 9, 5, 6], [4, 5, 6]), _seq([9, 4, 5], [4, 5, 6]), _seq([9, 5, 4], [4, 5])]\n"
+    )
+    dims = {"data": [1, 2], "codes": [10, 1], "labels": [10, 1]}
+    dataset = {"class": "StaticDataset", "data": CodeWrapper("_seqs"), "output_dim": dims}
+    config = ReturnnConfig(config={"forward_data": dataset}, python_prolog=prolog)
+
+    job = ReturnnConfigDatasetDroppedLabelsJob(
+        returnn_config=config, codes_key="codes", labels_key="labels", blank=9, returnn_root=tk.Path(_RETURNN_ROOT)
+    )
+    job.out_summary = tk.Path(str(tmp_path / "summary.json"))
+    job.out_report = tk.Path(str(tmp_path / "report.txt"))
+    job.out_dropped = tk.Path(str(tmp_path / "dropped.jsonl"))
+    monkeypatch.chdir(tmp_path)
+    job.run()
+
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["n_seqs"] == 3 and summary["n_seqs_not_in_order"] == 1
+    assert summary["n_labels"] == 6 and summary["n_dropped"] == 1 and summary["n_seqs_with_drops"] == 1
+    assert summary["dropped_histogram"] == {"1": 1}
+    rows = [json.loads(line) for line in (tmp_path / "dropped.jsonl").read_text().splitlines()]
+    assert rows == [
+        {"seq_tag": "seq-1", "labels": 3, "dropped": 1, "frames": 3},
+        {"seq_tag": "seq-2", "labels": 2, "not_in_order": True},
+    ]
+
+
+def test_a_count_job_follows_the_appended_prolog_and_not_its_resources():
+    dataset = {"class": "StaticDataset", "data": CodeWrapper("_seqs"), "output_dim": {"codes": [5, 1]}}
+    ids = set()
+    for codes, cpu_rqmt in (("[4, 1, 4]", 2), ("[2, 4]", 2), ("[2, 4]", 8)):
+        # the way a recipe attaches a split, its prolog appended to a config whose prolog hash is already set
+        config = ReturnnConfig(config={"forward_data": dataset}, python_prolog="import numpy\n")
+        config.python_prolog = [config.python_prolog, f"_seqs = [{{'codes': numpy.array({codes}, 'int32')}}]\n"]
+        job = ReturnnConfigDatasetDroppedLabelsJob(
+            returnn_config=config,
+            codes_key="codes",
+            labels_key="labels",
+            blank=9,
+            returnn_root=tk.Path(_RETURNN_ROOT),
+            cpu_rqmt=cpu_rqmt,
+        )
+        ids.add(job._sis_id())
+    assert len(ids) == 2
 
 
 def test_datasets_that_differ_only_in_the_prolog_appended_after_the_config_get_jobs_of_their_own():
