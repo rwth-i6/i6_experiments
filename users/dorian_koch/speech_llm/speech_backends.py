@@ -264,6 +264,7 @@ def personaplex_family_backend_spec(
     lora_rank: int | None = None,
     lora_scaling: float = 2.0,
     temp_text: float | None = None,
+    top_k_text: int | None = None,
     voice: str | None = None,
     voice_prompt_dir: str | None = None,
     extra_inputs: tuple = (),
@@ -291,6 +292,9 @@ def personaplex_family_backend_spec(
     # ``temp_text`` (None = the driver default 0.7, args unchanged so no eval re-hashes): text sampling temperature
     if temp_text is not None:
         extra = (*extra, "--temp_text", str(temp_text))
+    # ``top_k_text`` (None = the driver default 25, args unchanged so no eval re-hashes; 0 = no top-k, the RL "t1" sampler)
+    if top_k_text is not None:
+        extra = (*extra, "--top_k_text", str(top_k_text))
     # ``voice`` (None = the driver default NATM1.pt, args unchanged so no eval re-hashes): the agent voice prompt, a
     # ``.pt`` in the model's voices.tgz or a wav basename in ``voice_prompt_dir`` (an absolute dir; the voice study,
     # track_persona_voice)
