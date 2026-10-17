@@ -968,8 +968,8 @@ class DelayedPathToCtcPathJob(Job):
 
     def __init__(self, *, path_hdf: tk.Path, pad_id: int, blank: int, delay_frames: int, returnn_root: tk.Path):
         """
-        :param path_hdf: per sequence the token or the pad of every frame, ``delay_frames + 1`` frames longer than the
-            audio
+        :param path_hdf: per sequence the token or the pad of every text frame, the frames of the audio plus
+            ``delay_frames``
         :param pad_id: the code of a frame without a token in the paths
         :param blank: the code of a frame without a token in the stored alignment, the vocabulary size
         :param delay_frames: frames the paths lag the audio
@@ -1000,7 +1000,11 @@ class DelayedPathToCtcPathJob(Job):
         num_seqs = num_tokens = num_moved = 0
         for tag, path in _read_paths(self.path_hdf.get_path()).items():
             stored, moved = delayed_path_to_ctc_path(
-                path, pad_id=self.pad_id, blank=self.blank, delay_frames=self.delay_frames
+                path,
+                pad_id=self.pad_id,
+                blank=self.blank,
+                delay_frames=self.delay_frames,
+                num_frames=len(path) - self.delay_frames,
             )
             writer.insert_batch(stored[None, :], seq_len={0: [stored.shape[0]]}, seq_tag=[tag])
             num_seqs += 1

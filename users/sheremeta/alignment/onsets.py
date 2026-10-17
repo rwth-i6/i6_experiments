@@ -100,30 +100,29 @@ def token_onsets_to_words(onsets: List[Tuple[int, int]], spm) -> Tuple[List[str]
 
 
 def delayed_path_to_ctc_path(
-    path: Sequence[int], *, pad_id: int, blank: int, delay_frames: int
+    path: np.ndarray, *, pad_id: int, blank: int, delay_frames: int, num_frames: int
 ) -> Tuple[np.ndarray, int]:
     """
-    Moves a path on the delayed frames of the audio padded by the delay to the frames of the audio itself, every frame
-    without a token blank. A token before the delay or past the audio goes to the nearest free frame, in order.
+    Moves a path on the text frames of a delayed text stream to the frames of the audio, every frame without a token
+    blank. A token before the delay has passed goes to the first free frame, in order.
 
-    :param path: the token or the pad of every frame, ``delay_frames + 1`` frames longer than the audio
+    :param path: the token or the pad of every text frame, the frames of the audio plus the delay
     :param pad_id: the code of a frame without a token in the path
     :param blank: the code of a frame without a token in the result
     :param delay_frames: frames the path lags the audio
+    :param num_frames: frames of the audio
     :return: the path on the frames of the audio and how many tokens left their own frame
     """
     labels = np.asarray(path).reshape(-1)
-    num_frames = labels.shape[0] - delay_frames - 1
+    assert labels.shape[0] == num_frames + delay_frames, (labels.shape[0], num_frames, delay_frames)
     frames = np.flatnonzero(labels != pad_id)
     assert frames.size <= num_frames, (frames.size, num_frames)
 
-    # every token on its own frame of the audio, the ones outside pushed in, ties pushed apart
+    # every token on its own frame of the audio, the ones before the delay pushed in, ties pushed apart
     wanted = frames - delay_frames
-    placed = np.clip(wanted, 0, num_frames - 1)
+    placed = np.maximum(wanted, 0)
     for k in range(1, placed.size):
         placed[k] = max(placed[k], placed[k - 1] + 1)
-    for k in range(placed.size - 1, -1, -1):
-        placed[k] = min(placed[k], num_frames - 1 if k == placed.size - 1 else placed[k + 1] - 1)
 
     out = np.full(num_frames, blank, dtype=np.int32)
     out[placed] = labels[frames]
