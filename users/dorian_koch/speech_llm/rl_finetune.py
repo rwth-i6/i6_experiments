@@ -15,7 +15,7 @@ See ``projects/2026-01-speech-llm/rl_alignment.md``.
 
 from __future__ import annotations
 
-from sisyphus import Job, Task
+from sisyphus import Job, Task, tk
 
 from .finetune import (
     FinetuneAdapter,
@@ -931,3 +931,56 @@ class RLFinetune(Job):
             launch_training(self, self.adapter)
 
         run_with_optional_retrieval(self, _drive)
+
+
+class KnowledgeDrawSubsets(Job):
+    """Seen vs unseen TRAINING questions of the knowledge RL arms, for a memorisation-vs-transfer eval. ``manifest``: an
+    arm's ``out_knowledge_manifest`` (single pool). The draw order is rebuilt by the arms' own
+    ``moshi_family.rl.knowledge_segments.KnowledgeQuestionSource``, so draw ``i`` here is draw ``i`` there. ``seen``:
+    ``n`` questions sampled (``seed``) from draws ``[0, seen_draws)``; ``unseen``: ``n`` from draws ``[unseen_from, end)``,
+    which no arm of ``unseen_from // questions per step`` steps or fewer reached. Both are row subsets of the manifest's
+    ``questions`` (an ``LLMPreprocess`` out_hf, i.e. ``knowledge_benchmark_py(data=...)``'s format). ``stats.json``: pool
+    sizes and the chosen question ids."""
+
+    def __init__(self, *, manifest: tk.Path, seen_draws: int, unseen_from: int, n: int = 1000, seed: int = 0):
+        assert 0 < seen_draws <= unseen_from, (seen_draws, unseen_from)
+        self.manifest = manifest
+        self.seen_draws = seen_draws
+        self.unseen_from = unseen_from
+        self.n = n
+        self.seed = seed
+        self.out_seen = self.output_path("seen", directory=True)
+        self.out_unseen = self.output_path("unseen", directory=True)
+        self.out_stats = self.output_path("stats.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import json
+        import sys
+
+        import numpy as np
+        from datasets import load_from_disk
+
+        from .common import moshi_family_lib_parent
+
+        sys.path.insert(0, moshi_family_lib_parent())
+        from moshi_family.rl.knowledge_segments import KnowledgeQuestionSource
+
+        src = KnowledgeQuestionSource(self.manifest.get())
+        assert src.categories is None, "single-pool manifests only"
+        pools = {"seen": src.train_ids[: self.seen_draws], "unseen": src.train_ids[self.unseen_from :]}
+        assert not set(pools["seen"]) & set(pools["unseen"]) and not set(src.probe_ids) & set(pools["unseen"])
+        questions = load_from_disk(json.loads(open(self.manifest.get()).read())["questions"])
+        rng = np.random.default_rng(self.seed)
+        stats = {"n_train_pool": len(src.train_ids), "n_probe": len(src.probe_ids)}
+        for name, out in (("seen", self.out_seen), ("unseen", self.out_unseen)):
+            pool = pools[name]
+            assert len(pool) >= self.n, f"{name}: pool {len(pool)} < n {self.n}"
+            ids = sorted(int(pool[i]) for i in rng.choice(len(pool), size=self.n, replace=False))
+            questions.select(ids).save_to_disk(out.get_path())
+            stats[name] = {"pool": len(pool), "question_ids": ids}
+            print(f"[draw-subsets] {name}: {self.n} of {len(pool)} pool questions", flush=True)
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump(stats, f, indent=1)
