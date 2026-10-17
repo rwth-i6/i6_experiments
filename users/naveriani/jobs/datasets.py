@@ -804,12 +804,17 @@ _WEIGHTS = (".safetensors", ".bin", ".pt", ".h5", ".msgpack", ".ot", ".onnx", ".
 class PlainTokenizerJob(Job):
     # an HF tokenizer (hub cache) without automatic special tokens and with the given bos / eos: RETURNN's
     # HuggingFaceTokenizer then gives plain text ids and the train defs add bos / eos themselves. Every non-weight
-    # file is copied; specials come off in both places tokenizers put them (post_processor, add_bos / add_eos_token)
-    def __init__(self, hub_cache_dir, *, bos, eos):
+    # file is copied; specials come off in both places tokenizers put them (post_processor, add_bos / add_eos_token),
+    # the generic class keeps tokenizer.json as is (transformers 5 model classes rebuild their own template) but drops
+    # the model class specials, mask re-adds the mask token (MDLM)
+    __sis_hash_exclude__ = {"mask": None}
+
+    def __init__(self, hub_cache_dir, *, bos, eos, mask=None):
         super().__init__()
         self.hub_cache_dir = hub_cache_dir
         self.bos = bos
         self.eos = eos
+        self.mask = mask
         self.out_dir = self.output_path("tokenizer", directory=True)
 
     def tasks(self):
@@ -832,6 +837,8 @@ class PlainTokenizerJob(Job):
                     "eos_token": self.eos,
                     "add_bos_token": False,
                     "add_eos_token": False,
+                    "tokenizer_class": "PreTrainedTokenizerFast",
+                    **({"mask_token": self.mask} if self.mask else {}),
                 }
             else:
                 shutil.copyfile(p, os.path.join(out, fn))
@@ -844,6 +851,8 @@ class PlainTokenizerJob(Job):
         bos, eos = tok.convert_tokens_to_ids([self.bos, self.eos])
         assert bos not in ids and eos not in ids, ids
         assert (tok.bos_token_id, tok.eos_token_id) == (bos, eos), (tok.bos_token_id, tok.eos_token_id)
+        if self.mask:
+            assert tok.mask_token_id == tok.convert_tokens_to_ids(self.mask) and tok.mask_token_id not in ids
 
 
 class HfTokenStatsJob(Job):
