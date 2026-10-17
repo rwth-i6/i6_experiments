@@ -27,7 +27,8 @@ from typing import Callable
 
 from sisyphus import Job, Task
 
-from .common import HF_CACHE_DIR, last_jsonl_value, moshi_family_lib_parent, recipe_root, worker_env
+from . import common as _common
+from .common import HF_CACHE_DIR, HF_HOME_DIR, last_jsonl_value, moshi_family_lib_parent, recipe_root, worker_env
 from .moshi_arrow_config import ArrowDataConfig
 
 
@@ -205,6 +206,27 @@ def declared_train_gpus(job) -> int:
     return int((getattr(job, "compute", None) or {}).get("gpu", (getattr(job, "hparams", None) or {}).get("gpu", 1)))
 
 
+def training_hf_env(job: "SpeechFinetune") -> dict:
+    """The worker env's HF part: the shared cache, or the job's own hub cache (``SpeechFinetune(hf_cache_dir=)``).
+
+    Before 2026-10-17 a caller could swap the cache by patching this module's ``HF_CACHE_DIR`` / ``HF_HOME_DIR``
+    (``mock.patch.multiple``). The env is now built by ``common.worker_env``, which reads ``common``'s globals, so such a
+    patch would be silently ignored and the run would train from the shared cache. It is refused instead."""
+    if HF_CACHE_DIR is not _common.HF_CACHE_DIR or HF_HOME_DIR is not _common.HF_HOME_DIR:
+        raise RuntimeError(
+            "speech_llm.finetune.HF_CACHE_DIR / HF_HOME_DIR were patched. That no longer reaches the training env "
+            "(common.worker_env builds it), so the run would silently use the shared HF cache. Pass the hub cache as "
+            "SpeechFinetune(hf_cache_dir=<tk.Path of the hub cache dir>) instead (HF_HOME then stays the job's own). "
+            "A subclass with its own cache argument keeps its hash by forwarding it, e.g. "
+            "super().__init__(hf_cache_dir=hf_hub_cache, **kwargs), and drops the patch from run()."
+        )
+    hf_cache_dir = getattr(job, "hf_cache_dir", None)  # getattr: jobs pickled before the argument existed
+    env = worker_env(offline=True, pythonpath=None, hf_cache=hf_cache_dir is None)
+    if hf_cache_dir is not None:
+        env["HF_HUB_CACHE"] = hf_cache_dir.get()
+    return env
+
+
 def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     """Shared ``run`` body: single-node ``torch.distributed.run`` of the adapter's
     launcher module, with the fork on ``PYTHONPATH`` and the HF cache wired."""
@@ -223,8 +245,9 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB checkpoint every run and (b) does not
     # depend on writable HF cache space (the shared hpcwork cache can be full -- a Xet "Background writer channel
     # closed" download error is that symptom). HF_HUB_CACHE points AT the hub dir (HF appends "/hub" to HF_HOME;
-    # common.HF_HOME_DIR). PYTHONPATH is built below (the adapter's fork dirs).
-    env = worker_env(offline=True, pythonpath=None)
+    # common.HF_HOME_DIR), or at the job's own hf_cache_dir (training_hf_env). PYTHONPATH is built below (the adapter's
+    # fork dirs).
+    env = training_hf_env(job)
     # The in-loop knowledge probe generates on the SAME model training uses. moshi's generation and
     # training forward share torch.compile'd fns (``torch_compile_lazy``, e.g. ``apply_rope``) + CUDA
     # graphs; letting the probe's generation shapes into the compile cache poisons the guards
@@ -332,7 +355,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
         extra_paths.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(extra_paths)
     print(f"Running {adapter.name} training with command: {' '.join(command)}", flush=True)
-    print(f"Using HF cache directory: {HF_CACHE_DIR}")
+    print(f"Using HF cache directory: {env['HF_HUB_CACHE']}")
     subprocess.run(command, env=env, check=True)
 
 
@@ -1216,6 +1239,9 @@ class SpeechFinetune(Job):
         # restarted a 35 h run from zero. Excluded at None, so what a run asks for can be changed
         # freely without moving its identity. Guarded by `check_rqmt_not_hashed.py`.
         "compute": None,
+        # Another HF hub cache for the base model (training_hf_env). Excluded at None -> every existing run keeps its
+        # hash; a run that sets it hashes apart (it may train a different snapshot).
+        "hf_cache_dir": None,
     }
 
     def __init__(
@@ -1235,6 +1261,7 @@ class SpeechFinetune(Job):
         hparams: dict | None = None,
         compute: dict | None = None,
         card: dict | None = None,
+        hf_cache_dir=None,
     ):
         from .experiment_card import check_card
 
@@ -1272,6 +1299,7 @@ class SpeechFinetune(Job):
         # exactly the damage this split exists to prevent. Do not "tidy" the fallback away; it retires
         # when the pre-2026-09-17 runs do.
         self.compute = dict(compute or {})
+        self.hf_cache_dir = hf_cache_dir
         _gpu = int(self.compute.get("gpu", self.hparams.get("gpu", 1)))
         _time_h = int(self.compute.get("rqmt_time_h", self.hparams.get("rqmt_time_h", 23)))
         self.rqmt = {
