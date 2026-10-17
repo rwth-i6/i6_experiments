@@ -1,6 +1,33 @@
+from typing import Any
+
 from sisyphus import Job, Task, tk
 
 from i6_core.returnn.config import ReturnnConfig
+
+
+def _load_config_dataset(returnn_config: ReturnnConfig, dataset_key: str, returnn_root: tk.Path) -> Any:
+    """
+    Writes the config, loads it as RETURNN does, its prolog run first, and builds its dataset.
+
+    :param returnn_config: the config, its prolog defines what its dataset needs
+    :param dataset_key: the config key of the dataset
+    :param returnn_root: the RETURNN checkout that loads the config and the dataset
+    :return: the dataset
+    """
+    import sys
+
+    sys.path.insert(0, returnn_root.get_path())
+    from returnn.config import Config, set_global_config
+    from returnn.datasets import init_dataset
+    from returnn.log import log
+
+    returnn_config.write("returnn.config")
+    config = Config()
+    config.load_file("returnn.config")
+    set_global_config(config)
+    config.typed_dict.setdefault("log_verbosity", 4)
+    log.init_by_config(config)
+    return init_dataset(config.typed_value(dataset_key))
 
 
 class ReturnnConfigDatasetToHdfJob(Job):
@@ -31,25 +58,12 @@ class ReturnnConfigDatasetToHdfJob(Job):
         yield Task("run", rqmt={"cpu": 2, "mem": 8, "time": 2})
 
     def run(self):
-        import sys
-
         import numpy as np
 
-        sys.path.insert(0, self.returnn_root.get_path())
-        from returnn.config import Config, set_global_config
-        from returnn.datasets import init_dataset
+        # the dataset as the forward reads it
+        dataset = _load_config_dataset(self.returnn_config, self.dataset_key, self.returnn_root)
         from returnn.datasets.hdf import SimpleHDFWriter
-        from returnn.log import log
 
-        # the config as the forward reads it
-        self.returnn_config.write("returnn.config")
-        config = Config()
-        config.load_file("returnn.config")
-        set_global_config(config)
-        config.typed_dict.setdefault("log_verbosity", 4)
-        log.init_by_config(config)
-
-        dataset = init_dataset(config.typed_value(self.dataset_key))
         dataset.init_seq_order(epoch=1)
         writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=dataset.get_data_dim(self.data_key), ndim=1)
         seq_idx = 0
