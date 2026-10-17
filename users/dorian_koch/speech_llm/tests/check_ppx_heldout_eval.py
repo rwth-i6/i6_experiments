@@ -254,7 +254,9 @@ check(
     in " ".join(src.replace("(", "( ").split()),
     "...and heldout_loss.evaluate_set",
 )
-check("eval_fn(0, fatal=True)" in src, "step 0 evaluated fatally before training")
+check(
+    "if step == 0:\n                raise" in src, "step 0 (called by run_training) evaluated fatally before training"
+)
 check({"eval_subset", "eval_full_every"} <= top, "eval_subset / eval_full_every read at the top level of main")
 check('cfg.get("eval_subset")' in src and 'cfg.get("eval_full_every")' in src, "...from the config")
 check(
@@ -311,7 +313,7 @@ def cadence(every):
 
 
 got5 = cadence(5)
-check(got5 == [5, 10, 15, 20], f"eval at the multiples of eval_every: {got5}")
+check(got5 == [0, 5, 10, 15, 20], f"eval at step 0 (run_training owns it) and the multiples of eval_every: {got5}")
 check(cadence(0) == [], "(can fail) eval_every=0 never evaluates")
 
 # ---- 7 ----
