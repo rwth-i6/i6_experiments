@@ -3,8 +3,12 @@ from sisyphus import tk
 from i6_experiments.users.naveriani.jobs.datasets import (
     DownloadUrlsJob,
     ExtractDocsJob,
+    LinkFilesJob,
     NormalizeTextJob,
     RandomFileSubsetJob,
+    ScoreDocsJob,
+    SelectTextJob,
+    TrainFastTextJob,
 )
 from i6_experiments.users.zeyer.datasets.loquacious import get_hf_text_only
 from i6_experiments.users.zeyer.external_models.huggingface import DownloadHuggingFaceRepoJobV2
@@ -12,15 +16,19 @@ from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_modu
 
 
 def py():
-    # RZ: only the NeMo normalisation of the random Dolma documents, the docs job is a finished FZJ folder copied here.
+    # RZ: the CPU-heavy steps; their inputs are finished FZJ job folders copied here (docs, pool files, selectors).
     # No outputs of the upstream jobs are registered, so sis never starts the Dolma download on RZ
     prefix = get_setup_prefix_for_module(__name__)
     dolma_ = dolma(prefix)
-    _, docs = dolma_random(prefix, dolma_)
-    sets = {"dolma-random-10x": docs, "gutenberg": gutenberg(prefix, dolma_)}
-    for name, docs in sets.items():
-        norm = normalize(prefix, name, docs)
+    subset, docs = dolma_random(prefix, dolma_)
+    books = gutenberg(prefix, dolma_)
+    for name, d in {"dolma-random-10x": docs, "gutenberg": books}.items():
+        norm = normalize(prefix, name, d)
         tk.register_output(f"{prefix}/data/{name}/stats.json", norm.out_stats)
+    sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
+    tk.register_output(f"{prefix}/data/dolma-selected-10x/stats.json", sel.out_stats)
+    # norm = normalize(prefix, "dolma-selected-10x", sel)
+    # tk.register_output(f"{prefix}/data/dolma-selected-10x/norm-stats.json", norm.out_stats)
 
 
 def dolma(prefix):
@@ -68,6 +76,48 @@ def gutenberg(prefix, dolma):
     )
     docs.add_alias(f"{prefix}/data/gutenberg/docs")
     return docs
+
+
+def selectors(prefix, dolma, subset):
+    # source selectors: the transcripts of one Loquacious source vs random Dolma sentences (no books, no papers).
+    # LibriHeavy (book detector) probe 2026-10-16: valid AUC 0.981, mean P(book) LibriHeavy 0.94 vs 0.17-0.29 for the
+    # other sources; held-out Gutenberg books: 97.5 % in the top 5 % of web docs (doc level)
+    sel = {}
+    for src in ["libriheavy", "yodas", "peoplesspeech", "commonvoice", "voxpopuli"]:
+        sel[src] = TrainFastTextJob(get_hf_text_only(), dolma.out_dir, subset.out_files, source=src)
+        sel[src].add_alias(f"{prefix}/data/fasttext/{src}")
+    return sel
+
+
+def dolma_pool(prefix, dolma):
+    # ~150B words of random web files (no books) to select from; the folder of links is what gets copied to RZ
+    pool = RandomFileSubsetJob(dolma.out_dir, num_words=150_000_000_000, num_files=200, seed=2, exclude=["books/"])
+    pool.add_alias(f"{prefix}/data/dolma-pool/files")
+    files = LinkFilesJob(dolma.out_dir, pool.out_files)
+    files.add_alias(f"{prefix}/data/dolma-pool/link")
+    return pool, files
+
+
+def select(prefix, pool, files, sel, books, random_docs):
+    # Probe 2026-10-16: single sentences are too noisy, 5-sentence windows pick the right text (hearings for
+    # People's Speech, video transcripts for YODAS, wiki-like sentences for CommonVoice, EU politics for VoxPopuli);
+    # books whole documents. Same word count as the random set, split like the Loquacious sources (M words)
+    score = ScoreDocsJob(
+        files.out_dir,
+        pool.out_files,
+        {k: j.out_model for k, j in sel.items()},
+        window=5,
+        doc_min_p=0.6,
+        num_tasks=20,
+    )
+    score.rqmt.update({"cpu": 96, "mem": 120, "time": 4})
+    score.add_alias(f"{prefix}/data/dolma-pool/scores")
+    shares = {"libriheavy": 104.0, "peoplesspeech": 58.4, "yodas": 57.9, "commonvoice": 10.9, "voxpopuli": 4.7}
+    sel_job = SelectTextJob(
+        score.out_scores, shares, random_docs.out_stats, fill_docs=books.out_docs, eval_text=get_hf_text_only()
+    )
+    sel_job.add_alias(f"{prefix}/data/dolma-selected-10x/select")
+    return sel_job
 
 
 def normalize(prefix, name, docs):
