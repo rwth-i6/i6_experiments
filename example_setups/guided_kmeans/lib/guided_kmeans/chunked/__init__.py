@@ -13,6 +13,7 @@ Injection points, all supplied as :class:`.spec.Spec` objects:
 * :mod:`.features`     - where encoder outputs come from
 * :mod:`.models`       - how features are scored against clusters
 * :mod:`.recognizers`  - how scores become per-frame labels
+* :mod:`.transitions`  - per-frame transition scores for the search (optional)
 * :mod:`.accumulators` - how labelled frames update the model
 * :mod:`.diagnostics`  - what a pass records about itself, changing nothing
 
@@ -30,10 +31,14 @@ from .interfaces import (
     RecognitionResult,
     Recognizer,
     ScoreModel,
+    TrainableTransitionModel,
+    TransitionAccumulator,
+    TransitionModel,
     as_dense_responsibilities,
     as_hard_labels,
     as_responsibilities,
 )
+from .transitions import OracleBoundaryTransitions, boundary_transitions
 from .features import HDFFeatureSource, cached_file, plan_chunks, read_segment_file
 from .models import (
     ArtifactModel,
@@ -106,6 +111,11 @@ __all__ = [
     "RecognitionResult",
     "Recognizer",
     "ScoreModel",
+    "TrainableTransitionModel",
+    "TransitionAccumulator",
+    "TransitionModel",
+    "OracleBoundaryTransitions",
+    "boundary_transitions",
     "as_dense_responsibilities",
     "as_hard_labels",
     "as_responsibilities",

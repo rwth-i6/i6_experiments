@@ -314,12 +314,12 @@ def run():
                         params=params, statistics=statistics, mi=mi,
                     )
 
+    recog_report = create_report(recog_results)
     tk.register_report(
         f"guided_kmeans/{exp_dir}/recognition/report_{version}.txt",
-        values=create_report(recog_results),
-        required=True,
+        values=recog_report, required=recog_report, update_frequency=60,
     )
-    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_{version}.tex")
+    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_{version}.tex", required=latex_report, update_frequency=60)
 
 
 def py():

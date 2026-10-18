@@ -51,6 +51,7 @@ __all__ = [
 import gzip
 import json
 import os
+import pickle
 import sys
 import time
 from contextlib import contextmanager
@@ -62,12 +63,18 @@ import i6_experiments
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 from sisyphus import Job, Task, tk
+import sisyphus.global_settings as gs
 
 import numpy as np
 
 from .array_job import ArrayJob
 from .score import JiwerScoringJob, ScoreResult
-from ..lib.guided_kmeans.util import DEFAULT_EXCLUDED_LEMMATA, ProgressLogger, traceback_to_text
+from ..lib.guided_kmeans.util import (
+    DEFAULT_EXCLUDED_LEMMATA,
+    ProgressLogger,
+    posteriors_to_text,
+    traceback_to_text,
+)
 from ..lib.guided_kmeans.chunked import (
     ClusteringFlavor,
     EMA_MODES,
@@ -94,6 +101,44 @@ from ..lib.guided_kmeans.chunked import (
 )
 
 _CHUNK_FILE = "chunk.{num_chunks}.{index}.pkl"
+
+
+class _Inert:
+    """Stands in for every class while reading a ``job.save``, so the manager
+    can look into a pickled job without constructing it. A real unpickle would
+    resolve to the live singleton for that sis_id and overwrite its state."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __setstate__(self, state):
+        self.__dict__["state"] = state
+
+    # Pickled dict/list subclasses are filled through these.
+    def __setitem__(self, key, value):
+        pass
+
+    def append(self, item):
+        pass
+
+    def extend(self, items):
+        pass
+
+
+class _InertUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        return _Inert
+
+
+def _pickled_job_attribute(save_path: str, name: str) -> Any:
+    """One attribute of the job pickled in ``save_path``, read without
+    unpickling the job itself (see :class:`_Inert`)."""
+    with gzip.open(save_path) as fp:
+        state = _InertUnpickler(fp).load().state
+    if isinstance(state, tuple):  # (__dict__, slots)
+        state = state[0]
+    return state[name]
+
 
 #: keep_value for the batch steps of a batched run that no output is keyed to.
 #: A run at ``batches_per_epoch = B`` builds B epoch jobs per pass, of which
@@ -292,12 +337,18 @@ class GuidedClusteringEpochJob(Job):
         scheduling knob, like ``num_chunks``. ``rqmt["cpu"]`` should be
         ``num_workers + parent_threads``, which :func:`chunked_clustering` sets;
         see :func:`parent_thread_budget` for how to tell which side to grow.
+    :param transitions: optional spec for a fixed
+        :class:`...lib.guided_kmeans.chunked.interfaces.TransitionModel`, whose
+        per-frame scores the recognizer adds to its transition weights. Hashed,
+        but hash-excluded at ``None`` so every existing epoch job keeps its
+        identity.
     """
 
     __sis_hash_exclude__ = {
         "exclude_lemmata": DEFAULT_EXCLUDED_LEMMATA,
         "ema": None,
         "prior_state": None,
+        "transitions": None,
     }
 
     def __init__(
@@ -318,6 +369,7 @@ class GuidedClusteringEpochJob(Job):
         verbosity: int = 1,
         rqmt: Optional[Dict[str, Any]] = None,
         parent_threads: int = 1,
+        transitions: Optional[Spec] = None,
     ):
         if prior_state is not None and (ema is None or not ema.carries_state):
             raise TypeError(
@@ -340,6 +392,7 @@ class GuidedClusteringEpochJob(Job):
         self.prior_state = prior_state
         self.verbosity = verbosity
         self.parent_threads = parent_threads
+        self.transitions = transitions
 
         self.rqmt = {"cpu": 9, "mem": 16, "time": 4}
         if rqmt:
@@ -362,6 +415,9 @@ class GuidedClusteringEpochJob(Job):
         #
         # NB these hypotheses come from recognizing with the model this epoch
         # *started* from, i.e. from `model`, not from the model it produces.
+        # A forward-backward search writes the frame-wise argmax of its
+        # posteriors (see _posterior_transcriber) - empty lines for epochs that
+        # ran before that existed.
         self.out_hypotheses = self.output_path("hyp.txt.gz")
         # The damped running statistic this step hands to the next one. Declared
         # only for the mode that produces it, following JiwerScoringJob's
@@ -404,13 +460,40 @@ class GuidedClusteringEpochJob(Job):
         """
         return self.out_model.join_right(f"{name}.npy")
 
+    def _pin_num_chunks(self) -> int:
+        """
+        Adopt the ``num_chunks`` an already set-up job was started with.
+
+        Workers run from ``job.save``; the manager runs from the config. Being
+        unhashed, ``num_chunks`` can differ between the two after a config edit
+        and a manager restart. Two things then go wrong: the manager schedules
+        task ids the pickled job does not have, and - because the first
+        submission after a restart re-pickles the in-memory job into
+        ``job.save`` (``_sis_setup_directory`` with ``_sis_setup_since_restart``
+        unset) - a later task of the same epoch, typically ``reduce``, runs with
+        the new count against chunks written under the old one. So once the
+        directory exists its value is copied onto this object: a new
+        ``num_chunks`` takes effect from the next epoch on, and an epoch in
+        flight finishes with the partition it started with.
+        """
+        save = self._sis_path(gs.JOB_SAVE)
+        if os.path.isfile(save):
+            self.num_chunks = _pickled_job_attribute(save, "num_chunks")
+        return self.num_chunks
+
+    def _sis_setup_directory(self, force=False):
+        # Before the re-pickle, so job.save keeps the count its chunks used.
+        self._pin_num_chunks()
+        super()._sis_setup_directory(force=force)
+
     def tasks(self):
+        num_chunks = self._pin_num_chunks()
         yield Task(
             "recognize",
             resume="recognize",
-            args=range(self.num_chunks),
+            args=range(num_chunks),
             rqmt=self.rqmt,
-            parallel=self.num_chunks,
+            parallel=num_chunks,
         )
         yield Task("reduce", mini_task=True)
 
@@ -440,6 +523,44 @@ class GuidedClusteringEpochJob(Job):
 
         return default_stats_hooks(PhonemeIdxMap(self.lexicon.get_path()))
 
+    def _posterior_transcriber(self, recognizer):
+        """
+        ``run_chunk``'s ``transcribe_posteriors`` for a recognizer that reports
+        label posteriors, or None.
+
+        A forward-backward search has no path to write, so before this its
+        ``out_hypotheses`` were empty lines. Reading the frame-wise argmax off
+        the posteriors it already computed gives a hypothesis for free - the
+        training search's current belief, scored like any other by
+        ``chunked_clustering(score_reference=...)`` - and is what lets a run
+        whose model RASR cannot decode (untied HMM states) report a PER at all.
+        See :func:`..lib.guided_kmeans.util.posteriors_to_text` for what it is
+        and is not.
+
+        Only recognizers that state their column layout take part
+        (``label_layout``: the CUDA op's). Any mismatch between that layout and
+        the lexicon disables it with a warning rather than failing the task: a
+        diagnostic must not cost an epoch.
+        """
+        layout = getattr(recognizer, "label_layout", None)
+        if layout is None or self.lexicon is None:
+            return None
+        from ..lib.guided_kmeans.chunked.recognizers import PhonemeIdxMap
+
+        inverse = PhonemeIdxMap(self.lexicon.get_path()).inverse()
+        names = [inverse[k] for k in sorted(inverse)]
+        if sorted(inverse) != list(range(len(names))) or len(names) != layout.num_phonemes:
+            print(
+                f"[WARNING] posterior hypotheses disabled: the lexicon has "
+                f"{len(names)} phonemes, the recognizer's layout {layout}",
+                flush=True,
+            )
+            return None
+        return partial(
+            posteriors_to_text, names=names, layout=layout,
+            exclude_lemmata=self.exclude_lemmata,
+        )
+
     def recognize(self, index: int):
         # A recognition failure raises RecognizerAborted out of run_chunk, so
         # sisyphus' own Task.run error handling records the task as failed.
@@ -447,18 +568,24 @@ class GuidedClusteringEpochJob(Job):
         self._prepare_worker_sys_path()
 
         model = self.model.build()
+        # getattr: a job pickled before transitions existed runs its remaining
+        # tasks with this code too, and it had none.
+        transitions = getattr(self, "transitions", None)
         # getattr: a job pickled before parent_threads existed runs its
         # remaining tasks with this code too.
         with parent_thread_budget(
             getattr(self, "parent_threads", 1), self.recognizer.unhashed_kwargs.get("num_workers")
         ):
+            recognizer = self.recognizer.build()
             result = run_chunk(
                 features=self.features.build(chunk=index, num_chunks=self.num_chunks),
                 model=model,
-                recognizer=self.recognizer.build(),
+                recognizer=recognizer,
                 accumulator=self._build_accumulator(),
                 counter=self._build_statistics(),
                 transcribe=partial(traceback_to_text, exclude_lemmata=self.exclude_lemmata),
+                transcribe_posteriors=self._posterior_transcriber(recognizer),
+                transitions=transitions.build() if transitions is not None else None,
                 verbosity=self.verbosity,
             )
         save_chunk(result, self._chunk_path(index))
@@ -1454,10 +1581,19 @@ class UniformMixturesJob(ArrayJob):
     also means no weight starts at zero, which matters because zero is
     absorbing under the default ``mixture_floor=0``.
 
-    Right for per-label densities, **wrong for a shared codebook**: there,
-    identical weights make every label score identically, so the first
-    recognition pass sees no acoustic difference between labels at all. Use
-    :class:`RandomMixturesJob` for that layout.
+    For a shared codebook, identical weights make every label score
+    identically, so the first recognition pass sees no acoustic difference
+    between labels at all. That was once read as a reason to avoid it there; it
+    is not one. The search's language model breaks the symmetry on its own: the
+    first E-step's label posteriors are the LM's positional prior, which already
+    differs per label, and the M-step turns that into distinct weights.
+    Measured on the VQ table runs (``NormalTableJob(sigma=0.0)``, the same start
+    in that layout): a sigma=0.02 perturbation adds only ~8% to the first
+    step's I(label; codeword), larger perturbations converge more slowly, and
+    sigma=0.1 breaks training outright, while exactly uniform converges fastest
+    (``docs/free_segmentation/findings_and_directions.md`` §3.8, §6.4). So this
+    is the default start for either layout. :class:`RandomMixturesJob` remains
+    for when random symmetry breaking is itself the thing under test.
     """
 
     OUTPUTS = ("mixtures",)
@@ -1527,19 +1663,23 @@ class NormalTableJob(ArrayJob):
     spread, so ``sigma`` is the coefficient of variation and means the same
     thing at any codebook size.
 
-    This is the only place an unsupervised run's symmetry can be broken. With a
-    frozen codebook the table is the entire model, so a table that starts
-    (near-)uniform gives every label the same score column, leaves the first
-    search with nothing acoustic to separate labels by, and hands the counting
-    step an alignment produced by the language model alone. ``sigma`` is
-    therefore a real hyperparameter and not a nuisance: it decides how far from
-    that degenerate point a run begins.
+    With a frozen codebook the table is the entire model, so a table that
+    starts (near-)uniform gives every label the same score column and hands the
+    first counting step an alignment produced by the language model alone.
+    That is not the degenerate point it looks like: the LM's positional prior
+    already differs per label, so the first M-step yields distinct rows, and the
+    symmetry is broken by the LM rather than by ``sigma``. Measured on these
+    runs, ``sigma = 0.02`` adds only ~8% to the first step's I(label; codeword)
+    over ``sigma = 0``; in the segmented runs larger ``sigma`` converges more
+    slowly and 0.1 breaks training, while ``sigma = 0`` (exactly uniform)
+    converges fastest (``docs/free_segmentation/findings_and_directions.md``
+    §3.8, §6.4). ``sigma = 0`` is therefore the default start; ``sigma`` is a
+    perturbation of it, not what makes training possible.
 
     For calibration against :class:`RandomMixturesJob`, whose Dirichlet draws do
     the same job for the mixture models: a Dirichlet(alpha) row over C
     categories has coefficient of variation ``sqrt((C-1)/(C*alpha+1))``, so at
     C=512 alpha=1.0 corresponds to ``sigma`` near 1.0, alpha=0.1 to about 3.1.
-    Small ``sigma`` is the *weak* break, not the safe one.
 
     :param sigma: relative standard deviation before normalizing
     :param clip: floor applied to a draw before normalizing. Normal draws go
@@ -1756,7 +1896,8 @@ class ChunkedClusteringExpResult:
     def guided_score_row(self, epoch: int) -> Dict[str, Any]:
         """
         ``values=`` dict for ``LatexTableReport.add_row``, filling the
-        ``guided_per``/``guided_del``/``guided_ins``/``guided_sub`` columns::
+        ``guided_per``/``guided_del``/``guided_ins``/``guided_sub``/
+        ``guided_hyp_ref`` columns::
 
             latex_report.add_row(
                 result=res, epoch=epoch, statistics=statistics,
@@ -1775,6 +1916,7 @@ class ChunkedClusteringExpResult:
             "guided_del": score.deletions,
             "guided_ins": score.insertions,
             "guided_sub": score.substitutions,
+            "guided_hyp_ref": 1 - score.deletions + score.insertions,
         }
 
 
@@ -2058,6 +2200,14 @@ def chunked_clustering(
     accumulator_spec = flavor.accumulator
     statistics_spec = flavor.statistics
     model_spec = flavor.model
+    # Fixed for the whole run: ClusteringFlavor refuses a trainable transition
+    # model, so unlike model_spec this never moves on to a later epoch's
+    # artifacts.
+    transitions_spec = flavor.transitions
+    if transitions_spec is not None and ema_alpha > 0.0:
+        raise NotImplementedError(
+            "BatchedEMAEpochJob (ema_alpha) takes no transition model; use the "
+            "chunked route (ema/batches_per_epoch) or none")
 
     job_rqmt = {"cpu": num_workers + parent_threads, "mem": 16, "time": 168}
     if rqmt:
@@ -2126,6 +2276,7 @@ def chunked_clustering(
                     prior_state=prior_state,
                     rqmt=job_rqmt,
                     parent_threads=parent_threads,
+                    transitions=transitions_spec,
                 )
             # The unbatched alias is left exactly as it was, so an existing run's
             # alias tree does not move under it.

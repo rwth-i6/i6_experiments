@@ -15,6 +15,9 @@ __all__ = [
     "Recognizer",
     "Accumulator",
     "Probe",
+    "TransitionModel",
+    "TrainableTransitionModel",
+    "TransitionAccumulator",
     "as_hard_labels",
     "as_responsibilities",
     "as_dense_responsibilities",
@@ -192,12 +195,20 @@ class RecognitionResult:
         recognizer's natural units - log-likelihood for forward-backward. Left
         as ``None`` by recognizers whose per-sequence score is already
         recoverable from ``traceback`` (Viterbi puts it in the final item).
+    :param transition_posteriors: ``[T, 3]``, the posterior probability that
+        the transition out of frame ``t`` is a loop, a forward step or an exit
+        (columns as in :mod:`.transitions`), i.e. the gradient of log Z with
+        respect to the transition scores. What a
+        :class:`TransitionAccumulator` would consume. ``None`` from every
+        recognizer so far: the ``backoff_fb`` op computes them from its
+        milestone T3 on (SPEC.md 14.8).
     """
 
     seq_tag: str
     posteriors: "Posteriors"
     traceback: List[Any] = field(default_factory=list)
     sequence_score: Optional[float] = None
+    transition_posteriors: Optional[np.ndarray] = None
 
 
 @runtime_checkable
@@ -206,6 +217,12 @@ class Recognizer(Protocol):
     Turns per-frame scores into per-frame labels, asynchronously.
 
     ``on_result`` receives one :class:`RecognitionResult` per sequence.
+
+    A recognizer that takes per-frame transition scores (see
+    :class:`TransitionModel`) sets ``accepts_transitions = True`` and accepts
+    them as ``submit(seq_tag, scores, transitions=[T, 3])``. The others keep
+    the two-argument form, and :func:`.runner.run_chunk` refuses to pair them
+    with a transition model.
     """
 
     def start(self, on_result: Callable[["RecognitionResult"], None]) -> None: ...
@@ -316,3 +333,83 @@ class Accumulator(Protocol):
     def state_dict(self) -> dict: ...
 
     def load_state_dict(self, state: dict) -> "Accumulator": ...
+
+
+@runtime_checkable
+class TransitionModel(Protocol):
+    """
+    Per-frame transition scores for the search, one ``[T, 3]`` array of
+    log-scores per sequence.
+
+    The sixth injection point, and the transition-side counterpart of
+    :class:`ScoreModel`: that one scores *which* label a frame belongs to, this
+    one *when* the search may move on. Row ``t`` weighs the transition leaving
+    frame ``t`` (loop, forward, exit; see :mod:`.transitions` for the
+    convention). The scores are added to the static transition weights of the
+    recognizer's graph, so a model that should carry the whole transition model
+    is paired with a search whose static weights are zero.
+
+    :func:`.runner.run_chunk` calls it with each sequence's features and
+    passes the result to the recognizer next to the scores. A fixed model (:class:`.transitions.OracleBoundaryTransitions`)
+    reads them from elsewhere and needs only their length.
+    """
+
+    #: Whether an epoch re-estimates this model. A trainable one also
+    #: implements :class:`TrainableTransitionModel`. None can be trained yet:
+    #: :class:`.flavors.ClusteringFlavor` refuses one, because the posteriors
+    #: its update needs do not exist before the op's milestone T3.
+    trainable: bool
+
+    def transition_scores(self, seq_tag: str, features: np.ndarray) -> np.ndarray:
+        """``[T, 3]`` float log-scores for the ``T`` frames of ``features``.
+        Entries are finite or -inf (forbidden); +inf and NaN are invalid."""
+        ...
+
+
+@runtime_checkable
+class TrainableTransitionModel(TransitionModel, Protocol):
+    """
+    A transition model that an epoch re-estimates. Not usable yet.
+
+    It persists the way a :class:`ScoreModel` does - ``artifacts`` is the whole
+    parameter set, ``save`` writes it - so the epoch job could carry it from one
+    epoch to the next exactly as it carries the score model. The update comes
+    from a :class:`TransitionAccumulator`. What is missing is the input to that
+    update: the transition posteriors
+    (:attr:`RecognitionResult.transition_posteriors`), which the op computes
+    from milestone T3 on, and the epoch job's merging and saving of the
+    accumulated statistics.
+    """
+
+    def artifacts(self) -> Dict[str, np.ndarray]: ...
+
+    def save(self, directory: str) -> None: ...
+
+
+@runtime_checkable
+class TransitionAccumulator(Protocol):
+    """
+    Sufficient statistics for re-estimating a
+    :class:`TrainableTransitionModel`. Not usable yet.
+
+    The same contract as :class:`Accumulator`, with the transition posteriors in
+    place of the label posteriors: ``merge`` must be associative so that
+    ``num_chunks`` stays a scheduling knob, and the model is bound once per
+    chunk and held fixed. The EM update for transition scores
+    ``theta_t = f(features_t)`` maximizes ``sum_t sum_k xi_t(k) theta_t(k)``,
+    so ``observe`` needs the features and ``xi``, not the label posteriors.
+    """
+
+    def bind_model(self, model: TransitionModel) -> None: ...
+
+    def observe(self, seq_tag: str, features: np.ndarray, transition_posteriors: np.ndarray) -> None: ...
+
+    def merge(self, other: "TransitionAccumulator") -> "TransitionAccumulator": ...
+
+    def scale(self, factor: float) -> "TransitionAccumulator": ...
+
+    def finalize(self, previous: TransitionModel) -> TransitionModel: ...
+
+    def state_dict(self) -> dict: ...
+
+    def load_state_dict(self, state: dict) -> "TransitionAccumulator": ...

@@ -80,10 +80,14 @@ __all__ = [
     "PARAM_HEADERS",
     "create_latex_report",
     "latex_escape",
+    "TableReport",
+    "TextTableReport",
+    "delatex",
 ]
 
 import itertools
 import math
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable, Sequence
 
@@ -421,6 +425,90 @@ def _from_frequency(phoneme: str, epoch: int | str = "row") -> Callable[[Row], A
     return source
 
 
+class _EpochDelta(DelayedBase):
+    """A statistic at one epoch minus the same statistic at a baseline epoch.
+
+    Exists because some of these statistics are a small signal riding on a large
+    additive constant. ``mean_log_likelihood_per_frame`` is the clearest case: it
+    carries the Gaussian normalisation, which is hundreds of nats and identical in
+    every epoch, so a run whose objective improves by 0.3 nats shows six identical
+    leading digits and reads as "not converging" when it is in fact moving. The
+    difference drops the constant and leaves the part that changed.
+    """
+
+    def __init__(self, variable, epoch, baseline, key=None):
+        super().__init__(variable, None)
+        self.epoch = epoch
+        self.baseline = baseline
+        self.key = key
+
+    def _lookups(self):
+        return (
+            _EpochLookup(self.a, self.epoch, self.key),
+            _EpochLookup(self.a, self.baseline, self.key),
+        )
+
+    def is_set(self):
+        return all(lookup.is_set() for lookup in self._lookups())
+
+    def get(self):
+        current, base = self._lookups()
+        return current.get() - base.get()
+
+
+def _from_statistic_delta(
+    stat_key: str, baseline: int | str = "first", epoch: int | str = "row"
+) -> Callable[[Row], Any]:
+    def source(row: Row):
+        if row.statistics is None:
+            return None
+        stat_epoch = _statistics_epoch(row, epoch)
+        if stat_epoch is None:
+            return None
+        base = baseline
+        if base == "first":
+            scalars = row.statistics.scalars
+            # One Variable per epoch is the per-epoch extraction; a single Variable
+            # holds them all. Only the first form lets the baseline be found without
+            # resolving anything, which is what keeps this usable mid-run.
+            if isinstance(scalars, dict):
+                if not scalars:
+                    return None
+                base = min(scalars)
+            else:
+                base = 1
+        return _EpochDelta(row.statistics.scalars, stat_epoch, base, stat_key)
+
+    return source
+
+
+def _from_frequencies(epoch: int | str = "row") -> Callable[[Row], Any]:
+    """The whole ``{label: fraction}`` distribution, for a column that reduces it."""
+
+    def source(row: Row):
+        if row.statistics is None or row.statistics.frequencies is None:
+            return None
+        stat_epoch = _statistics_epoch(row, epoch)
+        if stat_epoch is None:
+            return None
+        return _EpochLookup(row.statistics.frequencies, stat_epoch)
+
+    return source
+
+
+def _distribution_perplexity(frequencies: dict) -> float:
+    """``exp(H)`` of a label distribution: how many labels it effectively uses."""
+    total = sum(v for v in frequencies.values() if v and v > 0)
+    if not total:
+        return float("nan")
+    entropy = 0.0
+    for value in frequencies.values():
+        if value and value > 0:
+            share = value / total
+            entropy -= share * math.log(share)
+    return math.exp(entropy)
+
+
 # -- column factories -------------------------------------------------------------
 
 #: Headers for the hyperparameters the guided-k-means configs sweep over. Anything
@@ -477,7 +565,7 @@ def loop_probability(
     if transition_scale <= 0.0:
         raise ValueError(f"transition_scale must be positive, got {transition_scale}")
     if header is None:
-        header = ("Loop prob.", f"ts = {transition_scale:g}")
+        header = ("Loop prob.", f"weight = {transition_scale:g}")
 
     def source(row: Row):
         lam = row.params.get(param_name)
@@ -661,6 +749,12 @@ COLUMN_LIBRARY: dict = {
         "guided_sub", ("Guided", _percent("Sub")), _from_value("guided_sub"),
         fmt="{:.1f}", scale=100, block="guided",
     ),
+    # Hypothesis/reference length, 1 - Del + Ins exactly, as for the free-
+    # segmentation decode: below one where the search merges segments.
+    "guided_hyp_ref": lambda: Column(
+        "guided_hyp_ref", ("Guided", "hyp/ref"), _from_value("guided_hyp_ref"),
+        fmt="{:.3f}", block="guided",
+    ),
     # statistics
     "l1": prior_l1,
     "silence": lambda: phoneme_fraction("[SILENCE]"),
@@ -701,6 +795,37 @@ COLUMN_LIBRARY: dict = {
     "dead_clusters": lambda: statistic(
         "dead_cluster_count", ("Dead", "clusters"), fmt="{:,}"
     ),
+    # The convergence signal the raw log-likelihood hides. That statistic carries
+    # the Gaussian normalisation -- hundreds of nats, constant across epochs -- so
+    # a run improving by 0.3 nats prints six identical leading digits and looks
+    # stuck. Against the run's own first epoch the constant cancels and only the
+    # movement is left, which is the number worth reading during training.
+    "log_likelihood_gain": lambda: Column(
+        "log_likelihood_gain",
+        ("Log lik.", "gain"),
+        _from_statistic_delta("mean_log_likelihood_per_frame"),
+        fmt="{:+.3f}",
+        block="stat",
+    ),
+    # How many labels the posteriors effectively use, as exp(entropy) of the label
+    # distribution. Reads against the cluster count: near it, usage is spread;
+    # far below, a few labels are absorbing the corpus. Complements
+    # "dead_clusters", which only catches labels that have gone to exactly zero
+    # and so stays at 0 through a collapse that merely concentrates mass.
+    "cluster_perplexity": lambda: Column(
+        "cluster_perplexity",
+        ("Label", "perplexity"),
+        _from_frequencies(),
+        fmt=lambda d: f"{_distribution_perplexity(d):.1f}",
+        block="stat",
+    ),
+    "max_cluster_fraction": lambda: Column(
+        "max_cluster_fraction",
+        ("Largest", "label"),
+        _from_frequencies(),
+        fmt=lambda d: (f"{max(d.values()) * 100:.1f}" if d else "-"),
+        block="stat",
+    ),
     # add_row(values={"mi": MixtureDiagnosticsJob(...).out_mi}) fills this in.
     # Reference-free, and unaffected by which search produced the posteriors: it
     # is a function of the mixture weights alone, so it reads the same for a
@@ -716,18 +841,119 @@ COLUMN_LIBRARY: dict = {
     "visited_phonemes": lambda: statistic(
         "fraction_visited_phonemes", ("Visited", "phonemes"), fmt="{:.3f}"
     ),
+    # Duration off the posteriors, for the forward-backward path, which has no
+    # Viterbi path to count runs along. "segment_duration" above reads the soft
+    # estimate (an expectation under a frame-independence assumption, so an
+    # upper bound on the boundary rate and a lower bound on duration); this is
+    # the run length of the argmax label sequence, which errs the other way.
+    # Read them together: far apart means the posteriors are smeared, close
+    # means the segmentation is committed. On this corpus the GMM alignment's
+    # own mean is 3.99 frames, so that is the number both should approach.
+    "segment_duration_argmax": lambda: statistic(
+        "average_segment_duration_argmax", ("Avg. dur.", "(argmax)"), fmt="{:.2f}"
+    ),
+    "boundary_rate": lambda: statistic(
+        "boundary_rate_argmax", ("Boundary", "rate"), fmt="{:.3f}"
+    ),
+    # Emission vs LM, from setup.emission_balance.EmissionBalanceJob; pass its
+    # Variables via add_row(values={...}) under these keys. All in nats after the
+    # AM scale. "segment_gap" is the acoustic evidence for a label-identity
+    # decision; "boundary_payback" is what the acoustics gain by placing a true
+    # boundary, read against "boundary_price", the LM's (and the topology's)
+    # charge for one more phoneme. "payable_boundaries" is the share of true
+    # boundaries whose payback clears the price.
+    "segment_gap": lambda: Column(
+        "segment_gap", ("Seg.", "gap"), _from_value("segment_gap"),
+        fmt="{:.3f}", block="stat"),
+    "boundary_payback": lambda: Column(
+        "boundary_payback", ("Bnd.", "payback"), _from_value("boundary_payback"),
+        fmt="{:.3f}", block="stat"),
+    "boundary_price": lambda: Column(
+        "boundary_price", ("Bnd.", "price"), _from_value("boundary_price"),
+        fmt="{:.3f}", block="stat"),
+    "payable_boundaries": lambda: Column(
+        "payable_boundaries", _percent("Payable"), _from_value("payable_boundaries"),
+        fmt="{:.1f}", scale=100, block="stat"),
+    # A second decode_and_score run on cv *frames* with free segmentation (a loop
+    # in the recog config) instead of segment means. Pass via add_row(values=...)
+    # from its DecodeRecogResult: "matched_per" takes .per (already a
+    # percentage), the error types .deletion/.insertion/.substitution, and
+    # "matched_hyp_ref" the delayed 1 - deletion + insertion, which is the
+    # hypothesis/reference length ratio exactly. Unlike the standard decode,
+    # which is handed the boundaries and so pins hypothesis length, these can
+    # show a segmentation error - as deletions, and as a ratio below one.
+    "matched_per": lambda: Column(
+        "matched_per", ("Free-seg.", "PER [\\%]"), _from_value("matched_per"),
+        fmt="{:.1f}", block="matched"),
+    "matched_del": lambda: Column(
+        "matched_del", ("Free-seg.", "Del [\\%]"), _from_value("matched_del"),
+        fmt="{:.1f}", scale=100, block="matched"),
+    "matched_ins": lambda: Column(
+        "matched_ins", ("Free-seg.", "Ins [\\%]"), _from_value("matched_ins"),
+        fmt="{:.1f}", scale=100, block="matched"),
+    "matched_sub": lambda: Column(
+        "matched_sub", ("Free-seg.", "Sub [\\%]"), _from_value("matched_sub"),
+        fmt="{:.1f}", scale=100, block="matched"),
+    "matched_hyp_ref": lambda: Column(
+        "matched_hyp_ref", ("Free-seg.", "hyp/ref"), _from_value("matched_hyp_ref"),
+        fmt="{:.3f}", block="matched"),
 }
 
 
-class LatexTableReport:
+def column_from_name(name: str) -> Column:
+    """The library column called ``name``, or a parameter column of that name."""
+    factory = COLUMN_LIBRARY.get(name)
+    return factory() if factory is not None else param(name)
+
+
+def relabel(column: str | Column, header: str | Sequence[str], **kwargs) -> Column:
     """
-    Collects rows and renders them as a LaTeX ``table``.
+    A ready-made column under a different header, everything else kept.
+
+    The headers in :data:`COLUMN_LIBRARY` name a column the same way in every table
+    of the setup, so they carry a qualification the reader of a single table does
+    not need: in a table whose caption already says free segmentation,
+    ``Free-seg. PER`` is better off as plain ``PER``. Renaming through this keeps
+    the value source, format, scale and block; re-declaring the column by hand
+    does not -- ``param("matched_del", header="Del")`` reads the wrong place
+    (``params`` rather than the row's ``values``) and silently drops the x100
+    scale, so the cell comes out a hundred times too small or empty::
+
+        columns=[relabel("matched_per", r"PER [\%]"), "epoch"]
+
+    :param column: a name in :data:`COLUMN_LIBRARY`, or a ``Column`` to copy
+    :param header: the new header, one string or one string per stacked line
+    :param kwargs: further ``Column`` fields to override along with the header
+    """
+    if isinstance(column, str):
+        column = column_from_name(column)
+    return replace(column, header=header, **kwargs)
+
+
+class TableReport:
+    """
+    Collects rows, selects and resolves their cells, and leaves rendering to a
+    subclass.
+
+    Everything that decides *what* is in the table lives here: the rows, the column
+    library, grouping, sorting, epoch filtering, dropping empty rows, and resolving a
+    cell through its (possibly still-unfinished) sisyphus Variable. Subclasses add
+    only *how* it is printed -- :class:`LatexTableReport` and
+    :class:`TextTableReport` differ in nothing else, which is what makes the two
+    views of one run guaranteed to agree.
 
     The instance is the report value handed to ``tk.register_report``: sisyphus calls
     it to (re)write the file, and finds the Variables it depends on by walking the
     rows, so cells fill in as the jobs behind them finish. Cells whose job has not run
     yet render as ``missing``.
+
+    A subclass implements ``__call__`` (returning the file contents) and may override
+    :meth:`_escape`, which is applied to string cell values.
     """
+
+    #: Conventional extension for this format, used by :meth:`register` to derive the
+    #: ``.deps`` stem.
+    SUFFIX = ""
 
     def __init__(
         self,
@@ -738,14 +964,8 @@ class LatexTableReport:
         drop_empty_rows: bool = False,
         row_filter: Callable[[Row], bool] | None = None,
         caption: str | None = None,
-        label: str | None = None,
-        placement: str = "h!",
         highlight: Callable[[Row, str], bool] | None = None,
-        highlight_color: str = "FFCE93",
-        highlight_text_color: str = "333333",
         missing: str = "",
-        group_rule: str = r"\hline \hline",
-        preamble_comment: bool = True,
     ):
         """
         :param columns: column names and/or ``Column`` objects; None derives them
@@ -764,15 +984,11 @@ class LatexTableReport:
             that just contrasts the start and end of training
         :param row_filter: keep only rows this returns True for, applied on top of
             ``epochs``
-        :param caption: table caption, emitted verbatim (write it as LaTeX)
-        :param label: ``\\label`` for the table
-        :param placement: float placement specifier
-        :param highlight: called with ``(row, column_key)``; True colours that cell
-        :param highlight_color: cell background, as an HTML colour
-        :param highlight_text_color: text colour inside a highlighted cell
+        :param caption: table caption. Written for the richest format in use, so it
+            may contain LaTeX; :class:`TextTableReport` strips the markup it knows.
+        :param highlight: called with ``(row, column_key)``; True marks that cell, in
+            whatever way the format has
         :param missing: text for cells whose value is not available
-        :param group_rule: rule drawn between row groups
-        :param preamble_comment: emit a comment naming the packages the table needs
         """
         self._columns = list(columns) if columns is not None else None
         self.group_by = list(group_by) if group_by is not None else None
@@ -781,16 +997,29 @@ class LatexTableReport:
         self.drop_empty_rows = drop_empty_rows
         self.row_filter = row_filter
         self.caption = caption
-        self.label = label
-        self.placement = placement
         self.highlight = highlight
-        self.highlight_color = highlight_color
-        self.highlight_text_color = highlight_text_color
         self.missing = missing
-        self.group_rule = group_rule
-        self.preamble_comment = preamble_comment
 
         self.rows: list[Row] = []
+
+    def _settings(self) -> dict:
+        """Constructor keywords reproducing this report, for :meth:`view`."""
+        return dict(
+            columns=self._columns,
+            group_by=self.group_by,
+            sort_by=self.sort_by,
+            epochs=self.epochs,
+            drop_empty_rows=self.drop_empty_rows,
+            row_filter=self.row_filter,
+            caption=self.caption,
+            highlight=self.highlight,
+            missing=self.missing,
+        )
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        """Applied to string cell values; the plain-text format needs no escaping."""
+        return text
 
     # -- building -----------------------------------------------------------------
 
@@ -832,7 +1061,7 @@ class LatexTableReport:
         for result in results:
             self.add_row(result=result, **kwargs)
 
-    def view(self, **overrides) -> "LatexTableReport":
+    def view(self, **overrides) -> "TableReport":
         """
         A second report over the same rows, with some settings changed.
 
@@ -845,29 +1074,41 @@ class LatexTableReport:
 
         :param overrides: any constructor keyword argument to change
         """
-        settings = dict(
-            columns=self._columns,
-            group_by=self.group_by,
-            sort_by=self.sort_by,
-            epochs=self.epochs,
-            drop_empty_rows=self.drop_empty_rows,
-            row_filter=self.row_filter,
-            caption=self.caption,
-            label=self.label,
-            placement=self.placement,
-            highlight=self.highlight,
-            highlight_color=self.highlight_color,
-            highlight_text_color=self.highlight_text_color,
-            missing=self.missing,
-            group_rule=self.group_rule,
-            preamble_comment=self.preamble_comment,
-        )
+        settings = self._settings()
         settings.update(overrides)
-        other = LatexTableReport(**settings)
+        other = type(self)(**settings)
         other.rows = self.rows
         return other
 
-    def register(self, output_path: str, required: bool = True, register_dependencies: bool = True):
+    def as_text(self, **overrides) -> "TextTableReport":
+        """
+        The same rows and the same column selection, rendered as plain text.
+
+        The point of the shared base: this is not a second table that happens to
+        agree, it is the same selection logic with a different printer, so a
+        discrepancy between the two is impossible rather than merely unlikely.
+        Settings this format has no use for (float placement, LaTeX rules) are
+        dropped, and anything :class:`TextTableReport` accepts can be overridden.
+
+        :param overrides: constructor keywords for the text report
+        """
+        settings = {
+            key: value
+            for key, value in self._settings().items()
+            if key in TableReport.__init__.__code__.co_varnames
+        }
+        settings.update(overrides)
+        other = TextTableReport(**settings)
+        other.rows = self.rows
+        return other
+
+    def register(
+        self,
+        output_path: str,
+        required: Any = True,
+        register_dependencies: bool = True,
+        update_frequency: int = 300,
+    ):
         """
         Register the table as a sisyphus report under ``output_path``.
 
@@ -879,12 +1120,24 @@ class LatexTableReport:
         only registered once per process, so registering several views of the same
         rows does not produce several copies of the same ``.deps`` tree.
 
-        :param output_path: path under ``output/``, conventionally ending in ``.tex``
-        :param required: passed through to ``tk.register_report``
+        :param output_path: path under ``output/``, conventionally ending in this
+            format's ``SUFFIX``
+        :param required: passed through to ``tk.register_report``. Sisyphus treats it as
+            the paths the report waits on, not as a flag: ``True`` holds no paths, so
+            the report counts as done at once, is written a single time and is only
+            rewritten when the manager restarts. Pass the report itself
+            (``required=report``) to have it rewritten every ``update_frequency``
+            seconds while its inputs are being computed.
         :param register_dependencies: set False to skip the ``.deps`` outputs, when
             something else in the config already keeps the statistics jobs alive
+        :param update_frequency: seconds between rewrites, see ``required``
         """
-        stem = output_path[: -len(".tex")] if output_path.endswith(".tex") else output_path
+        suffix = self.SUFFIX
+        stem = (
+            output_path[: -len(suffix)]
+            if suffix and output_path.endswith(suffix)
+            else output_path
+        )
 
         if register_dependencies:
             for index, row in enumerate(self.rows):
@@ -910,13 +1163,14 @@ class LatexTableReport:
                         _REGISTERED_DEPENDENCIES.add(entry.get_path())
                         tk.register_output(f"{stem}.deps/{name}.{label}", entry)
 
-        return tk.register_report(output_path, values=self, required=required)
+        return tk.register_report(
+            output_path, values=self, required=required, update_frequency=update_frequency
+        )
 
-    # -- rendering ----------------------------------------------------------------
+    # -- selection ----------------------------------------------------------------
 
     def _column_from_name(self, name: str) -> Column:
-        factory = COLUMN_LIBRARY.get(name)
-        return factory() if factory is not None else param(name)
+        return column_from_name(name)
 
     def _visible_rows(self) -> list:
         rows = self.rows
@@ -1009,11 +1263,125 @@ class LatexTableReport:
         if isinstance(value, (int, float)) and not isinstance(value, bool) and column.scale is not None:
             value = value * column.scale
         if isinstance(value, str) and not column.raw:
-            value = latex_escape(value)
+            value = self._escape(value)
         try:
             return column.fmt(value) if callable(column.fmt) else column.fmt.format(value)
         except (ValueError, TypeError, IndexError, KeyError):
             return str(value)
+
+    def _row_has_data(self, columns: list, row: Row) -> bool:
+        """
+        True if any computed cell of ``row`` renders as something.
+
+        Judged from the rendered text rather than from the Variables, so what counts
+        as present here is exactly what would show in the table. Cells that are not
+        computed at all - parameters, the epoch index - are ignored, or every row
+        would qualify.
+        """
+        for column in columns:
+            if not isinstance(column.value(row), DelayedBase):
+                continue
+            missing = column.missing if column.missing is not None else self.missing
+            if self._cell_text(column, row) != missing:
+                return True
+        return False
+
+    def _prepared(self):
+        """
+        ``(groups, columns)`` after filtering, column resolution and sorting, or
+        ``(None, None)`` when there is nothing to show.
+
+        The single place the two formats get their content from, so a row that one
+        of them drops is dropped by both.
+        """
+        rows = self._visible_rows()
+        if not rows:
+            return None, None
+        columns = self._resolve_columns(rows)
+        if self.drop_empty_rows:
+            rows = [row for row in rows if self._row_has_data(columns, row)]
+            if not rows:
+                return [], columns
+        return self._groups(self._sorted_rows(rows)), columns
+
+    def __call__(self) -> str:
+        raise NotImplementedError
+
+    def __str__(self) -> str:
+        return self()
+
+
+class LatexTableReport(TableReport):
+    """
+    Renders the rows as a LaTeX ``table``.
+
+    Adds only the float wrapper, the ``tabular`` body, ``\multirow`` spanning and
+    ``\cellcolor`` highlighting. What goes in the table is :class:`TableReport`'s.
+    """
+
+    SUFFIX = ".tex"
+
+    def __init__(
+        self,
+        columns: Sequence[str | Column] | None = None,
+        group_by: Sequence[str] | None = None,
+        sort_by: Sequence[str] | None = None,
+        epochs: Sequence[int] | None = None,
+        drop_empty_rows: bool = False,
+        row_filter: Callable[[Row], bool] | None = None,
+        caption: str | None = None,
+        label: str | None = None,
+        placement: str = "h!",
+        highlight: Callable[[Row, str], bool] | None = None,
+        highlight_color: str = "FFCE93",
+        highlight_text_color: str = "333333",
+        missing: str = "",
+        group_rule: str = r"\hline \hline",
+        preamble_comment: bool = True,
+    ):
+        """
+        :param label: ``\\label`` for the table
+        :param placement: float placement specifier
+        :param highlight_color: cell background, as an HTML colour
+        :param highlight_text_color: text colour inside a highlighted cell
+        :param group_rule: rule drawn between row groups
+        :param preamble_comment: emit a comment naming the packages the table needs
+
+        Every other parameter is :class:`TableReport`'s.
+        """
+        super().__init__(
+            columns=columns,
+            group_by=group_by,
+            sort_by=sort_by,
+            epochs=epochs,
+            drop_empty_rows=drop_empty_rows,
+            row_filter=row_filter,
+            caption=caption,
+            highlight=highlight,
+            missing=missing,
+        )
+        self.label = label
+        self.placement = placement
+        self.highlight_color = highlight_color
+        self.highlight_text_color = highlight_text_color
+        self.group_rule = group_rule
+        self.preamble_comment = preamble_comment
+
+    def _settings(self) -> dict:
+        settings = super()._settings()
+        settings.update(
+            label=self.label,
+            placement=self.placement,
+            highlight_color=self.highlight_color,
+            highlight_text_color=self.highlight_text_color,
+            group_rule=self.group_rule,
+            preamble_comment=self.preamble_comment,
+        )
+        return settings
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        return latex_escape(text)
 
     def _decorate(self, text: str, row: Row, column: Column) -> str:
         if self.highlight is None or not self.highlight(row, column.key):
@@ -1063,34 +1431,12 @@ class LatexTableReport:
             )
         return " & ".join(cells) + r" \\ \hline \hline"
 
-    def _row_has_data(self, columns: list, row: Row) -> bool:
-        """
-        True if any computed cell of ``row`` renders as something.
-
-        Judged from the rendered text rather than from the Variables, so what counts
-        as present here is exactly what would show in the table. Cells that are not
-        computed at all - parameters, the epoch index - are ignored, or every row
-        would qualify.
-        """
-        for column in columns:
-            if not isinstance(column.value(row), DelayedBase):
-                continue
-            missing = column.missing if column.missing is not None else self.missing
-            if self._cell_text(column, row) != missing:
-                return True
-        return False
-
     def __call__(self) -> str:
-        rows = self._visible_rows()
-        if not rows:
+        groups, columns = self._prepared()
+        if columns is None:
             return "% no rows registered for this table\n"
-
-        columns = self._resolve_columns(rows)
-        if self.drop_empty_rows:
-            rows = [row for row in rows if self._row_has_data(columns, row)]
-            if not rows:
-                return "% every row is still empty\n"
-        groups = self._groups(self._sorted_rows(rows))
+        if not groups:
+            return "% every row is still empty\n"
 
         lines = []
         for group_index, group in enumerate(groups):
@@ -1143,8 +1489,214 @@ class LatexTableReport:
         out.append(r"\end{table}")
         return "\n".join(out) + "\n"
 
-    def __str__(self) -> str:
-        return self()
+
+#: Replaced before any command handling, because these are literal strings rather
+#: than commands with arguments.
+_DELATEX_LITERALS = (
+    (r"\begin{tabular}[c]{@{}c@{}}", " "), (r"\end{tabular}", " "),
+    (r"\%", "%"), (r"\_", "_"), (r"\&", "&"), (r"\#", "#"), (r"\$", "$"),
+)
+
+#: Commands whose name is noise but whose argument is content: dropped, argument
+#: kept. ``\mathcal{N}`` has to become ``N`` here, before the braces go, or it
+#: would read as ``mathcalN``.
+_DELATEX_WRAPPERS = (
+    "mathcal", "mathrm", "mathbf", "mathit", "mathsf", "textbf", "textit",
+    "texttt", "emph", "text", "operatorname",
+)
+
+#: Commands that are pure spacing or sizing, with no argument worth keeping.
+_DELATEX_SPACING = ("left", "right", "quad", "qquad", "," , ";", "!", "/")
+
+#: Math operators with a readable ASCII equivalent. Without these the generic
+#: fallback would render ``\sim`` as ``sim``, which reads as a word.
+_DELATEX_SYMBOLS = {
+    "sim": "~", "approx": "~=", "times": "x", "cdot": ".", "pm": "+-",
+    "to": "->", "rightarrow": "->", "leftarrow": "<-", "ll": "<<", "gg": ">>",
+    "leq": "<=", "geq": ">=", "neq": "!=", "infty": "inf", "ldots": "...",
+    "dots": "...", "cdots": "...",
+}
+
+
+def delatex(text: str) -> str:
+    """Strip the LaTeX a caption or header written for the .tex output carries.
+
+    Best-effort and lossy by design: the aim is a caption a person can read in a
+    terminal, not a faithful de-rendering. A command this does not know keeps its
+    name and loses its backslash, so ``\\sigma`` reads as ``sigma`` rather than
+    disappearing -- wrong-looking is recoverable, silently dropped is not.
+    """
+    for needle, replacement in _DELATEX_LITERALS:
+        text = text.replace(needle, replacement)
+    # Line breaks before the generic command pass, which would eat the backslashes.
+    text = re.sub(r"\\\\\s*", " ", text)
+    for command in _DELATEX_WRAPPERS:
+        # Innermost first, so nesting unwraps rather than leaving a stray name.
+        pattern = r"\\" + command + r"\s*\{([^{}]*)\}"
+        while re.search(pattern, text):
+            text = re.sub(pattern, r"\1", text)
+        text = re.sub(r"\\" + command + r"(?![a-zA-Z])", " ", text)
+    for command in _DELATEX_SPACING:
+        text = re.sub(r"\\" + re.escape(command) + r"(?![a-zA-Z])", " ", text)
+    for command, symbol in _DELATEX_SYMBOLS.items():
+        text = re.sub(r"\\" + command + r"(?![a-zA-Z])", symbol, text)
+    # Everything left keeps its name: \tau -> tau, \Sigma -> Sigma.
+    text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
+    text = text.replace("\\", " ")
+    for char in "${}":
+        text = text.replace(char, "")
+    return " ".join(text.split())
+
+
+class TextTableReport(TableReport):
+    """
+    Renders the rows as a fixed-width plain-text table.
+
+    Exists so a run can be read without a LaTeX pass -- during training above all,
+    where the question is whether the numbers are moving at all. It is deliberately
+    a sibling of :class:`LatexTableReport` rather than a reimplementation: rows,
+    columns, grouping, sorting, epoch filtering and cell resolution all come from
+    :class:`TableReport`, so the two cannot drift apart. ``report.as_text()`` gives
+    the text twin of a table already built for LaTeX.
+
+    Differences from the LaTeX output, all of them presentational:
+
+    * stacked headers are flattened to one line and LaTeX markup is stripped
+    * a spanning column shows its value on the group's first row and is blank
+      underneath, which is what ``\multirow`` looks like
+    * a highlighted cell is marked with ``*`` instead of coloured
+    """
+
+    SUFFIX = ".txt"
+
+    def __init__(
+        self,
+        columns: Sequence[str | Column] | None = None,
+        group_by: Sequence[str] | None = None,
+        sort_by: Sequence[str] | None = None,
+        epochs: Sequence[int] | None = None,
+        drop_empty_rows: bool = False,
+        row_filter: Callable[[Row], bool] | None = None,
+        caption: str | None = None,
+        highlight: Callable[[Row, str], bool] | None = None,
+        missing: str = "-",
+        title: str | None = None,
+        separator: str = "  ",
+        max_caption_width: int = 100,
+    ):
+        """
+        :param missing: defaults to ``-`` rather than the empty string, so a cell
+            that has no value yet is visibly pending instead of looking like a
+            column that was never asked for -- the common case while a run is in
+            flight, which is when this format gets read
+        :param title: heading above the table; the caption is used when unset
+        :param separator: column separator
+        :param max_caption_width: wrap the caption at this width
+
+        Every other parameter is :class:`TableReport`'s.
+        """
+        super().__init__(
+            columns=columns,
+            group_by=group_by,
+            sort_by=sort_by,
+            epochs=epochs,
+            drop_empty_rows=drop_empty_rows,
+            row_filter=row_filter,
+            caption=caption,
+            highlight=highlight,
+            missing=missing,
+        )
+        self.title = title
+        self.separator = separator
+        self.max_caption_width = max_caption_width
+
+    def _settings(self) -> dict:
+        settings = super()._settings()
+        settings.update(
+            title=self.title,
+            separator=self.separator,
+            max_caption_width=self.max_caption_width,
+        )
+        return settings
+
+    @staticmethod
+    def _header_cell(header: str | Sequence[str]) -> str:
+        lines = [header] if isinstance(header, str) else list(header)
+        return delatex(" ".join(lines))
+
+    def _decorate(self, text: str, row: Row, column: Column) -> str:
+        if self.highlight is None or not self.highlight(row, column.key):
+            return text
+        return f"{text}*"
+
+    def _wrap(self, text: str) -> list[str]:
+        words, lines, current = text.split(), [], ""
+        for word in words:
+            if current and len(current) + 1 + len(word) > self.max_caption_width:
+                lines.append(current)
+                current = word
+            else:
+                current = f"{current} {word}" if current else word
+        if current:
+            lines.append(current)
+        return lines
+
+    def __call__(self) -> str:
+        groups, columns = self._prepared()
+        if columns is None:
+            return "no rows registered for this table\n"
+        if not groups:
+            return "every row is still empty\n"
+
+        headers = [self._header_cell(column.header) for column in columns]
+        # Blank the repeats of a spanning column, as \multirow does, but only when
+        # the value really is constant across the group - the same test the LaTeX
+        # renderer applies, so the two agree on what is merged.
+        body: list[list[str] | None] = []
+        for group_index, group in enumerate(groups):
+            texts = [[self._cell_text(column, row) for column in columns] for row in group]
+            spanning = [
+                column.span and len({text[index] for text in texts}) == 1
+                for index, column in enumerate(columns)
+            ]
+            for row_index, row in enumerate(group):
+                cells = []
+                for index, column in enumerate(columns):
+                    if spanning[index] and row_index > 0:
+                        cells.append("")
+                    elif spanning[index]:
+                        cells.append(texts[0][index])
+                    else:
+                        cells.append(self._decorate(texts[row_index][index], row, column))
+                body.append(cells)
+            if group_index < len(groups) - 1:
+                body.append(None)          # group separator
+
+        widths = [
+            max(len(headers[i]), *(len(r[i]) for r in body if r is not None))
+            for i in range(len(columns))
+        ]
+
+        def line(cells: list[str]) -> str:
+            out = []
+            for index, (cell, width) in enumerate(zip(cells, widths)):
+                out.append(cell.ljust(width) if columns[index].align == "l"
+                           else cell.rjust(width))
+            return self.separator.join(out).rstrip()
+
+        rule = self.separator.join("-" * width for width in widths)
+        out = []
+        title = self.title if self.title is not None else (
+            delatex(self.caption) if self.caption else None)
+        if title:
+            out.extend(self._wrap(title))
+            out.append("")
+        out.append(line(headers))
+        out.append(rule)
+        for cells in body:
+            out.append(rule.replace("-", " ").rstrip() if cells is None else line(cells))
+        out.append("")
+        return "\n".join(out) + "\n"
 
 
 def create_latex_report(

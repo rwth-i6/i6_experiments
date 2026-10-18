@@ -328,3 +328,31 @@ def decode_and_score(
         result.substitution_gmm = gmm_score_job.out_substitutions
 
     return result
+
+
+def phoneme_reference(corpus_key: str, segments: tk.Path | None = None) -> tk.Path:
+    """
+    Tagged phoneme reference for a corpus, built exactly as
+    :func:`decode_and_score` builds its own: unknown-word segments filtered,
+    the lexicon applied, optionally restricted to ``segments``.
+
+    For scoring hypotheses that do not come from a decode - in particular a
+    training run's own, ``chunked_clustering(score_reference=...)``. Pass the
+    feature file's segment list so the reference covers exactly the sequences
+    the run sees (``JiwerScoringJob`` scores only shared tags either way, but a
+    reference much larger than the hypotheses hides a run that lost sequences
+    behind a warning).
+
+    :param corpus_key: :func:`.corpus_setup.setup_corpus` key, e.g.
+        ``"train-clean-100"``
+    :param segments: segment list to keep, e.g. a
+        ``SegmentedFeaturesFromAlignmentJob``'s ``out_segments``
+    """
+    setup_result = setup_corpus(key=corpus_key)
+    filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(
+        setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True
+    ).out_corpus
+    phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
+    if segments is not None:
+        phoneme_corpus = FilterCorpusBySegmentsJob(phoneme_corpus, segments).out_corpus
+    return TaggedCorpusToTxtJob(phoneme_corpus).out_txt

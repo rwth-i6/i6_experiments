@@ -3270,6 +3270,511 @@ def main() -> int:
         ),
     )
 
+    print("untied states")
+    from itertools import product as _product
+
+    from ..backoff_fb_graph import LabelLayout, build_topology
+    from ..statistics import FBStatisticsCounter
+    from ..util import posteriors_to_text
+    from .runner import run_chunk as _run_chunk
+    from ....setup.emission_balance import emission_balance, state_segment_costs
+
+    tied, untied = LabelLayout(3, 2), LabelLayout(3, 2, tie_states=False)
+    _check(
+        "layout: tied S=2 emits the phoneme from every state",
+        tied.num_labels == 3 and tied.emission_table().tolist() == [[0, 0], [1, 1], [2, 2]],
+    )
+    _check(
+        "layout: untied is phoneme-major, V*S labels",
+        untied.num_labels == 6
+        and untied.emission_table().tolist() == [[0, 1], [2, 3], [4, 5]]
+        and untied.phoneme_of().tolist() == [0, 0, 1, 1, 2, 2]
+        and untied.state_of().tolist() == [0, 1, 0, 1, 0, 1],
+    )
+    _check("layout: untying one state is the tied layout",
+           not LabelLayout(3, 1, tie_states=False).untied
+           and LabelLayout(3, 1, tie_states=False).num_labels == 3)
+    # The reference package, which the op's checkout carries; the same root
+    # tools.BACKOFF_FB points at.
+    fb_root = "/work/asr4/mann/tools/backoff_fb"
+    topo = build_topology(["<SIL>", "A", "B"], loop_probability=0.5, num_states=2,
+                          tie_states=False, backoff_fb_root=fb_root)
+    _check("build_topology: untied emissions",
+           topo.emis.tolist() == [[0, 1], [2, 3], [4, 5]] and topo.F == 6)
+    topo = build_topology(["<SIL>", "A", "B"], loop_probability=0.5, num_states=2,
+                          backoff_fb_root=fb_root)
+    _check("build_topology: tied by default", topo.emis.tolist() == [[0, 0], [1, 1], [2, 2]])
+
+    def onehot(labels, width):
+        out = np.zeros((len(labels), width))
+        out[np.arange(len(labels)), labels] = 1.0
+        return out
+
+    # a0 a1 | a0 a1 | b0 b1 b1 : two A's back to back, then B.
+    seq = onehot([2, 3, 2, 3, 4, 5, 5], 6)
+    _check("argmax segments: untied sees a repeated phoneme through the state reset",
+           untied.argmax_segments(seq).tolist() == [1, 1, 2])
+    _check("argmax segments: tied merges the same repeat",
+           tied.argmax_segments(onehot([1, 1, 1, 1, 2, 2, 2], 3)).tolist() == [1, 2])
+    _check("argmax segments: an untied state step is not a boundary",
+           untied.argmax_segments(onehot([2, 2, 3, 3], 6)).tolist() == [1])
+    _check("argmax segments: dead rows yield nothing",
+           untied.argmax_segments(np.zeros((4, 6))).size == 0
+           and tied.argmax_segments(np.zeros((0, 3))).size == 0)
+    names = ["[SILENCE]", "AA", "B"]
+    _check("posteriors_to_text: silence dropped, repeats kept untied",
+           posteriors_to_text(onehot([0, 1, 2, 3, 2, 3, 0, 4, 5], 6), names, untied)
+           == "AA AA B")
+    _check("posteriors_to_text: tied",
+           posteriors_to_text(onehot([1, 1, 0, 2], 3), names, tied) == "AA B")
+
+    # The counter on untied posteriors whose states split each phoneme's mass
+    # must describe the phonemes exactly as a tied counter describes the
+    # folded posteriors - except argmax runs, which untied can split further.
+    rng = np.random.default_rng(7)
+    phon = rng.dirichlet(np.ones(3) * 0.3, size=(5, 40))
+    split = rng.uniform(0.2, 0.8, size=(5, 40, 3, 1))
+    states = np.concatenate([phon[..., None] * split, phon[..., None] * (1 - split)], axis=3)
+    states = states.reshape(5, 40, 6)
+    c_tied, c_untied = FBStatisticsCounter(3), FBStatisticsCounter(6, num_states=2, tie_states=False)
+    for p_seq, s_seq in zip(phon, states):
+        c_tied.read_gammas(p_seq, -1.0)
+        c_untied.read_gammas(s_seq, -1.0)
+    ft, fu = c_tied.finalize(), c_untied.finalize()
+    same = all(
+        np.allclose(ft[k], fu[k])
+        for k in ("soft_cluster_frequencies", "mean_posterior_entropy",
+                  "relative_loop_frequency", "average_segment_duration",
+                  "mean_log_likelihood_per_frame")
+    )
+    _check("FB counter: untied phoneme statistics equal tied on folded posteriors", same)
+    _check("FB counter: per-state keys only when untied",
+           "soft_state_frequencies" in fu and len(fu["soft_state_frequencies"]) == 6
+           and "soft_state_frequencies" not in ft
+           and np.isclose(sum(fu["soft_state_frequencies"]), 1.0))
+    expected_runs = sum(len(untied.argmax_segments(x)) for x in states)
+    _check("FB counter: untied argmax runs follow the layout's rule",
+           np.isclose(fu["average_segment_duration_argmax"], 200 / expected_runs))
+    merged = pickle.loads(pickle.dumps(c_untied)).merge(pickle.loads(pickle.dumps(c_untied)))
+    _check("FB counter: untied counters pickle and merge",
+           np.allclose(merged.finalize()["soft_cluster_frequencies"], fu["soft_cluster_frequencies"]))
+    try:
+        FBStatisticsCounter(3).merge(FBStatisticsCounter(6, num_states=2, tie_states=False))
+        mixed = False
+    except ValueError:
+        mixed = True
+    _check("FB counter: refuses to merge different layouts", mixed)
+    legacy = FBStatisticsCounter(3)
+    for name in ("num_states", "tie_states", "state_entropy_sum"):
+        del legacy.__dict__[name]
+    revived = pickle.loads(pickle.dumps(legacy))
+    _check("FB counter: a pickle from before layouts reads as tied",
+           revived.layout == LabelLayout(3) and revived.merge(FBStatisticsCounter(3)) is revived)
+
+    # run_chunk: posterior hypotheses only for results that carry a sequence
+    # score, and only when asked for.
+    class _FakeFB:
+        def __init__(self, posteriors, score):
+            self.posteriors, self.score = posteriors, score
+
+        def start(self, on_result):
+            self.on_result = on_result
+
+        def submit(self, tag, scores):
+            self.on_result(RecognitionResult(seq_tag=tag, posteriors=self.posteriors,
+                                             sequence_score=self.score))
+
+        def drain(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    one_seq = [("s1", np.zeros((9, 2)))]
+
+    def chunk_hyps(recognizer, **kw):
+        return _run_chunk(
+            features=_ListSource(one_seq), model=EuclideanModel(np.zeros((6, 2))),
+            recognizer=recognizer, accumulator=NullAccumulator(),
+            transcribe=lambda tb: "<traceback>", verbosity=0, **kw,
+        ).hypotheses
+
+    post = onehot([0, 1, 2, 3, 2, 3, 0, 4, 5], 6)
+    transcriber = lambda g: posteriors_to_text(g, names, untied)
+    _check("run_chunk: forward-backward results transcribed from posteriors",
+           chunk_hyps(_FakeFB(post, -3.0), transcribe_posteriors=transcriber) == {"s1": "AA AA B"})
+    _check("run_chunk: without a posterior transcriber nothing changes",
+           chunk_hyps(_FakeFB(post, -3.0)) == {"s1": "<traceback>"})
+    _check("run_chunk: a result without a sequence score keeps the traceback path",
+           chunk_hyps(_FakeFB(post, None), transcribe_posteriors=transcriber)
+           == {"s1": "<traceback>"})
+
+    # Emission balance. Brute force first: the best left-to-right pass.
+    def brute(c, S):
+        F = len(c)
+        best = np.full(c.shape[1] // S, np.inf)
+        for cut in _product(range(1, F), repeat=S - 1):
+            if list(cut) != sorted(set(cut)):
+                continue
+            bounds = (0, *cut, F)
+            total = sum(c[bounds[j]:bounds[j + 1]].reshape(-1, c.shape[1] // S, S)[:, :, j].sum(0)
+                        for j in range(S))
+            best = np.minimum(best, total)
+        return best
+
+    costs = rng.normal(size=(30, 8))
+    starts, ends = np.array([0, 3, 7, 12, 20]), np.array([3, 7, 12, 20, 30])
+    got = state_segment_costs(costs, starts, ends, 2)
+    want = np.stack([brute(costs[b:e], 2) for b, e in zip(starts, ends)])
+    _check("balance: state segment costs equal brute force", np.allclose(got, want))
+    got3 = state_segment_costs(costs[:, :6], starts, ends, 3)
+    want3 = np.stack([brute(costs[b:e, :6], 3) for b, e in zip(starts, ends)])
+    _check("balance: ... at S=3", np.allclose(got3, want3))
+    one = state_segment_costs(costs, np.array([5]), np.array([6]), 2)
+    _check("balance: a one-frame span takes its first state",
+           np.allclose(one[0], costs[5].reshape(4, 2)[:, 0]))
+    # Untied columns that duplicate the tied ones: every pass costs the sum,
+    # so the balance must equal the tied one.
+    tied_costs = rng.normal(size=(60, 5))
+    seg_starts = np.array([0, 1, 4, 9, 15, 22, 30, 37, 45, 52])
+    adjacent = np.array([True, True, False, True, True, True, False, True, True])
+    a = emission_balance(tied_costs, seg_starts, adjacent, 0.35, 1.0)
+    b = emission_balance(np.repeat(tied_costs, 2, axis=1), seg_starts, adjacent, 0.35, 1.0,
+                         num_untied_states=2)
+    _check("balance: duplicated untied columns give the tied balance",
+           all(np.isclose(a[k], b[k]) for k in a))
+
+    print("transition scores")
+    import tempfile as _tempfile_tr
+
+    from backoff_fb_ref import random_lm as _random_lm
+
+    from .flavors import BackoffFBSearch
+    from .interfaces import TransitionModel
+    from .recognizers import BackoffFBRecognizer, OracleSegmentFBRecognizer
+    from .transitions import EXIT, FORWARD, LOOP, OracleBoundaryTransitions, boundary_transitions
+
+    ninf = -np.inf
+    tr_labels = np.array([1, 1, 2, 2, 2, 1, 0])
+    hard, inside = [ninf, ninf, 0.0], [0.0, 0.0, ninf]
+    _check("boundary_transitions: exit forced where the label changes and on the last frame, "
+           "forbidden elsewhere",
+           np.array_equal(boundary_transitions(tr_labels),
+                          np.array([inside, hard, inside, inside, hard, hard, hard])))
+    soft = boundary_transitions(tr_labels, boundary_error=0.1)
+    _check("boundary_transitions: a boundary error is a normalized boundary probability",
+           np.allclose(np.exp(soft[:, LOOP]) + np.exp(soft[:, EXIT]), 1.0)
+           and np.array_equal(soft[:, LOOP], soft[:, FORWARD])
+           and np.allclose(np.exp(soft[[1, 4, 5, 6], EXIT]), 0.9)
+           and np.allclose(np.exp(soft[[0, 2, 3], EXIT]), 0.1))
+    _check("boundary_transitions: an error of 0.5 or more is refused",
+           _raises(lambda: boundary_transitions(tr_labels, 0.5), ValueError)
+           and _raises(lambda: boundary_transitions(tr_labels, -0.1), ValueError))
+
+    from .transitions import boundary_probability, jitter_boundaries, segment_ends
+
+    # Long segments, so that clipping never binds and the shifts are the draw.
+    long_ends = segment_ends(np.repeat(np.arange(400) % 3, 40))
+    shifts = []
+    for s in range(5):
+        moved = jitter_boundaries(long_ends, 2.0, np.random.default_rng(s))
+        shifts.append(np.flatnonzero(moved) - np.flatnonzero(long_ends))
+    shifts = np.concatenate(shifts)
+    _check("jitter: shifts are round(2 * N(0, 1)) when nothing clips",
+           abs(shifts.mean()) < 0.1 and abs(shifts.std() - 2.0) < 0.1
+           # P(round(2z) = 0) = P(|z| < 1/4) = 0.197
+           and abs(np.mean(shifts == 0) - 0.197) < 0.03,
+           f"mean {shifts.mean():.3f} std {shifts.std():.3f} "
+           f"P(0) {np.mean(shifts == 0):.3f}")
+    crowded = segment_ends(np.array([0, 1, 2, 2, 0, 1, 1, 1, 2, 0]))
+    ok = True
+    for s in range(200):
+        moved = jitter_boundaries(crowded, 3.0, np.random.default_rng(s))
+        ok &= moved.sum() == crowded.sum() and bool(moved[-1])
+    _check("jitter: one-frame segments survive any draw - same count, last frame kept", ok)
+    _check("jitter: 0 moves nothing",
+           np.array_equal(jitter_boundaries(crowded, 0.0, np.random.default_rng(0)), crowded))
+    p, not_p = boundary_probability(long_ends, boundary_error=0.02, blur=2.0)
+    b = np.flatnonzero(long_ends)[3]
+    _check("blur: p peaks at 1 - eps on the boundary, is symmetric, and falls to eps",
+           np.isclose(p[b], 0.98) and np.allclose(p[b - 3:b], p[b + 3:b:-1])
+           and np.isclose(p[b + 20], 0.02, atol=1e-6) and np.allclose(p + not_p, 1.0))
+    _check("blur: a vanishing width is the unblurred model",
+           np.allclose(boundary_transitions(tr_labels, 0.1, blur=1e-3),
+                       boundary_transitions(tr_labels, 0.1)))
+    _check("blur needs a boundary error, or the boundary frame stays hard",
+           _raises(lambda: boundary_transitions(tr_labels, 0.0, blur=1.0), ValueError))
+
+    zt = build_topology(["<SIL>", "A", "B"], loop_probability=0.0, num_states=2,
+                        zero_topology=True, backoff_fb_root=fb_root)
+    _check("zero topology: every weight 0 except the last state's forward arc",
+           (zt.tau_loop == 0).all() and (zt.tau_exit == 0).all()
+           and (zt.tau_fwd[:, 0] == 0).all() and np.isneginf(zt.tau_fwd[:, 1]).all())
+    _check("zero topology: loop parameters it would ignore are refused",
+           _raises(lambda: build_topology(["A"], loop_probability=0.5, zero_topology=True,
+                                          backoff_fb_root=fb_root), ValueError))
+
+    # The two routes to the oracle on a real (tiny) LM, through the CPU
+    # reference the recognizer falls back on without a GPU. Segment lists are
+    # (label, frames); utt2 is one-frame segments only, utt4 has none shorter
+    # than 2 frames.
+    tr_segs = {
+        "utt0": [(1, 3), (2, 1), (0, 2), (1, 4)],
+        "utt1": [(2, 5)],
+        "utt2": [(1, 1), (2, 1), (1, 1)],
+        "utt3": [(0, 2), (1, 1), (2, 6), (1, 2), (2, 3)],
+        "utt4": [(2, 2), (1, 3), (2, 2), (0, 4)],
+    }
+    tr_frames = {t: np.repeat([a for a, _ in s], [n for _, n in s]) for t, s in tr_segs.items()}
+    tr_rng = np.random.RandomState(11)
+    tr_feats = {t: tr_rng.randn(len(lab), 4) for t, lab in tr_frames.items()}
+
+    def _collect(rec, items):
+        out = {}
+        rec.start(lambda r: out.__setitem__(r.seq_tag, r))
+        for tag, scores, theta in items:
+            if theta is None:
+                rec.submit(tag, scores)
+            else:
+                rec.submit(tag, scores, transitions=theta)
+        rec.drain()
+        rec.shutdown()
+        return out
+
+    with _tempfile_tr.TemporaryDirectory() as tmp:
+        arpa = os.path.join(tmp, "lm.arpa")
+        _random_lm(3, 3, density=0.7, seed=3).to_arpa(arpa, ["<SIL>", "A", "B"])
+        lex = os.path.join(tmp, "lexicon.xml")
+        with open(lex, "w") as f:
+            f.write('<?xml version="1.0" encoding="utf-8"?>\n<lexicon>\n'
+                    '<lemma><orth>[SILENCE]</orth><synt><tok>&lt;SIL&gt;</tok></synt></lemma>\n'
+                    '<lemma><orth>A</orth></lemma>\n<lemma><orth>B</orth></lemma>\n'
+                    '<lemma special="sentence-begin"><orth>[b]</orth><synt><tok>&lt;s&gt;</tok></synt></lemma>\n'
+                    '<lemma special="sentence-end"><orth>[e]</orth><synt><tok>&lt;/s&gt;</tok></synt></lemma>\n'
+                    '</lexicon>\n')
+        labels_pkl = os.path.join(tmp, "labels.pkl")
+        with open(labels_pkl, "wb") as f:
+            pickle.dump(tr_frames, f)
+        op = dict(backoff_fb_root=fb_root, arpa_path=arpa, lexicon_path=lex,
+                  distance_scale=0.3, device="cpu", batch_size=2)
+        oracle = OracleBoundaryTransitions(labels_pkl)
+        _check("OracleBoundaryTransitions is a TransitionModel, and fixed",
+               isinstance(oracle, TransitionModel) and not oracle.trainable)
+        _check("OracleBoundaryTransitions: unknown tags and pooled features are refused",
+               _raises(lambda: oracle.transition_scores("nope", tr_feats["utt0"]), KeyError)
+               and _raises(lambda: oracle.transition_scores("utt0", tr_feats["utt0"][:3]), ValueError))
+
+        tied_model = EuclideanModel(tr_rng.randn(3, 4))
+        scores = {t: tied_model.scores(x) for t, x in tr_feats.items()}
+        seg_route = _collect(OracleSegmentFBRecognizer(labels_pkl, num_clusters=3, **op),
+                             [(t, scores[t], None) for t in tr_segs])
+        frame_route = _collect(
+            BackoffFBRecognizer(num_clusters=3, zero_topology=True, **op),
+            [(t, scores[t], oracle.transition_scores(t, tr_feats[t])) for t in tr_segs])
+        _check("oracle transitions at S=1 reproduce the oracle-segment recognizer: Gamma",
+               all(np.abs(seg_route[t].posteriors - frame_route[t].posteriors).max() < 1e-10
+                   for t in tr_segs),
+               str(max(np.abs(seg_route[t].posteriors - frame_route[t].posteriors).max()
+                       for t in tr_segs)))
+        _check("... and log Z, which the zero topology leaves unshifted",
+               all(abs(seg_route[t].sequence_score - frame_route[t].sequence_score) < 1e-9
+                   for t in tr_segs))
+        _check("... and a frame-level result has one row per frame",
+               all(len(frame_route[t].posteriors) == len(tr_frames[t]) for t in tr_segs))
+
+        stationary = dict(num_clusters=3, loop_probability=0.5, **op)
+        none_route = _collect(BackoffFBRecognizer(**stationary),
+                              [(t, scores[t], None) for t in tr_segs])
+        zero_route = _collect(BackoffFBRecognizer(**stationary),
+                              [(t, scores[t], np.zeros((len(scores[t]), 3))) for t in tr_segs])
+        _check("theta = 0 is bitwise the stationary model",
+               all(np.array_equal(none_route[t].posteriors, zero_route[t].posteriors)
+                   and none_route[t].sequence_score == zero_route[t].sequence_score
+                   for t in tr_segs))
+
+        untied_model = EuclideanModel(tr_rng.randn(6, 4))
+        untied_scores = {t: untied_model.scores(x) for t, x in tr_feats.items()}
+        untied = dict(num_clusters=6, num_states=2, tie_states=False, zero_topology=True, **op)
+        hard2 = _collect(BackoffFBRecognizer(**untied),
+                         [(t, untied_scores[t], oracle.transition_scores(t, tr_feats[t]))
+                          for t in tr_segs])
+        short = {t for t, s in tr_segs.items() if min(n for _, n in s) < 2}
+        _check("untied S=2, hard oracle: exactly the sequences with a one-frame segment die",
+               {t for t, r in hard2.items() if not np.isfinite(r.sequence_score)} == short
+               and all(not hard2[t].posteriors.any() for t in short)
+               and all(np.allclose(hard2[t].posteriors.sum(1), 1.0) for t in set(tr_segs) - short))
+        soft_oracle = OracleBoundaryTransitions(labels_pkl, boundary_error=0.05)
+        soft2 = _collect(BackoffFBRecognizer(**untied),
+                         [(t, untied_scores[t], soft_oracle.transition_scores(t, tr_feats[t]))
+                          for t in tr_segs])
+        _check("untied S=2 with a boundary error: every sequence has a path",
+               all(np.isfinite(r.sequence_score) and np.allclose(r.posteriors.sum(1), 1.0)
+                   for r in soft2.values()))
+
+        # The sweep in vq_gmm_tau_boundary_noise rests on its two endpoints being
+        # existing runs: hard boundaries on a loop-0.75 prior give the oracle's
+        # posteriors (the prior is a constant per segment), and as the error
+        # rate approaches 0.5 the scores go flat and leave the free segmentation.
+        prior = dict(num_clusters=3, loop_probability=0.75, **op)
+        hard_on_prior = _collect(BackoffFBRecognizer(**prior),
+                                 [(t, scores[t], oracle.transition_scores(t, tr_feats[t]))
+                                  for t in tr_segs])
+        _check("degraded oracle: hard boundaries on a duration prior give the oracle's Gamma",
+               all(np.abs(hard_on_prior[t].posteriors - seg_route[t].posteriors).max() < 1e-10
+                   for t in tr_segs))
+        flat = OracleBoundaryTransitions(labels_pkl, boundary_error=0.5 - 1e-12)
+        flat_on_prior = _collect(BackoffFBRecognizer(**prior),
+                                 [(t, scores[t], flat.transition_scores(t, tr_feats[t]))
+                                  for t in tr_segs])
+        free = _collect(BackoffFBRecognizer(**prior), [(t, scores[t], None) for t in tr_segs])
+        _check("degraded oracle: an error rate of 1/2 leaves the free segmentation's Gamma",
+               all(np.abs(flat_on_prior[t].posteriors - free[t].posteriors).max() < 1e-9
+                   for t in tr_segs))
+
+        # Jitter, end to end: the jittered hard boundaries at S=1 must equal
+        # the segment-level recognizer run on labels with those boundaries.
+        jit = OracleBoundaryTransitions(labels_pkl, jitter=1.5, seed=3)
+        jit_frames = {t: np.cumsum(np.r_[False, jit.boundaries(t, len(tr_frames[t]))[:-1]])
+                      for t in tr_segs}
+        jit_pkl = os.path.join(tmp, "jittered.pkl")
+        with open(jit_pkl, "wb") as f:
+            pickle.dump(jit_frames, f)
+        jit_seg = _collect(OracleSegmentFBRecognizer(jit_pkl, num_clusters=3, **op),
+                           [(t, scores[t], None) for t in tr_segs])
+        jit_frame = _collect(BackoffFBRecognizer(num_clusters=3, zero_topology=True, **op),
+                             [(t, scores[t], jit.transition_scores(t, tr_feats[t]))
+                              for t in tr_segs])
+        _check("jitter: per-frame route equals the segment route on the jittered boundaries",
+               all(np.abs(jit_seg[t].posteriors - jit_frame[t].posteriors).max() < 1e-10
+                   for t in tr_segs)
+               and any(not np.array_equal(jit_frames[t] != np.r_[jit_frames[t][1:], -1],
+                                          tr_frames[t] != np.r_[tr_frames[t][1:], -1])
+                       for t in tr_segs))
+
+        _check("a batch mixing sequences with and without transition scores is refused",
+               _raises(lambda: _collect(BackoffFBRecognizer(**stationary), [
+                   ("utt0", scores["utt0"], None),
+                   ("utt1", scores["utt1"], np.zeros((len(scores["utt1"]), 3)))]), ValueError))
+        _check("transition scores of the wrong shape are refused",
+               _raises(lambda: _collect(BackoffFBRecognizer(**stationary), [
+                   ("utt0", scores["utt0"], np.zeros((len(scores["utt0"]), 2)))]), ValueError))
+        _check("transition posteriors raise until the op computes them (T3)",
+               _raises(lambda: BackoffFBRecognizer(transition_posteriors=True, num_clusters=3, **op),
+                       NotImplementedError))
+        _check("the oracle-segment recognizer refuses a free loop",
+               _raises(lambda: OracleSegmentFBRecognizer(labels_pkl, num_clusters=3,
+                                                         zero_topology=True, **op), ValueError))
+
+        # The same comparison one level up, through run_chunk: the transition
+        # model is called on the features and its scores reach the search.
+        def _chunk(recognizer, transitions=None, transition_accumulator=None):
+            return run_chunk(
+                features=_ListSource([(t, tr_feats[t]) for t in tr_segs]),
+                model=tied_model, recognizer=recognizer,
+                accumulator=MeanAccumulator(3, 4), counter=None,
+                transitions=transitions, transition_accumulator=transition_accumulator,
+                verbosity=0)
+
+        by_segments = _chunk(OracleSegmentFBRecognizer(labels_pkl, num_clusters=3, **op))
+        by_frames = _chunk(BackoffFBRecognizer(num_clusters=3, zero_topology=True, **op),
+                           transitions=oracle)
+        _check("run_chunk: the two oracle routes accumulate the same statistics",
+               by_frames.num_recognized == len(tr_segs)
+               and all(np.allclose(by_segments.accumulator_state[k],
+                                   by_frames.accumulator_state[k], atol=1e-10)
+                       for k in ("counts", "sums"))
+               and by_frames.accumulator_state["counts"].sum() > 0)
+        _check("run_chunk: a recognizer without transition input is refused",
+               _raises(lambda: _chunk(_StubFBRecognizer({}), transitions=oracle), ValueError))
+        _check("run_chunk: a transition accumulator raises until T3",
+               _raises(lambda: _chunk(BackoffFBRecognizer(num_clusters=3, **op),
+                                      transition_accumulator=object()), NotImplementedError))
+
+    oracle_spec = Spec(OracleBoundaryTransitions, {"frame_labels": tk.Path("/labels.pkl")})
+    fb_common = dict(backoff_fb_root=tk.Path("/fb"), arpa_path=tk.Path("/lm.arpa"),
+                     lexicon=tk.Path("/fb_lex.gz"))
+    flavor_common = dict(centroids=tk.Path("/init/c.npy"), recognition_config=tk.Path("/r.config"),
+                         lexicon=tk.Path("/l.gz"), num_clusters=40, use_forward_backward=True)
+    plain_flavor = euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(**fb_common))
+    oracle_flavor = euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(
+        **fb_common, transitions=oracle_spec, zero_topology=True))
+    _check("flavor: without transitions nothing new enters the recognizer spec",
+           plain_flavor.transitions is None and "zero_topology" not in plain_flavor.recognizer.kwargs)
+    _check("flavor: the transition model rides on the flavor, the zero topology on the search",
+           oracle_flavor.transitions is oracle_spec
+           and oracle_flavor.recognizer.kwargs.get("zero_topology") is True)
+    for what, kwargs in [
+        ("a zero topology without transitions", dict(zero_topology=True)),
+        ("transitions next to frame_labels", dict(transitions=oracle_spec, frame_labels=tk.Path("/x"))),
+        ("a zero topology with a loop probability",
+         dict(transitions=oracle_spec, zero_topology=True, loop_probability=0.5)),
+    ]:
+        _check(f"flavor: {what} is refused",
+               _raises(lambda: euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(
+                   **fb_common, **kwargs)), ValueError))
+
+    class _TrainableTransitions:
+        trainable = True
+
+    _check("flavor: a trainable transition model raises until it can be re-estimated",
+           _raises(lambda: euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(
+               **fb_common, transitions=Spec(_TrainableTransitions, {}))), NotImplementedError))
+    _check("flavor: a transition accumulator raises",
+           _raises(lambda: ClusteringFlavor(
+               model=plain_flavor.model, accumulator=plain_flavor.accumulator,
+               recognizer=plain_flavor.recognizer,
+               transition_accumulator=Spec(MeanAccumulator, {})), NotImplementedError))
+
+    tr_common = dict(features_hdf=tk.Path("/f.hdf"), recognition_config=tk.Path("/r.config"),
+                     lexicon=tk.Path("/l.gz"), num_clusters=40, use_forward_backward=True)
+    plain_run = chunked_clustering(num_epochs=2, flavor=plain_flavor, **tr_common)
+    oracle_run = chunked_clustering(num_epochs=2, flavor=oracle_flavor, **tr_common)
+    _check("chunked_clustering: the transition model enters the epoch job hash",
+           all(a._sis_id() != b._sis_id() for a, b in zip(plain_run.jobs, oracle_run.jobs)))
+    _check("chunked_clustering: every epoch carries the same transition model, its "
+           "alignment an input",
+           all(j.transitions == oracle_spec
+               and "/labels.pkl" in {p.get_path() for p in j._sis_inputs}
+               for j in oracle_run.jobs)
+           and all(j.transitions is None for j in plain_run.jobs))
+    _check("chunked_clustering: the single-task EMA route refuses a transition model",
+           _raises(lambda: chunked_clustering(num_epochs=1, flavor=oracle_flavor, ema_alpha=0.5,
+                                              **tr_common), NotImplementedError))
+
+    print("arpa decompression")
+    import gzip as _gzip
+    import tempfile as _tempfile
+
+    from ..backoff_fb_graph import _plain_arpa
+
+    text = b"\\data\\\nngram 1=2\n\n\\1-grams:\n-1.0\tA\n-1.0\tB\n\n\\end\\\n"
+    with _tempfile.TemporaryDirectory() as tmp:
+        gz = os.path.join(tmp, "lm.arpa.gz")
+        with _gzip.open(gz, "wb") as f:
+            f.write(text)
+        with _plain_arpa(gz) as plain:
+            ok = open(plain, "rb").read() == text and not plain.endswith(".gz")
+        _check("arpa: a .gz is handed over decompressed and removed afterwards",
+               ok and not os.path.exists(plain))
+        with _plain_arpa(os.path.join(tmp, "x.arpa")) as plain:
+            _check("arpa: a plain path passes through", plain == os.path.join(tmp, "x.arpa"))
+        # A temp directory that cannot take the file (here: does not exist, as
+        # good as full) falls back to the working directory.
+        work = os.path.join(tmp, "work")
+        os.mkdir(work)
+        saved_tempdir, saved_cwd = _tempfile.tempdir, os.getcwd()
+        _tempfile.tempdir = os.path.join(tmp, "no-such-dir")
+        os.chdir(work)
+        try:
+            with _plain_arpa(gz) as plain:
+                fell_back = (os.path.dirname(plain) == work
+                             and open(plain, "rb").read() == text)
+            _check("arpa: an unusable temp dir falls back to the working directory",
+                   fell_back and not os.listdir(work))
+        finally:
+            _tempfile.tempdir = saved_tempdir
+            os.chdir(saved_cwd)
+
     print("spec")
     from sisyphus.hash import sis_hash_helper
     from sisyphus.tools import extract_paths

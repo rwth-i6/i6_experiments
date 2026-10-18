@@ -57,6 +57,7 @@ from .models import (
 from .recognizers import (
     ArgmaxRecognizer,
     BackoffFBRecognizer,
+    OracleSegmentFBRecognizer,
     RasrFBRecognizer,
     RasrViterbiRecognizer,
 )
@@ -79,6 +80,11 @@ class BackoffFBSearch:
     weight, which is what makes the op agree with RASR's forward-backward; True
     is the correct model. Changing it changes the job hash, as it must.
 
+    Giving ``frame_labels`` switches to
+    :class:`.recognizers.OracleSegmentFBRecognizer`: the features are then
+    frames and the segmentation is taken from that alignment instead of being
+    searched for.
+
     ``backoff_fb_root`` is where the op is checked out: pass
     ``tools.BACKOFF_FB``. It is hashed, so a different checkout is a different
     tool, the same bargain the RASR paths make.
@@ -100,7 +106,36 @@ class BackoffFBSearch:
     loop_probability: float = 0.0
     silence_loop_probability: Optional[float] = None
     transition_scale: float = 1.0
+    #: HMM states per phoneme, uniform across the inventory. 1 makes a
+    #: phoneme's duration geometric with mean ``1 / (1 - loop_probability)``;
+    #: 2 makes it negative-binomial with mean ``2 / (1 - loop_probability)``,
+    #: which has an interior mode where the geometric always peaks at one
+    #: frame. See :func:`..backoff_fb_graph.build_topology`.
+    num_states: int = 1
+    #: Whether a phoneme's states share one emission label. False gives every
+    #: state its own row in the model's table, so the run's ``num_clusters``
+    #: must be ``V * num_states`` (phoneme-major, see
+    #: :class:`..backoff_fb_graph.LabelLayout`). Only meaningful with
+    #: ``num_states > 1``.
+    tie_states: bool = True
     apply_sentence_end: bool = True
+    #: Per-frame reference labels (``out_labels`` of
+    #: ``SegmentedFeaturesFromAlignmentJob(pooling="none")``). Given one, the
+    #: features are frames and the boundaries between them come from this
+    #: alignment rather than from the search -- see
+    #: :class:`.recognizers.OracleSegmentFBRecognizer`. ``loop_probability``
+    #: must then stay 0.
+    frame_labels: Any = None
+    #: Per-frame transition scores: a :class:`.spec.Spec` for a
+    #: :class:`.interfaces.TransitionModel`, e.g.
+    #: ``Spec(OracleBoundaryTransitions, {"frame_labels": ...})``. The features
+    #: are then frames, and the scores are added to the static transition
+    #: weights. Only for a fixed model so far; see :class:`ClusteringFlavor`.
+    transitions: Any = None
+    #: Every static transition weight 0, so that ``transitions`` is the whole
+    #: transition model. The loop parameters must then stay at their defaults.
+    #: See :func:`..backoff_fb_graph.build_topology`.
+    zero_topology: bool = False
     batch_size: int = 16
     max_frames: int = 0
     checkpoint_interval: int = -1
@@ -124,14 +159,37 @@ class ClusteringFlavor:
     :param recognizer: spec for the Recognizer
     :param statistics: optional spec for a statistics counter. Unhashed by the
         job - which diagnostics get recorded must not change its identity.
+    :param transitions: optional spec for a
+        :class:`.interfaces.TransitionModel` whose per-frame scores the
+        recognizer adds to its static transition weights. Held fixed for the
+        whole run: a trainable one is refused until it can be re-estimated.
+    :param transition_accumulator: spec for the
+        :class:`.interfaces.TransitionAccumulator` that would re-estimate a
+        trainable transition model. Not implemented: its input, the transition
+        posteriors, comes from the op's milestone T3, and the epoch job does not
+        yet merge, save or carry transition statistics from one epoch to the
+        next.
     """
 
     model: Spec
     accumulator: Spec
     recognizer: Spec
     statistics: Optional[Spec] = None
+    transitions: Optional[Spec] = None
+    transition_accumulator: Optional[Spec] = None
 
     def __post_init__(self):
+        if self.transition_accumulator is not None:
+            raise NotImplementedError(
+                "re-estimating a transition model is not implemented: it needs "
+                "the transition posteriors from backoff_fb milestone T3 (SPEC.md "
+                "14.8), and the epoch job does not yet merge, save or carry "
+                "transition statistics")
+        if self.transitions is not None and getattr(self.transitions.cls, "trainable", False):
+            raise NotImplementedError(
+                f"{self.transitions.cls.__name__} is trainable, and a trainable "
+                f"transition model cannot be re-estimated yet; it would run "
+                f"every epoch with its initial parameters")
         names = self.artifact_names
         if not names:
             raise ValueError(
@@ -185,9 +243,60 @@ def _recognizer_spec(
             raise ValueError(
                 "BackoffFBSearch is a forward-backward search; pass "
                 "use_forward_backward=True alongside it")
+        cls = BackoffFBRecognizer
+        extra = {}
+        if backoff_fb.frame_labels is not None:
+            cls = OracleSegmentFBRecognizer
+            extra["frame_labels"] = backoff_fb.frame_labels
+        if backoff_fb.num_states != 1:
+            # Only when it differs from the default: adding the key
+            # unconditionally would rehash every S=1 epoch job that already
+            # exists (the finished vq_gmm_tau_cuda arms, the in-flight oracle
+            # sweep) over a parameter whose value did not change. Same bargain
+            # a job's __sis_hash_exclude__ strikes.
+            extra["num_states"] = backoff_fb.num_states
+        if not backoff_fb.tie_states:
+            # Same bargain: hashed only when untied, so every tied job keeps
+            # its identity. Untying a single state is the tied model under a
+            # second hash, so it is refused rather than allowed to duplicate.
+            if backoff_fb.num_states == 1:
+                raise ValueError(
+                    "tie_states=False needs num_states > 1: with one state per "
+                    "phoneme there is nothing to untie")
+            if backoff_fb.frame_labels is not None:
+                raise ValueError(
+                    "untied states need a frame-level search; the oracle-segment "
+                    "recognizer sums each segment into one observation")
+            extra["tie_states"] = False
+        if backoff_fb.transitions is not None and backoff_fb.frame_labels is not None:
+            raise ValueError(
+                "transitions and frame_labels are two routes to the same oracle: "
+                "frame_labels sums each segment into one observation, while "
+                "transition scores are per frame. Pass one of them")
+        if backoff_fb.zero_topology:
+            # Same bargain as num_states: hashed only when set.
+            if backoff_fb.transitions is None:
+                raise ValueError(
+                    "zero_topology=True without transitions leaves every "
+                    "segmentation equally likely, which is loop_probability=0.5 "
+                    "with a shifted log Z; say that instead, or pass the "
+                    "transition model the zero topology is meant for")
+            if backoff_fb.frame_labels is not None:
+                raise ValueError(
+                    "zero_topology makes the loop free, which the oracle-segment "
+                    "recognizer (frame_labels) must not have")
+            if (backoff_fb.loop_probability != 0.0
+                    or backoff_fb.silence_loop_probability is not None
+                    or backoff_fb.transition_scale != 1.0):
+                raise ValueError(
+                    "zero_topology=True sets every static transition weight to "
+                    "0; leave loop_probability, silence_loop_probability and "
+                    "transition_scale at their defaults")
+            extra["zero_topology"] = True
         return Spec(
-            BackoffFBRecognizer,
+            cls,
             {
+                **extra,
                 "backoff_fb_root": backoff_fb.backoff_fb_root,
                 "arpa_path": backoff_fb.arpa_path,
                 "lexicon_path": backoff_fb.lexicon,
@@ -228,12 +337,27 @@ def _recognizer_spec(
     )
 
 
-def _statistics_spec(num_clusters: int, use_forward_backward: bool) -> Optional[Spec]:
+def _statistics_spec(
+    num_clusters: int,
+    use_forward_backward: bool,
+    backoff_fb: Optional[BackoffFBSearch] = None,
+) -> Optional[Spec]:
     # FBStatisticsCounter replaces the Viterbi traceback counters for FB epochs;
     # a Viterbi epoch gets its counters built from the lexicon by the job.
     if not use_forward_backward:
         return None
-    return Spec(FBStatisticsCounter, {"num_clusters": num_clusters})
+    kwargs = {"num_clusters": num_clusters}
+    if backoff_fb is not None and not backoff_fb.tie_states:
+        # Untied posteriors have one column per state; the counter folds them
+        # back into phonemes. Added only then, so a tied spec stays as it was.
+        kwargs.update(num_states=backoff_fb.num_states, tie_states=False)
+    return Spec(FBStatisticsCounter, kwargs)
+
+
+def _transitions_spec(backoff_fb: Optional[BackoffFBSearch]) -> Optional[Spec]:
+    # Only the backoff_fb search takes transition scores, so a RASR flavor
+    # cannot get one by construction.
+    return backoff_fb.transitions if backoff_fb is not None else None
 
 
 def euclidean_flavor(
@@ -262,7 +386,8 @@ def euclidean_flavor(
             task_timeout=task_timeout,
             backoff_fb=backoff_fb,
         ),
-        statistics=_statistics_spec(num_clusters, use_forward_backward),
+        statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
+        transitions=_transitions_spec(backoff_fb),
     )
 
 
@@ -355,7 +480,8 @@ def gaussian_flavor(
             task_timeout=task_timeout,
             backoff_fb=backoff_fb,
         ),
-        statistics=_statistics_spec(num_clusters, use_forward_backward),
+        statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
+        transitions=_transitions_spec(backoff_fb),
     )
 
 
@@ -410,7 +536,8 @@ def _mixture_flavor(
             task_timeout=task_timeout,
             backoff_fb=backoff_fb,
         ),
-        statistics=_statistics_spec(num_clusters, use_forward_backward),
+        statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
+        transitions=_transitions_spec(backoff_fb),
     )
 
 
@@ -585,5 +712,6 @@ def vq_flavor(
             task_timeout=task_timeout,
             backoff_fb=backoff_fb,
         ),
-        statistics=_statistics_spec(num_clusters, use_forward_backward),
+        statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
+        transitions=_transitions_spec(backoff_fb),
     )

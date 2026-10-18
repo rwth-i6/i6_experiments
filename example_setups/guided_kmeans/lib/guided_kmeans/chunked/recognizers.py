@@ -19,6 +19,7 @@ __all__ = [
     "SerialRasrRecognizer",
     "RasrFBRecognizer",
     "BackoffFBRecognizer",
+    "OracleSegmentFBRecognizer",
 ]
 
 from collections import UserDict
@@ -371,9 +372,20 @@ class BackoffFBRecognizer:
     :param lm_scale: baked into the compiled graph
     :param loop_probability: HMM self-loop probability; 0 for segment-pooled
         features, where one observation is one phoneme
+    :param num_states: HMM states per phoneme
+    :param tie_states: whether a phoneme's states share one emission label
+        (the default) or each has its own; untied, ``num_clusters`` must be
+        ``V * num_states`` and the columns are laid out as
+        :class:`..backoff_fb_graph.LabelLayout` says
     :param apply_sentence_end: whether a path pays ``ln P(</s> | g)`` to
         terminate. True is the correct model; False reproduces RASR, which
         omits it (see :mod:`..backoff_fb_graph`)
+    :param zero_topology: every static transition weight 0, so that per-frame
+        transition scores passed to :meth:`submit` are the whole transition
+        model (see :func:`..backoff_fb_graph.build_topology`)
+    :param transition_posteriors: report
+        :attr:`.interfaces.RecognitionResult.transition_posteriors`. Not
+        implemented before the op's milestone T3, and raises until then.
     :param batch_size: sequences per op call (unhashed: throughput only)
     :param max_frames: cap on ``B * T_max`` per call, which is what bounds
         memory (unhashed)
@@ -381,7 +393,18 @@ class BackoffFBRecognizer:
         ``0`` stores every frame, ``K > 0`` fixes it (unhashed: K changes peak
         memory and nothing else -- the op's K1 test asserts the result is
         bitwise identical either way)
+    :param device: ``"cuda"`` runs the op. ``"cpu"`` runs the op's exact
+        float64 reference instead, which is orders of magnitude slower and is
+        there for tests on a machine without a GPU.
+
+    **Transition scores.** ``submit`` takes an optional ``[T, 3]`` array of
+    per-frame transition log-scores (:mod:`.transitions`), which the op adds to
+    the graph's static weights. A batch passes them for all of its sequences or
+    for none, and the padding rows are never read.
     """
+
+    #: ``submit`` takes ``transitions=``; see :class:`.interfaces.Recognizer`.
+    accepts_transitions = True
 
     def __init__(
         self,
@@ -395,13 +418,22 @@ class BackoffFBRecognizer:
         loop_probability: float = 0.0,
         silence_loop_probability: Optional[float] = None,
         transition_scale: float = 1.0,
+        num_states: int = 1,
+        tie_states: bool = True,
         apply_sentence_end: bool = True,
+        zero_topology: bool = False,
+        transition_posteriors: bool = False,
         batch_size: int = 16,
         max_frames: int = 0,
         checkpoint_interval: int = -1,
         storage_dtype: str = "float32",
         device: str = "cuda",
     ):
+        if transition_posteriors:
+            raise NotImplementedError(
+                "transition posteriors (the gradient of log Z with respect to "
+                "the per-frame transition scores) come from backoff_fb milestone "
+                "T3 (SPEC.md 14.8); the op returns log Z and Gamma only")
         self.backoff_fb_root = backoff_fb_root
         self.arpa_path = arpa_path
         self.lexicon_path = lexicon_path
@@ -412,7 +444,10 @@ class BackoffFBRecognizer:
         self.loop_probability = loop_probability
         self.silence_loop_probability = silence_loop_probability
         self.transition_scale = transition_scale
+        self.num_states = num_states
+        self.tie_states = tie_states
         self.apply_sentence_end = apply_sentence_end
+        self.zero_topology = zero_topology
         self.batch_size = batch_size
         self.max_frames = max_frames
         self.checkpoint_interval = checkpoint_interval
@@ -420,14 +455,31 @@ class BackoffFBRecognizer:
         self.device = device
 
         self._graph = None
+        self._reference_graph = None
         self._batcher = None
         self._on_result: Optional[Callable[[RecognitionResult], None]] = None
+        self._transitions: dict = {}
         self._n_dead = 0
         self._n_seqs = 0
+        self._n_with_transitions = 0
 
     @property
     def num_labels(self) -> int:
         return self.num_clusters
+
+    @property
+    def label_layout(self):
+        """What the posterior columns mean; see
+        :class:`..backoff_fb_graph.LabelLayout`."""
+        from ..backoff_fb_graph import LabelLayout
+
+        untied = not self.tie_states and self.num_states > 1
+        per_phoneme = self.num_states if untied else 1
+        if self.num_clusters % per_phoneme:
+            raise ValueError(
+                f"num_clusters={self.num_clusters} is not a multiple of "
+                f"num_states={self.num_states}, which untied states require")
+        return LabelLayout(self.num_clusters // per_phoneme, self.num_states, self.tie_states)
 
     def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
         import time
@@ -457,7 +509,10 @@ class BackoffFBRecognizer:
                 loop_probability=self.loop_probability,
                 silence_loop_probability=self.silence_loop_probability,
                 transition_scale=self.transition_scale,
+                num_states=self.num_states,
+                tie_states=self.tie_states,
                 apply_sentence_end=self.apply_sentence_end,
+                zero_topology=self.zero_topology,
             ),
             device=self.device,
         )
@@ -465,6 +520,10 @@ class BackoffFBRecognizer:
             raise ValueError(
                 f"the lexicon gives {self._graph.F} labels but num_clusters is "
                 f"{self.num_clusters}; the score matrix and the graph disagree")
+        if self._graph.device.type != "cuda":
+            from backoff_fb_ref import TorchGraph
+
+            self._reference_graph = TorchGraph(self._graph.compiled, device="cpu")
         print(
             f"[TIMING] BackoffFBRecognizer: graph ready in "
             f"{time.perf_counter() - t0:.1f}s -- {self._graph}",
@@ -473,8 +532,10 @@ class BackoffFBRecognizer:
         self._batcher = SequenceBatcher(
             self._run_batch, batch_size=self.batch_size, max_frames=self.max_frames
         )
+        self._transitions = {}
         self._n_dead = 0
         self._n_seqs = 0
+        self._n_with_transitions = 0
 
     def _resolved_k(self, T: int) -> int:
         if self.checkpoint_interval >= 0:
@@ -488,7 +549,6 @@ class BackoffFBRecognizer:
         from ..backoff_fb_graph import ensure_importable
 
         ensure_importable(self.backoff_fb_root)
-        from backoff_fb import _C
         from backoff_fb.batching import pad_batch
 
         assert self._on_result is not None and self._graph is not None
@@ -496,17 +556,46 @@ class BackoffFBRecognizer:
         costs, seq_lens = pad_batch(arrays, dtype=torch.float64)
         T = int(seq_lens.max())
 
+        # The transition scores travel beside the batcher rather than through
+        # it, keyed by tag, so the bucketing stays the op's own code. A batch
+        # either has them for every sequence or for none: mixing would mean a
+        # run whose transition model covers some sequences and silently not
+        # the others.
+        thetas = [self._transitions.pop(tag, None) for tag in tags]
+        given = sum(theta is not None for theta in thetas)
+        if given not in (0, len(tags)):
+            missing = [tag for tag, theta in zip(tags, thetas) if theta is None]
+            raise ValueError(
+                f"{len(missing)} of {len(tags)} sequences in a batch came without "
+                f"transition scores, e.g. {missing[:3]}; either every sequence "
+                f"has them or none does")
+        transitions = None
+        if given:
+            # Padding rows are never read (SPEC.md 14.1, consequence 5), so
+            # pad_batch's zeros are as good as anything.
+            transitions, _ = pad_batch(thetas, dtype=torch.float64)
+            self._n_with_transitions += given
+
         with torch.no_grad():
             # Costs to log-likelihoods. Gradients are never needed here -- the
             # pipeline consumes Gamma itself, not d logZ / d scores -- so this
             # goes straight to the component entry point rather than through
             # the autograd Function.
             am_scale = self.distance_scale * self.emission_scale
-            log_probs = (costs * -am_scale).to(self.device, storage)
-            logz, gamma, _ = _C.forward_backward(
-                self._graph.handle, log_probs, seq_lens.to(self.device),
-                storage, self._resolved_k(T),
-            )
+            if self._reference_graph is not None:
+                from backoff_fb_ref import structured_fb
+
+                logz, gamma, _ = structured_fb(
+                    self._reference_graph, costs * -am_scale, seq_lens, trans=transitions)
+            else:
+                from backoff_fb import _C
+
+                log_probs = (costs * -am_scale).to(self.device, storage)
+                logz, gamma, _ = _C.forward_backward(
+                    self._graph.handle, log_probs, seq_lens.to(self.device),
+                    storage, self._resolved_k(T),
+                    None if transitions is None else transitions.to(self.device),
+                )
             logz = logz.double().cpu().numpy()
             gamma = gamma.double().cpu().numpy()
 
@@ -535,22 +624,214 @@ class BackoffFBRecognizer:
                                   sequence_score=float(logz[i]))
             )
 
-    def submit(self, seq_tag: str, scores: np.ndarray) -> None:
+    def submit(self, seq_tag: str, scores: np.ndarray,
+               transitions: Optional[np.ndarray] = None) -> None:
         assert self._batcher is not None, "call start() first"
+        if transitions is not None:
+            transitions = np.asarray(transitions, dtype=np.float64)
+            if transitions.shape != (len(scores), 3):
+                raise ValueError(
+                    f"{seq_tag}: transition scores have shape {transitions.shape}, "
+                    f"expected ({len(scores)}, 3) - one (loop, forward, exit) row "
+                    f"per frame")
+            if seq_tag in self._transitions:
+                raise ValueError(f"{seq_tag} submitted twice")
+            self._transitions[seq_tag] = transitions
         self._batcher.submit(seq_tag, scores)
 
     def drain(self) -> None:
         assert self._batcher is not None, "call start() first"
         self._batcher.drain()
+        if self._transitions:
+            raise RuntimeError(
+                f"transition scores for {len(self._transitions)} sequences were "
+                f"never used: {sorted(self._transitions)[:3]}")
         if self._n_dead:
+            why = ""
+            if self._n_with_transitions:
+                # The likely cause with an oracle, and otherwise a puzzle.
+                why = (f" With hard boundaries in the transition scores, a "
+                       f"segment shorter than num_states={self.num_states} frames "
+                       f"has no path.")
             print(
                 f"[WARNING] BackoffFBRecognizer: {self._n_dead}/{self._n_seqs} "
                 f"sequences had log Z = -inf (no path through the graph) and "
-                f"contributed zero posteriors.",
+                f"contributed zero posteriors.{why}",
                 flush=True,
             )
+        if self._n_with_transitions:
+            print(f"[INFO] BackoffFBRecognizer: {self._n_with_transitions}/"
+                  f"{self._n_seqs} sequences ran with per-frame transition scores",
+                  flush=True)
 
     def shutdown(self) -> None:
         self._batcher = None
+        self._transitions = {}
         # The graph stays in the module-level cache: another epoch in the same
         # task reuses it instead of paying the compile again.
+
+
+class OracleSegmentFBRecognizer:
+    """
+    Frame-level forward-backward with the segment boundaries given.
+
+    A reference alignment says where each phoneme ends. With one HMM state per
+    phoneme that pins the segmentation, and a path is then only free to choose
+    *which* phoneme each segment holds -- so its score over a segment [b, e) is
+
+        sum_{t in [b, e)} o_t(a)  +  log P(a | history)
+
+    which is exactly what :class:`BackoffFBRecognizer` computes from one
+    observation whose score is that sum. So this needs no new kernel: sum the
+    per-frame costs within each oracle segment, run the op on the segments, and
+    broadcast each segment's posterior back over its frames.
+
+    Verified rather than assumed -- brute-forcing the frame-level trellis
+    against the oracle on summed scores agrees to 2e-16 (see
+    ``bench/rasr_comparison.md`` in the op repo for where the measurements
+    live).
+
+    Two things this does *not* do:
+
+    * a **finite** boundary penalty. The equivalence holds only for a hard
+      oracle: inside a segment looping is free and leaving is impossible.
+    * **S > 1**. A segment would then span several states with distinct
+      emissions, which summing collapses.
+
+    Both need per-frame transition scores, which the op takes since its
+    milestone T2: :class:`.transitions.OracleBoundaryTransitions` with
+    :class:`BackoffFBRecognizer` on frames does both, and reduces to this
+    recognizer at S = 1 with hard boundaries.
+
+    The caller sees frames throughout -- frame features in, frame posteriors
+    out -- so ``run_chunk``'s length check passes and ``accumulator.observe``
+    weights every frame by its segment's posterior. That per-frame M-step,
+    rather than one mean-pooled vector per segment, is the point of the
+    exercise.
+
+    :param frame_labels: pickle of ``{seq_tag: [T] int}``, one label per frame,
+        aligned 1:1 with the features. This is the ``out_labels`` of
+        ``SegmentedFeaturesFromAlignmentJob(pooling="none")``; boundaries are
+        where the label changes. Note such labels merge two realizations of one
+        phoneme separated by a removed pause (``AA SIL AA``) into one run --
+        measured at 0.09% of segments on ls-100, so the oracle is a hair
+        coarser than the alignment it came from.
+    :param kwargs: everything :class:`BackoffFBRecognizer` takes, forwarded
+        unchanged. ``loop_probability`` must stay 0: at segment level a loop
+        would let two consecutive segments share a phoneme with *no* LM
+        transition, which is a different model.
+    """
+
+    def __init__(self, frame_labels: str, **kwargs):
+        loop = kwargs.get("loop_probability", 0.0)
+        if loop:
+            raise ValueError(
+                f"loop_probability must be 0 for the oracle-segment recognizer, "
+                f"got {loop}. One observation per segment means every one of "
+                f"them arrives through an LM transition; a nonzero loop lets "
+                f"two segments share a phoneme without one.")
+        if kwargs.get("zero_topology", False):
+            raise ValueError(
+                "zero_topology must stay off for the oracle-segment recognizer: "
+                "it makes the loop free, and at segment level a loop is the "
+                "model loop_probability=0 exists to exclude. For the oracle "
+                "with transition scores, use OracleBoundaryTransitions.")
+        states = kwargs.get("num_states", 1)
+        if states != 1:
+            raise ValueError(
+                f"num_states must be 1 for the oracle-segment recognizer, got "
+                f"{states}. The equivalence it rests on holds because a "
+                f"segment's score is the plain sum of its frames' scores; with "
+                f"S > 1 the frames of a segment are split across states with "
+                f"their own emissions, and summing collapses exactly the "
+                f"distinction S > 1 exists to make. Use the unsegmented "
+                f"recognizer (no frame_labels) for a multi-state topology.")
+        self.frame_labels = frame_labels
+        self._inner = BackoffFBRecognizer(**kwargs)
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
+        self._labels: Optional[dict] = None
+        self._runs: dict = {}
+        self._n_seqs = 0
+        self._n_frames = 0
+        self._n_segments = 0
+
+    @property
+    def num_labels(self) -> int:
+        return self._inner.num_labels
+
+    @property
+    def label_layout(self):
+        return self._inner.label_layout
+
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
+        import pickle
+        import time
+
+        self._on_result = on_result
+        t0 = time.perf_counter()
+        with open(str(self.frame_labels), "rb") as f:
+            self._labels = pickle.load(f)
+        print(f"[TIMING] OracleSegmentFBRecognizer: {len(self._labels)} frame "
+              f"alignments loaded in {time.perf_counter() - t0:.1f}s", flush=True)
+        self._runs = {}
+        self._n_seqs = self._n_frames = self._n_segments = 0
+        self._inner.start(self._handle)
+
+    def _handle(self, result: RecognitionResult) -> None:
+        assert self._on_result is not None
+        lengths = self._runs.pop(result.seq_tag)
+        gamma = result.posteriors
+        if gamma.shape[0] != len(lengths):
+            # A dead utterance comes back with an empty Gamma; pass it through
+            # so run_chunk's own length check reports it rather than np.repeat
+            # failing with something obscure.
+            self._on_result(result)
+            return
+        self._on_result(
+            RecognitionResult(
+                seq_tag=result.seq_tag,
+                posteriors=np.repeat(gamma, lengths, axis=0),
+                sequence_score=result.sequence_score,
+            )
+        )
+
+    def submit(self, seq_tag: str, scores: np.ndarray) -> None:
+        assert self._labels is not None, "call start() first"
+        labels = self._labels.get(seq_tag)
+        if labels is None:
+            raise KeyError(
+                f"no frame alignment for {seq_tag!r} in {self.frame_labels}. "
+                f"The alignment and the features have to come from the same "
+                f"SegmentedFeaturesFromAlignmentJob.")
+        labels = np.asarray(labels).reshape(-1)
+        if len(labels) != len(scores):
+            raise ValueError(
+                f"{seq_tag}: the alignment has {len(labels)} frames but the "
+                f"scores have {len(scores)}. These features are probably the "
+                f"pooled ones; this recognizer needs pooling='none'.")
+
+        # Run starts, then the sums over each run. reduceat is exactly this:
+        # segment k gets rows [starts[k], starts[k+1]).
+        starts = np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]])
+        lengths = np.diff(np.r_[starts, len(labels)])
+        self._runs[seq_tag] = lengths
+        self._n_seqs += 1
+        self._n_frames += len(labels)
+        self._n_segments += len(starts)
+        self._inner.submit(seq_tag, np.add.reduceat(scores, starts, axis=0))
+
+    def drain(self) -> None:
+        self._inner.drain()
+        if self._runs:
+            raise RuntimeError(
+                f"{len(self._runs)} sequences were submitted but never came "
+                f"back: {sorted(self._runs)[:5]}")
+        if self._n_seqs:
+            print(f"[INFO] OracleSegmentFBRecognizer: {self._n_seqs} sequences, "
+                  f"{self._n_frames} frames -> {self._n_segments} oracle segments "
+                  f"({self._n_frames / self._n_segments:.2f} frames each)",
+                  flush=True)
+
+    def shutdown(self) -> None:
+        self._inner.shutdown()
+        self._labels = None

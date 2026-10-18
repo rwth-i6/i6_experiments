@@ -117,15 +117,17 @@ NUM_CODEWORDS = 512
 #: per epoch, per arm (plus ~1.7 min of per-task startup: model build, ARPA
 #: parse, graph compile, upload):
 #:
-#:     chunks   epoch    60 epochs   GPUs (both arms)
+#:     chunks   epoch    60 epochs   tasks (both arms)
 #:        4     29.9 min   29.9 h          8
-#:        6     20.5 min   20.5 h         12
-#:        8     15.8 min   15.8 h         16     <- here
+#:        6     20.5 min   20.5 h         12     <- here
+#:        8     15.8 min   15.8 h         16
 #:       12     11.1 min   11.1 h         24
-#:       16      8.8 min    8.8 h         32     (all of gpu_32gb)
+#:       16      8.8 min    8.8 h         32
 #:
-#: 8 puts both arms at 16 of gpu_32gb's 32 V100s, which leaves room for other
-#: people. Drop to 6 or 4 when the partition is busy; going much above 12 buys
+#: The last column is tasks wanted, which is not the same as cards held: see
+#: EPOCH_RQMT for the per-user QOS limits that actually bound occupancy. 6 keeps
+#: both arms at 12 tasks, which is close to what the two partitions together
+#: give this account, and leaves room for other people. Going much above 12 buys
 #: little, because the startup stops amortizing -- at 16 chunks it is a fifth
 #: of the epoch, and it is pure repetition, the same graph built once per task.
 NUM_CHUNKS = 6
@@ -145,15 +147,41 @@ WEIGHTS_DECODE_EPOCHS = [10, 20, 30, 40, 50, 60]
 NUM_WORKERS = 0
 PARENT_THREADS = 4
 # gpu_mem = 32 selects gpu_32gb (V100) through settings.py:check_engine_limits.
-# It is the card that is being asked for, not the memory: the working set here
-# is ~4 GB, but the V100 and the A100 are the only GPUs on this cluster with
-# FP64 at 1:2 rather than 1:32 or 1:64, and the LM step runs in float64
-# (spec 3.5). Measured on 400 sequences, 44,017 frames: 1.670 ms/frame on the
-# V100 against 3.174 on an A10.
+# It is the partition being asked for, not the memory -- the working set is
+# ~4 GB. On the op, measured over 400 sequences and 44,017 frames:
 #
-# Leaving gpu_mem out is not neutral -- it routes to gpu_11gb with an explicit
-# --gres=gpu:gtx_1080, which is compute capability 6.1 and 11 GB.
-EPOCH_RQMT = {"mem": 16, "gpu": 1, "gpu_mem": 32, "cpu": 4}
+#     L40S (gpu_48gb)   1.320 ms/frame
+#     V100 (gpu_32gb)   1.670
+#     A10  (gpu_24gb)   3.174
+#
+# So the L40S is the fastest card this account can reach, *not* the V100 -- the
+# op is bandwidth-bound, and the V100's 1:2 FP64 against the L40S's 1:64 does
+# not decide it.
+#
+# Both partitions are asked for rather than one, because what bounds occupancy
+# is a per-user QOS limit rather than the partition's size:
+#
+#     gpu_48gb   16 L40S, but gpu_48gb_qos caps one user at gres/gpu=5
+#     gpu_32gb   32 V100, gpu_32gb_qos has no per-user limit
+#
+# i.e. the faster card is the one this account may hold least of, and 5 L40S
+# (3.79 frames/ms aggregate) is less throughput than the V100s it can hold
+# without a cap. Listing both lets Slurm place each chunk wherever a card frees
+# first. The log_* partitions, A100s included, are AllowAccounts=log against
+# this setup's hlt and are rejected at submit with (PartitionConfig).
+#
+# An explicit "-p" also bypasses the gpu_mem ladder in
+# settings.py:check_engine_limits, which skips its own routing when sbatch_args
+# already contains one. gpu_mem is therefore left out deliberately: it would do
+# nothing here. (Where the ladder *is* used, leaving gpu_mem out is not neutral
+# -- it routes to gpu_11gb with an explicit --gres=gpu:gtx_1080, compute
+# capability 6.1 and 11 GB.)
+EPOCH_RQMT = {
+    "mem": 16,
+    "gpu": 1,
+    "cpu": 4,
+    "sbatch_args": ["-p", "gpu_48gb,gpu_32gb"],
+}
 
 #: Sequences per op call. These are segment-pooled features, so T is a phoneme
 #: count (O(100)), not a frame count. Unhashed - throughput only.

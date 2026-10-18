@@ -32,13 +32,16 @@ them is easy to get subtly wrong:
 from __future__ import annotations
 
 __all__ = ["ensure_importable", "lexicon_symbols", "build_topology",
-           "build_graph", "GraphSpec"]
+           "build_graph", "GraphSpec", "LabelLayout"]
 
+import contextlib
 import dataclasses
 import gzip
 import math
 import os
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree
@@ -122,6 +125,89 @@ def lexicon_symbols(lexicon_path: str) -> List[str]:
     return labels
 
 
+@dataclass(frozen=True)
+class LabelLayout:
+    """How score columns map onto phonemes and HMM states.
+
+    Tied (the default, and every run before untied states existed): all ``S``
+    states of a phoneme emit that phoneme's label, so column ``k`` *is* phoneme
+    ``k`` and there are ``V`` columns. Untied: every state has its own label,
+    phoneme-major, so column ``k`` is state ``k % S`` of phoneme ``k // S`` and
+    there are ``V * S`` columns - a phoneme's states are adjacent rows of the
+    model's table.
+
+    Everything downstream that has to know what a column means - the
+    statistics counter, hypotheses read off posteriors, the emission balance -
+    goes through this rather than re-deriving the convention.
+    """
+    num_phonemes: int
+    num_states: int = 1
+    tie_states: bool = True
+
+    def __post_init__(self):
+        if self.num_phonemes < 1 or self.num_states < 1:
+            raise ValueError(f"invalid layout {self}")
+
+    @property
+    def untied(self) -> bool:
+        """True when columns are states rather than phonemes. Untying one state
+        changes nothing, so S = 1 counts as tied whatever the flag says."""
+        return not self.tie_states and self.num_states > 1
+
+    @property
+    def num_labels(self) -> int:
+        return self.num_phonemes * self.num_states if self.untied else self.num_phonemes
+
+    def emission_table(self) -> np.ndarray:
+        """``emis[a, j]``, the label state ``j`` of phoneme ``a`` emits."""
+        V, S = self.num_phonemes, self.num_states
+        if self.untied:
+            return np.arange(V * S, dtype=np.int32).reshape(V, S)
+        return np.repeat(np.arange(V, dtype=np.int32).reshape(V, 1), S, axis=1)
+
+    def phoneme_of(self) -> np.ndarray:
+        """``[num_labels]``: the phoneme each column belongs to."""
+        k = np.arange(self.num_labels)
+        return k // self.num_states if self.untied else k
+
+    def state_of(self) -> np.ndarray:
+        """``[num_labels]``: the state each column is, 0 for every tied column."""
+        k = np.arange(self.num_labels)
+        return k % self.num_states if self.untied else np.zeros_like(k)
+
+    def phoneme_posteriors(self, posteriors: np.ndarray) -> np.ndarray:
+        """``[T, num_labels]`` -> ``[T, num_phonemes]``, summing each phoneme's
+        states. The identity for a tied layout."""
+        posteriors = np.asarray(posteriors)
+        if not self.untied:
+            return posteriors
+        return posteriors.reshape(len(posteriors), self.num_phonemes, self.num_states).sum(axis=2)
+
+    def argmax_segments(self, posteriors: np.ndarray) -> np.ndarray:
+        """Phoneme of every segment in the frame-wise argmax, in order.
+
+        A new segment starts where the argmax phoneme changes - and, untied,
+        also where the state index goes *down* within one phoneme: a
+        left-to-right phoneme cannot re-enter an earlier state, so ``a1 -> a0``
+        is a second ``a``. That is something a tied layout cannot see, which
+        is why there two consecutive realizations of one phoneme merge.
+
+        Frames without posterior mass (a sequence with no path through the
+        graph) yield no segments rather than the argmax of a zero row.
+        """
+        posteriors = np.asarray(posteriors)
+        if posteriors.size == 0:
+            return np.zeros((0,), dtype=np.int64)
+        live = posteriors.sum(axis=1) > 0
+        labels = posteriors.argmax(axis=1)[live]
+        if labels.size == 0:
+            return np.zeros((0,), dtype=np.int64)
+        phonemes = self.phoneme_of()[labels]
+        states = self.state_of()[labels]
+        starts = np.r_[True, (phonemes[1:] != phonemes[:-1]) | (states[1:] < states[:-1])]
+        return phonemes[starts]
+
+
 def build_topology(
     symbols: List[str],
     *,
@@ -129,20 +215,72 @@ def build_topology(
     silence_loop_probability: Optional[float] = None,
     transition_scale: float = 1.0,
     silence_symbol: str = "<SIL>",
+    num_states: int = 1,
+    tie_states: bool = True,
+    zero_topology: bool = False,
     backoff_fb_root=None,
 ):
-    """An S=1 left-to-right topology matching the RASR search parameters.
+    """A left-to-right topology matching the RASR search parameters.
 
-    With S = 1 there is one state per phoneme: it loops with probability
-    ``p`` and exits with ``1 - p``. ``p = 0`` (this setup's setting) gives
-    ``tau_loop = -inf``, which the op handles -- ``LSE(-inf, x) = x``, so every
-    frame must then arrive through an LM transition.
+    Every phoneme gets ``num_states`` states, each looping with probability
+    ``p`` and leaving with ``1 - p`` -- forward to the next state, or, out of
+    the last one, exiting the phoneme. Uniform S across phonemes is what the op
+    assumes (SPEC.md section 13); per-phoneme lengths would need a
+    ``chain_state_ptr``.
+
+    ``p = 0`` gives ``tau_loop = -inf``, which the op handles -- ``LSE(-inf, x)
+    = x`` -- so each state then consumes exactly one frame.
+
+    **Duration.** A state's occupancy is geometric with mean ``1 / (1 - p)``, so
+    a phoneme's is the sum of ``S`` of them: mean ``S / (1 - p)``, i.e. negative
+    binomial with ``r = S``. Inverting that is how a config picks ``p`` from a
+    target duration ``d`` in frames::
+
+        p = 1 - num_states / d
+
+    At S = 1 this is the geometric MLE and at S = 2 the negative-binomial one.
+    Raising S at fixed mean concentrates the distribution (the geometric's mode
+    is always 1 frame, which is the thing S > 1 exists to fix) without changing
+    the mean, which is what makes the two comparable.
+
+    **Emissions.** Tied (``tie_states=True``, the default): every state of a
+    phoneme emits that phoneme's label (``emis[a, j] = a``), so the op's
+    per-label reduction (SPEC.md section 7) already sums the states and nothing
+    downstream of the op sees S at all. Untied: each state emits its own label,
+    ``emis[a, j] = a * S + j`` (:class:`LabelLayout`), so a phoneme's onset and
+    offset get separate emission models and the score matrix has ``V * S``
+    columns. The op allows any map (SPEC.md section 2) and its conformance grid
+    covers untied labels; the transitions are the same either way.
+
+    **Zero topology** (``zero_topology=True``): every loop, forward step and
+    exit weighs 0, i.e. the graph has no transition model of its own beyond
+    the LM. For per-frame transition scores that are meant to be the whole
+    transition model (the op's SPEC.md 14.1). The loop parameters then have
+    nothing to set and must stay at their defaults. The last state's forward
+    arc stays -inf as always: leaving the last state is the exit.
     """
     if backoff_fb_root is not None:
         ensure_importable(backoff_fb_root)
     from backoff_fb_ref import HmmTopology
 
+    if num_states < 1:
+        raise ValueError(f"num_states must be >= 1, got {num_states}")
+
     V = len(symbols)
+    S = num_states
+    if zero_topology:
+        if loop_probability != 0.0 or silence_loop_probability is not None or transition_scale != 1.0:
+            raise ValueError(
+                f"zero_topology=True sets every transition weight to 0, so "
+                f"loop_probability ({loop_probability}), silence_loop_probability "
+                f"({silence_loop_probability}) and transition_scale "
+                f"({transition_scale}) would be ignored; leave them at their "
+                f"defaults (0.0, None, 1.0)")
+        tau_fwd = np.zeros((V, S), dtype=np.float64)
+        tau_fwd[:, S - 1] = -math.inf
+        return HmmTopology(V=V, S=S, tau_loop=np.zeros((V, S), dtype=np.float64),
+                           tau_fwd=tau_fwd, tau_exit=np.zeros(V, dtype=np.float64),
+                           emis=LabelLayout(V, S, tie_states).emission_table())
     if silence_loop_probability is None:
         silence_loop_probability = loop_probability
 
@@ -151,22 +289,40 @@ def build_topology(
             raise ValueError(f"loop probability must be in [0, 1), got {p}")
         return -math.inf if p == 0.0 else math.log(p)
 
-    tau_loop = np.empty((V, 1), dtype=np.float64)
+    def scaled(weight: float) -> float:
+        """``transition_scale`` applied to a finite weight, left alone otherwise.
+
+        ``transition_scale`` down-weights a *prior*; it is not a licence to
+        reopen a transition the topology forbids. Multiplying through would make
+        ``0.0 * -inf`` a NaN and put it in the graph, where it propagates
+        silently through the forward recursion -- the spec requires that no NaN
+        appear even for a dead utterance (section 4.4). The combination is
+        reachable: ``loop_probability=0`` is what every segment-level arm in
+        this family uses, and a transition-scale sweep that includes 0 would hit
+        it. A forbidden transition stays forbidden at any scale.
+        """
+        return weight if math.isinf(weight) else transition_scale * weight
+
+    tau_loop = np.empty((V, S), dtype=np.float64)
+    tau_fwd = np.empty((V, S), dtype=np.float64)
     tau_exit = np.empty(V, dtype=np.float64)
     for a, sym in enumerate(symbols):
         p = silence_loop_probability if sym == silence_symbol else loop_probability
-        tau_loop[a, 0] = transition_scale * log(p)
         # log1p(-p) rather than log(1 - p): exact at the small-p end, and equal
-        # to 0.0 at p = 0 where the exit is certain.
-        tau_exit[a] = transition_scale * math.log1p(-p)
+        # to 0.0 at p = 0 where leaving is certain.
+        leave = scaled(math.log1p(-p))
+        tau_loop[a, :] = scaled(log(p))
+        tau_fwd[a, :] = leave
+        # The last state leaves by exiting the phoneme, not by a forward arc;
+        # compile.py expects -inf in that column.
+        tau_fwd[a, S - 1] = -math.inf
+        tau_exit[a] = leave
 
-    # S = 1, so there is no forward arc; compile.py expects -inf in the last
-    # column regardless.
-    tau_fwd = np.full((V, 1), -math.inf, dtype=np.float64)
-    # Label k is emitted by phoneme k, which is what makes the score columns
-    # and the emission labels the same index.
-    emis = np.arange(V, dtype=np.int32).reshape(V, 1)
-    return HmmTopology(V=V, S=1, tau_loop=tau_loop, tau_fwd=tau_fwd,
+    # Tied, label k is emitted by phoneme k in every state, which is what makes
+    # the score columns and the phonemes the same index; untied, by state
+    # k % S of phoneme k // S. LabelLayout owns the convention.
+    emis = LabelLayout(V, S, tie_states).emission_table()
+    return HmmTopology(V=V, S=S, tau_loop=tau_loop, tau_fwd=tau_fwd,
                        tau_exit=tau_exit, emis=emis)
 
 
@@ -182,6 +338,16 @@ class GraphSpec:
     loop_probability: float
     silence_loop_probability: Optional[float]
     transition_scale: float
+    #: HMM states per phoneme. 1 is one state per phoneme (geometric duration);
+    #: 2 gives a negative-binomial duration at the same mean. Defaulted so the
+    #: existing S=1 callers keep the cache key they had.
+    num_states: int = 1
+    #: Whether a phoneme's states share one emission label; see
+    #: :func:`build_topology`. Defaulted for the same reason as num_states.
+    tie_states: bool = True
+    #: Every transition weight 0, for per-frame transition scores that carry
+    #: the whole transition model; see :func:`build_topology`.
+    zero_topology: bool = False
     #: Where the op is checked out; see ``tools.BACKOFF_FB``.
     backoff_fb_root: str = ""
     #: Whether a path pays ``ln P(</s> | g)`` to terminate (spec 2.3).
@@ -192,6 +358,45 @@ class GraphSpec:
     #: against -134.07, while the correct value is -138.16). Set False only to
     #: reproduce the RASR arm exactly.
     apply_sentence_end: bool = True
+
+
+@contextlib.contextmanager
+def _plain_arpa(path):
+    """The ARPA at ``path`` as an uncompressed file, removed afterwards.
+
+    ``load_arpa`` decompresses a ``.gz`` itself, into the default temp
+    directory - node-local ``/tmp`` inside a job, which is shared with every
+    other job on the node and is nobody's to clean. On 2026-10-12 cn-225's was
+    full and two chunks died with ENOSPC before compiling anything. So the
+    decompression happens here instead, with a fallback: the temp directory
+    first, then the task's working directory (the job's ``work/``, on shared
+    storage and removed with the job). The file is 241 MB for the 5-gram and
+    exists only while the LM loads.
+    """
+    path = str(path)
+    if not path.endswith(".gz"):
+        yield path
+        return
+    error = None
+    for directory in (tempfile.gettempdir(), os.getcwd()):
+        plain = None
+        try:
+            fd, plain = tempfile.mkstemp(suffix=".arpa", dir=directory)
+            with os.fdopen(fd, "wb") as out, gzip.open(path, "rb") as src:
+                shutil.copyfileobj(src, out)
+        except OSError as e:
+            if plain is not None:
+                os.unlink(plain)
+            error = e
+            print(f"[WARNING] could not decompress {path} into {directory}: {e}",
+                  flush=True)
+            continue
+        try:
+            yield plain
+        finally:
+            os.unlink(plain)
+        return
+    raise error
 
 
 #: One compiled graph per process. Compiling the 5-gram takes ~86 s and each
@@ -220,12 +425,16 @@ def build_graph(spec: GraphSpec, device: str = "cuda"):
             f"lexicon and LM disagree on the label inventory: "
             f"{len(symbols)} lexicon labels vs {len(arpa_symbols)} LM symbols; "
             f"only in lexicon: {only_lex}; only in LM: {only_lm}")
-    lm = bf.load_arpa(spec.arpa_path, symbols)
+    with _plain_arpa(spec.arpa_path) as arpa:
+        lm = bf.load_arpa(arpa, symbols)
     topo = build_topology(
         symbols,
         loop_probability=spec.loop_probability,
         silence_loop_probability=spec.silence_loop_probability,
         transition_scale=spec.transition_scale,
+        num_states=spec.num_states,
+        tie_states=spec.tie_states,
+        zero_topology=spec.zero_topology,
     )
     compiled = compile_graph(lm, topo, lm_scale=spec.lm_scale, check=False)
     if not spec.apply_sentence_end:

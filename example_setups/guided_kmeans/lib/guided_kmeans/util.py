@@ -4,6 +4,7 @@ import timeit
 from datetime import timedelta
 import json
 from functools import partial
+from typing import Sequence
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
@@ -125,6 +126,36 @@ def traceback_to_text(traceback: list, exclude_lemmata=DEFAULT_EXCLUDED_LEMMATA)
     :param exclude_lemmata: lemmata to drop, silence by default
     """
     return " ".join(item.lemma for item in traceback if item.lemma not in exclude_lemmata)
+
+
+def posteriors_to_text(
+    posteriors: np.ndarray,
+    names: Sequence[str],
+    layout,
+    exclude_lemmata=DEFAULT_EXCLUDED_LEMMATA,
+) -> str:
+    """
+    Turn forward-backward label posteriors into a hypothesis, by frame-wise argmax.
+
+    The counterpart of :func:`traceback_to_text` for a search that reports
+    posteriors instead of a path, written in the same format so the same
+    scoring applies. It is *not* a decoder: the argmax sequence need not be a
+    path the HMM allows, and a label held by its neighbours' posteriors is read
+    off where its own peak is. That makes it a cheap diagnostic of what the
+    training search currently believes, read off gammas the epoch computes
+    anyway - not a number to put beside a decode.
+
+    :param posteriors: ``[T, num_labels]``
+    :param names: lemma per phoneme index, in score-column order
+    :param layout: :class:`..backoff_fb_graph.LabelLayout` of the columns; the
+        segmentation rule (a new segment where the phoneme changes or, untied,
+        where its state index goes back down) is
+        :meth:`~..backoff_fb_graph.LabelLayout.argmax_segments`
+    :param exclude_lemmata: lemmata to drop, silence by default
+    """
+    return " ".join(
+        names[k] for k in layout.argmax_segments(posteriors) if names[k] not in exclude_lemmata
+    )
 
 
 def segments_to_array(segments: np.ndarray) -> np.ndarray:

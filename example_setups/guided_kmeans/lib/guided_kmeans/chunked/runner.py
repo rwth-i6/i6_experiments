@@ -43,6 +43,8 @@ from .interfaces import (
     Recognizer,
     RecognitionResult,
     ScoreModel,
+    TransitionAccumulator,
+    TransitionModel,
 )
 from .stats import merge_counters
 
@@ -71,7 +73,10 @@ def run_chunk(
     accumulator: Accumulator,
     counter: Optional[CounterProtocol] = None,
     transcribe: Optional[Callable[[List[Any]], str]] = None,
+    transcribe_posteriors: Optional[Callable[[np.ndarray], str]] = None,
     probe: Optional[Probe] = None,
+    transitions: Optional[TransitionModel] = None,
+    transition_accumulator: Optional[TransitionAccumulator] = None,
     verbosity: int = 1,
 ) -> ChunkResult:
     """
@@ -92,6 +97,11 @@ def run_chunk(
         counter only ever sees the traceback, not the sequence tag - and it
         takes the lemma-exclusion policy from the caller, keeping the loop
         itself free of any notion of what a label means.
+    :param transcribe_posteriors: the same for a search that reports label
+        posteriors instead of a path (a forward-backward recognizer, recognized
+        by its ``sequence_score``). Used in place of ``transcribe`` for those
+        results; without it they get ``transcribe``'s empty hypothesis, as
+        before this existed.
     :param probe: optional diagnostics observer (:class:`.interfaces.Probe`).
         Given one, the ``[T, K]`` score matrix is parked alongside the features
         rather than handed to the recognizer and dropped, so the probe can
@@ -101,7 +111,25 @@ def run_chunk(
         sequences at the pipeline's default worker count, ~15 MB at K=40).
         The probe never feeds anything back into the loop - what it records
         cannot change the epoch's result.
+    :param transitions: per-frame transition scores
+        (:class:`.interfaces.TransitionModel`), computed from each sequence's
+        features and submitted to the recognizer alongside its scores. The
+        recognizer has to take them (``accepts_transitions``).
+    :param transition_accumulator: statistics for re-estimating a trainable
+        transition model from the transition posteriors. Not implemented: the
+        op does not compute those posteriors before its milestone T3, so this
+        raises rather than accumulating nothing.
     """
+    if transition_accumulator is not None:
+        raise NotImplementedError(
+            "re-estimating a transition model needs the transition posteriors "
+            "(the gradient of log Z with respect to the transition scores), "
+            "which the backoff_fb op computes from milestone T3 on (SPEC.md "
+            "14.8); until then a transition model can only be fixed")
+    if transitions is not None and not getattr(recognizer, "accepts_transitions", False):
+        raise ValueError(
+            f"{type(recognizer).__name__} does not take per-frame transition "
+            f"scores; only the backoff_fb recognizer does")
     pending: Dict[str, Tuple[np.ndarray, Optional[np.ndarray]]] = {}
     hypotheses: Optional[Dict[str, str]] = {} if transcribe is not None else None
     stats = {"recognized": 0, "frames": 0}
@@ -133,7 +161,10 @@ def run_chunk(
             # emitted nothing for is a legitimate empty hypothesis and scoring
             # has to see it as a deletion, not as a missing segment. A
             # pathless search leaves traceback empty, which yields exactly that.
-            hypotheses[seq_tag] = transcribe(traceback)
+            if transcribe_posteriors is not None and result.sequence_score is not None and not traceback:
+                hypotheses[seq_tag] = transcribe_posteriors(posteriors)
+            else:
+                hypotheses[seq_tag] = transcribe(traceback)
         if probe is not None:
             assert seq_scores is not None
             probe.observe(
@@ -171,7 +202,13 @@ def run_chunk(
             num_seqs += 1
             if verbosity >= 2:
                 print(f"Submitting {seq_tag} ({len(seq_features)} frames)")
-            recognizer.submit(seq_tag, seq_scores)
+            if transitions is None:
+                recognizer.submit(seq_tag, seq_scores)
+            else:
+                recognizer.submit(
+                    seq_tag, seq_scores,
+                    transitions=transitions.transition_scores(seq_tag, seq_features),
+                )
             progress.progress(seq_idx)
 
         recognizer.drain()
