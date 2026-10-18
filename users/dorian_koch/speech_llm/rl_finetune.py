@@ -58,6 +58,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         )
     if getattr(job, "knowledge_judge_version", "v1") != "v1":  # absent at the default (2026-10-11)
         keys += f'knowledge_judge_version: "{job.knowledge_judge_version}"\n'
+    if getattr(job, "knowledge_judge_reasoning_tokens", 0):  # absent at the default (2026-10-18)
+        keys += f"knowledge_judge_reasoning_tokens: {job.knowledge_judge_reasoning_tokens}\n"
     if getattr(job, "text_teacher", None):  # absent at the default (2026-10-11): text-mode OPD, rl.text_teacher
         keys += f'text_teacher: "{job.text_teacher}"\ntext_teacher_weight: {job.text_teacher_weight}\n'
     if getattr(job, "text_teacher_gate", None) is not None:  # absent at the default (2026-10-16): the qctx teacher gate
@@ -394,6 +396,8 @@ class RLFinetune(Job):
         "knowledge_balance": False,
         "n_probe_per_category": 0,
         "knowledge_judge_version": "v1",
+        # extra max_tokens per knowledge-judge call for a judge that reasons first (gpt-oss; 2026-10-18): excluded at 0
+        "knowledge_judge_reasoning_tokens": 0,
         # text-mode on-policy distillation (2026-10-11, moshi_family.rl.text_teacher): excluded at their defaults (off)
         "text_teacher": None,
         "text_teacher_weight": 0.0,
@@ -499,6 +503,7 @@ class RLFinetune(Job):
         knowledge_balance: bool = False,
         n_probe_per_category: int = 0,
         knowledge_judge_version: str = "v1",
+        knowledge_judge_reasoning_tokens: int = 0,
         text_teacher: str | None = None,
         text_teacher_weight: float = 0.0,
         text_teacher_gate=None,
@@ -720,6 +725,9 @@ class RLFinetune(Job):
         self.knowledge_balance = bool(knowledge_balance)
         self.n_probe_per_category = int(n_probe_per_category)
         self.knowledge_judge_version = knowledge_judge_version
+        assert knowledge_judge_reasoning_tokens >= 0, knowledge_judge_reasoning_tokens
+        assert not knowledge_judge_reasoning_tokens or knowledge_reward == "knowledge", knowledge_reward
+        self.knowledge_judge_reasoning_tokens = int(knowledge_judge_reasoning_tokens)
         self.adapter = RL_LIB_ADAPTER
         self.launcher_fixes = launcher_fixes
         self.train_perf = train_perf
