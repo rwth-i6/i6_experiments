@@ -911,6 +911,49 @@ class RLFinetune(Job):
             else:
                 os.environ["CUDA_VISIBLE_DEVICES"] = saved
 
+    #: The shared judge's vLLM memory share (``_run_shared_judge``): the rest of its card holds the reward Whisper.
+    SHARED_JUDGE_GPU_MEM = 0.85
+
+    def _run_shared_judge(self):
+        """Multi-task GRPO with ONE judge model for both rewards (``multitask["selfplay_judge"] == quality_judge``; user
+        2026-10-18: "having two cards for graders is a bit stupid"): one vLLM server on the first visible GPU
+        (``max_model_len`` = the larger of the two judges'), serving both RL_JUDGE_* and RL_SP_JUDGE_*; the trainer on the
+        last GPU; the reward Whisper on the JUDGE's card (``RL_ASR_DEVICE=cuda:1``: the trainer process sees
+        ``<trainer>,<judge>``, so its own card stays cuda:0 and ``launch_training`` still runs one rank, RLFinetune
+        declaring 1 training GPU), so Whisper no longer takes turns with the rollouts (the launcher turns
+        ``serialize_asr`` off). Placement only: nothing hashed or rendered changes."""
+        import os
+
+        from .common import vllm_server
+
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "0,1").split(",")
+        assert len(visible) >= 2, f"shared-judge multi-task GRPO needs 2 GPUs (the judge + the trainer), got {visible}"
+        mt = self.multitask
+        lens = [int(x) for x in (self.judge_max_model_len, mt.get("selfplay_judge_max_model_len")) if x]
+        saved = os.environ.get("CUDA_VISIBLE_DEVICES")
+        try:
+            os.environ["CUDA_VISIBLE_DEVICES"] = visible[0]
+            with vllm_server(
+                self.quality_judge,
+                max_model_len=max(lens) if lens else None,
+                gpu_memory_utilization=self.SHARED_JUDGE_GPU_MEM,
+            ) as url:
+                os.environ.update(
+                    CUDA_VISIBLE_DEVICES=f"{visible[-1]},{visible[0]}",
+                    RL_JUDGE_BASE_URL=url,
+                    RL_JUDGE_MODEL=self.quality_judge,
+                    RL_SP_JUDGE_BASE_URL=url,
+                    RL_SP_JUDGE_MODEL=mt["selfplay_judge"],
+                    RL_ASR_DEVICE="cuda:1",
+                )
+                launch_training(self, self.adapter)
+        finally:
+            os.environ.pop("RL_ASR_DEVICE", None)
+            if saved is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = saved
+
     def run(self):
         # Reduce CUDA fragmentation OOMs (LoRA forward hit 93/93GB); the torchrun subprocess inherits this.
         import os
@@ -920,7 +963,10 @@ class RLFinetune(Job):
             launch_training(self, self.adapter)
             return
         if getattr(self, "multitask", None):
-            self._run_two_judges()
+            if self.multitask["selfplay_judge"] == self.quality_judge:
+                self._run_shared_judge()
+            else:
+                self._run_two_judges()
             return
         # Quality reward ON: reuse the shared retrieval seam to co-launch the vLLM judge on GPU0 and pin
         # the trainer to GPU1; the judge url/model reach the launcher via RL_JUDGE_BASE_URL/RL_JUDGE_MODEL
