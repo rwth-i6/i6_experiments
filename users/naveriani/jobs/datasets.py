@@ -186,6 +186,56 @@ class HfTextJob(Job):
             f.write("".join(t + "\n" for t in ds[self.column]))
 
 
+class MixTextJob(Job):
+    # random lines of normalised text sets (NormalizeTextJob), mixed by word shares: part k keeps each line with
+    # probability words_k / available_k (seeded per part and file). total_stats: total words of the mix from its
+    # "words_out" (e.g. the random set: same size); None = the largest mix with these shares the parts allow
+    def __init__(self, parts, shares, *, total_stats=None, num_shards=32, seed=1):
+        super().__init__()
+        self.parts = parts  # name -> (texts, stats)
+        self.shares = shares
+        self.total_stats = total_stats
+        self.num_shards = num_shards
+        self.seed = seed
+        self.out_dir = self.output_path("data")  # a symlink into gs.SCRATCH_DIR if set
+        self.out_texts = [self.out_dir.join_right(f"text-{i:03d}.txt.gz") for i in range(num_shards)]
+        self.out_stats = self.out_dir.join_right("stats.json")
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 6}
+
+    def tasks(self):
+        yield Task("link", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
+
+    def link(self):
+        _scratch_link(self)
+
+    def run(self):
+        avail = {k: json.load(open(st.get_path()))["words_out"] for k, (_, st) in self.parts.items()}
+        w = {k: v / sum(self.shares.values()) for k, v in self.shares.items()}
+        if self.total_stats:
+            total = json.load(open(self.total_stats.get_path()))["words_out"]
+        else:
+            total = min(avail[k] / w[k] for k in w)
+        keep = {k: min(1.0, total * w[k] / avail[k]) for k in w}
+        outs = [gzip.open(p.get_path(), "wt") for p in self.out_texts]
+        st, i = {k: {"keep": keep[k], "lines": 0, "words": 0} for k in w}, 0
+        for k, (texts, _) in self.parts.items():
+            for p in texts:
+                rng = random.Random(f"{self.seed}/{k}/{os.path.basename(p.get_path())}")
+                with gzip.open(p.get_path(), "rt") as f:
+                    for ln in f:
+                        if rng.random() < keep[k]:
+                            outs[i % self.num_shards].write(ln)
+                            st[k]["lines"] += 1
+                            st[k]["words"] += len(ln.split())
+                            i += 1
+        for f in outs:
+            f.close()
+        words = sum(s["words"] for s in st.values())
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump({"target": round(total), "words_out": words, "parts": st}, f, indent=1)
+
+
 class LinkFilesJob(Job):
     # a folder with symlinks to the given files of a dataset dir (same relative paths), to copy just this subset to
     # another cluster (rsync -L)

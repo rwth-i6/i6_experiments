@@ -13,7 +13,7 @@ from i6_experiments.users.naveriani.experiments.exp2026_10_05_text_corpora.loqua
     normalize,
     selectors,
 )
-from i6_experiments.users.naveriani.jobs.datasets import HfTextJob
+from i6_experiments.users.naveriani.jobs.datasets import HfTextJob, MixTextJob
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_hf_random_sorted_subset,
@@ -85,6 +85,21 @@ def py():
         100,
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-gutenberg-n24", lm_books.get_last_fixed_epoch())
+    # random web + Gutenberg in the Loquacious book share (LibriHeavy 104.0 of 235.9M words, random lines of both):
+    # 10x = same words as random; all = all of random + Gutenberg for the same share (~4.45B words, split 112)
+    parts = {"random": (norm.out_texts, norm.out_stats), "gutenberg": (norm_books.out_texts, norm_books.out_stats)}
+    shares = {"random": 235.9 - 104.0, "gutenberg": 104.0}
+    for name, total, split, n_ep in [("10x", norm.out_stats, 60, 75), ("all", None, 112, 140)]:
+        mix = MixTextJob(parts, shares, total_stats=total)
+        mix.add_alias(f"{prefix}/data/dolma-random-gutenberg-{name}/mix")
+        tk.register_output(f"{prefix}/data/dolma-random-gutenberg-{name}/stats.json", mix.out_stats)
+        lm_mix = train_lm(
+            f"{prefix}/lm/trafo-n24-d1024-dolmaRandGut{name}-nFullEp5-{5 * split}epEq-nEp{n_ep}-spm10k-ddp4-packed20k-graphc",
+            _lm_text(mix.out_texts, split=split),
+            "data",
+            n_ep,
+        )
+        std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random-gutenberg-{name}-n24", lm_mix.get_last_fixed_epoch())
     # and on the fastText source selection from the pool, same words as the random set (scored, selected and
     # normalised on RZ). Enable once the normalised folder is copied here, else the scoring starts on the login node
     # sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
