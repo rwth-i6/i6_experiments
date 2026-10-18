@@ -582,6 +582,18 @@ def _render_personaplex_lora_config(
             if not hp.get("knowledge_data"):
                 raise ValueError(f"{who}: knowledge_user_text needs knowledge_data")
             ut += "knowledge_user_text: true\n"
+        # ... fed back as an INPUT stream (2026-10-18; moshi_family.user_text_stream): rendered ONLY when set (absent =
+        # off, every earlier config byte-identical). The stream feeds the CE head's argmax: CE, last layer only.
+        if hp.get("user_text_input_stream"):
+            if hp.get("user_text_loss_kind") not in (None, "ce") or hp.get("user_text_layer") not in (None, "last"):
+                raise ValueError(f"{who}: user_text_input_stream needs the CE head on the last layer")
+            if hp.get("user_text_input_lr") is None:
+                raise ValueError(f"{who}: user_text_input_stream needs user_text_input_lr")
+            if hp.get("knowledge_data") and not hp.get("knowledge_user_text"):
+                raise ValueError(f"{who}: user_text_input_stream with knowledge_data needs knowledge_user_text")
+            ut += f"user_text_input_stream: true\nuser_text_input_lr: {_yaml_float(hp['user_text_input_lr'])}\n"
+        elif hp.get("user_text_input_lr") is not None:
+            raise ValueError(f"{who}: user_text_input_lr without user_text_input_stream")
         perf = ut + perf
     elif any(
         hp.get(k)
@@ -591,6 +603,8 @@ def _render_personaplex_lora_config(
             "user_text_head_warmup_steps",
             "knowledge_user_text",
             "user_text_layer",
+            "user_text_input_stream",
+            "user_text_input_lr",
         )
     ) or hp.get("user_text_loss_kind") not in (None, "ce"):
         raise ValueError(
