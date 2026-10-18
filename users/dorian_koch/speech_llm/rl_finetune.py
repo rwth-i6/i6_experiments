@@ -64,6 +64,8 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         keys += f'text_teacher_gate: "{job.text_teacher_gate.get()}"\n'
     if getattr(job, "opd_only", False):  # absent at the default (2026-10-16): distillation only, no GRPO advantage
         keys += "opd_only: true\n"
+    if getattr(job, "knowledge_train_cycle", 0):  # absent at the default (2026-10-18): overfit diagnostics
+        keys += f"knowledge_train_cycle: {job.knowledge_train_cycle}\n"
     if getattr(job, "teacher_grade_questions", 0):  # absent at the default (2026-10-16): the graded teacher pass
         keys += f"teacher_grade_questions: {job.teacher_grade_questions}\n"
     if getattr(job, "aux_tasks", None):  # absent at the default (2026-10-12): auxiliary prompt tasks, rl.aux_tasks
@@ -400,6 +402,8 @@ class RLFinetune(Job):
         "text_teacher_gate": None,
         "teacher_grade_questions": 0,
         "opd_only": False,
+        # overfit diagnostics (2026-10-18): the first N training questions repeated; excluded at 0 (off)
+        "knowledge_train_cycle": 0,
         # auxiliary prompt tasks (2026-10-12, moshi_family.rl.aux_tasks): excluded at their defaults (off)
         "aux_tasks": None,
         "question_draw_offset": 0,
@@ -500,6 +504,7 @@ class RLFinetune(Job):
         text_teacher_gate=None,
         teacher_grade_questions: int = 0,
         opd_only: bool = False,
+        knowledge_train_cycle: int = 0,
         aux_tasks: dict | None = None,
         question_draw_offset: int = 0,
         aux_seed: int = 0,
@@ -758,6 +763,12 @@ class RLFinetune(Job):
             "opd_only: needs text_teacher + skip_zero_signal"
         )
         self.opd_only = bool(opd_only)
+        # ``knowledge_train_cycle`` = N: train on the first N pool questions, repeated (overfit diagnostics: does the
+        # loss fit questions it sees again?); the probe set stays held out
+        assert not knowledge_train_cycle or (segment_source == "knowledge" and questions_per_episode == 1), (
+            "knowledge_train_cycle: single-question knowledge GRPO only"
+        )
+        self.knowledge_train_cycle = int(knowledge_train_cycle)
         # auxiliary prompt tasks (moshi_family.rl.aux_tasks): ``{"knowledge": w, "sysq": w, "echo": w}`` per-draw task
         # weights; ``question_draw_offset``: training draws start at that pool index (continuing from an RL init)
         assert aux_tasks is None or (
