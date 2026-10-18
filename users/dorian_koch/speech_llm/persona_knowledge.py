@@ -277,6 +277,35 @@ class KnowledgeUserWordsCTC(Job):
             raise RuntimeError(f"worker wrote no {self.out_summary.get_path()}")
 
 
+class KnowledgeQuestionWordsCTC(Job):
+    """Gold word timings of the knowledge BENCHMARK's question clips (2026-10-18; the user-text input stream's oracle,
+    ``moshi_family.user_text_stream``): each single-speaker clip aligned to its own question text as one user turn,
+    by the same MMS_FA forced aligner as :class:`KnowledgeUserWordsCTC` (worker ``moshi_family.ctc_user_words
+    questions``). ``questions``: the out_hf the clips were made from; ``audio``: its
+    ``ChatterboxSingleSpeakerInference`` tts_output (clip store). ``out_words``: jsonl ``{index, words: [{text, start,
+    end}]}`` (seconds from the clip start) = ``offline_inference --user_text_oracle``; ``out_stats``."""
+
+    def __init__(self, *, questions: tk.Path, audio: tk.Path, venv_python_path: tk.Path):
+        self.questions = questions
+        self.audio = audio
+        self.venv_python_path = venv_python_path
+        self.out_words = self.output_path("words.jsonl")
+        self.out_stats = self.output_path("words.jsonl.stats.json")
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 24, "time": 1, "gpu_mem_gb": 20}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        cmd = [self.venv_python_path.get(), "-m", "moshi_family.ctc_user_words", "questions"]
+        cmd += ["--clips", self.audio.get_path(), "--questions", self.questions.get_path()]
+        cmd += ["--out", self.out_words.get_path(), "--device", "cuda"]
+        print(" ".join(cmd), flush=True)
+        subprocess.run(cmd, env=worker_env(offline=False), check=True)
+        if not os.path.isfile(self.out_stats.get_path()):
+            raise RuntimeError(f"worker wrote no {self.out_stats.get_path()}")
+
+
 class KnowledgeAttachUserWords(Job):
     """An existing knowledge codes corpus + the USER side's word timings (backfill; user, 2026-10-13: "just backfill
     ... Lets do user word timings on the knowledge rows too"; worker ``moshi_family.knowledge_user_words``).
