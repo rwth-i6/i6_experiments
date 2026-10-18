@@ -22,10 +22,29 @@ bn_start = src.index("    BROKEN_NODES = [")
 exec(textwrap.dedent(src[bn_start : src.index("    def check_engine_limits")]), ns)
 BROKEN_NODES = ns["BROKEN_NODES"]
 
+# The sections below up to "routing by estimated start" assert the requirement / spread / preference rules
+# on their own: no live SLURM probe and no manual pins, so they are deterministic on any machine.
+ns["GPU_PARTITION_BY_START"] = False
+ns["GPU_PARTITION_PINS"] = {}
 
-def route(rqmt):
+
+class _FakeTask:
+    """A task whose work path and DECLARED rqmt (what the job itself asks for) we control."""
+
+    def __init__(self, p, rqmt=None):
+        self._p = p
+        self._rqmt = dict(rqmt or {})
+
+    def path(self):
+        return self._p
+
+    def rqmt(self):
+        return dict(self._rqmt)
+
+
+def route(rqmt, task=None):
     """Return (partition, sbatch_args) for an rqmt, asserting the invariants that hold for ALL jobs."""
-    out = check_engine_limits(dict(rqmt), None)
+    out = check_engine_limits(dict(rqmt), task)
     args = out["sbatch_args"]
     assert "-x" in args, f"node exclusion missing -> {args}"
     excluded = args[args.index("-x") + 1].split(",")
@@ -36,8 +55,8 @@ def route(rqmt):
     return args[args.index("-p") + 1], args
 
 
-def expect(name, rqmt, partition):
-    got, args = route(rqmt)
+def expect(name, rqmt, partition, task=None):
+    got, args = route(rqmt, task)
     assert got == partition, f"{name}: routed to {got}, expected {partition} -> {args}"
     print(f"[ok] {name:38s} -> {' '.join(args)}")
 
@@ -72,14 +91,6 @@ expect_any("gpu 8h + 70 GB/GPU (fits both)", {"gpu": 1, "time": 8, "gpu_mem_gb":
 # We cannot let SLURM pick: a comma partition list is rejected for both our accounts, so the choice
 # is made per job in settings.py. Two properties matter and both fail silently.
 select_gpu_partition = ns["select_gpu_partition"]
-
-
-class _FakeTask:
-    def __init__(self, p):
-        self._p = p
-
-    def path(self):
-        return self._p
 
 
 # (1) Deterministic -- the same job must not move between manager restarts. Python's salted hash()
@@ -119,7 +130,9 @@ assert ns["_spread_key"](_FakeTask("some/job/path")) == "some/job/path"
 print(f"[ok] {'spread key is fail-safe':38s} -> None task -> falls back to preference order")
 
 # --- escape hatches still work -------------------------------------------------------------------
-expect("raw -p pin (legacy)", {"gpu": 1, "time": 8, "sbatch_args": ["-p", "c23g"]}, "c23g")
+# A raw pin is a "-p" the job DECLARES in its own Task rqmt (discouraged, not portable).
+_raw = {"gpu": 1, "time": 8, "sbatch_args": ["-p", "c23g"]}
+expect("raw -p pin (legacy, declared)", _raw, "c23g", task=_FakeTask("job/raw", _raw))
 out = check_engine_limits({"gpu": 1, "time": 8, "sbatch_args": ["-x", "n23g0001"]}, None)
 assert out["sbatch_args"].count("-x") == 1, out["sbatch_args"]
 print(f"[ok] {'job-supplied -x preserved':38s} -> {' '.join(out['sbatch_args'])}")
@@ -142,5 +155,63 @@ for name, spec in GPU_PARTITIONS.items():
     assert spec["gpu_mem_gb"] > 0 and spec["max_time_h"] > 0, (name, spec)
     assert isinstance(spec["features"], set), (name, spec)
 print(f"[ok] {'partition table well-formed':38s} ({', '.join(GPU_PARTITIONS)})")
+
+# --- routing by estimated start (GPU_PARTITION_BY_START) ----------------------------------------------
+# Hit 2026-10-18: the hash spread is blind to queues and put about half of all short jobs on a stalled c25g
+# (27 jobs estimated to start 2-4 days out) while c23g started jobs in minutes. The probe is replaced by a
+# fake here; one live probe is smoke-tested at the end.
+ns["GPU_PARTITION_BY_START"] = True
+_real_probe = ns.get("_estimated_start")
+_now = 1_800_000_000.0
+
+
+def _fake(starts):
+    ns["_estimated_start"] = lambda partition, rqmt: starts[partition]
+
+
+_r8 = {"gpu": 1, "cpu": 4, "mem": 48, "time": 8}
+for _early, _late in (("c23g", "c25g"), ("c25g", "c23g")):
+    _fake({_early: _now + 3600, _late: _now + 3 * 86400})
+    _got = {select_gpu_partition(time_h=8, spread_key=f"job{i}", rqmt=_r8) for i in range(200)}
+    assert _got == {_early}, f"{_early} starts 3 days sooner but jobs went to {_got}"
+    _long = {select_gpu_partition(time_h=20, spread_key=f"job{i}", rqmt=dict(_r8, time=20)) for i in range(50)}
+    assert _long == {_early}, f"a 20 h job ignored the earlier start on {_early}: {_long}"
+print(f"[ok] {'earliest estimated start wins':38s} -> both directions, short and long jobs")
+
+_fake({"c23g": _now, "c25g": _now + 600})  # 10 min apart: within GPU_START_TIE_H -> tie
+_seen = {select_gpu_partition(time_h=8, spread_key=f"job{i}", rqmt=_r8) for i in range(200)}
+assert _seen == {"c23g", "c25g"}, f"tied estimates must still spread, got {_seen}"
+print(f"[ok] {'tied estimates still spread':38s} -> {sorted(_seen)}")
+
+_fake({"c23g": None, "c25g": _now})  # one probe failed -> the old rules, unchanged
+_seen = {select_gpu_partition(time_h=8, spread_key=f"job{i}", rqmt=_r8) for i in range(200)}
+assert _seen == {"c23g", "c25g"}, f"a failed probe must fall back to spreading, got {_seen}"
+print(f"[ok] {'failed probe falls back to spread':38s} -> {sorted(_seen)}")
+
+_fake({"c23g": _now + 3 * 86400, "c25g": _now})
+assert select_gpu_partition(time_h=25, spread_key="x", rqmt=dict(_r8, time=25)) == "c23g"
+assert select_gpu_partition(time_h=8, gpu_mem_gb=90, spread_key="x", rqmt=_r8) == "c23g"
+print(f"[ok] {'requirements beat the estimate':38s} -> >24h / 90GB stay on c23g though c25g is sooner")
+
+# A resubmission carries our OWN earlier "-p" back in (update_engine_rqmt copies the last run's requested
+# resources); it must be routed afresh, else a job on a stalled partition never leaves it.
+_fake({"c23g": _now, "c25g": _now + 3 * 86400})
+_hist = {"gpu": 1, "cpu": 4, "mem": 48, "time": 8, "sbatch_args": ["-p", "c25g", "-A", "p0023565", "-x", "n0"]}
+_job = _FakeTask("work/.../SpeechInference.abc", {"gpu": 1, "cpu": 4, "mem": 48, "time": 8})
+_out = check_engine_limits(dict(_hist), _job)["sbatch_args"]
+assert _out.count("-p") == 1 and _out[_out.index("-p") + 1] == "c23g", f"history -p kept: {_out}"
+print(f"[ok] {'resubmission is routed afresh':38s} -> {' '.join(_out)}")
+_decl = dict(_hist, sbatch_args=["-p", "c25g"])
+_out = check_engine_limits(dict(_hist), _FakeTask("work/.../X.abc", _decl))["sbatch_args"]
+assert _out.count("-p") == 1 and _out[_out.index("-p") + 1] == "c25g", f"declared -p lost: {_out}"
+print(f"[ok] {'a declared -p still pins':38s} -> {' '.join(_out)}")
+
+# Live smoke: the real probe returns a time (login node) or None (no sbatch here) -- never raises.
+ns["_estimated_start"] = _real_probe
+_t = _real_probe("c23g", _r8)
+assert _t is None or isinstance(_t, float), _t
+print(
+    f"[ok] {'live sbatch --test-only probe':38s} -> {'no sbatch here' if _t is None else 'start %+.1f h' % ((_t - __import__('time').time()) / 3600)}"
+)
 
 print("\nALL CHECKS PASSED")
