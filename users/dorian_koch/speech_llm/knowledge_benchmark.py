@@ -480,6 +480,9 @@ def sharded_knowledge_inference(*, num_shards: int, rqmt_override: dict | None =
 #: ``"<bench prefix>/<tag>"`` -> the tag's ``WhisperTranscription`` job, filled as ``knowledge_benchmark_py`` declares
 #: it, so a later reader takes the job's OUTPUT instead of a raw path into its work dir (check_no_raw_job_paths).
 KNOWLEDGE_TRANSCRIPTIONS: dict = {}
+#: ``"<bench prefix>/<tag>"`` -> ``(question set, ChatterboxSingleSpeakerInference)`` the tag was asked with (same
+#: filling), for readers that need the questions' audio (``forced_choice.KnowledgeForcedChoice``).
+KNOWLEDGE_QUESTION_SETS: dict = {}
 
 
 class WhisperTranscription(Job):
@@ -1205,6 +1208,7 @@ def knowledge_benchmark_py(
     )
     tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
     KNOWLEDGE_TRANSCRIPTIONS[f"{_bench}/{tag}"] = transcription
+    KNOWLEDGE_QUESTION_SETS[f"{_bench}/{tag}"] = (data, tts)
 
     # 7. LLM grading
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
