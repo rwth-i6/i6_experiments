@@ -2,6 +2,12 @@ from sisyphus import tk
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.encoder.conformer import (
+    ConformerConvSubsample,
+    ConformerEncoder,
+    ConformerEncoderLayer,
+    ConformerPositionwiseFeedForward,
+)
 from returnn.tensor import Dim, batch_dim
 from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
 
@@ -11,6 +17,7 @@ from i6_experiments.users.naveriani.experiments.exp2026_10_05_text_corpora.loqua
     dolma_random,
     gutenberg,
     normalize,
+    select,
     selectors,
 )
 from i6_experiments.users.naveriani.jobs.datasets import HfTextJob, MixTextJob
@@ -18,11 +25,14 @@ from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_d
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_hf_random_sorted_subset,
     get_hf_text_only,
+    get_loquacious_task_raw_v2,
     get_loquacious_text_only_dataset,
     get_loquacious_train_subset_dataset_v2,
     get_vocab_by_str,
 )
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate, train_exp
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
+    _batch_size_factor,
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
     config_96gb_bf16_accgrad1,
 )
@@ -101,16 +111,31 @@ def py():
         )
         std_lm_recogs(f"{prefix}/recog/base/lm-dolma-random-gutenberg-{name}-n24", lm_mix.get_last_fixed_epoch())
     # and on the fastText source selection from the pool, same words as the random set (scored, selected and
-    # normalised on RZ). Enable once the normalised folder is copied here, else the scoring starts on the login node
-    # sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
-    # norm_sel = normalize(prefix, "dolma-selected-10x", sel)
-    # lm_sel = train_lm(
-    #     f"{prefix}/lm/trafo-n24-d1024-dolmaSelected10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
-    #     _lm_text(norm_sel.out_texts, split=60),
+    # normalised on RZ, folder copied here; 2.464B words after normalisation, 1 % below random)
+    sel = select(prefix, *dolma_pool(prefix, dolma_), selectors(prefix, dolma_, subset), books, docs)
+    norm_sel = normalize(prefix, "dolma-selected-10x", sel)
+    tk.register_output(f"{prefix}/data/dolma-selected-10x/norm-stats.json", norm_sel.out_stats)
+    lm_sel = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-dolmaSelected10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+        _lm_text(norm_sel.out_texts, split=60),
+        "data",
+        75,
+    )
+    std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected10x-n24", lm_sel.get_last_fixed_epoch())
+    # the selected web share (People's Speech, YODAS, CommonVoice, VoxPopuli windows, normalised on RZ) with real
+    # Gutenberg books as the book share, same words as random. Enable once the normalised web folder is copied here
+    # norm_web = normalize(prefix, "dolma-selected-web-10x", selected_web(prefix, sel))
+    # parts = {"selected-web": (norm_web.out_texts, norm_web.out_stats), "gutenberg": (norm_books.out_texts, norm_books.out_stats)}
+    # mix = MixTextJob(parts, {"selected-web": 235.9 - 104.0, "gutenberg": 104.0}, total_stats=norm.out_stats)
+    # mix.add_alias(f"{prefix}/data/dolma-selected-web-gutenberg-10x/mix")
+    # tk.register_output(f"{prefix}/data/dolma-selected-web-gutenberg-10x/stats.json", mix.out_stats)
+    # lm_sw = train_lm(
+    #     f"{prefix}/lm/trafo-n24-d1024-dolmaSelWebGut10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+    #     _lm_text(mix.out_texts, split=60),
     #     "data",
     #     75,
     # )
-    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected10x-n24", lm_sel.get_last_fixed_epoch())
+    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected-web-gutenberg-10x-n24", lm_sw.get_last_fixed_epoch())
 
     for src, sel in selectors(prefix, dolma_, subset).items():
         tk.register_output(f"{prefix}/data/fasttext/{src}/stats.json", sel.out_stats)
@@ -217,21 +242,23 @@ def train_lm(name, ds, key, n_ep, num_layers=24, batch=20_000, max_seqs=800):
 
 def std_lm_recogs(prefix, lm):
     # Albert's ctc+lm-v2 cells (exp2025_10_21_chunked_ctc) with another LM: CTC-only beam 64, dev 64-best rescored with
-    # LM + label-wise prior (scales tuned there) on all sets, first pass with those scales; GPU forwards 4-GPU batched
-    am, task = _base_am()
+    # LM + label-wise prior (scales tuned there) on all sets, first pass with those scales; GPU forwards 4-GPU batched.
+    # Every LM on two AMs: base (recog/base/) and Albert's 40-epoch large model (recog/large/), CTC head of layer 16
+    base, task = _base_am()
     prior_ds = get_loquacious_train_subset_dataset_v2(vocab="spm10k")
-    run_battery(
-        lambda: ctc_recog_recomb_labelwise_prior_auto_scale(
-            prefix=prefix,
-            task=task,
-            ctc_model=am,
-            extra_config={"aux_loss_layers": [16]},
-            lm=lm,
-            prior_dataset=prior_ds,
-            recog_def=model_recog_with_recomb,
-        ),
-        time=3,
-    )
+    for name, am in [("base", base), ("large", _large_am())]:
+        run_battery(
+            lambda am=am, name=name: ctc_recog_recomb_labelwise_prior_auto_scale(
+                prefix=prefix.replace("/recog/base/", f"/recog/{name}/"),
+                task=task,
+                ctc_model=am,
+                extra_config={"aux_loss_layers": [16]},
+                lm=lm,
+                prior_dataset=prior_ds,
+                recog_def=model_recog_with_recomb,
+            ),
+            time=3,
+        )
 
 
 def _base_am():
@@ -240,3 +267,63 @@ def _base_am():
     with disable_register_output():
         exp, task, _ = train_chunked_ctc("base", {})
     return exp.get_last_fixed_epoch(), task
+
+
+def _large_am():
+    # Albert's AED+CTC base-v2-large-nFullEp40.0-nEp1000-totalHours1000k (exp2025_10_04_loquacious, 40 full epochs on
+    # Loquacious large, CTC-only 5.66 / 6.26): his exact train call, so the job is his g8UGssIt95KO, copied from RZ
+    with disable_register_output():
+        exp = train_exp(
+            "base-v2-large-nFullEp40.0-nEp1000-totalHours1000k",
+            config_96gb_bf16_accgrad1,
+            prefix="exp2025_10_04_loquacious/aed/",
+            task=get_loquacious_task_raw_v2(vocab="spm10k", subset_name="large", train_epoch_split=25),
+            model_config={
+                "behavior_version": 24,
+                "__serialization_version": 2,
+                "enc_build_dict": rf.build_dict(
+                    ConformerEncoder,
+                    input_layer=rf.build_dict(
+                        ConformerConvSubsample,
+                        out_dims=[32, 64, 64],
+                        filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                        pool_sizes=[(1, 2)],
+                        strides=[(1, 1), (3, 1), (2, 1)],
+                    ),
+                    num_layers=16,
+                    out_dim=1024,
+                    encoder_layer=rf.build_dict(
+                        ConformerEncoderLayer,
+                        ff=rf.build_dict(
+                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                        ),
+                        num_heads=8,
+                    ),
+                ),
+                "dec_build_dict": rf.build_dict(
+                    TransformerDecoder,
+                    num_layers=6,
+                    model_dim=1024,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                ),
+                "feature_batch_norm": True,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(1000, base_lr=0.5),
+                "batch_size": 100_000 * _batch_size_factor,
+                "optimizer.weight_decay": 1e-2,
+                "accum_grad_multiple_step": 1,
+                "aux_loss_layers": [4, 10, 16],
+                "dec_aux_loss_layers": [3],
+                "max_seq_length_default_target": None,
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
+    return exp.get_last_fixed_epoch()

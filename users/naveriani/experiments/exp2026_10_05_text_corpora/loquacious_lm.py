@@ -3,6 +3,7 @@ from sisyphus import tk
 from i6_experiments.users.naveriani.jobs.datasets import (
     DownloadUrlsJob,
     ExtractDocsJob,
+    FilterDocsJob,
     LinkFilesJob,
     NormalizeTextJob,
     RandomFileSubsetJob,
@@ -29,6 +30,8 @@ def py():
     tk.register_output(f"{prefix}/data/dolma-selected-10x/stats.json", sel.out_stats)
     norm = normalize(prefix, "dolma-selected-10x", sel)
     tk.register_output(f"{prefix}/data/dolma-selected-10x/norm-stats.json", norm.out_stats)
+    norm_web = normalize(prefix, "dolma-selected-web-10x", selected_web(prefix, sel))
+    tk.register_output(f"{prefix}/data/dolma-selected-web-10x/norm-stats.json", norm_web.out_stats)
 
 
 def dolma(prefix):
@@ -120,8 +123,16 @@ def select(prefix, pool, files, sel, books, random_docs):
     return sel_job
 
 
+def selected_web(prefix, sel):
+    # the selected set without its book share: People's Speech, YODAS, CommonVoice, VoxPopuli windows
+    web = FilterDocsJob(sel.out_docs, sources=["peoplesspeech", "yodas", "commonvoice", "voxpopuli"])
+    web.add_alias(f"{prefix}/data/dolma-selected-web-10x/docs")
+    return web
+
+
 def normalize(prefix, name, docs):
     # Albert's TextNormaliser (NeMo), like the Loquacious transcripts; 171 words/s/core, so on RZ CPU nodes
     norm = NormalizeTextJob(docs.out_docs)
+    norm.rqmt.update({"cpu": 48, "mem": 64, "time": 8})  # half c23ms nodes fill queue gaps, ~2.6 h per task
     norm.add_alias(f"{prefix}/data/{name}/normalize")
     return norm

@@ -186,6 +186,44 @@ class HfTextJob(Job):
             f.write("".join(t + "\n" for t in ds[self.column]))
 
 
+class FilterDocsJob(Job):
+    # the documents of jsonl.gz shards (e.g. SelectTextJob) whose "src" is one of sources, round-robin into shards
+    def __init__(self, docs, *, sources, num_shards=32):
+        super().__init__()
+        self.docs = docs
+        self.sources = sources
+        self.num_shards = num_shards
+        self.out_dir = self.output_path("data")  # a symlink into gs.SCRATCH_DIR if set
+        self.out_docs = [self.out_dir.join_right(f"docs-{i:03d}.jsonl.gz") for i in range(num_shards)]
+        self.out_stats = self.out_dir.join_right("stats.json")
+        self.rqmt = {"cpu": 1, "mem": 2, "time": 2}
+
+    def tasks(self):
+        yield Task("link", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
+
+    def link(self):
+        _scratch_link(self)
+
+    def run(self):
+        outs = [gzip.open(p.get_path(), "wt") for p in self.out_docs]
+        st, i = {}, 0
+        for p in self.docs:
+            with gzip.open(p.get_path(), "rt") as f:
+                for ln in f:
+                    r = json.loads(ln)
+                    if r["src"] in self.sources:
+                        outs[i % self.num_shards].write(ln)
+                        s = st.setdefault(r["src"], {"docs": 0, "words": 0})
+                        s["docs"] += 1
+                        s["words"] += len(r["text"].split())
+                        i += 1
+        for f in outs:
+            f.close()
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump({"words": sum(s["words"] for s in st.values()), "sources": st}, f, indent=1)
+
+
 class MixTextJob(Job):
     # random lines of normalised text sets (NormalizeTextJob), mixed by word shares: part k keeps each line with
     # probability words_k / available_k (seeded per part and file). total_stats: total words of the mix from its
@@ -435,7 +473,8 @@ class NormalizeTextJob(Job):
         from i6_experiments.users.zeyer.datasets.loquacious import TextNormaliser  # noqa: F401
 
         st = {"docs": 0, "sents_in": 0, "words_in": 0, "sents_out": 0, "words_out": 0}
-        with Pool(self.rqmt["cpu"], initializer=_init_norm) as pool:
+        # as many workers as cores Slurm gave this task (rqmt can be set per recipe, half nodes queue faster)
+        with Pool(len(os.sched_getaffinity(0)), initializer=_init_norm) as pool:
             with gzip.open(self.out_texts[task].get_path(), "wt") as f:
                 for out, n_sents, n_words in pool.imap(_normalize_doc, self._docs(task), chunksize=8):
                     f.write("".join(o + "\n" for o in out))
@@ -944,3 +983,33 @@ class HfTokenStatsJob(Job):
         st["tokens_with_bos_eos"] = st["tokens"] + 2 * st["kept"]
         with open(self.out_stats.get_path(), "w") as f:
             json.dump({"split": self.split, "max_len": self.max_len, **st}, f, indent=1)
+
+
+class HfSeqLenJob(Job):
+    # one split of an HF text dataset (save_to_disk dir) again, with a seq_len column = its token count under a
+    # tokenizer dir: RETURNN's HuggingFaceDataset sorts by it (sorting_seq_len_column, e.g. laplace ordering)
+    def __init__(self, hf_data_dir, tokenizer_dir, *, split="train", column="text", batch=10_000):
+        super().__init__()
+        self.hf_data_dir = hf_data_dir
+        self.tokenizer_dir = tokenizer_dir
+        self.split = split
+        self.column = column
+        self.batch = batch
+        self.out_dir = self.output_path("dataset", directory=True)  # <out_dir>/<split>, as the input dir
+        self.rqmt = {"cpu": 4, "mem": 32, "time": 4}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import datasets
+        from transformers import AutoTokenizer
+
+        ds = datasets.load_from_disk(self.hf_data_dir.get_path())[self.split]
+        tok = AutoTokenizer.from_pretrained(self.tokenizer_dir.get_path())
+        lens = []
+        for i in range(0, len(ds), self.batch):
+            lens += [len(ids) for ids in tok(list(ds[i : i + self.batch][self.column]))["input_ids"]]
+            if i % 1_000_000 < self.batch:
+                print(i, len(ds), flush=True)
+        ds.add_column("seq_len", lens).save_to_disk(os.path.join(self.out_dir.get_path(), self.split))
