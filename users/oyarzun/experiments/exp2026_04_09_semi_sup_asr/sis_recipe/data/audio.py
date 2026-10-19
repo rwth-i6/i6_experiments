@@ -64,9 +64,11 @@ def featurize_audio(
         target_filename="wav2vec_60kh_no_finetune.pt",
     ).out_file
 
-    environment = tk.Path("/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv")
+    curium_env = "/work/smt4/benjamin.oyarzun/venv"
+    hpc_env = "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv"
+    environment = tk.Path(curium_env if os.path.exists(curium_env) else hpc_env)
     featurize_job = Wav2VecUFeaturizeAudioJob(
-        environment=tk.Path("/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv"),
+        environment=environment,
         fairseq_root=SetupFairseqJob(
             CloneGitRepositoryJob(
                 url="https://github.com/facebookresearch/fairseq.git",

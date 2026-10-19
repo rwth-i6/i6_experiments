@@ -65,6 +65,15 @@ def get_text(librispeech_key: str) -> Tuple[tk.Path, Optional[tk.Path]]:
     return lowercase_text, seq_tags
 
 
+def get_librispeech_lexicon() -> tk.Path:
+    download_job = DownloadJob(
+        url="https://www.openslr.org/resources/11/librispeech-lexicon.txt",
+        target_filename="librispeech-lexicon.txt",
+        checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71",
+    )
+    return download_job.out_file
+
+
 def get_phonemized_text(
     data_name: str,
     dump_hdf_concurrent: int,
@@ -74,6 +83,8 @@ def get_phonemized_text(
     surround_w_sil: bool = True,
 ):
     text_data, seq_tags = get_text(data_name)
+    if lexicon_file is None:
+        lexicon_file = get_librispeech_lexicon()
 
     return get_phonemized_data(
         dataset_name=data_name,

@@ -54,17 +54,67 @@ def compute_optimal_orthogonal_mapping(
     return W
 
 
+def compute_csls_similarity(
+    X_mapped: np.ndarray,
+    Z: np.ndarray,
+    k: int = 10,
+) -> np.ndarray:
+    """
+    Computes Cross-Domain Similarity Local Scaling (CSLS) (Conneau et al., 2017):
+      CSLS(x, z) = 2 cos(x, z) - r_T(x) - r_S(z)
+    where:
+      r_T(x) = (1/k) sum_{z' in N_T(x)} cos(x, z')
+      r_S(z) = (1/k) sum_{x' in N_S(z)} cos(x', z)
+
+    :param X_mapped: Mapped source embeddings (K x d), unit length-normalized.
+    :param Z: Target embeddings (P x d), unit length-normalized.
+    :param k: Number of nearest neighbors to average over.
+    :return: CSLS similarity matrix (K x P).
+    """
+    K = X_mapped.shape[0]
+    P = Z.shape[0]
+
+    # Cosine similarity matrix
+    sim_matrix = X_mapped @ Z.T  # (K x P)
+
+    # Number of neighbors cannot exceed dataset size
+    k_T = min(k, P)
+    k_S = min(k, K)
+
+    # r_T(x): mean similarity of x to its k nearest neighbors in target space Z (along axis 1)
+    if k_T > 0:
+        topk_T = np.partition(sim_matrix, -k_T, axis=1)[:, -k_T:]
+        r_T = np.mean(topk_T, axis=1, keepdims=True)  # (K x 1)
+    else:
+        r_T = np.zeros((K, 1), dtype=np.float32)
+
+    # r_S(z): mean similarity of z to its k nearest neighbors in source space X (along axis 0)
+    if k_S > 0:
+        topk_S = np.partition(sim_matrix, -k_S, axis=0)[-k_S:, :]
+        r_S = np.mean(topk_S, axis=0, keepdims=True)  # (1 x P)
+    else:
+        r_S = np.zeros((1, P), dtype=np.float32)
+
+    csls_matrix = 2.0 * sim_matrix - r_T - r_S
+    return csls_matrix
+
+
 def induce_dictionary_nn(
     X: np.ndarray,
     W: np.ndarray,
     Z: np.ndarray,
+    retrieval_metric: str = "cosine",
+    csls_k: int = 10,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Induces a new dictionary D via nearest neighbor retrieval using dot-product similarity:
-      j = argmax_k (X_i W) . Z_k
+    Induces a new dictionary D via nearest neighbor retrieval using dot-product similarity
+    or CSLS (Cross-Domain Similarity Local Scaling):
+      j = argmax_k Sim(X_i W, Z_k)
     :param X: Source embeddings (K x d)
     :param W: Transformation matrix (d x d)
     :param Z: Target embeddings (P x d)
+    :param retrieval_metric: 'cosine' or 'csls'
+    :param csls_k: Number of neighbors for CSLS
     :return: (D, similarities) where D is binary (K x P) and similarities is (K,)
     """
     K = X.shape[0]
@@ -72,7 +122,14 @@ def induce_dictionary_nn(
 
     # Transformed source embeddings
     X_mapped = X @ W  # (K x d)
-    sim_matrix = X_mapped @ Z.T  # (K x P)
+
+    if retrieval_metric == "csls":
+        # Normalize rows to unit norm for dot products
+        X_norm = X_mapped / np.maximum(np.linalg.norm(X_mapped, axis=1, keepdims=True), 1e-12)
+        Z_norm = Z / np.maximum(np.linalg.norm(Z, axis=1, keepdims=True), 1e-12)
+        sim_matrix = compute_csls_similarity(X_norm, Z_norm, k=csls_k)
+    else:
+        sim_matrix = X_mapped @ Z.T  # (K x P)
 
     best_targets = np.argmax(sim_matrix, axis=1)  # (K,)
     best_sims = np.max(sim_matrix, axis=1)  # (K,)
@@ -142,9 +199,11 @@ def run_self_learning_alignment(
     max_iters: int = 100,
     tol: float = 1e-6,
     seed: int = 42,
+    retrieval_metric: str = "cosine",
+    csls_k: int = 10,
 ) -> Dict:
     """
-    Runs the full self-learning alignment loop (Artetxe et al. 2017).
+    Runs the full self-learning alignment loop (Artetxe et al. 2017) with optional CSLS retrieval.
     """
     K, d_x = X_raw.shape
     P, d_z = Z_raw.shape
@@ -169,12 +228,12 @@ def run_self_learning_alignment(
 
     if W0 is not None:
         W = W0
-        D, sims = induce_dictionary_nn(X, W, Z)
+        D, sims = induce_dictionary_nn(X, W, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
         prev_avg_sim = np.mean(sims)
     else:
         D = D0
         W = compute_optimal_orthogonal_mapping(X, Z, D)
-        D, sims = induce_dictionary_nn(X, W, Z)
+        D, sims = induce_dictionary_nn(X, W, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
         prev_avg_sim = np.mean(sims)
 
     history = [float(prev_avg_sim)]
@@ -186,13 +245,13 @@ def run_self_learning_alignment(
         W = compute_optimal_orthogonal_mapping(X, Z, D)
 
         # Step 2: Dictionary induction step
-        D, sims = induce_dictionary_nn(X, W, Z)
+        D, sims = induce_dictionary_nn(X, W, Z, retrieval_metric=retrieval_metric, csls_k=csls_k)
         curr_avg_sim = float(np.mean(sims))
         delta = curr_avg_sim - prev_avg_sim
         history.append(curr_avg_sim)
 
         logging.info(
-            f"Iteration {iteration:03d}: avg_similarity = {curr_avg_sim:.6f}, delta = {delta:.8f}"
+            f"Iteration {iteration:03d} ({retrieval_metric}): avg_similarity = {curr_avg_sim:.6f}, delta = {delta:.8f}"
         )
 
         if abs(delta) < tol:
@@ -214,6 +273,8 @@ def run_self_learning_alignment(
         "iterations": iteration,
         "converged": converged,
         "objective_history": history,
+        "retrieval_metric": retrieval_metric,
+        "csls_k": csls_k,
     }
 
 
@@ -249,6 +310,7 @@ class SelfLearningEmbeddingAlignmentJob(Job):
     """
     Sisyphus job executing the Artetxe et al. (2017) self-learning embedding alignment.
     Aligns source audio cluster embeddings with target text phoneme embeddings.
+    Supports cosine similarity and CSLS (Cross-Domain Similarity Local Scaling) dictionary induction.
     """
     _version = 2
 
@@ -265,10 +327,17 @@ class SelfLearningEmbeddingAlignmentJob(Job):
         max_iters: int = 100,
         tol: float = 1e-6,
         seed: int = 42,
-        _version: int = 2,
+        retrieval_metric: str = "cosine",
+        csls_k: int = 10,
+        _version: Optional[int] = None,
     ):
         super().__init__()
-        self._version = _version
+        if _version is not None:
+            self._version = _version
+        elif retrieval_metric != "cosine":
+            self._version = 3
+        else:
+            self._version = 2
         self.audio_embeddings_npy = audio_embeddings_npy
         self.text_embeddings_npy = text_embeddings_npy
         self.audio_vocab_file = audio_vocab_file
@@ -280,6 +349,8 @@ class SelfLearningEmbeddingAlignmentJob(Job):
         self.max_iters = max_iters
         self.tol = tol
         self.seed = seed
+        self.retrieval_metric = retrieval_metric
+        self.csls_k = csls_k
 
         # Outputs
         self.out_mapping_matrix_npy = self.output_path("W_star.npy")
@@ -314,6 +385,9 @@ class SelfLearningEmbeddingAlignmentJob(Job):
             except Exception as e:
                 logging.warning(f"Could not load text counts: {e}")
 
+        retrieval_metric = getattr(self, "retrieval_metric", "cosine")
+        csls_k = getattr(self, "csls_k", 10)
+
         res = run_self_learning_alignment(
             X_raw=X_raw,
             Z_raw=Z_raw,
@@ -324,6 +398,8 @@ class SelfLearningEmbeddingAlignmentJob(Job):
             max_iters=self.max_iters,
             tol=self.tol,
             seed=self.seed,
+            retrieval_metric=retrieval_metric,
+            csls_k=csls_k,
         )
 
         np.save(self.out_mapping_matrix_npy.get_path(), res["W"])
@@ -345,12 +421,16 @@ class SelfLearningEmbeddingAlignmentJob(Job):
             json.dump({
                 "cluster_index_to_phoneme_index": res["cluster_to_phoneme_map"],
                 "cluster_token_to_phoneme_token": mapping_named,
+                "retrieval_metric": retrieval_metric,
+                "csls_k": csls_k,
             }, f, indent=2)
 
         with open(self.out_alignment_report.get_path(), "w") as f:
             json.dump({
                 "init_method": self.init_method,
                 "top_n_freq": self.top_n_freq,
+                "retrieval_metric": retrieval_metric,
+                "csls_k": csls_k,
                 "converged": res["converged"],
                 "iterations": res["iterations"],
                 "final_avg_similarity": res["final_avg_similarity"],

@@ -456,12 +456,16 @@ class GenerateTextNgramsJob(Job):
         ngram_order: int = 2,
         delimiter: str = "_",
         min_count: int = 1,
+        coverage_threshold: Optional[float] = None,
+        max_vocab_size: Optional[int] = None,
     ):
         super().__init__()
         self.token_text_file = token_text_file
         self.ngram_order = ngram_order
         self.delimiter = delimiter
         self.min_count = min_count
+        self.coverage_threshold = coverage_threshold
+        self.max_vocab_size = max_vocab_size
 
         self.out_ngram_text = self.output_path(f"text.ngrams_{ngram_order}.txt")
         self.out_vocab_txt = self.output_path("vocab.txt")
@@ -497,7 +501,21 @@ class GenerateTextNgramsJob(Job):
                 counts.update(ngrams)
                 f_out.write(" ".join(ngrams) + "\n")
 
-        vocab = [w for w, c in counts.most_common() if c >= self.min_count]
+        total_occurrences = sum(counts.values())
+        filtered_vocab = []
+        cum_count = 0
+        for w, c in counts.most_common():
+            if c < self.min_count:
+                break
+            filtered_vocab.append(w)
+            cum_count += c
+            if self.coverage_threshold is not None and total_occurrences > 0:
+                if (cum_count / total_occurrences) >= self.coverage_threshold:
+                    break
+            if self.max_vocab_size is not None and len(filtered_vocab) >= self.max_vocab_size:
+                break
+
+        vocab = filtered_vocab
 
         with open(self.out_vocab_txt.get_path(), "w", encoding="utf-8") as f_vocab, open(
             self.out_counts_txt.get_path(), "w", encoding="utf-8"
