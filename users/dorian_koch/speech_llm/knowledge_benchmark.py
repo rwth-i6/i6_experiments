@@ -483,6 +483,8 @@ KNOWLEDGE_TRANSCRIPTIONS: dict = {}
 #: ``"<bench prefix>/<tag>"`` -> ``(question set, ChatterboxSingleSpeakerInference)`` the tag was asked with (same
 #: filling), for readers that need the questions' audio (``forced_choice.KnowledgeForcedChoice``).
 KNOWLEDGE_QUESTION_SETS: dict = {}
+#: ``"<bench prefix>/<tag>"`` -> the tag's ``LLMGrading`` job (same filling; 2026-10-19, ``audio_judge``).
+KNOWLEDGE_GRADINGS: dict = {}
 
 
 class WhisperTranscription(Job):
@@ -1212,6 +1214,7 @@ def knowledge_benchmark_py(
 
     # 7. LLM grading
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
+    KNOWLEDGE_GRADINGS[f"{_bench}/{tag}"] = grading
     tk.register_output(f"{_bench}/{tag}/eval_results", grading.out_eval)
     tk.register_output(f"{_bench}/{tag}/summary", grading.out_summary)
 

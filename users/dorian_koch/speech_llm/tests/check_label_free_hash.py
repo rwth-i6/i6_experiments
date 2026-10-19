@@ -215,6 +215,33 @@ def unit() -> None:
         finally:
             label_hash_legacy.LEGACY_LABEL_HASHED[n] = saved
 
+    # label-carrying classes born after 2026-10-13: no legacy hashes, so only the rename / path / can-fail checks
+    from i6_experiments.users.dorian_koch.speech_llm.audio_judge import AudioJudgeAgreement
+
+    new_builders = {
+        AudioJudgeAgreement: lambda L, p: dict(
+            knowledge={
+                L[0]: {"replies": p, "transcription": x, "grades": x},
+                L[1]: {"replies": y, "transcription": y, "grades": y},
+            },  # fmt: skip
+            selfplay={L[0]: {"conversations": p, "grades": x}, L[1]: {"conversations": y, "grades": y}},
+            question_audio=x,
+            venv_python_path=x,
+        ),
+    }
+    for cls, b in new_builders.items():
+        n = cls.__name__
+        check(n not in label_hash_legacy.LEGACY_LABEL_HASHED, f"{n}: new class, not in label_hash_legacy")
+        h_old, h_new, h_path = hid(cls, b(old, x)), hid(cls, b(new, x)), hid(cls, b(old, z))
+        check(h_old == h_new, f"{n}: renaming the labels keeps the hash")
+        check(h_path != h_old, f"{n}: a different input path is a different job")
+        lfh.is_legacy = lambda c, h: True
+        try:
+            keyed_old, keyed_new = hid(cls, b(old, x)), hid(cls, b(new, x))
+        finally:
+            lfh.is_legacy = real_is_legacy
+        check(keyed_old != keyed_new, f"{n}: CAN FAIL -- the label-keyed hash sees the rename")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()

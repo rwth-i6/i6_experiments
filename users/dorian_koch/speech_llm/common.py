@@ -189,6 +189,10 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
         "nemotron_v3",
         "--allowed-local-media-path",
         "/",
+        # Triton MoE kernels: the default FlashInfer MoE JIT-compiles 182 kernels with nvcc at startup (it died on a
+        # node without the CUDA module, 2026-10-19); the card names triton as the portable backend
+        "--moe-backend",
+        "triton",
     ],
 }
 
