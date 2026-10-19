@@ -162,7 +162,10 @@ def managed_subprocess_server(
 #: the 3 that landed on an 80 GB c25g card (79.18 GiB usable) loaded for 9-22 min and then died with
 #: CUDA OOM before serving. MTRJudge and the FDB judge declared no gpu_mem_gb and only ever landed on
 #: c23g by scheduling luck. Models not listed fit 80 GB at the max_model_len their callers pass.
-VLLM_MIN_GPU_MEM_GB: dict[str, int] = {"openai/gpt-oss-120b": 94}
+VLLM_MIN_GPU_MEM_GB: dict[str, int] = {
+    "openai/gpt-oss-120b": 94,
+    "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16": 80,
+}
 
 
 def vllm_gpu_mem_gb(hf_model: str, default: int = 0) -> int:
@@ -176,6 +179,17 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
     "google/gemma-3-27b-it": ["--max-model-len", "32768"],
     "Qwen/Qwen3-32B": ["--max-model-len", "32768"],
     "openai/gpt-oss-120b": ["--max-model-len", "32768"],
+    # audio judge (2026-10-19): the model card's flags (vLLM >= 0.20; our image registers the architecture) -- its
+    # own processor code, the reasoning split, audio files read from the shared filesystem by path
+    "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16": [
+        "--max-model-len",
+        "32768",
+        "--trust-remote-code",
+        "--reasoning-parser",
+        "nemotron_v3",
+        "--allowed-local-media-path",
+        "/",
+    ],
 }
 
 
