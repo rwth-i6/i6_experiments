@@ -1,7 +1,5 @@
-from glob import glob
 import json
 from pathlib import Path
-from typing import List, Sequence, Tuple
 from sisyphus import Job, Task, tk
 import os
 import sys
@@ -13,7 +11,6 @@ from .inference_harness import FDB_TASK_MAP
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
 from functools import lru_cache
 
-from .moshi_client import MoshiFileClient, _ws_url, moshi_server
 from .speech_backends import MOSHI_BACKEND
 
 # `moshified_fdb_v1_v15` lives at recipe/moshified_fdb_v1_v15 (a sibling of i6_experiments).
