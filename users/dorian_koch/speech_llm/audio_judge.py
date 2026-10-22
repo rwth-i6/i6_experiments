@@ -306,8 +306,10 @@ class AudioJudgeAgreement(Job):
         from .common import json_schema_format, map_concurrent, vllm_server
 
         items = self.items()
+        sr = judge_audio_sr(self.judge_model)
+        items = [{**it, "audio": at_rate(it["audio"], sr)} for it in items]
         counts = ", ".join(f"{c} {sum(it['cond'] == c for it in items)}" for c in CONDITIONS)
-        print(f"[audio-judge] {len(items)} calls ({counts}) to {self.judge_model}", flush=True)
+        print(f"[audio-judge] {len(items)} calls ({counts}) to {self.judge_model}; audio at {sr} Hz", flush=True)
         sp_schema = json_schema_format(sb.SPJ2_JSON_SCHEMA, "spj2")
         spa_schema = json_schema_format(sb.rubric_json_schema(sb.SPJ2_METRICS + SPEECH_METRICS), "spj2_audio")
         model = self.judge_model
@@ -352,6 +354,32 @@ class AudioJudgeAgreement(Job):
         json.dump(summary, open(self.out_summary.get_path(), "w"), indent=1)
         print(json.dumps(summary, indent=1), flush=True)
         shutil.rmtree("wav", ignore_errors=True)  # scratch: ~5 GB of decoded audio; prep re-creates it on a rerun
+
+
+def judge_audio_sr(model: str) -> int:
+    """The judge model's own audio rate (its ``config.json`` ``sound_config.sampling_rate``; Nemotron 3 Nano Omni: 16000)."""
+    from huggingface_hub import hf_hub_download
+
+    cfg = json.load(open(hf_hub_download(model, "config.json")))
+    return int(cfg["sound_config"]["sampling_rate"])
+
+
+def at_rate(paths: list[str], sr: int) -> list[str]:
+    """Each wav at ``sr`` (a ``<name>.<sr>hz.wav`` sibling, written once): loaded as the model's reference processor
+    loads audio (``processing.py`` ``_load_audio``: ``librosa.load(path, sr=target, mono=True)``), float32. vLLM then
+    gets the model's rate and skips its own resampler, which needs PyAV (``vllm[audio]``) -- in neither our vLLM image
+    nor the setup ``.venv`` (2026-10-22 smoke: "Please install vllm[audio] for audio support" on every audio call)."""
+    import librosa
+    import soundfile as sf
+
+    out = []
+    for p in map(Path, paths):
+        q = p.with_name(f"{p.stem}.{sr}hz.wav")
+        if not q.exists():
+            y, _ = librosa.load(str(p), sr=sr, mono=True)
+            sf.write(str(q), y, sr, subtype="FLOAT")
+        out.append(str(q))
+    return out
 
 
 def summarize(items: list[dict], res: list[dict]) -> dict:
