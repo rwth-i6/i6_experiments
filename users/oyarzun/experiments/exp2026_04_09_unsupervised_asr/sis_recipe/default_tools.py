@@ -34,12 +34,12 @@ def get_returnn_exe() -> tk.Path:
 def get_fasttext_python_exe() -> tk.Path:
     path = getattr(gs, "FASTTEXT_PYTHON_EXE", None)
     if path is None:
-        curium_path = "/work/smt4/benjamin.oyarzun/venv/bin/python"
         hpc_path = "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv/bin/python"
-        if os.path.exists(curium_path):
-            path = curium_path
-        elif os.path.exists(hpc_path):
+        curium_path = "/work/smt4/benjamin.oyarzun/venv/bin/python"
+        if os.path.exists(hpc_path):
             path = hpc_path
+        elif os.path.exists(curium_path):
+            path = curium_path
         elif sys.executable and os.path.exists(sys.executable):
             path = sys.executable
         elif os.path.exists("/usr/bin/python3"):

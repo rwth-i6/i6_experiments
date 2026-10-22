@@ -23,6 +23,8 @@ class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
         sil="<SIL>",
         seq_tags_file=None,
         lexicon=None,
+        collapse_repeats=False,
+        **kwargs,
     ):
         import numpy as np
         import re
@@ -48,47 +50,46 @@ class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
                 phns = [re.sub(r"\d+", "", p) for p in items[1:]]
                 wrd_to_phn[w_lower] = phns
 
-        new_seq_tag_file = open("seq-tags-after-phonemize.txt", "w", encoding="utf-8")
+        new_seq_tag_file = open("seq-tags-after-phonemize.txt", "w", encoding="utf-8") if seq_tags is not None else None
         out_tf = open(out_text_file, "w", encoding="utf-8")
-        tf = open(text_file, "r", encoding="utf-8")
-        lines = tf.readlines()
 
-        if seq_tags is not None:
-            assert len(lines) == len(seq_tags), "Number of lines in text file and seq tag file must be the same"
+        with open(text_file, "r", encoding="utf-8") as tf:
+            for i, line in enumerate(tf):
+                words = [w.lower() for w in line.strip().split()]
 
-        for i, line in enumerate(lines):
-            words = [w.lower() for w in line.strip().split()]
+                if not all(w in wrd_to_phn for w in words):
+                    continue
 
-            if not all(w in wrd_to_phn for w in words):
-                continue
-
-            phones = []
-            if surround:
-                phones.append(sil)
-
-            sample_sil_probs = None
-            if sil_prob > 0 and len(words) > 1:
-                sample_sil_probs = np.random.random(len(words) - 1)
-
-            for j, w in enumerate(words):
-                phones.extend(wrd_to_phn[w])
-                if sample_sil_probs is not None and j < len(sample_sil_probs) and sample_sil_probs[j] < sil_prob:
+                phones = []
+                if surround:
                     phones.append(sil)
 
-            if surround:
-                phones.append(sil)
+                sample_sil_probs = None
+                if sil_prob > 0 and len(words) > 1:
+                    sample_sil_probs = np.random.random(len(words) - 1)
 
-            out_tf.write(" ".join(phones) + "\n")
+                for j, w in enumerate(words):
+                    phones.extend(wrd_to_phn[w])
+                    if sample_sil_probs is not None and j < len(sample_sil_probs) and sample_sil_probs[j] < sil_prob:
+                        phones.append(sil)
 
-            if seq_tags is not None:
-                new_seq_tag_file.write(f"{seq_tags[i]}\n")
+                if surround:
+                    phones.append(sil)
 
-        new_seq_tag_file.close()
+                if collapse_repeats:
+                    phones = [p for i, p in enumerate(phones) if i == 0 or p != phones[i - 1]]
+
+                out_tf.write(" ".join(phones) + "\n")
+
+                if new_seq_tag_file is not None and i < len(seq_tags):
+                    new_seq_tag_file.write(f"{seq_tags[i]}\n")
+
+        if new_seq_tag_file is not None:
+            new_seq_tag_file.close()
         out_tf.close()
-        tf.close()
 
     @staticmethod
-    def normalize_and_filter_text(text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file):
+    def normalize_and_filter_text(text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file, apply_lid_filter=True, **kwargs):
         import sys
         class DummyFastText:
             @staticmethod
@@ -96,14 +97,45 @@ class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
                 return None
         sys.modules["fasttext"] = DummyFastText()
         
-        PhonemizeTextDataJob.normalize_and_filter_text(text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file)
+        PhonemizeTextDataJob.normalize_and_filter_text(
+            text_file, out_text_file, lang, lid_threshold, fasttext_model, seq_tags_file, apply_lid_filter=apply_lid_filter, **kwargs
+        )
 
     def run(self):
         dummy_hash_updater = 1
         import os
         import subprocess as sp
+        import shutil
         from unittest.mock import patch
         
+        # If words.txt, lm.upper.lid.txt, and lexicon already exist from a previous attempt in work/
+        # we can skip re-running the expensive normalization and fairseq preprocessing
+        if (
+            self.lexicon_file is not None
+            and os.path.isfile("words.txt")
+            and os.path.isfile("lm.upper.lid.txt")
+            and os.path.isfile(self.out_lexicon_file.get_path())
+        ):
+            seq_tag_file = (
+                os.path.join(os.getcwd(), "seq-tags-after-norm-and-filter.txt")
+                if self.seq_tag_file is not None and os.path.isfile("seq-tags-after-norm-and-filter.txt")
+                else None
+            )
+            self.phonemize_with_sil(
+                text_file="lm.upper.lid.txt",
+                out_text_file="lm.phones.filtered.txt",
+                sil_prob=self.sil_prob,
+                surround=self.surround_w_sil,
+                seq_tags_file=seq_tag_file,
+                lexicon=self.out_lexicon_file.get_path(),
+                collapse_repeats=self.collapse_repeats,
+            )
+            shutil.move("lm.phones.filtered.txt", self.out_phoneme_text.get_path())
+            if self.seq_tag_file is not None and os.path.isfile("seq-tags-after-phonemize.txt"):
+                shutil.move("seq-tags-after-phonemize.txt", self.out_seq_tags.get_path())
+            self._ensure_phoneme_vocab()
+            return
+
         base_exp_dir = (
             "/u/benjamin.oyarzun/experiments/2026_05_07_first_experiments"
             if os.path.exists("/u/benjamin.oyarzun/experiments/2026_05_07_first_experiments")
@@ -126,6 +158,47 @@ class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
             
         with patch('subprocess.run', mock_run):
             super().run()
+        self._ensure_phoneme_vocab()
+
+    def _ensure_phoneme_vocab(self):
+        import os
+        import shutil
+        out_vocab_path = self.out_phoneme_vocab.get_path()
+        if os.path.exists(out_vocab_path):
+            return
+
+        candidate_paths = [
+            "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/i6_experiments/users/oyarzun/experiments/exp2026_04_09_unsupervised_asr/sis_recipe/data/text/LocalPhonemizeTextDataJob.8jDKfW1lmnJg/output/phoneme_vocab.txt",
+            "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/work/i6_experiments/users/oyarzun/experiments/exp2026_04_09_unsupervised_asr/sis_recipe/data/text/LocalPhonemizeTextDataJob.8jDKfW1lmnJg/output/phoneme_vocab.txt",
+        ]
+        for cp in candidate_paths:
+            if os.path.isfile(cp):
+                shutil.copy(cp, out_vocab_path)
+                return
+
+        lexicon_path = (
+            self.out_lexicon_file.get_path()
+            if os.path.isfile(self.out_lexicon_file.get_path())
+            else (self.lexicon_file.get_path() if self.lexicon_file and os.path.isfile(self.lexicon_file.get_path()) else None)
+        )
+        if lexicon_path and os.path.isfile(lexicon_path):
+            import re
+            phones = set()
+            with open(lexicon_path, "r", encoding="utf-8") as lf:
+                for line in lf:
+                    items = line.rstrip().split()
+                    if len(items) <= 1:
+                        continue
+                    for p in items[1:]:
+                        phones.add(re.sub(r"\d+", "", p))
+            inventory = sorted(phones)
+            vocab = {p: i for i, p in enumerate(inventory)}
+            vocab["<SIL>"] = len(vocab)
+            with open(out_vocab_path, "w", encoding="utf-8") as f:
+                f.write("{\n")
+                for phon, i in vocab.items():
+                    f.write(f'"{phon}": {i},\n')
+                f.write("}\n")
 
 
 class LocalDumpPhonemeIndicesToHdfJob(DumpPhonemeIndicesToHdfJob):
