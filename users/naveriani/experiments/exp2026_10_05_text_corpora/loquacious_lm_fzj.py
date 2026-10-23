@@ -18,6 +18,7 @@ from i6_experiments.users.naveriani.experiments.exp2026_10_05_text_corpora.loqua
     gutenberg,
     normalize,
     select,
+    selected_web,
     selectors,
 )
 from i6_experiments.users.naveriani.jobs.datasets import HfTextJob, MixTextJob
@@ -122,20 +123,23 @@ def py():
         75,
     )
     std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected10x-n24", lm_sel.get_last_fixed_epoch())
-    # the selected web share (People's Speech, YODAS, CommonVoice, VoxPopuli windows, normalised on RZ) with real
-    # Gutenberg books as the book share, same words as random. Enable once the normalised web folder is copied here
-    # norm_web = normalize(prefix, "dolma-selected-web-10x", selected_web(prefix, sel))
-    # parts = {"selected-web": (norm_web.out_texts, norm_web.out_stats), "gutenberg": (norm_books.out_texts, norm_books.out_stats)}
-    # mix = MixTextJob(parts, {"selected-web": 235.9 - 104.0, "gutenberg": 104.0}, total_stats=norm.out_stats)
-    # mix.add_alias(f"{prefix}/data/dolma-selected-web-gutenberg-10x/mix")
-    # tk.register_output(f"{prefix}/data/dolma-selected-web-gutenberg-10x/stats.json", mix.out_stats)
-    # lm_sw = train_lm(
-    #     f"{prefix}/lm/trafo-n24-d1024-dolmaSelWebGut10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
-    #     _lm_text(mix.out_texts, split=60),
-    #     "data",
-    #     75,
-    # )
-    # std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected-web-gutenberg-10x-n24", lm_sw.get_last_fixed_epoch())
+    # the selected web share (People's Speech, YODAS, CommonVoice, VoxPopuli windows, normalised on RZ, 1.39B words,
+    # folder copied here) with real Gutenberg books as the book share, same words as random
+    norm_web = normalize(prefix, "dolma-selected-web-10x", selected_web(prefix, sel))
+    parts = {
+        "selected-web": (norm_web.out_texts, norm_web.out_stats),
+        "gutenberg": (norm_books.out_texts, norm_books.out_stats),
+    }
+    mix = MixTextJob(parts, {"selected-web": 235.9 - 104.0, "gutenberg": 104.0}, total_stats=norm.out_stats)
+    mix.add_alias(f"{prefix}/data/dolma-selected-web-gutenberg-10x/mix")
+    tk.register_output(f"{prefix}/data/dolma-selected-web-gutenberg-10x/stats.json", mix.out_stats)
+    lm_sw = train_lm(
+        f"{prefix}/lm/trafo-n24-d1024-dolmaSelWebGut10x-nFullEp5-300epEq-nEp75-spm10k-ddp4-packed20k-graphc",
+        _lm_text(mix.out_texts, split=60),
+        "data",
+        75,
+    )
+    std_lm_recogs(f"{prefix}/recog/base/lm-dolma-selected-web-gutenberg-10x-n24", lm_sw.get_last_fixed_epoch())
 
     for src, sel in selectors(prefix, dolma_, subset).items():
         tk.register_output(f"{prefix}/data/fasttext/{src}/stats.json", sel.out_stats)
