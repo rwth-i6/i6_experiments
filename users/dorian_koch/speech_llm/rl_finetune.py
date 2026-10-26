@@ -173,6 +173,12 @@ def _render_multitask_key(job: "RLFinetune") -> str:
             "num_samples": sp["num_samples"],
             "probe_samples": sp["probe_samples"],
             "reward_transcript": sp["reward_transcript"],
+            # the reward's own ASR (2026-10-26, moshi_family.rl.fw_asr): only when set; addon_python = a CreateVenv output
+            **(
+                {"asr": {k: (v.get() if hasattr(v, "get_path") else v) for k, v in sp["asr"].items()}}
+                if sp.get("asr")
+                else {}
+            ),
             # early stop (2026-10-26): only when set, so every multi-task config before is unchanged
             **(
                 {"selfplay_stop_silent_s": job.selfplay_stop_silent_s}
@@ -196,6 +202,8 @@ def _render_multitask_key(job: "RLFinetune") -> str:
             ),
         },
     }
+    if job.multitask.get("scorer_threads"):  # concurrent scoring (2026-10-26): only when set
+        mt["scorer_threads"] = int(job.multitask["scorer_threads"])
     return f"multitask: {json.dumps(mt, sort_keys=True)}\n"
 
 
@@ -666,9 +674,20 @@ class RLFinetune(Job):
         self.selfplay_partner = selfplay_partner
         self.n_probe_scenarios = n_probe_scenarios
         if segment_source == "multitask":
-            assert set(multitask or {}) <= {"axis_cycle", "selfplay", "selfplay_judge", "selfplay_judge_max_model_len"}
+            assert set(multitask or {}) <= {
+                "axis_cycle",
+                "selfplay",
+                "selfplay_judge",
+                "selfplay_judge_max_model_len",
+                "scorer_threads",
+            }, sorted(multitask)
             sp = multitask["selfplay"]
-            assert set(sp) == {"num_samples", "probe_samples", "reward_transcript"}, sorted(sp)
+            assert set(sp) - {"asr"} == {"num_samples", "probe_samples", "reward_transcript"}, sorted(sp)
+            assert not sp.get("asr") or (
+                sp["asr"].get("backend") == "faster_whisper"
+                and set(sp["asr"]) <= {"backend", "model", "vad_threshold", "addon_python"}
+                and sp["reward_transcript"] == "asr"
+            ), sp["asr"]
             cyc = list(multitask["axis_cycle"])
             n_sp = cyc.count("selfplay")
             assert len(cyc) == grad_accum and n_sp % 2 == 0 and cyc.count("knowledge") + n_sp == len(cyc), cyc
