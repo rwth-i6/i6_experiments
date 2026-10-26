@@ -146,6 +146,7 @@ loss_norm: "{job.loss_norm}"
 lr_schedule: "{job.lr_schedule}"
 """
         + _render_non_default(job, _SELFPLAY_EXTRA_KEYS)
+        + _render_non_default(job, ("selfplay_stop_silent_s",))
         + _render_partner_key(job)
     )
 
@@ -172,6 +173,12 @@ def _render_multitask_key(job: "RLFinetune") -> str:
             "num_samples": sp["num_samples"],
             "probe_samples": sp["probe_samples"],
             "reward_transcript": sp["reward_transcript"],
+            # early stop (2026-10-26): only when set, so every multi-task config before is unchanged
+            **(
+                {"selfplay_stop_silent_s": job.selfplay_stop_silent_s}
+                if getattr(job, "selfplay_stop_silent_s", 0.0)
+                else {}
+            ),
         },
     }
     return f"multitask: {json.dumps(mt, sort_keys=True)}\n"
@@ -427,6 +434,8 @@ class RLFinetune(Job):
         "selfplay_reward": None,
         # what each self-play side hears of its partner (2026-10-02): excluded at None = the sampled codes directly
         "selfplay_partner": None,
+        # self-play early stop once every conversation of a call is silent this long (2026-10-26): excluded at 0 (off)
+        "selfplay_stop_silent_s": 0.0,
         # multi-task GRPO (2026-10-03): excluded at None
         "multitask": None,
         # rollout text sampler (2026-10-12, moshi_family.rl.ppx_rollout.set_text_sampler): excluded at "released"
@@ -524,6 +533,7 @@ class RLFinetune(Job):
         n_probe_scenarios: int = 16,
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
+        selfplay_stop_silent_s: float = 0.0,
         multitask: dict | None = None,
         rollout_text_sampler: str = "released",
         card: dict | None = None,
@@ -541,7 +551,9 @@ class RLFinetune(Job):
         probe; conversations of ``conversation_s_start`` (default ``conversation_s``) growing linearly to
         ``conversation_s`` over the run (the probe always at ``conversation_s``), ``convs_per_call`` per engine call, G = ``num_samples`` per
         scenario; the reward is the ``judge_rubric`` (spj2) judge, ``quality_judge`` serving it. ``selfplay_policy``:
-        ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side).
+        ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side). ``selfplay_stop_silent_s``: end a
+        training engine call once every conversation in it has been silent on both sides this long (0 = off;
+        ``moshi_family.rl.ppx_selfplay`` "Early stop"; the probe always runs the whole slot).
 
         Multi-task GRPO (``segment_source="multitask"``, 2026-10-03; ``moshi_family.rl.multitask``): every step rolls
         out knowledge AND self-play groups on one shared LoRA, in the order ``multitask["axis_cycle"]`` (len =
@@ -611,6 +623,8 @@ class RLFinetune(Job):
         self.convs_per_call = convs_per_call
         self.judge_rubric = judge_rubric
         self.selfplay_reward = selfplay_reward
+        assert not selfplay_stop_silent_s or segment_source in ("selfplay", "multitask"), "selfplay_stop_silent_s"
+        self.selfplay_stop_silent_s = float(selfplay_stop_silent_s)
         if selfplay_partner is not None:
             # moshi_family.rl.partner_channel.DEFAULT_SPEC (validated in full by the launcher); noise_pool = a
             # DnsNoisePool output (tk.Path: a dependency of this job)

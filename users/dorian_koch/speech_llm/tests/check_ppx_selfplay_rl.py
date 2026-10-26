@@ -24,6 +24,8 @@ lengths (and different lengths across rows):
      (``selfplay_bench`` / ``selfplay_judge``, cut out by AST: those modules import sisyphus) on real inputs.
   5. SOURCE. A then B of one scenario per two draws; the length curriculum is constant within a step, rises
      linearly to the end length; the probe gets the end length; ``seek`` resumes at the same draw.
+  6. EARLY STOP (``stop_silent_s``, 2026-10-26). All-silent calls stop early, rows cut there keep log-prob parity,
+     the probe runs the whole slot. CAN FAIL: stop off, or speech, -> no stop.
 
 moshi_family venv, CPU, ~1 min:
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \\
@@ -471,12 +473,78 @@ def check_source():
               and nxt.meta["conversation_s"] == draws[20].meta["conversation_s"])  # fmt: skip
 
 
+# ---- 6. early stop ------------------------------------------------------------------------------------------------
+def check_early_stop():
+    """``stop_silent_s``: a call whose conversations are all silent stops early; the rows are cut there and still score
+    under the distribution they were sampled from; the probe runs the whole slot. Silence is forced by counting every
+    text token as silent (``TEXT_SPECIAL_IDS`` patched). CAN FAIL: stop off (0) or real speech -> no early stop."""
+    import dataclasses
+
+    slot = 4.0  # 50 frames: room for a 1 s stop after the prompts
+    segs = [dataclasses.replace(s, meta={**s.meta, "conversation_s": slot}) for s in scenario_pairs()]
+
+    def run(stop_s, all_silent):
+        torch.manual_seed(3)
+        with quiet():
+            gen = ps.PpxSelfPlayGenerator(
+                [make_model(sampling=True)], num_samples=2, convs_per_call=6, conversation_s=slot, stop_silent_s=stop_s
+            )
+        saved = ps.TEXT_SPECIAL_IDS
+        if all_silent:
+            ps.TEXT_SPECIAL_IDS = frozenset(range(KW["text_card"] + 8))
+        orig, keep = ps.PpxSelfPlayGenerator._batch, []
+
+        def _batch(self, seg, side, conv, rows, score=True):
+            b = orig(self, seg, side, conv, rows, score)
+            b.stats["_slp"] = torch.stack([r["sample_logp"] for r in rows])
+            keep.append(b)
+            return b
+
+        ps.PpxSelfPlayGenerator._batch = _batch
+        try:
+            with quiet():
+                batches = list(gen.iter_generate(segs))
+                probe = gen.probe_conversations(segs, 2)
+        finally:
+            ps.TEXT_SPECIAL_IDS = saved
+            ps.PpxSelfPlayGenerator._batch = orig
+        return gen, batches, probe
+
+    gen, batches, probe = run(1.0, True)
+    convs = [r.conv for b in batches for r in b.rollouts]
+    check("early stop: every all-silent call stopped", all(c["stopped"] for c in convs))
+    check(
+        "early stop: judged span cut, planned length kept",
+        all(c["slot_s"] == slot and c["dur"] < slot - 1.0 for c in convs),
+        f"dur {sorted({round(c['dur'], 2) for c in convs})}",
+    )
+    check("early stop: the batch reports it", all(b.stats["stopped_early"] == 1.0 for b in batches))
+    worst = 0.0
+    for b in batches:
+        with torch.no_grad():
+            lp, _ = gen.text_logprobs(b.codes, side=b.segment.meta["side"])
+        worst = max(worst, float(((lp - b.stats["_slp"]).abs() * b.token_mask).max()))
+    n_tok = sum(int(b.token_mask.sum()) for b in batches)
+    check(
+        "early stop: cut rows keep log-prob parity",
+        worst < 1e-4 and n_tok > 0,
+        f"max |diff| = {worst:.2e} over {n_tok} tokens",
+    )
+    pc = [r.conv for _, ra, _, rb in probe for r in ra + rb]
+    check("early stop: the probe runs the whole slot", all(not c["stopped"] and c["dur"] == slot for c in pc))
+    _, b_off, _ = run(0.0, True)
+    check("early stop can fail: off (0) -> no stop", not any(r.conv["stopped"] for b in b_off for r in b.rollouts))
+    _, b_talk, _ = run(1.0, False)
+    check("early stop can fail: speech -> no stop", not any(r.conv["stopped"] for b in b_talk for r in b.rollouts))
+
+
 def main():
     check_parity()
     gen, batches = check_logprob()
     check_routing()
     check_reward(gen, batches)
     check_source()
+    check_early_stop()
     if FAIL:
         print("\nFAILED:\n  " + "\n  ".join(FAIL))
         sys.exit(1)

@@ -612,6 +612,34 @@ Answer with JSON only. Each reason is one sentence of at most 30 words:
 }
 
 
+#: ``sp_reward_v3_timing`` (2026-10-26; user: "telling grader about silence for longer sections, speaking rate and
+#: whether the model was cut off and say the total amount of time for the segment"): ``sp_reward_v2`` plus a TIMING
+#: block the reward fills per conversation (``moshi_family.rl.selfplay_reward.timing_facts``: planned length, early
+#: stop, last speech, joint silences >= 3 s, words/s per side, cut off at the end, overlaps) and one paragraph on using
+#: it. Why: the 1000-step multi-task run learned to say goodbye early and leave the rest of the slot silent, and the v2
+#: judge, which sees only the transcript, scored those conversations higher. "About 4 words per second" is my choice,
+#: near the 4.2 words/s of the ``sp_mono_v2_rate`` speech-rate penalty.
+_V3_TIMING = "TIMING (measured from the recording, not said by the agents):\n{timing}"
+_V3_USE = (
+    "Also use TIMING. The agents are meant to keep the conversation going for its whole planned length. Wrapping up or "
+    "falling silent well before the end, long silences, speech faster than about 4 words per second, and an agent cut "
+    "off mid-speech are flaws: lower coherence for them, and lower responsiveness when they leave the other agent's "
+    "question or turn unanswered."
+)
+
+
+def _v3_timing_text(v2: str) -> str:
+    a, b = "TRANSCRIPT:\n{transcript}\n\n", "\n\nAnswer with JSON only."
+    assert v2.count(a) == 1 and v2.count(b) == 1, "sp_reward_v2's layout changed"
+    return v2.replace(a, a + _V3_TIMING + "\n\n").replace(b, "\n\n" + _V3_USE + b)
+
+
+SP_REWARD_RUBRICS["sp_reward_v3_timing"] = {
+    "metrics": SP_REWARD_RUBRICS["sp_reward_v2"]["metrics"],
+    "text": _v3_timing_text(SP_REWARD_RUBRICS["sp_reward_v2"]["text"]),
+}
+
+
 def rubric_text_metrics(name: str) -> tuple[str, tuple]:
     """``(text, metrics)`` of a benchmark (``SPJ2_RUBRICS``) or reward (``SP_REWARD_RUBRICS``) rubric."""
     if name in SPJ2_RUBRICS:
