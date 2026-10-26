@@ -146,7 +146,7 @@ loss_norm: "{job.loss_norm}"
 lr_schedule: "{job.lr_schedule}"
 """
         + _render_non_default(job, _SELFPLAY_EXTRA_KEYS)
-        + _render_non_default(job, ("selfplay_stop_silent_s",))
+        + _render_non_default(job, ("selfplay_stop_silent_s", "selfplay_loss_norm_s"))
         + _render_partner_key(job)
     )
 
@@ -177,6 +177,21 @@ def _render_multitask_key(job: "RLFinetune") -> str:
             **(
                 {"selfplay_stop_silent_s": job.selfplay_stop_silent_s}
                 if getattr(job, "selfplay_stop_silent_s", 0.0)
+                else {}
+            ),
+            # multi-task partner channel (2026-10-26) and loss-normaliser pin: only when set
+            **(
+                {
+                    "selfplay_partner": {
+                        k: (v.get() if hasattr(v, "get_path") else v) for k, v in job.selfplay_partner.items()
+                    }
+                }
+                if getattr(job, "selfplay_partner", None)
+                else {}
+            ),
+            **(
+                {"selfplay_loss_norm_s": job.selfplay_loss_norm_s}
+                if getattr(job, "selfplay_loss_norm_s", None) is not None
                 else {}
             ),
         },
@@ -436,6 +451,8 @@ class RLFinetune(Job):
         "selfplay_partner": None,
         # self-play early stop once every conversation of a call is silent this long (2026-10-26): excluded at 0 (off)
         "selfplay_stop_silent_s": 0.0,
+        # self-play loss normaliser length in seconds (2026-10-26): excluded at None = conversation_s (every run before)
+        "selfplay_loss_norm_s": None,
         # multi-task GRPO (2026-10-03): excluded at None
         "multitask": None,
         # rollout text sampler (2026-10-12, moshi_family.rl.ppx_rollout.set_text_sampler): excluded at "released"
@@ -534,6 +551,7 @@ class RLFinetune(Job):
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
         selfplay_stop_silent_s: float = 0.0,
+        selfplay_loss_norm_s: float | None = None,
         multitask: dict | None = None,
         rollout_text_sampler: str = "released",
         card: dict | None = None,
@@ -625,10 +643,14 @@ class RLFinetune(Job):
         self.selfplay_reward = selfplay_reward
         assert not selfplay_stop_silent_s or segment_source in ("selfplay", "multitask"), "selfplay_stop_silent_s"
         self.selfplay_stop_silent_s = float(selfplay_stop_silent_s)
+        # the constant loss normaliser's length (launcher loss_norm_len): None = conversation_s; pin it when the
+        # conversation length changes so the per-token weight does not (2026-10-26, MT-1k v2: 120 s at 60 s's weight)
+        assert selfplay_loss_norm_s is None or segment_source in ("selfplay", "multitask"), "selfplay_loss_norm_s"
+        self.selfplay_loss_norm_s = None if selfplay_loss_norm_s is None else float(selfplay_loss_norm_s)
         if selfplay_partner is not None:
             # moshi_family.rl.partner_channel.DEFAULT_SPEC (validated in full by the launcher); noise_pool = a
             # DnsNoisePool output (tk.Path: a dependency of this job)
-            assert segment_source == "selfplay", "selfplay_partner: self-play only"
+            assert segment_source in ("selfplay", "multitask"), "selfplay_partner: self-play or multi-task"
             unknown = set(selfplay_partner) - {
                 "mimi_roundtrip",
                 "augment",
@@ -654,7 +676,6 @@ class RLFinetune(Job):
             # one model, one batch: the two generators must step the same number of rows (moshi_family.rl.multitask)
             assert 2 * convs_per_call == rows_per_call, (convs_per_call, rows_per_call)
             assert multitask["selfplay_judge"] and selfplay_policy == "shared" and init_lora is None, multitask
-            assert selfplay_partner is None, "multi-task: no partner channel"
         else:
             assert multitask is None, "multitask: segment_source='multitask' only"
         self.multitask = multitask
