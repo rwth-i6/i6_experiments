@@ -43,6 +43,10 @@ from pathlib import Path
 
 from sisyphus import Job, Task, tk
 
+# Module level, not in run(): the worker can't find a recipe package (i6_core) lazily after its chdir
+# (check_worker_lazy_imports.py).
+from . import knowledge_benchmark as kb
+from . import selfplay_bench as sb
 from .common import worker_env
 from .label_free_hash import label_free_hash, values_canon
 
@@ -260,8 +264,6 @@ class AudioJudgeAgreement(Job):
 
     # ------------------------------------------------------------------ run: the judge
     def items(self) -> list[dict]:
-        from . import knowledge_benchmark as kb
-        from . import selfplay_bench as sb
 
         wav = Path("wav").absolute()
         items = []
@@ -301,8 +303,6 @@ class AudioJudgeAgreement(Job):
     def run(self):
         from openai import OpenAI
 
-        from . import knowledge_benchmark as kb
-        from . import selfplay_bench as sb
         from .common import json_schema_format, map_concurrent, vllm_server
 
         items = self.items()
@@ -385,8 +385,6 @@ def at_rate(paths: list[str], sr: int) -> list[str]:
 def summarize(items: list[dict], res: list[dict]) -> dict:
     import numpy as np
     from scipy.stats import spearmanr
-
-    from . import selfplay_bench as sb
 
     rows = [{**it, **r} for it, r in zip(items, res)]
     know = {}

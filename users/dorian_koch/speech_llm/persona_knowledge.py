@@ -26,6 +26,7 @@ import subprocess
 from sisyphus import Job, Task, tk
 
 from .common import job_progress_fraction, worker_env
+from .tts import InstallFFmpeg
 
 #: PersonaPlex's QA role, verbatim from the paper (section 3.2.1) and ``personaplex.engine.DEFAULT_SYSTEM_PROMPT``.
 PERSONAPLEX_QA_ROLE = (
@@ -589,7 +590,6 @@ class KnowledgeVoiceConvert(Job):
         from pathlib import Path
 
         from .common import add_cuda_npp_to_env, add_venv_python_lib_to_env, run_worker_script
-        from .tts import InstallFFmpeg
 
         def env_hook(env):
             # as ChatterboxInference: the chatterbox stack imports torchaudio/torchcodec, which need our FFmpeg,

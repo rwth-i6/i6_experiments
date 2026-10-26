@@ -31,6 +31,7 @@ from sisyphus import Job, Task, tk
 
 from .common import worker_env
 from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
+from .persona_prompts import split_train_episodes
 from .speech_inference import assert_checkpoint_will_exist
 
 #: Weights file of each overlay kind in ``run_dir/checkpoints/checkpoint_<step>/consolidated/``.
@@ -134,8 +135,6 @@ class PersonaHeldoutSet(Job):
             cmd += ["--exclude_ids", *[p.get_path() for p in self.exclude_ids]]
             if self.exclude_split is not None:
                 from datasets import load_from_disk
-
-                from .persona_prompts import split_train_episodes
 
                 eps = sorted(set(load_from_disk(self.context.get_path()).select_columns(["episode_id"])["episode_id"]))
                 s = self.exclude_split

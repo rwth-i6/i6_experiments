@@ -16,6 +16,7 @@ from sisyphus import Job, Task, tk
 
 from .common import moshi_pythonpath, worker_env
 from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
+from .persona_prompts import PERSONA_MINIMAL
 
 
 class PersonaSelfPlay(Job):
@@ -295,8 +296,6 @@ class CustomSelfPlayPrompts(Job):
     def run(self):
         import numpy as np
         from datasets import Dataset, load_from_disk
-
-        from .persona_prompts import PERSONA_MINIMAL
 
         src = load_from_disk(self.voice_data.get_path())
         ok = [i for i, v in enumerate(src["other_ok"]) if v]
