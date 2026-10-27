@@ -204,6 +204,8 @@ def _render_multitask_key(job: "RLFinetune") -> str:
     }
     if job.multitask.get("scorer_threads"):  # concurrent scoring (2026-10-26): only when set
         mt["scorer_threads"] = int(job.multitask["scorer_threads"])
+    if job.multitask.get("max_staleness"):  # roll out step t+1 while step t scores (2026-10-27): only when set
+        mt["max_staleness"] = int(job.multitask["max_staleness"])
     return f"multitask: {json.dumps(mt, sort_keys=True)}\n"
 
 
@@ -680,6 +682,7 @@ class RLFinetune(Job):
                 "selfplay_judge",
                 "selfplay_judge_max_model_len",
                 "scorer_threads",
+                "max_staleness",
             }, sorted(multitask)
             sp = multitask["selfplay"]
             assert set(sp) - {"asr"} == {"num_samples", "probe_samples", "reward_transcript"}, sorted(sp)
