@@ -24,8 +24,10 @@ lengths (and different lengths across rows):
      (``selfplay_bench`` / ``selfplay_judge``, cut out by AST: those modules import sisyphus) on real inputs.
   5. SOURCE. A then B of one scenario per two draws; the length curriculum is constant within a step, rises
      linearly to the end length; the probe gets the end length; ``seek`` resumes at the same draw.
-  6. EARLY STOP (``stop_silent_s``, 2026-10-26). All-silent calls stop early, rows cut there keep log-prob parity,
-     the probe runs the whole slot. CAN FAIL: stop off, or speech, -> no stop.
+  6. EARLY STOP (``stop_silent_s``, 2026-10-26; per conversation 2026-10-27). All-silent calls stop early, rows cut
+     there keep log-prob parity, the probe runs the whole slot; each conversation ends at its own stop (``conversation_
+     stops``), and inside a scenario a stopped row trains nothing after its end while the others run on. CAN FAIL:
+     stop off, or speech, -> no stop; the old call-wide rule -> conversations end late.
 
 moshi_family venv, CPU, ~1 min:
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \\
@@ -483,7 +485,7 @@ def check_early_stop():
     slot = 4.0  # 50 frames: room for a 1 s stop after the prompts
     segs = [dataclasses.replace(s, meta={**s.meta, "conversation_s": slot}) for s in scenario_pairs()]
 
-    def run(stop_s, all_silent):
+    def run(stop_s, all_silent, stops_fn=None, segs=segs):
         torch.manual_seed(3)
         with quiet():
             gen = ps.PpxSelfPlayGenerator(
@@ -501,6 +503,9 @@ def check_early_stop():
             return b
 
         ps.PpxSelfPlayGenerator._batch = _batch
+        saved_fn = ps.conversation_stops
+        if stops_fn is not None:
+            ps.conversation_stops = stops_fn
         try:
             with quiet():
                 batches = list(gen.iter_generate(segs))
@@ -508,6 +513,7 @@ def check_early_stop():
         finally:
             ps.TEXT_SPECIAL_IDS = saved
             ps.PpxSelfPlayGenerator._batch = orig
+            ps.conversation_stops = saved_fn
         return gen, batches, probe
 
     gen, batches, probe = run(1.0, True)
@@ -536,6 +542,56 @@ def check_early_stop():
     check("early stop can fail: off (0) -> no stop", not any(r.conv["stopped"] for b in b_off for r in b.rollouts))
     _, b_talk, _ = run(1.0, False)
     check("early stop can fail: speech -> no stop", not any(r.conv["stopped"] for b in b_talk for r in b.rollouts))
+
+    # per conversation (2026-10-27): each conversation ends at ITS first check past its own start + stop, never at the
+    # call's last one. Scenario 0's side-A voice prompt is 40 frames longer, so its conversation starts > 1 check later.
+    r = np.random.default_rng(7)
+    v_long = (r.integers(0, 2048, (8, 45)), segs[0].meta["voices"][1])
+    segs_long = [dataclasses.replace(s, meta={**s.meta, "voices": v_long}) if s.meta["scenario_id"] == "s0" else s
+                 for s in segs]  # fmt: skip
+    _, b_long, _ = run(1.0, True, segs=segs_long)
+    convs = [r.conv for b in b_long for r in b.rollouts]
+    within = all(c["stopped"] and c["dur"] <= 1.0 + 1.0 + 1e-9 for c in convs)
+    check("early stop per conversation: each ends within 1 s of its own stop", within,
+          f"dur {sorted({round(c['dur'], 2) for c in convs})}")  # fmt: skip
+
+    def call_rule(last_word, start, end, stop_at, t, stop):  # the 2026-10-26 rule: all at once, at the call's stop
+        quiet = bool(((t - 1 - last_word) >= stop).all()) and t > int(start.max()) + stop
+        return torch.where(torch.full_like(stop_at, quiet, dtype=torch.bool), torch.full_like(stop_at, t), stop_at)
+
+    _, b_call, _ = run(1.0, True, call_rule, segs=segs_long)
+    late = [r.conv["dur"] for b in b_call for r in b.rollouts if r.conv["dur"] > 2.0 + 1e-9]
+    check("early stop per conversation can fail: the call-wide rule -> some end late", bool(late), f"late {late}")
+
+    # the rule itself on a mixed call: conversation 0 silent for 2 frames, 1 spoke at t - 1, 2 not past its start yet
+    lw = torch.tensor([[3, 9, 0], [4, 9, 0]])
+    got = ps.conversation_stops(
+        lw, torch.tensor([0, 0, 9]), torch.tensor([20, 20, 20]), torch.tensor([20, 20, 20]), 10, 2
+    )
+    check("early stop per conversation: only the silent one stops", got.tolist() == [10, 20, 20], got.tolist())
+
+    # mixed inside a scenario (even conversations stop at their first check, odd ones never): one length per
+    # scenario, the stopped row trains nothing after its end, parity holds on what it trains
+    def stop_even(last_word, start, end, stop_at, t, stop):
+        c = torch.arange(len(stop_at), device=stop_at.device)
+        quiet = (c % 2 == 0) & (t > start + stop) & (t < end)
+        return torch.where(quiet & (stop_at >= end), torch.full_like(stop_at, t), stop_at)
+
+    gen_m, b_mix, _ = run(1.0, False, stop_even)
+    tail_ok, n_tail, worst = True, 0, 0.0
+    for b in b_mix:
+        a, z = b.rollouts[0].conv, b.rollouts[1].conv
+        k = int(round((z["dur"] - a["dur"]) * ps.FRAME_RATE))
+        tail_ok &= a["stopped"] and not z["stopped"] and k > 0 and int(b.token_mask[0, -k:].sum()) == 0
+        n_tail += int(b.token_mask[1, -k:].sum()) if k > 0 else 0
+        with torch.no_grad():
+            lp, _ = gen_m.text_logprobs(b.codes, side=b.segment.meta["side"])
+        worst = max(worst, float(((lp - b.stats["_slp"]).abs() * b.token_mask).max()))
+    check("early stop per conversation: a stopped row trains nothing after its own end", tail_ok and n_tail > 0,
+          f"{n_tail} tokens trained on the running rows' tails")  # fmt: skip
+    check("early stop per conversation: mixed rows keep log-prob parity", worst < 1e-4, f"max |diff| = {worst:.2e}")
+    check("early stop per conversation: the batch reports the share", all(b.stats["stopped_early"] == 0.5 for b in b_mix),
+          sorted({b.stats["stopped_early"] for b in b_mix}))  # fmt: skip
 
 
 def main():
