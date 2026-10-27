@@ -485,12 +485,13 @@ def check_early_stop():
     slot = 4.0  # 50 frames: room for a 1 s stop after the prompts
     segs = [dataclasses.replace(s, meta={**s.meta, "conversation_s": slot}) for s in scenario_pairs()]
 
-    def run(stop_s, all_silent, stops_fn=None, segs=segs):
+    def run(stop_s, all_silent, stops_fn=None, segs=segs, min_s=0.0):
         torch.manual_seed(3)
         with quiet():
             gen = ps.PpxSelfPlayGenerator(
-                [make_model(sampling=True)], num_samples=2, convs_per_call=6, conversation_s=slot, stop_silent_s=stop_s
-            )
+                [make_model(sampling=True)], num_samples=2, convs_per_call=6, conversation_s=slot, stop_silent_s=stop_s,
+                stop_min_s=min_s,
+            )  # fmt: skip
         saved = ps.TEXT_SPECIAL_IDS
         if all_silent:
             ps.TEXT_SPECIAL_IDS = frozenset(range(KW["text_card"] + 8))
@@ -555,7 +556,7 @@ def check_early_stop():
     check("early stop per conversation: each ends within 1 s of its own stop", within,
           f"dur {sorted({round(c['dur'], 2) for c in convs})}")  # fmt: skip
 
-    def call_rule(last_word, start, end, stop_at, t, stop):  # the 2026-10-26 rule: all at once, at the call's stop
+    def call_rule(last_word, start, end, stop_at, t, stop, min_frames=0):  # the 2026-10-26 rule: all at once, at the call's stop
         quiet = bool(((t - 1 - last_word) >= stop).all()) and t > int(start.max()) + stop
         return torch.where(torch.full_like(stop_at, quiet, dtype=torch.bool), torch.full_like(stop_at, t), stop_at)
 
@@ -572,7 +573,7 @@ def check_early_stop():
 
     # mixed inside a scenario (even conversations stop at their first check, odd ones never): one length per
     # scenario, the stopped row trains nothing after its end, parity holds on what it trains
-    def stop_even(last_word, start, end, stop_at, t, stop):
+    def stop_even(last_word, start, end, stop_at, t, stop, min_frames=0):
         c = torch.arange(len(stop_at), device=stop_at.device)
         quiet = (c % 2 == 0) & (t > start + stop) & (t < end)
         return torch.where(quiet & (stop_at >= end), torch.full_like(stop_at, t), stop_at)
@@ -590,6 +591,19 @@ def check_early_stop():
     check("early stop per conversation: a stopped row trains nothing after its own end", tail_ok and n_tail > 0,
           f"{n_tail} tokens trained on the running rows' tails")  # fmt: skip
     check("early stop per conversation: mixed rows keep log-prob parity", worst < 1e-4, f"max |diff| = {worst:.2e}")
+    # minimum length (stop_min_s, 2026-10-27): all silent, but none may stop before 3 s; rollouts.jsonl fields
+    _, b_min, _ = run(1.0, True, min_s=3.0)
+    cm = [r.conv for b in b_min for r in b.rollouts]
+    check("early stop minimum: none stops before stop_min_s", all(c["stopped"] and c["dur"] >= 3.0 - 1e-9 for c in cm),
+          f"dur {sorted({round(c['dur'], 2) for c in cm})}")  # fmt: skip
+    got = ps.conversation_stops(lw, torch.tensor([0, 0, 9]), torch.tensor([20, 20, 20]), torch.tensor([20, 20, 20]), 10, 2,
+                                min_frames=12)  # fmt: skip
+    check("early stop minimum: the rule waits for it", got.tolist() == [20, 20, 20], got.tolist())
+    infos = [r.info for b in b_min for r in b.rollouts]
+    check("early stop metrics: per rollout stopped / conv_s, per batch stop_s_mean / call_s",
+          all(i["stopped"] and i["conv_s"] >= 3.0 for i in infos)
+          and all(b.stats["stop_s_mean"] >= 3.0 and b.stats["call_s"] < slot for b in b_min),
+          sorted({(round(b.stats["stop_s_mean"], 2), round(b.stats["call_s"], 2)) for b in b_min}))  # fmt: skip
     check("early stop per conversation: the batch reports the share", all(b.stats["stopped_early"] == 0.5 for b in b_mix),
           sorted({b.stats["stopped_early"] for b in b_mix}))  # fmt: skip
 

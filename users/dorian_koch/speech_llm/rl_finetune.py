@@ -146,7 +146,7 @@ loss_norm: "{job.loss_norm}"
 lr_schedule: "{job.lr_schedule}"
 """
         + _render_non_default(job, _SELFPLAY_EXTRA_KEYS)
-        + _render_non_default(job, ("selfplay_stop_silent_s", "selfplay_loss_norm_s"))
+        + _render_non_default(job, ("selfplay_stop_silent_s", "selfplay_stop_min_s", "selfplay_loss_norm_s"))
         + _render_partner_key(job)
     )
 
@@ -185,6 +185,8 @@ def _render_multitask_key(job: "RLFinetune") -> str:
                 if getattr(job, "selfplay_stop_silent_s", 0.0)
                 else {}
             ),
+            # no early stop before this many seconds (2026-10-27): only when set
+            **({"selfplay_stop_min_s": job.selfplay_stop_min_s} if getattr(job, "selfplay_stop_min_s", 0.0) else {}),
             # multi-task partner channel (2026-10-26) and loss-normaliser pin: only when set
             **(
                 {
@@ -461,6 +463,8 @@ class RLFinetune(Job):
         "selfplay_partner": None,
         # self-play early stop once every conversation of a call is silent this long (2026-10-26): excluded at 0 (off)
         "selfplay_stop_silent_s": 0.0,
+        # ...but never before this many seconds of the conversation (2026-10-27): excluded at 0 (every run before)
+        "selfplay_stop_min_s": 0.0,
         # self-play loss normaliser length in seconds (2026-10-26): excluded at None = conversation_s (every run before)
         "selfplay_loss_norm_s": None,
         # multi-task GRPO (2026-10-03): excluded at None
@@ -561,6 +565,7 @@ class RLFinetune(Job):
         selfplay_reward: dict | None = None,
         selfplay_partner: dict | None = None,
         selfplay_stop_silent_s: float = 0.0,
+        selfplay_stop_min_s: float = 0.0,
         selfplay_loss_norm_s: float | None = None,
         multitask: dict | None = None,
         rollout_text_sampler: str = "released",
@@ -580,7 +585,8 @@ class RLFinetune(Job):
         ``conversation_s`` over the run (the probe always at ``conversation_s``), ``convs_per_call`` per engine call, G = ``num_samples`` per
         scenario; the reward is the ``judge_rubric`` (spj2) judge, ``quality_judge`` serving it. ``selfplay_policy``:
         ``"shared"`` (one LoRA plays both sides) or ``"two_lora"`` (one per side). ``selfplay_stop_silent_s``: end a
-        training engine call once every conversation in it has been silent on both sides this long (0 = off;
+        conversation once both its sides have been silent this long (per conversation since 2026-10-27; 0 = off;
+        ``selfplay_stop_min_s``: never before that much of the conversation;
         ``moshi_family.rl.ppx_selfplay`` "Early stop"; the probe always runs the whole slot).
 
         Multi-task GRPO (``segment_source="multitask"``, 2026-10-03; ``moshi_family.rl.multitask``): every step rolls
@@ -653,6 +659,8 @@ class RLFinetune(Job):
         self.selfplay_reward = selfplay_reward
         assert not selfplay_stop_silent_s or segment_source in ("selfplay", "multitask"), "selfplay_stop_silent_s"
         self.selfplay_stop_silent_s = float(selfplay_stop_silent_s)
+        assert not selfplay_stop_min_s or selfplay_stop_silent_s, "selfplay_stop_min_s needs selfplay_stop_silent_s"
+        self.selfplay_stop_min_s = float(selfplay_stop_min_s)
         # the constant loss normaliser's length (launcher loss_norm_len): None = conversation_s; pin it when the
         # conversation length changes so the per-token weight does not (2026-10-26, MT-1k v2: 120 s at 60 s's weight)
         assert selfplay_loss_norm_s is None or segment_source in ("selfplay", "multitask"), "selfplay_loss_norm_s"
