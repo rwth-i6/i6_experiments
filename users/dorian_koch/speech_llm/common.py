@@ -2,7 +2,6 @@ from sisyphus import tk
 import json
 import os
 import signal
-import sys
 import subprocess
 import threading
 import time
@@ -174,7 +173,14 @@ def vllm_gpu_mem_gb(hf_model: str, default: int = 0) -> int:
 
 
 _VLLM_MODEL_ARGS: dict[str, list[str]] = {
-    "google/gemma-4-31B-it": ["--max-model-len", "65536"],
+    # thinking off server-side too (vLLM 0.30; 2026-10-27: 0.30 vs 0.19 on 300 graded items: 299/300 binary,
+    # 298/300 quality identical, no thought text in any reply) -- a request that omits the kwarg still can't think
+    "google/gemma-4-31B-it": [
+        "--max-model-len",
+        "65536",
+        "--default-chat-template-kwargs",
+        '{"enable_thinking": false}',
+    ],
     # MRQA judge + MoshiRAG retrieval backend (the paper's); its native 128k context would not leave KV room.
     "google/gemma-3-27b-it": ["--max-model-len", "32768"],
     "Qwen/Qwen3-32B": ["--max-model-len", "32768"],
@@ -202,35 +208,27 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 _VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv_v030"
 
 
-# Models kept on the setup .venv's vLLM: on 0.30 Gemma 4 emits its thinking as reply text ("thought\n...OK",
-# vllm_serving_smoke/gemma-4-31B-it, 2026-10-01), which would change every Gemma-4-judged result.
-_VLLM_IMAGE_EXCLUDED = ("google/gemma-4-31B-it",)
-
-
 def vllm_python(hf_model: str | None = None) -> str:
-    """Interpreter to launch vLLM with: the squashfs ``vllm_venv`` once fully built (run AND pack), else ours.
+    """Interpreter to launch vLLM with: the squashfs ``vllm_venv`` (vLLM 0.30.0, venvs.vllm_venv), the only vLLM.
 
-    The setup ``.venv`` is a plain directory on the shared filesystem; vLLM imports torch + vllm from it twice per
-    server (API server + engine core) at 10-20 ms per small-file read -- measured 40-130 s of a 120-250 s Gemma 3
-    27B startup (2026-10-01). The image is vLLM 0.30.0 (venvs.vllm_venv). ``VLLM_PYTHON=<path>`` overrides either way
-    (``sys`` = the old behaviour).
+    A squashfs image because the setup ``.venv`` is a plain directory on the shared filesystem; vLLM imports torch +
+    vllm twice per server at 10-20 ms per small-file read -- 40-130 s of a 120-250 s Gemma 3 27B startup
+    (2026-10-01). ``VLLM_PYTHON=<path>`` overrides. No fallback: until 2026-10-27 a missing probe marker (looked up
+    under the job's /hpcwork root, which has no ``output/``) silently put every job on the old 0.19 ``.venv`` vLLM.
     """
     forced = os.environ.get("VLLM_PYTHON")
     if forced:
-        return sys.executable if forced == "sys" else forced
-    if hf_model in _VLLM_IMAGE_EXCLUDED:
-        return sys.executable
-    root = os.getcwd().split("/work/")[0]  # a job runs inside its own work dir
-    job = os.path.join(root, _VLLM_VENV_JOB)
-    python = os.path.join(job, "output", "venv", "bin", "python")
-    built = any(os.path.exists(os.path.join(job, m)) for m in ("finished.pack.1", "finished.tar.gz", "finished"))
-    # Adopted only after VllmStartupProbe started a server from it AND got a chat reply (its registered output exists):
-    # a built image is not yet a working one (the first build lacked an undeclared vLLM import).
-    probed = os.path.exists(os.path.join(root, "output", "infra", "vllm_startup_probe"))
-    if built and probed and os.path.exists(python):
-        return python
-    print(f"[vllm] squashfs vllm_venv not built+probed yet ({job}); using {sys.executable}", flush=True)
-    return sys.executable
+        return forced
+    # a job runs inside its own work dir (under /hpcwork); a copied job dir (test node) still imports this module
+    # from the setup's recipe/
+    roots = [os.getcwd().split("/work/")[0], os.path.abspath(__file__).split("/recipe/")[0]]
+    for root in roots:
+        job = os.path.join(root, _VLLM_VENV_JOB)
+        python = os.path.join(job, "output", "venv", "bin", "python")
+        built = any(os.path.exists(os.path.join(job, m)) for m in ("finished.pack.1", "finished.tar.gz", "finished"))
+        if built and os.path.exists(python):
+            return python
+    raise RuntimeError(f"vLLM image {_VLLM_VENV_JOB} not built under any of {roots}")
 
 
 @contextmanager
@@ -327,21 +325,7 @@ def vllm_server(
         )
 
     stack = ExitStack()
-    try:
-        stack.enter_context(_server(cmd))
-    except RuntimeError as e:
-        # Safety net for the AUTO-selected squashfs image only (2026-10-01: the first vllm_venv build lacked
-        # vLLM's undeclared `pandas` import and died at startup). A broken image must cost one failed boot, not
-        # every vLLM job in the graph; an explicit VLLM_PYTHON (e.g. VllmStartupProbe) still fails loudly.
-        if os.environ.get("VLLM_PYTHON") or cmd[0] == sys.executable:
-            raise
-        print(
-            f"[vllm] ⚠ server from {cmd[0]} died during startup ({str(e)[:200]!r}); RETRYING with {sys.executable}",
-            flush=True,
-        )
-        cmd[0] = sys.executable
-        _t0 = time.time()
-        stack.enter_context(_server(cmd))
+    stack.enter_context(_server(cmd))
     with stack:
         _boot = time.time() - _t0
         print(f"[vllm-timing] server ready after {_boot:.1f}s", flush=True)
