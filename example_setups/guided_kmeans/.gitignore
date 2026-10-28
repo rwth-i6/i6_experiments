@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs of local RASR/librasr runs (rasr.recog.log, rasr.fb_decode.log, ...)
+*.log
+
+# Local data dumps from tests and analysis scripts; real data lives in work/
+*.npz
+*.npy
+*.hdf
+*.h5
+
+# Search graph dumps (ForwardBackwardSearch::dumpGraphToDot)
+*.dot
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LaTeX build files of the notes in scripts/
+*.aux
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Editors and local tool settings
+.vscode/
+*~
+.claude/
