@@ -386,6 +386,22 @@ class BackoffFBRecognizer:
     :param transition_posteriors: report
         :attr:`.interfaces.RecognitionResult.transition_posteriors`. Not
         implemented before the op's milestone T3, and raises until then.
+    :param exit_offset: a fixed offset added to every phoneme's exit weight,
+        in nats after the transition scale: a float for all phonemes, or
+        ``{symbol: offset}`` with 0 for the symbols it leaves out. Negative is
+        a price per phoneme, positive a bonus. See
+        :func:`..backoff_fb_graph.build_topology`.
+    :param loop_table: ``[V, S]`` loop probabilities to run with in place of
+        ``loop_probability`` and ``silence_loop_probability``, rows in the
+        lexicon's symbol order (:attr:`symbols`). This is how an epoch hands a
+        trained :class:`.topology.StationaryTopology` to the search; the scalars
+        then only record where training started. A table filled from the
+        scalars gives bitwise the graph the scalars give.
+    :param transition_counts: report
+        :attr:`.interfaces.RecognitionResult.transition_counts`, the expected
+        ``(stay, move)`` count of every (phoneme, state) per sequence (the op's
+        SPEC.md 15.2). Costs ~15% of the search and changes no posterior: with
+        the flag on, log Z and Gamma are bitwise what they are with it off.
     :param batch_size: sequences per op call (unhashed: throughput only)
     :param max_frames: cap on ``B * T_max`` per call, which is what bounds
         memory (unhashed)
@@ -423,6 +439,9 @@ class BackoffFBRecognizer:
         apply_sentence_end: bool = True,
         zero_topology: bool = False,
         transition_posteriors: bool = False,
+        exit_offset=None,
+        loop_table=None,
+        transition_counts: bool = False,
         batch_size: int = 16,
         max_frames: int = 0,
         checkpoint_interval: int = -1,
@@ -434,6 +453,10 @@ class BackoffFBRecognizer:
                 "transition posteriors (the gradient of log Z with respect to "
                 "the per-frame transition scores) come from backoff_fb milestone "
                 "T3 (SPEC.md 14.8); the op returns log Z and Gamma only")
+        if zero_topology and (loop_table is not None or exit_offset is not None):
+            raise ValueError(
+                "zero_topology=True sets every static transition weight to 0; a "
+                "loop table or an exit offset would be ignored")
         self.backoff_fb_root = backoff_fb_root
         self.arpa_path = arpa_path
         self.lexicon_path = lexicon_path
@@ -448,6 +471,9 @@ class BackoffFBRecognizer:
         self.tie_states = tie_states
         self.apply_sentence_end = apply_sentence_end
         self.zero_topology = zero_topology
+        self.exit_offset = exit_offset
+        self.loop_table = None if loop_table is None else np.array(loop_table, dtype=np.float64)
+        self.transition_counts = transition_counts
         self.batch_size = batch_size
         self.max_frames = max_frames
         self.checkpoint_interval = checkpoint_interval
@@ -459,6 +485,7 @@ class BackoffFBRecognizer:
         self._batcher = None
         self._on_result: Optional[Callable[[RecognitionResult], None]] = None
         self._transitions: dict = {}
+        self._symbols: Optional[List[str]] = None
         self._n_dead = 0
         self._n_seqs = 0
         self._n_with_transitions = 0
@@ -466,6 +493,40 @@ class BackoffFBRecognizer:
     @property
     def num_labels(self) -> int:
         return self.num_clusters
+
+    @property
+    def symbols(self) -> List[str]:
+        """The LM symbols in score-column order, read off the lexicon: the row
+        order of :attr:`loop_table`, of the exit offsets and of the counts."""
+        if self._symbols is None:
+            from ..backoff_fb_graph import lexicon_symbols
+
+            self._symbols = lexicon_symbols(str(self.lexicon_path))
+        return self._symbols
+
+    def topology(self):
+        """The :class:`.topology.StationaryTopology` this search runs with: the
+        loop table if one was given, else the table its scalars fill."""
+        from .topology import StationaryTopology
+
+        if self.zero_topology:
+            raise ValueError("a zero topology has no loop probabilities")
+        if self.loop_table is not None:
+            return StationaryTopology(self.loop_table, self.symbols)
+        return StationaryTopology.from_scalars(
+            self.symbols, self.num_states, self.loop_probability, self.silence_loop_probability)
+
+    def _exit_offsets(self) -> Optional[tuple]:
+        """``exit_offset`` as one float per symbol, or None if none is set."""
+        if self.exit_offset is None:
+            return None
+        symbols = self.symbols
+        if isinstance(self.exit_offset, dict):
+            unknown = sorted(set(self.exit_offset) - set(symbols))
+            if unknown:
+                raise ValueError(f"exit offsets for symbols the lexicon does not have: {unknown}")
+            return tuple(float(self.exit_offset.get(sym, 0.0)) for sym in symbols)
+        return tuple(float(self.exit_offset) for _ in symbols)
 
     @property
     def label_layout(self):
@@ -500,6 +561,13 @@ class BackoffFBRecognizer:
 
         self._on_result = on_result
         t0 = time.perf_counter()
+        loop_table = None
+        if self.loop_table is not None:
+            if self.loop_table.shape != (len(self.symbols), self.num_states):
+                raise ValueError(
+                    f"loop table has shape {self.loop_table.shape}, but the lexicon "
+                    f"has {len(self.symbols)} symbols and num_states is {self.num_states}")
+            loop_table = tuple(tuple(float(p) for p in row) for row in self.loop_table)
         self._graph = build_graph(
             GraphSpec(
                 backoff_fb_root=str(self.backoff_fb_root),
@@ -513,6 +581,8 @@ class BackoffFBRecognizer:
                 tie_states=self.tie_states,
                 apply_sentence_end=self.apply_sentence_end,
                 zero_topology=self.zero_topology,
+                loop_table=loop_table,
+                exit_offset=self._exit_offsets(),
             ),
             device=self.device,
         )
@@ -582,27 +652,42 @@ class BackoffFBRecognizer:
             # goes straight to the component entry point rather than through
             # the autograd Function.
             am_scale = self.distance_scale * self.emission_scale
+            counts = None
             if self._reference_graph is not None:
                 from backoff_fb_ref import structured_fb
 
-                logz, gamma, _ = structured_fb(
-                    self._reference_graph, costs * -am_scale, seq_lens, trans=transitions)
+                log_probs = costs * -am_scale
+                logz, gamma, debug = structured_fb(
+                    self._reference_graph, log_probs, seq_lens, trans=transitions)
+                if self.transition_counts:
+                    from backoff_fb.counts import transition_counts
+
+                    counts = transition_counts(self._reference_graph, log_probs, seq_lens,
+                                               logz, debug, transitions)
             else:
                 from backoff_fb import _C
 
                 log_probs = (costs * -am_scale).to(self.device, storage)
-                logz, gamma, _ = _C.forward_backward(
-                    self._graph.handle, log_probs, seq_lens.to(self.device),
-                    storage, self._resolved_k(T),
-                    None if transitions is None else transitions.to(self.device),
-                )
+                args = (self._graph.handle, log_probs, seq_lens.to(self.device),
+                        storage, self._resolved_k(T),
+                        None if transitions is None else transitions.to(self.device))
+                if self.transition_counts:
+                    logz, gamma, info = _C.forward_backward(*args, transition_counts=True)
+                    counts = info["transition_counts"]
+                else:
+                    # The call every run before the counts made, unchanged.
+                    logz, gamma, _ = _C.forward_backward(*args)
             logz = logz.double().cpu().numpy()
             gamma = gamma.double().cpu().numpy()
+            if counts is not None:
+                counts = counts.double().cpu().numpy()
 
         for i, tag in enumerate(tags):
             length = int(seq_lens[i])
             self._n_seqs += 1
             g = gamma[i, :length, : self.num_clusters]
+            # [V, S, 2]; all zero for a dead sequence, as its Gamma is.
+            c = None if counts is None else counts[i].copy()
             if not np.isfinite(logz[i]):
                 # No path survives (spec 4.4): Gamma is already all-zero. Pass
                 # it through so run_chunk's own checks see it rather than
@@ -610,7 +695,8 @@ class BackoffFBRecognizer:
                 self._n_dead += 1
                 self._on_result(
                     RecognitionResult(seq_tag=tag, posteriors=g,
-                                      sequence_score=float(logz[i]))
+                                      sequence_score=float(logz[i]),
+                                      transition_counts=c)
                 )
                 continue
             # The op normalizes already (its E3 test asserts sum_k Gamma = 1
@@ -621,7 +707,8 @@ class BackoffFBRecognizer:
                          np.zeros_like(g))
             self._on_result(
                 RecognitionResult(seq_tag=tag, posteriors=g,
-                                  sequence_score=float(logz[i]))
+                                  sequence_score=float(logz[i]),
+                                  transition_counts=c)
             )
 
     def submit(self, seq_tag: str, scores: np.ndarray,

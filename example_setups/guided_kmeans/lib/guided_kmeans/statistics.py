@@ -229,6 +229,15 @@ class FBStatisticsCounter(CounterProtocol):
       the FB analogue of ``PhoenemeFrequencyCounter``.
     * ``dead_cluster_count`` — clusters whose expected frame rate falls below
       ``1e-4``; a sudden increase flags mode collapse.
+    * ``argmax_runs_per_label`` / ``argmax_frames_per_label`` — the argmax
+      segmentation split by label, and from them ``silence_duration_argmax``,
+      ``speech_duration_argmax`` and ``silence_share_argmax``. Label 0 is
+      silence in this setup's lexicon order (``create_fb_lexicon`` puts the
+      silence lemma first). Once the corpus keeps its silence, the pooled
+      ``average_segment_duration_argmax`` mixes pauses with phonemes and no
+      longer compares with the alignment's 3.99 frames per phoneme; the speech
+      duration does. ``silence_share_soft`` is label 0's entry of the soft
+      frequencies, as a scalar.
 
     **Untied HMM states** (``tie_states=False``, ``num_states > 1``): the
     posterior columns are states, ``num_clusters = V * num_states``, laid out
@@ -269,17 +278,24 @@ class FBStatisticsCounter(CounterProtocol):
         self.argmax_runs = 0        # runs in the argmax label sequence
         self.duration_frames = 0    # frames those three were measured over
         self.duration_seqs = 0      # sequences likewise
+        # The argmax runs and their frames split by phoneme, over live frames.
+        num_phonemes = self.layout.num_phonemes
+        self.argmax_label_runs = np.zeros(num_phonemes, dtype=np.int64)
+        self.argmax_label_frames = np.zeros(num_phonemes, dtype=np.int64)
 
     #: Fields added after runs were already in flight. Chunk counters travel as
     #: pickles, so a reduce task can be handed a counter written by an older
     #: process; without this it dies on the first attribute that did not exist
-    #: yet. Keep appending here rather than renaming anything.
+    #: yet. Keep appending here rather than renaming anything. The per-label
+    #: arrays default to a scalar 0, which adds onto an array in merge().
     _LATE_FIELDS = (
         ("stay_mass", 0.0),
         ("adjacent_pairs", 0),
         ("argmax_runs", 0),
         ("duration_frames", 0),
         ("duration_seqs", 0),
+        ("argmax_label_runs", 0),
+        ("argmax_label_frames", 0),
     )
 
     def __setstate__(self, state):
@@ -359,11 +375,27 @@ class FBStatisticsCounter(CounterProtocol):
             # the segmentation a reader would take off the posteriors. Exact for
             # that sequence, and it under-counts boundaries where two labels are
             # nearly tied. Between them the truth is bracketed.
+            #
+            # The per-label split leaves out frames without posterior mass (no
+            # path through the graph), as argmax_segments does: their argmax
+            # would be label 0 and count as silence. So for tied posteriors its
+            # runs add up to argmax_runs except on such sequences.
+            num_phonemes = layout.num_phonemes
             if layout.untied:
-                self.argmax_runs += len(layout.argmax_segments(states))
+                segments = layout.argmax_segments(states)
+                self.argmax_runs += len(segments)
+                live = states.sum(axis=1) > 0
+                frame_labels = layout.phoneme_of()[states.argmax(axis=1)[live]]
             else:
                 labels = gammas.argmax(axis=1)
                 self.argmax_runs += 1 + int(np.count_nonzero(labels[1:] != labels[:-1]))
+                frame_labels = labels[gammas.sum(axis=1) > 0]
+                segments = frame_labels[
+                    np.r_[True, frame_labels[1:] != frame_labels[:-1]][:len(frame_labels)]]
+            self.argmax_label_runs = self.argmax_label_runs + np.bincount(
+                segments, minlength=num_phonemes)
+            self.argmax_label_frames = self.argmax_label_frames + np.bincount(
+                frame_labels, minlength=num_phonemes)
 
     def finalize(self) -> dict:
         layout = self.layout
@@ -391,6 +423,9 @@ class FBStatisticsCounter(CounterProtocol):
             "mean_log_likelihood_per_frame": self.total_log_likelihood / self.total_frames,
             "mean_posterior_entropy": self.entropy_sum / self.total_frames,
             "soft_cluster_frequencies": freqs,
+            # Label 0 (silence, see the class docstring) as a scalar, which a
+            # report column can read; the list above is dropped on extraction.
+            "silence_share_soft": freqs[0],
             "dead_cluster_count": dead,
             "total_sequences": self.total_seqs,
             "total_frames": self.total_frames,
@@ -429,6 +464,24 @@ class FBStatisticsCounter(CounterProtocol):
                     ),
                 }
             )
+            # Absent where no chunk measured them yet (a counter pickled before
+            # they existed), rather than zeros that read as a measurement.
+            runs, frames = self.argmax_label_runs, self.argmax_label_frames
+            if isinstance(runs, np.ndarray) and isinstance(frames, np.ndarray) and frames.sum():
+                speech_runs = int(runs[1:].sum())
+                stats.update(
+                    {
+                        "argmax_runs_per_label": runs.tolist(),
+                        "argmax_frames_per_label": frames.tolist(),
+                        "silence_duration_argmax": (
+                            float(frames[0] / runs[0]) if runs[0] else 0.0
+                        ),
+                        "speech_duration_argmax": (
+                            float(frames[1:].sum() / speech_runs) if speech_runs else 0.0
+                        ),
+                        "silence_share_argmax": float(frames[0] / frames.sum()),
+                    }
+                )
         return stats
 
     def merge(self, other: "FBStatisticsCounter") -> "FBStatisticsCounter":

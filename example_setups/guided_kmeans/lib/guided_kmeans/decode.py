@@ -28,6 +28,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         exclude_lemmata=["[SILENCE]"],
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
+        per_task_timeout: float | None = 600.0,
         write_frame_labels: bool = False,
     ):
         self.centroids_file = centroids_file
@@ -58,8 +59,15 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         # output in hyp.txt is not affected.
         self.write_frame_labels = write_frame_labels
 
+        # Wider than the recognizer's 120 s default. A decode cannot skip a
+        # sequence anyway: once the watchdog kills a worker, the pool is
+        # broken and the next submit() aborts the job. Frame-level decodes
+        # average ~65 s per sequence, and with 23 workers starting at once,
+        # sequences in the first wave went past 120 s in 4 of 5 decodes
+        # (2026-10-21), against none in ~55 decodes with 7 workers.
         self.recognizer = ParallelSegmentRecognizer(
             recognition_config, num_workers=num_workers, task_timeout=task_timeout,
+            per_task_timeout=per_task_timeout,
         )
 
         # --- debug timing (see finish() for the breakdown this feeds) ---

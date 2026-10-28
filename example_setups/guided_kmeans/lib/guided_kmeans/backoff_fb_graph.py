@@ -211,13 +211,15 @@ class LabelLayout:
 def build_topology(
     symbols: List[str],
     *,
-    loop_probability: float,
+    loop_probability: Optional[float] = None,
     silence_loop_probability: Optional[float] = None,
     transition_scale: float = 1.0,
     silence_symbol: str = "<SIL>",
     num_states: int = 1,
     tie_states: bool = True,
     zero_topology: bool = False,
+    loop_table=None,
+    exit_offset=None,
     backoff_fb_root=None,
 ):
     """A left-to-right topology matching the RASR search parameters.
@@ -227,6 +229,20 @@ def build_topology(
     the last one, exiting the phoneme. Uniform S across phonemes is what the op
     assumes (SPEC.md section 13); per-phoneme lengths would need a
     ``chain_state_ptr``.
+
+    **Where p comes from.** Either the two scalars, ``loop_probability`` for
+    every phoneme and ``silence_loop_probability`` (default: the same) for
+    ``silence_symbol``, or ``loop_table``, a ``[V, S]`` array with one
+    probability per (phoneme, state), which is what a trained topology
+    (:class:`.chunked.topology.StationaryTopology`) gives. The scalars are one
+    way of filling the table: both routes compute the same weights from the
+    same numbers, bitwise. Pass one of them, not both.
+
+    **Exit offset.** ``exit_offset``, a float or ``[V]`` array, is added to
+    each phoneme's exit weight *after* the transition scale, so it is in nats
+    of the graph's own score. A negative offset is a fixed price per phoneme
+    on top of the LM's, a positive one a bonus. It is added to the final
+    transition too, which is an exit (SPEC.md 15.2).
 
     ``p = 0`` gives ``tau_loop = -inf``, which the op handles -- ``LSE(-inf, x)
     = x`` -- so each state then consumes exactly one frame.
@@ -269,20 +285,44 @@ def build_topology(
     V = len(symbols)
     S = num_states
     if zero_topology:
-        if loop_probability != 0.0 or silence_loop_probability is not None or transition_scale != 1.0:
+        if loop_probability not in (None, 0.0) or silence_loop_probability is not None or transition_scale != 1.0:
             raise ValueError(
                 f"zero_topology=True sets every transition weight to 0, so "
                 f"loop_probability ({loop_probability}), silence_loop_probability "
                 f"({silence_loop_probability}) and transition_scale "
                 f"({transition_scale}) would be ignored; leave them at their "
                 f"defaults (0.0, None, 1.0)")
+        if loop_table is not None or exit_offset is not None:
+            raise ValueError(
+                "zero_topology=True sets every transition weight to 0; a loop table "
+                "or an exit offset would be ignored")
         tau_fwd = np.zeros((V, S), dtype=np.float64)
         tau_fwd[:, S - 1] = -math.inf
         return HmmTopology(V=V, S=S, tau_loop=np.zeros((V, S), dtype=np.float64),
                            tau_fwd=tau_fwd, tau_exit=np.zeros(V, dtype=np.float64),
                            emis=LabelLayout(V, S, tie_states).emission_table())
-    if silence_loop_probability is None:
-        silence_loop_probability = loop_probability
+    if loop_table is not None:
+        if loop_probability is not None or silence_loop_probability is not None:
+            raise ValueError(
+                "a loop table replaces loop_probability and silence_loop_probability; "
+                "pass the table or the scalars, not both")
+        table = np.asarray(loop_table, dtype=np.float64)
+        if table.shape != (V, S):
+            raise ValueError(f"loop table has shape {table.shape}, expected ({V}, {S}): "
+                             f"one row per symbol, one column per state")
+    else:
+        if loop_probability is None:
+            raise TypeError("build_topology needs loop_probability or a loop_table")
+        if silence_loop_probability is None:
+            silence_loop_probability = loop_probability
+        table = np.array(
+            [[silence_loop_probability if sym == silence_symbol else loop_probability] * S
+             for sym in symbols], dtype=np.float64).reshape(V, S)
+    offset = np.zeros(V, dtype=np.float64)
+    if exit_offset is not None:
+        offset = np.broadcast_to(np.asarray(exit_offset, dtype=np.float64), (V,)).copy()
+        if not np.isfinite(offset).all():
+            raise ValueError("the exit offset must be finite; forbid a phoneme in the LM instead")
 
     def log(p: float) -> float:
         if not 0.0 <= p < 1.0:
@@ -306,17 +346,20 @@ def build_topology(
     tau_loop = np.empty((V, S), dtype=np.float64)
     tau_fwd = np.empty((V, S), dtype=np.float64)
     tau_exit = np.empty(V, dtype=np.float64)
-    for a, sym in enumerate(symbols):
-        p = silence_loop_probability if sym == silence_symbol else loop_probability
-        # log1p(-p) rather than log(1 - p): exact at the small-p end, and equal
-        # to 0.0 at p = 0 where leaving is certain.
-        leave = scaled(math.log1p(-p))
-        tau_loop[a, :] = scaled(log(p))
-        tau_fwd[a, :] = leave
+    for a in range(V):
+        for j in range(S):
+            p = float(table[a, j])
+            # log1p(-p) rather than log(1 - p): exact at the small-p end, and
+            # equal to 0.0 at p = 0 where leaving is certain.
+            leave = scaled(math.log1p(-p))
+            tau_loop[a, j] = scaled(log(p))
+            tau_fwd[a, j] = leave
         # The last state leaves by exiting the phoneme, not by a forward arc;
-        # compile.py expects -inf in that column.
+        # compile.py expects -inf in that column. The offset is added after
+        # the scale, and only when one is given, so that without one the
+        # weight is bitwise what it always was.
         tau_fwd[a, S - 1] = -math.inf
-        tau_exit[a] = leave
+        tau_exit[a] = leave if exit_offset is None else leave + offset[a]
 
     # Tied, label k is emitted by phoneme k in every state, which is what makes
     # the score columns and the phonemes the same index; untied, by state
@@ -348,6 +391,12 @@ class GraphSpec:
     #: Every transition weight 0, for per-frame transition scores that carry
     #: the whole transition model; see :func:`build_topology`.
     zero_topology: bool = False
+    #: ``[V][S]`` loop probabilities as nested tuples, e.g. a trained
+    #: topology's. When given, the graph is built from this table and the two
+    #: loop scalars above are not read; see :func:`build_topology`.
+    loop_table: Optional[Tuple[Tuple[float, ...], ...]] = None
+    #: ``[V]`` offsets added to the exit weights, in nats after the scale.
+    exit_offset: Optional[Tuple[float, ...]] = None
     #: Where the op is checked out; see ``tools.BACKOFF_FB``.
     backoff_fb_root: str = ""
     #: Whether a path pays ``ln P(</s> | g)`` to terminate (spec 2.3).
@@ -427,14 +476,19 @@ def build_graph(spec: GraphSpec, device: str = "cuda"):
             f"only in lexicon: {only_lex}; only in LM: {only_lm}")
     with _plain_arpa(spec.arpa_path) as arpa:
         lm = bf.load_arpa(arpa, symbols)
+    if spec.loop_table is None:
+        loops = dict(loop_probability=spec.loop_probability,
+                     silence_loop_probability=spec.silence_loop_probability)
+    else:
+        loops = dict(loop_table=np.array(spec.loop_table, dtype=np.float64))
     topo = build_topology(
         symbols,
-        loop_probability=spec.loop_probability,
-        silence_loop_probability=spec.silence_loop_probability,
+        **loops,
         transition_scale=spec.transition_scale,
         num_states=spec.num_states,
         tie_states=spec.tie_states,
         zero_topology=spec.zero_topology,
+        exit_offset=None if spec.exit_offset is None else np.array(spec.exit_offset),
     )
     compiled = compile_graph(lm, topo, lm_scale=spec.lm_scale, check=False)
     if not spec.apply_sentence_end:

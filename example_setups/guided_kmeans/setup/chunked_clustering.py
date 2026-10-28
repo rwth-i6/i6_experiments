@@ -93,6 +93,7 @@ from ..lib.guided_kmeans.chunked import (
     merge_chunks,
     mixture_flavor,
     save_state,
+    StationaryTopology,
     unguided_flavor,
     vq_flavor,
     reduce_chunks,
@@ -342,6 +343,18 @@ class GuidedClusteringEpochJob(Job):
         per-frame scores the recognizer adds to its transition weights. Hashed,
         but hash-excluded at ``None`` so every existing epoch job keeps its
         identity.
+    :param topology_accumulator: optional spec for a
+        :class:`...lib.guided_kmeans.chunked.topology.TopologyAccumulator`.
+        Given one, the epoch also re-estimates the search's loop probabilities:
+        the recognizer reports every sequence's transition counts, the chunks
+        sum them, and ``reduce`` writes the updated table to ``out_topology``,
+        with what it did in ``statistics.json``. The recognizer must be a
+        :class:`...lib.guided_kmeans.chunked.recognizers.BackoffFBRecognizer`.
+        Hashed, but hash-excluded at ``None``.
+    :param topology: the loop probabilities to recognize with, as the
+        previous epoch's ``out_topology``. ``None`` at the first epoch of a run,
+        which recognizes with the recognizer's own loop settings. Needs a
+        ``topology_accumulator``. Hash-excluded at ``None``.
     """
 
     __sis_hash_exclude__ = {
@@ -349,6 +362,8 @@ class GuidedClusteringEpochJob(Job):
         "ema": None,
         "prior_state": None,
         "transitions": None,
+        "topology_accumulator": None,
+        "topology": None,
     }
 
     def __init__(
@@ -370,6 +385,8 @@ class GuidedClusteringEpochJob(Job):
         rqmt: Optional[Dict[str, Any]] = None,
         parent_threads: int = 1,
         transitions: Optional[Spec] = None,
+        topology_accumulator: Optional[Spec] = None,
+        topology: Optional[tk.Path] = None,
     ):
         if prior_state is not None and (ema is None or not ema.carries_state):
             raise TypeError(
@@ -378,6 +395,14 @@ class GuidedClusteringEpochJob(Job):
             )
         if parent_threads < 1:
             raise ValueError(f"parent_threads must be >= 1, got {parent_threads}")
+        if topology is not None and topology_accumulator is None:
+            raise TypeError(
+                "a topology input is the previous epoch's trained table and needs a "
+                "topology_accumulator to carry on training it")
+        if topology_accumulator is not None and ema is not None:
+            raise NotImplementedError(
+                "training the topology under an EMA is not implemented: the damping "
+                "applies to the emission statistics only")
         self.features = features
         self.model = model
         self.recognizer = recognizer
@@ -393,6 +418,8 @@ class GuidedClusteringEpochJob(Job):
         self.verbosity = verbosity
         self.parent_threads = parent_threads
         self.transitions = transitions
+        self.topology_accumulator = topology_accumulator
+        self.topology = topology
 
         self.rqmt = {"cpu": 9, "mem": 16, "time": 4}
         if rqmt:
@@ -427,6 +454,14 @@ class GuidedClusteringEpochJob(Job):
         self.out_accumulator_state = (
             self.output_path("accumulator_state.pkl")
             if ema is not None and ema.carries_state
+            else None
+        )
+        # The loop probabilities the next epoch recognizes with
+        # (StationaryTopology.save: loop_probabilities.npy and a manifest).
+        # Declared only when the job trains them, for the same reason.
+        self.out_topology = (
+            self.output_path("topology", directory=True)
+            if topology_accumulator is not None
             else None
         )
 
@@ -569,14 +604,27 @@ class GuidedClusteringEpochJob(Job):
 
         model = self.model.build()
         # getattr: a job pickled before transitions existed runs its remaining
-        # tasks with this code too, and it had none.
+        # tasks with this code too, and it had none. The same for the topology.
         transitions = getattr(self, "transitions", None)
+        topology_accumulator = getattr(self, "topology_accumulator", None)
+        # Values only this task knows, handed to the recognizer spec's build:
+        # whether to count, and the table the previous epoch trained.
+        runtime = {}
+        if topology_accumulator is not None:
+            runtime["transition_counts"] = True
+            topology = self._input_topology()
+            if topology is not None:
+                runtime["loop_table"] = topology.loop_probabilities
         # getattr: a job pickled before parent_threads existed runs its
         # remaining tasks with this code too.
         with parent_thread_budget(
             getattr(self, "parent_threads", 1), self.recognizer.unhashed_kwargs.get("num_workers")
         ):
-            recognizer = self.recognizer.build()
+            recognizer = self.recognizer.build(**runtime)
+            if "loop_table" in runtime and list(topology.symbols) != list(recognizer.symbols):
+                raise ValueError(
+                    f"the input topology's symbols {topology.symbols[:5]}... are not the "
+                    f"recognizer's lexicon order {recognizer.symbols[:5]}...")
             result = run_chunk(
                 features=self.features.build(chunk=index, num_chunks=self.num_chunks),
                 model=model,
@@ -586,9 +634,40 @@ class GuidedClusteringEpochJob(Job):
                 transcribe=partial(traceback_to_text, exclude_lemmata=self.exclude_lemmata),
                 transcribe_posteriors=self._posterior_transcriber(recognizer),
                 transitions=transitions.build() if transitions is not None else None,
+                topology_accumulator=(topology_accumulator.build()
+                                      if topology_accumulator is not None else None),
                 verbosity=self.verbosity,
             )
         save_chunk(result, self._chunk_path(index))
+
+    def _input_topology(self):
+        """The trained loop probabilities this epoch recognizes with, or None
+        for the recognizer's own (the first epoch of a run)."""
+        topology = getattr(self, "topology", None)
+        if topology is None:
+            return None
+        return StationaryTopology.load(topology.get_path())
+
+    def _update_topology(self, merged_topology, statistics: Dict[str, Any]) -> None:
+        """The topology M-step: finalize the summed counts against the table
+        this epoch ran with, write the result, and record what it did."""
+        # Only the constructor runs, which reads nothing but its arguments; the
+        # graph is compiled in start(), which the reduce step never calls.
+        recognizer = self.recognizer.build()
+        previous = self._input_topology()
+        if previous is None:
+            previous = recognizer.topology()
+        updated = merged_topology.finalize(previous)
+        updated.save(self.out_topology.get_path())
+        statistics.update(merged_topology.summary(previous, updated, recognizer.transition_scale))
+        print(
+            f"Topology ({merged_topology.tying}): global estimate "
+            f"p = {statistics['topology_p_global']:.4f}, "
+            f"lambda = {statistics['topology_lambda_global']:+.4f} at "
+            f"s = {recognizer.transition_scale}, "
+            f"{statistics['topology_mean_duration']:.3f} frames per phoneme; {updated}",
+            flush=True,
+        )
 
     def _update(self, accumulator, previous_model, totals: Dict[str, int]):
         """
@@ -627,6 +706,10 @@ class GuidedClusteringEpochJob(Job):
             )
 
         model = accumulator.finalize(previous_model)
+        # An over-relaxed M-step reports the step it took (MixtureGaussianAccumulator).
+        step = getattr(accumulator, "step_statistics", None)
+        if step:
+            totals.update(step)
 
         if self.ema is not None and not self.ema.carries_state:
             model = blend_parameters(previous_model, model, self.ema.alpha)
@@ -654,8 +737,12 @@ class GuidedClusteringEpochJob(Job):
             )
 
         previous_model = self.model.build()
+        topology_accumulator = getattr(self, "topology_accumulator", None)
         merged = merge_chunks(
-            chunk_paths=chunk_paths, accumulator_factory=self._build_accumulator
+            chunk_paths=chunk_paths,
+            accumulator_factory=self._build_accumulator,
+            topology_accumulator_factory=(
+                topology_accumulator.build if topology_accumulator is not None else None),
         )
         model = self._update(merged.accumulator, previous_model, merged.totals)
         statistics, totals, hypotheses = (
@@ -663,6 +750,9 @@ class GuidedClusteringEpochJob(Job):
             merged.totals,
             merged.hypotheses,
         )
+        statistics = dict(statistics)
+        if topology_accumulator is not None:
+            self._update_topology(merged.topology_accumulator, statistics)
 
         # save() writes the manifest and verifies every artifact it lists was
         # actually written, so there is nothing model-specific to check here.
@@ -1892,6 +1982,12 @@ class ChunkedClusteringExpResult:
     #: input a continuation needs alongside the artifacts - the model on its own
     #: does not determine the next step there.
     out_accumulator_states: Optional[Dict[int, tk.Path]] = None
+    #: ``{epoch: topology directory}`` for a run that trains its loop
+    #: probabilities (``BackoffFBSearch(train_topology=...)``): the table epoch
+    #: ``e + 1`` recognizes with, keyed like ``out_models``. Epoch 0 is there only
+    #: if the run was given an ``initial_topology``. A continuation passes
+    #: ``out_topologies[N]`` as its ``initial_topology`` next to the artifacts.
+    out_topologies: Optional[Dict[int, tk.Path]] = None
 
     def guided_score_row(self, epoch: int) -> Dict[str, Any]:
         """
@@ -2038,6 +2134,7 @@ def chunked_clustering(
     batch_shuffle_seed: int = 0x3C5EA3E47D4E0077,
     ema_alpha: float = 0.0,
     ema_minibatch_size: int = 2000,
+    initial_topology: Optional[tk.Path] = None,
 ) -> ChunkedClusteringExpResult:
     """
     Chain ``num_epochs`` clustering epochs.
@@ -2135,6 +2232,12 @@ def chunked_clustering(
         mini-batches inside one job instead of splitting it across jobs. Kept
         for the configs built on it. Mutually exclusive with ``ema`` /
         ``batches_per_epoch``, which are the chunked route to the same idea.
+    :param initial_topology: the loop probabilities to start from, for a run
+        whose flavor trains them (``BackoffFBSearch(train_topology=...)``):
+        a previous run's ``out_topologies[N]``, to continue it. None starts
+        from the search's own ``loop_probability``. A topology-training run
+        updates once per epoch, so it takes no ``ema`` and no
+        ``batches_per_epoch``.
     """
     if num_epochs < 1:
         raise ValueError(f"num_epochs must be >= 1, got {num_epochs}")
@@ -2198,6 +2301,18 @@ def chunked_clustering(
     artifact_names = flavor.artifact_names
     recognizer_spec = flavor.recognizer
     accumulator_spec = flavor.accumulator
+    # Damping shrinks the step that over-relaxation stretches. In the linearized
+    # update the slowest direction moves eta*(1-a) / (1-a + eta*a) times as fast
+    # as undamped EM - below eta for any a > 0, and bounded by (1-a)/a however
+    # large eta gets - while the fast directions still need eta < 2. So the two
+    # only combine as a deliberate trade of speed for noise; refused until a run
+    # needs that (docs/free_segmentation/findings_and_directions.md §7).
+    if accumulator_spec.kwargs.get("over_relaxation", 1.0) != 1.0 and (
+        ema_alpha > 0.0 or (ema is not None and ema.alpha > 0.0)
+    ):
+        raise NotImplementedError(
+            "over_relaxation with EMA damping (alpha > 0): the damping undoes most of "
+            "the extrapolation; use undamped steps (EMAConfig(alpha=0.0)) or no ema")
     statistics_spec = flavor.statistics
     model_spec = flavor.model
     # Fixed for the whole run: ClusteringFlavor refuses a trainable transition
@@ -2208,6 +2323,22 @@ def chunked_clustering(
         raise NotImplementedError(
             "BatchedEMAEpochJob (ema_alpha) takes no transition model; use the "
             "chunked route (ema/batches_per_epoch) or none")
+    # Like the transition model, the same spec for every epoch; what moves on
+    # from epoch to epoch is the table, through each job's out_topology.
+    topology_spec = flavor.topology_accumulator
+    if topology_spec is not None and (ema is not None or ema_alpha > 0.0 or batches_per_epoch > 1):
+        raise NotImplementedError(
+            "a topology-training run updates the loop probabilities once per epoch "
+            "from the whole corpus; ema, ema_alpha and batches_per_epoch > 1 are "
+            "not implemented for it")
+    if initial_topology is not None and topology_spec is None:
+        raise TypeError(
+            "initial_topology continues a run that trains its loop probabilities; "
+            "this flavor does not (BackoffFBSearch(train_topology=...))")
+    topology = initial_topology
+    out_topologies: Dict[int, tk.Path] = {}
+    if initial_topology is not None:
+        out_topologies[0] = initial_topology
 
     job_rqmt = {"cpu": num_workers + parent_threads, "mem": 16, "time": 168}
     if rqmt:
@@ -2277,7 +2408,12 @@ def chunked_clustering(
                     rqmt=job_rqmt,
                     parent_threads=parent_threads,
                     transitions=transitions_spec,
+                    topology_accumulator=topology_spec,
+                    topology=topology,
                 )
+                if topology_spec is not None:
+                    topology = job.out_topology
+                    out_topologies[epoch] = job.out_topology
             # The unbatched alias is left exactly as it was, so an existing run's
             # alias tree does not move under it.
             job.add_alias(
@@ -2356,4 +2492,5 @@ def chunked_clustering(
         batches_per_epoch=batches_per_epoch,
         out_batch_models=out_batch_models if batches_per_epoch > 1 else None,
         out_accumulator_states=out_accumulator_states or None,
+        out_topologies=out_topologies or None,
     )

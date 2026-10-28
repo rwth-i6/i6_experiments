@@ -202,6 +202,13 @@ class RecognitionResult:
         :class:`TransitionAccumulator` would consume. ``None`` from every
         recognizer so far: the ``backoff_fb`` op computes them from its
         milestone T3 on (SPEC.md 14.8).
+    :param transition_counts: ``[V, S, 2]`` float64, the expected number of
+        stays and moves out of every (phoneme, state) in this sequence, a move
+        out of the last state being the phoneme's exit (the op's SPEC.md
+        15.2). They are the derivatives of log Z with respect to the static
+        transition weights, and what a :class:`.topology.TopologyAccumulator`
+        consumes. Only :class:`.recognizers.BackoffFBRecognizer` reports them,
+        and only when built with ``transition_counts=True``.
     """
 
     seq_tag: str
@@ -209,6 +216,7 @@ class RecognitionResult:
     traceback: List[Any] = field(default_factory=list)
     sequence_score: Optional[float] = None
     transition_posteriors: Optional[np.ndarray] = None
+    transition_counts: Optional[np.ndarray] = None
 
 
 @runtime_checkable

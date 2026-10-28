@@ -210,6 +210,36 @@ def _worker_recognize(
     return seq_tag, items, os.getpid(), t_start, t_end
 
 
+def _kill_pool(executor: ProcessPoolExecutor | None) -> None:
+    """
+    SIGKILL every worker of ``executor`` and unblock its call-queue feeder.
+
+    While every worker is busy, the call queue's feeder thread sits in a
+    write() of the next pickled task into the pipe. A task larger than the
+    pipe buffer (frame-level distances are several MB) only goes through as a
+    worker reads it, so once the workers are dead the write blocks for good:
+    this process still holds the pipe's read end, so it never fails. Tearing
+    down the broken pool, the executor's management thread joins the feeder,
+    and interpreter exit joins the management thread, so the process never
+    exits. Four matched decodes on 2026-10-21 sat like this until Slurm's 4 h
+    time limit. A local repro with 6 MB payloads hung too, while one with
+    10 KB payloads exited in 4 s.
+
+    Closing our read end makes the blocked write fail with EPIPE, and the
+    teardown completes. CPython does the same in terminate_broken() since 3.12
+    (gh-94777), but the job image runs 3.11.0rc1.
+    """
+    if executor is None:
+        return
+    # No public API for this; `_processes` is the executor's own
+    # pid -> multiprocessing.Process map.
+    for proc in getattr(executor, "_processes", {}).values():
+        proc.kill()
+    reader = getattr(getattr(executor, "_call_queue", None), "_reader", None)
+    if reader is not None:
+        reader.close()
+
+
 class ParallelSegmentRecognizer:
     """
     Wraps a pool of librasr SearchAlgorithm worker processes for parallel
@@ -322,13 +352,13 @@ class ParallelSegmentRecognizer:
         which is the only thing that records a task as failed, leaving a task
         that is neither finished nor failed for the manager to resubmit
         forever.
+
+        Those measurements used small payloads. With busy workers and
+        payloads larger than a pipe buffer, the kill alone is not enough: see
+        :func:`_kill_pool`.
         """
         print(f"[FATAL] {reason} - killing worker pool and aborting so the job stops occupying cluster resources.", flush=True)
-        if self.executor is not None:
-            # No public API for this; `_processes` is the executor's own
-            # pid -> multiprocessing.Process map.
-            for proc in getattr(self.executor, "_processes", {}).values():
-                proc.kill()
+        _kill_pool(self.executor)
         raise RecognizerAborted(reason)
 
     def _drain_one(self) -> bool:
@@ -566,9 +596,7 @@ class ParallelFBRecognizer:
 
     def _hard_abort(self, reason: str) -> NoReturn:
         print(f"[FATAL] {reason} - killing FB worker pool and aborting.", flush=True)
-        if self.executor is not None:
-            for proc in getattr(self.executor, "_processes", {}).values():
-                proc.kill()
+        _kill_pool(self.executor)
         raise RecognizerAborted(reason)
 
     def _drain_one(self) -> bool:

@@ -14,6 +14,8 @@ Injection points, all supplied as :class:`.spec.Spec` objects:
 * :mod:`.models`       - how features are scored against clusters
 * :mod:`.recognizers`  - how scores become per-frame labels
 * :mod:`.transitions`  - per-frame transition scores for the search (optional)
+* :mod:`.topology`     - the search's loop probabilities and their
+  re-estimation from transition counts (optional)
 * :mod:`.accumulators` - how labelled frames update the model
 * :mod:`.diagnostics`  - what a pass records about itself, changing nothing
 
@@ -38,13 +40,15 @@ from .interfaces import (
     as_hard_labels,
     as_responsibilities,
 )
-from .transitions import OracleBoundaryTransitions, boundary_transitions
+from .transitions import ChangePointTransitions, OracleBoundaryTransitions, boundary_transitions
+from .topology import TYINGS, StationaryTopology, TopologyAccumulator, tying_groups
 from .features import HDFFeatureSource, cached_file, plan_chunks, read_segment_file
 from .models import (
     ArtifactModel,
     EuclideanModel,
     GaussianMixtureModel,
     GaussianModel,
+    LabelCovarianceMixtureModel,
     MixtureModelBase,
     PerLabelMixtureModel,
     VectorQuantizedModel,
@@ -63,6 +67,7 @@ from .recognizers import (
 from .accumulators import (
     FixedCovarianceAccumulator,
     GaussianAccumulator,
+    LabelCovarianceAccumulator,
     MeanAccumulator,
     MixtureGaussianAccumulator,
     NullAccumulator,
@@ -77,6 +82,7 @@ from .flavors import (
     euclidean_flavor,
     unguided_flavor,
     gaussian_flavor,
+    label_covariance_flavor,
     mixture_flavor,
     per_label_mixture_flavor,
     vq_flavor,
@@ -114,8 +120,13 @@ __all__ = [
     "TrainableTransitionModel",
     "TransitionAccumulator",
     "TransitionModel",
+    "ChangePointTransitions",
     "OracleBoundaryTransitions",
     "boundary_transitions",
+    "TYINGS",
+    "StationaryTopology",
+    "TopologyAccumulator",
+    "tying_groups",
     "as_dense_responsibilities",
     "as_hard_labels",
     "as_responsibilities",
@@ -127,6 +138,7 @@ __all__ = [
     "EuclideanModel",
     "GaussianMixtureModel",
     "GaussianModel",
+    "LabelCovarianceMixtureModel",
     "MixtureModelBase",
     "PerLabelMixtureModel",
     "VectorQuantizedModel",
@@ -141,6 +153,7 @@ __all__ = [
     "SerialRasrRecognizer",
     "FixedCovarianceAccumulator",
     "GaussianAccumulator",
+    "LabelCovarianceAccumulator",
     "MeanAccumulator",
     "MixtureGaussianAccumulator",
     "SoftGaussianAccumulator",
@@ -153,6 +166,7 @@ __all__ = [
     "euclidean_flavor",
     "unguided_flavor",
     "gaussian_flavor",
+    "label_covariance_flavor",
     "mixture_flavor",
     "per_label_mixture_flavor",
     "vq_flavor",

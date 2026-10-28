@@ -226,6 +226,22 @@ class _ListSource:
         return len(self.items)
 
 
+class _PickledFeatures:
+    """A feature source over a pickled ``{tag: [T, D]}``, chunked by sorted tag,
+    so an epoch job's spec can name it."""
+
+    def __init__(self, path, chunk=0, num_chunks=1):
+        with open(path, "rb") as f:
+            table = pickle.load(f)
+        self.items = [(tag, table[tag]) for tag in sorted(table)][chunk::num_chunks]
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __len__(self):
+        return len(self.items)
+
+
 def main() -> int:
     import os
     import pickle
@@ -1979,6 +1995,89 @@ def main() -> int:
         != sis_hash_helper(_frozen.accumulator.hashed()),
     )
 
+    print("MixtureGaussianAccumulator — over-relaxation")
+    _relax = dict(update_densities=False, mixture_floor=1e-2)
+    plain = _mix_acc([np.arange(200)], **_relax).finalize(f_prev)
+    unit_acc = _mix_acc([np.arange(200)], over_relaxation=1.0, **_relax)
+    _check(
+        "over_relaxation=1.0 is the plain M-step, bit for bit, and reports no step",
+        np.array_equal(unit_acc.finalize(f_prev).mixtures, plain.mixtures)
+        and unit_acc.step_statistics is None,
+    )
+    relax_acc = _mix_acc([np.arange(200)], over_relaxation=2.0, **_relax)
+    relaxed = relax_acc.finalize(f_prev)
+    doubled = f_prev.mixtures ** -1.0 * plain.mixtures ** 2.0
+    doubled /= doubled.sum(-1, keepdims=True)
+    _check(
+        "eta=2 is the EM step taken twice in log space: w_em**2 / w_prev, normalized",
+        np.allclose(relaxed.mixtures, doubled, atol=1e-12)
+        and relax_acc.step_statistics["mixture_clipped_fraction"] == 0.0,
+        f"max err {np.abs(relaxed.mixtures - doubled).max():.2e}",
+    )
+    _check(
+        "the over-relaxed step is still associative over chunks",
+        np.allclose(
+            _mix_acc([np.arange(0, 90), np.arange(90, 200)], over_relaxation=2.0, **_relax)
+            .finalize(f_prev).mixtures,
+            relaxed.mixtures, atol=1e-12,
+        ),
+    )
+    _stats = relax_acc.step_statistics
+    _check(
+        "it reports the step EM proposed and the larger one it took",
+        _stats["mixture_over_relaxation"] == 2.0
+        and 0.0 < _stats["mixture_kl_em_step"] < _stats["mixture_kl_applied_step"],
+        f"{_stats}",
+    )
+    # A large eta drives the weights EM is shrinking far below anything the
+    # plain M-step could produce; they must stop at its floor instead.
+    wild_acc = _mix_acc([np.arange(200)], over_relaxation=25.0, **_relax)
+    wild = wild_acc.finalize(f_prev).mixtures
+    _lower = 1e-2 / (wild_acc.weighted_c.sum(-1) + f_c * 1e-2)
+    _check(
+        "an extreme step stays normalized, finite and above the plain M-step's floor",
+        np.isfinite(wild).all()
+        and np.allclose(wild.sum(-1), 1.0)
+        and (wild >= _lower[:, None] * (1 - 1e-12)).all()
+        and wild_acc.step_statistics["mixture_clipped_fraction"] > 0.0,
+    )
+    dead_gammas = f_gammas.copy()
+    dead_gammas[:, 1] = 0.0
+    dead_gammas /= dead_gammas.sum(1, keepdims=True)
+    dead_acc = MixtureGaussianAccumulator(num_clusters=f_l, over_relaxation=2.0, **_relax)
+    dead_acc.bind_model(f_prev)
+    dead_acc.observe(f_feats, dead_gammas)
+    _check(
+        "a label with no mass keeps its previous weights under over-relaxation too",
+        np.array_equal(dead_acc.finalize(f_prev).mixtures[1], f_prev.mixtures[1]),
+    )
+    _check(
+        "eta <= 0, a zero floor, or live densities are refused",
+        _raises(lambda: MixtureGaussianAccumulator(
+            num_clusters=f_l, over_relaxation=0.0, **_relax), ValueError)
+        and _raises(lambda: MixtureGaussianAccumulator(
+            num_clusters=f_l, over_relaxation=2.0, update_densities=False), ValueError)
+        and _raises(lambda: MixtureGaussianAccumulator(
+            num_clusters=f_l, over_relaxation=2.0, mixture_floor=1e-2), ValueError),
+    )
+    _frozen_relax = mixture_flavor(
+        **_mix_common, update_densities=False, mixture_floor=1e-2, over_relaxation=2.0)
+    _frozen_floor = mixture_flavor(**_mix_common, update_densities=False, mixture_floor=1e-2)
+    _frozen_unit = mixture_flavor(
+        **_mix_common, update_densities=False, mixture_floor=1e-2, over_relaxation=1.0)
+    _check(
+        "over_relaxation=1.0 leaves the accumulator spec, and so the hash, alone",
+        "over_relaxation" not in _frozen_unit.accumulator.kwargs
+        and sis_hash_helper(_frozen_unit.accumulator.hashed())
+        == sis_hash_helper(_frozen_floor.accumulator.hashed()),
+    )
+    _check(
+        "any other eta is a different experiment",
+        _frozen_relax.accumulator.kwargs["over_relaxation"] == 2.0
+        and sis_hash_helper(_frozen_relax.accumulator.hashed())
+        != sis_hash_helper(_frozen_floor.accumulator.hashed()),
+    )
+
 
     print("initialization jobs")
     from i6_experiments.example_setups.guided_kmeans.setup.array_job import ArrayJob
@@ -3110,6 +3209,28 @@ def main() -> int:
 
     em_stats_run = _batched(ema=EMAConfig(alpha=0.8, mode="statistics"))
     em_param_run = _batched(ema=EMAConfig(alpha=0.8, mode="parameters"))
+
+    _relaxed_flavor = mixture_flavor(
+        centroids=tk.Path("/cb.npy"), covs=tk.Path("/v.npy"), mixtures=tk.Path("/m.npy"),
+        recognition_config=common["recognition_config"], lexicon=common["lexicon"],
+        num_clusters=40, update_densities=False, mixture_floor=1e-2, over_relaxation=2.0,
+    )
+    _check(
+        "over-relaxation with EMA damping is refused, in either mode and the old route",
+        all(
+            _raises(lambda e=e: _batched(flavor=_relaxed_flavor, ema=e), NotImplementedError)
+            for e in (EMAConfig(alpha=0.5, mode="statistics"),
+                      EMAConfig(alpha=0.5, mode="parameters"))
+        )
+        and _raises(
+            lambda: _batched(flavor=_relaxed_flavor, batches_per_epoch=1, ema_alpha=0.5),
+            NotImplementedError,
+        ),
+    )
+    _check(
+        "undamped online steps take it",
+        len(_batched(flavor=_relaxed_flavor, ema=EMAConfig(alpha=0.0)).jobs) == 6,
+    )
     _check(
         "an epoch becomes B jobs",
         len(em_stats_run.jobs) == 6 and len(em_stats_run.out_batch_models) == 6,
@@ -3370,6 +3491,47 @@ def main() -> int:
     revived = pickle.loads(pickle.dumps(legacy))
     _check("FB counter: a pickle from before layouts reads as tied",
            revived.layout == LabelLayout(3) and revived.merge(FBStatisticsCounter(3)) is revived)
+
+    # Per-label argmax runs: silence (label 0) and speech durations apart.
+    by_label = FBStatisticsCounter(3)
+    by_label.read_gammas(onehot([0, 0, 0, 1, 1, 2, 0, 0], 3), -1.0)
+    fl = by_label.finalize()
+    _check("FB counter: argmax runs and frames per label",
+           fl["argmax_runs_per_label"] == [2, 1, 1] and fl["argmax_frames_per_label"] == [5, 2, 1])
+    _check("FB counter: silence and speech argmax durations, silence share",
+           np.isclose(fl["silence_duration_argmax"], 2.5)
+           and np.isclose(fl["speech_duration_argmax"], 1.5)
+           and np.isclose(fl["silence_share_argmax"], 5 / 8)
+           and np.isclose(fl["silence_share_soft"], 5 / 8)
+           and np.isclose(fu["silence_share_soft"], fu["soft_cluster_frequencies"][0]))
+    _check("FB counter: per-label runs add up to the argmax runs (tied)",
+           sum(ft["argmax_runs_per_label"]) == round(200 / ft["average_segment_duration_argmax"])
+           and sum(ft["argmax_frames_per_label"]) == 200)
+    _check("FB counter: untied per-label runs follow argmax_segments",
+           fu["argmax_runs_per_label"] == np.bincount(
+               np.concatenate([untied.argmax_segments(x) for x in states]), minlength=3).tolist()
+           and sum(fu["argmax_frames_per_label"]) == 200)
+    dead = FBStatisticsCounter(3)
+    dead.read_gammas(np.zeros((4, 3)), -1.0)
+    dead.read_gammas(onehot([1, 1, 2], 3), -1.0)
+    fd = dead.finalize()
+    _check("FB counter: frames without posterior mass are not counted as silence",
+           fd["argmax_runs_per_label"] == [0, 1, 1] and fd["argmax_frames_per_label"] == [0, 2, 1]
+           and fd["silence_duration_argmax"] == 0.0)
+    twice = pickle.loads(pickle.dumps(by_label)).merge(pickle.loads(pickle.dumps(by_label)))
+    _check("FB counter: per-label counts pickle and merge",
+           twice.finalize()["argmax_runs_per_label"] == [4, 2, 2]
+           and np.isclose(twice.finalize()["silence_duration_argmax"], 2.5))
+    old = pickle.loads(pickle.dumps(by_label))
+    for name in ("argmax_label_runs", "argmax_label_frames"):
+        del old.__dict__[name]
+    old = pickle.loads(pickle.dumps(old))
+    _check("FB counter: a pickle from before per-label runs has no per-label keys",
+           "silence_duration_argmax" not in old.finalize()
+           and "average_segment_duration_argmax" in old.finalize())
+    mixed_merge = old.merge(pickle.loads(pickle.dumps(by_label))).finalize()
+    _check("FB counter: an old pickle merges with a new one, per-label keys from the new",
+           mixed_merge["argmax_runs_per_label"] == [2, 1, 1])
 
     # run_chunk: posterior hypotheses only for results that carry a sequence
     # score, and only when asked for.
@@ -3651,6 +3813,71 @@ def main() -> int:
                                           tr_frames[t] != np.r_[tr_frames[t][1:], -1])
                        for t in tr_segs))
 
+        # The change-point detector (findings §6.11): its scores against the
+        # plain loop that produced the measurements, its boundaries, and the
+        # same segment-route equivalence as the jitter above.
+        from .transitions import ChangePointTransitions, change_point_boundaries, change_point_scores
+
+        def _cp_loop(x, w, dist):
+            T, s = len(x), np.full(len(x), -np.inf)
+            for t in range(1, T):
+                a, b = max(0, t - w), min(T, t + w)
+                left, right = x[a:t].mean(0), x[t:b].mean(0)
+                s[t] = (np.linalg.norm(left - right) if dist == "euclidean" else
+                        1 - left @ right / (np.linalg.norm(left) * np.linalg.norm(right) + 1e-12))
+            return s
+
+        cp_x = tr_rng.randn(37, 5)
+        _check("change points: scores equal the plain loop (windows 1-3, both distances)",
+               all(np.allclose(change_point_scores(cp_x, w, d)[1:], _cp_loop(cp_x, w, d)[1:],
+                               rtol=1e-12, atol=1e-12)
+                   and change_point_scores(cp_x, w, d)[0] == ninf
+                   for w in (1, 2, 3) for d in ("euclidean", "cosine")))
+        cp_s = change_point_scores(cp_x)
+        cp_b = change_point_boundaries(cp_s, 0.25)
+        cp_peaks = [t for t in range(1, 36) if cp_s[t] > cp_s[t - 1] and cp_s[t] >= cp_s[t + 1]]
+        _check("change points: the round(rate T) highest local maxima, or all of them",
+               set(cp_b) <= set(cp_peaks)
+               and len(cp_b) == min(round(0.25 * 37), len(cp_peaks))
+               and (len(cp_b) == len(cp_peaks)
+                    or cp_s[cp_b].min() >= max(cp_s[t] for t in cp_peaks if t not in cp_b))
+               and np.all(np.diff(cp_b) >= 2)
+               and len(change_point_boundaries(cp_s, 0.9)) == len(cp_peaks))
+        cp_model = ChangePointTransitions()
+        cp_ends = cp_model.boundaries(cp_x)
+        _check("change points: a fixed TransitionModel whose ends are the detected starts minus one",
+               isinstance(cp_model, TransitionModel) and not cp_model.trainable
+               and np.array_equal(np.flatnonzero(cp_ends[:-1]) + 1, cp_b) and cp_ends[-1]
+               and np.array_equal(cp_model.transition_scores("any", cp_x),
+                                  boundary_transitions(None, 0.1, ends=cp_ends)))
+        _check("change points: bad settings are refused when the model is built",
+               all(_raises(lambda kw=kw: ChangePointTransitions(**kw), ValueError) for kw in (
+                   {"window": 0}, {"distance": "manhattan"}, {"rate": 0.0}, {"rate": 1.0},
+                   {"boundary_error": 0.5}, {"blur": 1.0, "boundary_error": 0.0})))
+        hard_cp = ChangePointTransitions(boundary_error=0.0)
+        cp_frames = {t: np.cumsum(np.r_[False, hard_cp.boundaries(tr_feats[t])[:-1]])
+                     for t in tr_segs}
+        cp_pkl = os.path.join(tmp, "change_points.pkl")
+        with open(cp_pkl, "wb") as f:
+            pickle.dump(cp_frames, f)
+        cp_seg = _collect(OracleSegmentFBRecognizer(cp_pkl, num_clusters=3, **op),
+                          [(t, scores[t], None) for t in tr_segs])
+        cp_frame = _collect(BackoffFBRecognizer(num_clusters=3, zero_topology=True, **op),
+                            [(t, scores[t], hard_cp.transition_scores(t, tr_feats[t]))
+                             for t in tr_segs])
+        _check("change points: hard detector boundaries equal the segment route on them",
+               all(np.abs(cp_seg[t].posteriors - cp_frame[t].posteriors).max() < 1e-10
+                   for t in tr_segs))
+        soft_cp = _collect(BackoffFBRecognizer(**untied),
+                           [(t, untied_scores[t], cp_model.transition_scores(t, tr_feats[t]))
+                            for t in tr_segs])
+        cp_prior = _collect(BackoffFBRecognizer(**prior),
+                            [(t, scores[t], cp_model.transition_scores(t, tr_feats[t]))
+                             for t in tr_segs])
+        _check("change points: at S=2 and on a duration prior every sequence has a path",
+               all(np.isfinite(r.sequence_score) and np.allclose(r.posteriors.sum(1), 1.0)
+                   for r in list(soft_cp.values()) + list(cp_prior.values())))
+
         _check("a batch mixing sequences with and without transition scores is refused",
                _raises(lambda: _collect(BackoffFBRecognizer(**stationary), [
                    ("utt0", scores["utt0"], None),
@@ -3741,6 +3968,10 @@ def main() -> int:
            _raises(lambda: chunked_clustering(num_epochs=1, flavor=oracle_flavor, ema_alpha=0.5,
                                               **tr_common), NotImplementedError))
 
+    print("stationary topology")
+    _stationary_topology_checks(fb_root, fb_common, flavor_common, tr_common, plain_flavor,
+                                plain_run)
+
     print("arpa decompression")
     import gzip as _gzip
     import tempfile as _tempfile
@@ -3775,6 +4006,8 @@ def main() -> int:
             _tempfile.tempdir = saved_tempdir
             os.chdir(saved_cwd)
 
+    _label_covariance_checks()
+
     print("spec")
     from sisyphus.hash import sis_hash_helper
     from sisyphus.tools import extract_paths
@@ -3801,6 +4034,798 @@ def main() -> int:
         return 1
     print("all checks passed")
     return 0
+
+
+def _stationary_topology_checks(fb_root, fb_common, flavor_common, tr_common, plain_flavor,
+                                plain_run):
+    """The loop table, the transition counts and the EM update of the loop
+    probabilities (the op's SPEC.md 15.6 and 15.7), on the op's CPU reference."""
+    import json
+    import os
+    import tempfile
+
+    from sisyphus import tk
+
+    from backoff_fb_ref import random_lm
+
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        EMAConfig,
+        GuidedClusteringEpochJob,
+        chunked_clustering,
+    )
+    from ..backoff_fb_graph import build_topology
+    from .flavors import BackoffFBSearch
+    from .recognizers import BackoffFBRecognizer
+    from .runner import ChunkResult, load_chunk
+    from .topology import TYINGS, StationaryTopology, TopologyAccumulator, tying_groups
+    from .transitions import OracleBoundaryTransitions
+
+    symbols = ["<SIL>", "A", "B"]
+    groups, names = tying_groups("global", symbols, 2)
+    _check("tying: global is one group", groups.tolist() == [[0, 0]] * 3 and names == ["all"])
+    groups, names = tying_groups("speech_silence", symbols, 2)
+    _check("tying: speech_silence gives silence a group of its own",
+           groups.tolist() == [[1, 1], [0, 0], [0, 0]] and names == ["speech", "silence"])
+    groups, names = tying_groups("phoneme", symbols, 2)
+    _check("tying: phoneme ties a phoneme's states",
+           groups.tolist() == [[0, 0], [1, 1], [2, 2]] and names == symbols)
+    groups, names = tying_groups("state", symbols, 2)
+    _check("tying: state is one group per pair",
+           groups.tolist() == [[0, 1], [2, 3], [4, 5]] and names[3] == "A.1")
+    _check("tying: an unknown tying, and speech_silence without silence, are refused",
+           _raises(lambda: tying_groups("label", symbols, 2), ValueError)
+           and _raises(lambda: tying_groups("speech_silence", ["A", "B"], 2), ValueError))
+
+    # The table route and the scalar route build the same weights, bitwise.
+    table = StationaryTopology.from_scalars(symbols, 2, 0.6, 0.3)
+    _check("table: from_scalars fills the silence row and the speech rows",
+           table.loop_probabilities.tolist() == [[0.3, 0.3], [0.6, 0.6], [0.6, 0.6]])
+    topo_common = dict(transition_scale=0.35, num_states=2, backoff_fb_root=fb_root)
+    by_scalars = build_topology(symbols, loop_probability=0.6, silence_loop_probability=0.3,
+                                **topo_common)
+    by_table = build_topology(symbols, loop_table=table.loop_probabilities, **topo_common)
+    _check("build_topology: a table filled from the scalars is bitwise the scalars' topology",
+           all(np.array_equal(getattr(by_scalars, k), getattr(by_table, k))
+               for k in ("tau_loop", "tau_fwd", "tau_exit", "emis")))
+    offset = np.array([0.0, -0.5, 0.25])
+    by_offset = build_topology(symbols, loop_table=table.loop_probabilities, exit_offset=offset,
+                               **topo_common)
+    _check("build_topology: the exit offset is added after the scale, to the exit alone",
+           np.array_equal(by_offset.tau_exit, by_table.tau_exit + offset)
+           and np.array_equal(by_offset.tau_loop, by_table.tau_loop)
+           and np.array_equal(by_offset.tau_fwd, by_table.tau_fwd))
+    per_state = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+    by_state = build_topology(symbols, loop_table=per_state, **topo_common)
+    _check("build_topology: a per-state table sets each state's loop, and the last state's exit",
+           np.allclose(by_state.tau_loop, 0.35 * np.log(per_state))
+           and np.allclose(by_state.tau_fwd[:, 0], 0.35 * np.log1p(-per_state[:, 0]))
+           and np.allclose(by_state.tau_exit, 0.35 * np.log1p(-per_state[:, 1])))
+    for what, kwargs in [
+        ("a table next to the scalars", dict(loop_table=per_state, loop_probability=0.5)),
+        ("a table of the wrong shape", dict(loop_table=per_state[:2])),
+        ("a probability of 1", dict(loop_table=np.ones((3, 2)))),
+        ("a table on the zero topology", dict(loop_table=per_state, zero_topology=True,
+                                              transition_scale=1.0)),
+        ("an infinite exit offset", dict(loop_table=per_state, exit_offset=-np.inf)),
+        ("neither scalars nor a table", dict()),
+    ]:
+        kw = {**topo_common, **kwargs}
+        _check(f"build_topology: {what} is refused",
+               _raises(lambda: build_topology(symbols, **kw), (ValueError, TypeError)))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = os.path.join(tmp, "topology")
+        StationaryTopology(per_state, symbols).save(saved)
+        back = StationaryTopology.load(saved)
+        _check("StationaryTopology: save and load round-trip",
+               np.array_equal(back.loop_probabilities, per_state) and back.symbols == tuple(symbols)
+               and sorted(os.listdir(saved)) == ["loop_probabilities.npy", "topology.json"])
+    _check("StationaryTopology: values outside [0, 1), NaN and a short symbol list are refused",
+           _raises(lambda: StationaryTopology(np.full((3, 2), 1.0), symbols), ValueError)
+           and _raises(lambda: StationaryTopology(np.full((3, 2), np.nan), symbols), ValueError)
+           and _raises(lambda: StationaryTopology(per_state, symbols[:2]), ValueError))
+
+    # The accumulator on synthetic counts.
+    rng = np.random.default_rng(5)
+    synthetic = [rng.uniform(0.0, 5.0, size=(3, 2, 2)) for _ in range(12)]
+    whole = TopologyAccumulator("phoneme")
+    for c in synthetic:
+        whole.observe(c)
+    parts = [TopologyAccumulator("phoneme") for _ in range(3)]
+    for i, c in enumerate(synthetic):
+        parts[i % 3].observe(c)
+    merged = TopologyAccumulator("phoneme").load_state_dict(parts[0].state_dict())
+    merged.merge(parts[1]).merge(parts[2])
+    _check("TopologyAccumulator: merge is associative over chunkings",
+           np.allclose(merged.counts, whole.counts, rtol=1e-14, atol=0) and merged.num_seqs == 12)
+    _check("TopologyAccumulator: an empty accumulator merges as the identity",
+           np.array_equal(TopologyAccumulator().merge(whole).counts, whole.counts)
+           and np.array_equal(TopologyAccumulator().load_state_dict(whole.state_dict())
+                              .merge(TopologyAccumulator()).counts, whole.counts))
+    _check("TopologyAccumulator: scale",
+           np.allclose(TopologyAccumulator().load_state_dict(whole.state_dict()).scale(0.5).counts,
+                       0.5 * whole.counts))
+
+    def fresh(tying="phoneme", **kw):
+        return TopologyAccumulator(tying, **kw).load_state_dict(whole.state_dict())
+
+    start = StationaryTopology.from_scalars(symbols, 2, 0.5)
+    stay, total = whole.counts[..., 0], whole.counts.sum(-1)
+    expected = {
+        "global": np.full((3, 2), stay.sum() / total.sum()),
+        "speech_silence": np.array([[stay[0].sum() / total[0].sum()] * 2]
+                                   + [[stay[1:].sum() / total[1:].sum()] * 2] * 2),
+        "phoneme": np.repeat((stay.sum(1) / total.sum(1))[:, None], 2, axis=1),
+        "state": stay / total,
+    }
+    _check("TopologyAccumulator: each tying's update is its stays over its frames",
+           all(np.allclose(fresh(t).finalize(start).loop_probabilities, expected[t], rtol=1e-13)
+               for t in TYINGS))
+    floor = float(total[1, 0]) + 1e-9
+    floored = fresh("state", min_frames=floor).finalize(start)
+    _check("TopologyAccumulator: a group below the floor keeps its previous p",
+           np.allclose(floored.loop_probabilities, np.where(total >= floor, stay / total, 0.5))
+           and floored.loop_probabilities[1, 0] == 0.5)
+    p_global = stay.sum() / total.sum()
+    _check("TopologyAccumulator: a Beta prior adds m pseudo-frames at its mean ...",
+           np.allclose(fresh(prior_weight=10.0, prior_mean=0.75).finalize(start).loop_probabilities,
+                       np.repeat(((stay.sum(1) + 7.5) / (total.sum(1) + 10.0))[:, None], 2, axis=1)))
+    _check("... or at the epoch's global estimate",
+           np.allclose(fresh(prior_weight=10.0, prior_mean="global").finalize(start).loop_probabilities,
+                       np.repeat(((stay.sum(1) + 10.0 * p_global) / (total.sum(1) + 10.0))[:, None],
+                                 2, axis=1)))
+    no_b = whole.counts.copy()
+    no_b[2] = 0.0
+    empty = TopologyAccumulator("phoneme", prior_weight=10.0, prior_mean=0.75)
+    empty.observe(no_b)
+    unprimed = TopologyAccumulator("phoneme")
+    unprimed.observe(no_b)
+    _check("... which an empty group takes, where plain EM keeps the previous value",
+           np.allclose(empty.finalize(start).loop_probabilities[2], 0.75)
+           and np.array_equal(unprimed.finalize(start).loop_probabilities[2], [0.5, 0.5]))
+    forbid = StationaryTopology(np.array([[0.0, 0.0], [0.5, 0.5], [0.5, 0.5]]), symbols)
+    blocked = whole.counts.copy()
+    blocked[0, :, 0] = 0.0  # a forbidden loop is never taken
+    acc = TopologyAccumulator("global")
+    acc.observe(blocked)
+    got = acc.finalize(forbid).loop_probabilities
+    _check("TopologyAccumulator: a forbidden loop stays forbidden, and its frames stay out of the group",
+           (got[0] == 0.0).all() and np.allclose(got[1:], blocked[1:, :, 0].sum() / blocked[1:].sum()))
+    _check("TopologyAccumulator: bad settings are refused",
+           all(_raises(lambda kw=kw: TopologyAccumulator(**kw), ValueError) for kw in [
+               dict(tying="label"), dict(min_frames=-1.0), dict(prior_weight=1.0),
+               dict(prior_weight=1.0, prior_mean=1.0), dict(prior_mean=0.5),
+               dict(prior_weight=1.0, prior_mean=0.5, min_frames=10.0)]))
+    _check("TopologyAccumulator: counts of the wrong shape, and an update from nothing, are refused",
+           _raises(lambda: fresh().observe(np.zeros((2, 2, 2))), ValueError)
+           and _raises(lambda: TopologyAccumulator().observe(np.zeros((3, 2))), ValueError)
+           and _raises(lambda: TopologyAccumulator().observe(-np.ones((3, 2, 2))), ValueError)
+           and _raises(lambda: TopologyAccumulator().finalize(start), RuntimeError))
+    acc = fresh()
+    updated = acc.finalize(start)
+    info = acc.summary(start, updated, 0.35)
+    _check("summary: the global estimate, its lambda, the mean duration and every group",
+           np.isclose(info["topology_p_global"], p_global)
+           and np.isclose(info["topology_lambda_global"], 0.35 * np.log(p_global / (1 - p_global)))
+           and np.isclose(info["topology_mean_duration"],
+                          whole.counts.sum() / whole.counts[:, -1, 1].sum())
+           and set(info["topology_groups"]) == set(symbols)
+           and np.isclose(info["topology_groups"]["A"]["p"], updated.loop_probabilities[1, 0])
+           and info["topology_groups"]["A"]["p_previous"] == 0.5
+           and info["topology_groups"]["A"]["updated"]
+           and json.loads(json.dumps(info))["topology_tying"] == "phoneme")
+
+    # The recognizer and the epoch on a real (tiny) LM, through the op's CPU
+    # reference.
+    with tempfile.TemporaryDirectory() as tmp:
+        arpa = os.path.join(tmp, "lm.arpa")
+        random_lm(3, 3, density=0.7, seed=3).to_arpa(arpa, symbols)
+        lex = os.path.join(tmp, "lexicon.xml")
+        with open(lex, "w") as f:
+            f.write('<?xml version="1.0" encoding="utf-8"?>\n<lexicon>\n'
+                    '<lemma><orth>[SILENCE]</orth><synt><tok>&lt;SIL&gt;</tok></synt></lemma>\n'
+                    '<lemma><orth>A</orth></lemma>\n<lemma><orth>B</orth></lemma>\n'
+                    '<lemma special="sentence-begin"><orth>[b]</orth><synt><tok>&lt;s&gt;</tok></synt></lemma>\n'
+                    '<lemma special="sentence-end"><orth>[e]</orth><synt><tok>&lt;/s&gt;</tok></synt></lemma>\n'
+                    '</lexicon>\n')
+        op = dict(backoff_fb_root=fb_root, arpa_path=arpa, lexicon_path=lex, num_clusters=3,
+                  distance_scale=0.3, device="cpu", batch_size=2, num_states=2)
+        st_rng = np.random.RandomState(13)
+        feats = {f"utt{i}": st_rng.randn(n, 4) for i, n in enumerate([6, 9, 4, 12, 7])}
+        model = EuclideanModel(st_rng.randn(3, 4))
+        scores = {t: model.scores(x) for t, x in feats.items()}
+        base = dict(loop_probability=0.6, silence_loop_probability=0.3, transition_scale=0.35)
+
+        def collect(**kw):
+            out = {}
+            rec = BackoffFBRecognizer(**op, **kw)
+            rec.start(lambda r: out.__setitem__(r.seq_tag, r))
+            for tag in feats:
+                rec.submit(tag, scores[tag])
+            rec.drain()
+            rec.shutdown()
+            return out
+
+        def total_logz(**kw):
+            return sum(r.sequence_score for r in collect(**kw).values())
+
+        off = collect(**base)
+        on = collect(**base, transition_counts=True)
+        _check("counts: asking for them changes no posterior and no log Z, bitwise",
+               all(np.array_equal(off[t].posteriors, on[t].posteriors)
+                   and off[t].sequence_score == on[t].sequence_score for t in feats))
+        _check("counts: [V, S, 2] per sequence when asked for, None otherwise",
+               all(on[t].transition_counts.shape == (3, 2, 2)
+                   and off[t].transition_counts is None for t in feats))
+        occ = max(abs(on[t].transition_counts.sum() - len(feats[t])) for t in feats)
+        lab = max(np.abs(on[t].transition_counts.sum(axis=(1, 2)) - on[t].posteriors.sum(0)).max()
+                  for t in feats)
+        flow = max(np.abs(on[t].transition_counts[:, 0, 1] - on[t].transition_counts[:, 1, 1]).max()
+                   for t in feats)
+        _check("counts: occupancy (to T, and per label to its Gamma) and flow (one move per state)",
+               occ < 1e-9 and lab < 1e-9 and flow < 1e-9, f"{occ:.1e} {lab:.1e} {flow:.1e}")
+
+        tabled = collect(**base, loop_table=table.loop_probabilities, transition_counts=True)
+        _check("loop_table filled from the scalars: posteriors, log Z and counts bitwise the scalars'",
+               all(np.array_equal(on[t].posteriors, tabled[t].posteriors)
+                   and on[t].sequence_score == tabled[t].sequence_score
+                   and np.array_equal(on[t].transition_counts, tabled[t].transition_counts)
+                   for t in feats))
+        rec = BackoffFBRecognizer(**op, **base)
+        _check("recognizer: topology() is the table its scalars fill, in the lexicon's order",
+               np.array_equal(rec.topology().loop_probabilities, table.loop_probabilities)
+               and rec.symbols == symbols)
+        _check("recognizer: a table of the wrong shape and an unknown offset symbol are refused",
+               _raises(lambda: collect(**base, loop_table=per_state[:2]), ValueError)
+               and _raises(lambda: collect(**base, exit_offset={"C": 1.0}), ValueError)
+               and _raises(lambda: BackoffFBRecognizer(**op, zero_topology=True, exit_offset=1.0),
+                           ValueError))
+
+        # The counts are d log Z / d tau (the op's SPEC.md 15.2). With tau_loop
+        # = s ln p and tau_fwd = tau_exit = s ln(1 - p), the chain rule gives
+        # d log Z / d p = s * sum (stay / p - move / (1 - p)) over the pairs p
+        # sets. Central differences through the table, and through the offset.
+        c = sum(on[t].transition_counts for t in feats)
+        s, eps = 0.35, 1e-5
+        plus, minus = table.loop_probabilities.copy(), table.loop_probabilities.copy()
+        plus[1] += eps
+        minus[1] -= eps
+        fd = (total_logz(**base, loop_table=plus) - total_logz(**base, loop_table=minus)) / (2 * eps)
+        p = table.loop_probabilities[1, 0]
+        analytic = s * (c[1, :, 0].sum() / p - c[1, :, 1].sum() / (1 - p))
+        _check("counts: d log Z / d p_A by central differences through the loop table",
+               abs(fd - analytic) < 1e-6 * max(1.0, abs(analytic)), f"{fd:.9f} vs {analytic:.9f}")
+        fd_exit = (total_logz(**base, exit_offset={"A": eps})
+                   - total_logz(**base, exit_offset={"A": -eps})) / (2 * eps)
+        _check("counts: d log Z / d exit_offset[A] is A's exit count",
+               abs(fd_exit - c[1, -1, 1]) < 1e-6 * max(1.0, c[1, -1, 1]),
+               f"{fd_exit:.9f} vs {c[1, -1, 1]:.9f}")
+        flat_offset = collect(**base, exit_offset=-0.25)
+        dict_offset = collect(**base, exit_offset={sym: -0.25 for sym in symbols})
+        _check("recognizer: a float exit offset is the same offset for every symbol",
+               all(flat_offset[t].sequence_score == dict_offset[t].sequence_score for t in feats)
+               and any(flat_offset[t].sequence_score != off[t].sequence_score for t in feats))
+
+        worst, ok = np.inf, True
+        for s in (1.0, 0.35):
+            loops = dict(loop_probability=0.6, silence_loop_probability=0.3, transition_scale=s)
+            first = collect(**loops, transition_counts=True)
+            before = sum(r.sequence_score for r in first.values())
+            for tying in TYINGS:
+                acc = TopologyAccumulator(tying)
+                for r in first.values():
+                    acc.observe(r.transition_counts)
+                new = acc.finalize(BackoffFBRecognizer(**op, **loops).topology())
+                gain = total_logz(**loops, loop_table=new.loop_probabilities) - before
+                worst = min(worst, gain)
+                ok &= gain >= -1e-9
+        _check("EM: one update never lowers the summed log Z, every tying, s = 1 and 0.35",
+               ok, f"smallest gain {worst:.3e}")
+
+        def chunk(recognizer, topology_accumulator, tags):
+            return run_chunk(features=_ListSource([(t, feats[t]) for t in tags]), model=model,
+                             recognizer=recognizer, accumulator=MeanAccumulator(3, 4),
+                             topology_accumulator=topology_accumulator, verbosity=0)
+
+        tags = sorted(feats)
+        paths = []
+        for i, part in enumerate((tags[:2], tags[2:])):
+            result = chunk(BackoffFBRecognizer(**op, **base, transition_counts=True),
+                           TopologyAccumulator("phoneme"), part)
+            paths.append(os.path.join(tmp, f"chunk{i}.pkl"))
+            save_chunk(result, paths[-1])
+        merged = merge_chunks(chunk_paths=paths, accumulator_factory=lambda: MeanAccumulator(3, 4),
+                              topology_accumulator_factory=lambda: TopologyAccumulator("phoneme"))
+        _check("run_chunk + merge_chunks: the chunks' counts add up to the sequences' counts",
+               np.allclose(merged.topology_accumulator.counts, c, rtol=1e-13, atol=0)
+               and merged.topology_accumulator.num_seqs == len(feats))
+        _check("run_chunk: a recognizer that does not count is refused",
+               _raises(lambda: chunk(BackoffFBRecognizer(**op, **base), TopologyAccumulator(), tags),
+                       ValueError))
+        plain_chunk = chunk(BackoffFBRecognizer(**op, **base), None, tags)
+        plain_path = os.path.join(tmp, "plain.pkl")
+        save_chunk(plain_chunk, plain_path)
+        _check("run_chunk: without a topology accumulator nothing is counted, and a merge that "
+               "expects counts refuses the chunk",
+               plain_chunk.topology_state is None
+               and merge_chunks(chunk_paths=[plain_path],
+                                accumulator_factory=lambda: MeanAccumulator(3, 4)
+                                ).topology_accumulator is None
+               and _raises(lambda: merge_chunks(
+                   chunk_paths=[plain_path], accumulator_factory=lambda: MeanAccumulator(3, 4),
+                   topology_accumulator_factory=TopologyAccumulator), RuntimeError))
+        legacy = ChunkResult(accumulator_state={}, counter=None, num_seqs=0, num_frames=0,
+                             num_recognized=0)
+        del legacy.__dict__["topology_state"]
+        legacy_path = os.path.join(tmp, "legacy.pkl")
+        save_chunk(legacy, legacy_path)
+        _check("ChunkResult: a pickle from before topology_state reads it as None",
+               load_chunk(legacy_path).topology_state is None)
+
+        # Two epochs through the epoch job's own tasks, with outputs redirected
+        # into the temporary directory.
+        import pickle as _pickle
+
+        feats_pkl = os.path.join(tmp, "features.pkl")
+        with open(feats_pkl, "wb") as f:
+            _pickle.dump(feats, f)
+        centroids = os.path.join(tmp, "centroids.npy")
+        np.save(centroids, model.centroids)
+        topology_spec = Spec(TopologyAccumulator, {"tying": "phoneme"})
+
+        def epoch(name, topology):
+            job = GuidedClusteringEpochJob(
+                features=Spec(_PickledFeatures, {"path": feats_pkl}),
+                model=Spec(EuclideanModel, {"centroids": centroids}),
+                recognizer=Spec(BackoffFBRecognizer, {**op, **base}),
+                accumulator=Spec(MeanAccumulator, {}),
+                num_clusters=3, num_chunks=2, verbosity=0,
+                topology_accumulator=topology_spec, topology=topology,
+            )
+            out = os.path.join(tmp, name)
+            for attr, sub in (("out_model", "model"), ("out_statistics", "statistics.json"),
+                              ("out_hypotheses", "hyp.txt.gz"), ("out_topology", "topology")):
+                setattr(job, attr, tk.Path(os.path.join(out, sub)))
+            work = os.path.join(out, "work")
+            os.makedirs(work)
+            cwd = os.getcwd()
+            os.chdir(work)
+            try:
+                job.recognize(0)
+                job.recognize(1)
+                job.reduce()
+            finally:
+                os.chdir(cwd)
+            with open(os.path.join(out, "statistics.json")) as f:
+                stats = json.load(f)
+            return StationaryTopology.load(os.path.join(out, "topology")), stats
+
+        topo1, stats1 = epoch("epoch1", None)
+        want1 = TopologyAccumulator("phoneme").load_state_dict(
+            {"counts": c, "num_seqs": len(feats)}).finalize(table)
+        _check("epoch job: reduce writes the M-step of the chunks' counts to out_topology",
+               np.allclose(topo1.loop_probabilities, want1.loop_probabilities, rtol=1e-12)
+               and stats1["topology_tying"] == "phoneme"
+               and np.isclose(stats1["topology_frames"], sum(len(x) for x in feats.values()))
+               and stats1["topology_groups"]["A"]["p_previous"] == 0.6)
+        topo2, stats2 = epoch("epoch2", tk.Path(os.path.join(tmp, "epoch1", "topology")))
+        second = collect(**base, loop_table=topo1.loop_probabilities, transition_counts=True)
+        want2 = TopologyAccumulator("phoneme").load_state_dict(
+            {"counts": sum(r.transition_counts for r in second.values()),
+             "num_seqs": len(feats)}).finalize(topo1)
+        _check("epoch job: the next epoch recognizes with that table and trains on from it",
+               np.allclose(topo2.loop_probabilities, want2.loop_probabilities, rtol=1e-12)
+               and all(np.isclose(stats2["topology_groups"][sym]["p_previous"],
+                                  topo1.loop_probabilities[a, 0]) for a, sym in enumerate(symbols)))
+        _check("epoch job: a topology input without an accumulator is refused",
+               _raises(lambda: GuidedClusteringEpochJob(
+                   features=Spec(_PickledFeatures, {"path": feats_pkl}),
+                   model=Spec(EuclideanModel, {"centroids": centroids}),
+                   recognizer=Spec(BackoffFBRecognizer, {**op, **base}),
+                   accumulator=Spec(MeanAccumulator, {}), num_clusters=3,
+                   topology=tk.Path(os.path.join(tmp, "epoch1", "topology"))), TypeError))
+
+    # The graph: flavors and chunked_clustering.
+    trained = BackoffFBSearch(**fb_common, loop_probability=0.5, num_states=2,
+                              train_topology="global", topology_min_frames=1000.0)
+    held = BackoffFBSearch(**fb_common, loop_probability=0.5, num_states=2)
+    trained_flavor = euclidean_flavor(**flavor_common, backoff_fb=trained)
+    held_flavor = euclidean_flavor(**flavor_common, backoff_fb=held)
+    _check("flavor: train_topology adds a topology accumulator and leaves the recognizer spec alone",
+           trained_flavor.topology_accumulator == Spec(TopologyAccumulator, {
+               "tying": "global", "min_frames": 1000.0, "prior_weight": 0.0, "prior_mean": None})
+           and held_flavor.topology_accumulator is None
+           and plain_flavor.topology_accumulator is None
+           and trained_flavor.recognizer == held_flavor.recognizer)
+    offset_flavor = euclidean_flavor(**flavor_common,
+                                     backoff_fb=BackoffFBSearch(**fb_common, exit_offset=-0.5))
+    _check("flavor: an exit offset enters the recognizer spec only when set",
+           offset_flavor.recognizer.kwargs.get("exit_offset") == -0.5
+           and "exit_offset" not in plain_flavor.recognizer.kwargs)
+    oracle = Spec(OracleBoundaryTransitions, {"frame_labels": tk.Path("/labels.pkl")})
+    for what, kwargs in [
+        ("next to frame_labels", dict(frame_labels=tk.Path("/x"))),
+        ("next to per-frame transition scores", dict(transitions=oracle)),
+        ("on the zero topology", dict(transitions=oracle, zero_topology=True, loop_probability=0.0)),
+        ("from a loop probability of 0", dict(loop_probability=0.0)),
+        ("with an unknown tying", dict(train_topology="label")),
+        ("with a prior and a floor", dict(topology_prior_weight=10.0, topology_prior_mean=0.5,
+                                         topology_min_frames=1.0)),
+    ]:
+        kw = {"loop_probability": 0.5, "train_topology": "global", **kwargs}
+        _check(f"flavor: train_topology {what} is refused",
+               _raises(lambda: euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(
+                   **fb_common, **kw)), ValueError))
+    _check("flavor: topology settings without train_topology are refused",
+           _raises(lambda: euclidean_flavor(**flavor_common, backoff_fb=BackoffFBSearch(
+               **fb_common, topology_min_frames=10.0)), ValueError))
+
+    run3 = chunked_clustering(num_epochs=3, flavor=trained_flavor, **tr_common)
+    held3 = chunked_clustering(num_epochs=3, flavor=held_flavor, **tr_common)
+    _check("chunked_clustering: every epoch trains, each from the table the one before wrote",
+           run3.jobs[0].topology is None
+           and all(b.topology == a.out_topology for a, b in zip(run3.jobs, run3.jobs[1:]))
+           and all(j.topology_accumulator == trained_flavor.topology_accumulator for j in run3.jobs)
+           and run3.out_topologies == {e + 1: j.out_topology for e, j in enumerate(run3.jobs)})
+    _check("chunked_clustering: training enters the epoch job hash, holding the topology fixed "
+           "adds nothing",
+           all(a._sis_id() != b._sis_id() for a, b in zip(run3.jobs, held3.jobs))
+           and held3.out_topologies is None and all(j.out_topology is None for j in held3.jobs)
+           and plain_run.out_topologies is None)
+    head = chunked_clustering(num_epochs=2, flavor=trained_flavor, **tr_common)
+    tail = chunked_clustering(
+        num_epochs=1, initial_topology=head.out_topologies[2], **tr_common,
+        flavor=euclidean_flavor(**{**flavor_common, "centroids": head.out_centroids[2]},
+                                backoff_fb=trained))
+    _check("chunked_clustering: 2 + 1 continued with initial_topology == 3 in one call",
+           [j._sis_id() for j in head.jobs + tail.jobs] == [j._sis_id() for j in run3.jobs]
+           and tail.out_topologies[0] == head.out_topologies[2])
+    segments = tk.Path("/segments.txt")
+    _check("chunked_clustering: a topology-training run refuses an EMA and batched updates",
+           _raises(lambda: chunked_clustering(num_epochs=1, flavor=trained_flavor,
+                                              ema=EMAConfig(0.5), batches_per_epoch=2,
+                                              segments=segments, **tr_common), NotImplementedError)
+           and _raises(lambda: chunked_clustering(num_epochs=1, flavor=trained_flavor,
+                                                  batches_per_epoch=2, segments=segments,
+                                                  **tr_common), NotImplementedError))
+    _check("chunked_clustering: an initial topology needs a run that trains one",
+           _raises(lambda: chunked_clustering(num_epochs=1, flavor=held_flavor,
+                                              initial_topology=tk.Path("/t"), **tr_common),
+                   TypeError))
+
+
+def _label_covariance_checks():
+    """One covariance per label over a shared codebook,
+    ``p(x | l) = sum_k w_lk N(x | mu_k, Sigma_l)``: the model, its ECM update,
+    the semi-tied transform, and the wiring."""
+    import os
+    import tempfile
+
+    from sisyphus import tk
+
+    from .accumulators import LabelCovarianceAccumulator, semi_tied_transform
+    from .flavors import label_covariance_flavor
+    from .models import LabelCovarianceMixtureModel
+
+    rng = np.random.RandomState(7)
+    L, K, D = 3, 8, 6
+
+    def random_spd(scale):
+        a = rng.randn(D, D)
+        return scale * (a @ a.T / D + 0.5 * np.eye(D))
+
+    def brute_costs(x, means, covs):
+        """float64 ``0.5 (x - mu_k)^T Sigma_l^-1 (x - mu_k) + 0.5 log det Sigma_l``."""
+        out = np.empty((len(x), len(covs), len(means)))
+        for l, cov in enumerate(covs):
+            diff = x[:, None, :] - means[None]
+            out[:, l] = 0.5 * np.einsum("tkd,de,tke->tk", diff, np.linalg.inv(cov), diff)
+            out[:, l] += 0.5 * np.linalg.slogdet(cov)[1]
+        return out
+
+    print("LabelCovarianceMixtureModel")
+    means = rng.randn(K, D) * 2.0
+    covs = np.stack([random_spd(s) for s in (0.5, 1.0, 2.0)])
+    weights = rng.dirichlet(np.ones(K), size=L)
+    model = LabelCovarianceMixtureModel(means, covs, weights, device="cpu")
+    x = rng.randn(50, D) * 2.0
+
+    ref = brute_costs(x, means, covs)
+    err = np.abs(model.density_costs(x) - ref).max()
+    _check("density costs == the float64 brute force", err < 1e-3, f"max err {err:.2e} (float32)")
+    ref_scores = -np.log((weights[np.newaxis] * np.exp(-ref)).sum(axis=2))
+    err = np.abs(model.scores(x) - ref_scores).max()
+    _check("scores == -log sum_k w_lk N(x | mu_k, Sigma_l)", err < 1e-3, f"max err {err:.2e}")
+
+    shared = random_spd(1.0)
+    tied = LabelCovarianceMixtureModel(means, np.repeat(shared[np.newaxis], L, 0), weights, device="cpu")
+    gmm = GaussianMixtureModel(means, np.repeat(shared[np.newaxis], K, 0), weights, device="cpu")
+    gam = rng.dirichlet(np.ones(L), size=len(x))
+    (dg_t, jc_t), (dg_g, jc_g) = tied.responsibilities(x, gam), gmm.responsibilities(x, gam)
+    _check(
+        "equal covariances: the shared-codebook GaussianMixtureModel exactly",
+        np.abs(tied.scores(x) - gmm.scores(x)).max() < 1e-3
+        and np.abs(dg_t - dg_g).max() < 1e-5 and np.abs(jc_t - jc_g).max() < 1e-5,
+        f"score err {np.abs(tied.scores(x) - gmm.scores(x)).max():.2e}",
+    )
+    joint = model.joint_posteriors(x, gam)
+    _check("the joint posterior marginalizes to the label posterior",
+           np.abs(joint.sum(axis=2) - gam).max() < 1e-12)
+    # The recognizers hand scores to librasr as a raw buffer, which it reads
+    # row-major. A column-major [T, L] passes every numpy comparison above and
+    # still scrambles frames and labels in the search - which is exactly how the
+    # first label-covariance runs failed. So: every model class, by layout.
+    pl_means = rng.randn(L * 2, D)
+    layouts = {
+        "LabelCovarianceMixtureModel": model.scores(x),
+        "GaussianMixtureModel": gmm.scores(x),
+        "PerLabelMixtureModel": PerLabelMixtureModel(
+            pl_means, np.repeat(shared[np.newaxis], L * 2, 0),
+            np.full((L, 2), 0.5), device="cpu").scores(x),
+        "GaussianModel": GaussianModel(means, np.repeat(shared[np.newaxis], K, 0),
+                                       device="cpu").scores(x),
+        "EuclideanModel": EuclideanModel(means).scores(x),
+        "VectorQuantizedModel": VectorQuantizedModel(means, weights).scores(x),
+    }
+    not_row_major = [name for name, s in layouts.items() if not s.flags["C_CONTIGUOUS"]]
+    _check("every model's scores are row-major, as librasr reads them",
+           not not_row_major, f"not row-major: {not_row_major}" if not_row_major else "")
+    _check("... and so are the label-covariance model's density costs",
+           model.density_costs(x).flags["C_CONTIGUOUS"])
+    _check("covs must be one per label",
+           _raises(lambda: LabelCovarianceMixtureModel(means, covs[:2], weights), ValueError))
+    _check("a non-positive-definite covariance fails at construction",
+           _raises(lambda: LabelCovarianceMixtureModel(means, covs - 10 * np.eye(D), weights),
+                   np.linalg.LinAlgError))
+    with tempfile.TemporaryDirectory() as tmp:
+        model.save(tmp)
+        loaded = load_model(tmp)
+        _check("save/load round trip, the class picked out of the manifest",
+               type(loaded) is LabelCovarianceMixtureModel
+               and np.abs(loaded.scores(x) - model.scores(x)).max() < 1e-9)
+        _check("decodable through load_forward_model",
+               np.abs(load_forward_model(tmp).forward(x) - model.scores(x)).max() < 1e-9)
+
+    print("LabelCovarianceAccumulator")
+    # Data from the model family itself: codeword from the label's weights,
+    # then that codeword's mean under the label's own covariance.
+    true_covs = np.stack([random_spd(s) for s in (0.3, 1.0, 3.0)])
+    seqs, gams = [], []
+    for _ in range(30):
+        T = rng.randint(20, 60)
+        labels = rng.randint(L, size=T)
+        codewords = [rng.choice(K, p=weights[l]) for l in labels]
+        seqs.append(np.stack([rng.multivariate_normal(means[k], true_covs[l])
+                              for l, k in zip(labels, codewords)]))
+        g = np.full((T, L), 0.05)
+        g[np.arange(T), labels] = 0.9
+        gams.append(g / g.sum(axis=1, keepdims=True))
+    start = LabelCovarianceMixtureModel(
+        means + 0.3 * rng.randn(K, D), np.repeat(2.0 * np.eye(D)[np.newaxis], L, 0),
+        np.full((L, K), 1.0 / K), device="cpu",
+    )
+
+    def accumulate(model_, idx=range(30), gs=None, **cfg):
+        acc = LabelCovarianceAccumulator(L, **cfg)
+        acc.bind_model(model_)
+        for i in idx:
+            acc.observe(seqs[i], (gs or gams)[i])
+        return acc
+
+    def brute_stats(model_):
+        n, F, S = np.zeros((L, K)), np.zeros((L, K, D)), np.zeros((L, D, D))
+        for xs, g in zip(seqs, gams):
+            j = model_.joint_posteriors(xs, g)
+            n += j.sum(axis=0)
+            F += np.einsum("tlk,td->lkd", j, xs)
+            S += np.einsum("tl,td,te->lde", g, xs, xs)
+        return n, F, S
+
+    full_cfg = dict(update_means=True, covariance="full", covariance_relevance=5.0)
+    whole = accumulate(start, **full_cfg)
+    n, F, S = brute_stats(start)
+    _check("statistics == the einsums over the joint posterior",
+           np.abs(whole.weighted_c - n).max() < 1e-9 and np.abs(whole.first - F).max() < 1e-8
+           and np.abs(whole.second - S).max() < 1e-7)
+    merged = LabelCovarianceAccumulator(L, **full_cfg)
+    for c in range(3):
+        part = accumulate(start, range(c, 30, 3), **full_cfg)
+        restored = LabelCovarianceAccumulator(L, **full_cfg)
+        merged.merge(restored.load_state_dict(pickle.loads(pickle.dumps(part.state_dict()))))
+    a, b = whole.finalize(start), merged.finalize(start)
+    _check("merge is associative, through the state dict",
+           all(np.abs(np.asarray(a.artifacts()[k]) - np.asarray(b.artifacts()[k])).max() < 1e-9
+               for k in a.ARTIFACT_NAMES))
+    _check("a state from another configuration is refused",
+           _raises(lambda: LabelCovarianceAccumulator(L).load_state_dict(whole.state_dict()),
+                   ValueError))
+
+    m_only = accumulate(start, update_means=True).finalize(start)
+    _check("equal covariances: the mean step is the weighted average",
+           np.abs(m_only.centroids - F.sum(0) / n.sum(0)[:, np.newaxis]).max() < 1e-9)
+    _check("a frozen parameter comes through as the previous model's own array",
+           m_only.covs is start.covs and accumulate(start, covariance="full").finalize(start)
+           .centroids is start.centroids)
+    unequal = LabelCovarianceMixtureModel(start.centroids, true_covs, start.mixtures, device="cpu")
+    n_u, F_u, _ = brute_stats(unequal)
+    mu = accumulate(unequal, update_means=True).finalize(unequal).centroids
+    gradient = np.einsum("lde,lke->kd", np.linalg.inv(true_covs), F_u - n_u[:, :, np.newaxis] * mu)
+    _check("unequal covariances: the mean step zeroes the precision-weighted gradient",
+           np.abs(gradient).max() < 1e-8, f"max {np.abs(gradient).max():.1e}")
+
+    def scatter_about(mu_):
+        out = np.zeros((L, D, D))
+        for xs, g in zip(seqs, gams):
+            diff = xs[:, None, :] - mu_[np.newaxis]
+            out += np.einsum("tlk,tkd,tke->lde", start.joint_posteriors(xs, g), diff, diff)
+        return out
+
+    full = accumulate(start, update_means=True, covariance="full").finalize(start)
+    W_ref = scatter_about(full.centroids) / n.sum(1)[:, np.newaxis, np.newaxis]
+    _check("full, r=0: the scatter about the *new* means (ECM)",
+           np.abs(full.covs - W_ref).max() < 1e-8)
+    frozen_scatter = scatter_about(start.centroids)
+    pooled = frozen_scatter.sum(0) / n.sum()
+    tied_fit = accumulate(start, covariance="full", covariance_relevance=float("inf")).finalize(start)
+    _check("r=inf: every label gets the mass-weighted pool",
+           np.abs(tied_fit.covs - pooled[np.newaxis]).max() < 1e-9)
+    r = 40.0
+    smoothed = accumulate(start, covariance="full", covariance_relevance=r).finalize(start)
+    expected = (frozen_scatter + r * pooled) / (n.sum(1) + r)[:, np.newaxis, np.newaxis]
+    _check("relevance r: (n_l W_l + r W) / (n_l + r)", np.abs(smoothed.covs - expected).max() < 1e-9)
+
+    # The auxiliary function every M-step maximizes, under the start model's
+    # E-step. The start covariances are isotropic, so every mode - semi-tied and
+    # diagonal included, which restart their transform from the pooled
+    # eigenbasis - can represent them, and none may end lower.
+    def auxiliary(theta):
+        total = 0.0
+        with np.errstate(divide="ignore"):
+            log_w = np.log(theta.mixtures)
+        for xs, g in zip(seqs, gams):
+            total += (start.joint_posteriors(xs, g)
+                      * (log_w[np.newaxis] - brute_costs(xs, theta.centroids, theta.covs))).sum()
+        return total
+
+    q_start = auxiliary(start)
+    gains = {}
+    for name, cfg in [
+        ("weights", {}),
+        ("weights + means", dict(update_means=True)),
+        ("full", dict(covariance="full")),
+        ("full + means", dict(update_means=True, covariance="full")),
+        ("tied + means", dict(update_means=True, covariance="full", covariance_relevance=float("inf"))),
+        ("semi-tied + means", dict(update_means=True, covariance="semi_tied", semi_tied_iterations=10)),
+        ("diagonal", dict(covariance="diagonal")),
+    ]:
+        gains[name] = auxiliary(accumulate(start, **cfg).finalize(start)) - q_start
+        _check(f"ECM does not lower the auxiliary function: {name}", gains[name] >= -1e-6,
+               f"{gains[name]:+.1f}")
+    _check("label covariances fit data generated with them better than one tied covariance",
+           gains["full + means"] > gains["tied + means"],
+           f"{gains['full + means']:.1f} vs {gains['tied + means']:.1f}")
+
+    print("semi_tied_transform")
+    H = rng.randn(D, D)
+    diagonals = rng.uniform(0.2, 3.0, size=(L, D))
+    W = np.einsum("di,li,ei->lde", H, diagonals, H)
+    counts = np.array([100.0, 300.0, 50.0])
+    # Linear convergence: 2000 rounds to get within 1e-10 here (see the function).
+    A, history = semi_tied_transform(W, counts, np.eye(D), 2000)
+    from .accumulators import common_diagonalizer
+    recovered = common_diagonalizer(W)
+    _check("common_diagonalizer recovers a transform for semi-tied covariances, none otherwise",
+           recovered is not None
+           and abs(semi_tied_transform(W, counts, recovered, 0)[1][0] - (-0.5 * (counts @ np.linalg.slogdet(W)[1]) / counts.sum())) < 1e-8
+           and common_diagonalizer(np.stack([random_spd(1.0) for _ in range(L)])) is None)
+    bound = -0.5 * (counts @ np.linalg.slogdet(W)[1]) / counts.sum()
+    _check("the objective never decreases", (np.diff(history) >= -1e-12).all())
+    _check("jointly diagonalizable scatters: reaches the bound -1/2 sum (n_l/N) log det W_l",
+           abs(history[-1] - bound) < 1e-6 and history[0] < bound,
+           f"gap {bound - history[-1]:.1e} (from {bound - history[0]:.2f})")
+    variances = np.einsum("id,lde,ie->li", A, W, A)
+    rebuilt = np.einsum("di,li,ei->lde", np.linalg.inv(A), variances, np.linalg.inv(A))
+    _check("... and A^-1 diag(A W_l A^T) A^-T rebuilds every W_l",
+           np.abs(rebuilt - W).max() < 1e-4 * np.abs(W).max())
+    zero = accumulate(start, covariance="semi_tied", semi_tied_iterations=0).finalize(start)
+    diagonal = accumulate(start, covariance="diagonal").finalize(start)
+    _check("semi-tied with no iterations is the diagonal mode",
+           np.abs(zero.covs - diagonal.covs).max() < 1e-12)
+
+    print("LabelCovarianceAccumulator - dead labels, weights only")
+    starved = [g * np.array([1.0, 1.0, 0.0]) / g[:, :2].sum(axis=1, keepdims=True) for g in gams]
+    dead = accumulate(start, gs=starved, update_means=True, covariance="full",
+                      covariance_relevance=1.0).finalize(start)
+    _check("a label with no mass keeps its weights and its covariance",
+           np.array_equal(dead.mixtures[2], start.mixtures[2])
+           and np.array_equal(dead.covs[2], start.covs[2]))
+    gmm_start = GaussianMixtureModel(
+        start.centroids, np.repeat(start.covs[:1], K, 0), start.mixtures, device="cpu"
+    )
+    mix_acc = MixtureGaussianAccumulator(L, update_densities=False, mixture_floor=1e-2)
+    mix_acc.bind_model(gmm_start)
+    for xs, g in zip(seqs, gams):
+        mix_acc.observe(xs, g)
+    weights_only = accumulate(start, mixture_floor=1e-2)
+    _check("weights only allocates no moments",
+           weights_only.first is None and weights_only.second is None)
+    err = np.abs(weights_only.finalize(start).mixtures - mix_acc.finalize(gmm_start).mixtures).max()
+    _check("weights only, equal covariances: == MixtureGaussianAccumulator(update_densities=False)",
+           err < 1e-6, f"max err {err:.1e}")
+
+    print("label_covariance_flavor")
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for c in range(3):
+            idx = range(c, 30, 3)
+            result = run_chunk(
+                features=_ListSource([(f"s{i}", seqs[i]) for i in idx]),
+                model=start,
+                recognizer=_StubFBRecognizer({f"s{i}": gams[i] for i in idx}),
+                accumulator=LabelCovarianceAccumulator(L, **full_cfg),
+                counter=None,
+                verbosity=0,
+            )
+            paths.append(os.path.join(tmp, f"chunk.{c}.pkl"))
+            save_chunk(result, paths[-1])
+        reduced, _s, totals, _h = reduce_chunks(
+            chunk_paths=paths,
+            accumulator_factory=lambda: LabelCovarianceAccumulator(L, **full_cfg),
+            previous_model=start,
+        )
+    _check("run_chunk + reduce_chunks == one accumulator over everything",
+           np.abs(reduced.covs - a.covs).max() < 1e-9
+           and np.abs(reduced.centroids - a.centroids).max() < 1e-9
+           and totals["num_seqs"] == 30)
+
+    from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
+        chunked_clustering,
+    )
+    common = dict(
+        features_hdf=tk.Path("/f.hdf"),
+        recognition_config=tk.Path("/r.config"),
+        lexicon=tk.Path("/l.gz"),
+        num_clusters=40,
+    )
+    flavor_kwargs = dict(
+        centroids=tk.Path("/init/c.npy"),
+        covs=tk.Path("/init/label_covs.npy"),
+        mixtures=tk.Path("/init/mix.npy"),
+        recognition_config=common["recognition_config"],
+        lexicon=common["lexicon"],
+        num_clusters=common["num_clusters"],
+        update_means=True,
+        covariance="full",
+        covariance_relevance=2048.0,
+    )
+    flavor = label_covariance_flavor(**flavor_kwargs)
+    _check("the flavor names the model and accumulator, and the same artifacts",
+           flavor.model.cls is LabelCovarianceMixtureModel
+           and flavor.accumulator.cls is LabelCovarianceAccumulator
+           and flavor.artifact_names == ("centroids", "covs", "mixtures"))
+    _check("an unknown covariance mode fails while the graph is built",
+           _raises(lambda: label_covariance_flavor(**{**flavor_kwargs, "covariance": "spherical"}),
+                   ValueError))
+    _check("semi_tied_iterations enters the spec only where it is read",
+           "semi_tied_iterations" not in flavor.accumulator.kwargs
+           and label_covariance_flavor(**{**flavor_kwargs, "covariance": "semi_tied"})
+           .accumulator.kwargs["semi_tied_iterations"] == 20)
+    ten = chunked_clustering(num_epochs=10, flavor=label_covariance_flavor(**flavor_kwargs), **common)
+    head = chunked_clustering(num_epochs=5, flavor=label_covariance_flavor(**flavor_kwargs), **common)
+    tail = chunked_clustering(
+        num_epochs=5,
+        flavor=label_covariance_flavor(**{
+            **flavor_kwargs,
+            **{name: head.out_artifacts[name][5] for name in ("centroids", "covs", "mixtures")},
+        }),
+        **common,
+    )
+    _check("5+5 continued == 10",
+           [j._sis_id() for j in ten.jobs] == [j._sis_id() for j in head.jobs + tail.jobs])
+    tied_flavor = label_covariance_flavor(**{**flavor_kwargs, "covariance_relevance": float("inf")})
+    _check("r=inf hashes, and differently from a finite r",
+           chunked_clustering(num_epochs=1, flavor=tied_flavor, **common).jobs[-1]._sis_id()
+           != chunked_clustering(num_epochs=1, flavor=flavor, **common).jobs[-1]._sis_id())
 
 
 if __name__ == "__main__":

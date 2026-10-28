@@ -14,18 +14,22 @@ __all__ = [
     "FixedCovarianceAccumulator",
     "MeanAccumulator",
     "GaussianAccumulator",
+    "LabelCovarianceAccumulator",
     "MixtureGaussianAccumulator",
     "NullAccumulator",
     "SoftGaussianAccumulator",
     "VectorQuantizedAccumulator",
     "alive_mask",
     "if_alive_else",
+    "common_diagonalizer",
     "keep_previous_where_dead",
+    "semi_tied_objective",
+    "semi_tied_transform",
     "shrink_covariances",
 ]
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Union
+from typing import Dict, List, Mapping, Optional, Tuple, Union
 
 import numpy as np
 
@@ -36,7 +40,12 @@ from .interfaces import (
     as_dense_responsibilities,
     as_hard_labels,
 )
-from .models import EuclideanModel, GaussianModel, MixtureModelBase
+from .models import (
+    EuclideanModel,
+    GaussianModel,
+    LabelCovarianceMixtureModel,
+    MixtureModelBase,
+)
 
 
 @dataclass
@@ -961,6 +970,21 @@ class MixtureGaussianAccumulator:
         ever shrinks. A small value (1e-6) trades exactness for the same
         "stay a reachable candidate" property that ``keep_previous_where_dead``
         gives the means.
+    :param over_relaxation: ``eta``, the step taken along the EM update of the
+        mixture weights, in log space and per label row:
+        ``w <- normalize(w_prev**(1 - eta) * w_em**eta)``. 1.0 - the default - is
+        the plain M-step, bit for bit. Near a slow phase EM shrinks the error
+        along direction i by a factor ``l_i`` per epoch (the fraction of
+        missing information there); this makes it ``1 - eta*(1 - l_i)``, so
+        slow directions move ``eta`` times faster and every direction stays
+        stable for ``eta < 2``. Larger values are stable only if no direction is
+        fast. The result is held at or above the lowest weight the plain
+        M-step's ``mixture_floor`` can produce for the row, so a weight the
+        extrapolation keeps shrinking cannot underflow to an absorbing zero -
+        which is also why a nonzero floor is required. Weights only: a run that
+        also re-estimates the densities would mix over-relaxed weights with
+        plain-EM densities, so ``update_densities=True`` is refused. Each
+        finalize leaves the step it took in ``step_statistics``.
     """
 
     def __init__(
@@ -973,13 +997,30 @@ class MixtureGaussianAccumulator:
         pool_covariances: bool = False,
         update_densities: bool = True,
         update_covariances: Optional[bool] = None,
+        over_relaxation: float = 1.0,
         **runtime_args,
     ):
+        if over_relaxation <= 0.0:
+            raise ValueError(f"over_relaxation must be positive, got {over_relaxation}")
+        if over_relaxation != 1.0 and mixture_floor <= 0.0:
+            raise ValueError(
+                "over_relaxation extrapolates in log space and needs every weight "
+                "positive; pass a nonzero mixture_floor"
+            )
+        if over_relaxation != 1.0 and update_densities:
+            raise ValueError(
+                "over_relaxation extrapolates the mixture weights only; with "
+                "update_densities=True the densities would take plain EM steps "
+                "alongside them. Freeze the densities (update_densities=False)"
+            )
         self.num_clusters = num_clusters
         self.num_densities = num_densities
         self.dim = dim
         self.min_mass = min_mass
         self.mixture_floor = mixture_floor
+        self.over_relaxation = over_relaxation
+        #: Set by finalize when over_relaxation != 1: the step it took.
+        self.step_statistics: Optional[Dict[str, float]] = None
         self.pool_covariances = pool_covariances
         self.update_densities = update_densities
         # None means "whatever update_densities says", which is what keeps every
@@ -1178,6 +1219,8 @@ class MixtureGaussianAccumulator:
         # and zeroing it would leave the label with no emission probability at
         # all. Same rule as the means, on the axis that actually applies.
         mixtures[~alive] = previous.mixtures[~alive]
+        if self.over_relaxation != 1.0:
+            mixtures = self._over_relax(previous.mixtures, mixtures, alive, label_mass)
 
         # type(previous), not a named class: the next model is the same kind
         # of model as the one this epoch recognized with, whichever mixture
@@ -1189,6 +1232,58 @@ class MixtureGaussianAccumulator:
             mixtures=mixtures,
             device=getattr(previous, "device", None),
         )
+
+    def _over_relax(
+        self,
+        previous: np.ndarray,
+        em: np.ndarray,
+        alive: np.ndarray,
+        label_mass: np.ndarray,
+    ) -> np.ndarray:
+        """``over_relaxation`` times the EM step, in log space (see the class docstring).
+
+        Labels that are not alive keep ``em``'s row, which is already their
+        previous weights.
+        """
+        eta = self.over_relaxation
+        # The lowest weight the plain M-step can give a row: a density that got
+        # no mass at all, floor / (mass + K * floor).
+        floor = self.mixture_floor
+        lower = (floor / (label_mass + em.shape[-1] * floor))[:, np.newaxis]
+        log_prev = np.log(np.maximum(np.asarray(previous, dtype=np.float64), lower))
+        log_w = log_prev + eta * (np.log(em) - log_prev)
+        log_w -= log_w.max(axis=-1, keepdims=True)
+        w = np.exp(log_w)
+        w /= w.sum(axis=-1, keepdims=True)
+        # Clip at the floor and take the mass that costs from the rest of the
+        # row. Rescaling the rest can push another weight under, so repeat; each
+        # round clips at least one more weight or ends. A row always keeps
+        # something above the floor, since K * floor / (mass + K * floor) < 1.
+        clipped = np.zeros(w.shape, dtype=bool)
+        while True:
+            under = (w < lower) & ~clipped
+            if not under.any():
+                break
+            clipped |= under
+            rest = np.where(clipped, 0.0, w)
+            room = 1.0 - (clipped * lower).sum(axis=-1, keepdims=True)
+            w = np.where(clipped, lower, rest * room / rest.sum(axis=-1, keepdims=True))
+        w = np.where(alive[:, np.newaxis], w, em)
+
+        def kl_from_previous(p):
+            if not alive.any():
+                return 0.0
+            return float((p * (np.log(p) - log_prev)).sum(axis=-1)[alive].mean())
+
+        self.step_statistics = {
+            "mixture_over_relaxation": eta,
+            # Mean over live labels of KL(new || previous), in nats: the step EM
+            # proposed and the one taken. About eta**2 apart while steps are small.
+            "mixture_kl_em_step": kl_from_previous(em),
+            "mixture_kl_applied_step": kl_from_previous(w),
+            "mixture_clipped_fraction": float(clipped[alive].mean()) if alive.any() else 0.0,
+        }
+        return w
 
     def state_dict(self) -> dict:
         # The inner accumulator's state is nested rather than flattened: it
@@ -1231,6 +1326,512 @@ class MixtureGaussianAccumulator:
             else np.asarray(state["weighted_c"], dtype=np.float64)
         )
         self.gaussian_accumulator.load_state_dict(state["gaussian"])
+        return self
+
+
+def semi_tied_transform(
+    scatters: np.ndarray,
+    counts: np.ndarray,
+    transform: np.ndarray,
+    iterations: int,
+) -> Tuple[np.ndarray, List[float]]:
+    """
+    Gales' row-by-row estimate of a semi-tied transform - MLLT, in Gopinath's name.
+
+    Finds the ``A`` that maximizes the likelihood of the covariances
+    ``Sigma_l = A^-1 diag(lambda_l) A^-T`` when every ``lambda_l`` sits at its
+    optimum ``diag(A W_l A^T)``; per unit of mass and up to constants,
+
+        F(A) = log |det A| - 1/2 sum_l (n_l / N) sum_i log(a_i W_l a_i^T).
+
+    Each iteration holds the variances, then replaces every row in turn by the
+    exact maximizer of the auxiliary function in that row (Gales 1999),
+
+        a_i = c_i G_i^-1 sqrt(N / (c_i G_i^-1 c_i^T)),    G_i = sum_l n_l W_l / lambda_li,
+
+    with ``c_i`` the row's cofactors - row ``i`` of ``det(A) A^-T``, of which only
+    the direction matters. Neither step can lower ``F``, which the tests assert.
+    ``A^-1`` is kept current with a rank-one update per row, and recomputed at
+    the start of every iteration so the updates cannot drift.
+
+    :param scatters: ``[L, D, D]``, each class's scatter ``W_l`` (normalized)
+    :param counts: ``[L]``, the masses ``n_l``
+    :param transform: ``[D, D]``, the starting point; rows are the ``a_i``
+    :return: the transform, and ``F`` before the first iteration and after each
+    """
+    scatters = np.asarray(scatters, dtype=np.float64)
+    counts = np.asarray(counts, dtype=np.float64)
+    total = counts.sum()
+    transform = np.array(transform, dtype=np.float64, copy=True)
+    dim = transform.shape[0]
+    flat = scatters.reshape(len(scatters), -1)
+
+    def variances_of(a):
+        return np.einsum("id,lde,ie->li", a, scatters, a, optimize=True)        # [L, D]
+
+    def objective(a, variances):
+        return float(
+            np.linalg.slogdet(a)[1] - 0.5 * (counts @ np.log(variances).sum(axis=1)) / total
+        )
+
+    variances = variances_of(transform)
+    history = [objective(transform, variances)]
+    # Linear convergence, and slow where the scatters are far from sharing a
+    # basis: on a D=6 toy with cond(H) = 26 the gap to the optimum is 1e-3 after
+    # 50 iterations and 1e-10 after 2000. Hence the warm start in
+    # LabelCovarianceAccumulator, which spreads the iterations over the epochs.
+    for _ in range(iterations):
+        inverse = np.linalg.inv(transform)
+        for i in range(dim):
+            gram = ((counts / variances[:, i]) @ flat).reshape(dim, dim)
+            cofactors = inverse[:, i]
+            solved = np.linalg.solve(gram, cofactors)
+            row = solved * np.sqrt(total / (cofactors @ solved))
+            # Sherman-Morrison for A + e_i (row - a_i)^T, evaluated against the
+            # inverse before this row changes.
+            correction = (row - transform[i]) @ inverse
+            inverse -= np.outer(inverse[:, i], correction) / (1.0 + correction[i])
+            transform[i] = row
+        variances = variances_of(transform)
+        history.append(objective(transform, variances))
+    return transform, history
+
+
+def semi_tied_objective(transform: np.ndarray, scatters: np.ndarray, counts: np.ndarray) -> float:
+    """``F(A)`` of :func:`semi_tied_transform`, for comparing starting points."""
+    _, history = semi_tied_transform(scatters, counts, transform, 0)
+    return history[0]
+
+
+def common_diagonalizer(covs: np.ndarray, tolerance: float = 1e-6) -> Optional[np.ndarray]:
+    """
+    A transform ``A`` with every ``A Sigma_l A^T`` diagonal, or None if there is none.
+
+    For semi-tied covariances ``A^-1 diag(lambda_l) A^-T`` this recovers their
+    transform, up to the order and scale of its rows - neither of which changes
+    the model or :func:`semi_tied_transform`'s objective. One generalized
+    eigenproblem does it: the eigenvectors of a generic combination of the
+    ``Sigma_l`` against their mean diagonalize every one of them. Equal
+    covariances are the degenerate case, and any whitening of them is a valid
+    answer, which is what comes back.
+
+    :param tolerance: the largest off-diagonal correlation of a rotated
+        covariance still accepted as diagonal
+    """
+    import scipy.linalg
+
+    covs = np.asarray(covs, dtype=np.float64)
+    # Distinct weights: two directions get the same eigenvalue - and rotate
+    # freely into each other - only if every label scales them alike, in which
+    # case any rotation of the pair is as diagonal as the other.
+    probe = np.tensordot(np.linspace(1.0, 2.0, len(covs)), covs, axes=1)
+    _, vectors = scipy.linalg.eigh(probe, covs.mean(axis=0))
+    transform = vectors.T
+    rotated = np.einsum("id,lde,je->lij", transform, covs, transform, optimize=True)
+    variances = np.einsum("lii->li", rotated)
+    correlation = rotated / np.sqrt(variances[:, :, np.newaxis] * variances[:, np.newaxis, :])
+    off_diagonal = np.abs(correlation - np.eye(covs.shape[-1])).max()
+    return transform if off_diagonal <= tolerance else None
+
+
+class LabelCovarianceAccumulator:
+    """
+    Sufficient statistics and M-step for a :class:`.models.LabelCovarianceMixtureModel`.
+
+    The E-step is the model's (:meth:`~.models.LabelCovarianceMixtureModel.joint_posteriors`),
+    ``gamma_tlk = gamma_tl p(k | l, x_t)``, and three sums of it cover every
+    parameter::
+
+        n_lk  = sum_t gamma_tlk               [L, K]       mixture weights
+        F_lk  = sum_t gamma_tlk x_t           [L, K, D]    means, covariances
+        S_l   = sum_t gamma_tl x_t x_t^T      [L, D, D]    covariances
+
+    ``F`` stays per label rather than being summed into one first moment per
+    codeword, because both other parameters need it that way. A mean shared by
+    labels with different covariances is the precision-weighted solution
+
+        mu_k = (sum_l n_lk P_l)^-1  sum_l P_l F_lk,        P_l = Sigma_l^-1,
+
+    and a label's scatter about the codebook is
+
+        n_l W_l = S_l - sum_k (F_lk mu_k^T + mu_k F_lk^T) + sum_k n_lk mu_k mu_k^T,
+
+    which can therefore be taken about the *new* means. The M-step is ECM
+    (Meng & Rubin 1993): means under the previous covariances, then covariances
+    about the new means. Each step maximizes the auxiliary function exactly in
+    its own block, so the likelihood still cannot decrease. With every
+    covariance equal, the mean step is the plain weighted average.
+
+    ``F`` and ``S`` are 84 MB each at L=40, K=512, D=512 in float64, and each is
+    allocated only when the configured update reads it: a weights-only run
+    holds the ``[L, K]`` counts and nothing else.
+
+    :param num_clusters: the label count L, injected by the epoch job
+    :param min_mass: evidence a label needs before its weights and covariance
+        are re-estimated, and a codeword before its mean is; below it the
+        previous model's values are kept
+    :param mixture_floor: as for :class:`MixtureGaussianAccumulator`
+    :param update_means: re-estimate the codebook means
+    :param covariance: how each label's covariance is re-estimated from ``W_l``:
+
+        ``"fixed"``
+            not at all; the input covariances are carried through untouched
+        ``"full"``
+            a free full covariance per label, smoothed towards the pooled
+            scatter by ``covariance_relevance``
+        ``"semi_tied"``
+            ``Sigma_l = A^-1 diag(lambda_l) A^-T``: one transform for every
+            label, a diagonal per label - semi-tied covariances, i.e. MLLT.
+            Each epoch takes ``semi_tied_iterations`` rounds of
+            :func:`semi_tied_transform`, resuming from the previous epoch's
+            ``A`` (:func:`common_diagonalizer`) or from the pooled scatter's
+            whitening eigenbasis, whichever scores higher.
+        ``"diagonal"``
+            a diagonal per label in the pooled scatter's eigenbasis - the
+            semi-tied form with ``A`` not trained. The basis follows the pooled
+            scatter from epoch to epoch, so unlike the other modes this one is
+            not guaranteed monotone.
+
+    :param covariance_relevance: ``r`` in the smoothing towards the pooled
+        within-codeword scatter ``W = sum_l n_l W_l / sum_l n_l``::
+
+            Sigma_l = (n_l W_l + r W) / (n_l + r)
+
+        on the full matrices for ``"full"``, on the diagonal variances for the
+        other two. 0 is maximum likelihood; ``inf`` ties every label to ``W``,
+        i.e. one re-estimated covariance for the whole model. Count-based rather
+        than a fixed fraction (:func:`shrink_covariances`) because label masses
+        span two orders of magnitude here - ~2,000 to ~320,000 segments on ls-100
+        - so a frequent label should keep nearly its own estimate while a rare
+        one stays near the pool. At D=512 an unsmoothed ``W_l`` is not even
+        invertible below 512 segments.
+    :param semi_tied_iterations: rounds of the row update per epoch
+    """
+
+    COVARIANCE_MODES = ("fixed", "full", "semi_tied", "diagonal")
+    #: Codewords per batched solve in the mean update, which forms a
+    #: ``[block, D, D]`` system: 134 MB at 64 and D=512. Memory only.
+    MEAN_BLOCK = 64
+
+    def __init__(
+        self,
+        num_clusters: int,
+        min_mass: float = 1.0,
+        mixture_floor: float = 0.0,
+        update_means: bool = False,
+        covariance: str = "fixed",
+        covariance_relevance: float = 0.0,
+        semi_tied_iterations: int = 20,
+        **runtime_args,
+    ):
+        if covariance not in self.COVARIANCE_MODES:
+            raise ValueError(
+                f"covariance={covariance!r}; expected one of {self.COVARIANCE_MODES}"
+            )
+        if covariance_relevance < 0:
+            raise ValueError(f"covariance_relevance must be >= 0, got {covariance_relevance}")
+        if covariance == "fixed" and covariance_relevance:
+            raise ValueError(
+                "covariance_relevance smooths re-estimated covariances, but "
+                "covariance='fixed' re-estimates none; it would do nothing"
+            )
+        if semi_tied_iterations < 0:
+            raise ValueError(f"semi_tied_iterations must be >= 0, got {semi_tied_iterations}")
+        self.num_clusters = num_clusters
+        self.min_mass = min_mass
+        self.mixture_floor = mixture_floor
+        self.update_means = update_means
+        self.covariance = covariance
+        self.covariance_relevance = float(covariance_relevance)
+        self.semi_tied_iterations = semi_tied_iterations
+        self.model: Optional[LabelCovarianceMixtureModel] = None
+        self.dim: Optional[int] = None
+        self.weighted_c: Optional[np.ndarray] = None
+        self.first: Optional[np.ndarray] = None
+        self.second: Optional[np.ndarray] = None
+        #: Set by finalize: what the M-step did, for the epoch statistics.
+        self.step_statistics: Optional[Dict[str, float]] = None
+
+    @property
+    def num_labels(self) -> int:
+        return self.num_clusters
+
+    @property
+    def _needs_first(self) -> bool:
+        return self.update_means or self.covariance != "fixed"
+
+    @property
+    def _needs_second(self) -> bool:
+        return self.covariance != "fixed"
+
+    def _allocate(self, num_densities: int, dim: int) -> None:
+        self.dim = dim
+        self.weighted_c = np.zeros((self.num_clusters, num_densities), dtype=np.float64)
+        self.first = (
+            np.zeros((self.num_clusters, num_densities, dim), dtype=np.float64)
+            if self._needs_first else None
+        )
+        self.second = (
+            np.zeros((self.num_clusters, dim, dim), dtype=np.float64)
+            if self._needs_second else None
+        )
+
+    def bind_model(self, model: ScoreModel) -> None:
+        if not isinstance(model, LabelCovarianceMixtureModel):
+            raise TypeError(
+                f"{type(self).__name__} needs a LabelCovarianceMixtureModel, got "
+                f"{type(model).__name__}"
+            )
+        if model.num_labels != self.num_clusters:
+            raise ValueError(
+                f"label count mismatch: accumulator has {self.num_clusters}, "
+                f"model scores {model.num_labels}"
+            )
+        self.model = model
+        if self.weighted_c is None:
+            self._allocate(model.num_densities, model.dim)
+        elif self.weighted_c.shape != model.mixtures.shape or self.dim != model.dim:
+            raise ValueError(
+                f"statistics shaped for {self.weighted_c.shape} x D={self.dim}, model is "
+                f"{model.mixtures.shape} x D={model.dim}"
+            )
+
+    def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
+        if self.model is None:
+            raise RuntimeError(
+                "bind_model() must be called before observe(): the E-step is defined "
+                "against the model this epoch recognized with"
+            )
+        features = np.asarray(features, dtype=np.float64)
+        if features.ndim != 2:
+            raise ValueError(f"features must be 2-D [T, D], got shape {features.shape}")
+        T = len(features)
+        gammas = as_dense_responsibilities(posteriors, self.num_clusters)
+        if len(gammas) != T:
+            raise ValueError(f"frame count mismatch: {T} features vs {len(gammas)} gammas")
+
+        joint = self.model.joint_posteriors(features, gammas)               # [T, L, K]
+        self.weighted_c += joint.sum(axis=0)
+        # Both moments as one GEMM each over the flattened (label, codeword) or
+        # (label, dimension) axis, rather than a loop over labels.
+        if self.first is not None:
+            self.first += (joint.reshape(T, -1).T @ features).reshape(self.first.shape)
+        if self.second is not None:
+            weighted = (gammas[:, :, np.newaxis] * features[:, np.newaxis, :]).reshape(T, -1)
+            self.second += (weighted.T @ features).reshape(self.second.shape)
+
+    def merge(self, other: "LabelCovarianceAccumulator") -> "LabelCovarianceAccumulator":
+        for name in ("num_clusters", "update_means", "covariance"):
+            if getattr(self, name) != getattr(other, name):
+                raise ValueError(
+                    f"cannot merge accumulators that disagree on {name}: "
+                    f"{getattr(self, name)!r} vs {getattr(other, name)!r}"
+                )
+        if other.weighted_c is None:
+            return self
+        if self.weighted_c is None:
+            self._allocate(other.weighted_c.shape[1], other.dim)
+        self.weighted_c += other.weighted_c
+        if self.first is not None:
+            self.first += other.first
+        if self.second is not None:
+            self.second += other.second
+        return self
+
+    def scale(self, factor: float) -> "LabelCovarianceAccumulator":
+        """Multiply every statistic by ``factor``, in place - the decay half of
+        the statistics-level EMA, as for :class:`MixtureGaussianAccumulator`."""
+        if factor < 0.0:
+            raise ValueError(f"scale factor must be non-negative, got {factor}")
+        for name in ("weighted_c", "first", "second"):
+            if getattr(self, name) is not None:
+                setattr(self, name, getattr(self, name) * factor)
+        return self
+
+    def finalize(self, previous: ScoreModel) -> LabelCovarianceMixtureModel:
+        if self.weighted_c is None:
+            raise RuntimeError("nothing accumulated; cannot finalize")
+        if not isinstance(previous, LabelCovarianceMixtureModel):
+            raise TypeError(
+                f"{type(self).__name__} needs a LabelCovarianceMixtureModel to fall back "
+                f"on, got {type(previous).__name__}"
+            )
+        if previous.mixtures.shape != self.weighted_c.shape:
+            raise ValueError(
+                f"mixture shape mismatch: accumulated {self.weighted_c.shape} vs "
+                f"{previous.mixtures.shape}"
+            )
+
+        # The mixture rule of MixtureGaussianAccumulator.finalize, unchanged.
+        label_mass = self.weighted_c.sum(axis=-1)
+        alive = alive_mask(label_mass, self.min_mass)
+        weighted = self.weighted_c + self.mixture_floor
+        mixtures = weighted / if_alive_else(label_mass, self.min_mass)[:, np.newaxis]
+        if self.mixture_floor:
+            mixtures /= mixtures.sum(axis=-1, keepdims=True)
+        mixtures[~alive] = previous.mixtures[~alive]
+
+        statistics: Dict[str, float] = {}
+        # A frozen parameter is handed through as the previous model's own
+        # array, so save() can hardlink it rather than write a copy.
+        centroids = previous.centroids
+        if self.update_means:
+            centroids = self._update_means(previous, label_mass, statistics)
+        covs = previous.covs
+        if self.covariance != "fixed":
+            covs = self._update_covariances(previous, centroids, label_mass, statistics)
+        self.step_statistics = statistics or None
+        return type(previous)(
+            centroids=centroids,
+            covs=covs,
+            mixtures=mixtures,
+            device=getattr(previous, "device", None),
+        )
+
+    def _update_means(self, previous, label_mass, statistics) -> np.ndarray:
+        """The first ECM block: means under the previous covariances."""
+        centroids = np.array(previous.centroids, dtype=np.float64)
+        mass = self.weighted_c.sum(axis=0)                                  # [K]
+        alive = alive_mask(mass, self.min_mass)
+        covs = np.asarray(previous.covs, dtype=np.float64)
+        precisions = np.linalg.inv(covs)
+        idx = np.flatnonzero(alive)
+        if (covs == covs[:1]).all():
+            # One covariance for every label: the precision cancels.
+            updated = self.first.sum(axis=0)[idx] / mass[idx, np.newaxis]
+        else:
+            updated = np.empty((len(idx), centroids.shape[1]))
+            for start in range(0, len(idx), self.MEAN_BLOCK):
+                block = idx[start:start + self.MEAN_BLOCK]
+                lhs = np.einsum("lk,lde->kde", self.weighted_c[:, block], precisions, optimize=True)
+                rhs = np.einsum("lde,lke->kd", precisions, self.first[:, block], optimize=True)
+                updated[start:start + len(block)] = np.linalg.solve(
+                    lhs, rhs[..., np.newaxis]
+                )[..., 0]
+        # How far the codewords moved, in the units the model scores in: the
+        # Mahalanobis length under the mass-weighted average precision.
+        share = label_mass / label_mass.sum() if label_mass.sum() > 0 else np.full(len(covs), 1 / len(covs))
+        shift = updated - centroids[idx]
+        average_precision = np.tensordot(share, precisions, axes=1)
+        statistics["means_shift_mean"] = float(
+            np.sqrt(np.einsum("kd,de,ke->k", shift, average_precision, shift)).mean()
+        ) if len(idx) else 0.0
+        statistics["means_kept_previous"] = int((~alive).sum())
+        centroids[idx] = updated
+        return centroids
+
+    def _update_covariances(self, previous, centroids, label_mass, statistics) -> np.ndarray:
+        """The second ECM block: covariances about the (possibly new) means."""
+        mu = np.asarray(centroids, dtype=np.float64)
+        dim = mu.shape[1]
+        cross = np.einsum("lkd,ke->lde", self.first, mu, optimize=True)     # sum_k F_lk mu_k^T
+        outer = np.einsum("lk,kd,ke->lde", self.weighted_c, mu, mu, optimize=True)
+        scatter = self.second - cross - cross.transpose(0, 2, 1) + outer      # n_l W_l
+        scatter = (scatter + scatter.transpose(0, 2, 1)) / 2
+
+        alive = alive_mask(label_mass, self.min_mass)
+        if not alive.any():
+            print("WARNING: no label has enough mass to re-estimate a covariance", flush=True)
+            return previous.covs
+        pooled = scatter[alive].sum(axis=0) / label_mass[alive].sum()
+        relevance = self.covariance_relevance
+        # Dead labels get a dummy denominator; their rows are replaced below.
+        denominator = np.where(alive, label_mass + (0.0 if np.isinf(relevance) else relevance), 1.0)
+
+        if self.covariance == "full":
+            if np.isinf(relevance):
+                covs = np.repeat(pooled[np.newaxis], len(scatter), axis=0)
+            else:
+                covs = (scatter + relevance * pooled) / denominator[:, np.newaxis, np.newaxis]
+        else:
+            eigenvalues, eigenvectors = np.linalg.eigh(pooled)
+            transform = eigenvectors.T / np.sqrt(eigenvalues)[:, np.newaxis]   # A W A^T = I
+            if self.covariance == "semi_tied":
+                per_label = scatter[alive] / label_mass[alive, np.newaxis, np.newaxis]
+                # Resume from the previous epoch's transform, recovered from its
+                # covariances, when that scores higher than the pooled
+                # eigenbasis: the iterations then accumulate across epochs, and
+                # since the previous covariances lie in the family the new ones
+                # are chosen from, the update cannot lower the likelihood.
+                candidates = [transform]
+                resumed = common_diagonalizer(previous.covs)
+                if resumed is not None:
+                    candidates.append(resumed)
+                scores = [semi_tied_objective(c, per_label, label_mass[alive]) for c in candidates]
+                best = int(np.argmax(scores))
+                transform, history = semi_tied_transform(
+                    per_label, label_mass[alive], candidates[best], self.semi_tied_iterations
+                )
+                statistics["semi_tied_resumed"] = best
+                statistics["semi_tied_objective_start"] = history[0]
+                statistics["semi_tied_objective_end"] = history[-1]
+            variances = np.einsum("id,lde,ie->li", transform, scatter, transform, optimize=True)
+            pooled_variances = np.einsum("id,de,ie->i", transform, pooled, transform, optimize=True)
+            if np.isinf(relevance):
+                variances = np.repeat(pooled_variances[np.newaxis], len(scatter), axis=0)
+            else:
+                variances = (variances + relevance * pooled_variances) / denominator[:, np.newaxis]
+            inverse = np.linalg.inv(transform)
+            covs = np.einsum("di,li,ei->lde", inverse, variances, inverse, optimize=True)
+        covs = (covs + covs.transpose(0, 2, 1)) / 2
+
+        # The same rank guard as SoftGaussianAccumulator: a label whose estimate
+        # cannot be inverted keeps its previous covariance instead of failing
+        # the next model's Cholesky an epoch later.
+        kept = alive.copy()
+        eigenvalues = np.linalg.eigvalsh(covs[kept])
+        singular = eigenvalues.min(axis=1) <= eigenvalues.max(axis=1) * dim * np.finfo(np.float64).eps
+        if singular.any():
+            starved = np.flatnonzero(kept)[singular]
+            print(
+                f"WARNING: {len(starved)} label(s) produced a singular covariance and keep "
+                f"the previous epoch's; mass "
+                f"{np.array2string(label_mass[starved], precision=1, threshold=12)}. "
+                f"Raise covariance_relevance.",
+                flush=True,
+            )
+            kept[starved] = False
+        covs[~kept] = np.asarray(previous.covs, dtype=np.float64)[~kept]
+
+        log_dets = np.linalg.slogdet(covs)[1]
+        previous_log_dets = np.linalg.slogdet(np.asarray(previous.covs, dtype=np.float64))[1]
+        pooled_log_det = np.linalg.slogdet(pooled)[1]
+        # Per dimension, so they read as log variance ratios: -1 is a label whose
+        # covariance is e times tighter than the pool's, on geometric average.
+        statistics["cov_logdet_vs_pooled_min"] = float((log_dets - pooled_log_det).min() / dim)
+        statistics["cov_logdet_vs_pooled_max"] = float((log_dets - pooled_log_det).max() / dim)
+        statistics["cov_logdet_vs_previous_mean"] = float(
+            (log_dets - previous_log_dets)[kept].mean() / dim
+        ) if kept.any() else 0.0
+        statistics["cov_kept_previous"] = int((~kept).sum())
+        return covs
+
+    def state_dict(self) -> dict:
+        return {
+            "num_clusters": self.num_clusters,
+            "dim": self.dim,
+            "update_means": self.update_means,
+            "covariance": self.covariance,
+            "weighted_c": self.weighted_c,
+            "first": self.first,
+            "second": self.second,
+        }
+
+    def load_state_dict(self, state: dict) -> "LabelCovarianceAccumulator":
+        if int(state["num_clusters"]) != self.num_clusters:
+            raise ValueError(
+                f"label count mismatch: {state['num_clusters']} vs {self.num_clusters}"
+            )
+        if (bool(state["update_means"]), state["covariance"]) != (self.update_means, self.covariance):
+            raise ValueError(
+                f"state was accumulated for update_means={state['update_means']}, "
+                f"covariance={state['covariance']!r}; this accumulator is configured "
+                f"for {self.update_means}, {self.covariance!r}"
+            )
+        self.dim = state["dim"]
+        for name in ("weighted_c", "first", "second"):
+            value = state[name]
+            setattr(self, name, None if value is None else np.asarray(value, dtype=np.float64))
         return self
 
 

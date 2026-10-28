@@ -36,6 +36,7 @@ __all__ = [
     "EuclideanModel",
     "GaussianModel",
     "GaussianMixtureModel",
+    "LabelCovarianceMixtureModel",
     "MixtureModelBase",
     "PerLabelMixtureModel",
     "VectorQuantizedModel",
@@ -51,6 +52,7 @@ import os
 from typing import Any, ClassVar, Dict, Mapping, Optional, Tuple, Union
 
 import numpy as np
+import torch
 from scipy.spatial.distance import cdist
 
 from ..model import GaussianModelNumpy
@@ -674,6 +676,228 @@ class PerLabelMixtureModel(MixtureModelBase):
         # A density belongs to one label, so there is nothing to sum over l:
         # flattening [T, L, n] is already the [T, C] density posterior.
         return joint.reshape(len(features), self.num_densities), joint.sum(axis=0)
+
+
+class LabelCovarianceMixtureModel(ArtifactModel):
+    """
+    A shared codebook of means with one covariance per *label*::
+
+        p(x | l) = sum_k w_lk N(x | mu_k, Sigma_l)
+
+        centroids [K, D]     codebook means, shared by every label
+        covs      [L, D, D]  one covariance per label, shared by its densities
+        mixtures  [L, K]     p(k | l), rows summing to 1
+
+    The tying is the transpose of :class:`GaussianMixtureModel`'s. There a
+    density owns its covariance and every label borrows it; here a label owns
+    its covariance and every codeword borrows it. That is what makes a full
+    covariance estimable at all: it has 131,328 free parameters at D=512, and
+    ls-100's 3.46M segments leave ~6,800 per density at K=512 but ~87,000 per
+    label at L=40. The covariance goes with the inventory there are fewer of.
+
+    A density is therefore a pair - ``(l, k)`` has mean ``mu_k`` and covariance
+    ``Sigma_l`` - so one codeword is a differently shaped density under each
+    label. With every ``Sigma_l`` equal this is exactly a
+    :class:`GaussianMixtureModel` whose covariances are all that one matrix,
+    which the tests assert and which is how a run branches off a frozen-
+    covariance one.
+
+    Each covariance is factored once, ``Sigma_l = C_l C_l^T``, and the codebook
+    is whitened per label up front, so a sequence costs one ``[L, T, D]``
+    whitening and one ``[L, T, D] x [L, D, K]`` product: at L=40 and K=512 about
+    a sixth of the per-density solves :class:`GaussianModel` does for a shared
+    codebook. Like it, the arithmetic runs in float32 on the GPU when one is
+    visible; costs come back as float64 numpy.
+    """
+
+    ARTIFACT_NAMES = ("centroids", "covs", "mixtures")
+
+    def __init__(
+        self,
+        centroids: Union[np.ndarray, str],
+        covs: Union[np.ndarray, str],
+        mixtures: Union[np.ndarray, str],
+        device: Optional[str] = None,
+    ):
+        self.centroids = _as_array(centroids)
+        self.covs = _as_array(covs)
+        self.mixtures = _as_array(mixtures)
+        if self.centroids.ndim != 2:
+            raise ValueError(f"expected centroids [K, D], got {self.centroids.shape}")
+        num_densities, dim = self.centroids.shape
+        if self.mixtures.ndim != 2 or self.mixtures.shape[1] != num_densities:
+            raise ValueError(
+                f"expected mixtures [L, {num_densities}], one weight per label per "
+                f"codeword, got {self.mixtures.shape}"
+            )
+        num_labels = self.mixtures.shape[0]
+        if self.covs.shape != (num_labels, dim, dim):
+            raise ValueError(
+                f"expected one covariance per label, [{num_labels}, {dim}, {dim}], "
+                f"got {self.covs.shape}"
+            )
+        if (self.mixtures < 0).any():
+            raise ValueError("mixture weights must be non-negative")
+        if not np.allclose(self.mixtures.sum(axis=-1), 1.0):
+            raise ValueError(
+                "mixture weights are not normalized per label; row sums range over "
+                f"[{self.mixtures.sum(-1).min():.6g}, {self.mixtures.sum(-1).max():.6g}]"
+            )
+        if not (self.mixtures > 0).any(axis=-1).all():
+            raise ValueError(
+                "every label needs at least one density with nonzero weight; labels "
+                f"{np.flatnonzero(~(self.mixtures > 0).any(-1)).tolist()} have none"
+            )
+        self.device = device
+        # A zero weight is a codeword this label has no use for: -inf, handled
+        # by the shifted log-sum-exp below - see MixtureModelBase.
+        with np.errstate(divide="ignore"):
+            self.log_mixtures = np.log(self.mixtures)
+
+        # Factored in float64 and cast afterwards: a Cholesky failure here is
+        # the non-positive-definite covariance reported where it arises, rather
+        # than a meaningless float32 inverse an epoch later.
+        factors = np.linalg.cholesky(np.asarray(self.covs, dtype=np.float64))
+        whiten = np.linalg.inv(factors)                                 # C_l^-1
+        #: ``log det Sigma_l`` per label, float64.
+        self.log_dets = 2.0 * np.log(np.diagonal(factors, axis1=1, axis2=2)).sum(axis=1)
+        # Subtracted from features and means alike, which leaves every distance
+        # unchanged but takes the expanded form |y|^2 + |m|^2 - 2 y.m between
+        # vectors near the origin - what keeps it accurate in float32.
+        self._offset = np.asarray(self.centroids, dtype=np.float64).mean(axis=0)
+        means_white = np.einsum(
+            "lde,ke->lkd", whiten, np.asarray(self.centroids, dtype=np.float64) - self._offset
+        )                                                               # [L, K, D]
+        self._device = torch.device(device) if device is not None else torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        self._whiten_t = torch.as_tensor(
+            whiten.transpose(0, 2, 1), dtype=torch.float32, device=self._device
+        )
+        self._means_white = torch.as_tensor(means_white, dtype=torch.float32, device=self._device)
+        self._means_sq = torch.as_tensor(
+            (means_white ** 2).sum(axis=-1), dtype=torch.float32, device=self._device
+        )
+        self._half_log_dets = torch.as_tensor(
+            0.5 * self.log_dets, dtype=torch.float32, device=self._device
+        )
+
+    @property
+    def num_clusters(self) -> int:
+        """Score width, i.e. the label count - as for :class:`MixtureModelBase`."""
+        return self.mixtures.shape[0]
+
+    @property
+    def num_labels(self) -> int:
+        return self.mixtures.shape[0]
+
+    @property
+    def num_densities(self) -> int:
+        return self.centroids.shape[0]
+
+    @property
+    def dim(self) -> int:
+        return self.centroids.shape[1]
+
+    def density_groups(self) -> Optional[np.ndarray]:
+        """None: a codeword is shared by every label, as in a shared codebook."""
+        return None
+
+    def density_costs(self, features: np.ndarray) -> np.ndarray:
+        """
+        ``[T, D] -> [T, L, K]``, the cost of codeword ``k`` under label ``l``'s
+        covariance: ``0.5 (x - mu_k)^T Sigma_l^-1 (x - mu_k) + 0.5 log det Sigma_l``.
+        The same convention as :class:`GaussianModel` - no ``D/2 log 2 pi`` - so
+        the two agree whenever the covariances do.
+        """
+        x = torch.as_tensor(
+            np.asarray(features, dtype=np.float64) - self._offset,
+            dtype=torch.float32, device=self._device,
+        )
+        white = torch.matmul(x, self._whiten_t)                         # [L, T, D]
+        cross = torch.matmul(white, self._means_white.transpose(1, 2))  # [L, T, K]
+        squared = (white * white).sum(-1, keepdim=True) + self._means_sq[:, None, :] - 2.0 * cross
+        # Clamped: the expanded form can come out a hair below zero for a frame
+        # sitting on a codeword, which no true squared distance does.
+        costs = 0.5 * squared.clamp_min(0.0) + self._half_log_dets[:, None, None]
+        # contiguous() before leaving torch, and it is not cosmetic: .to() keeps
+        # the permuted strides, numpy's ufuncs keep the layout they are given, and
+        # scores() then came out column-major. librasr reads the buffer it is
+        # handed as row-major, so every search - training and decoding alike - saw
+        # the [T, L] matrix scrambled across frames and labels, while every check
+        # in numpy, which honours strides, passed. Measured on cv: the decoder's
+        # labels were the argmin of the scrambled read on 91.4% of segments, of the
+        # true scores on 2.6%. See the C-order check in test_chunked.
+        return costs.permute(1, 0, 2).contiguous().to("cpu", dtype=torch.float64).numpy()
+
+    def _shifted_log_joint(self, costs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """``log w_lk - cost_tlk`` shifted by its best codeword per ``(t, l)``,
+        and that shift: the same exact-not-approximate shift as
+        :func:`neg_log_matmul`, along the codeword axis."""
+        log_joint = self.log_mixtures[np.newaxis] - costs               # [T, L, K]
+        best = log_joint.max(axis=2, keepdims=True)
+        if not np.isfinite(best).all():
+            raise FloatingPointError(
+                "a label has no finite density cost for some frame; every label "
+                "needs a nonzero weight on some codeword"
+            )
+        return log_joint - best, best[:, :, 0]
+
+    def scores(self, features: np.ndarray) -> np.ndarray:
+        """``[T, D] -> [T, L]``, ``-log sum_k w_lk N(x | mu_k, Sigma_l)``."""
+        shifted, best = self._shifted_log_joint(self.density_costs(features))
+        # Row-major whatever the arithmetic above did: this is what the
+        # recognizers hand to librasr as a raw buffer (see density_costs).
+        return np.ascontiguousarray(-(best + np.log(np.exp(shifted).sum(axis=2))))
+
+    def joint_posteriors(
+        self, features: np.ndarray, label_gammas: np.ndarray, *, costs: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """
+        The E-step: ``[T, L, K]``, ``gamma_tl p(k | l, x_t)``.
+
+        Kept as the full joint rather than its two marginals, because the
+        covariance update needs it per label *and* per codeword - see
+        :class:`.accumulators.LabelCovarianceAccumulator`.
+
+        :param label_gammas: ``[T, L]``, what the recognizer reported
+        :param costs: :meth:`density_costs` if the caller already has them
+        """
+        label_gammas = np.asarray(label_gammas, dtype=np.float64)
+        if label_gammas.ndim != 2 or label_gammas.shape[1] != self.num_labels:
+            raise ValueError(
+                f"expected label posteriors [T, {self.num_labels}], got {label_gammas.shape}"
+            )
+        if len(label_gammas) != len(features):
+            raise ValueError(
+                f"frame count mismatch: {len(features)} features vs "
+                f"{len(label_gammas)} posteriors"
+            )
+        if costs is None:
+            costs = self.density_costs(features)
+        shifted, _ = self._shifted_log_joint(costs)
+        posterior = np.exp(shifted)
+        posterior /= posterior.sum(axis=2, keepdims=True)
+        return label_gammas[:, :, np.newaxis] * posterior
+
+    def responsibilities(self, features, label_gammas, *, costs=None):
+        """``(density_gammas [T, K], joint_counts [L, K])``, the two marginals of
+        :meth:`joint_posteriors` - the :meth:`MixtureModelBase.responsibilities`
+        contract, for anything reading a mixture model through it."""
+        joint = self.joint_posteriors(features, label_gammas, costs=costs)
+        return joint.sum(axis=1), joint.sum(axis=0)
+
+    def artifacts(self) -> Dict[str, np.ndarray]:
+        return {"centroids": self.centroids, "covs": self.covs, "mixtures": self.mixtures}
+
+    def meta(self) -> Dict[str, Any]:
+        return {"num_labels": int(self.num_labels), "num_densities": int(self.num_densities)}
+
+    @classmethod
+    def from_artifacts(cls, arrays, meta) -> "LabelCovarianceMixtureModel":
+        return cls(
+            centroids=arrays["centroids"], covs=arrays["covs"], mixtures=arrays["mixtures"]
+        )
 
 
 class VectorQuantizedModel(ArtifactModel):

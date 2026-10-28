@@ -37,6 +37,9 @@ __all__ = [
     "boundary_probability",
     "boundary_transitions",
     "OracleBoundaryTransitions",
+    "change_point_scores",
+    "change_point_boundaries",
+    "ChangePointTransitions",
 ]
 
 import zlib
@@ -274,3 +277,120 @@ class OracleBoundaryTransitions:
     def transition_scores(self, seq_tag: str, features: np.ndarray) -> np.ndarray:
         ends = self.boundaries(seq_tag, len(features))
         return boundary_transitions(None, self.boundary_error, self.blur, ends=ends)
+
+
+#: Distances :func:`change_point_scores` knows.
+CHANGE_POINT_DISTANCES = ("euclidean", "cosine")
+
+
+def change_point_scores(features: np.ndarray, window: int = 2,
+                        distance: str = "euclidean") -> np.ndarray:
+    """``[T]`` change-point score of a boundary *before* each frame.
+
+    ``s_t`` is the distance between the mean of the ``window`` frames before
+    ``t`` and the mean of the ``window`` frames from ``t`` on, each window cut
+    at the sequence's edges. ``s_0`` is -inf: nothing comes before frame 0.
+    Unsupervised: it reads only the features.
+    """
+    if window < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+    if distance not in CHANGE_POINT_DISTANCES:
+        raise ValueError(f"distance must be one of {CHANGE_POINT_DISTANCES}, got {distance!r}")
+    x = np.asarray(features, dtype=np.float64)
+    T = len(x)
+    s = np.full(T, -np.inf)
+    if T < 2:
+        return s
+    c = np.vstack([np.zeros((1, x.shape[1])), np.cumsum(x, axis=0)])
+    t = np.arange(1, T)
+    lo, hi = np.maximum(0, t - window), np.minimum(T, t + window)
+    left = (c[t] - c[lo]) / (t - lo)[:, None]
+    right = (c[hi] - c[t]) / (hi - t)[:, None]
+    if distance == "euclidean":
+        s[1:] = np.linalg.norm(left - right, axis=1)
+    else:
+        norms = np.linalg.norm(left, axis=1) * np.linalg.norm(right, axis=1)
+        s[1:] = 1.0 - np.einsum("ij,ij->i", left, right) / (norms + 1e-12)
+    return s
+
+
+def change_point_boundaries(scores: np.ndarray, rate: float) -> np.ndarray:
+    """Frames a new segment starts at: the ``round(rate * T)`` highest local
+    maxima of a :func:`change_point_scores` array, or all of them if there are
+    fewer, in increasing order.
+
+    A local maximum is above the frame before it and not below the frame after
+    it, so two boundaries are never adjacent. The last frame cannot be one.
+    """
+    if not 0.0 < rate < 1.0:
+        raise ValueError(f"rate must be in (0, 1), got {rate}")
+    s = np.asarray(scores, dtype=np.float64)
+    T = len(s)
+    if T < 3:
+        return np.zeros(0, dtype=np.int64)
+    peaks = np.flatnonzero((s[1:-1] > s[:-2]) & (s[1:-1] >= s[2:])) + 1
+    k = int(round(rate * T))
+    keep = np.argsort(-s[peaks], kind="stable")[:k]
+    return np.sort(peaks[keep])
+
+
+class ChangePointTransitions:
+    """
+    Phoneme boundaries from a change-point detector on the features themselves.
+
+    Fixed and unsupervised. Each sequence gets the boundaries of
+    :func:`change_point_boundaries` (the ``round(rate * T)`` highest local
+    maxima of :func:`change_point_scores`), and these become transition scores
+    through :func:`boundary_transitions`, exactly as the oracle's alignment
+    boundaries do in :class:`OracleBoundaryTransitions`. With a loop
+    probability strictly between 0 and 1 in the search, they are evidence on
+    top of that duration prior: each disagreement with the detector costs
+    ``log((1 - boundary_error) / boundary_error)`` nats.
+
+    Measured on 71 ls-100 utterances (``docs/free_segmentation``, findings
+    §6.11): at the defaults (window 2, Euclidean, rate 0.25) the boundaries
+    reach F1 0.73 against the GMM alignment within one frame (0.34 on the exact
+    frame), where random ones reach 0.53. The vq_gmm_tau_bonus 0.5 arm's own
+    argmax is below that through epoch ~20 and level with it up to its takeoff.
+
+    :param window: frames averaged on each side
+    :param distance: "euclidean" or "cosine", between the two means
+    :param rate: boundaries per frame. 0.25 is the alignment's (3.99 frames
+        per phoneme) and where the trained runs' argmax settles.
+    :param boundary_error: see :func:`boundary_transitions`. 0 gives hard
+        boundaries, under which a segment shorter than S frames has no path.
+    :param blur: see :func:`boundary_transitions`
+    """
+
+    trainable = False
+
+    def __init__(self, window: int = 2, distance: str = "euclidean", rate: float = 0.25,
+                 boundary_error: float = 0.1, blur: float = 0.0):
+        # Validated here, so that a bad value fails when the spec is built and
+        # not in the first chunk task.
+        change_point_scores(np.zeros((1, 1)), window, distance)
+        change_point_boundaries(np.zeros(1), rate)
+        boundary_probability(np.ones(1, dtype=bool), boundary_error, blur)
+        self.window = window
+        self.distance = distance
+        self.rate = rate
+        self.boundary_error = boundary_error
+        self.blur = blur
+
+    def boundaries(self, features: np.ndarray) -> np.ndarray:
+        """``[T]`` bool, as :func:`segment_ends`: whether a segment ends at
+        frame ``t``. A boundary before frame ``t`` ends a segment at ``t - 1``,
+        and the last frame always ends one."""
+        T = len(features)
+        ends = np.zeros(T, dtype=bool)
+        if T == 0:
+            raise ValueError("cannot score an empty sequence")
+        starts = change_point_boundaries(
+            change_point_scores(features, self.window, self.distance), self.rate)
+        ends[starts - 1] = True
+        ends[-1] = True
+        return ends
+
+    def transition_scores(self, seq_tag: str, features: np.ndarray) -> np.ndarray:
+        return boundary_transitions(None, self.boundary_error, self.blur,
+                                    ends=self.boundaries(features))

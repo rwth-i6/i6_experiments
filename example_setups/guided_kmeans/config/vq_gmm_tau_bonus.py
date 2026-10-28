@@ -64,7 +64,7 @@ epochs 15 and 20. At 30 the 0.5 arm decodes at 72.2% PER and the 0.75 arm at
 had stopped moving by 25. The positive-bonus arms run on to ``EXTENDED_EPOCHS``;
 the others stay at 30. At 60 (2026-10-17) the 0.25 arm had flattened at 73.7%,
 while the 0.5 arm, at 65.8%, was still losing 0.8 points every five epochs; it
-runs on to 100 (``LONG_ARMS``).
+runs on to 100 (``LONG_ARMS``), and from 2026-10-20 to 200 (62.0% at 95).
 
 **3. A frame-level codebook.** The k512 codebook is a colleague's FAISS k-means
 over mean-pooled GMM *segment* representations: it carries oracle segmentation
@@ -207,9 +207,25 @@ EXTENDED_BALANCE_EPOCHS = [35, 40, 45, 50, 55, 60]
 #: starting at once. gpu_11gb's per-user cap of 70 cards leaves room for 32 next
 #: to the two frame-codebook arms' 16 each. Unhashed, and pinned per epoch
 #: (``GuidedClusteringEpochJob._pin_num_chunks``): epochs 1-60 keep their 16.
-LONG_ARMS = {(0.5, "segments"): (100, 32)}
-LONG_DECODE_EPOCHS = [65, 70, 75, 80, 85, 90, 95, 100]
-LONG_BALANCE_EPOCHS = [65, 70, 75, 80, 85, 90, 95, 100]
+#: 64 from epoch 93 or 94 (2026-10-20), to finish by the next day with the other
+#: arms paused: a 1080 chunk then takes ~31 min instead of ~60, and 64 is still
+#: under gpu_11gb's cap of 70 should every chunk land there.
+LONG_ARMS = {(0.5, "segments"): (200, 64)}
+#: Every five epochs up to the longest arm's end. A decode for an epoch that has not
+#: been reached yet just waits in the graph.
+LONG_DECODE_EPOCHS = list(range(65, 201, 5))
+LONG_BALANCE_EPOCHS = list(range(65, 201, 5))
+
+#: Every tenth epoch, for the paper table only: the long arm alone is decoded at
+#: 40 epochs, a page of table for a curve that is read off every second point
+#: just as well. Derived from the three decode-epoch lists rather than written
+#: out, so it cannot name an epoch that is never decoded, and it follows when
+#: they are extended. The .txt report keeps every decoded epoch.
+LATEX_EPOCHS = sorted(
+    e
+    for e in set(WEIGHTS_DECODE_EPOCHS + EXTENDED_DECODE_EPOCHS + LONG_DECODE_EPOCHS)
+    if e % 10 == 0
+)
 
 #: Unguided k-means for the frame-level codebook. Batch Lloyd's over 13.8M
 #: frames; codebook_mixture's segment-level runs had flattened well within 10.
@@ -239,6 +255,11 @@ EPOCH_RQMT = {
 }
 #: S=2 at B=8 fits an 11 GB card (5.04 GB at T=1000).
 BATCH_SIZE, MAX_FRAMES = 8, 9_000
+#: RASR search processes per decode; the job asks for one more CPU and 4 GB per
+#: CPU. Unhashed. The default 7 kept all 8 CPUs busy for ~2h05 on the epoch-100
+#: cv decode, while the parent's main thread used ~15% of a core (2026-10-20), so
+#: the search scales with workers. A decode uses about 3 GB plus 0.6 GB per worker.
+DECODE_WORKERS = 23
 
 
 def bonus_lambda(fraction: float) -> float:
@@ -382,6 +403,7 @@ def run():
             model_dir=model_dir,
             recog_rasr_config=_recog_config(MATCHED_DECODE_LM, FREE_SEG_LOOP, 1.0, use_fb=False),
             distance_scale=AM_SCALE,
+            num_workers=DECODE_WORKERS,
         )
         res = decode_and_score(
             decode_name, "cv", dc, cv_frames_dataset,
@@ -453,6 +475,7 @@ def run():
             "posterior_entropy", "segment_duration_argmax"
         ],
         sort_by=["lambda"],
+        epochs=LATEX_EPOCHS,
         row_filter=lambda row: row.params.get("codebook") == "segments",
         caption=(
             f"Free segmentation on silence-free ls-100h frames, HMM-substates={NUM_STATES}, LM "
@@ -591,6 +614,7 @@ def run():
                 recog_rasr_config=decode_config_rasr,
                 distance_scale=BASE_DECODE_SCALE,
                 write_frame_labels=True,
+                num_workers=DECODE_WORKERS,
             )
             decode_name = f"{name}_ep-{e}_ds-{BASE_DECODE_SCALE}"
             res = decode_and_score(

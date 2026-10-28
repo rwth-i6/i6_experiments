@@ -30,6 +30,7 @@ __all__ = [
     "euclidean_flavor",
     "unguided_flavor",
     "gaussian_flavor",
+    "label_covariance_flavor",
     "mixture_flavor",
     "per_label_mixture_flavor",
     "vq_flavor",
@@ -42,6 +43,7 @@ from ..statistics import FBStatisticsCounter
 from .accumulators import (
     FixedCovarianceAccumulator,
     GaussianAccumulator,
+    LabelCovarianceAccumulator,
     MeanAccumulator,
     MixtureGaussianAccumulator,
     SoftGaussianAccumulator,
@@ -51,6 +53,7 @@ from .models import (
     EuclideanModel,
     GaussianMixtureModel,
     GaussianModel,
+    LabelCovarianceMixtureModel,
     PerLabelMixtureModel,
     VectorQuantizedModel,
 )
@@ -62,6 +65,7 @@ from .recognizers import (
     RasrViterbiRecognizer,
 )
 from .spec import Spec
+from .topology import TYINGS, TopologyAccumulator
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,25 @@ class BackoffFBSearch:
     #: transition model. The loop parameters must then stay at their defaults.
     #: See :func:`..backoff_fb_graph.build_topology`.
     zero_topology: bool = False
+    #: A fixed offset on every phoneme's exit weight, in nats after the
+    #: transition scale: a float, or ``{symbol: offset}``. Negative is a price
+    #: per phoneme on top of the LM's, positive a bonus. Training never moves
+    #: it. Hashed, but only when set.
+    exit_offset: Any = None
+    #: Re-estimate the loop probabilities every epoch from the expected
+    #: transition counts (EM, the op's SPEC.md 15.6), under one of the tyings of
+    #: :data:`.topology.TYINGS`: ``"global"``, ``"speech_silence"``,
+    #: ``"phoneme"`` or ``"state"``. Training starts from ``loop_probability``
+    #: and ``silence_loop_probability``. None, the default, holds them fixed.
+    train_topology: Optional[str] = None
+    #: The floor of the update: a group with fewer expected frames keeps its
+    #: previous probability. See :class:`.topology.TopologyAccumulator`.
+    topology_min_frames: float = 0.0
+    #: A Beta prior on each group's probability: ``topology_prior_weight``
+    #: pseudo-frames at ``topology_prior_mean``, a probability or ``"global"``
+    #: for the epoch's global estimate. Replaces the floor.
+    topology_prior_weight: float = 0.0
+    topology_prior_mean: Any = None
     batch_size: int = 16
     max_frames: int = 0
     checkpoint_interval: int = -1
@@ -169,6 +192,12 @@ class ClusteringFlavor:
         posteriors, comes from the op's milestone T3, and the epoch job does not
         yet merge, save or carry transition statistics from one epoch to the
         next.
+    :param topology_accumulator: spec for a
+        :class:`.topology.TopologyAccumulator`. Given one, every epoch counts the
+        transitions its search takes, re-estimates the loop probabilities from
+        them, and hands the new table to the next epoch
+        (``GuidedClusteringEpochJob.out_topology``). Built from
+        :attr:`BackoffFBSearch.train_topology`.
     """
 
     model: Spec
@@ -177,6 +206,7 @@ class ClusteringFlavor:
     statistics: Optional[Spec] = None
     transitions: Optional[Spec] = None
     transition_accumulator: Optional[Spec] = None
+    topology_accumulator: Optional[Spec] = None
 
     def __post_init__(self):
         if self.transition_accumulator is not None:
@@ -293,6 +323,13 @@ def _recognizer_spec(
                     "0; leave loop_probability, silence_loop_probability and "
                     "transition_scale at their defaults")
             extra["zero_topology"] = True
+        if backoff_fb.exit_offset is not None:
+            # Same bargain: hashed only when set.
+            if backoff_fb.zero_topology:
+                raise ValueError(
+                    "zero_topology=True sets every static transition weight to 0, "
+                    "the exit included; an exit offset would be ignored")
+            extra["exit_offset"] = backoff_fb.exit_offset
         return Spec(
             cls,
             {
@@ -360,6 +397,45 @@ def _transitions_spec(backoff_fb: Optional[BackoffFBSearch]) -> Optional[Spec]:
     return backoff_fb.transitions if backoff_fb is not None else None
 
 
+def _topology_spec(backoff_fb: Optional[BackoffFBSearch]) -> Optional[Spec]:
+    """The :class:`.topology.TopologyAccumulator` for ``train_topology``, or
+    None. Only the backoff_fb search counts transitions, so a RASR flavor
+    cannot train its topology by construction."""
+    if backoff_fb is None or backoff_fb.train_topology is None:
+        for name in ("topology_min_frames", "topology_prior_weight", "topology_prior_mean"):
+            if backoff_fb is not None and getattr(backoff_fb, name) != getattr(BackoffFBSearch, name):
+                raise ValueError(f"{name} is set but train_topology is not; it would do nothing")
+        return None
+    if backoff_fb.train_topology not in TYINGS:
+        raise ValueError(
+            f"train_topology={backoff_fb.train_topology!r}; expected one of {TYINGS}")
+    if backoff_fb.frame_labels is not None:
+        raise ValueError(
+            "train_topology needs a frame-level search; the oracle-segment "
+            "recognizer (frame_labels) runs at loop probability 0, where there is "
+            "nothing to train")
+    if backoff_fb.transitions is not None or backoff_fb.zero_topology:
+        raise ValueError(
+            "train_topology next to per-frame transition scores is not supported "
+            "yet: with a zero topology the scores carry the whole transition "
+            "model, and training the static weights beside them is a later step "
+            "(the op's SPEC.md 15.7)")
+    if backoff_fb.loop_probability == 0.0 and backoff_fb.silence_loop_probability in (None, 0.0):
+        raise ValueError(
+            "train_topology from loop probability 0: a forbidden loop is never "
+            "taken, so its count is exactly 0 and the update keeps it at 0 forever")
+    # Constructed here once, so a bad combination fails while the graph is
+    # built rather than in the reduce step of the first epoch.
+    kwargs = {
+        "tying": backoff_fb.train_topology,
+        "min_frames": backoff_fb.topology_min_frames,
+        "prior_weight": backoff_fb.topology_prior_weight,
+        "prior_mean": backoff_fb.topology_prior_mean,
+    }
+    TopologyAccumulator(**kwargs)
+    return Spec(TopologyAccumulator, kwargs)
+
+
 def euclidean_flavor(
     *,
     centroids,
@@ -388,6 +464,7 @@ def euclidean_flavor(
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
         transitions=_transitions_spec(backoff_fb),
+        topology_accumulator=_topology_spec(backoff_fb),
     )
 
 
@@ -482,6 +559,7 @@ def gaussian_flavor(
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
         transitions=_transitions_spec(backoff_fb),
+        topology_accumulator=_topology_spec(backoff_fb),
     )
 
 
@@ -504,6 +582,7 @@ def _mixture_flavor(
     num_workers: int,
     task_timeout: Optional[float],
     backoff_fb: Optional[BackoffFBSearch] = None,
+    over_relaxation: float = 1.0,
 ) -> ClusteringFlavor:
     # Both mixture layouts wire up identically - same artifacts, same
     # accumulator, same search - and differ only in the model class, because
@@ -523,6 +602,8 @@ def _mixture_flavor(
         accumulator_args["update_densities"] = False
     if update_covariances is not None:
         accumulator_args["update_covariances"] = update_covariances
+    if over_relaxation != 1.0:
+        accumulator_args["over_relaxation"] = over_relaxation
     return ClusteringFlavor(
         model=Spec(model_cls, {"centroids": centroids, "covs": covs, "mixtures": mixtures}),
         accumulator=Spec(MixtureGaussianAccumulator, accumulator_args),
@@ -538,6 +619,7 @@ def _mixture_flavor(
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
         transitions=_transitions_spec(backoff_fb),
+        topology_accumulator=_topology_spec(backoff_fb),
     )
 
 
@@ -559,6 +641,7 @@ def mixture_flavor(
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
     backoff_fb: Optional[BackoffFBSearch] = None,
+    over_relaxation: float = 1.0,
 ) -> ClusteringFlavor:
     """
     A shared codebook of densities, with per-label weights over all of them
@@ -582,6 +665,11 @@ def mixture_flavor(
         cannot be compensated for by the remaining ones moving. A zero weight
         is absorbing at the default floor of 0.0, so a frozen-codebook run
         wants a small nonzero floor unless the shrinking is intended.
+    :param over_relaxation: steps past the EM update of the weights; see
+        :class:`.accumulators.MixtureGaussianAccumulator`. Needs
+        ``update_densities=False`` and a nonzero ``mixture_floor``. Enters the
+        accumulator spec only when it is not 1.0, so every existing run keeps its
+        job hashes.
     """
     return _mixture_flavor(
         GaussianMixtureModel,
@@ -601,6 +689,7 @@ def mixture_flavor(
         num_workers=num_workers,
         task_timeout=task_timeout,
         backoff_fb=backoff_fb,
+        over_relaxation=over_relaxation,
     )
 
 
@@ -622,6 +711,7 @@ def per_label_mixture_flavor(
     num_workers: int = 8,
     task_timeout: Optional[float] = 1800.0,
     backoff_fb: Optional[BackoffFBSearch] = None,
+    over_relaxation: float = 1.0,
 ) -> ClusteringFlavor:
     """
     ``n`` densities per label, owned by that label
@@ -653,6 +743,76 @@ def per_label_mixture_flavor(
         num_workers=num_workers,
         task_timeout=task_timeout,
         backoff_fb=backoff_fb,
+        over_relaxation=over_relaxation,
+    )
+
+
+def label_covariance_flavor(
+    *,
+    centroids,
+    covs,
+    mixtures,
+    recognition_config,
+    lexicon,
+    num_clusters: int,
+    distance_scale: float = 1.0,
+    use_forward_backward: bool = False,
+    min_mass: float = 1.0,
+    mixture_floor: float = 0.0,
+    update_means: bool = False,
+    covariance: str = "fixed",
+    covariance_relevance: float = 0.0,
+    semi_tied_iterations: int = 20,
+    num_workers: int = 8,
+    task_timeout: Optional[float] = 1800.0,
+    backoff_fb: Optional[BackoffFBSearch] = None,
+) -> ClusteringFlavor:
+    """
+    A shared codebook of means with one covariance per label
+    (:class:`.models.LabelCovarianceMixtureModel`),
+    ``p(x | l) = sum_k w_lk N(x | mu_k, Sigma_l)``.
+
+    The mixture weights are always re-estimated; ``update_means`` and
+    ``covariance`` choose what else is - see
+    :class:`.accumulators.LabelCovarianceAccumulator` for the modes and for
+    ``covariance_relevance``. ``covs`` is ``[L, D, D]``: to branch off a
+    frozen-covariance :func:`mixture_flavor` run, repeat its (shared) covariance
+    once per label, which gives exactly the model that run scored with.
+
+    ``semi_tied_iterations`` enters the spec only for ``covariance="semi_tied"``,
+    the one mode that reads it.
+    """
+    accumulator_args = {
+        "min_mass": min_mass,
+        "mixture_floor": mixture_floor,
+        "update_means": update_means,
+        "covariance": covariance,
+        "covariance_relevance": covariance_relevance,
+    }
+    if covariance == "semi_tied":
+        accumulator_args["semi_tied_iterations"] = semi_tied_iterations
+    # Built once here, so an invalid combination fails while the graph is built
+    # rather than in the first epoch's chunk tasks.
+    LabelCovarianceAccumulator(num_clusters, **accumulator_args)
+    return ClusteringFlavor(
+        model=Spec(
+            LabelCovarianceMixtureModel,
+            {"centroids": centroids, "covs": covs, "mixtures": mixtures},
+        ),
+        accumulator=Spec(LabelCovarianceAccumulator, accumulator_args),
+        recognizer=_recognizer_spec(
+            recognition_config=recognition_config,
+            lexicon=lexicon,
+            num_clusters=num_clusters,
+            distance_scale=distance_scale,
+            use_forward_backward=use_forward_backward,
+            num_workers=num_workers,
+            task_timeout=task_timeout,
+            backoff_fb=backoff_fb,
+        ),
+        statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
+        transitions=_transitions_spec(backoff_fb),
+        topology_accumulator=_topology_spec(backoff_fb),
     )
 
 
@@ -714,4 +874,5 @@ def vq_flavor(
         ),
         statistics=_statistics_spec(num_clusters, use_forward_backward, backoff_fb),
         transitions=_transitions_spec(backoff_fb),
+        topology_accumulator=_topology_spec(backoff_fb),
     )
