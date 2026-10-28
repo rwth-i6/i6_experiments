@@ -166,6 +166,7 @@ def build_vq_training(
     transition_scale=None,
     loop_prob=None,
     silence_loop_prob=None,
+    label_to_blank_probability=None,
     distance_scale=None,
     segments=None,
     batches_per_epoch=1,
@@ -249,6 +250,7 @@ def build_vq_training(
         transition_scale=transition_scale,
         loop_probability=loop_prob,
         silence_loop_probability=silence_loop_prob,
+        label_to_blank_probability=label_to_blank_probability,
         use_forward_backward_search=USE_FORWARD_BACKWARD,
         lm_order=lm_order,
         use_eow_phonemes=USE_EOW_PHONEMES,
@@ -297,7 +299,7 @@ def build_vq_training(
 def build_decode_config(
     lm_path, decode_lm_scale, decode_loop_prob, *,
     lm_order=None, beam_size=None, max_beam_size=None, transition_scale=None,
-    forbid_blank=False,
+    forbid_blank=False, decode_silence_loop_prob=None, label_to_blank_probability=None,
 ):
     """The decode-side RASR config, shared for the same reason.
 
@@ -308,12 +310,13 @@ def build_decode_config(
         emission_scale=1.0,
         transition_scale=transition_scale,
         loop_probability=decode_loop_prob,
-        silence_loop_probability=decode_loop_prob,
+        silence_loop_probability=decode_loop_prob if decode_silence_loop_prob is None else decode_silence_loop_prob,
         lm_order=LM_ORDER if lm_order is None else lm_order,
         use_eow_phonemes=USE_EOW_PHONEMES,
         max_beam_size=_resolve_beam_size(beam_size, max_beam_size),
         lm_path=lm_path,
         forbid_blank=forbid_blank,
+        label_to_blank_probability=label_to_blank_probability,
     )
 
 

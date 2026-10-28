@@ -95,6 +95,22 @@ class JiwerScoringJob(Job):
 
         common_tags = sorted(set(ref_dict) & set(hyp_dict))
 
+        if not common_tags:
+            # Last-component fallback: handles the case where ref and hyp use
+            # different path conventions for the same utterance IDs
+            # (e.g. bliss-style "corpus/speaker/utt" vs schmitt-style "corpus/utt/utt").
+            ref_by_utt = {tag.rsplit("/", 1)[-1]: tag for tag in ref_dict}
+            hyp_by_utt = {tag.rsplit("/", 1)[-1]: tag for tag in hyp_dict}
+            common_utts = set(ref_by_utt) & set(hyp_by_utt)
+            if common_utts:
+                print(
+                    f"INFO: zero exact tag matches; falling back to last-component "
+                    f"matching ({len(common_utts)} utterances matched)"
+                )
+                ref_dict = {ref_by_utt[u]: ref_dict[ref_by_utt[u]] for u in common_utts}
+                hyp_dict = {ref_by_utt[u]: hyp_dict[hyp_by_utt[u]] for u in common_utts}
+                common_tags = sorted(ref_dict)
+
         ref_only = set(ref_dict) - set(hyp_dict)
         hyp_only = set(hyp_dict) - set(ref_dict)
         if ref_only:

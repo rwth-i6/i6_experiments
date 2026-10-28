@@ -96,12 +96,13 @@ version = 1
 #: RASR loads each LM independently per worker (no mmap sharing observed).
 #: 8gram (~18GB uncompressed) and 9gram (~40GB) are omitted: ~170/366 GB needed.
 EXPERIMENTS = [
-    ("ours-5gram", phonetic_lm_dict[5], 0.1,  42, {"mem": 8}),
-    ("ours-5gram", phonetic_lm_dict[5], 0.1,  43, {"mem": 8}),
-    ("ours-5gram", phonetic_lm_dict[5], 0.02, 42, {"mem": 8}),
-    ("ours-5gram", phonetic_lm_dict[5], 0.02, 43, {"mem": 8}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.1,  42, {"mem": 24}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.1,  43, {"mem": 24}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 42, {"mem": 24}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.02, 43, {"mem": 24}),
     ("ours-6gram", phonetic_lm_dict[6], 0.02, 42, {"mem": 30}),
     ("ours-6gram", phonetic_lm_dict[6], 0.02, 43, {"mem": 30}),
+    ("ours-5gram", phonetic_lm_dict[5], 0.0, 42, {"mem": 24}),
     # 7gram: base ~5.6 GB + 9 workers * 6.3 GB LM = ~62 GB; 80 GB gives ~30% headroom.
     # Consider reducing NUM_WORKERS (e.g. to 4-5) to bring this down to ~32-37 GB.
     # Uncomment once 6gram results are in and the approach is confirmed.

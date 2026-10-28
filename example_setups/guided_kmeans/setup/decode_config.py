@@ -288,10 +288,12 @@ def decode_and_score(
     whitelist_job.add_alias(f"datasets/LibriSpeech/{effective_key}_whitelist")
     whitelist = whitelist_job.out_whitelist
 
-    if sampled_segments is not None:
+    if sampled_segments is not None and dataset_config.apply_whitelist:
         dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, sampled_segments)
-    else:
+    elif dataset_config.apply_whitelist:
         dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, whitelist)
+    else:
+        dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, None)
 
     decode_res = _decode(
         config,

@@ -83,8 +83,8 @@ EXPERIMENTS = [
     ("ours-3gram",   None,                    0.1, 43, BEAM_SIZE),
     ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 42, BEAM_SIZE),
     ("zijian-3gram", PHONEME_LM_ZIJIAN_3GRAM, 0.1, 43, BEAM_SIZE),
-    ("ours-5gram",   phonetic_lm_dict[5],     0.1, 42, BEAM_SIZE_5GRAM),
-    ("ours-5gram",   phonetic_lm_dict[5],     0.1, 43, BEAM_SIZE_5GRAM),
+    ("ours-5gram",   phonetic_lm_dict[5],     0.02, 42, BEAM_SIZE_5GRAM),
+    ("ours-5gram",   phonetic_lm_dict[5],     0.02, 43, BEAM_SIZE_5GRAM),
 ]
 
 NUM_EPOCHS = 20

@@ -35,6 +35,9 @@ class DatasetConfig:
     audio_hdf_path: tk.Path | list[tk.Path]
     sampling_method: SamplingMethod = All
     precomputed: bool = False
+    apply_whitelist: bool = True
+    # Set apply_whitelist=False when the HDF was produced outside the standard
+    # bliss-corpus pipeline and its sequence tags do not match the corpus whitelist
 
 
 def get_dataset_config(
