@@ -765,8 +765,20 @@ def _grader_block(name: str, *, model: str | None = None) -> dict:
     return block
 
 
-def bench_out_prefix(grader: str, n: int | None) -> str:
-    """Where a benchmark tag's outputs are registered: ``benchmark/<grader>/n<N>/<tag>/...``.
+def asr_label(asr: str | None) -> str | None:
+    """Path label of a reply ASR: None (Whisper, the historical protocol) -> None; Parakeet -> ``parakeet_v3`` etc."""
+    if asr is None:
+        return None
+    assert asr in PARAKEET_MODELS, asr
+    return "parakeet_" + asr.rsplit("-", 1)[-1]
+
+
+def bench_out_prefix(grader: str, n: int | None, asr: str | None = None) -> str:
+    """Where a benchmark tag's outputs are registered: ``benchmark/<grader>[-<asr>]/n<N>/<tag>/...``.
+
+    The reply ASR is part of the scoring protocol, so a non-Whisper ASR is in the path too (2026-10-28):
+    ``benchmark/llm_judge-parakeet_v3/n1000/<tag>``. Rows from different directories are different protocols and
+    never go in one table; ``evalstats.load_eval(tag, grader="llm_judge-parakeet_v3")`` reads them.
 
     The grader and the sample size are the two axes that have actually been confused when reading
     these numbers, so they are in the PATH rather than implied by which directory a tool happened to
@@ -781,7 +793,8 @@ def bench_out_prefix(grader: str, n: int | None) -> str:
     asserts that equality so a future divergence fails a check instead of mislabelling a directory.
     """
     assert grader in ("llm_judge", "alias_match"), f"unknown grader {grader!r}"
-    return f"benchmark/{grader}/n{n if n is not None else 'full'}"
+    g = grader if asr is None else f"{grader}-{asr_label(asr)}"
+    return f"benchmark/{g}/n{n if n is not None else 'full'}"
 
 
 class LLMGrading(Job):
@@ -1078,7 +1091,7 @@ def knowledge_benchmark_py(
     if data is not None:  # a prepared question set (docstring: data / data_label / data_n)
         assert data_label and data_n and max_examples is None, (data_label, data_n, max_examples)
         tts_alias = f"benchmark/{data_label}/tts_output"
-        _bench = bench_out_prefix("llm_judge", data_n)
+        _bench = bench_out_prefix("llm_judge", data_n, asr=asr)
     else:
         # 1. Load the full dataset
         raw = LoadRawDataset(dataset_name=dataset_name, split=split)
@@ -1096,7 +1109,7 @@ def knowledge_benchmark_py(
             tk.register_output("benchmark/sampled", data)
 
         # Registered under the grader and sample size, so `ls output/benchmark` shows the partition.
-        _bench = bench_out_prefix("llm_judge", max_examples)
+        _bench = bench_out_prefix("llm_judge", max_examples, asr=asr)
 
     # 3. Speaker voice (reuse existing speaker pool)
     speakers = make_speakers()
