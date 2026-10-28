@@ -15,15 +15,22 @@ Two things are asserted here, and the second is the one that rots quietly:
      the step-ordered answer differs from the naive last-line one -- so a regression to reading the
      tail cannot pass.
 
+Since 2026-10-28 also: the line carries ``produced_at`` (the result's own mtime, so a sink attached after the fact
+sorts by when the result was made); ``read_results.py`` renders every record of the live ``RESULTS.jsonl`` (an
+unknown shape is shown flagged, never as an empty cell); and with ``--graph`` (one config load, ~2 min) every result
+output of a ``SINK_KINDS`` class in the real graph has a sink -- ``attach_result_sinks`` exists because, by
+2026-10, only MFDB and MRQA still fed the log.
+
 Run from the setup root, no GPU needed:
     CUDA_HOME=/usr .venv/bin/python \\
-        recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_result_notify.py
+        recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_result_notify.py [--graph]
 """
 
 import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +38,7 @@ SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_d
 sys.path.insert(0, str(SETUP / "recipe"))
 sys.path.insert(0, str(SETUP / "recipe" / "sisyphus"))
 
+from i6_experiments.users.dorian_koch.speech_llm import read_results  # noqa: E402
 from i6_experiments.users.dorian_koch.speech_llm.result_notify import (  # noqa: E402
     ResultNotify,
     summarize_metrics_jsonl,
@@ -84,6 +92,7 @@ def check_run_dir_is_digested():
         os.makedirs(run_dir)
         _write(os.path.join(run_dir, "metrics.train.jsonl"), TRAIN_ROWS)
         _write(os.path.join(run_dir, "metrics.eval.jsonl"), EVAL_ROWS)
+        os.utime(run_dir, (1700000000, 1700000000))  # the run finished long before its sink fired
         digest_path = os.path.join(tmp, "work", "SomeJob", "output", "result.json")
 
         # Job.__new__ intercepts construction (sisyphus), so drive the real run() unbound.
@@ -111,7 +120,41 @@ def check_run_dir_is_digested():
             "RESULTS.jsonl line does not carry the eval loss -- scanning it at session start would "
             "show that the arm finished and not how it went."
         )
-    print("[ok] a run_dir digest carries both metrics files, and RESULTS.jsonl gets the numbers")
+        want = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1700000000))
+        assert line["produced_at"] == want and line["at"] != want, (line["at"], line["produced_at"], want)
+        text, ok = read_results.render(line)
+        assert ok and "step 3" in text and "loss 1.5" in text, text
+    print("[ok] a run_dir digest carries both metrics files; RESULTS.jsonl gets the numbers and the result's own time")
+
+
+def check_reader_renders_the_live_log():
+    log = SETUP / "RESULTS.jsonl"
+    recs = read_results.load(str(log))
+    bad = [t for t, r in recs.items() if not read_results.render(r)[1]]
+    assert not bad, f"{len(bad)} of {len(recs)} records have no reader: {bad[:5]}"
+    text, ok = read_results.render({"tag": "x", "summary": {"summary": {"some_new_metric": 1}}})
+    assert not ok and text.startswith("?"), f"an unknown shape must be flagged, got {text!r}"
+    print(f"[ok] read_results renders all {len(recs)} records of RESULTS.jsonl; an unknown shape is flagged")
+
+
+def check_graph_coverage():
+    import logging
+
+    os.chdir(SETUP)
+    os.environ.setdefault("CUDA_HOME", "/usr")
+    logging.disable(logging.WARNING)
+    from sisyphus.loader import config_manager
+
+    from i6_experiments.users.dorian_koch.speech_llm.result_notify import sinked_paths, unsinked_results
+
+    config_manager.load_configs(["recipe/speech_llm/full_duplex/sis_recipe/doriank/synthetic_train_data.py"])
+    left = unsinked_results()
+    assert not left, f"{len(left)} result outputs without a sink: {list(left)[:5]}"
+    sinked = sinked_paths()
+    one = next(p for p in sorted(sinked) if p.endswith("summary.json"))
+    gap = unsinked_results(sinked=sinked - {one})
+    assert [p.get_path() for _, p in gap.values()] == [one], f"a dropped sink was not caught: {one} -> {list(gap)}"
+    print(f"[ok] every result output in the graph has a sink ({len(sinked)} sinked paths); a dropped one is caught")
 
 
 def check_empty_and_malformed_are_survivable():
@@ -130,4 +173,7 @@ if __name__ == "__main__":
     check_summary_is_step_ordered()
     check_run_dir_is_digested()
     check_empty_and_malformed_are_survivable()
+    check_reader_renders_the_live_log()
+    if "--graph" in sys.argv:
+        check_graph_coverage()
     print("ALL PASS")

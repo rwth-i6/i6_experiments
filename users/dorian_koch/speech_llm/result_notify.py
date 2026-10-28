@@ -14,7 +14,13 @@ one per experiment is free.
 Usage (recipe):
     from i6_experiments.users.dorian_koch.speech_llm.result_notify import notify_result
     notify_result("audex_stage1_final", {"knowledge": grading.out_summary, "run_dir": ft.out_rundir})
+
+Coverage does not depend on each track remembering ``notify_result``: :func:`attach_result_sinks`, called once after
+the whole config is declared, gives every registered result output of a :data:`SINK_KINDS` class its own sink.
+Read the log with ``read_results.py`` (``--recent N``: newest by when the result was produced).
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -57,9 +63,14 @@ class ResultNotify(Job):
             "note": self.note,
             "results": {},
         }
+        produced = []
         for label, p in self.results.items():
             path = p.get()
             entry = {"path": path}
+            try:
+                produced.append(os.path.getmtime(path))
+            except OSError:
+                pass
             try:
                 base = os.path.basename(path)
                 if os.path.isfile(path) and (path.endswith(".json") or "summary" in base):
@@ -82,6 +93,10 @@ class ResultNotify(Job):
                 entry["read_error"] = str(e)
             digest["results"][label] = entry
 
+        # when the result itself was written: a sink attached after the fact fires late, and its line must still sort
+        # by the result's own time (read_results --recent)
+        if produced:
+            digest["produced_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(max(produced)))
         with open(self.out_digest.get(), "w") as f:
             json.dump(digest, f, indent=2, default=str)
 
@@ -96,6 +111,7 @@ class ResultNotify(Job):
                     json.dumps(
                         {
                             "at": digest["finished_at"],
+                            "produced_at": digest.get("produced_at", digest["finished_at"]),
                             "tag": self.tag,
                             "note": self.note,
                             "digest": self.out_digest.get(),
@@ -103,10 +119,7 @@ class ResultNotify(Job):
                             # gets SCANNED at session start, so a line saying only where a run_dir
                             # lives reports that an arm finished and not how it went.
                             "summary": {
-                                k: v.get(
-                                    "content",
-                                    v.get("metrics", v.get("preview", v.get("path"))),
-                                )
+                                k: compact(v.get("content", v.get("metrics", v.get("preview", v.get("path")))))
                                 for k, v in digest["results"].items()
                             },
                         },
@@ -131,7 +144,30 @@ DIGEST_KEYS = (
     "knowledge_avg_quality",
     "grad_norm",
     "lr",
+    # RL (metrics.train / metrics.probe of RLFinetune, RLFinetuneV2)
+    "reward_mean",
+    "kl",
+    "clip_frac",
+    "policy_lag",
+    "correct_rate",
+    "pass_at_4",
+    "frac_silent",
+    "overall_mean",
+    "coherence_mean",
+    "adherence_mean",
 )
+
+#: per-item detail kept in the digest file but dropped from the central line (it is scanned, not mined)
+COMPACT_DROP = frozenset({"hist", "first32", "by_category", "gaps", "missing"})
+
+
+def compact(obj, depth: int = 0):
+    """``obj`` without :data:`COMPACT_DROP` keys and with long lists cut, for one readable ``RESULTS.jsonl`` line."""
+    if isinstance(obj, dict):
+        return {k: compact(v, depth + 1) for k, v in obj.items() if k not in COMPACT_DROP}
+    if isinstance(obj, list):
+        return [compact(v, depth + 1) for v in obj[:40]]
+    return obj
 
 
 def summarize_metrics_jsonl(path: str, keys=DIGEST_KEYS) -> dict:
@@ -179,3 +215,65 @@ def notify_result(tag: str, results: dict, note: str = "") -> ResultNotify:
     job = ResultNotify(tag=tag, results=results, note=note)
     tk.register_output(f"RESULTS/{tag}", job.out_digest)
     return job
+
+
+#: creator class name -> kind (the ``note``): every registered output of these classes that is a result (a
+#: ``summary*.json``, or the run's ``out_rundir``) gets a sink from :func:`attach_result_sinks`
+SINK_KINDS = {
+    "LLMGrading": "knowledge",
+    "AliasMatchGrading": "knowledge",
+    "MRQAScore": "mrqa",
+    "FullDuplexBenchEval_Evaluation": "mfdb",
+    "SelfPlayJudgeV2": "spj2",
+    "SelfPlayCoherenceJudge": "coherence",
+    "PersonaHeldoutSummary": "heldout",
+    "SpeechFinetune": "train",
+    "RLFinetune": "rl",
+    "RLFinetuneV2": "rl",
+}
+
+
+def _is_result(path, creator) -> bool:
+    if path is getattr(creator, "out_rundir", None):
+        return True
+    base = os.path.basename(path.get_path())
+    return base.startswith("summary") and base.endswith(".json") or base == "eval.json"
+
+
+def sinked_paths() -> set:
+    """Every path some ``ResultNotify`` in the graph waits on."""
+    return {
+        q.get_path()
+        for j in tk.sis_graph.jobs()
+        if isinstance(j, ResultNotify)
+        for q in j.results.values()
+        if hasattr(q, "get_path")
+    }
+
+
+def unsinked_results(kinds: dict = SINK_KINDS, sinked: set | None = None) -> dict:
+    """``{registered output name: (kind, tk.Path)}`` for every result output of a ``kinds`` class that no
+    ``ResultNotify`` in the graph waits on yet (one entry per path: the first name it was registered under)."""
+    sinked = sinked_paths() if sinked is None else sinked
+    out, seen = {}, set()
+    for t in sorted(tk.sis_graph.targets, key=lambda t: t.name):
+        for p in t.required_full_list:
+            kind = kinds.get(type(p.creator).__name__) if p.creator is not None else None
+            if kind is None or not _is_result(p, p.creator):
+                continue
+            key = p.get_path()
+            if key in sinked or key in seen:
+                continue
+            seen.add(key)
+            out[t.name] = (kind, p)
+    return out
+
+
+def attach_result_sinks(kinds: dict = SINK_KINDS) -> int:
+    """Give every result output of a ``kinds`` class its own sink (tag = its registered output name minus a trailing
+    ``/summary``); call once, after the whole config is declared. Returns how many were attached."""
+    todo = unsinked_results(kinds)
+    for name, (kind, p) in todo.items():
+        tag = name[: -len("/summary")] if name.endswith("/summary") else name
+        notify_result(tag, {"run_dir" if kind in ("train", "rl") else "summary": p}, note=kind)
+    return len(todo)
