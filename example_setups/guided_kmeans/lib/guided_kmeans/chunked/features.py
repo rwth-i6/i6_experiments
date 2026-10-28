@@ -17,7 +17,7 @@ from typing import Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..util import PoolingRegistry
+from ..util import PoolingRegistry, pooling_kernel_size_for
 
 #: A transient fault in a node's NFS client clears in seconds; a node whose
 #: open state is really gone never does. Three attempts with a short backoff
@@ -118,6 +118,9 @@ class HDFFeatureSource:
         matches the ``if self.subsampling and self.subsampling > 1`` guard in
         the single-process callback
     :param pooling_function: name in :class:`PoolingRegistry`
+    :param pooling_kernel_size: pooling window in frames; ``None`` means
+        ``2 * subsampling`` (overlapping windows), ``subsampling`` gives
+        non-overlapping ones
     :param chunk: which chunk this instance serves
     :param num_chunks: total number of chunks the corpus is split into
     :param cache: fetch a node-local copy of every file through the i6 cache
@@ -134,6 +137,7 @@ class HDFFeatureSource:
         chunk: int = 0,
         num_chunks: int = 1,
         cache: bool = True,
+        pooling_kernel_size: Optional[int] = None,
     ):
         if isinstance(files, (str, bytes)):
             files = [files]
@@ -145,10 +149,11 @@ class HDFFeatureSource:
         self.chunk = chunk
         self.num_chunks = num_chunks
 
+        self.pooling_kernel_size = pooling_kernel_size
         self.pool = PoolingRegistry.select(
             pooling_function,
             stride=subsampling,
-            kernel_size=2 * subsampling if subsampling else None,
+            kernel_size=pooling_kernel_size_for(subsampling, pooling_kernel_size),
         )
 
         # Resolved once, here rather than per read: every construction site

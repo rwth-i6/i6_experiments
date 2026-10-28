@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from scipy.spatial.distance import cdist
 
-from .util import PoolingRegistry, traceback_to_text
+from .util import PoolingRegistry, pooling_kernel_size_for, traceback_to_text
 from .model import GaussianModelNumpy
 from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem, expand_traceback
 
@@ -30,6 +30,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         task_timeout: float | None = 1800.0,
         per_task_timeout: float | None = 600.0,
         write_frame_labels: bool = False,
+        pooling_kernel_size: int | None = None,
     ):
         self.centroids_file = centroids_file
         self.recognition_config = recognition_config
@@ -44,7 +45,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         self.pool = PoolingRegistry.select(
             pooling_function,
             stride=subsampling,
-            kernel_size=2 * subsampling if subsampling else None,
+            kernel_size=pooling_kernel_size_for(subsampling, pooling_kernel_size),
         )
 
         self.verbosity = verbosity

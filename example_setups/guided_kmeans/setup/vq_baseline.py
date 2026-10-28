@@ -402,9 +402,16 @@ class SupervisedVQTableJob(Job):
         counted table is optimistic by construction, and with no ls-100
         alignment available there is no other corpus to measure generalization
         on.
+    :param subsampling, pooling_function: pool the features over time exactly as
+        training and decoding do (:class:`...util.PoolingRegistry`, window
+        ``pooling_kernel_size``, default ``2 * subsampling``), and label each
+        pooled vector with the frame at the center of its window. ``None`` counts
+        the vectors as they are.
     """
 
-    __sis_hash_exclude__ = {"rqmt": None}
+    __sis_hash_exclude__ = {
+        "rqmt": None, "subsampling": None, "pooling_function": "maxpool_time_np", "pooling_kernel_size": None,
+    }
 
     def __init__(
         self,
@@ -416,6 +423,9 @@ class SupervisedVQTableJob(Job):
         heldout_fraction: float = 0.2,
         split_seed: int = 42,
         rqmt: Optional[Dict[str, Any]] = None,
+        subsampling: Optional[int] = None,
+        pooling_function: str = "maxpool_time_np",
+        pooling_kernel_size: Optional[int] = None,
     ):
         if not 0.0 <= heldout_fraction < 1.0:
             raise ValueError(f"heldout_fraction must be in [0, 1), got {heldout_fraction}")
@@ -428,6 +438,9 @@ class SupervisedVQTableJob(Job):
         self.table_floor = table_floor
         self.heldout_fraction = heldout_fraction
         self.split_seed = split_seed
+        self.subsampling = subsampling
+        self.pooling_function = pooling_function
+        self.pooling_kernel_size = pooling_kernel_size
 
         self.out_model = self.output_path("model", directory=True)
         self.out_table = self.output_path("table.npy")
@@ -458,6 +471,14 @@ class SupervisedVQTableJob(Job):
         with open(self.labels.get_path(), "rb") as fp:
             labels_by_tag = pickle.load(fp)
         tags, lengths, offsets = _read_hdf_index(self.features_hdf.get_path())
+        pool = None
+        if self.subsampling and self.subsampling > 1:
+            from ..lib.guided_kmeans.util import PoolingRegistry, pooled_frame_centers, pooling_kernel_size_for
+
+            kernel_size = pooling_kernel_size_for(self.subsampling, self.pooling_kernel_size)
+            pool = PoolingRegistry.select(
+                self.pooling_function, stride=self.subsampling, kernel_size=kernel_size
+            )
 
         rng = np.random.RandomState(self.split_seed)
         order = rng.permutation(len(tags))
@@ -482,6 +503,10 @@ class SupervisedVQTableJob(Job):
                     raise ValueError(
                         f"{tag}: {len(features)} vectors but {len(seq_labels)} labels"
                     )
+                if pool is not None:
+                    centers = pooled_frame_centers(len(features), self.subsampling, kernel_size)
+                    features = pool(features)
+                    seq_labels = np.asarray(seq_labels)[centers]
                 codewords = cdist(features, centroids, metric="sqeuclidean").argmin(axis=1)
                 if index in heldout:
                     eval_codewords.append(codewords)

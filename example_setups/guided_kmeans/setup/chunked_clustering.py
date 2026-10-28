@@ -2118,6 +2118,7 @@ def chunked_clustering(
     segments: Optional[tk.Path] = None,
     subsampling: Optional[int] = None,
     pooling_function: str = "maxpool_time_np",
+    pooling_kernel_size: Optional[int] = None,
     distance_scale: float = 1.0,
     use_forward_backward: bool = False,
     score_reference: Optional[tk.Path] = None,
@@ -2269,6 +2270,9 @@ def chunked_clustering(
             "segments": segments,
             "subsampling": subsampling,
             "pooling_function": pooling_function,
+            # only when set, so the default (window 2 * subsampling) keeps every
+            # existing run's hash
+            **({"pooling_kernel_size": pooling_kernel_size} if pooling_kernel_size is not None else {}),
         },
     )
     # Which model, which search and which updating routine go together is one

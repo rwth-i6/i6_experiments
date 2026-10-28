@@ -22,7 +22,7 @@ def window_time_np(x: np.ndarray, stride: int, kernel_size: int | None = None) -
     if k <= 0 or stride <= 0:
         raise ValueError("kernel_size and stride must be positive")
     if T < k:
-        return x.max(axis=0, keepdims=True)  # (1, D)
+        return x.T[np.newaxis]  # (1, D, T): one window over the whole sequence
 
     # (T-k+1, D, k)
     w = sliding_window_view(x, window_shape=k, axis=0)
@@ -31,6 +31,26 @@ def window_time_np(x: np.ndarray, stride: int, kernel_size: int | None = None) -
 
     # max over the window axis -> (T', D)
     return w
+
+
+def pooling_kernel_size_for(subsampling: int | None, pooling_kernel_size: int | None = None) -> int | None:
+    """The pooling window in frames: ``pooling_kernel_size`` if given, else ``2 * subsampling``."""
+    if pooling_kernel_size is not None:
+        return pooling_kernel_size
+    return 2 * subsampling if subsampling else None
+
+
+def pooled_frame_centers(num_frames: int, stride: int, kernel_size: int | None = None) -> np.ndarray:
+    """Index of the center frame of every window :func:`window_time_np` pools, (T',).
+
+    Maps a frame-level alignment onto pooled vectors: pooled vector i gets the
+    label of frame ``pooled_frame_centers(...)[i]``.
+    """
+    k = stride if kernel_size is None else kernel_size
+    if num_frames < k:
+        return np.array([num_frames // 2])
+    return np.arange(0, num_frames - k + 1, stride) + k // 2
+
 
 class PoolingRegistry:
     @staticmethod

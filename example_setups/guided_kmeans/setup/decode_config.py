@@ -102,6 +102,7 @@ def get_callback_config(
     write_frame_labels: bool = False,
     legacy_hash_num_workers: bool = False,
     model_dir: tk.Path | None = None,
+    pooling_kernel_size: int | None = None,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -124,6 +125,8 @@ def get_callback_config(
         # decodes that don't write frame labels keep the hash they had before the option
         # existed. Same pattern as the scale schedules in clustering_config.py.
         **({"write_frame_labels": True} if write_frame_labels else {}),
+        # Same: only hashed when it differs from the default window of 2 * subsampling.
+        **({"pooling_kernel_size": pooling_kernel_size} if pooling_kernel_size is not None else {}),
     }
     unhashed_args = {}
     if legacy_hash_num_workers:
@@ -176,6 +179,8 @@ class DecodeConfig:
     distance_scale: float
     subsampling: int | None = None
     pooling_function: str = "maxpool_time_np"
+    #: pooling window in frames; None = 2 * subsampling
+    pooling_kernel_size: int | None = None
     covs: tk.Path | None = None
     model_dir: tk.Path | None = None
     verbosity: int = 1
@@ -213,6 +218,7 @@ def _decode(
         distance_scale=config.distance_scale,
         subsampling=config.subsampling,
         pooling_function=config.pooling_function,
+        pooling_kernel_size=config.pooling_kernel_size,
         verbosity=config.verbosity,
         exclude_lemmata=["[SILENCE]"],
         rasr_path=rasr_path,

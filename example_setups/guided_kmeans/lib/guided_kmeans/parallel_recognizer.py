@@ -268,7 +268,7 @@ class ParallelSegmentRecognizer:
         recognition_config: str,
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
-        per_task_timeout: float | None = 120.0,
+        per_task_timeout: float | None = 180.0,
         max_pending_tasks: int | None = None,
     ):
         self.recognition_config = recognition_config

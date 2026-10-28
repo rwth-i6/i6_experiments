@@ -189,10 +189,28 @@ class JiwerScoringJob(Job):
 
 
 class FrameErrorRateJob(Job):
-    def __init__(self, frame_labels: tk.Path, alignment: tk.Path, lexicon: tk.Path):
+    """
+    :param subsampling, pooling_kernel_size: the decode's subsampling factor and
+        pooling window (default ``2 * subsampling``). The hypothesis then has one
+        label per pooled window, so the reference is reduced to the frame at the
+        center of each window.
+    """
+
+    __sis_hash_exclude__ = {"subsampling": None, "pooling_kernel_size": None}
+
+    def __init__(
+        self,
+        frame_labels: tk.Path,
+        alignment: tk.Path,
+        lexicon: tk.Path,
+        subsampling: int | None = None,
+        pooling_kernel_size: int | None = None,
+    ):
         self.frame_labels = frame_labels
         self.alignment = alignment
         self.lexicon = lexicon
+        self.subsampling = subsampling
+        self.pooling_kernel_size = pooling_kernel_size
         self.out_fer = self.output_var("fer")
         self.out_frame_confusion_pairs = self.output_path("frame_confusion_pairs.tsv")
 
@@ -203,6 +221,10 @@ class FrameErrorRateJob(Job):
         import gzip, json, pickle
         import numpy as np
         from xml.etree import ElementTree as ET
+        from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.util import (
+            pooled_frame_centers,
+            pooling_kernel_size_for,
+        )
 
         lexicon_path = self.lexicon.get_path()
         open_fn = gzip.open if lexicon_path.endswith(".gz") else open
@@ -231,6 +253,9 @@ class FrameErrorRateJob(Job):
             if short_tag not in hyp_frames:
                 continue
             hyp = np.array([phoneme_to_idx.get(p, -1) for p in hyp_frames[short_tag]])
+            if self.subsampling and self.subsampling > 1:
+                kernel_size = pooling_kernel_size_for(self.subsampling, self.pooling_kernel_size)
+                ref = np.asarray(ref)[pooled_frame_centers(len(ref), self.subsampling, kernel_size)]
             n = min(len(ref), len(hyp))
             total += n
             errors += int(np.sum(ref[:n] != hyp[:n]))
