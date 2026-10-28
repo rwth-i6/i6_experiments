@@ -178,7 +178,14 @@ def get_linear_search_recog_config(
     logfile_suffix: str = "recog",
     rasr_binary_path: tk.Path | None = None,
     corpus_config: Optional[RasrConfig] = None,
+    num_hmm_states: int = 1,
+    tie_hmm_states: bool = True,
 ) -> tk.Path:
+    """:param num_hmm_states: left-to-right HMM states per phoneme. Needs the
+    HMM-states build (tools.RASR_PATH_HMM_STATES); only written to the config
+    when above 1, so configs without it are unchanged.
+    :param tie_hmm_states: False gives every state its own score column,
+    ``label * num_hmm_states + state``; only written when False."""
     rasr_config, rasr_post_config = _get_base_lib_rasr_config(
         lexicon_file=lexicon_file,
         search_algorithm_type="ngram-linear-search",
@@ -196,6 +203,10 @@ def get_linear_search_recog_config(
         rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
     if blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
+    if num_hmm_states != 1:
+        rasr_config.lib_rasr.search_algorithm.num_hmm_states = num_hmm_states
+    if not tie_hmm_states:
+        rasr_config.lib_rasr.search_algorithm.tie_hmm_states = False
 
     rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.log_statistics = log_statistics
@@ -219,10 +230,18 @@ def get_forward_backward_recog_config(
     logfile_suffix: str = "recog",
     rasr_binary_path: tk.Path | None = None,
     apply_sentence_end_score: bool = False,
+    num_hmm_states: int = 1,
+    tie_hmm_states: bool = True,
 ) -> tk.Path:
     """:param apply_sentence_end_score: add the LM sentence-end score to every final
     state. Needs the memory-efficient forward-backward build; only written to the
-    config when set, so configs without it are unchanged."""
+    config when set, so configs without it are unchanged.
+    :param num_hmm_states: left-to-right HMM states per phoneme. Needs the
+    HMM-states forward-backward build (tools.RASR_PATH_FORWARD_BACKWARD_HMM_STATES);
+    only written to the config when above 1.
+    :param tie_hmm_states: False gives every state its own score column,
+    ``label * num_hmm_states + state``, and the gammas one column per state as
+    well; only written when False."""
     crp = CommonRasrParameters()
     logfile_name = f"rasr.{logfile_suffix}.log"
 
@@ -250,6 +269,10 @@ def get_forward_backward_recog_config(
     rasr_config.lib_rasr.search_algorithm.type = "forward-backward"
     if apply_sentence_end_score:
         rasr_config.lib_rasr.search_algorithm.apply_sentence_end_score = True
+    if num_hmm_states != 1:
+        rasr_config.lib_rasr.search_algorithm.num_hmm_states = num_hmm_states
+    if not tie_hmm_states:
+        rasr_config.lib_rasr.search_algorithm.tie_hmm_states = False
 
     rasr_config.lib_rasr.lexicon.file = lexicon_file
 

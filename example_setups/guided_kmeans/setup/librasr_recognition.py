@@ -289,9 +289,19 @@ def create_recog_rasr_config(
     forbid_blank=False,
     label_to_blank_probability=None,
     apply_sentence_end_score=False,
+    num_hmm_states=1,
+    tie_hmm_states=True,
 ):
+    """:param num_hmm_states: left-to-right HMM states per phoneme, each looping with
+        ``loop_probability``. Linear and forward-backward search; needs
+        ``tools.RASR_PATH_HMM_STATES`` (decoding) or
+        ``tools.RASR_PATH_FORWARD_BACKWARD_HMM_STATES`` (training) as the RASR path.
+    :param tie_hmm_states: False for a model with one score column per state
+        (``label * num_hmm_states + state``) instead of one per label."""
     if apply_sentence_end_score and not use_forward_backward_search:
         raise ValueError("apply_sentence_end_score is a forward-backward search option")
+    if (num_hmm_states != 1 or not tie_hmm_states) and use_tree_search:
+        raise ValueError("num_hmm_states/tie_hmm_states are not implemented in the tree search")
     if loop_log_odds is not None:
         if transition_scale is not None:
             raise ValueError(
@@ -374,6 +384,8 @@ def create_recog_rasr_config(
             log_stepwise_statistics=False,
             rasr_binary_path=rasr_binary_path,
             apply_sentence_end_score=apply_sentence_end_score,
+            num_hmm_states=num_hmm_states,
+            tie_hmm_states=tie_hmm_states,
         )
     else:
         recog_config = get_linear_search_recog_config(
@@ -395,6 +407,8 @@ def create_recog_rasr_config(
             log_stepwise_statistics=False,
             rasr_binary_path=rasr_binary_path,
             corpus_config=corpus_config,
+            num_hmm_states=num_hmm_states,
+            tie_hmm_states=tie_hmm_states,
         )
     return recog_config
 

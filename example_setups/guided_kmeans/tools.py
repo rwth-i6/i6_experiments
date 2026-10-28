@@ -30,6 +30,13 @@ if cur_user == "lkleppel":
     # double-precision alpha/beta, and the optional sentence-end score. A separate path
     # because the RASR path is hashed: switching the one above would recompute every run.
     RASR_PATH_FORWARD_BACKWARD_MEM_EFFICIENT = tk.Path("/work/asr4/lkleppel/rasr_dev/forward-backward/rasr_mem_efficient/arch/linux-x86_64-standard")
+    # Linear search with the `num-hmm-states` parameter (left-to-right states per phoneme,
+    # tied emissions). At one state it searches exactly like RASR_PATH.
+    RASR_PATH_HMM_STATES = tk.Path("/work/asr4/lkleppel/rasr_dev/ngram_linear_search/rasr_hmm_states/arch/linux-x86_64-standard")
+    # The memory-efficient forward-backward search with the same `num-hmm-states` /
+    # `tie-hmm-states` parameters. At one tied state it computes exactly like
+    # RASR_PATH_FORWARD_BACKWARD_MEM_EFFICIENT.
+    RASR_PATH_FORWARD_BACKWARD_HMM_STATES = tk.Path("/work/asr4/lkleppel/rasr_dev/forward-backward/rasr_hmm_states/arch/linux-x86_64-standard")
 else:
     RETURNN_PYTHON_EXE = moved_from_asr3("/work/asr4/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
     RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
@@ -44,6 +51,10 @@ else:
     RASR_PATH_FORWARD_BACKWARD = moved_from_asr3("/work/asr4/mann/tools/rasr/fwd_bwd/arch/linux-x86_64-standard")
     # No python-3.11 build of the memory-efficient forward-backward search exists yet.
     RASR_PATH_FORWARD_BACKWARD_MEM_EFFICIENT = None
+    # No python-3.11 build of the linear search with HMM states exists yet.
+    RASR_PATH_HMM_STATES = None
+    # Nor of the forward-backward search with HMM states.
+    RASR_PATH_FORWARD_BACKWARD_HMM_STATES = None
 
 
 #: The backoff n-gram HMM forward-backward CUDA op (see its SPEC.md and README).
