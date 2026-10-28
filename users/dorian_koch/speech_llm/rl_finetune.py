@@ -242,6 +242,7 @@ vad_backend: "{job.vad_backend}"
 quality_asr: "{job.quality_asr}"
 quality_asr_model: "{job.quality_asr_model or ""}"
 quality_asr_num_beams: {getattr(job, "quality_asr_num_beams", 5)}
+quality_asr_python: "{job.quality_asr_python.get() if getattr(job, "quality_asr_python", None) is not None else ""}"
 max_steps: {job.max_steps}
 grad_accum: {job.grad_accum}
 num_samples: {job.num_samples}
@@ -387,6 +388,9 @@ class RLFinetune(Job):
         # reward-side Whisper beam width (2026-10-11; moshi_family.rl.quality.ASR_NUM_BEAMS): excluded at 5 = every
         # earlier ASR arm; 1 = greedy (asr_bench 2026-10-05)
         "quality_asr_num_beams": 5,
+        # the NeMo venv's python for quality_asr="parakeet" (2026-10-28; moshi_family.rl.parakeet_worker): excluded at
+        # None = every earlier arm (none used parakeet: it needed NeMo in moshi_family_venv)
+        "quality_asr_python": None,
         "rqmt": None,
         # Launcher setup fixes (finetune.LAUNCHER_FIX_PRESETS["rl_grpo"]; runs.launcher_fix_hparams):
         # excluded at None so every existing job keeps its hash; new runs pass the policy's dict.
@@ -497,6 +501,7 @@ class RLFinetune(Job):
         quality_asr: str = "whisper",
         quality_asr_model: str | None = None,
         quality_asr_num_beams: int = 5,
+        quality_asr_python: tk.Path | None = None,
         max_steps: int = 3200,
         grad_accum: int = 2,
         num_samples: int = 16,
@@ -808,6 +813,11 @@ class RLFinetune(Job):
         self.quality_asr_model = quality_asr_model
         assert int(quality_asr_num_beams) >= 1, quality_asr_num_beams
         self.quality_asr_num_beams = int(quality_asr_num_beams)
+        if quality_asr == "parakeet" and quality_asr_python is None:
+            from .fdb import fdb_asr_venv  # NeMo; the reward ASR worker runs under it
+
+            quality_asr_python = fdb_asr_venv()
+        self.quality_asr_python = quality_asr_python
         # text-mode OPD (moshi_family.rl.text_teacher): "base_text" = the frozen base LM in text-only mode as a per-token
         # teacher on the reply's content tokens, reverse KL x text_teacher_weight next to the GRPO loss; "qctx_speech"
         # (2026-10-16) = the frozen init with the question in its system prompt (gap-ladder rung B) on every reply frame

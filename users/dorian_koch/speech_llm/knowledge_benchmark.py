@@ -487,8 +487,31 @@ KNOWLEDGE_QUESTION_SETS: dict = {}
 KNOWLEDGE_GRADINGS: dict = {}
 
 
+#: ``asr`` values that select the Parakeet (NeMo TDT) worker instead of faster-whisper.
+PARAKEET_MODELS = ("nvidia/parakeet-tdt-0.6b-v2", "nvidia/parakeet-tdt-0.6b-v3")
+
+
+def asr_venv_python(asr: str | None) -> tk.AbstractPath:
+    """The venv a ``WhisperTranscription(asr=...)`` runs in: NeMo for Parakeet, else the whisper venv."""
+    if asr in PARAKEET_MODELS:
+        from .fdb import fdb_asr_venv
+
+        return fdb_asr_venv()
+    assert asr is None, f"unknown asr {asr!r}; None (Whisper, model_size) or one of {PARAKEET_MODELS}"
+    from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import whisper_venv
+
+    return whisper_venv()
+
+
 class WhisperTranscription(Job):
-    """Transcribe Moshi response audio using Whisper."""
+    """Transcribe response audio: faster-whisper ``model_size`` (default), or Parakeet when ``asr`` names one.
+
+    ``asr``: None = Whisper (every result before 2026-10-28); a ``PARAKEET_MODELS`` entry = the NeMo worker
+    (``parakeet_benchmark_inference.py``, same output schema). The venv must match: ``asr_venv_python(asr)``.
+    Hash-excluded at None, so no existing transcription moves.
+    """
+
+    __sis_hash_exclude__ = {"asr": None}
 
     def __init__(
         self,
@@ -497,11 +520,14 @@ class WhisperTranscription(Job):
         in_dir: tk.Path,
         reference_data: tk.Path,
         model_size: str = "medium",
+        asr: str | None = None,
     ):
+        assert asr is None or asr in PARAKEET_MODELS, asr
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
         self.reference_data = reference_data
         self.model_size = model_size
+        self.asr = asr
         self.out_json = self.output_path("transcriptions.jsonl")
         self.rqmt = {"gpu": 1, "cpu": 2, "mem": 8, "time": 2}
 
@@ -509,7 +535,9 @@ class WhisperTranscription(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        script_path = Path(__file__).resolve().parent / "whisper_benchmark_inference.py"
+        parakeet = getattr(self, "asr", None) is not None
+        script = "parakeet_benchmark_inference.py" if parakeet else "whisper_benchmark_inference.py"
+        script_path = Path(__file__).resolve().parent / script
         args = [
             "--in_dir",
             self.in_dir.get(),
@@ -517,8 +545,7 @@ class WhisperTranscription(Job):
             self.reference_data.get(),
             "--out_json",
             self.out_json.get(),
-            "--model_size",
-            self.model_size,
+            *(["--model", self.asr] if parakeet else ["--model_size", self.model_size]),
         ]
         # Per-GPU fan-out (backlog G1): clips strided by index across workers, each writing its own
         # jsonl part + .idx sidecar; merged back into clip order below.
@@ -535,8 +562,8 @@ class WhisperTranscription(Job):
             self.venv_python_path.get(),
             script_path,
             args_for,
-            log_label="Whisper benchmark transcription",
-            with_hf_home=False,
+            log_label="Parakeet benchmark transcription" if parakeet else "Whisper benchmark transcription",
+            with_hf_home=parakeet,  # Parakeet loads offline from the shared HF cache
         )
         if n > 1:
             parts = [f"{out_json}.part{k}" for k in range(n)]
@@ -970,6 +997,7 @@ def knowledge_benchmark_py(
     data: tk.Path | None = None,
     data_label: str | None = None,
     data_n: int | None = None,
+    asr: str | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -1035,11 +1063,14 @@ def knowledge_benchmark_py(
             subsample. Its TTS registers under ``benchmark/<data_label>/tts_output`` (the default TriviaQA paths would
             collide), the model stages under ``benchmark/llm_judge/n<data_n>/<tag>/``; the summary's per-``category``
             accuracies are the per-set numbers. None (default) = the original path, unchanged.
+        asr: the reply ASR. None (default) = faster-whisper ``whisper_model``, as every tag before 2026-10-28;
+            a ``PARAKEET_MODELS`` entry = Parakeet. Changes only the transcription and grading jobs (the
+            inference job is shared), so a Parakeet re-score of an existing tag runs ASR + grading only.
+            Never compare tags scored with different ASR.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
         moshi_venv,
-        whisper_venv,
         make_speakers,
     )
 
@@ -1111,10 +1142,11 @@ def knowledge_benchmark_py(
         s2s = AudexSpeechS2S(in_dir=tts.out_dir)
         tk.register_output(f"{_bench}/{tag}/s2s_wavs", s2s.out_dir)
         transcription = WhisperTranscription(
-            venv_python_path=whisper_venv(),
+            venv_python_path=asr_venv_python(asr),
             in_dir=s2s.out_dir,
             reference_data=data,
             model_size=whisper_model,
+            asr=asr,
         )
         tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
         grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
@@ -1203,10 +1235,11 @@ def knowledge_benchmark_py(
 
     # 6. Whisper transcription
     transcription = WhisperTranscription(
-        venv_python_path=whisper_venv(),
+        venv_python_path=asr_venv_python(asr),
         in_dir=moshi_out,
         reference_data=data,
         model_size=whisper_model,
+        asr=asr,
     )
     tk.register_output(f"{_bench}/{tag}/transcription", transcription.out_json)
     KNOWLEDGE_TRANSCRIPTIONS[f"{_bench}/{tag}"] = transcription
