@@ -288,7 +288,10 @@ def create_recog_rasr_config(
     lm_path=None,
     forbid_blank=False,
     label_to_blank_probability=None,
+    apply_sentence_end_score=False,
 ):
+    if apply_sentence_end_score and not use_forward_backward_search:
+        raise ValueError("apply_sentence_end_score is a forward-backward search option")
     if loop_log_odds is not None:
         if transition_scale is not None:
             raise ValueError(
@@ -370,6 +373,7 @@ def create_recog_rasr_config(
             log_statistics=False,
             log_stepwise_statistics=False,
             rasr_binary_path=rasr_binary_path,
+            apply_sentence_end_score=apply_sentence_end_score,
         )
     else:
         recog_config = get_linear_search_recog_config(

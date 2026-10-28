@@ -167,6 +167,9 @@ def build_vq_training(
     loop_prob=None,
     silence_loop_prob=None,
     label_to_blank_probability=None,
+    forbid_blank=False,
+    apply_sentence_end_score=False,
+    rasr_path=None,
     subsampling=None,
     pooling_function="maxpool_time_np",
     pooling_kernel_size=None,
@@ -254,6 +257,8 @@ def build_vq_training(
         loop_probability=loop_prob,
         silence_loop_probability=silence_loop_prob,
         label_to_blank_probability=label_to_blank_probability,
+        forbid_blank=forbid_blank,
+        apply_sentence_end_score=apply_sentence_end_score,
         use_forward_backward_search=USE_FORWARD_BACKWARD,
         lm_order=lm_order,
         use_eow_phonemes=USE_EOW_PHONEMES,
@@ -288,7 +293,9 @@ def build_vq_training(
         distance_scale=distance_scale,
         use_forward_backward=USE_FORWARD_BACKWARD,
         rasr_path=(
-            tools.RASR_PATH_FORWARD_BACKWARD if USE_FORWARD_BACKWARD else tools.RASR_PATH
+            rasr_path if rasr_path is not None
+            else tools.RASR_PATH_FORWARD_BACKWARD if USE_FORWARD_BACKWARD
+            else tools.RASR_PATH
         ),
         num_chunks=num_chunks,
         num_workers=num_workers,

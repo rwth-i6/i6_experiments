@@ -218,7 +218,11 @@ def get_forward_backward_recog_config(
     log_stepwise_statistics: bool = False,
     logfile_suffix: str = "recog",
     rasr_binary_path: tk.Path | None = None,
+    apply_sentence_end_score: bool = False,
 ) -> tk.Path:
+    """:param apply_sentence_end_score: add the LM sentence-end score to every final
+    state. Needs the memory-efficient forward-backward build; only written to the
+    config when set, so configs without it are unchanged."""
     crp = CommonRasrParameters()
     logfile_name = f"rasr.{logfile_suffix}.log"
 
@@ -244,6 +248,8 @@ def get_forward_backward_recog_config(
     rasr_config.lib_rasr.lexicon = RasrConfig()
     rasr_config.lib_rasr.search_algorithm = RasrConfig()
     rasr_config.lib_rasr.search_algorithm.type = "forward-backward"
+    if apply_sentence_end_score:
+        rasr_config.lib_rasr.search_algorithm.apply_sentence_end_score = True
 
     rasr_config.lib_rasr.lexicon.file = lexicon_file
 
