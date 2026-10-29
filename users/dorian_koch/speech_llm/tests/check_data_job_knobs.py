@@ -50,4 +50,21 @@ except AssertionError:
     pass
 SeamlessSegmentEncodeJob(venv_python_path=p, audio_dir=p)
 print("[3] SeamlessSegmentEncodeJob refuses a sample_rate it never forwards")
+
+import json  # noqa: E402
+
+sys.path.insert(0, "recipe/speech_llm/full_duplex")
+from moshi_family.podcast_slice_main import slice_words  # noqa: E402
+
+from i6_experiments.users.dorian_koch.speech_llm import podcast_ingest as pi  # noqa: E402
+
+asr = json.dumps({"channels": [{"channel": 0, "words": [{"text": "so", "start": 9.9, "end": 10.3}]}]})
+assert json.loads(slice_words(asr, 0, 10.0, 20.0))[0]["start"] < 0, "CAN FAIL: the old rule keeps a negative start"
+assert json.loads(slice_words(asr, 0, 10.0, 20.0, True))[0]["start"] == 0.0, "clamped start is not 0"
+sk = dict(mimi_venv_python=p, repo_dir=p, in_dir=p)
+assert pi.PodcastDialogueSlice(**sk, clamp_row_start=False)._sis_id() != pi.PodcastDialogueSlice(**sk)._sis_id()
+assert len(pi.SLICE_UNCLAMPED_TAGS) == 10, "SLICE_UNCLAMPED_TAGS is frozen"
+src = inspect.getsource(pi.podcast_sliced_codes)
+assert 'slice_kwargs.setdefault("clamp_row_start", tag not in SLICE_UNCLAMPED_TAGS)' in src
+print("[4] slicer: a row-start-straddling word starts at 0 for new slicings; the ten existing ones keep their hash")
 print("check_data_job_knobs: OK")

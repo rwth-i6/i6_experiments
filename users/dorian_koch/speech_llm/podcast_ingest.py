@@ -1564,6 +1564,7 @@ class PodcastDialogueSlice(Job):
         "drop_channel_collisions": False,
         "min_intruder_sec": 0.0,
         "pre_roll_sec": 0.0,
+        "clamp_row_start": False,
     }
 
     def __init__(
@@ -1580,6 +1581,7 @@ class PodcastDialogueSlice(Job):
         drop_channel_collisions: bool = False,
         min_intruder_sec: float = 0.0,
         pre_roll_sec: float = 0.0,
+        clamp_row_start: bool = True,
         rows_per_part: int = 2000,
         code_version: int = 1,
         rqmt: dict | None = None,
@@ -1604,6 +1606,9 @@ class PodcastDialogueSlice(Job):
         # > 0: start each row up to this much earlier, into the silence before the dialogue only
         # (podcast_slice_main.pre_roll_start; user 2026-09-24). Hashed when set.
         self.pre_roll_sec = float(pre_roll_sec)
+        # True (the default since 2026-10-29): a word straddling the row start starts at 0 instead of a negative time,
+        # which interleave_text drops. The slicings built before pin False (SLICE_UNCLAMPED_TAGS).
+        self.clamp_row_start = bool(clamp_row_start)
         self.rows_per_part = int(rows_per_part)
         self.code_version = int(code_version)
         self.out_dir = self.output_path("codes", directory=True)
@@ -1672,10 +1677,29 @@ class PodcastDialogueSlice(Job):
                 if float(getattr(self, "min_intruder_sec", 0.0)) > 0
                 else []
             )
-            + (["--pre_roll_sec", self.pre_roll_sec] if float(getattr(self, "pre_roll_sec", 0.0)) > 0 else []),
+            + (["--pre_roll_sec", self.pre_roll_sec] if float(getattr(self, "pre_roll_sec", 0.0)) > 0 else [])
+            + (["--clamp_row_start"] if getattr(self, "clamp_row_start", False) else []),
             log_label="Podcast dialogue slice",
             extra_env={"PYTHONPATH": _moshi_pythonpath()},
         )
+
+
+#: The slicings built before 2026-10-29: they keep a row-start-straddling word at its negative start (dropped from the
+#: text stream). Frozen: a new tag gets ``clamp_row_start=True``.
+SLICE_UNCLAMPED_TAGS = frozenset(
+    {
+        "jre_chunked_duplexchat_default",
+        "jre_pilot_duplexchat_default",
+        "jre_nofilter_duplexchat_default",
+        "jre_duplexchat_default",
+        "jre_full_duplexchat_default",
+        "jre_full_intr1_duplexchat_default",
+        "jre_full_intr1_pre1_duplexchat_default",
+        "openyap_pilot_duplexchat_default",
+        "openyap_duplexchat_default",
+        "openyap_heldout_duplexchat_default",
+    }
+)
 
 
 def podcast_sliced_codes(
@@ -1693,6 +1717,7 @@ def podcast_sliced_codes(
     everything, so the fan-out matches the ingest and a re-slice parallelises the same way.
     """
     repo = duplexchat_repo()
+    slice_kwargs.setdefault("clamp_row_start", tag not in SLICE_UNCLAMPED_TAGS)
     slice_dirs = []
     for d in episode_shard_dirs:
         job = PodcastDialogueSlice(mimi_venv_python=mimi_venv_python, repo_dir=repo, in_dir=d, **slice_kwargs)
