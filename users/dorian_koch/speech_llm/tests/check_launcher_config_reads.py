@@ -105,9 +105,16 @@ def rendered_keys(recipe_file: str, fn_name: str) -> set:
     raise AssertionError(f"{fn_name} not found in {recipe_file}")
 
 
+#: Module-level reader functions whose ``cfg`` reads count as main()'s at the line main() calls them (a branch-free
+#: call above the strict check makes every read in them unconditional and early; the same rules apply inside them).
+#: ``train_loader_args``: the PersonaPlex loader knobs, shared with the replay scripts (audit SCRIPTS-03).
+READ_HELPERS = {"train_loader_args"}
+
+
 def read_keys(path: Path) -> tuple[set, set, set]:
     """Config keys main() reads -> (all, read inside a branch/closure, read after the strict check)."""
     tree = ast.parse(path.read_text())
+    helpers = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in READ_HELPERS}
     main = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"),
         None,
@@ -127,18 +134,21 @@ def read_keys(path: Path) -> tuple[set, set, set]:
 
     all_keys, conditional, late = set(), set(), set()
 
-    def visit(node, guarded: bool):
+    def visit(node, guarded: bool, at_line=None):
         for child in ast.iter_child_nodes(node):
+            line = at_line if at_line is not None else getattr(child, "lineno", 0)
             key = config_key(child)
             if key is not None:
                 all_keys.add(key)
                 if guarded:
                     conditional.add(key)
-                if check_line is not None and child.lineno > check_line:
+                if check_line is not None and line > check_line:
                     late.add(key)
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id in helpers:
+                visit(helpers[child.func.id], guarded, line)
             # A read inside a branch, a loop, a try, or a closure is not guaranteed to happen.
             nested = guarded or isinstance(child, (ast.If, ast.For, ast.While, ast.Try, ast.FunctionDef, ast.IfExp))
-            visit(child, nested)
+            visit(child, nested, at_line)
 
     visit(main, False)
     return all_keys, conditional, late
