@@ -60,13 +60,17 @@ def check(cond, msg, extra=""):
         FAILURES.append(msg)
 
 
+#: Module-level config readers a launcher's main() calls (as check_launcher_config_reads.READ_HELPERS).
+READ_HELPERS = {"main", "train_loader_args"}
+
+
 def launcher_keys(rel: str) -> set:
-    main = next(
-        n for n in ast.walk(ast.parse((LIB / rel).read_text())) if isinstance(n, ast.FunctionDef) and n.name == "main"
-    )
+    tree = ast.parse((LIB / rel).read_text())
+    fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in READ_HELPERS]
     return {
         n.args[0].value
-        for n in ast.walk(main)
+        for fn in fns
+        for n in ast.walk(fn)
         if isinstance(n, ast.Call)
         and getattr(n.func, "attr", "") == "get"
         and getattr(n.func.value, "id", "") == "cfg"

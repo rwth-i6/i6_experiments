@@ -253,6 +253,10 @@ def check_audex_loaders_seek():
                 self.cfg = type("C", (), {"duration_sec": 20.0})()
                 self.num_frames = 250
 
+            def _init_frame_geometry(self, duration_sec):  # train_data_common's, without a mimi
+                self.num_frames = int(round(duration_sec * self.frame_rate))
+                self.duration_sec = float(duration_sec)
+
         def full(skip):
             tok = Tok()
             for kind, codes, mask in atd.stage1_full_loader(

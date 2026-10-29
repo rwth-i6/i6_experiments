@@ -807,13 +807,22 @@ KNOWLEDGE_DEFAULT_ASR = "nvidia/parakeet-tdt-0.6b-v3"
 DEFAULT_ASR_CALLS: list = []
 
 
-def default_knowledge_asr(tag: str, n: int | None) -> str | None:
-    """Whisper (None) for a tag declared before 2026-10-29 (``knowledge_whisper_tags``), else
-    :data:`KNOWLEDGE_DEFAULT_ASR`. Keyed by the tag's Whisper output path, so a renamed tag is a new tag."""
-    from .knowledge_whisper_tags import WHISPER_TAGS
+def reply_key(reply: tk.Path) -> str:
+    """The identity of a benchmark's replies: the job that wrote them and the output's name (label-free)."""
+    return f"{reply.creator._sis_id()}/{reply.path}"
 
-    key = f"{bench_out_prefix('llm_judge', n)}/{tag}"
-    asr = None if key in WHISPER_TAGS else KNOWLEDGE_DEFAULT_ASR
+
+def default_knowledge_asr(reply: tk.Path) -> str | None:
+    """Whisper (None) for replies whose job existed on 2026-10-29 (``knowledge_whisper_tags.WHISPER_REPLIES``), else
+    :data:`KNOWLEDGE_DEFAULT_ASR`. Keyed by the replies, not the tag: the tag is a label, and a label never decides a
+    hash (renaming an arm must move nothing)."""
+    from .knowledge_whisper_tags import WHISPER_REPLIES
+
+    key = reply_key(reply)
+    if WHISPER_REPLIES is None:  # bootstrap: record the declared replies
+        DEFAULT_ASR_CALLS.append((key, None))
+        return None
+    asr = None if key in WHISPER_REPLIES else KNOWLEDGE_DEFAULT_ASR
     DEFAULT_ASR_CALLS.append((key, asr))
     return asr
 
@@ -1123,9 +1132,9 @@ def knowledge_benchmark_py(
             subsample. Its TTS registers under ``benchmark/<data_label>/tts_output`` (the default TriviaQA paths would
             collide), the model stages under ``benchmark/llm_judge/n<data_n>/<tag>/``; the summary's per-``category``
             accuracies are the per-set numbers. None (default) = the original path, unchanged.
-        asr: the reply ASR. "default" = :data:`KNOWLEDGE_DEFAULT_ASR` (Parakeet v3) for a new tag, faster-whisper
-            ``whisper_model`` for the tags declared before 2026-10-29 (``knowledge_whisper_tags``: they keep their
-            hash and table); None = Whisper; a ``PARAKEET_MODELS`` entry = Parakeet. Changes only the transcription
+        asr: the reply ASR. "default" = :data:`KNOWLEDGE_DEFAULT_ASR` (Parakeet v3) for new replies, faster-whisper
+            ``whisper_model`` for replies whose inference job existed on 2026-10-29 (``knowledge_whisper_tags``: they
+            keep their hash and table; keyed by the inference job, so renaming an arm changes nothing); None = Whisper; a ``PARAKEET_MODELS`` entry = Parakeet. Changes only the transcription
             and grading jobs (the inference job is shared), so a Parakeet re-score of an existing tag runs ASR +
             grading only. Each ASR writes its own table: never compare tags scored with different ASR.
     """
@@ -1135,8 +1144,10 @@ def knowledge_benchmark_py(
         make_speakers,
     )
 
-    if asr == "default":
-        asr = default_knowledge_asr(tag, data_n if data is not None else max_examples)
+    # "default" is resolved once the reply-producing job exists (default_knowledge_asr: keyed by that job, not the tag)
+    resolve_asr, bench_n = asr == "default", (data_n if data is not None else max_examples)
+    if resolve_asr:
+        asr = None
     tts_alias = "benchmark/tts_output"
     if data is not None:  # a prepared question set (docstring: data / data_label / data_n)
         assert data_label and data_n and max_examples is None, (data_label, data_n, max_examples)
@@ -1203,6 +1214,9 @@ def knowledge_benchmark_py(
         from .audex_speech_s2s import AudexSpeechS2S
 
         s2s = AudexSpeechS2S(in_dir=tts.out_dir)
+        if resolve_asr:
+            asr = default_knowledge_asr(s2s.out_dir)
+            _bench = bench_out_prefix("llm_judge", bench_n, asr=asr)
         tk.register_output(f"{_bench}/{tag}/s2s_wavs", s2s.out_dir)
         transcription = WhisperTranscription(
             venv_python_path=asr_venv_python(asr),
@@ -1278,6 +1292,9 @@ def knowledge_benchmark_py(
     )
     num_shards = 1 if single else 2
     moshi_out = sharded_knowledge_inference(num_shards=num_shards, **inference_kwargs)
+    if resolve_asr:
+        asr = default_knowledge_asr(moshi_out)
+        _bench = bench_out_prefix("llm_judge", bench_n, asr=asr)
     tk.register_output(f"{_bench}/{tag}/moshi_output", moshi_out)
 
     if text_logits_first_n is not None:

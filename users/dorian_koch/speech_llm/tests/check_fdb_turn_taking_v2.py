@@ -89,10 +89,32 @@ def checks(mod, tmp):
     return fails
 
 
+#: Unpacks the guard's clips from the packed MFDB tree (file_tree_store, since 2026-10-14) with the setup venv: the
+#: fdb_eval venv has no ``datasets``, as in the MFDB jobs, which unpack before the evaluator runs.
+UNPACK = '''
+import os, sys
+from file_tree_store import is_tree_dataset, iter_tree
+src, dst, clips = sys.argv[1], sys.argv[2], sys.argv[3:]
+assert is_tree_dataset(src), src
+for rel, data in iter_tree(src):
+    if rel.split("/", 1)[0] in clips:
+        os.makedirs(os.path.dirname(os.path.join(dst, rel)), exist_ok=True)
+        with open(os.path.join(dst, rel), "wb") as f:
+            f.write(data)
+'''
+
+
 def main():
+    import subprocess
+
     with tempfile.TemporaryDirectory(prefix="check_tt2_") as tmp:
-        for c in CLIPS:
-            shutil.copytree(os.path.join(AUDIO, c), os.path.join(tmp, c))
+        if os.path.isdir(os.path.join(AUDIO, CLIPS[0])):  # a plain tree (before 2026-10-14)
+            for c in CLIPS:
+                shutil.copytree(os.path.join(AUDIO, c), os.path.join(tmp, c))
+        else:
+            lib = os.path.join(ROOT, "recipe/i6_experiments/users/dorian_koch/speech_llm")
+            env = dict(os.environ, PYTHONPATH=lib)
+            subprocess.run([os.path.join(ROOT, ".venv/bin/python"), "-c", UNPACK, AUDIO, tmp, *CLIPS], check=True, env=env)
         fails = checks(v2, tmp)
         if fails:
             print("FAIL\n" + "\n".join(fails))

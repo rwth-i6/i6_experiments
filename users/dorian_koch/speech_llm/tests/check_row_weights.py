@@ -291,6 +291,7 @@ def loss_step_for(src, model, rw="/weights.npy"):
         "floor_weight": None, "text_pad_weight": 0.3, "user_semantic_weight": 1.0, "depformer_skip_masked": True,
         "turn_tail_weight": None, "train_row_weights": rw, "train_word_spans": None,
         "user_head": None,  # the user-text head (eef4e848), off
+        "stream": None,  # the user-text input stream (user_text_input_stream), off
     }  # fmt: skip
     exec(src, ns)
     return ns["loss_step"]

@@ -200,6 +200,7 @@ def launcher_loss_step(cfg: dict, model):
         "train_word_spans": None,
         # ... and the user-text head (user_text_loss_weight, eef4e848, default off): main()'s user_head is None
         "user_head": None,
+        "stream": None,  # the user-text input stream (user_text_input_stream), off
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]

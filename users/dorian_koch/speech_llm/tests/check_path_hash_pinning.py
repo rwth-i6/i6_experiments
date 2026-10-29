@@ -7,8 +7,8 @@ another cluster -- and ``FisherSphToWav`` re-hashes, then ``FisherToMoshiTrainDa
 Fisher-trained arm. ~400 GB of ``fisher_prep`` is orphaned and the arms retrain, for a change that
 moved no data and no code.
 
-``training.py`` therefore pins those paths with ``hash_overwrite``, and ``track_rl.py`` does the same
-for the one absolute ``work/`` reference. This check exists because that pinning is **invisible when
+``training.py`` therefore pins those paths with ``hash_overwrite`` (``track_rl.py``'s one absolute ``work/``
+reference, the ckpt1400 salvage, was removed on 2026-10-29). This check exists because that pinning is **invisible when
 it works** -- nothing fails, nothing warns, and the damage only shows up on a migration nobody is
 doing the day the pin is removed.
 
@@ -112,10 +112,7 @@ _unpinned = [
 ]
 if _unpinned:
     failures.append(f"training.py builds a Fisher tk.Path directly from _fisher_root (line {_unpinned}) -- unpinned")
-rl_src = (RECIPE / "speech_llm/full_duplex/sis_recipe/doriank/track_rl.py").read_text()
-if "hash_overwrite=_RL_SALVAGE_RUNDIR" not in rl_src:
-    failures.append("track_rl.py no longer pins its absolute work/ rundir")
-print("[ok] call sites pinned   training.py routes all 4 Fisher paths through _fisher_path(); track_rl pinned")
+print("[ok] call sites pinned   training.py routes all 4 Fisher paths through _fisher_path()")
 
 if failures:
     print("\nFAILED:", file=sys.stderr)

@@ -7,6 +7,7 @@ for each guard how it runs:
   the setup ``.venv`` with ``PYTHONPATH=recipe/speech_llm/full_duplex:recipe``, run as ``-m moshi_family.rl.tests.<name>``
   (a file without a ``__main__`` block under pytest instead); ``venv:<name>`` = the ``CreateVenv.<name>`` job venv (a
   packed one mounts itself), same ``PYTHONPATH``.
+* ``pythonpath``: (``setup``) put ``recipe/speech_llm/full_duplex:recipe`` on ``PYTHONPATH`` as the other envs do.
 * ``args``: extra argv (e.g. ``["--graph"]``); ``graph``: loads the recipe config (at most ``MAX_GRAPH_PARALLEL`` at
   once); ``gpu``: needs a GPU (skipped unless ``--gpu``); ``timeout`` (s).
 
@@ -79,7 +80,10 @@ def command(path: str, spec: dict, root: str):
     if kind == "login":
         return ["python3", path, *args], env
     setup_py = os.path.join(root, ".venv/bin/python")
+    pythonpath = fd + ":" + os.path.join(root, "recipe") + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     if kind == "setup":
+        if spec.get("pythonpath"):  # a setup-venv guard that imports moshi_family / full_duplex modules
+            env["PYTHONPATH"] = pythonpath
         return [setup_py, path, *args], env
     env["PYTHONPATH"] = (
         fd + ":" + os.path.join(root, "recipe") + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")

@@ -50,13 +50,13 @@ SETUP = find_setup_root(HERE)
 sys.path.insert(0, os.path.join(SETUP, "recipe", "speech_llm", "full_duplex"))
 
 from moshi_family.moshi_train_data import (  # noqa: E402
-    MAX_CONSECUTIVE_ROW_SKIPS,
     MoshiDataConfig,
     MoshiTokenizer,
     UserAugmentCfg,
     build_mixed_data_loader,
 )
 from moshi_family.train_data_common import (  # noqa: E402
+    MAX_CONSECUTIVE_ROW_FAILURES,
     normalize_alignments,
     TEXT_PADDING_ID,
     TEXT_ROW,
@@ -331,7 +331,7 @@ def main():
             raise AssertionError("an unreadable corpus must raise, not spin forever")
         except RuntimeError as e:
             assert "consecutive" in str(e), str(e)
-        assert MAX_CONSECUTIVE_ROW_SKIPS < 100000, "the breaker must actually bound the loop"
+        assert MAX_CONSECUTIVE_ROW_FAILURES < 100000, "the breaker must actually bound the loop"
         ok += 1
 
     # ------------------------------- [6] the PRODUCER emits exactly what the loader reads
