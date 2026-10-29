@@ -439,7 +439,8 @@ class MRQAScore(Job):
     verdict was unparseable).
     """
 
-    #: 2 = + the full-reply verdict columns (2026-10-01).
+    #: 2 = + the full-reply verdict columns (2026-10-01). ``spoke`` counts replies with >= 1 word since 2026-10-29,
+    #: without a bump (no verdict changes): a summary without ``rules.spoke`` counted any non-empty text as spoken.
     __sis_version__ = 2
     __sis_hash_exclude__ = {"judge_seed": JUDGE_SEED}
 
@@ -579,6 +580,7 @@ class MRQAScore(Job):
             for r in rows:
                 f.write(json.dumps({k: v for k, v in r.items() if k != "model_text"}) + "\n")
         summary = summarize(rows, self.sources)
+        summary["rules"] = {"spoke": "word"}  # >= 1 _SPOKE_WORD; absent = the old non-empty-text rule
         summary["judge"] = {
             "model": self.judge_llm,
             "upstream": f"{up.UPSTREAM_REPO}@{up.UPSTREAM_COMMIT}",

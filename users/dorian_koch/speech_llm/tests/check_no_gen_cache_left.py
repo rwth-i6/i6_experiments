@@ -17,15 +17,32 @@ import os
 ROOTS = ["recipe/i6_experiments/users/dorian_koch/speech_llm", "recipe/speech_llm/full_duplex/moshi_family"]
 
 
+def _calls(fn: ast.AST) -> set[str]:
+    out = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Call):
+            f = n.func
+            out.add(f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", ""))
+    return out
+
+
 def offenders(src: str, name: str) -> list[str]:
     out = []
     tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "from_generator":
-            if not any(k.arg == "cache_dir" for k in node.keywords):
-                out.append(f"{name}:{node.lineno}: from_generator without cache_dir (lands in the shared HF home)")
-            elif "rmtree" not in src:
-                out.append(f"{name}:{node.lineno}: from_generator cache_dir is never deleted")
+    funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    # helpers of this file that delete a tree (persona_prompts._drop_gen_cache)
+    deleters = {f.name for f in funcs if "rmtree" in _calls(f)} | {"rmtree"}
+    for fn in funcs:
+        for node in ast.walk(fn):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "from_generator"
+            ):
+                if not any(k.arg == "cache_dir" for k in node.keywords):
+                    out.append(f"{name}:{node.lineno}: from_generator without cache_dir (lands in the shared HF home)")
+                elif not _calls(fn) & deleters:
+                    out.append(f"{name}:{node.lineno}: {fn.name} never deletes its from_generator cache_dir")
     return out
 
 
@@ -38,6 +55,9 @@ for root in ROOTS:
 old = 'def run(self):\n    ds = Dataset.from_generator(rows, features=f, cache_dir=os.path.abspath("hf_gen_cache"))\n'
 assert offenders(old, "old"), "the pre-fix PodcastCodesTrainData call is not flagged"
 print("  ok   can fail: a cache_dir nobody deletes is flagged")
+elsewhere = old + "\n\ndef other():\n    shutil.rmtree('/tmp/scratch')\n"
+assert offenders(elsewhere, "elsewhere"), "an rmtree in another function satisfies the check"
+print("  ok   can fail: an rmtree in another function does not count")
 for b in bad:
     print("  FAIL", b)
 if bad:

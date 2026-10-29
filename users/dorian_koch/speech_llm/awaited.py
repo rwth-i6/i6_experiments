@@ -69,17 +69,18 @@ def append(path: str, rec: dict) -> None:
 def landed(item: dict, records: dict) -> list[str]:
     """Tags matching the item that were produced after it was marked: a re-run under the same tag (judge bump,
     hpc-rerun, code_version) must not read as READY on the old numbers. A record without a time counts."""
+    since = item.get("since") or item.get("at", "")
+    return [
+        t
+        for t in matching(item, records)
+        if not read_results.when(records[t]) or read_results.when(records[t]) >= since
+    ]
+
+
+def matching(item: dict, records: dict) -> list[str]:
+    """Every tag the item's patterns match, whenever produced."""
     pats = read_results.with_old_names(item["tags"])  # a renamed arm's results may carry its old name
-    since = item.get("at", "")
-    return sorted(
-        {
-            t
-            for t in records
-            for p in pats
-            if fnmatch.fnmatchcase(t, p)
-            and (not read_results.when(records[t]) or read_results.when(records[t]) >= since)
-        }
-    )
+    return sorted({t for t in records for p in pats if fnmatch.fnmatchcase(t, p)})
 
 
 def show(item: dict, records: dict) -> bool:
@@ -96,6 +97,10 @@ def show(item: dict, records: dict) -> bool:
     print(f"    tags: {', '.join(item['tags'])}")
     for t in got:
         print(f"      {t}: {read_results.render(records[t])[0]}")
+    earlier = [t for t in matching(item, records) if t not in got]
+    if earlier and not item["closed"]:
+        print(f"    note: {len(earlier)} matching result(s) were produced before {item.get('since') or item['at'][:16]} "
+              f"and do not count (re-add with --since to count them): {', '.join(earlier[:3])}")  # fmt: skip
     return ready
 
 
@@ -109,8 +114,9 @@ def main(argv=None) -> int:
     a.add_argument("--expect", type=int, help="tags that must land (default: one per --tag)")
     a.add_argument("--why", required=True, help="what the result decides or answers")
     a.add_argument("--next", default="", help="what to do once it has landed")
+    a.add_argument("--since", help="count results produced from this time on (YYYY-MM-DD[ HH:MM]; default: now)")
     d = sub.add_parser("done", help="close an item (after its read-out)")
-    d.add_argument("id", type=int)
+    d.add_argument("id", type=lambda x: int(x) if x.isdigit() else x, help="item id (N, or N.1 for a duplicate)")
     d.add_argument("--note", default="")
     lst = sub.add_parser("list", help="show items")
     lst.add_argument("--all", action="store_true", help="include closed items")
@@ -128,6 +134,7 @@ def main(argv=None) -> int:
             now = time.time()
             append(args.file, {"event": "add", "id": new_id, "tags": args.tag, "expect": args.expect or len(args.tag),
                                "why": args.why, "next": args.next, "by": getpass.getuser(), "at_unix": now,
+                               **({"since": args.since} if args.since else {}),
                                "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))})  # fmt: skip
         print(f"awaited [{new_id}] added")
         return 0

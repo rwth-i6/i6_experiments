@@ -55,11 +55,13 @@ from .knowledge_benchmark import (
 from .knowledge_benchmark import GRADER_SCHEMA_VERSIONS, _grader_block, bench_out_prefix, llm_preprocess
 from speech_llm.full_duplex.text_scoring import ALIAS_MATCH_VERSION, alias_match, summarize_scores
 
-assert GRADER_SCHEMA_VERSIONS["alias_match"] == ALIAS_MATCH_VERSION, "the alias grader's version is text_scoring's"
 from .result_notify import notify_result
+from .speech_backends import offline_routing_kwargs
 from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
 from .speech_inference import impossible_checkpoint_reason
+
+assert GRADER_SCHEMA_VERSIONS["alias_match"] == ALIAS_MATCH_VERSION, "the alias grader's version is text_scoring's"
 
 # Defaults chosen so a single eval is small enough to finish in a few minutes on one GPU but large
 # enough that a real collapse (base ~18% -> ~9%) clears the sampling noise of ~sqrt(p(1-p)/n).
@@ -225,10 +227,7 @@ def quick_knowledge_eval_py(
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,
-        offline_script=(speech_backend.offline_script or "moshi_offline_inference.py")
-        if (speech_backend.offline_script or speech_backend.offline_module)
-        else None,
-        offline_module=speech_backend.offline_module,
+        **offline_routing_kwargs(speech_backend),
         offline_extra_args=speech_backend.offline_extra_args,
         server=speech_backend.server,
         file_client=speech_backend.file_client,

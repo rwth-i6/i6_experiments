@@ -446,7 +446,9 @@ else:
 _n = len(failures)
 from i6_experiments.users.dorian_koch.speech_llm import common as _c  # noqa: E402
 
-_cmd = [sys.executable, "-c", "import time; print('starting', flush=True); time.sleep(600)"]
+# a unique token without regex metacharacters: pgrep -f matches a regex
+_token = f"guardmsss{os.getpid()}x{random.randrange(10**9)}"
+_cmd = [sys.executable, "-c", f"import time; print('starting', flush=True); time.sleep(600)  # {_token}"]
 try:
     with _c.managed_subprocess_server(_cmd, port=_c.pick_free_port(39000), ready_substrings=["never"], log_prefix="guard",
                                       max_wait=2):  # fmt: skip
@@ -455,10 +457,18 @@ except TimeoutError:
     pass
 import subprocess as _sp  # noqa: E402
 
-_left = _sp.run(["pgrep", "-f", "time.sleep(600)"], capture_output=True, text=True).stdout.split()
+_left = _sp.run(["pgrep", "-f", _token], capture_output=True, text=True).stdout.split()
 if _left:
     failures.append(f"a timed-out server start left process(es) {_left} running")
-    _sp.run(["pkill", "-f", "time.sleep(600)"])
+    _sp.run(["pkill", "-f", _token])
+# can fail: the same lookup finds a server that is still running
+_probe = _sp.Popen(_cmd, stdout=_sp.DEVNULL)
+try:
+    if not _sp.run(["pgrep", "-f", _token], capture_output=True, text=True).stdout.split():
+        failures.append("the leftover-process lookup does not find a running server: the check proves nothing")
+finally:
+    _probe.kill()
+    _probe.wait()
 ok("server start      a timed-out start kills the server's process group", _n)
 
 # One copy of the server scaffolding: a fix to the shared one (leak on a failed start) must reach every server.

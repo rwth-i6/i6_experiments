@@ -104,11 +104,11 @@ def _fresh_gen_cache() -> str:
     return path
 
 
-def _drop_gen_cache(ds) -> None:
-    """Delete the generator cache after ``save_to_disk``: it is a second full copy of the output."""
+def _drop_gen_cache() -> None:
+    """Delete the generator cache after ``save_to_disk``: it is a second full copy of the output. Open memory maps of
+    the cache (the generated ``Dataset``) stay valid on Linux after the unlink."""
     import shutil
 
-    del ds
     shutil.rmtree(os.path.abspath("hf_gen_cache"), ignore_errors=True)
 
 
@@ -865,7 +865,7 @@ class AttachPersonaPrompts(Job):
             if n[k] > self.max_drop_frac * n["in"]:
                 raise RuntimeError(f"{n[k]}/{n['in']} rows dropped for {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
-        _drop_gen_cache(out)
+        _drop_gen_cache()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1248,7 +1248,7 @@ class AttachPersonaProfiles(Job):
             if n[k] > self.max_drop_frac * n["in"]:
                 raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
-        _drop_gen_cache(out)
+        _drop_gen_cache()
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )
@@ -1995,7 +1995,7 @@ class AttachContentPrompts(Job):
                 if n[k] > self.max_drop_frac * n["in"]:
                     raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
-        _drop_gen_cache(out)
+        _drop_gen_cache()
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )

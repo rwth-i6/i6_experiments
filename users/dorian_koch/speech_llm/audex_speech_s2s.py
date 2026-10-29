@@ -174,27 +174,34 @@ class AudexSpeechS2S(Job):
         n = len(indices)
         print(f"[s2s] shard {self.shard}/{self.num_shards}: {n} clips", flush=True)
         done = blank = 0
+        blank_names = []  # written at the decoder's rate once known, so every clip of a job has one rate
+
+        def write(name, w, sr):
+            min_samples = int(min_seconds * sr)
+            if w is None or len(w) == 0:
+                w = np.zeros(min_samples, dtype=np.float32) + 1e-3
+            elif len(w) < min_samples:
+                w = np.pad(w, (0, min_samples - len(w)))
+            sf.write(os.path.join(out_dir, name), w, sr)
+
         for k, idx in enumerate(indices):
             name = f"{idx}.wav"
             text = answer_text(clips[idx])
             res = synth_wav(text) if text.strip() else None
             # Write at the decoder's own rate: writing at a fixed 16 kHz would pitch-shift any other rate.
-            if res is not None:
+            if res is not None and len(res[0]):
                 w, sr = res
                 if sr not in seen_rates:
                     print(f"[s2s] decoder sample rate {sr} Hz", flush=True)
                 seen_rates.add(sr)
                 assert len(seen_rates) == 1, f"decoder sample rate changed between clips: {sorted(seen_rates)}"
-            else:  # a blank reply: written at the decoder's rate once known
-                w, sr = None, next(iter(seen_rates), 16000)
-            min_samples = int(min_seconds * sr)
-            if w is None or len(w) == 0:
-                w = np.zeros(min_samples, dtype=np.float32) + 1e-3
+                write(name, w, sr)
+            else:
+                blank_names.append(name)
                 blank += 1
-            elif len(w) < min_samples:
-                w = np.pad(w, (0, min_samples - len(w)))
-            sf.write(os.path.join(out_dir, name), w, sr)
             done += 1
             if (k + 1) % 10 == 0 or k + 1 == n:
                 print(f"[s2s] {k + 1}/{n} | text[:60]={text[:60]!r}", flush=True)
+        for name in blank_names:  # 16 kHz only if no clip of this shard decoded
+            write(name, None, next(iter(seen_rates), 16000))
         print(f"[s2s] done {done} clips ({blank} blank/empty)", flush=True)

@@ -1040,7 +1040,7 @@ class SelfPlayJudgeV2Table(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        rows = {}
+        rows, relabelled = {}, {}
         for label, path in self.judges.items():
             with open(path.get_path()) as f:
                 all_rows = list(map(json.loads, f))
@@ -1049,10 +1049,12 @@ class SelfPlayJudgeV2Table(Job):
                 # A label-free judge keeps the label of its first declaration, so after a rename its rows carry the
                 # old one. A file with exactly one label is unambiguous: take it under the table's key.
                 found = sorted({r["label"] for r in all_rows})
-                if len(found) != 1:
+                if len(found) != 1 or found[0] in self.judges:
                     raise RuntimeError(f"{path}: no rows labelled {label} (labels: {found})")
+                print(f"[spj2] {label}: rows labelled {found[0]!r} in {path}, taken under {label!r}", flush=True)
+                relabelled[label] = found[0]
                 rows[label] = [{**r, "label": label} for r in all_rows]
-        table = {"reference": self.reference, "models": {}}
+        table = {"reference": self.reference, "models": {}, "relabelled": relabelled}
         metrics = ("overall",) + tuple(m for m in SPJ2_DERIVED + SPJ2_METRICS if m != "overall")
         for label in self.order:
             s = summarize_rows(rows[label])["labels"][label]
