@@ -514,11 +514,16 @@ def main():
         export_features = dialogue_features
         if keep_cols:
             export_features = Features({**dialogue_features, **{c: Value("string") for c in keep_cols}})
-        dataset = Dataset.from_generator(
-            gen,
-            features=export_features,
-        )
+        # a job-local generator cache, deleted after the save: without cache_dir the whole corpus stays behind in the
+        # shared $HF_HOME/datasets/generator
+        import shutil
+        import tempfile
+
+        gen_cache = tempfile.mkdtemp(prefix="hf_gen_cache_", dir=os.getcwd())
+        dataset = Dataset.from_generator(gen, features=export_features, cache_dir=gen_cache)
         dataset.save_to_disk(args.out_hf)
+        del dataset
+        shutil.rmtree(gen_cache, ignore_errors=True)
         print(f"Dataset saved successfully to {args.out_hf}!")
 
 

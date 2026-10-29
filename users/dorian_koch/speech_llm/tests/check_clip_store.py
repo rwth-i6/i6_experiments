@@ -142,6 +142,23 @@ try:
         if store.sidecar(3, "monologue") not in (None, ""):
             failures.append(f"{label} invented a monologue for clip 3")
     ok("sidecars            inner monologue survives both layouts", _n)
+    # ... and an arrow sidecar read never formats the audio (a full row turned each clip into a Python float list)
+    _n = len(failures)
+    fresh = open_clips(arrow_dir)
+    if hasattr(fresh, "_ds"):
+        real_getitem = type(fresh._ds).__getitem__
+
+        def spy(self, k):
+            if not isinstance(k, str) and "audio" in self.column_names:
+                failures.append("sidecar() indexed a row of the dataset that holds the audio column")
+            return real_getitem(self, k)
+
+        type(fresh._ds).__getitem__ = spy
+        try:
+            fresh.sidecar(0, "monologue")
+        finally:
+            type(fresh._ds).__getitem__ = real_getitem
+        ok("sidecars            read from a text-only view, never the audio row", _n)
 
     # --- sharded write reassembles --------------------------------------------------------------
     _n = len(failures)

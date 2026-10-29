@@ -125,22 +125,29 @@ def managed_subprocess_server(
     threading.Thread(target=read_server_output, daemon=True).start()
 
     start_time = time.time()
-    while time.time() - start_time < max_wait:
-        if proc.poll() is not None:
-            stdout, _ = proc.communicate()
-            raise RuntimeError(f"{log_prefix} server died during startup:\n{stdout}")
-        try:
-            sock = socket.create_connection(("localhost", port), timeout=1)
-            sock.close()
-            if ready["flag"]:
-                print(f"{log_prefix} server is ready and accepting connections")
-                break
-            print(f"{log_prefix} server port is open but server not ready yet")
-        except (ConnectionRefusedError, socket.timeout):
-            pass
-        time.sleep(0.5)
-    else:
-        raise TimeoutError(f"{log_prefix} server not ready after {max_wait} seconds")
+    try:
+        while time.time() - start_time < max_wait:
+            if proc.poll() is not None:
+                # the reader thread owns stdout and has printed the server's log above
+                raise RuntimeError(
+                    f"{log_prefix} server died during startup (exit {proc.returncode}); its log is above"
+                )
+            try:
+                sock = socket.create_connection(("localhost", port), timeout=1)
+                sock.close()
+                if ready["flag"]:
+                    print(f"{log_prefix} server is ready and accepting connections")
+                    break
+                print(f"{log_prefix} server port is open but server not ready yet")
+            except OSError:  # refused, timed out, reset, address not available: not up yet
+                pass
+            time.sleep(0.5)
+        else:
+            raise TimeoutError(f"{log_prefix} server not ready after {max_wait} seconds")
+    except BaseException:
+        # a failed start must not leave the server's process group (e.g. vLLM holding its GPU memory) running
+        _terminate_process_group(proc, log_prefix)
+        raise
     print(f"{log_prefix} server started successfully")
 
     try:
@@ -777,7 +784,8 @@ def map_concurrent(fn, items, *, concurrency: int, progress_path: str | None = N
 
     items = list(items)
     out = [None] * len(items)
-    with ThreadPoolExecutor(max(1, int(concurrency))) as ex:
+    ex = ThreadPoolExecutor(max(1, int(concurrency)))
+    try:
         futs = {ex.submit(fn, it): i for i, it in enumerate(items)}
         for n_done, f in enumerate(as_completed(futs), 1):
             out[futs[f]] = f.result()
@@ -786,6 +794,11 @@ def map_concurrent(fn, items, *, concurrency: int, progress_path: str | None = N
                     write_progress(n_done, len(items), progress_path)
                 except Exception:
                     pass
+    except BaseException:
+        # cancel what is still queued: a `with` block would run every remaining item before re-raising
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    ex.shutdown(wait=True)
     return out
 
 

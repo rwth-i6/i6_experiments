@@ -269,7 +269,11 @@ class _ArrowClips(Mapping):
         col = COL_MONOLOGUE if kind == "monologue" else COL_TRACE
         if col not in self._ds.column_names:
             return None
-        return self._ds[self._row_of[int(key)]][col]
+        # from a text-only view: indexing the full row materialises its float audio as a Python list (~28 MB per clip)
+        # to return one string
+        if getattr(self, "_side", None) is None:
+            self._side = self._ds.select_columns([c for c in (COL_MONOLOGUE, COL_TRACE) if c in self._ds.column_names])
+        return self._side[self._row_of[int(key)]][col]
 
     def __iter__(self):
         return iter(sorted(self._row_of))
@@ -336,11 +340,18 @@ def materialise_clips(src, out_dir) -> None:
 def _as_declared(ds):
     """A store written before 2026-10-16 (``audio`` floats only, inferred types) in ``clip_features`` form, so it
     concatenates with newer shards: ``audio_flac`` all null, absent sidecars null. Same rows and decoded samples."""
+    import pyarrow as pa
+    from datasets import Dataset, DatasetInfo
+    from datasets.table import InMemoryTable, table_cast
+
+    # On the pyarrow table, in memory: Dataset.cast is a map that writes a cache-*.arrow (a full copy of the store) into
+    # the shard job's own output dir. Buffers of the existing columns stay memory-mapped.
     feats = clip_features()
-    for col in feats:
-        if col not in ds.column_names:
-            ds = ds.add_column(col, [None] * len(ds))
-    return ds.select_columns(list(feats)).cast(feats)
+    schema = feats.arrow_schema
+    t = ds.data.table
+    cols = [t.column(c) if c in t.column_names else pa.nulls(len(t), type=schema.field(c).type) for c in feats]
+    table = table_cast(pa.Table.from_arrays(cols, names=list(feats)), schema)
+    return Dataset(InMemoryTable(table), info=DatasetInfo(features=feats))
 
 
 def merge_clip_datasets(out_path, in_paths, *, link: bool = False) -> None:

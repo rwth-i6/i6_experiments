@@ -24,9 +24,12 @@ def run(*argv) -> str:
     return buf.getvalue()
 
 
-def land(log, tag, acc):
+def land(log, tag, acc, produced_at=None):
+    rec = {"tag": tag, "summary": {"overall": {"accuracy": acc, "n": 1000}}}
+    if produced_at:
+        rec["produced_at"] = produced_at
     with open(log, "a") as f:
-        f.write(json.dumps({"tag": tag, "summary": {"overall": {"accuracy": acc, "n": 1000}}}) + "\n")
+        f.write(json.dumps(rec) + "\n")
 
 
 def main():
@@ -48,6 +51,21 @@ def main():
         out = run(*base)
         assert "[1]" not in out and "[2] waiting 0/1" in out, out
         assert "closed" in run(*base, "list", "--all")
+        # a result produced before the item was marked (a re-run under the same tag) does not make it READY
+        land(log, "benchmark/z/n1000/arm", 0.4, produced_at="2026-10-01 12:00:00")
+        run(*base, "add", "--tag", "benchmark/z/n1000/arm", "--why", "decides Z")
+        out = run(*base)
+        assert "[3] waiting 0/1" in out, f"an old result made a fresh item READY:\n{out}"
+        land(log, "benchmark/z/n1000/arm", 0.5, produced_at="2099-01-01 00:00:00")
+        assert "[3] READY" in run(*base), "the new result does not make it READY"
+        # a torn line does not break every call; two adds with one id are both listed
+        with open(aw, "a") as f:
+            f.write(
+                '{"event": "add", "id": 3, "tags": ["t/dup"], "expect": 1, "why": "dup", "at": "2026-10-29", "at_unix": 0}\n'
+            )
+            f.write('{"event": "add", "id": 9, "ta\n')
+        out = run(*base)
+        assert "decides Z" in out and "dup" in out, f"a duplicate id replaced an item:\n{out}"
     print("check_awaited: ALL PASS")
 
 

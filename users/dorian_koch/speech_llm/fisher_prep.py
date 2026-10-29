@@ -127,12 +127,16 @@ class FisherSphToWav(Job):
                 return sph, None
             try:
                 for ch, dst in ((1, a), (2, b)):
+                    # to a temp name, renamed when complete: a kill mid-file must not leave a short wav that the
+                    # existence check above then takes as done
+                    tmp = dst.with_suffix(".tmp.wav")
                     subprocess.run(
-                        [sph2pipe, "-p", "-f", "wav", "-c", str(ch), sph, str(dst)],
+                        [sph2pipe, "-p", "-f", "wav", "-c", str(ch), sph, str(tmp)],
                         check=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.PIPE,
                     )
+                    os.replace(tmp, dst)
                 return sph, None
             except subprocess.CalledProcessError as e:
                 return sph, (e.stderr or b"").decode("utf-8", "replace")[-300:]
@@ -497,8 +501,15 @@ class FisherToMoshiTrainData(Job):
         if samples.ndim > 1:  # per-channel files should be mono; take channel 0 if ever not
             samples = samples[:, 0]
         if samples.shape[0] < num_samples_wanted:
-            # Short tail at the end of a conversation: zero-pad so both channels stay sample-aligned
-            # with each other and with the alignment timestamps.
+            # Windows are planned inside the cut's duration, so only rounding between the cut and the wav may come up
+            # short; more is a truncated wav (e.g. a killed sph2pipe) and would train silence under the alignments.
+            if num_samples_wanted - samples.shape[0] > int(0.05 * sample_rate):
+                raise RuntimeError(
+                    f"{wav_path}: read {samples.shape[0]} of {num_samples_wanted} samples at {window_start_sec:.2f} s "
+                    "inside the cut's duration -- the wav is shorter than its cut (truncated?)"
+                )
+            # rounding at the end of a conversation: zero-pad so both channels stay sample-aligned with each other
+            # and with the alignment timestamps
             samples = np.pad(samples, (0, num_samples_wanted - samples.shape[0]))
         wav_buf = io.BytesIO()
         sf.write(wav_buf, samples, sample_rate, format="WAV", subtype="PCM_16")

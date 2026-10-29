@@ -111,7 +111,15 @@ def write_clips(out_path, spool, sample_rate):
                 COL_TRACE: None,
             }
 
-    Dataset.from_generator(gen, features=clip_features()).save_to_disk(out_path)
+    # a job-local generator cache, deleted after the save (the default is the shared $HF_HOME/datasets/generator)
+    import shutil
+    import tempfile
+
+    gen_cache = tempfile.mkdtemp(prefix="hf_gen_cache_", dir=os.getcwd())
+    try:
+        Dataset.from_generator(gen, features=clip_features(), cache_dir=gen_cache).save_to_disk(out_path)
+    finally:
+        shutil.rmtree(gen_cache, ignore_errors=True)
 
 
 #: Base seed for both the speaker draw and the per-clip TTS sampling. Changing it regenerates every

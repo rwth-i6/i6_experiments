@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import sys
 
 
@@ -33,16 +34,19 @@ def main():
     sys.path.insert(0, args.repo)
 
     if args.run_judge:
-        # Run their api_judge.py verbatim. It writes 'result-'+src_file in cwd, so stage the responses
-        # under a local basename inside the repo and point the OpenAI client at our judge via env.
+        # Run their api_judge.py verbatim. It writes 'result-'+src_file in cwd, so stage the responses under a local
+        # basename in a directory of this job's own (two judged scores at once shared one file inside the clone job's
+        # output) and point the OpenAI client at our judge via env.
         env = {**os.environ}
         if args.judge_base_url:
             env["OPENAI_BASE_URL"] = args.judge_base_url
             env.setdefault("OPENAI_API_KEY", "EMPTY")
+        work = tempfile.mkdtemp(prefix="vb_judge_", dir=os.getcwd())
         local = "vb_resp.jsonl"
-        shutil.copy(args.responses, os.path.join(args.repo, local))
-        subprocess.run([sys.executable, "api_judge.py", "--src_file", local], cwd=args.repo, env=env, check=True)
-        data = _load(os.path.join(args.repo, f"result-{local}"))
+        shutil.copy(args.responses, os.path.join(work, local))
+        judge = os.path.join(args.repo, "api_judge.py")
+        subprocess.run([sys.executable, judge, "--src_file", local], cwd=work, env=env, check=True)
+        data = _load(os.path.join(work, f"result-{local}"))
     else:
         data = _load(args.responses)
 

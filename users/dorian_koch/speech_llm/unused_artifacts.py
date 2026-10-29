@@ -7,21 +7,28 @@ and no arm ever trained on it; its own docstring said "opt in with *scale_mix(..
 It took an explicit question to find. This makes that question one command.
 
 Walks the loaded sisyphus graph and reports every FINISHED job whose output is consumed by no
-other job and is not a registered output -- i.e. work that was paid for and leads nowhere.
+other job (registered or not) -- i.e. work that was paid for and leads nowhere -- and every finished
+corpus no training run of any trainer class reaches.
 
 Run from the setup root:  CUDA_HOME=/usr .venv/bin/python unused_artifacts.py
 """
+
 import os, sys, collections, logging
-sys.path.insert(0, "recipe"); sys.path.insert(0, "recipe/sisyphus")
+
+sys.path.insert(0, "recipe")
+sys.path.insert(0, "recipe/sisyphus")
 os.environ.setdefault("CUDA_HOME", "/usr")
 logging.disable(logging.WARNING)
 from sisyphus import tk
 from sisyphus.loader import config_manager
+
 config_manager.load_configs(["recipe/speech_llm/full_duplex/sis_recipe/doriank/synthetic_train_data.py"])
+
 
 def finished(job):
     p = job._sis_path()
     return os.path.exists(p + "/finished") or os.path.exists(p + "/finished.tar.gz")
+
 
 jobs = list(tk.sis_graph.jobs())
 # every job that some OTHER job consumes
@@ -44,11 +51,13 @@ for j in jobs:
     orphans.append(j)
     by_kind[type(j).__name__] += 1
 
-# The question that actually matters for a CORPUS: is it reachable from some run's train_data?
+# The question that actually matters for a CORPUS: is it reachable from some run's train_data? Every trainer class
+# counts: a corpus only an Audex or RL arm trains on is used.
+TRAINERS = ("SpeechFinetune", "AudexDuplexFinetune", "MoshiFinetune", "RLFinetune", "RLFinetuneV2")
 train_reach = set()
 stack = []
 for j in jobs:
-    if type(j).__name__ == "SpeechFinetune":
+    if type(j).__name__ in TRAINERS:
         stack.extend(p.creator for p in j._sis_inputs if p.creator is not None)
 while stack:
     c = stack.pop()
@@ -57,12 +66,25 @@ while stack:
     train_reach.add(id(c))
     stack.extend(p.creator for p in c._sis_inputs if p.creator is not None)
 
-CORPUS_KINDS = ("MoshiAnnotate", "ChatterboxInference", "HfMergeShards", "HfDialogueCleaner",
-                "FisherToMoshiTrainData", "MergeClipDatasets")
-unused_corpora = [j for j in jobs
-                  if type(j).__name__ in CORPUS_KINDS and finished(j) and id(j) not in train_reach]
+CORPUS_KINDS = (
+    "MoshiAnnotate",
+    "ChatterboxInference",
+    "HfMergeShards",
+    "HfDialogueCleaner",
+    "FisherToMoshiTrainData",
+    "MergeClipDatasets",
+    # the codes corpora (PersonaPlex / podcast): the most expensive kind (KnowledgeDialogueCodes ~327 h)
+    "KnowledgeDialogueCodes",
+    "KnowledgeVoiceConvert",
+    "KnowledgeAttachUserWords",
+    "PodcastCodesTrainData",
+    "AttachPersonaPrompts",
+    "AttachContentPrompts",
+    "EpisodeSplit",
+)
+unused_corpora = [j for j in jobs if type(j).__name__ in CORPUS_KINDS and finished(j) and id(j) not in train_reach]
 print(f"jobs in graph: {len(jobs)}")
-print(f"\n=== CORPUS-PRODUCING jobs that NO SpeechFinetune reaches ===")
+print(f"\n=== CORPUS-PRODUCING jobs that NO training run ({', '.join(TRAINERS)}) reaches ===")
 if not unused_corpora:
     print("   none -- every finished corpus feeds at least one run.")
 else:
@@ -75,7 +97,7 @@ print(f"\nfinished-and-unconsumed (any kind): {len(orphans)}\n")
 if not orphans:
     print("nothing built leads nowhere.")
 else:
-    print("FINISHED but consumed by no job and not a registered output:")
+    print("FINISHED but consumed by no job (registered outputs included, on purpose):")
     for kind, n in by_kind.most_common():
         print(f"   {kind:<42} {n}")
     print("\n(a few of these are expected -- terminal report/plot jobs. What matters is an")

@@ -527,6 +527,31 @@ def check_moshirag():
 
     n_long = len(_json.loads(Path(long_out).with_suffix(".json").read_text())["retrievals"])
     check(n_long >= 2, f"every <ret> retrieves, not only the first ({n_long} retrievals in a 4 s capture)")
+
+    # A retrieval-LLM error degrades to an empty reference (upstream RAGManager), recorded in the trace.
+    class _FailingLLM:
+        async def generate_reference_text(self, *a, **k):
+            raise ConnectionError("vLLM down (test)")
+
+    m_err = make(rag_token_id=rag_id)
+    m_err.reference_generator = _FailingLLM()
+    err_out = str(TMP / "rag_out_err.wav")
+    with quiet():
+        asyncio.run(reng.run_pairs(m_err, [(ins[0], err_out)], lead_in_s=0.16, capture_s=0.8, tail_s=0.0))
+    rets = _json.loads(Path(err_out).with_suffix(".json").read_text())["retrievals"]
+    check(
+        rets and all(r.get("error", "").startswith("ConnectionError") and r["reference_text"] == "" for r in rets),
+        f"a retrieval-LLM error leaves an empty reference and an error in the trace ({rets[:1]})",
+    )
+    # No streaming state carries an autograd graph after a run (in-place state writes under grad chained them).
+    graphed = []
+    for mod in m_err.lm_gen.lm_model.modules():
+        st = getattr(mod, "_streaming_state", None)
+        for k, v in vars(st).items() if st is not None else ():
+            for x in v if isinstance(v, (list, tuple)) else (v,):
+                if isinstance(x, torch.Tensor) and (x.requires_grad or x.grad_fn is not None):
+                    graphed.append(f"{type(mod).__name__}.{k}")
+    check(not graphed, f"no streaming-state tensor carries a graph after a run ({sorted(set(graphed))[:4]})")
     check(min(leftover) > 0, "a clip ends with unconsumed reference rows pending (the state a reset must clear)")
     check(first_ok, "clip 1 on the reused instance == clip 1 alone")
     check(ok, "clips 2-3 of one run_pairs call == each clip on a fresh instance (text, STT, trace, wav)")

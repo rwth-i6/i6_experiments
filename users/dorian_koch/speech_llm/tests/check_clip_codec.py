@@ -222,7 +222,10 @@ def main():
         so = os.path.join(tmp, "shard_old")
         _old_store(so, {3: clips[3], 7: clips[7]})
         mm = os.path.join(tmp, "mixed_merge")
+        before = sorted(os.listdir(so))
         merge_clip_datasets(mm, [sa, so, sb], link=True)
+        # the old shard is another job's output: the cast must not leave a cache-*.arrow copy in it
+        assert sorted(os.listdir(so)) == before, f"merge wrote into the old shard: {set(os.listdir(so)) - set(before)}"
         _check_readers(tmp, "mixed_merge", mm, {i: clips[i] for i in (0, 3, 7, 9, 11)})
     print(
         "check_clip_codec: OK (copies identical; float, FLAC-only, hybrid, write_clips and merged stores decode identically in 5 readers)"

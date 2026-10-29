@@ -94,6 +94,24 @@ _PROMPT_JSON_SCHEMA = {
 }
 
 
+def _fresh_gen_cache() -> str:
+    """An empty ``Dataset.from_generator`` cache in the job's work dir: a reused one would skip the generator (and the
+    row counters it fills)."""
+    import shutil
+
+    path = os.path.abspath("hf_gen_cache")
+    shutil.rmtree(path, ignore_errors=True)
+    return path
+
+
+def _drop_gen_cache(ds) -> None:
+    """Delete the generator cache after ``save_to_disk``: it is a second full copy of the output."""
+    import shutil
+
+    del ds
+    shutil.rmtree(os.path.abspath("hf_gen_cache"), ignore_errors=True)
+
+
 def spec_digest(name: str) -> str:
     """Content hash of a prompt spec: hashed into every job using it, so an edited spec re-runs."""
     return hashlib.sha256(json.dumps(PROMPT_SPECS[name], sort_keys=True).encode()).hexdigest()[:16]
@@ -841,12 +859,13 @@ class AttachPersonaPrompts(Job):
                     **(other_cols(r["id"], c) if other_side else {}),
                 }
 
-        out = Dataset.from_generator(rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
+        out = Dataset.from_generator(rows, features=feats, cache_dir=_fresh_gen_cache())
         print(f"[attach] {n}; levels used {levels_used}", flush=True)
         for k in ("noprompt", "novoice"):
             if n[k] > self.max_drop_frac * n["in"]:
                 raise RuntimeError(f"{n[k]}/{n['in']} rows dropped for {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
+        _drop_gen_cache(out)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1223,12 +1242,13 @@ class AttachPersonaProfiles(Job):
                     "context_other": oth,
                 }
 
-        out = Dataset.from_generator(rows, features=src.features, cache_dir=os.path.abspath("hf_gen_cache"))
+        out = Dataset.from_generator(rows, features=src.features, cache_dir=_fresh_gen_cache())
         print(f"[attach-profiles] {n}; levels {levels}", flush=True)
         for k in ("noprofile", "other_noprofile"):
             if n[k] > self.max_drop_frac * n["in"]:
                 raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
+        _drop_gen_cache(out)
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )
@@ -1966,7 +1986,7 @@ class AttachContentPrompts(Job):
                     "context_other": oth,
                 }
 
-        out = Dataset.from_generator(rows, features=src.features, cache_dir=os.path.abspath("hf_gen_cache"))
+        out = Dataset.from_generator(rows, features=src.features, cache_dir=_fresh_gen_cache())
         print(f"[attach-content] {n}; levels {levels}", flush=True)
         if n["required"] != len(required):
             raise RuntimeError(f"{len(required) - n['required']} required ids are not in the data")
@@ -1975,6 +1995,7 @@ class AttachContentPrompts(Job):
                 if n[k] > self.max_drop_frac * n["in"]:
                     raise RuntimeError(f"{n[k]}/{n['in']} rows hit {k} (> {self.max_drop_frac:.0%}): {n}")
         out.save_to_disk(self.out_dir.get_path())
+        _drop_gen_cache(out)
         json.dump(
             {**n, "levels": levels, "prompt_set": self.prompt_set}, open(self.out_summary.get_path(), "w"), indent=2
         )

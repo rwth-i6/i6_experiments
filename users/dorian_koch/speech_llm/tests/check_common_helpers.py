@@ -189,7 +189,7 @@ class _FakeDataset:
         return _FakeDataset()
 
     @staticmethod
-    def from_generator(gen, features=None):
+    def from_generator(gen, features=None, cache_dir=None):
         _captured["gen"] = gen
         _captured["features"] = features
         return _FakeDataset()
@@ -300,7 +300,7 @@ else:
 
 # --- chatterbox_inference: reproducibility-critical helpers -------------------------------------
 
-_HEAVY = ["torch", "torchaudio", "chatterbox", "chatterbox.tts_turbo", "datasets"]
+_HEAVY = ["torch", "torchaudio", "chatterbox", "chatterbox.tts_turbo", "datasets", "clip_codec"]
 _saved = {name: sys.modules.get(name) for name in _HEAVY}
 for name in _HEAVY:
     stub = types.ModuleType(name)
@@ -438,6 +438,27 @@ if "resolve_speaker_path" in bench and "PINNED_RNG_SPEAKERS" in bench:
 else:
     failures.append("chatterbox_benchmark_inference.resolve_speaker_path/PINNED_RNG_SPEAKERS missing")
 
+
+# --- common.py: managed_subprocess_server leaves no server behind when startup fails ----------------------------
+# The startup wait ran outside the try/finally that tears the process group down: a timed-out vLLM kept its GPU
+# memory until SLURM cleaned up the cgroup, and a retry on the same card could not allocate.
+_n = len(failures)
+from i6_experiments.users.dorian_koch.speech_llm import common as _c  # noqa: E402
+
+_cmd = [sys.executable, "-c", "import time; print('starting', flush=True); time.sleep(600)"]
+try:
+    with _c.managed_subprocess_server(_cmd, port=_c.pick_free_port(39000), ready_substrings=["never"], log_prefix="guard",
+                                      max_wait=2):  # fmt: skip
+        failures.append("managed_subprocess_server yielded for a server that never became ready")
+except TimeoutError:
+    pass
+import subprocess as _sp  # noqa: E402
+
+_left = _sp.run(["pgrep", "-f", "time.sleep(600)"], capture_output=True, text=True).stdout.split()
+if _left:
+    failures.append(f"a timed-out server start left process(es) {_left} running")
+    _sp.run(["pkill", "-f", "time.sleep(600)"])
+ok("server start      a timed-out start kills the server's process group", _n)
 
 if failures:
     print("\nFAILED:", file=sys.stderr)

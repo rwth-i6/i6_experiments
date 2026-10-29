@@ -185,7 +185,7 @@ class AudexDuplexFinetune(Job):
 
     def tasks(self):
         yield Task("write_config", mini_task=True)
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", resume="run", rqmt=self.rqmt)  # the launcher resumes from its checkpoints
 
     def completed_fraction(self):
         return finetune_completed_fraction(self, self.adapter)

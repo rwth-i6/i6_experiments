@@ -65,8 +65,25 @@ def probe_referenced_dirs() -> set[Path]:
     return refs
 
 
+def merge_referenced_dirs() -> set[Path]:
+    """Shard dirs a merge dir's remaining symlinks point into (any merge, finished or not, repacked or not): repacking
+    such a shard deletes the wavs those links name, and the merge then dangles silently."""
+    refs = set()
+    for pat in KINDS["merge"]:
+        for d in WORK.glob(pat):
+            if not d.is_dir():
+                continue
+            with os.scandir(d) as it:
+                for e in it:
+                    if e.is_symlink():
+                        refs.add(Path(os.path.realpath(e.path)).parent)
+    return refs
+
+
 def candidates(kinds):
     protected = probe_referenced_dirs() if "tts" in kinds else set()
+    if "shard" in kinds:
+        protected |= merge_referenced_dirs()
     for kind in kinds:
         for pat in KINDS[kind]:
             for d in sorted(WORK.glob(pat)):
@@ -78,7 +95,7 @@ def candidates(kinds):
                 if not is_finished(job_dir):
                     continue
                 if d.resolve() in protected or d in protected:
-                    print(f"[keep] {d}: a probe.jsonl reads its wavs by path", flush=True)
+                    print(f"[keep] {d}: a probe.jsonl or a merge's symlinks read its wavs by path", flush=True)
                     continue
                 yield kind, d
 
@@ -93,6 +110,10 @@ def main():
 
     kinds = args.kind or ["merge"]
     if args.dir:
+        refs = merge_referenced_dirs() | probe_referenced_dirs()
+        held = [d for d in args.dir if Path(d).resolve() in refs]
+        if held:
+            raise SystemExit(f"refusing: a merge's symlinks or a probe.jsonl read these dirs' wavs: {held}")
         work = [("explicit", Path(d)) for d in args.dir]
     else:
         work = list(candidates(kinds))

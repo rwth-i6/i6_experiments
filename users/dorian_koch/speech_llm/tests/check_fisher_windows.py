@@ -203,6 +203,21 @@ def run_checks(mod, corpus: dict) -> list[str]:
             slice_bad.append((row["id"], built["id"]))
     check(not slice_bad, f"[5] _build_row reproduces the stored bytes on {len(corpus['rows'])} rows {slice_bad[:3]}")
 
+    # [5b] a channel wav shorter than its cut (a killed sph2pipe) raises instead of zero-padding silence
+    with tempfile.TemporaryDirectory(prefix="fisher_guard_") as tmp:
+        sr = 8000
+        short = os.path.join(tmp, "short.wav")
+        sf.write(short, np.zeros(sr * 4, dtype=np.int16), sr, format="WAV", subtype="PCM_16")
+        try:
+            job._slice_window_wav(short, 0.0, 10.0)
+            truncated_raises = False
+        except RuntimeError:
+            truncated_raises = True
+        rounding = os.path.join(tmp, "rounding.wav")
+        sf.write(rounding, np.zeros(sr * 10 - 40, dtype=np.int16), sr, format="WAV", subtype="PCM_16")
+        padded = decode(job._slice_window_wav(rounding, 0.0, 10.0))[0].shape[0] == sr * 10
+    check(truncated_raises and padded, "[5b] a 4 s wav under a 10 s window raises; 5 ms of rounding is zero-padded")
+
     # [6] independent signal: the agent's words sit on the assistant channel's energy
     ratios_a, ratios_u = [], []
     for row in corpus["rows"]:

@@ -34,6 +34,15 @@ class CreateVenv(Job):
         # d["__version"] = 5
         return super().hash(d)
 
+    def _sis_setup_directory(self, force=False):
+        # A hard kill mid-install (SIGKILL, OOM, a manager restart) skips run()'s finally and leaves output/venv a
+        # symlink into a node-local /tmp tree that is gone; Sisyphus's makedirs(output/venv) then raises and takes the
+        # manager down. Setup runs only before a (re)submission, never while the build runs.
+        env = self.out_env_path.get_path()
+        if os.path.islink(env) and not os.path.exists(env):
+            os.unlink(env)
+        return super()._sis_setup_directory(force=force)
+
     def tasks(self):
         yield Task("run", mini_task=True)  # pip needs the login node's internet
         yield Task("pack", rqmt={"cpu": 8, "mem": 8, "time": 2})
@@ -73,8 +82,28 @@ class CreateVenv(Job):
             return  # a resubmission after a successful pack
         tree = os.path.realpath(env)
         packed = env + ".packed"
+        if os.path.lexists(packed):
+            # env is not packed yet, so this is an earlier attempt that failed after packing (e.g. in verify);
+            # sqsh_venv.pack refuses a packed root, which made every rerun die with FileExistsError
+            shutil.rmtree(packed)
         sqsh_venv.pack(tree, packed)
-        sqsh_venv.verify(tree, packed)
+        # verify under a throwaway mount base, unmounted after: its squashfuse daemon would otherwise stay mounted on
+        # the login node under a key no consumer computes again, pinning the image after a rebuild deletes it
+        mount_base = tempfile.mkdtemp(prefix="sqsh-verify-")
+        saved = os.environ.get("SQSH_VENV_MOUNT_BASE")
+        os.environ["SQSH_VENV_MOUNT_BASE"] = mount_base
+        try:
+            sqsh_venv.verify(tree, packed)
+        finally:
+            if saved is None:
+                os.environ.pop("SQSH_VENV_MOUNT_BASE", None)
+            else:
+                os.environ["SQSH_VENV_MOUNT_BASE"] = saved
+            for name in os.listdir(mount_base):
+                mnt = os.path.join(mount_base, name)
+                if os.path.isdir(mnt) and not name.endswith(".lock"):
+                    subprocess.run(["fusermount3", "-u", "-z", mnt], check=False)
+            shutil.rmtree(mount_base, ignore_errors=True)
         if os.path.islink(env):
             os.remove(env)
         else:

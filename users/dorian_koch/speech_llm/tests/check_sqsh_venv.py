@@ -201,6 +201,63 @@ finally:
     if left:
         failures.append(f"left mounts behind: {left}")
 
+
+# -- the real CreateVenv.pack / setup (2026-10-29): a failed verify leaves output/venv.packed behind, and the rerun
+#    must pack again instead of dying with FileExistsError; verify's mount is unmounted; a dangling output/venv symlink
+#    (hard kill mid-install) is removed before Sisyphus's makedirs ----------------------------------------------------
+from sisyphus.job import Job  # noqa: E402
+
+from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv  # noqa: E402
+
+
+class _P:
+    def __init__(self, p):
+        self.p = p
+
+    def get_path(self):
+        return self.p
+
+
+tmp2 = tempfile.mkdtemp(prefix="check_sqsh_venv_job_")
+try:
+    env2 = os.path.join(tmp2, "output", "venv")
+    os.makedirs(env2)
+    sv.create_venv(env2, os.path.join(tmp2, "staging"))
+    job = object.__new__(CreateVenv)
+    job.out_env_path = _P(env2)
+    real_verify = sv.verify
+
+    def failing_verify(tree, root):
+        raise RuntimeError("verify failed once (test)")
+
+    sv.verify = failing_verify
+    try:
+        job.pack()
+        check(False, "CreateVenv.pack raises when verify fails")
+    except RuntimeError:
+        check(sv.is_packed(env2 + ".packed"), "a failed verify leaves the packed attempt behind (the trap)")
+    finally:
+        sv.verify = real_verify
+    before = set(glob.glob("/tmp/sqsh-verify-*"))
+    job.pack()
+    check(sv.is_packed(env2) and not os.path.lexists(env2 + ".packed"), "the rerun packs again (no FileExistsError)")
+    left = [m for m in fuse_mounts_under("/tmp/sqsh-verify-")]
+    check(not left and set(glob.glob("/tmp/sqsh-verify-*")) <= before, f"verify's mount is gone after pack ({left})")
+    dangling = os.path.join(tmp2, "output2", "venv")
+    os.makedirs(os.path.dirname(dangling))
+    os.symlink(os.path.join(tmp2, "gone"), dangling)
+    job.out_env_path = _P(dangling)
+    real_setup = Job._sis_setup_directory
+    Job._sis_setup_directory = lambda self, force=False: None
+    try:
+        job._sis_setup_directory()
+    finally:
+        Job._sis_setup_directory = real_setup
+    check(not os.path.lexists(dangling), "job setup removes a dangling output/venv symlink")
+finally:
+    unmount_under(tmp2)
+    shutil.rmtree(tmp2, ignore_errors=True)
+
 if failures:
     print(f"\n{len(failures)} FAILED")
     sys.exit(1)

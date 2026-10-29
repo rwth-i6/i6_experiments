@@ -22,6 +22,9 @@ Checked:
      exactly ``part_features("episode")``; frames = 12.5 Hz x duration; labels = vendor speaker ids in track order;
      asr channel 0 = track a's words; the recorded per-track output loudness is -24 +-1 LU; one reference clip for
      the speaker with >= 60 s of exclusive speech only; one stored user variant.
+  4b. The worker writes ``progress.json`` into its cwd (the job work dir the manager reads), done == total. A resumed
+     shard whose one remaining conversation fails every time passes the failure gate when that is within
+     ``max_failure_frac`` of the SHARD (a gate on the resumed remainder could never pass again).
   5. DuplexChat's slicer (``podcast_slice_main``, pinned clone) on that part: the dialogue rows' ``words_a`` are track
      a's words (re-based), ``turns_json`` carries the two speaker ids. Can fail: the same check on a copy of the part
      whose ``asr_json`` channels are swapped FAILS.
@@ -289,8 +292,10 @@ def main():
          "--common", os.path.join(LIB, "moshi_family", "openyap_common.py"), "--shard_jsonl", shard,
          "--out_dir", out_dir, "--ffmpeg_dir", FFMPEG[0], "--gap", "0.5", "--loudness_norm", json.dumps(cfg),
          "--user_augment", json.dumps(aug), "--device", "cpu", "--convs_per_part", "8"],
-        env=env, check=True,
+        env=env, check=True, cwd=tmp,
     )  # fmt: skip
+    prog = json.load(open(os.path.join(tmp, "progress.json")))
+    check("[4b] progress.json in the worker cwd, done == total", prog["done"] == prog["total"] == 2, str(prog))
     from datasets import load_from_disk
 
     from moshi_family.podcast_mimi_encode import part_features
@@ -327,6 +332,25 @@ def main():
         [m["speaker"] for m in refs] == ["spk_a1"] and not json.loads(rows["conv_two"]["speaker_ref_meta_json"]),
         str(refs),
     )
+
+    # resume: conv_one is done (its part exists); conv_two now fails on every run (corrupt audio). 1 of 2 = 50%.
+    c2bad = {**c2, "speaker_a.flac": b"not a flac"}
+    bad_arch = os.path.join(tmp, "oy_bad.tar.gz")
+    write_archive(bad_arch, [("conv_one", c1), ("conv_two", c2bad)])
+    resume_out = os.path.join(tmp, "codes_resume")
+    os.makedirs(os.path.join(resume_out, "parts"))
+    one = ds.filter(lambda r: r["item_id"] == "conv_one")
+    one.save_to_disk(os.path.join(resume_out, "parts", "part_00000"))
+    with open(os.path.join(resume_out, "parts", "part_00000", "episodes.json"), "w") as f:
+        json.dump(["conv_one"], f)
+    rc = subprocess.run(
+        [sys.executable, os.path.join(LIB, "moshi_family", "openyap_ingest_main.py"), "--archive", bad_arch,
+         "--common", os.path.join(LIB, "moshi_family", "openyap_common.py"), "--shard_jsonl", shard,
+         "--out_dir", resume_out, "--ffmpeg_dir", FFMPEG[0], "--gap", "0.5", "--device", "cpu",
+         "--convs_per_part", "8", "--max_failure_frac", "0.5"],
+        env=env, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode  # fmt: skip
+    check("[4b] resumed shard: 1 failure of 2 passes a 50% gate (was 1 of the 1 remaining)", rc == 0, f"rc {rc}")
 
     # ---- [5] DuplexChat's slicer on the part --------------------------------------------------------------------
     def sliced_words_ok(in_dir):

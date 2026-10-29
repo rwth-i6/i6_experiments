@@ -36,14 +36,25 @@ DEFAULT_FILE = "AWAITED.jsonl"
 def events(path: str) -> list[dict]:
     if not os.path.exists(path):
         return []
+    out = []
     with open(path) as f:
-        return [json.loads(x) for x in f if x.strip()]
+        for x in f:
+            if x.strip():
+                try:
+                    out.append(json.loads(x))
+                except json.JSONDecodeError:  # a torn line (a session killed mid-write) must not break every call
+                    print(f"awaited: skipping an unparsable line: {x[:80]!r}", file=sys.stderr)
+    return out
 
 
 def items(path: str) -> dict[int, dict]:
     out: dict[int, dict] = {}
     for e in events(path):
         if e["event"] == "add":
+            if e["id"] in out:  # two concurrent adds before the lock existed: keep both, never drop one
+                print(f"awaited: duplicate id {e['id']} ({e['why'][:40]!r}); shown as {e['id']}.1", file=sys.stderr)
+                out[f"{e['id']}.1"] = {**e, "id": f"{e['id']}.1", "closed": None}
+                continue
             out[e["id"]] = {**e, "closed": None}
         elif e["event"] == "done" and e["id"] in out:
             out[e["id"]]["closed"] = e
@@ -56,8 +67,19 @@ def append(path: str, rec: dict) -> None:
 
 
 def landed(item: dict, records: dict) -> list[str]:
+    """Tags matching the item that were produced after it was marked: a re-run under the same tag (judge bump,
+    hpc-rerun, code_version) must not read as READY on the old numbers. A record without a time counts."""
     pats = read_results.with_old_names(item["tags"])  # a renamed arm's results may carry its old name
-    return sorted({t for t in records for p in pats if fnmatch.fnmatchcase(t, p)})
+    since = item.get("at", "")
+    return sorted(
+        {
+            t
+            for t in records
+            for p in pats
+            if fnmatch.fnmatchcase(t, p)
+            and (not read_results.when(records[t]) or read_results.when(records[t]) >= since)
+        }
+    )
 
 
 def show(item: dict, records: dict) -> bool:
@@ -97,11 +119,16 @@ def main(argv=None) -> int:
 
     its = items(args.file)
     if args.cmd == "add":
-        new_id = max(its, default=0) + 1
-        now = time.time()
-        append(args.file, {"event": "add", "id": new_id, "tags": args.tag, "expect": args.expect or len(args.tag),
-                           "why": args.why, "next": args.next, "by": getpass.getuser(), "at_unix": now,
-                           "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))})  # fmt: skip
+        import fcntl
+
+        # read + append under one lock: two sessions adding at once took the same id, and the later replaced the first
+        with open(args.file, "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            new_id = max((i for i in items(args.file) if isinstance(i, int)), default=0) + 1
+            now = time.time()
+            append(args.file, {"event": "add", "id": new_id, "tags": args.tag, "expect": args.expect or len(args.tag),
+                               "why": args.why, "next": args.next, "by": getpass.getuser(), "at_unix": now,
+                               "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))})  # fmt: skip
         print(f"awaited [{new_id}] added")
         return 0
     if args.cmd == "done":
@@ -118,7 +145,7 @@ def main(argv=None) -> int:
     if not sel:
         print("nothing awaited")
         return 0
-    ready = sum(show(i, records) for i in sorted(sel, key=lambda i: i["id"]))
+    ready = sum(show(i, records) for i in sorted(sel, key=lambda i: float(i["id"])))
     print(f"{ready} of {len(sel)} ready")
     return 0
 

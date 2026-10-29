@@ -2203,8 +2203,14 @@ class PodcastCodesTrainData(Job):
                     ],
                 }
 
-        ds_out = Dataset.from_generator(_rows, features=feats, cache_dir=os.path.abspath("hf_gen_cache"))
-        if not n["out"]:
+        import shutil
+
+        # from_generator writes the whole corpus as arrow under cache_dir: start from an empty one (a reused cache would
+        # skip the generator and its row counters) and delete it after save_to_disk (a second full copy otherwise)
+        gen_cache = os.path.abspath("hf_gen_cache")
+        shutil.rmtree(gen_cache, ignore_errors=True)
+        ds_out = Dataset.from_generator(_rows, features=feats, cache_dir=gen_cache)
+        if not len(ds_out):
             raise RuntimeError(
                 f"produced ZERO training rows from {n['in']} dialogue rows "
                 f"({n['nowords']} had no words_*, {n['short']} had < {self.min_assistant_words} words). "
@@ -2217,6 +2223,8 @@ class PodcastCodesTrainData(Job):
             flush=True,
         )
         ds_out.save_to_disk(self.out_dir.get_path())
+        del ds_out
+        shutil.rmtree(gen_cache, ignore_errors=True)
 
 
 def podcast_train_data(

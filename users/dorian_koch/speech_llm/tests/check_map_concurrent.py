@@ -79,6 +79,26 @@ except ValueError as e:
     assert "boom 7" in str(e)
 print("[3] an exception in fn propagates")
 
+# ... and cancels what is still queued (a `with` executor ran all 1,000 items before re-raising)
+calls = []
+
+
+def boom0(x):
+    calls.append(x)
+    if x == 0:
+        raise ValueError("boom 0")
+    time.sleep(0.01)
+    return x
+
+
+try:
+    common.map_concurrent(boom0, range(1000), concurrency=4)
+    raise AssertionError("exception swallowed")
+except ValueError:
+    pass
+assert len(calls) < 2 * 4 + 4, f"fn ran {len(calls)} times after item 0 raised"
+print(f"[3b] the queued items are cancelled after the first exception (fn ran {len(calls)} of 1000 times)")
+
 # ---- 4 ----
 state = Probe()
 
