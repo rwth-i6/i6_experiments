@@ -5,7 +5,7 @@ truncation for all future RL runs) and ``quality_asr_num_beams=1`` (greedy rewar
 under its own keys; earlier arms keep exactly their arguments (hash_snapshot: 0 of 6,154 moved).
 
 On the REAL graph and the real builders:
-  [1] epochs: 09-29 < 10-16 = POLICY_LATEST, known; ``rl_policy_hparams`` is {} at 09-29 and both keys at 10-16;
+  [1] epochs: 09-29 < 10-16 <= POLICY_LATEST, known; ``rl_policy_hparams`` is {} at 09-29 and both keys at 10-16;
       an unknown date raises.
   [2] every builder (rl_know_run, rl_instr_run, rl_instr_mt_run, rl_sp_run, rl_mt_run) at POLICY_LATEST yields t1 +
       num_beams 1 + the rl_grpo launcher fixes + ``declared_policy``; at 09-29 with a declared arm's spec it returns THAT
@@ -120,7 +120,7 @@ def graph_checks(declared, sink):
 
 
 print("[1] epochs and rules")
-check(OLD < NEW == runs.POLICY_LATEST and NEW in runs.KNOWN_POLICIES, "09-29 < 10-16 = POLICY_LATEST, known")
+check(OLD < NEW <= runs.POLICY_LATEST and NEW in runs.KNOWN_POLICIES, "09-29 < 10-16 <= POLICY_LATEST, known")
 check(runs.RULE_RL_TEXT_SAMPLER_T1 == NEW == runs.RULE_RL_ASR_GREEDY, "both RL rules dated 2026-10-16")
 check(runs.rl_policy_hparams(OLD) == {}, "rl_policy_hparams(09-29) == {}")
 check(

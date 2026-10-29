@@ -1,0 +1,712 @@
+{
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_adaptive_pad.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_anchor_regularizers.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_asr_client.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_asr_crosstalk.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_asr_num_beams.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_atomic_writes.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_audio_flac_writers.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_aux_mix.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_awaited.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_broad_knowledge.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_channel_collisions.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_guard.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_resume.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_clip_codec.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_clip_store.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_codes_loader.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_common_helpers.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_content_prompts.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_corpus_manifest.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_corpus_wer.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_data_job_knobs.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ddp_grad_sync.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_declared_train_gpus.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_dialogue_templates.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_doerg_record.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_engine_reset.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_episode_edge_rows.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_episode_schema.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_episode_slice.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_eval_schedule.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_eval_steps.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_experiment_card.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fast_train_policy.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fdb_turn_taking_v2.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_file_tree_store.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_finetune_configs.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_finetune_hparams_read.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fisher_windows.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_floor_weight.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fp32_master_weights.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fsdp_full_ft.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_gpu_fanout.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_grader_provenance.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_head_questions.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_heldout_loss.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_hf_cache_dir.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_hf_merge_no_cache.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_holdout.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_hparams_destination.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_instruct_prompts.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_instruct_threads.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_io_prefetch.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_jitter_buffer.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_json_constraint.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_default_asr.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_known_score.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_mix.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_probe_inmemory.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_v7.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_label_free_hash.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_launcher_config_reads.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_launcher_fix_policy.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_launcher_setup.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_lead_in_default.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_legacy_pins.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_live_server_reset.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_live_voice_draw.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_loader_item_meta.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_loader_resume.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_loss_parity.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_loudness_norm.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_map_concurrent.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mic_health.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mimi_encode.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mix_word_weights.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mixed_loader.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_model_provenance.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_monologue_decode.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_moshi_rl_logprob.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mrqa_faithful.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mtr_batched_driver.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mtr_pause_detect.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mtr_upstream.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_no_gen_cache_left.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_no_raw_job_paths.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_offline_cli_materialise.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_offline_driver_cli.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_openyap_ingest.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_overlay_rank.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_overlay_resolution.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_packing.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_partition_routing.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_path_hash_pinning.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_perm_repair.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_profiles.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_prompt_prefix.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_prompts.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_selfplay.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_personaplex_lm_parity.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_personaplex_lora.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_personaplex_state_dict_parity.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_podcast_sharding.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_09_25c.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_09_28.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_09_28b.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_09_29.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_10_29.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_defaults.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_batch_parity.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_fsdp.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_heldout_eval.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_inloop_eval_default.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_reset.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_rl_logprob.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_selfplay_rl.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_usersem_default.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_probe_listening.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_probe_rank_parallel.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_pythonpath_prepend.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_quick_knowledge_eval.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_repack_clips.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_result_notify.py": [
+  {
+   "env": "setup"
+  },
+  {
+   "args": [
+    "--graph"
+   ],
+   "env": "setup",
+   "graph": true
+  }
+ ],
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_rl_knobs_rendered.py": [
+  {
+   "env": "setup"
+  },
+  {
+   "args": [
+    "--graph"
+   ],
+   "env": "setup",
+   "graph": true
+  }
+ ],
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_rl_policy.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_rl_shared_judge.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_row_filters.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_row_loader.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_row_weights.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_rqmt_not_hashed.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_save_schedule.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_scale_diagnostics.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_self_rehearsal.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_energy.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_judge_v2.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_shared_base.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_shared_train_loader.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_slicing_rules_2026_09_24.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_spoke_words.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sqsh_venv.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_stream_inference_failures.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_streaming_kv_parity.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_synthetic_alignment.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_target_stats.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_epad_weight.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_logits_dump.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_loss_weight.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_scoring.py": {
+  "env": "login"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_stream.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_token_corrupt.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_tokenizer_overrides.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_torchcodec_libs.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_config.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_data_common.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_loop_metrics.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_metrics_plot.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_perf.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_turn_tail.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_two_stage_sampler.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_augment.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_alignment.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_head.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_stream.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_variants.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_word_timings.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_venv_pins.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_vllm_python.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_voice_reembed.py": [
+  {
+   "env": "venv:moshi_family_venv_v1"
+  },
+  {
+   "args": [
+    "--graph"
+   ],
+   "env": "setup",
+   "graph": true
+  }
+ ],
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_voice_study_length.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_window_select.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_windowed_loader.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_word_overlap.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_word_spans.py": {
+  "env": "venv:moshi_family_venv_v1"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_worker_copies.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_worker_exit.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_worker_lazy_imports.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_zero_copy_merge.py": {
+  "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_answer_only_credit.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_device.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_num_beams.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_oom.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_shared.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_worker.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_audio_quality.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_aux_tasks.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_broad_knowledge.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_episodes.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_fw_asr.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_grpo_oom.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_grpo_overlap.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_init_lora.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_instruct_reward.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_instruct_threads.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_failures.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_reasoning_tokens.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_stats.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_tokens.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_knowledge_rate_subsample.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_multitask.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_partner_channel.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_probe_metrics.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_scorer_threads.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_segment_resume.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_loss_norm.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_reward_spec.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_timing.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_sp_rate_mask.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_speech_rate.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_staleness.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_text_teacher.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_timeline.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_train_cycle.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_turn_early.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_v2_rewards.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_v2_runtime.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_v2_selfplay.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_cutover.py": {
+  "env": "setup",
+  "graph": true
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_hash_stability.py": {
+  "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_native_intent.py": {
+  "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_placement.py": {
+  "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_spec_roundtrip.py": {
+  "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_v1_parity.py": {
+  "env": "setup"
+ }
+}
