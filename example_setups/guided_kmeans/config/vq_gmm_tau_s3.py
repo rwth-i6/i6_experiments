@@ -122,9 +122,20 @@ SIDE_RQMT = dict(bonus.EPOCH_RQMT, sbatch_args=["-p", "gpu_11gb", "--nice=1600"]
 #: asked for 64 gpu_11gb cards against the ~42 this user actually got: S=3 takes
 #: 24 at normal priority (~34 min a step on 1080s), the control 8 behind the side
 #: runs - it is read against the finished full-batch run, so it is not in a hurry.
+#:
+#: 2026-10-28: the bonus-2.0 arm reached update 200 at 52.1%, where the S=2 run was
+#: at 140 and accelerating the same way, so it runs on to 280. Next to it a small
+#: sweep, 1.5 and 2.5 (+-0.94 nats), from scratch and otherwise identical, for 100
+#: updates: their one-step duration offsets from the calibration (+0.18-0.21 /
+#: -0.16-0.20 frames) are those of S=2's 0.25 and 0.75 arms, which stalled and
+#: slowed, so the sweep asks whether S=3 tolerates what S=2 did not. Nice'd, next to
+#: the other side runs: the 2.0 arm is the main run.
+S3_MAX_FRAMES = bonus.MAX_FRAMES * 2 // 3
 ARMS = [
-    ("S=3 online", 3, 2.0, 50, 24, bonus.MAX_FRAMES * 2 // 3, MAIN_RQMT),
+    ("S=3 online", 3, 2.0, 70, 24, S3_MAX_FRAMES, MAIN_RQMT),
     ("S=2 online", 2, REFERENCE_FRACTION, 10, 8, bonus.MAX_FRAMES, SIDE_RQMT),
+    ("S=3 online", 3, 1.5, 25, 16, S3_MAX_FRAMES, SIDE_RQMT),
+    ("S=3 online", 3, 2.5, 25, 16, S3_MAX_FRAMES, SIDE_RQMT),
 ]
 BATCHES_PER_EPOCH = 4
 #: Undamped, as vq_gmm_tau_online.
@@ -322,7 +333,7 @@ def run():
                                "matched_hyp_ref", "posterior_entropy",
                                "segment_duration_argmax", "boundary_rate"]
                 + balance_columns,
-        sort_by=["run"],
+        sort_by=["states", "bonus", "run"],
         epochs=None,
         drop_empty_rows=True,
         caption=(
@@ -343,7 +354,7 @@ def run():
         columns=arm_columns + [update, passes, "posterior_entropy", "cluster_perplexity",
                                "segment_duration_argmax", "boundary_rate",
                                "dead_clusters"],
-        sort_by=["run"],
+        sort_by=["states", "bonus", "run"],
         drop_empty_rows=True,
         title=(
             f"Per-update convergence, S=3 against S=2 (bonus-{REFERENCE_FRACTION} arm). "

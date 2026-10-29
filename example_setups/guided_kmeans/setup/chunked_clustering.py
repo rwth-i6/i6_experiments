@@ -23,6 +23,7 @@ __all__ = [
     "IdentityCovsJob",
     "MaterializeModelJob",
     "MergeEpochStatisticsJob",
+    "PerturbedMeanCentroidsJob",
     "RandomCentroidsJob",
     "DuplicateCovsJob",
     "ScaleCovsJob",
@@ -1014,6 +1015,46 @@ class RandomCentroidsJob(ArrayJob):
             total_frames = f["inputs"].shape[0]
             indices = np.sort(rng.choice(total_frames, size=self.num_clusters, replace=False))
             return f["inputs"][indices]
+
+
+class PerturbedMeanCentroidsJob(ArrayJob):
+    """K copies of the corpus mean, each pushed off it by ``scale * N(0, Sigma)``: a flat start.
+
+    The codebook-free initialization: every density starts on the corpus mean,
+    and only the perturbation tells them apart. Pair it with the corpus
+    covariance as the densities' covariance (``GlobalCovarianceJob`` gives both).
+
+    ``scale`` is per dimension, in units of the corpus' own standard deviations,
+    so a perturbation's length is about ``scale * sqrt(D)`` of them - at D=512,
+    0.1 is already 2.3 standard deviations and no longer small. Measured with
+    label-blind EM on 200k ls-100 segments (tied covariance re-estimated, 512
+    densities): 0.1 leaves the symmetric start within 2-3 iterations, 0.01
+    stalls for ~6 and is out by 10-15, 44 densities having died on the way.
+
+    :param mean: ``[D]``, e.g. ``GlobalCovarianceJob.out_mean``
+    :param cov: ``[D, D]``, e.g. ``GlobalCovarianceJob.out_cov``
+    :param scale: the perturbation's standard deviation, per dimension
+    """
+
+    OUTPUTS = ("centroids",)
+
+    def __init__(self, mean: tk.Path, cov: tk.Path, num_clusters: int, scale: float,
+                 seed: int = 42):
+        self.mean = mean
+        self.cov = cov
+        self.num_clusters = num_clusters
+        self.scale = scale
+        self.seed = seed
+        super().__init__()
+
+    def compute(self):
+        if self.scale <= 0:
+            raise ValueError(f"scale must be > 0, got {self.scale}")
+        mean = self.load(self.mean, ndim=1, name="mean")
+        cov = self.load(self.cov, ndim=2, name="covariance")
+        rng = np.random.RandomState(self.seed)
+        noise = rng.randn(self.num_clusters, len(mean)) @ np.linalg.cholesky(cov).T
+        return mean[np.newaxis, :] + self.scale * noise
 
 
 class IdentityCovsJob(ArrayJob):
