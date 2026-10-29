@@ -100,7 +100,7 @@ def main():
     parser.add_argument("--model_size", default="large-v3-turbo", help="Whisper model size")
     parser.add_argument("--batch_size", type=int, default=24, help="Batch size for faster-whisper internal chunking")
     parser.add_argument(
-        "--shard", type=int, default=None, help="per-GPU fan-out (backlog G1): clips i with i %% num_shards == shard"
+        "--shard", type=int, default=None, help="per-GPU fan-out: clips i with i %% num_shards == shard"
     )
     parser.add_argument("--num_shards", type=int, default=None)
     args = parser.parse_args()

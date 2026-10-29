@@ -336,7 +336,7 @@ def main():
         "--sub_shard",
         type=int,
         required=False,
-        help="Per-GPU fan-out INSIDE the --in_hf_shard (backlog G1): this worker's index among --sub_num_shards. "
+        help="Per-GPU fan-out INSIDE the --in_hf_shard: this worker's index among --sub_num_shards. "
         "A contiguous slice, so dialogue ids, seeds and output row order are identical to a single worker's.",
     )
     parser.add_argument("--sub_num_shards", type=int, required=False)

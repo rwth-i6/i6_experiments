@@ -673,7 +673,7 @@ def main():
     parser.add_argument("--out_dir", type=str, required=True)
     parser.add_argument("--in_hf_shard", type=int, required=False)
     parser.add_argument("--in_hf_num_shards", type=int, required=False)
-    parser.add_argument("--sub_shard", type=int, required=False, help="per-GPU fan-out inside the shard (backlog G1)")
+    parser.add_argument("--sub_shard", type=int, required=False, help="per-GPU fan-out inside the shard")
     parser.add_argument("--sub_num_shards", type=int, required=False)
     parser.add_argument(
         "--mode",

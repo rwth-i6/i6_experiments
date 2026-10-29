@@ -42,7 +42,7 @@ def main():
     p.add_argument("--model_size", default="large-v3-turbo")
     p.add_argument("--batch_size", type=int, default=24)
     p.add_argument(
-        "--shard", type=int, default=None, help="per-GPU fan-out (backlog G1): clips i with i %% num_shards == shard"
+        "--shard", type=int, default=None, help="per-GPU fan-out: clips i with i %% num_shards == shard"
     )
     p.add_argument("--num_shards", type=int, default=None)
     args = p.parse_args()

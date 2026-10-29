@@ -120,7 +120,7 @@ def check_parity(es_path):
     if mrqa != kr._WORD.pattern:
         fails.append(f"moshirag_qa_bench._SPOKE_WORD {mrqa!r} != the trainer's {kr._WORD.pattern!r}")
     if es.SPOKE_MIN_WORDS != 1:
-        fails.append(f"evalstats.SPOKE_MIN_WORDS = {es.SPOKE_MIN_WORDS} (user: >= 1)")
+        fails.append(f"evalstats.SPOKE_MIN_WORDS = {es.SPOKE_MIN_WORDS} (must be >= 1)")
     return fails
 
 

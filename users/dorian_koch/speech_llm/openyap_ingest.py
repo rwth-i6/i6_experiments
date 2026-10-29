@@ -219,7 +219,7 @@ class OpenYapEpisodeIngest(Job):
         convs_per_part: int = 32,
         rqmt: dict | None = None,
     ):
-        assert mimi_encode_mode == "offline", "only the offline encode is exact (audio_datasets.md, Mimi encode bug)"
+        assert mimi_encode_mode == "offline", "only the offline encode is exact (Mimi streaming encode bug)"
         assert loudness_norm.get("mode") == "per_track", loudness_norm
         draws_noise = user_augment is not None and float(user_augment["augment"].get("noise_prob", 0.0)) > 0.0
         if draws_noise != (noise_pool is not None):
