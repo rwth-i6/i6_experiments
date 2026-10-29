@@ -68,7 +68,8 @@ class TrainMetricsPlot(Job):
 
     ``metrics`` is ``{label -> metrics.train.jsonl Path}``; insertion order fixes both the legend
     order and the job hash, so re-ordering the dict is a different job (deliberate -- the figure
-    changes).
+    changes). The labels are hashed for the same reason: they are drawn into the legend, so a rename must redraw the
+    plot. This is the exception to "run names are never hashed", which covers names that do not reach an output file.
 
     ``origin`` is ``{label -> "ours"|"hf"}``, surfaced in the legend, so a reader can never mistake
     a released checkpoint for something we trained (the standing provenance rule; see

@@ -864,7 +864,9 @@ word_overlap: {"null" if hp.get("word_overlap") is None else chr(34) + hp["word_
 loss_norm: "{hp.get("loss_norm", "weight")}"
 """
         + perf
-        + render_launcher_fix_keys(hp, ("resume_data_position",), who=who, rendered_elsewhere=("loss_norm",))
+        + render_launcher_fix_keys(
+            hp, ("resume_data_position", "fp32_master_weights"), who=who, rendered_elsewhere=("loss_norm",)
+        )
     )
 
 
@@ -958,6 +960,7 @@ LAUNCHER_FIX_KEYS = {
     "loss_norm": str,
     "text_pad_weight_in_full_stage1": bool,
     "ddp_static_graph": bool,
+    "eval_fixed_batches": bool,
 }
 
 
@@ -1157,7 +1160,10 @@ knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
             rendered_elsewhere=("prefetch_batches",),
         )
         + render_launcher_fix_keys(
-            hp, ("ddp_static_graph",), who="base-Moshi lib", rendered_elsewhere=("fp32_master_weights", "loss_norm")
+            hp,
+            ("ddp_static_graph", "eval_fixed_batches"),
+            who="base-Moshi lib",
+            rendered_elsewhere=("fp32_master_weights", "loss_norm"),
         )
     )
 

@@ -631,6 +631,9 @@ class FigureOutHowManyCorrectWordsAreBungedUp(Job):
 
 
 class SimulateTokenSubstitution(Job):
+    # ⚠ Not reproducible: the corruption draws from the unseeded global `random`, and the replacement id can be a special
+    # label (randint over the whole vocab). Left as is (no current graph use); seeding it needs a hashed seed argument
+    # or a __version bump, which re-hashes every consumer.
     def __init__(self, text_file: tk.Path, vocab_opts: Dict[str, Any], swapout_prob: Tuple[float, float]):
         self.text_file = text_file
         self.vocab_opts = vocab_opts

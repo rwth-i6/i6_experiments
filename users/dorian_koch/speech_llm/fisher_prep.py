@@ -275,7 +275,7 @@ class FisherToMoshiTrainData(Job):
         max_windows: int | None = None,
         seed: int = 0,
         user_words: bool = True,
-        whole_conversations: bool = False,
+        whole_conversations: bool = True,
     ):
         self.cutset = cutset
         self.wav_dir = wav_dir
@@ -287,8 +287,9 @@ class FisherToMoshiTrainData(Job):
         self.max_windows = max_windows
         self.seed = seed
         self.user_words = bool(user_words)
-        # True: one row per conversation, [0, min(duration_sec, conversation length)], at its real length. With False a
-        # window is planned only if it fits entirely, so duration_sec=660 kept just the 2.9% of calls >= 660 s.
+        # True (default since 2026-10-29): a call shorter than duration_sec still gives its first window, cut at the
+        # call's end, so duration_sec=660 + windows_per_conv=1 is one row per whole call. False (the corpora declared
+        # before, pinned at their call sites): a window only if it fits, so 660 s kept just the 2.9% of calls >= 660 s.
         self.whole_conversations = bool(whole_conversations)
         self.out_dataset = self.output_path("dataset", directory=True)
         self.out_stats = self.output_path("stats.json")

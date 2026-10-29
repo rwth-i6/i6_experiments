@@ -238,12 +238,17 @@ class KnowledgeUserWordsCTC(Job):
     ``{id, alignments_other, other_ok}`` sidecar ``KnowledgeAttachUserWords`` reads, row-aligned with the annotated
     corpus) + ``out_summary``. The MMS_FA weights come from torch hub (``~/.cache/torch``)."""
 
-    def __init__(self, *, corpora: list, venv_python_path: tk.Path):
+    #: drop_rows_with_failed_turns: a row in which any user turn failed to align gets other_ok=False (no user-text
+    #: supervision) instead of PAD over that turn. Default for new corpora; False = the sidecars built before 2026-10-29.
+    __sis_hash_exclude__ = {"drop_rows_with_failed_turns": False}
+
+    def __init__(self, *, corpora: list, venv_python_path: tk.Path, drop_rows_with_failed_turns: bool = True):
         names = [c[0] for c in corpora]
         assert len(set(names)) == len(names), f"corpus names must be unique: {names}"
         assert all(len(c) == 3 for c in corpora), "corpora: [(name, annotated dir, TTS dir)]"
         self.corpora = [(str(n), a, t) for n, a, t in corpora]
         self.venv_python_path = venv_python_path
+        self.drop_rows_with_failed_turns = drop_rows_with_failed_turns
         self.out_root = self.output_path("sidecars", directory=True)
         self.out_sidecars = {n: self.out_root.join_right(n) for n in names}
         self.out_summary = self.out_root.join_right("summary.json")
@@ -271,7 +276,10 @@ class KnowledgeUserWordsCTC(Job):
             "cuda",
             "--progress",
             "progress.json",
-        ] + [f"{n}={a.get_path()}={t.get_path()}" for n, a, t in self.corpora]
+        ]
+        if getattr(self, "drop_rows_with_failed_turns", False):
+            cmd.append("--drop_rows_with_failed_turns")
+        cmd += [f"{n}={a.get_path()}={t.get_path()}" for n, a, t in self.corpora]
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, env=env, check=True)
         if not os.path.isfile(self.out_summary.get_path()):

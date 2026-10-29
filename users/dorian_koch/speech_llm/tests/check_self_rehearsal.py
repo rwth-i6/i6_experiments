@@ -254,6 +254,28 @@ with tempfile.TemporaryDirectory() as tmp:
 print(f"[ok] end-to-end run()    {len(order)} clips -> {stats['n_kept']} dialogue rows, schema + join verified")
 
 
+# filters_version 2: a decimal or an abbreviation is not a sentence end, a plural possessive is not a glitch. Version 1
+# must still show both defects (the jobs built with it keep their rows), which is what shows this check can fail.
+_v2_cases = [
+    ("The tower is about 2.5 kilometers tall and was built in", "The tower is about 2.", ""),
+    ("He served in the U.S. Army for years and then", "He served in the U.S.", ""),
+    ("The Beatles' first album was Please Please Me. It came out in 1963.", "",
+     "The Beatles' first album was Please Please Me. It came out in 1963."),
+]  # fmt: skip
+for raw, want_v1, want_v2 in _v2_cases:
+    got1 = clean_monologue(raw, strip_greeting=False, filters_version=1)
+    got2 = clean_monologue(raw, strip_greeting=False, filters_version=2)
+    if got1 != want_v1:
+        failures.append(f"filters_version 1 changed (finished corpora would not reproduce): {raw!r} -> {got1!r}")
+    if got2 != want_v2:
+        failures.append(f"filters_version 2: {raw!r} -> {got2!r}, want {want_v2!r}")
+if trim_to_last_sentence("It is 2.5 m. The U.S. is big. And then", 2) != "It is 2.5 m. The U.S. is big.":
+    failures.append("filters_version 2 trim lost a real sentence end")
+if MoshiRolloutToDialogue.__init__.__kwdefaults__["filters_version"] != 2:
+    failures.append("new MoshiRolloutToDialogue jobs must default to filters_version 2")
+print("[ok] filters_version 2  decimals, abbreviations, plural possessives; version 1 unchanged")
+
+
 if failures:
     print("\nFAILED:", file=sys.stderr)
     for f in failures:

@@ -149,15 +149,26 @@ LLM_PREPROCESS_INSTRUCTIONS = (
 )
 
 
+#: (dataset_name, split) of the question sets built before 2026-10-29 with the LLM-echoed gold. Frozen: never add to it,
+#: a new set takes its gold from the source rows.
+ECHO_GOLD_SETS = frozenset({("triviaqa", "validation"), ("triviaqa", "train")})
+
+
+def echo_gold_legacy(dataset_name: str, split: str) -> bool:
+    """True for a set that keeps the LLM-echoed gold (built before 2026-10-29); pass ``gold_from_source=not ...``."""
+    return (dataset_name, split) in ECHO_GOLD_SETS
+
+
 class LLMPreprocess(Job):
     """Clean raw dataset questions for speech synthesis via LLM."""
 
     #: gold_from_source=True keeps ``answer``/``aliases`` from the source row and takes only ``question`` from the LLM.
     #: The echo changes them: aliases are sent joined by ", ", so "Hitler, Adolph" returns as two aliases (measured
-    #: 2026-10-29 on the 12,000-row TriviaQA input: 101 answers and 2,514 alias lists differ). False = every set before.
+    #: 2026-10-29 on the 12,000-row TriviaQA input: 101 answers and 2,514 alias lists differ). Every NEW set takes the
+    #: source gold (the default); the sets built before pass False (``echo_gold_legacy``) and keep their hash and rows.
     __sis_hash_exclude__ = {"gold_from_source": False}
 
-    def __init__(self, *, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it", gold_from_source: bool = False):
+    def __init__(self, *, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it", gold_from_source: bool = True):
         self.in_hf = in_hf
         self.llm_name = llm_name
         self.gold_from_source = gold_from_source
@@ -724,6 +735,8 @@ Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explan
 #:                   before putting two judged numbers in one table (measured gap:
 #:                   projects/2026-01-speech-llm/grader_t0_measure.py).
 # alias_match 2: an article after the first word of a gold answer is kept ("Vitamin A" != "vitamin C").
+#   Unlike llm_judge, AliasMatchGrading hashes this version, so every finished alias summary was re-scored (seconds
+#   each); the in-training probe and self_rehearsal use the new rule from their next run.
 GRADER_SCHEMA_VERSIONS = {"llm_judge": 2, "alias_match": 2}
 GRADER_SCHEMA_VERSION = GRADER_SCHEMA_VERSIONS["llm_judge"]
 
@@ -1114,7 +1127,9 @@ def knowledge_benchmark_py(
         tk.register_output("benchmark/raw_dataset", raw.out_hf)
 
         # 2. LLM preprocessing on the FULL dataset (cached; reused across subsamples)
-        preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
+        preprocess = LLMPreprocess(
+            in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
+        )
         tk.register_output("benchmark/preprocessed", preprocess.out_hf)
 
         # 2b. Reproducible random subsample AFTER preprocessing, so changing the sample size/seed

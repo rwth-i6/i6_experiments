@@ -165,7 +165,12 @@ class SeamlessAudioDownloadJob(Job):
 
 
 class MergeSeamlessAudio(Job):
-    """Symlink-merge sharded download outputs (audio/ + transcripts/) + concatenate manifests."""
+    """Symlink-merge sharded download outputs (audio/ + transcripts/) + concatenate manifests.
+
+    ⚠ One symlink inode per file on top of the shards' own files (8 inodes per interaction). Fine for improvised/dev;
+    before the naturalistic or train split is built, emit only ``manifest.jsonl`` pointing into the shard dirs (and
+    teach the readers) or pack each shard into one arrow store: inodes are the binding quota.
+    """
 
     def __init__(self, *, in_dirs: list[tk.Path]):
         self.in_dirs = in_dirs

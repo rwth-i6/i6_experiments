@@ -97,13 +97,53 @@ _SENT_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
 #: punctuation, in a module whose one invariant is that it only ever deletes.
 _TAIL_RE = re.compile(r"([.?!])[^.?!]*$")
 
+#: filters_version 2: a "." ends a sentence only if it is not inside a number ("2.5") and does not close an
+#: abbreviation ("U.S.", "Dr.", a lone initial). Version 1 cut "about 2.5 kilometers tall and" to "about 2.".
+_ABBREV_RE = re.compile(
+    r"(?:\b[A-Za-z](?:\.[A-Za-z])+|\b[A-Z]|\b(?:Dr|Mr|Mrs|Ms|St|Jr|Sr|Mt|Ft|No|vs|Prof|Gen|Col|Lt|Sgt|Inc|Ltd|Co))$"
+)
+#: filters_version 2 glitch: a bare apostrophe after anything but "s", so a plural possessive ("the Beatles' first
+#: album") is not a dropped contraction. Version 1 cut every such reply before the possessive.
+_GLITCH_RE_V2 = re.compile(r"\b\w*[^s\W]'(?=\s|$)")
+
+
+def _glitch_re(filters_version: int):
+    return _GLITCH_RE if filters_version < 2 else _GLITCH_RE_V2
+
+
+def _sentence_ends(text: str) -> list[int]:
+    """Indices of the characters that end a sentence (filters_version 2 rule, see :data:`_ABBREV_RE`)."""
+    ends = []
+    for i, c in enumerate(text):
+        if c in "?!":
+            ends.append(i)
+        elif c == ".":
+            if 0 < i < len(text) - 1 and text[i - 1].isdigit() and text[i + 1].isdigit():
+                continue
+            if i < len(text) - 1 and _ABBREV_RE.search(text[:i]):
+                continue
+            ends.append(i)
+    return ends
+
+
+def split_sentences(text: str, filters_version: int = 1) -> list[str]:
+    if filters_version < 2:
+        return _SENT_SPLIT_RE.split(text)
+    out, start = [], 0
+    for i in _sentence_ends(text):
+        if i + 1 < len(text) and text[i + 1].isspace():
+            out.append(text[start : i + 1])
+            start = i + 1
+    out.append(text[start:])
+    return [s.strip() for s in out]
+
 
 def strip_lead_greeting(text: str) -> str:
     """Remove the rollout-harness greeting from the front of a monologue."""
     return _GREETING_RE.sub("", text, count=1).strip()
 
 
-def trim_to_last_sentence(text: str) -> str:
+def trim_to_last_sentence(text: str, filters_version: int = 1) -> str:
     """Drop everything after the final sentence terminator.
 
     ~29% of base-Moshi replies are still speaking when the capture window closes, so the monologue
@@ -116,11 +156,14 @@ def trim_to_last_sentence(text: str) -> str:
         return ""
     if text[-1] in ".?!":
         return text
+    if filters_version >= 2:
+        ends = _sentence_ends(text)
+        return text[: ends[-1] + 1].strip() if ends else ""
     trimmed = _TAIL_RE.sub(r"\1", text)
     return "" if trimmed == text else trimmed.strip()
 
 
-def cut_at_glitch(text: str) -> str:
+def cut_at_glitch(text: str, filters_version: int = 1) -> str:
     """Truncate at the first dropped contraction, keeping the clean prefix.
 
     Dropping the whole reply over one glitch throws away good text: measured on the 1,000-rollout
@@ -130,7 +173,7 @@ def cut_at_glitch(text: str) -> str:
     text, because everything after the first glitch is discarded unread. A reply that is broken from
     the start cuts down to nothing and is then caught by the ``min_words`` floor.
     """
-    m = _GLITCH_RE.search(text)
+    m = _glitch_re(filters_version).search(text)
     return text[: m.start()].strip() if m else text
 
 
@@ -158,10 +201,10 @@ def words(text: str) -> list[str]:
     return _WORD_RE.findall(text)
 
 
-def glitch_rate(text: str) -> float:
+def glitch_rate(text: str, filters_version: int = 1) -> float:
     """Fraction of words that are a truncated contraction."""
     w = words(text)
-    return len(_GLITCH_RE.findall(text)) / len(w) if w else 0.0
+    return len(_glitch_re(filters_version).findall(text)) / len(w) if w else 0.0
 
 
 def repeat_ratio(text: str, n: int = 5) -> float:
@@ -173,13 +216,13 @@ def repeat_ratio(text: str, n: int = 5) -> float:
     return 1.0 - len(set(grams)) / len(grams)
 
 
-def sentence_repeat_ratio(text: str) -> float:
+def sentence_repeat_ratio(text: str, filters_version: int = 1) -> float:
     """Fraction of sentences that duplicate an earlier one (normalised, punctuation-insensitive).
 
     Catches the degenerate mode n-grams miss: near-identical SHORT sentences ("It's a unique flavor."
     / "It's a very unique flavor.") whose 5-grams differ by one inserted word.
     """
-    sents = [" ".join(words(s)).lower() for s in _SENT_SPLIT_RE.split(text)]
+    sents = [" ".join(words(s)).lower() for s in split_sentences(text, filters_version)]
     sents = [s for s in sents if s]
     if len(sents) < 2:
         return 0.0
@@ -193,6 +236,7 @@ def clean_monologue(
     cut_glitch: bool = True,
     cut_dropped_word: bool = True,
     trim_tail: bool = True,
+    filters_version: int = 1,
 ) -> str:
     """The full text-side cleanup, in the order the job applies it.
 
@@ -211,11 +255,11 @@ def clean_monologue(
         # for the forward cut below to judge.
         text = drop_leading_fragment(text)
     if cut_glitch:
-        text = cut_at_glitch(text)
+        text = cut_at_glitch(text, filters_version)
     if cut_dropped_word:
         text = cut_at_dropped_word(text)
     if trim_tail:
-        text = trim_to_last_sentence(text)
+        text = trim_to_last_sentence(text, filters_version)
     return text.strip()
 
 
@@ -234,6 +278,7 @@ class MoshiRolloutToDialogue(Job):
         # Bump to force regeneration after changing the filter functions above (they are module
         # code, invisible to the hash, so an edit would otherwise silently reuse the old corpus --
         # the same trap `templates_version` exists for in hf_to_dialogue).
+        # 2 (2026-10-29, the default): decimals/abbreviations are not sentence ends, plural possessives not glitches.
         "filters_version": 1,
     }
 
@@ -251,7 +296,7 @@ class MoshiRolloutToDialogue(Job):
         cut_glitch: bool = True,
         cut_dropped_word: bool = True,
         trim_tail: bool = True,
-        filters_version: int = 1,
+        filters_version: int = 2,
     ):
         self.clips = clips
         self.questions = questions
@@ -332,7 +377,8 @@ class MoshiRolloutToDialogue(Job):
                 drop("no_clip")
                 continue
             degreeted = strip_lead_greeting(raw) if self.strip_greeting else raw
-            if glitch_rate(degreeted) > self.max_glitch_rate:
+            fv = getattr(self, "filters_version", 1)
+            if glitch_rate(degreeted, fv) > self.max_glitch_rate:
                 drop("glitched")
                 continue
             text = clean_monologue(
@@ -341,6 +387,7 @@ class MoshiRolloutToDialogue(Job):
                 cut_glitch=self.cut_glitch,
                 cut_dropped_word=self.cut_dropped_word,
                 trim_tail=self.trim_tail,
+                filters_version=fv,
             )
             n_words = len(words(text))
             if n_words < self.min_words:
@@ -352,7 +399,7 @@ class MoshiRolloutToDialogue(Job):
             if repeat_ratio(text) > self.max_repeat_ratio:
                 drop("ngram_repeat")
                 continue
-            if sentence_repeat_ratio(text) > self.max_sentence_repeat_ratio:
+            if sentence_repeat_ratio(text, fv) > self.max_sentence_repeat_ratio:
                 drop("sentence_repeat")
                 continue
 

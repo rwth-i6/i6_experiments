@@ -55,7 +55,7 @@ from .knowledge_benchmark import (
     resolve_audex_weights,
     MOSHI_BACKEND,
 )
-from .knowledge_benchmark import _grader_block, bench_out_prefix
+from .knowledge_benchmark import GRADER_SCHEMA_VERSIONS, _grader_block, bench_out_prefix, echo_gold_legacy
 from .result_notify import notify_result
 from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
@@ -173,8 +173,13 @@ class AliasMatchGrading(Job):
     summary.json in the EXACT schema ``LLMGrading`` produces, so it is a drop-in for the tail of the
     benchmark when you want a fast, deterministic, judge-free number for monitoring."""
 
-    def __init__(self, *, in_json: tk.Path):
+    #: The scoring rule (``GRADER_SCHEMA_VERSIONS["alias_match"]``) is in the hash, so bumping it re-scores every tag.
+    #: Version 1 (articles stripped anywhere, "Vitamin A" matched "vitamin C") keeps the hash of the jobs before it.
+    __sis_hash_exclude__ = {"grader_version": 1}
+
+    def __init__(self, *, in_json: tk.Path, grader_version: int = GRADER_SCHEMA_VERSIONS["alias_match"]):
         self.in_json = in_json
+        self.grader_version = grader_version
         self.out_eval = self.output_path("eval_results.jsonl")
         self.out_summary = self.output_path("summary.json")
 
@@ -182,6 +187,8 @@ class AliasMatchGrading(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
+        if self.grader_version != GRADER_SCHEMA_VERSIONS["alias_match"]:
+            raise RuntimeError(f"grader_version {self.grader_version}: only the current rule can run")
         rows = []
         with open(str(self.in_json.get())) as f:
             for line in f:
@@ -263,7 +270,9 @@ def quick_knowledge_eval_py(
     # 1-2. SHARED cached data stages (constructed identically to knowledge_benchmark_py so the hash
     # matches and nothing recomputes).
     raw = LoadRawDataset(dataset_name=dataset_name, split=split)
-    preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
+    preprocess = LLMPreprocess(
+        in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
+    )
 
     # 2b. Small reproducible subsample (own seed -> its own tiny cached artifact).
     data = SubsampleDataset(in_hf=preprocess.out_hf, n=n, seed=seed).out_hf
@@ -550,7 +559,9 @@ def knowledge_probe_set_py(
     )
 
     raw = LoadRawDataset(dataset_name=dataset_name, split=split)
-    preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
+    preprocess = LLMPreprocess(
+        in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
+    )
     data = SubsampleDataset(in_hf=preprocess.out_hf, n=n, seed=seed).out_hf
     speakers = make_speakers()
     tts = ChatterboxSingleSpeakerInference(

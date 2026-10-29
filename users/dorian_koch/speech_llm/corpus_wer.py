@@ -60,6 +60,23 @@ def normalize_for_wer(text: str) -> list[str]:
     return _WS.sub(" ", _PUNCT.sub(" ", (text or "").lower())).strip().split()
 
 
+_WHISPER_NORM: list = []
+
+
+def whisper_normalize_words(text: str) -> list[str]:
+    """Whisper's EnglishTextNormalizer (openai/whisper-large-v3-turbo's normalizer.json, as ``moshi_family.text_norm``):
+    numbers as digits, US spelling, contractions expanded -> word list. The second WER column: it removes the
+    orthography floor described in the module docstring, at the price of also absorbing a TTS error that only changes
+    a number's spelling. Needs ``transformers`` (the setup .venv, where this mini task runs)."""
+    if not _WHISPER_NORM:
+        from huggingface_hub import hf_hub_download
+        from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
+
+        with open(hf_hub_download("openai/whisper-large-v3-turbo", "normalizer.json")) as f:
+            _WHISPER_NORM.append(EnglishTextNormalizer(json.load(f)))
+    return _WHISPER_NORM[0](text or "").split()
+
+
 def iter_structs(value) -> list[dict]:
     """Normalise an HF struct-sequence column to a list of dicts.
 
@@ -177,9 +194,11 @@ class SyntheticSpeechWer(Job):
         for n, i in enumerate(idx):
             rid = ids[i]
             ref_words: list[str] = []
+            ref_raw: list[str] = []
             for turn in iter_structs(tts[i]["turns"]):
                 if turn.get("speaker") == ASSISTANT_SPEAKER:
                     ref_words += normalize_for_wer(turn.get("text", ""))
+                    ref_raw.append(turn.get("text", ""))
             if rid not in hyp_by_id:
                 # The annotate stage dropped this row; it is not a WER of 1, it simply has no
                 # hypothesis. Counted and excluded rather than scored.
@@ -190,10 +209,14 @@ class SyntheticSpeechWer(Job):
             if w is None:
                 empty_ref += 1
                 continue
+            ref_wn = whisper_normalize_words(" ".join(ref_raw))
+            w_wn = row_wer(ref_wn, whisper_normalize_words(hyp_by_id[rid]))
             rows.append(
                 {
                     "id": rid,
                     "wer": w,
+                    "wer_whisper_norm": w_wn,
+                    "ref_words_whisper_norm": len(ref_wn),
                     "ref_words": len(ref_words),
                     "hyp_words": len(hyp_words),
                     "ref": " ".join(ref_words),
@@ -245,6 +268,8 @@ class SyntheticSpeechWer(Job):
             "p99_row_wer": pct(0.99),
             "rows_above_0p35": sum(1 for w in wers if w >= 0.35),
             "histogram": hist,
+            # Both sides through Whisper's normaliser: the orthography floor (digits vs words, "%" vs "percent") is gone.
+            "whisper_normalised": _wn_summary(rows),
             "non_latin_reference_rows": len(non_latin),
             "non_latin_examples": [r["id"] for r in non_latin[:10]],
             "worst_min_ref_words": self.worst_min_ref_words,
@@ -263,6 +288,10 @@ class SyntheticSpeechWer(Job):
             f"  mean row WER               : {summary['mean_row_wer']}",
             f"  median / p90 / p99         : {summary['median_row_wer']} / {summary['p90_row_wer']} / {summary['p99_row_wer']}",
             f"  rows at WER >= 0.35        : {summary['rows_above_0p35']}",
+            "  Whisper-normalised (numbers as digits, US spelling; both sides):",
+            f"    corpus / median / p90    : {summary['whisper_normalised']['corpus_wer_word_weighted']} / "
+            f"{summary['whisper_normalised']['median_row_wer']} / {summary['whisper_normalised']['p90_row_wer']}",
+            f"    rows at WER >= 0.35      : {summary['whisper_normalised']['rows_above_0p35']}",
             f"  non-Latin reference rows   : {len(non_latin)}"
             + ("   <-- an English TTS cannot say these; the audio is garbage" if non_latin else ""),
             "",
@@ -290,6 +319,25 @@ class SyntheticSpeechWer(Job):
         with open(self.out_report.get_path(), "w") as f:
             f.write("\n".join(lines) + "\n")
         print("\n".join(lines[:12]), flush=True)
+
+
+def _wn_summary(rows: list[dict]) -> dict:
+    """The headline numbers over the Whisper-normalised column (rows whose normalised reference is empty skipped)."""
+    ok = [r for r in rows if r.get("wer_whisper_norm") is not None]
+    if not ok:
+        return {"scored": 0}
+    w = sorted(r["wer_whisper_norm"] for r in ok)
+    tot = sum(r["ref_words_whisper_norm"] for r in ok)
+    return {
+        "scored": len(ok),
+        "corpus_wer_word_weighted": round(sum(r["wer_whisper_norm"] * r["ref_words_whisper_norm"] for r in ok) / tot, 4)
+        if tot
+        else None,
+        "mean_row_wer": round(sum(w) / len(w), 4),
+        "median_row_wer": round(w[len(w) // 2], 4),
+        "p90_row_wer": round(w[min(len(w) - 1, int(0.9 * len(w)))], 4),
+        "rows_above_0p35": sum(1 for x in w if x >= 0.35),
+    }
 
 
 def synthetic_wer_py(*, tag: str, tts_hf: tk.Path, annotated_hf: tk.Path, sample: int = 0):
