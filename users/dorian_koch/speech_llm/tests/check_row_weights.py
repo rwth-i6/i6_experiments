@@ -1,5 +1,5 @@
-"""Guard: per-row loss weights (``train_row_weights``, 2026-09-28; user: "maybe we could downweight the loss on the entire
-row if it contains longer monologues?") scale EXACTLY the loss of their row, on the real data path, and change nothing
+"""Guard: per-row loss weights (``train_row_weights``, 2026-09-28: down-weight the loss of a whole
+row that contains a long monologue) scale EXACTLY the loss of their row, on the real data path, and change nothing
 when off.
 
 WHY. The knob can fail in ways a loss curve hides: a loader that attaches the weight to the wrong row (the permutation,

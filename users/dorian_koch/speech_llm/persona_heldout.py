@@ -1,5 +1,4 @@
-"""Held-out teacher-forced loss of PersonaPlex checkpoints (user, 2026-09-25: "it would be really good to have more
-held out eval losses").
+"""Held-out teacher-forced loss of PersonaPlex checkpoints (2026-09-25).
 
   PersonaHeldoutSet      a FIXED window set in the training table's schema (``moshi_family.personaplex.heldout_set``):
                          ``heldout`` = JRE windows no PersonaPlex arm trained on, or ``train_sample`` = seeded rows of
@@ -183,7 +182,7 @@ class PersonaHeldoutLoss(Job):
         self.seed = int(seed)
         self.out_dir = self.output_path("eval", directory=True)
         # One 7B in bf16 (~16 GB) + a B=1 forward of <= ~900 frames. A full-finetune overlay is read onto the GPU
-        # beside it (~15 GB transient). Measured 2026-09-25 (see the backlog): minutes per checkpoint.
+        # beside it (~15 GB transient). Measured 2026-09-25: minutes per checkpoint.
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 2, "gpu_mem_gb": 80}
 
     def tasks(self):
@@ -217,8 +216,8 @@ class PersonaHeldoutLoss(Job):
 
 class PersonaHeldoutTurnPos(Job):
     """Held-out CE by position within the assistant's current turn, 0-5 / 5-10 / 10-20 / 20+ s and outside a turn
-    (``moshi_family.personaplex.heldout_turnpos``; user, 2026-09-25: "Moshi training was unstable for turns longer
-    than 10 s"). Text word CE and assistant semantic CE, frame-pooled per bucket, 95% cluster bootstrap over windows.
+    (``moshi_family.personaplex.heldout_turnpos``; 2026-09-25: does training degrade on turns longer
+    than 10 s?). Text word CE and assistant semantic CE, frame-pooled per bucket, 95% cluster bootstrap over windows.
 
     ``heldout``: one ``PersonaHeldoutSet.out_dataset``. ``train_config``: the config.yaml whose loss / text-stream
     settings apply (one for every checkpoint of the job). ``evals``: ``{label: (weights, lora_rank)}`` -- weights a

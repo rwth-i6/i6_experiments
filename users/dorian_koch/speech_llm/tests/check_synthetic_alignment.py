@@ -1,7 +1,7 @@
 """A20: verify the SYNTHETIC corpus's word alignments against an independent signal.
 
 Fisher has had this since the start (`check_fisher_windows.py`) and the synthetic corpus has never
-had it -- "the corpus that collapses the model is the one with no alignment guard" (finetuning.md).
+had it -- "the corpus that collapses the model is the one with no alignment guard".
 A19 is what that costs: 59.2% of QA rows planted the answer's first word a median 62 frames before
 the speaker made any sound, and it survived for months because nothing looked.
 
@@ -10,7 +10,7 @@ must be LOUDER inside word spans than between them. That is a property of the au
 alignment, so it cannot be satisfied by a self-consistent but wrong annotation.
 
 Random sample with a fixed seed -- these corpora are shard merges in sorted key order, so reading
-the head measures one template (see the sampling rule in CLAUDE.md).
+the head measures one template.
 """
 import os, sys, random
 sys.path.insert(0, "recipe"); sys.path.insert(0, "recipe/speech_llm/full_duplex")

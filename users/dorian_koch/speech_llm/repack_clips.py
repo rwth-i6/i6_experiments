@@ -1,4 +1,4 @@
-"""Repack finished ``{i}.wav`` clip dirs into arrow datasets, in place (backlog E13a).
+"""Repack finished ``{i}.wav`` clip dirs into arrow datasets, in place.
 
 Sisyphus hashes a job's *inputs*, never its output content, so this reclaims inodes from work
 already done without changing a single job id, re-running anything, or altering a scored number.

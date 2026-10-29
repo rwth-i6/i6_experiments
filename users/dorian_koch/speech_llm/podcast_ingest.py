@@ -72,14 +72,14 @@ CHANNEL_MODES = (
     "dialogue_sidon_whole",
 )
 
-# 🔴 `diarize_mask` is REJECTED for production duplex data (user, by ear, 2026-09-19).
+# 🔴 `diarize_mask` is REJECTED for production duplex data (listening test, 2026-09-19).
 # It is a per-sample gate on the mono mix, not separation: in overlap BOTH channels receive the
 # same mixed audio, and even outside overlap the other speaker bleeds through because the channel
-# IS the mix. The user compared all four candidates on two windows (55.6% and 19.9% overlap) and
-# ranked DialogueSidon first "by far", SepFormer "useless", and gating "isn't the right tool for
-# us here". ⚠ Our SI-SDR pilot ranked gating FIRST (+6.19 dB) -- the metric rewards gating on the
+# IS the mix. A listening comparison of all four candidates on two windows (55.6% and 19.9% overlap)
+# ranked DialogueSidon first by far, SepFormer as unusable, and gating as the wrong tool for
+# this data. ⚠ Our SI-SDR pilot ranked gating FIRST (+6.19 dB) -- the metric rewards gating on the
 # non-overlapped majority and cannot score a resynthesis at all, so it is a domain-gap measurement
-# and not a ranking. See `projects/2026-01-speech-llm/audio_datasets.md`.
+# and not a ranking.
 #
 # So for a mono source that needs two speakers, the mode is `dialogue_sidon` via
 # `PodcastDuplexIngest`. `diarize_mask` remains only as the cheap baseline the comparison was
@@ -454,7 +454,7 @@ class PodcastMimiIngest(Job):
 
     def tasks(self):
         # resume=: a shard is hours of work and rebuilds `done` from its own flushed parts, so
-        # Sisyphus reschedules an interrupted shard on its own. Per CLAUDE.md, such a task must NOT
+        # Sisyphus reschedules an interrupted shard on its own. Such a task must NOT
         # be cleared with `hpc-rerun --include-interrupted`.
         yield Task("run", resume="run", rqmt=self.rqmt)
 
@@ -764,7 +764,7 @@ def duplex_episode_hours_per_shard(target_runtime_hours: float = 4.0) -> float:
 def audio_hours_per_shard(channel_mode: str, target_runtime_hours: float = 4.0) -> float:
     """How many audio-hours one shard can do in ``target_runtime_hours``, GPU/CPU bound.
 
-    Network is deliberately EXCLUDED from this model, per the user's instruction to size as if we
+    Network is deliberately EXCLUDED from this model: shards are sized as if we
     are not network bound. That makes the number an upper bound on throughput: if the download is
     slower than the compute, shards take longer than the target and the (resumable) job simply
     continues after a walltime reschedule.
@@ -999,7 +999,7 @@ class PodcastDuplexIngest(Job):
 
     def tasks(self):
         # Resumable: `done` is rebuilt from the arrow parts already written, so Sisyphus
-        # reschedules an interrupted shard on its own. Per CLAUDE.md, do NOT clear such a task
+        # reschedules an interrupted shard on its own. Do NOT clear such a task
         # with `hpc-rerun --include-interrupted`.
         yield Task("run", resume="run", rqmt=self.rqmt)
 
@@ -1243,7 +1243,7 @@ class PodcastEpisodeIngest(Job):
         # separated audio is encoded at whatever level the separator produced, as every corpus built
         # before 2026-09-22 was; excluded at None so those shards keep their hash. A dict
         # {"target_lufs", "max_gain_db", "min_lufs"}: one gain per channel per episode, see
-        # podcast_mimi_encode.normalize_channel and audio_datasets.md ("Loudness").
+        # podcast_mimi_encode.normalize_channel.
         # + "mode": "per_chunk" (2026-09-23): one gain per SEPARATOR chunk, cross-faded like the
         # separator, then a soft limiter at "limiter_ceiling_dbfs" (podcast_mimi_encode.apply_loudness_norm).
         # The worker is not hashed, so the mode is a key of this hashed dict; "per_channel" is dropped
@@ -1298,7 +1298,7 @@ class PodcastEpisodeIngest(Job):
         # argument only while it EQUALS the listed default, so a populated `rqmt` -- reachable via
         # `podcast_episode_codes(**ingest_kwargs)` -- would be hashed like any other kwarg and
         # orphan an already-completed ~173 GPU-h separation pass. This is precisely the `Compute`
-        # post-mortem in CLAUDE.md, and the reason that fix needed a hash-excluded channel rather
+        # incident again, and the reason that fix needed a hash-excluded channel rather
         # than `__sis_hash_exclude__`.
         # `asr_venv_python` is WHERE the backend lives, not WHAT it computes -- the same
         # reasoning as env_ffmpeg_path. `asr_batch_size` is throughput: faster-whisper runs its VAD
@@ -1329,7 +1329,7 @@ class PodcastEpisodeIngest(Job):
 
     def tasks(self):
         # Resumable: `done` is rebuilt from the arrow parts already written, so Sisyphus reschedules
-        # an interrupted shard on its own. Per CLAUDE.md, do NOT clear such a task with
+        # an interrupted shard on its own. Do NOT clear such a task with
         # `hpc-rerun --include-interrupted`.
         yield Task("run", resume="run", rqmt=self.rqmt)
 
@@ -1600,11 +1600,11 @@ class PodcastDialogueSlice(Job):
         # which stay exactly theirs; every dropped row is recorded in rejected.jsonl.
         self.drop_channel_collisions = bool(drop_channel_collisions)
         # > 0: drop a third speaker's interjection shorter than this before DuplexChat's extractor
-        # (podcast_slice_main.drop_short_intruders; user 2026-09-24, the default for corpus builds from
+        # (podcast_slice_main.drop_short_intruders; 2026-09-24, the default for corpus builds from
         # then on). Their extractor is unchanged; it no longer sees those segments. Hashed when set.
         self.min_intruder_sec = float(min_intruder_sec)
         # > 0: start each row up to this much earlier, into the silence before the dialogue only
-        # (podcast_slice_main.pre_roll_start; user 2026-09-24). Hashed when set.
+        # (podcast_slice_main.pre_roll_start; 2026-09-24). Hashed when set.
         self.pre_roll_sec = float(pre_roll_sec)
         # True (the default since 2026-10-29): a word straddling the row start starts at 0 instead of a negative time,
         # which interleave_text drops. The slicings built before keep False (``legacy_pins``).
@@ -1878,7 +1878,7 @@ def select_windows(
     starts plus the row's start and end, so a window never starts mid-turn. Deterministic.
     `analysis/window_select.py` (PRECUT) measures exactly this on the corpus.
 
-    ``start_jitter_sec`` > 0 (user 2026-09-24; default for corpus builds from then on): after tiling,
+    ``start_jitter_sec`` > 0 (2026-09-24; default for corpus builds from then on): after tiling,
     move each window's start EARLIER by u ~ U(0, room), room = min(start_jitter_sec, the silence
     before the cut point, the start itself, max_sec - length). "Silence" = time since the latest
     END of any diarized turn that starts before the cut point (0 when another speaker is still

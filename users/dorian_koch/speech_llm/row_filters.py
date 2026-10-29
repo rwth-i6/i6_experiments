@@ -193,10 +193,10 @@ def monologue_rows_summary(
 
 class MonologueRows(Job):
     """The rows of a window corpus whose longest single-speaker stretch inside the window is at most
-    ``max_stretch_sec`` (user, 2026-09-28: "I feel like longest monologue shouldnt be longer than 20, maybe 15s").
+    ``max_stretch_sec`` (2026-09-28: cap single-speaker monologues at 15-20 s).
     The windows were cut with ``select_windows(max_stretch_sec=30)`` (``w20_60_t3_s30``), so every row is <= 30 s
     already; this tightens the same quantity (:func:`longest_stretch`) without re-cutting. Measured on p4's corpus
-    before any default (rules.md / backlog "monologue cap").
+    before any default.
 
     ``data``: the training corpus (rows carry ``id`` + ``duration``); ``window_context`` + ``slice_dirs``: the
     ``PodcastWindowContext`` its ids come from and that context's dialogue slices (the same pair the episode-edge
@@ -412,9 +412,9 @@ def lexicon_rows_summary(data_path: str, lexicon: str, categories, sides: str) -
 
 
 class LexiconRows(Job):
-    """The rows of a window corpus whose TRAINABLE sides say no word of a fixed lexicon category (user, 2026-09-28:
-    "Maybe we should also start filtering out windows that contain 18+ words ... In the self play they use swear words
-    or talk about sex"). ``lexicon``: a :data:`SAFETY_LEXICONS` name (its digest is hashed); ``categories``: the
+    """The rows of a window corpus whose TRAINABLE sides say no word of a fixed lexicon category (2026-09-28:
+    filter out windows with 18+ words: in self-play the models swore and talked about sex, learned
+    from training). ``lexicon``: a :data:`SAFETY_LEXICONS` name (its digest is hashed); ``categories``: the
     categories that drop a row (default ``("sexual",)``: profanity is common in JRE and measured, not dropped by
     default); ``sides``: which sides are judged (:func:`lexicon_rows_summary`; default ``"trainable"``).
 
@@ -514,8 +514,8 @@ def intersect_keep_lists(lists: list) -> "np.ndarray":  # noqa: F821
 
 class ThresholdRowWeights(Job):
     """Per-row loss weights: ``weight`` on every table row whose value in ``values`` (a float ``.npy`` with one entry
-    per table row, e.g. ``MonologueRows.out_stretch``) is ABOVE ``above``, 1.0 elsewhere (user, 2026-09-28: "maybe
-    we could downweight the loss on the entire row if it contains longer monologues?"). The launcher's
+    per table row, e.g. ``MonologueRows.out_stretch``) is ABOVE ``above``, 1.0 elsewhere (2026-09-28: down-weight
+    the loss of a whole row that contains a long monologue). The launcher's
     ``train_row_weights``: every loss target of such a row (text + all audio codebooks) is scaled by the weight in
     the numerator only (``duplex_ce_loss(sample_frame_weight=)``), so the row counts ``weight`` x as much in its
     batch and the other rows are not scaled up.
@@ -819,9 +819,9 @@ def run_safety_sample(data_path, n, seed, llm_name, rubric, out_rows, out_summar
 # ---------------------------------------------------------------------------------------------
 # flagged WORDS: per-word lexicon hits (loss mask / down-weight / censor), 2026-09-28b
 # ---------------------------------------------------------------------------------------------
-#: The categories whose words the flagged-word arms act on (user, 2026-09-28: "Lets do the word list filter for sexual
-#: content. THe loss mask on flagged words sounds good. Or maybe downweight a lot. Or could we train the model to output
-#: a beep instead?"): swearing and sexual words. Slurs are rare (0.27% of windows) and not part of the decision.
+#: The categories whose words the flagged-word arms act on (2026-09-28: a word-list filter for sexual
+#: content, with three treatments of a flagged word: loss mask, strong down-weight, or a beep the model learns to
+#: output instead): swearing and sexual words. Slurs are rare (0.27% of windows) and not part of the decision.
 FLAGGED_WORD_CATEGORIES = ("profanity", "sexual")
 
 
@@ -965,10 +965,10 @@ class FlaggedWordSpans(Job):
 
 class CensorFlaggedWords(Job):
     """A censored copy of every STORED channel that says a flagged word (``spans`` = :class:`FlaggedWordSpans`), for
-    the beep arm (user, 2026-09-28: "could we train the model to output a beep instead? i.e. censor?"): per (table row,
+    the beep arm (2026-09-28: train the model to output a beep instead, i.e. censor): per (table row,
     side) with a hit, the channel's stored codes are Mimi-DECODED (offline), each hit's time span is replaced by a
     ``beep_hz`` sine at the span's own RMS (5 ms fades), the whole window is re-ENCODED OFFLINE (one non-streaming
-    ``mimi.encode`` per window <= 60 s: never the streaming multi-frame encode, audio_datasets.md "Mimi encode bug"),
+    ``mimi.encode`` per window <= 60 s: never the streaming multi-frame encode, which gives wrong codes),
     and ONLY the frames overlapping a hit take the new codes -- every other frame keeps its stored code (a decode ->
     re-encode round trip changes ~40% of codes, so a whole-window swap would degrade the rest). The hit's words in that
     side's alignments become one word ``text`` over the hit's span. The loader (``train_censor``) swaps this copy in
@@ -1073,7 +1073,7 @@ def _words_text(words_json) -> str:
 def selfplay_lexicon_rates(path: str, lexicon: str) -> dict:
     """Lexicon rates of one self-play (+ASR) dataset, both channels (both are the model): per category the
     conversations with a hit and hits per 1k words, from the model's TEXT stream (``text_a`` / ``text_b``, the
-    quantity rules.md "Row filters" quotes) and from the ASR words of its AUDIO (``words_a`` / ``words_b``); plus the
+    quantity the row-filter decisions used) and from the ASR words of its AUDIO (``words_a`` / ``words_b``); plus the
     word "beep" per 1k words in each (the censor arm's marker)."""
     from datasets import load_from_disk
 
@@ -1117,7 +1117,7 @@ class SelfPlayLexiconRates(Job):
     """The swear / sexual / slur lexicon rates (``SAFETY_LEXICONS[lexicon]``) of self-play runs, per run
     (:func:`selfplay_lexicon_rates`: text stream and ASR, conversations with a hit, hits per 1k words, "beep" rate).
     ``runs``: ``{label: SelfPlayTranscribe.out_dir}``. The read-out of the flagged-word arms (2026-09-28b; the numbers
-    rules.md "Row filters" quotes for base vs the finetuned runs). CPU, minutes.
+    compared for base vs the finetuned runs). CPU, minutes.
 
     Outputs: ``out_summary`` (json) and ``out_md`` (one table row per run)."""
 

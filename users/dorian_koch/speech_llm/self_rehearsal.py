@@ -1,4 +1,4 @@
-"""Turn base-Moshi rollouts into a rehearsal corpus (backlog B6).
+"""Turn base-Moshi rollouts into a rehearsal corpus.
 
 The problem this exists for: fine-tuning on the synthetic assistant corpus teaches the new voice and
 *loses* the factual recall the base model had. The data-side counterpart to a schedule fix is

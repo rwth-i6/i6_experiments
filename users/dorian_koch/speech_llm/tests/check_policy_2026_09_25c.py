@@ -1,7 +1,6 @@
-"""Guard: the POLICY_2026_09_25C defaults (user decisions 2026-09-25) -- for NEW PersonaPlex arms AdamW weight decay 1e-4
-("lets just enable it on all runs") and the ``ab2_know30_concat`` knowledge mix ("and ofc some knowledge mixed in"); for
-new runs of every family through ``_ppx_arm`` / ``make_finetune_run`` no gradient accumulation ("lets never use grad
-accum again") -- and no existing arm moved.
+"""Guard: the POLICY_2026_09_25C defaults (2026-09-25) -- for NEW PersonaPlex arms AdamW weight decay 1e-4
+and the ``ab2_know30_concat`` knowledge mix; for new runs of every family through ``_ppx_arm`` / ``make_finetune_run``
+no gradient accumulation -- and no existing arm moved.
 
 Mechanism: ``runs.RULE_PPX_WEIGHT_DECAY`` / ``RULE_PPX_KNOWLEDGE_MIX`` / ``RULE_NO_GRAD_ACCUM`` = "2026-09-25c";
 ``track_persona._ppx_arm`` fills ``weight_decay``, ``PPX_KNOWLEDGE_DEFAULT`` (registered by

@@ -1,7 +1,7 @@
 """Guard: the FSDP2 full-finetune plumbing is correct where it fails SILENTLY.
 
-Full-parameter training is the one arm that changes what is being trained rather than how much of it
-(backlog A11), so a bug here does not crash -- it produces a finished run and a plausible number. Two
+Full-parameter training is the one arm that changes what is being trained rather than how much of it,
+so a bug here does not crash -- it produces a finished run and a plausible number. Two
 places do that, and this drives the real ``moshi_family.fsdp_full_ft`` functions against a real
 two-process shard rather than reasoning about them:
 

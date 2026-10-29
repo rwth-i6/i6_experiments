@@ -45,7 +45,7 @@ def check(cond, msg):
 VENV = tk.Path("/dev/null/venv/python", hash_overwrite="card_guard_venv")
 DATA = tk.Path("/dev/null/corpus", hash_overwrite="card_guard_corpus")
 CARD_A = {"why": "guard", "change": "lr x2", "baseline": "ab2_base_0929"}
-CARD_B = {"why": "reworded", "change": "lr x2 (vs base)", "asked_by": "user, 2026-10-11", "notes": ["a", "b"]}
+CARD_B = {"why": "reworded", "change": "lr x2 (vs base)", "asked_by": "the lead, 2026-10-11", "notes": ["a", "b"]}
 
 
 def sft(card=None, max_steps=100):

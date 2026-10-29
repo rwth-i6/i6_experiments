@@ -346,7 +346,7 @@ for launcher in PAIRS:
 print(f"[ok] {'use-before-assignment':<42} {len(PAIRS)} launchers scanned")
 
 
-# --- the two defaults for one key must agree (backlog C6, 2026-09-15) ---------------------------
+# --- the two defaults for one key must agree (2026-09-15) ---------------------------
 #
 # Every knob is written TWICE: the renderer emits `hp.get("k", D1)` and the launcher reads
 # `cfg.get("k", D2)`. ~25 constants are duplicated this way. Today the launcher's default is dead

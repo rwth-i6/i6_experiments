@@ -5,8 +5,8 @@ or as ``audio_flac`` (FLAC PCM_16 bytes). FLAC is used only when it is EXACT: ``
 every sample is an int16 value / 32768 and the FLAC decodes back bit for bit (then the writer keeps ``audio``). A
 store may carry both columns, decided per row: a row's ``audio_flac`` is null when that row kept ``audio`` (and vice
 versa), since a streaming writer cannot know in advance whether every clip will be exact.
-So both layouts decode to identical float32 arrays and every reader stays exact (user: "new behaviour exactly matches
-old behaviour"; guard check_clip_codec.py). Both layouts are read forever.
+So both layouts decode to identical float32 arrays and every reader stays exact (new behaviour must exactly match
+old behaviour; guard check_clip_codec.py). Both layouts are read forever.
 
 Dependencies: numpy and soundfile only. This file exists twice, byte-identical (check_clip_codec.py compares them):
 ``i6_experiments/users/dorian_koch/speech_llm/clip_codec.py`` (clip_store and the standalone worker scripts, which run

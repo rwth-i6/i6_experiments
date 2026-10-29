@@ -1,7 +1,7 @@
-"""Guard: the POLICY_2026_09_28B defaults (user decisions 2026-09-28: "if 30s is the cap now, thats fine. But scale down
-the loss if theres super long monologue ... Lets do the word list filter for sexual content"; "We should keep a single
-text temparature for the self play benchmark. Just choose one. That benchmark should be run for every new ablation and
-finetune") reach the REAL launched config of every new PersonaPlex arm, and no earlier arm moved.
+"""Guard: the POLICY_2026_09_28B defaults (2026-09-28: keep the 30 s cap but scale
+down the loss of rows with a very long monologue; a word-list filter for sexual content; one text temperature for the
+self-play benchmark, run for every new ablation and finetune)
+reach the REAL launched config of every new PersonaPlex arm, and no earlier arm moved.
 
 Mechanism: ``runs.RULE_PPX_MONOLOGUE_WEIGHT`` / ``RULE_PPX_LEXICON_FILTER`` = "2026-09-28b" = POLICY_LATEST;
 ``track_persona._ppx_arm`` adds ``train_row_weights`` = ``ppx_row_weights(data, 20, 0.3)`` (ThresholdRowWeights over

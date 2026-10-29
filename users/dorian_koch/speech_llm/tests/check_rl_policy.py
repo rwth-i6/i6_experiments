@@ -1,7 +1,7 @@
-"""Guard: RL arms are dated like SpeechFinetune arms (user 2026-10-16: "You should something like the policies that we
-already do in regular speech finetunes"). Every ``RLFinetune`` is built by ``runs.make_rl_run(policy=...)``; from
-``POLICY_2026_10_16`` (= POLICY_LATEST) an arm gets ``rollout_text_sampler="t1"`` (T 1, no top-k / top-p; user: "id
-rather keep the t1 without truncation for all future RL runs") and ``quality_asr_num_beams=1`` (greedy reward Whisper),
+"""Guard: RL arms are dated like SpeechFinetune arms (2026-10-16), with the same policy epochs as
+regular speech finetunes. Every ``RLFinetune`` is built by ``runs.make_rl_run(policy=...)``; from
+``POLICY_2026_10_16`` (= POLICY_LATEST) an arm gets ``rollout_text_sampler="t1"`` (T 1, no top-k / top-p: no
+truncation for all future RL runs) and ``quality_asr_num_beams=1`` (greedy reward Whisper),
 under its own keys; earlier arms keep exactly their arguments (hash_snapshot: 0 of 6,154 moved).
 
 On the REAL graph and the real builders:
@@ -10,7 +10,7 @@ On the REAL graph and the real builders:
   [2] every builder (rl_know_run, rl_instr_run, rl_instr_mt_run, rl_sp_run, rl_mt_run) at POLICY_LATEST yields t1 +
       num_beams 1 + the rl_grpo launcher fixes + ``declared_policy``; at 09-29 with a declared arm's spec it returns THAT
       graph job (same object: the pin is exact); an explicit key beats the rule.
-  [2b] echo CER (coordinator 2026-10-16; user: "RL runs on echoing should be rewarded with CER, not WER"): an arm with
+  [2b] echo CER (2026-10-16: echo RL is rewarded with CER, not WER): an arm with
       an echo aux task gets ``aux_echo_metric="cer"`` at POLICY_LATEST and "wer" at 09-29; a non-echo arm at LATEST
       gets no key (job default "wer"); an explicit "wer" wins; every declared echo arm in the graph is "wer".
   [3] a builder called without ``policy`` raises (TypeError): an arm cannot be declared without choosing an epoch.

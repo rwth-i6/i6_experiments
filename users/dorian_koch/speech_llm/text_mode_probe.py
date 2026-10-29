@@ -1,4 +1,4 @@
-"""Text-only knowledge probe of a Moshi-family LM (``moshi_family.text_mode_probe``; literature_2026-10.md pick 1)."""
+"""Text-only knowledge probe of a Moshi-family LM (``moshi_family.text_mode_probe``)."""
 
 from __future__ import annotations
 

@@ -166,7 +166,7 @@ class ProbeListeningReport(Job):
         clip_seconds: float = 10.0,
         title: str = "",
     ):
-        self.run_dirs = run_dirs  # {label: tk.Path}; paths in VALUE position (see CLAUDE.md)
+        self.run_dirs = run_dirs  # {label: tk.Path}; paths in VALUE position (a dict key records no dependency)
         self.questions = questions
         self.max_steps_shown = max_steps_shown
         self.clip_seconds = clip_seconds

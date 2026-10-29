@@ -1,6 +1,6 @@
 """Guard: the THREE-way PersonaPlex mix with per-corpus row weights, flagged-word spans and the 1-frame audio pad
-(POLICY_2026_09_29, user 2026-09-29: the new ablation baseline ab2_base_0929 = ab2_base_0928b + the Open Yap stratum +
-"wordmask 0, but also extend by a frame in each direction").
+(POLICY_2026_09_29: the new ablation baseline ab2_base_0929 = ab2_base_0928b + the Open Yap stratum +
+word mask 0 with a 1-frame audio pad in each direction).
 
 WHY. Until 09-29 the aux (Open Yap) stream refused row weights and word spans, so the combination is new code: the aux
 rows must get THEIR corpus's weights and spans (indexed by the aux table's rows, never the primary's), every stream must

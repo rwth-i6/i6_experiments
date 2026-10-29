@@ -291,7 +291,7 @@ class ChatterboxInference(Job):
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
             add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
-        # Per-GPU fan-out (backlog G1): each worker takes a contiguous sub-shard of this job's
+        # Per-GPU fan-out: each worker takes a contiguous sub-shard of this job's
         # shard and writes its own out_hf part; the parts are concatenated in order, so the merged
         # dataset is row-for-row what one worker would have written. The legacy per-dialogue
         # out_dir layout indexes dialogues by their number, which the sub-shards would collide

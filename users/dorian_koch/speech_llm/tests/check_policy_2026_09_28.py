@@ -1,5 +1,5 @@
-"""Guard: the POLICY_2026_09_28 default (user, 2026-09-28: "exclude the first and last 2% of every episode? Add that as
-a filter for future runs") -- every NEW PersonaPlex arm trains on its corpus minus the episode-edge windows -- and no
+"""Guard: the POLICY_2026_09_28 default (2026-09-28: exclude the first and last 2% of every episode, as
+a filter for future runs) -- every NEW PersonaPlex arm trains on its corpus minus the episode-edge windows -- and no
 existing arm moved.
 
 Mechanism: ``runs.RULE_PPX_EDGE_FILTER`` = "2026-09-28" = POLICY_LATEST; ``track_persona._ppx_arm`` adds ``train_rows`` =

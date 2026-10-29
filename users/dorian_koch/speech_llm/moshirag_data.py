@@ -22,7 +22,7 @@ the construction now -- no TTS / annotate / training. The two pieces:
   testable core of the construction; wire it as a cleaner step after dialogue generation.
 
 Run ``python -m i6_experiments.users.dorian_koch.speech_llm.moshirag_data`` (login node, no
-GPU) to print the sample rows. See ``projects/2026-01-speech-llm/moshirag.md``.
+GPU) to print the sample rows.
 """
 
 from __future__ import annotations

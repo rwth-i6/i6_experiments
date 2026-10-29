@@ -6,7 +6,7 @@ balance generalization capability with instruction-following precision" (arXiv 2
 Appendix A). The paper publishes only three example OUTPUTS -- the annotation instruction is not
 public -- all shaped "You enjoy having a good conversation." + optional topic sentence + optional
 second-person persona facts. This module copies that shape and that model, with our own instruction
-(``PROMPT_SPECS``, reproduced verbatim in projects/2026-01-speech-llm/paper_recipes.md).
+(``PROMPT_SPECS``).
 
 Four jobs, each keyed on the training row ``id`` written by ``PodcastCodesTrainData``
 (``<item_id>@<channel>#w<k>``):
@@ -181,7 +181,7 @@ class PodcastWindowContext(Job):
     attached to the wrong audio, so that is an error, not a count.
 
     ``assistant_label``: the words' own ``speaker`` field is the channel's EPISODE-level anchor and is
-    wrong for about a quarter of dialogue rows (audio_datasets.md, "Label trap"), so the label is
+    wrong for about a quarter of dialogue rows, so the label is
     taken from the turns instead, by word onsets inside each diarized speaker's turns.
 
     ``label_rule`` (2026-09-22): ``"joint"`` (default) labels the TWO channels together -- two
@@ -875,8 +875,8 @@ class AttachPersonaPrompts(Job):
 #: summarises the assistant's words of ONE window (the model learns to recite its prompt: 28-33% of a topic
 #: prompt's content words are said in that window, ~1% in another window of the same episode), a profile is
 #: written ONCE per (episode, diarized speaker) from that speaker's words across the whole episode and says who
-#: the speaker is, never what they say (user, 2026-09-24: "only have the system prompt describe the speaker,
-#: not what the speaker says").
+#: the speaker is, never what they say (2026-09-24: the system prompt describes the speaker,
+#: not what the speaker says).
 PROFILE_SPECS = {
     "persona_profile_v1": {
         "instruction": """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below are excerpts of everything THE ASSISTANT says across one long conversation, in order. The other person's words are not shown.
@@ -1258,8 +1258,8 @@ class AttachPersonaProfiles(Job):
 # 3. short CONTENT prompts from a large chunk / from the first half (ablations ab_epad1_chunkprompt /
 #    ab_epad1_firsthalf, 2026-09-25)
 # ---------------------------------------------------------------------------------------------
-#: One instruction for BOTH content specs, so the two ablations differ only in the transcript the LLM is shown (user,
-#: 2026-09-25: keep content prompts, but condense much more; one short sentence a person would plausibly type). The
+#: One instruction for BOTH content specs, so the two ablations differ only in the transcript the LLM is shown
+#: (2026-09-25: content prompts condensed much more, to one short sentence a person would plausibly type). The
 #: two style examples are PersonaPlex's published topic prompts (arXiv 2602.06053 v1 Appendix A; the repo README).
 CONTENT_PROMPT_INSTRUCTION = """You write system prompts for a speech-to-speech conversational AI. The AI will be trained to play ONE participant ("the assistant") in real conversations. Below is a transcript of part of a real two-person conversation. Lines starting with "Assistant:" are THE ASSISTANT; lines starting with "Other:" are the other person.
 
@@ -1284,7 +1284,7 @@ TRANSCRIPT:
 #:   ``chunk``: the fixed ``chunk_sec`` block of EPISODE time holding the window's midpoint (extended to cover every
 #:     window assigned to it), both speakers' words, one prompt per (episode, block, speaker) shared by all its
 #:     windows. 600 s = a Fisher call: PersonaPlex's real-data stage has ONE prompt per call, 7,303 calls / 1,217 h
-#:     = 10.0 min each, while its training crops are <= 163.84 s (paper_recipes.md).
+#:     = 10.0 min each, while its training crops are <= 163.84 s (PersonaPlex paper).
 #:   ``firsthalf``: the training window's own words with onset in its FIRST half (both speakers); nothing said in the
 #:     second half reaches the LLM.
 #: ``max_words``: the prompt body (after the opener) is at most this many words; longer replies are retried.
@@ -1300,7 +1300,7 @@ CONTENT_SPECS = {
         "source": "firsthalf",
         "max_words": 15,
     },
-    # v1's instruction and source at 3.5x the throughput (p6, 2026-09-25; user: prompt generation too expensive).
+    # v1's instruction and source at 3.5x the throughput (p6, 2026-09-25: prompt generation was too expensive).
     # Measured on 500 v1 calls (analysis/ppx_promptgen_profile.py, test node H100): v1 as run 19.0 calls/s, 205
     # completion tokens/call; reasoning_effort low + 1024 in flight 67.2 calls/s, 85 tokens/call, 0 failed, words
     # p10/p50/p90 10/11/13 (v1 10/12/14); leak on the read-out's 200 rows own 15.5% [13.0, 17.9] (v1 19.4),
@@ -1313,9 +1313,9 @@ CONTENT_SPECS = {
         "max_tokens": 1024,
         "concurrency": 1024,
     },
-    # Several detail levels from ONE call per (window, side), all written from the window's FIRST HALF only (p6, user
-    # 2026-09-25: "prompts with varying levels of detail again, all from the first half ... like the old persona_v1
-    # did"). ``levels``: output level name -> (JSON key, word cap). fh_topic = v2's sentence (same rules, same cap);
+    # Several detail levels from ONE call per (window, side), all written from the window's FIRST HALF only (p6,
+    # 2026-09-25: varying levels of detail again, as persona_v1 had, all from the first half).
+    # ``levels``: output level name -> (JSON key, word cap). fh_topic = v2's sentence (same rules, same cap);
     # fh_general = persona_v1's general (a few words); fh_detailed = persona_v1's detailed (points, opinions and
     # second-person facts), capped. v2's request settings. Cap + verbatim 5-gram per level; any level failing retries
     # the whole call (so a (row, side) has all levels or none).
@@ -2166,8 +2166,8 @@ class EpisodeSplit(Job):
 
 
 # ---------------------------------------------------------------------------------------------
-# Episode-edge filter (user, 2026-09-28: "Hearing a lot of podcast wrap ups. Maybe we should exclude the first and
-# last 2% of every episode? Add that as a filter for future runs")
+# Episode-edge filter (2026-09-28): self-play reproduced many podcast wrap-ups, so future runs exclude the first and
+# last 2% of every episode
 # ---------------------------------------------------------------------------------------------
 #: Intro / wrap-up marker phrases, for :class:`EpisodeEdgeRows`' SUMMARY only (they never decide a row, so they are not
 #: part of the hash): whole-phrase, case-insensitive matches on a window's text (both sides), punctuation stripped.
@@ -2275,9 +2275,9 @@ def edge_rows(ids, spans: dict, durations: dict, edge_frac: float) -> tuple:
 
 class EpisodeEdgeRows(Job):
     """The rows of a window corpus that lie in the MIDDLE of their episode: every row whose window shares any time with
-    the first or last ``edge_frac`` of its episode's duration is dropped (user, 2026-09-28, listening to p5's
-    self-play: "Hearing a lot of podcast wrap ups. Maybe we should exclude the first and last 2% of every episode?").
-    Measured on p4's corpus before it became a default (backlog / rules.md "episode-edge filter").
+    the first or last ``edge_frac`` of its episode's duration is dropped (2026-09-28: p5's
+    self-play reproduced many podcast wrap-ups).
+    Measured on p4's corpus before it became a default.
 
     ``data``: the training corpus (rows carry ``id`` + ``duration``; any ``AttachPersonaPrompts``-style output).
     ``window_context`` + ``slice_dirs``: the ``PodcastWindowContext`` its ids come from and its dialogue slices

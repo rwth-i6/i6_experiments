@@ -1,4 +1,4 @@
-"""Guard: the anchor-to-pretrained regularisers (backlog A5 KL / A6 L2-SP).
+"""Guard: the anchor-to-pretrained regularisers (KL / L2-SP).
 
 Why these exist: A11 (2026-09-06) showed full-FT and LoRA collapse IDENTICALLY -- 6.6% vs 7.2% at
 n=1000, 0.6 pts apart with identical quality -- so *how* the weights are reached is not the lever.

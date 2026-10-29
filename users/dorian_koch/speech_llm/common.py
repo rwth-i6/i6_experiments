@@ -261,7 +261,7 @@ def vllm_server(
     # dirty card, and LLMPreprocess (12288) has none to give.
     port = pick_free_port(18998)
     print(f"Selected port {port} for vLLM server")
-    # Tensor-parallel over every GPU the job was handed (backlog G1). On a 1-GPU allocation this is
+    # Tensor-parallel over every GPU the job was handed. On a 1-GPU allocation this is
     # exactly the old command; on a 4-GPU one the weights are split 4 ways, which is both faster
     # and what makes the big judges fit a 80 GB card WITHOUT the max_model_len workaround (kept as
     # a floor for the 1-GPU case). The RL judge/trainer split pins this process to one card via
@@ -543,7 +543,7 @@ def run_worker_script(
 
 
 # ---------------------------------------------------------------------------
-# Multi-GPU fan-out (backlog G1): a job scales to however many GPUs the cluster hands it.
+# Multi-GPU fan-out: a job scales to however many GPUs the cluster hands it.
 # ---------------------------------------------------------------------------
 #
 # A job declares the SMALLEST allocation it can use (usually ``gpu: 1``); ``settings.py`` may raise

@@ -1,5 +1,5 @@
-"""Guard: the episode-edge filter (user, 2026-09-28: "exclude the first and last 2% of every episode ... for future
-runs") drops exactly the windows touching an episode's edges, and a run with ``train_rows`` reads exactly those rows.
+"""Guard: the episode-edge filter (2026-09-28: the first and last 2% of every episode, for future
+runs) drops exactly the windows touching an episode's edges, and a run with ``train_rows`` reads exactly those rows.
 
 WHY. Both halves fail silently. A job that places windows on the wrong time base (slice-relative instead of episode
 time, a wrong duration) or uses the midpoint instead of overlap still writes a plausible keep-list; a loader that

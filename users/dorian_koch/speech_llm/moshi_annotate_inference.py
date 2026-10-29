@@ -491,7 +491,7 @@ def annotate_user_only(
     channel the codes builder reads; lossless WAV), written as a row-aligned SIDECAR ``{id, alignments_other,
     other_ok}`` -- the columns ``--annotate_user`` adds, same feature, speaker :data:`USER_SPEAKER`, ``other_ok`` = >= 1
     word. The annotated dataset (its ``alignments``: the assistant pass) is not touched, so a corpus built from it
-    keeps its assistant words bit-identical (``MoshiAnnotateUserWords``; user, 2026-10-13: backfill v6). Reads the
+    keeps its assistant words bit-identical (``MoshiAnnotateUserWords``; 2026-10-13: backfill v6). Reads the
     arrow table's bytes (soundfile), never a datasets Audio() decode, so no torchcodec is needed."""
     import io
 

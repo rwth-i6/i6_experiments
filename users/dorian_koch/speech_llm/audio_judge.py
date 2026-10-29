@@ -1,7 +1,7 @@
 """An audio LLM as the ONLY grader, against our text graders (2026-10-19).
 
-User: "Can we do a test run in how well nemotron agrees with our text graders on gradings?" ... "in a setup i dont want
-two concurrent graders runnin, so ideally only nemotron" -- i.e. one audio model in place of Whisper + the text judge.
+The question: how well does an audio LLM (Nemotron) agree with our text graders, and can it be the only grader, so a
+setup never runs two concurrent graders -- i.e. one audio model in place of Whisper + the text judge.
 Prototype: ``analysis/nemotron_judge_agreement.py`` (its prep stage decoded every spj2 conversation; its vLLM start
 failed only on the hand-written sbatch's environment).
 
@@ -22,7 +22,7 @@ Conditions, one server of ``judge_model`` (``common.vllm_server``), sampling as 
   S_text  the spj2 rubric with the same Whisper transcript as gpt-oss -- the judge-model effect alone
   S_audio the same rubric, its transcript sentences swapped for two attached time-aligned recordings (A, then B) and no
           word counts (an audio-only setup has no ASR); the rubric's "Ignore recognition errors, ..., audio quality"
-          becomes "Ignore disfluencies" + unintelligible speech counts as not said (user: ignoring audio quality hides
+          becomes "Ignore disfluencies" + unintelligible speech counts as not said (ignoring audio quality would hide
           exactly the audio-side hacks we want to catch), plus a per-side ``speech_a``/``speech_b`` 1-5 score (not in
           the reference, so reported as per-label means only)
 Prompt texts (these + the two reference prompts) are hashed via ``prompt_digest``. Labels are not (``label_free_hash``).

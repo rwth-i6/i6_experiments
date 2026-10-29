@@ -1,9 +1,9 @@
-"""TurnBench (backlog D4): an EXTERNAL turn-taking benchmark, run reuse-first.
+"""TurnBench: an EXTERNAL turn-taking benchmark, run reuse-first.
 
 TurnBench scores *when* a system speaks -- end-of-turn (EOT) and interruption (INT) onsets, by
 recall / false-positive rate / median signed latency -- over two-channel human conversations. It is
 the first externally comparable axis this project has for turn-taking, and it is exactly what
-backlog A12 (self-aligned turn-start training) would move.
+self-aligned turn-start training would move.
 
 **Reuse-first, per the standing preference: we write no scorer and no metric.** The upstream repo
 (`SesameAILabs/turnbench`, MIT) is vendored at a pinned commit and its own

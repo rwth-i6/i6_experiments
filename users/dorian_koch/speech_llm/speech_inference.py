@@ -95,7 +95,7 @@ def expected_checkpoint_glob(run_dir: str, overlay_kind: str, step) -> str:
 
 
 def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> None:
-    """Graph-build guard (user request, 2026-09-09): an eval must never be wired to a checkpoint
+    """Graph-build guard (2026-09-09): an eval must never be wired to a checkpoint
     that cannot arrive. Refuse it HERE, on the login node while the manager loads the config, not
     hours later in a job that has already allocated a GPU -- or, worse, never at all.
 
@@ -563,7 +563,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         ``[Errno 122]``. Node-local costs ZERO project inodes and is faster for many small files.
 
         ⚠ Node-local only works because these jobs are single-node -- the per-GPU fan-out
-        (backlog G1) puts every worker on the same node. A multi-node job would need shared storage
+        puts every worker on the same node. A multi-node job would need shared storage
         and should not use this.
 
         Falls back to the old job-dir path when ``$TMPDIR`` is unset (login node, mini_task), so
@@ -621,7 +621,7 @@ class SpeechInference(BackendInferenceMixin, Job):
                 oracle_dataset=(self.oracle_dataset.get() if self.oracle_dataset is not None else None),
                 driver_args=self._probe_driver_args(),
             )
-            # Per-GPU fan-out (backlog G1): the driver's own sharding is strided by clip index
+            # Per-GPU fan-out: the driver's own sharding is strided by clip index
             # (wavs[shard::num_shards]), so worker k of n inside this job's shard is the NESTED
             # stride (shard + k*num_shards, num_shards*n) -- a partition of the job's clips with no
             # driver change. Outputs are index-disjoint wavs in the same scratch dir, packed once.
@@ -665,7 +665,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         # than a model that legitimately said nothing for every single prompt. Writing an empty
         # arrow dataset here would put a valid-looking but contentless output into output/, and the
         # failure would then surface downstream (the shard merge blowing up inside pyarrow) far from
-        # its cause. Fail here, where the input is still in view. See CLAUDE.md: assert non-empty
+        # its cause. Fail here, where the input is still in view: assert non-empty
         # counts at job boundaries rather than best-effort.
         assert len(clips) > 0, (
             f"produced 0 clips from {self.in_dir.get()!r} -- refusing to write an empty dataset to "
@@ -740,7 +740,7 @@ class SpeechInference(BackendInferenceMixin, Job):
                 manifest = write_pair_manifest(items, copy_sidecars=True)
                 self._offline(python_exe=self._python_exe(), manifest=manifest)
             else:
-                # Per-GPU fan-out (backlog G1): the clip pairs are strided over the visible GPUs,
+                # Per-GPU fan-out: the clip pairs are strided over the visible GPUs,
                 # one manifest each, every driver pinned to its card. Output paths are per clip, so
                 # the workers never touch the same file; the ASR scoring below runs once over all.
                 n = len(gpus)

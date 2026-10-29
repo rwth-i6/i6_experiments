@@ -29,7 +29,7 @@ if _recipe_dir not in sys.path:
 # job without threading eval-job handles through each scattered call site.
 _FDB_REGISTRY: dict = {}
 
-# Model provenance for every FDB-derived visualization (CLAUDE.md rule: always show what WE trained
+# Model provenance for every FDB-derived visualization (always show what WE trained
 # vs. a released checkpoint we only ran inference on). "ours" = weights/adapter we trained
 # (finetune / LoRA / RL); "hf" = a released HuggingFace checkpoint. Single source of truth --
 # extend when a new tag is benchmarked. Second field = the base the weights sit on, for captions.
@@ -576,7 +576,7 @@ class FDBLatencyHistogram(Job):
                 "n_outliers_gt_clip_s": len(lat) - len(core),
                 "origin": self.origin.get(label),
             }
-        # Guard (see fdb.md "seed-plumbing bug"): >=2 runs whose latency series are byte-identical is
+        # Guard (the seed-plumbing bug): >=2 runs whose latency series are byte-identical is
         # the tell-tale of a seeding failure -- e.g. a wrapper monkeypatch that never applied, so every
         # "seed" ran the same fixed RNG. Distinct runs/seeds of a sampled model must not collapse to
         # identical numbers. Warn loudly so it can never ship silently again (not a hard raise: a truly
@@ -746,10 +746,10 @@ def seed_variance_py(
     ⚠ ``tasks`` defaults to candor_turn_taking alone to bound GPU cost -- it is the only FDB task
     the fork logs per-turn latencies for, so it is also the only one the histogram can read.
 
-    Seeding reaches BOTH inference paths as of 2026-08-03 (backlog E1): the pip ``moshi.server`` was
+    Seeding reaches BOTH inference paths as of 2026-08-03: the pip ``moshi.server`` was
     always pinned at 42424242, while the ``moshi_family`` offline drivers were unseeded until
     ``run_offline_driver`` learned to forward ``--seed``. Numbers produced before that carry
-    unmeasured seed variance, so a sweep is not comparable with a pre-E1 run of the same model.
+    unmeasured seed variance, so a sweep is not comparable with a run of the same model from before 2026-08-03.
     """
     runs = {
         f"seed{s}": fdb_benchmark_py(tag=f"seedvar/{label}/seed{s}", seed=s, tasks=tasks, **backend_kw) for s in seeds

@@ -377,7 +377,7 @@ class BackendInferenceMixin:
         lora_weights = self.lora_weights.get() if self.lora_weights is not None else None
         lora_config = self.lora_config.get() if self.lora_config is not None else None
 
-        # backlog E1: the seed reached the pip-moshiko SERVER path (via _server_kwargs) but never
+        # Seeding: the seed reached the pip-moshiko SERVER path (via _server_kwargs) but never
         # the offline drivers, so every lib-backend benchmark ran unseeded even though the drivers
         # already accept --seed. Only the lib (module) drivers take it; a fork driver would
         # argparse-exit, so None is forwarded for those and behaviour is unchanged.

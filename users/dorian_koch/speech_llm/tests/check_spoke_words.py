@@ -1,6 +1,6 @@
 """Guard: ONE word rule for reply length and ``spoke`` -- the GRPO trainer's ``count_words`` (``[A-Za-z0-9']+``).
 
-Why (duplication audit item 7f, user 2026-10-12: "so everything just uses >=1"): eval ``spoke`` counted whitespace
+Why (duplication audit item 7f, 2026-10-12: everything uses >= 1 word): eval ``spoke`` counted whitespace
 tokens (``evalstats.n_words`` / ``read_benchmarks.py``), the RL length term counts ``[A-Za-z0-9']+`` runs
 (``moshi_family/rl/knowledge_reward.count_words``). Over 244,526 saved replies, 142 had >= 1 whitespace token but 0
 regex words -- all punctuation ('... ... ...', '--') or non-Latin-only Whisper output ('ご視聴ありがとうございました',

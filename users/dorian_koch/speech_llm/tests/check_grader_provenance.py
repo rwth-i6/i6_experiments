@@ -1,6 +1,6 @@
 """A benchmark number must carry WHICH GRADER produced it, and the ledger must never rank across them.
 
-THE CONFUSION THIS EXISTS FOR (2026-09-18, user directive after it happened twice in one session):
+THE CONFUSION THIS EXISTS FOR (2026-09-18, after it happened twice in one session):
 two graders write the same summary schema on purpose -- ``AliasMatchGrading``'s docstring says it
 emits "the EXACT schema LLMGrading produces, so it is a drop-in for the tail of the pipeline". That
 interchangeability is useful and it is also why a number, once it left the job, carried no record of

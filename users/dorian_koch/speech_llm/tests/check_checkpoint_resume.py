@@ -206,7 +206,7 @@ assert prune_optimizer_state(prune_root / "nope", keep_last=2, log=lambda m: Non
 assert prune_optimizer_state(prune_root, keep_last=0, log=lambda m: None) == 0
 print("[ok] pruning a missing dir, or with keep_last < 1, is a no-op rather than an error")
 
-# --- the default (user, 2026-10-15): optimizer state only at the NEWEST checkpoint -------------------------
+# --- the default (2026-10-15): optimizer state only at the NEWEST checkpoint -------------------------
 # Safe because every launcher saves the new sidecar (tmp -> rename) BEFORE pruning: a job killed mid-save
 # has not pruned yet, so the previous checkpoint is still resumable; a completed save leaves the newest one.
 one_root = Path(tempfile.mkdtemp(prefix="ckpt-prune1-"))

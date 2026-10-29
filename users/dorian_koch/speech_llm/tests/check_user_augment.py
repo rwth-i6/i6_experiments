@@ -1,6 +1,6 @@
 """Guard: user-stream augmentation is OFF by default, and can never touch the assistant channel.
 
-Backlog A25. The augmentation follows the Moshi paper §4.4 (quoted in `paper_recipes.md`), which
+The augmentation follows the Moshi paper §4.4, which
 applies it to the USER stream only. The invariant that matters most here is invisible in a loss
 curve: if the ASSISTANT channel were augmented, we would be changing what the model is trained to
 SAY rather than the condition it HEARS, and the run would look entirely healthy while training the
@@ -200,8 +200,8 @@ try:
 except ValueError:
     check(True, "require_effect with all probabilities 0 raises instead of looping")
 
-# --- 11. The converter clip (UserAugmentCfg.clip_peak; user, 2026-09-24) -----------------------------
-# "In augmenting, we should clip the gained values to +-1.0 ... as it would happen in real data." A real
+# --- 11. The converter clip (UserAugmentCfg.clip_peak; 2026-09-24) -----------------------------
+# Augmentation clips the gained values to +-1.0, as happens in real data. A real
 # microphone chain saturates at the converter, on the SUM it picked up (voice at its gain + room noise +
 # loudspeaker echo + reverb), so the clip must be the LAST step. Checked here: [a] clip_peak=None is
 # bit-identical to the implementation before the knob existed (its real source at a pinned commit), and

@@ -1,4 +1,4 @@
-"""Guard: the TTS round-trip WER job (backlog E4) measures the right two things.
+"""Guard: the TTS round-trip WER job measures the right two things.
 
 Three failure modes, none of which a number alone would reveal:
 

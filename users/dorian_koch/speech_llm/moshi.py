@@ -34,8 +34,8 @@ class MoshiAnnotate(Job):
         env_npp_venv_python: tk.AbstractPath | None = None,
         user_words: bool = True,
     ):
-        # ``user_words`` (user, 2026-10-12: "for future synthetic and knowledge generations we always also generate the
-        # word timings"): also Whisper word timings of the USER channel -> ``alignments_other`` + ``other_ok`` (the
+        # ``user_words`` (2026-10-12: future synthetic and knowledge corpora always carry the user side's
+        # word timings): also Whisper word timings of the USER channel -> ``alignments_other`` + ``other_ok`` (the
         # JRE/Open Yap layout; the user-text head's targets), by the same ``annotate_array`` call as the assistant's.
         # ON for every new declaration; hashed only when True, so ``user_words=False`` = every annotate job before
         # 2026-10-12 (those call sites pin it). Guard ``check_user_word_timings.py``.
@@ -149,7 +149,7 @@ class MoshiAnnotate(Job):
         package_base_dir = str(Path(top_level_file).parent.parent)
         pythonpath = prepend_pythonpath(package_base_dir, os.environ.get("PYTHONPATH"))
 
-        # Per-GPU fan-out (backlog G1): contiguous sub-shards of this job's shard, one annotated
+        # Per-GPU fan-out: contiguous sub-shards of this job's shard, one annotated
         # part per worker, concatenated in order (row order identical to a single worker's) with
         # the stats.json counters summed.
         out_hf = self.out_hf.get()
@@ -190,8 +190,8 @@ class MoshiAnnotate(Job):
 
 class MoshiAnnotateUserWords(Job):
     """The USER channel's Whisper word timings of an ALREADY annotated dataset, as a row-aligned sidecar
-    ``{id, alignments_other, other_ok}`` (user, 2026-10-13: "just backfill ... Lets do user word timings on the
-    knowledge rows too").
+    ``{id, alignments_other, other_ok}`` (2026-10-13: backfilled as new jobs, also for the
+    knowledge rows).
 
     The add-on half of ``MoshiAnnotate(user_words=True)``: the same worker script, the same ``annotate_array`` call
     (Whisper medium, beam 5 / best_of 5, temperature fallback, auditok VAD > 10 s, ``keep_silence_in_segments`` 1.0) on

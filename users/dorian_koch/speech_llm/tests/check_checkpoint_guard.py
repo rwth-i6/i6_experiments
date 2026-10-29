@@ -1,7 +1,7 @@
 """Guard: an eval is never wired to a checkpoint that will never exist -- refused at GRAPH BUILD.
 
-User request (2026-09-09): "When eval jobs depend on checkpoints that will never exist, there should
-be an assert that catches that manager side."
+Requirement (2026-09-09): an eval job that depends on a checkpoint that will never exist must be caught by an
+assert on the manager side.
 
 Why the manager is the only place that can catch it: Sisyphus waits on input *paths*, not input
 jobs. A job whose input lives under a run that has already FINISHED without writing it is not an
@@ -108,7 +108,7 @@ def _accepts(run_dir, kind, step):
 
 
 def check_finished_run_missing_step(tmp):
-    """The case the user asked for: the run is done, the step is not there, so it never will be."""
+    """The motivating case: the run is done, the step is not there, so it never will be."""
     run, _ = _make_run(tmp, "done", steps_written=(500, 600), hparams={"max_steps": 600}, finished=True)
     msg = _rejects(run, "lora", 700)
     assert "checkpoint_000700" in msg and "will never exist" in msg, msg

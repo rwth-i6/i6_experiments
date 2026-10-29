@@ -1,6 +1,6 @@
-"""Guard: the in-loop held-out eval is the DEFAULT for new PersonaPlex runs, and it moved no existing one (user decision
-2026-09-25: "make [held-out validation every 100 steps] the default for all future PersonaPlex runs and the 2 h
-ablation helper, without moving hashes of running/finished jobs").
+"""Guard: the in-loop held-out eval is the DEFAULT for new PersonaPlex runs, and it moved no existing one (2026-09-25:
+held-out validation every 100 steps for all future PersonaPlex runs and the 2 h ablation helper, without moving
+hashes of running/finished jobs).
 
 The mechanism is a policy epoch (``runs.RULE_PPX_INLOOP_HELDOUT = POLICY_2026_09_25``): ``track_persona._ppx_arm`` gives
 a single-GPU arm declared at that epoch or later ``eval_data`` = the shared held-out set and

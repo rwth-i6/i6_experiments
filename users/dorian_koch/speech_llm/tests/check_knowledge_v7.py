@@ -1,6 +1,5 @@
-"""Guard: the knowledge corpus v7 -- random JRE assistant voices + the JRE user augmentation (user, 2026-09-28:
-"the knowledge mix doesnt have the augmentations on the user channel ... the assistant channel is always the same
-voice ... Just use random voices ig.").
+"""Guard: the knowledge corpus v7 -- random JRE assistant voices + the JRE user augmentation (2026-09-28:
+the v6 knowledge mix had no user-channel augmentation and only one assistant voice).
 
 WHY. Each piece can be silently wrong and still train: a voice prompt that is not the voice the row speaks in, a
 "re-voiced" row that is still the v6 voice, a user variant drawn with the assistant channel's seed or never read, a

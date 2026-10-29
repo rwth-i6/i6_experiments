@@ -1,6 +1,6 @@
 """Guard: the live server's Doerg benchmark recording (2026-09-25).
 
-The Doerg benchmark is the user's own conversations with our models, recorded by the live server
+The Doerg benchmark is a team member's own conversations with our models, recorded by the live server
 (``hpc-talk.py --record``, always on under ``hpc-talk-discord.py``) and listed one line per conversation
 in an append-only manifest. A conversation lost at the end of a session (``--stop``, ``--max_hours``) or
 a manifest line pointing at missing files would silently shrink it. Checks, on the REAL

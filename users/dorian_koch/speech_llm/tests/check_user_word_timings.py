@@ -1,7 +1,7 @@
 """Guard: every NEW synthetic / knowledge / Fisher corpus carries the USER side's word timings (2026-10-12).
 
-User (2026-10-12): "make sure that for future synthetic and knowledge generations we always also generate the word
-timings" -- the user-text head (``user_text_loss_weight``) reads its targets from ``alignments_other`` + ``other_ok``
+Since 2026-10-12 every future synthetic and knowledge generation also generates the user word timings
+-- the user-text head (``user_text_loss_weight``) reads its targets from ``alignments_other`` + ``other_ok``
 (the JRE / Open Yap layout); the knowledge v6/v7 rows and the MoshiAnnotate corpora carried the assistant's words only.
 The builders now write them by default (``user_words=True``; ``False`` = every corpus declared before, hash-excluded).
 Real code throughout: the real graph, the real annotate worker (``annotate_hf_to_hf``, Whisper replaced by a fake that
@@ -20,7 +20,7 @@ labels a channel's words by its signal), the real ``knowledge_codes`` worker (CP
      ``alignments_other``; the loader's user-text row = those words delayed 6 frames (IGNORE when ``other_ok`` false),
      the assistant text row unchanged; a corpus WITHOUT user timings is refused by ``--user_words`` and by
      ``persona_item_builder(user_text_delay=)``.
-  BACKFILL (2026-10-13, user: "just backfill"; an existing corpus gets the user words as NEW jobs): a4 the add-on user
+  BACKFILL (2026-10-13; an existing corpus gets the user words as NEW jobs): a4 the add-on user
      pass (``annotate_user_only``, ``MoshiAnnotateUserWords``) over an assistant-only annotated dataset gives exactly the
      ``alignments_other`` / ``other_ok`` the one-pass ``annotate_user`` build gives; c6 ``knowledge_user_words``
      (``KnowledgeAttachUserWords``) on the assistant-only codes build + that sidecar = the ``--user_words`` codes build,

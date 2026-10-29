@@ -1,9 +1,8 @@
 """Self-play judge v2 (``spj2``): an LLM-graded self-play BENCHMARK on prompts and voices no model trained on.
 
-User, 2026-09-28: "Can we do some llm grading on the self play dialogues and also use that as benchmark? Ofc only use
-prompts that were not seen in training. And have the llm grade prompt adherence, coherence, and how well the llms
-respond to each other. Maybe also adjust our prompts to make it easier to grade for this benchmark. [...] maybe it
-would be good to have multiple generations for the same prompt tho, because i think its really random."
+Goal (2026-09-28): LLM grading of self-play dialogues as a benchmark, on prompts never seen in training, rating prompt
+adherence, coherence and how well the two sides respond to each other; prompts written to be easy to grade; several
+generations per prompt, because self-play is highly random.
 
 Why a new set. The coherence judge v1 (``selfplay_judge``) rates self-play of 64 JRE windows whose prompts describe
 windows p2-p5 trained on and whose voice clips are the TRAINING clips (one 4 s clip per episode speaker, reused for
@@ -566,8 +565,8 @@ SPJ2_JSON_SCHEMA = {
 
 #: Self-play GRPO REWARD rubrics (2026-10-02; ``RLFinetune(selfplay_reward={"rubric": name, ...})``): text + metric
 #: names, chosen in the recipe. spj2's benchmark rubrics (``SPJ2_RUBRICS``) are valid reward rubrics too (metrics
-#: ``SPJ2_METRICS``). ``sp_reward_v2`` = spj2_judge_v1 + per-side ``understanding`` (user: "one side gives some
-#: information, and the other side clearly misunderstands ... The judge should penalize this a little more"), the
+#: ``SPJ2_METRICS``). ``sp_reward_v2`` = spj2_judge_v1 + per-side ``understanding`` (penalise a side that
+#: clearly misunderstands information the other side gave), the
 #: transcript's origin from ``{transcript_source}`` (v1 always says ASR and asks to ignore recognition errors, which
 #: excuses a misheard name even in a monologue transcript) and a line description for the ``turns_v1`` format.
 SP_REWARD_RUBRICS = {
@@ -612,8 +611,8 @@ Answer with JSON only. Each reason is one sentence of at most 30 words:
 }
 
 
-#: ``sp_reward_v3_timing`` (2026-10-26; user: "telling grader about silence for longer sections, speaking rate and
-#: whether the model was cut off and say the total amount of time for the segment"): ``sp_reward_v2`` plus a TIMING
+#: ``sp_reward_v3_timing`` (2026-10-26: the grader is told about long silences, speaking rate,
+#: whether the model was cut off, and the segment's total duration): ``sp_reward_v2`` plus a TIMING
 #: block the reward fills per conversation (``moshi_family.rl.selfplay_reward.timing_facts``: planned length, early
 #: stop, last speech, joint silences >= 3 s, words/s per side, cut off at the end, overlaps) and one paragraph on using
 #: it. Why: the 1000-step multi-task run learned to say goodbye early and leave the rest of the slot silent, and the v2
@@ -797,7 +796,7 @@ def score_stats(by_prompt: dict) -> dict:
 #: spj2 judge versions (recorded as ``summary.json["judge_version"]``; a summary without the field is v1):
 #:   1 -- ``extra_body={"guided_json": SPJ2_JSON_SCHEMA}``, which vLLM >= 0.19 IGNORES: the reply was unconstrained
 #:        and only ``parse_judge_reply`` + 5 retries (new seed each) kept it valid. Every spj2 number up to 2026-10-12.
-#:   2 -- (2026-10-12, user: "fix vllm and move to a new judge version") the schema is enforced
+#:   2 -- (2026-10-12, with the vLLM fix) the schema is enforced
 #:        (``common.json_schema_format``); same rubric, sampling, seeds and parser. ``judge_version`` is hashed only
 #:        when != 1, so a v1 job keeps its hash (and its finished rows) and every default job is v2 -- a NEW work dir;
 #:        the v1 dirs stay on disk and keep their rows (read them for any number reported under v1).
@@ -1096,7 +1095,7 @@ class SelfPlayJudgeV2Table(Job):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# training scenarios for self-play GRPO (rl_alignment.md "Self-play persona GRPO")
+# training scenarios for self-play GRPO
 # ---------------------------------------------------------------------------------------------------------------
 #: What each category means, shown to the generator LLM (the spj2 categories, module docstring).
 SP_TRAIN_CATEGORY_TEXT = {
@@ -1106,7 +1105,7 @@ SP_TRAIN_CATEGORY_TEXT = {
     "instruction": "each side gets explicit, checkable behaviours: things to say, ask, mention, avoid or never reveal, "
     "or how to speak (e.g. answer briefly)",
 }
-#: Levels of specificity (user, 2026-10-01: "maybe we also want multiple levels of specificity"), each a word range per
+#: Levels of specificity (2026-10-01), each a word range per
 #: side inside ``check_scenarios``' 8-45 bound. spj2's hand-written prompts sit between ``general`` and ``detailed``.
 SP_TRAIN_LEVELS = {
     "minimal": (8, 16, "only a first name and a one-line situation or topic; no goal details, no explicit instructions"),

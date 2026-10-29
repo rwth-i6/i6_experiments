@@ -1,4 +1,4 @@
-"""Guard: the corpus manifest reports what the mix actually contains (backlog F8).
+"""Guard: the corpus manifest reports what the mix actually contains.
 
 The job exists because the epoch arithmetic was being redone by hand, and its first real run showed
 why that is not safe: `a8_4gpu_v2` draws **0.83 epochs of Fisher and 3.06 of the QA corpus**, while
@@ -181,7 +181,7 @@ def check_label_is_not_output():
 def check_provenance_is_not_hashed():
     """B8: recording WHERE a corpus came from must never re-run it.
 
-    The backlog specified these fields as "defaulting to None so nothing re-hashes". That is only
+    The original spec described these fields as "defaulting to None so nothing re-hashes". That is only
     true while they stay None -- `__sis_hash_exclude__` drops an argument only while it EQUALS the
     listed default, so the first manifest that actually records a licence would be hashed like any
     other kwarg and re-run. Hence the unconditional pop in `CorpusManifest.hash`, and hence this

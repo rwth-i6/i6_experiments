@@ -1,6 +1,6 @@
 """Guard: the ``Audio()`` writers (MoshiAnnotate, Chatterbox TTS) store exact FLAC that decodes to what their WAV did.
 
-FLAC step 2c (2026-10-16; user: "new behaviour exactly matches old behaviour"): ``moshi_annotate_inference._audio_cell``
+FLAC step 2c (2026-10-16; new behaviour must exactly match old behaviour): ``moshi_annotate_inference._audio_cell``
 and ``chatterbox_inference._audio_value`` keep each writer's own WAV encode and store its PCM_16 samples as FLAC
 (``clip_codec.wav_to_flac``) under the same stored ``path``. This drives both helpers from the worker sources (the
 workers import Whisper / Chatterbox at module level, so the helper functions and ``dialogue_features`` are executed

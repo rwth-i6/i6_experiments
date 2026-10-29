@@ -136,7 +136,7 @@ _COMMON_SUFFIX = (
 
 # --- v7: the MoshiRAG answer shape -----------------------------------------------------------
 # Constraints lifted from arXiv 2604.12928 Table 15 ("v1 LLM prompts used for generating
-# conversation scripts"), saved verbatim in projects/2026-01-speech-llm/paper_recipes.md.
+# conversation scripts").
 #
 # WHY these and not more length: our corpus is 11 assistant words per TURN (median, measured by
 # corpus_words.py) spread over 2-8 turns, i.e. ~30 words per ROW. MoshiRAG's is ~30 words in ONE

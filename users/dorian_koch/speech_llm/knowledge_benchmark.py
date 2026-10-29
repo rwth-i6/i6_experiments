@@ -130,7 +130,7 @@ def load_triviaqa(split: str = "validation"):
 # LLM preprocessing -- makes questions speech-digestible
 # ---------------------------------------------------------------------------
 
-#: The decoding seed NEW knowledge tags should pass as ``inference_seed`` (backlog E1). A single
+#: The decoding seed NEW knowledge tags should pass as ``inference_seed``. A single
 #: named constant rather than a literal per call site, so a seeded tag is visibly the same seed as
 #: every other seeded tag and a sweep is an explicit departure from it. Deliberately NOT a default
 #: on ``knowledge_benchmark_py``: defaulting it would silently re-hash and re-run all 41 existing
@@ -365,7 +365,7 @@ class ChatterboxSingleSpeakerInference(Job):
             add_cuda_npp_to_env(self.venv_python_path.get(), env)
             add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
-        # Per-GPU fan-out (backlog G1): clips are strided by index across the workers (clip i's
+        # Per-GPU fan-out: clips are strided by index across the workers (clip i's
         # seed is SEED + i, so each clip is bit-identical to the single-worker run). Under
         # storage="wav" the workers write disjoint <i>.wav into the same dir; under "hf" each
         # writes its own arrow part and the parts are merged (indices asserted disjoint).
@@ -566,7 +566,7 @@ class WhisperTranscription(Job):
             self.out_json.get(),
             *(["--model", self.asr] if parakeet else ["--model_size", self.model_size]),
         ]
-        # Per-GPU fan-out (backlog G1): clips strided by index across workers, each writing its own
+        # Per-GPU fan-out: clips strided by index across workers, each writing its own
         # jsonl part + .idx sidecar; merged back into clip order below.
         out_json = self.out_json.get()
 
@@ -733,7 +733,7 @@ Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explan
 #:                   moves, so FINISHED v1 grades stay as they are (never auto-regraded) and every
 #:                   LLMGrading that RUNS after this lands as v2 -- read ``grader.schema_version``
 #:                   before putting two judged numbers in one table (measured gap:
-#:                   projects/2026-01-speech-llm/grader_t0_measure.py).
+#:                   v1 vs v2 on the same replies).
 # alias_match 2: an article after the first word of a gold answer is kept ("Vitamin A" != "vitamin C").
 #   Unlike llm_judge, AliasMatchGrading hashes this version, so every finished alias summary was re-scored (seconds
 #   each); the in-training probe and self_rehearsal use the new rule from their next run.
@@ -1073,14 +1073,14 @@ def knowledge_benchmark_py(
             venv) the job no longer needs ``requires: ["system_ffmpeg"]`` and stops being pinned to
             c23g. Hash-excluded at ``None`` on the job, so passing it re-runs only the tag that
             opts in.
-        inference_seed: RNG seed for the model's decoding (backlog E1). ``None`` (default) is the
+        inference_seed: RNG seed for the model's decoding. ``None`` (default) is the
             historical unseeded behaviour. ⚠ Only the **lib** (``offline_module``) and served backends
             honour it -- the fork drivers (``offline_script``) have their own argparse and are not sent
             ``--seed`` (they would exit(2) after the GPU is allocated), so a fork-backend tag given a seed
             is refused at graph build (it used to be dropped silently: a tag that claims a seed it never
             had). Hash-excluded at ``None``, so it re-runs only the tag that opts in.
 
-            **The standing rule, so this is not re-litigated (user, 2026-09-15: "E1 is obvious"):
+            **The standing rule (2026-09-15):
             pass ``inference_seed=KNOWLEDGE_INFERENCE_SEED`` on NEW tags; never retro-seed an
             existing one.** Retro-seeding re-runs ~30 already-scored numbers and not one of them
             would reproduce, because they were produced unseeded -- so it buys nothing and costs
@@ -1101,7 +1101,7 @@ def knowledge_benchmark_py(
         lead_in_s: user-channel silence before the question (knowledge at depth: the question arrives this many
             seconds into the clip). None (default) = SpeechInference's 2 s, not passed, so no existing job moves.
         data / data_label / data_n: an already prepared question set (an ``LLMPreprocess`` out_hf, e.g. the broad
-            knowledge-RL held-out set, knowledge_broad_rl.md) instead of ``dataset_name``'s load -> preprocess ->
+            knowledge-RL held-out set) instead of ``dataset_name``'s load -> preprocess ->
             subsample. Its TTS registers under ``benchmark/<data_label>/tts_output`` (the default TriviaQA paths would
             collide), the model stages under ``benchmark/llm_judge/n<data_n>/<tag>/``; the summary's per-``category``
             accuracies are the per-set numbers. None (default) = the original path, unchanged.

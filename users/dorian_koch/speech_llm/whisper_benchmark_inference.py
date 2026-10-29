@@ -155,7 +155,7 @@ def main():
                         # which happens to work (this loop preserves dataset order and clip index
                         # IS the enumerate index) but is unverifiable from the file and silently
                         # wrong the moment a clip is missing -- exactly the by-position coupling
-                        # the naming rule in CLAUDE.md exists to prevent. Downstream readers key
+                        # that explicit keys exist to prevent. Downstream readers key
                         # on names, so an added key is backward compatible.
                         "index": i,
                         "question": example["question"],

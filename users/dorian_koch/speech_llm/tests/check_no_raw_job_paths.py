@@ -5,8 +5,8 @@ as ``tk.Path("/…/work/…/<Job>.<hash>/output/…")`` without a creator and ne
 A raw path records no dependency: Sisyphus cannot order the jobs, nothing tells the reader to wait, and every tool that
 asks "who reads this job?" (cleanup, ``graph_waiting.py``) misses the reader. 2026-10-16: ``prune_checkpoints.py``
 deleted ``RLFinetune.FESvleKrAwPk``'s checkpoint_1400 because ``ResolveOverlayCheckpoint.0uP0BA4mbf8b`` named the
-run dir by raw path (``track_rl.py`` salvage); its 17 finished evals can no longer be re-run. User: "This should never
-happen ... make sure this doesnt become a pattern".
+run dir by raw path (``track_rl.py`` salvage); its 17 finished evals can no longer be re-run. This must never
+happen again, nor become a pattern.
 
 Checks every graph job's inputs (creator-less path into a job dir under work/) and attributes (a string naming a job
 dir under work/ is allowed ONLY if that job is also a recorded input of the reader, e.g. ``SpeechInference``'s

@@ -14,7 +14,7 @@ THE BUGS THIS EXISTS FOR (both 2026-09-17, together they stalled the graph):
    ``benchmarks.py`` call sites passed it. So the job routed to c25g carrying nothing and died at
    import on ``libavutil.so.60: cannot open shared object file`` -- our OWN build's libavutil, i.e.
    never on the loader path -- ~4 min in, after the GPU was allocated. The c25g proof exercised the
-   CALLEE with the argument supplied; this is the caller/callee trap in CLAUDE.md, third instance.
+   CALLEE with the argument supplied; this is the caller/callee trap, third instance.
 
 2. ``MoshiAnnotate`` kept the tag, was routed to c23g AS INTENDED, and died anyway. The alternative
    explanation was checked and refuted -- identical input schema (exactly one ``Audio`` feature),

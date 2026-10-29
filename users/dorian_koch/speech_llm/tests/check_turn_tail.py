@@ -2,8 +2,8 @@
 multiplies EXACTLY the assistant-side loss more than 10 s into a continuous assistant turn by its factor, causally, on
 the real data path, and changes nothing when off.
 
-WHY. The ablation asks whether down-weighting the loss deep into long assistant turns helps ("Moshi training was
-unstable for turns longer than 10 s"; user: "simply downweight it"). A weight that also hit the user's codebooks,
+WHY. The ablation asks whether down-weighting the loss deep into long assistant turns helps (against
+instability on turns longer than 10 s). A weight that also hit the user's codebooks,
 missed the text stream, used the stored side on a swapped read, or looked at the future (a turn that "continues" only
 because the next word comes) would test something else -- and a loss curve shows none of it. Everything runs through
 the real code: p4's corpus, the real ``build_data_loader`` with the arm's read knobs (swap, stored user augmentation),

@@ -1,6 +1,6 @@
 """Guard: every clip-store reader decodes the FLAC layouts to exactly what it decodes from the float layout.
 
-FLAC (2026-10-16; user: "make sure old jobs keep working and new behaviour exactly matches old behaviour"): clip
+FLAC (2026-10-16; old jobs must keep working and new behaviour must exactly match old behaviour): clip
 stores may hold a row's samples as ``audio_flac`` (exact FLAC PCM_16, ``clip_codec.encode_exact``) instead of ``audio``
 (list<float32>), per row: the writer streams, so a store can mix FLAC rows and float rows (the other column null).
 This writes the same clips in three layouts -- old float, FLAC-only, hybrid (int16-valued rows FLAC, one non-int16

@@ -1,5 +1,5 @@
-"""Guard: the flagged-word arms (2026-09-28b; user: "THe loss mask on flagged words sounds good. Or maybe downweight a lot.
-Or could we train the model to output a beep instead?") act on EXACTLY the assistant's flagged words, on the real data
+"""Guard: the flagged-word arms (2026-09-28b: loss mask, strong down-weight, or a
+beep the model learns to output instead) act on EXACTLY the assistant's flagged words, on the real data
 path, and change nothing when off.
 
 WHY. A per-frame weight fails silently: spans of the wrong stored side (a swapped read's assistant is the OTHER

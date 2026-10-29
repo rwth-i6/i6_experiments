@@ -1,7 +1,7 @@
 """LLM judge of dialogue COHERENCE for self-play conversations (and the real windows they came from).
 
-User, 2026-09-23, on p2/p3 self-play: "it's not really a coherent dialogue in the sense that they are not
-really talking to each other in a way that makes sense, like persona plex does". The turn-taking statistics
+Observed 2026-09-23 on p2/p3 self-play: not a coherent dialogue -- the two sides do not really talk to each other in
+a way that makes sense, as PersonaPlex does. The turn-taking statistics
 (``analysis/selfplay_stats.py``) measure WHEN each side speaks; this job measures whether what they say is a
 conversation: each conversation's two-sided transcript (the per-channel ASR words of ``SelfPlayTranscribe``,
 grouped into utterances and interleaved by time) is rated 1-5 with a one-line reason by an LLM served with

@@ -1,5 +1,5 @@
-"""Guard: the POLICY_2026_09_29 defaults (user decision 2026-09-29: "so lets use your new proposed ablation baseline. use
-wordmask 0, but also extend by a frame in each direction") reach the REAL launched config of every new PersonaPlex arm,
+"""Guard: the POLICY_2026_09_29 defaults (2026-09-29: the new ablation baseline, word
+mask 0 with a 1-frame audio pad in each direction) reach the REAL launched config of every new PersonaPlex arm,
 and no earlier arm moved.
 
 Mechanism: ``runs.RULE_PPX_WORDMASK`` / ``RULE_PPX_OPENYAP_MIX`` = "2026-09-29" = POLICY_LATEST; ``track_persona._ppx_arm``
@@ -114,7 +114,7 @@ AT_N_ARMS = {
     "ab2_usertext_plus_knowledge_rows_weight0p2_ctc_within_turns",
     # 2026-10-13: knowledge-row user-text targets at the original weight 0.05 (attributes kn_w02's two changes)
     "ab2_usertext_plus_knowledge_rows_weight0p05",
-    # 2026-10-16: the CTC head after layer 16 (user: "just do ctc after layer 16 to test")
+    # 2026-10-16: the CTC head after layer 16 (a test)
     "ab2_usertext_plus_knowledge_rows_weight0p2_ctc_within_turns_head_after_layer16",
 }
 check(at_n == sorted({BASE_N} | AT_N_ARMS), f"the arms at 09-29 = ab2_base_0929 + {sorted(AT_N_ARMS)} ({at_n})")

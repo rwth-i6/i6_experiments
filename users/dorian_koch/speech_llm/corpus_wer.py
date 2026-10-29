@@ -1,6 +1,6 @@
 """Round-trip WER of the synthetic corpus: what we ASKED the TTS to say vs what Whisper HEARD.
 
-Backlog E4. Both sides already exist on disk, so this costs no annotation and no GPU:
+Both sides already exist on disk, so this costs no annotation and no GPU:
 
 * **Reference** -- the text *we authored* and handed to Chatterbox. It survives in the TTS output's
   ``turns`` column (``chatterbox_inference.dialogue_features``), one entry per turn with a
@@ -175,7 +175,7 @@ class SyntheticSpeechWer(Job):
         idx = list(range(len(ids)))
         # Random, seeded, and SAY SO. Every corpus here is a shard merge in sorted key order, so a
         # head slice reads one template, not the corpus -- which has already produced one confident
-        # and completely wrong readout (see CLAUDE.md).
+        # and completely wrong readout.
         if self.sample and self.sample < len(idx):
             idx = random.Random(self.seed).sample(idx, self.sample)
             provenance = f"sampled {len(idx)} of {len(ids)} rows at random (seed {self.seed})"

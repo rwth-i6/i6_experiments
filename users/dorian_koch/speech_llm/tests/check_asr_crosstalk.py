@@ -7,7 +7,7 @@ Why the filter went, recorded here because this file is where someone will look 
 words whose diarized turn geometry suggested another speaker, and measurement showed it disagreed
 with a direct "is this word actually louder on this channel" test on ~80% of its own decisions --
 uniquely dropping 208/243 words whose audio WAS on the channel while missing 135/61 whose audio was
-not. It had also silently deleted every word spoken during overlap. The user's call was that the
+not. It had also silently deleted every word spoken during overlap. The decision was that the
 failure it targeted (text on a channel whose audio is elsewhere) is not worth the code, since it
 runs at a few percent against Whisper's own 6-7% word error rate on this audio.
 

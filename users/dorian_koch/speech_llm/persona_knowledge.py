@@ -1,7 +1,7 @@
 """Synthetic knowledge dialogues as PersonaPlex training rows (ablation ab_epad1_know30, 2026-09-25).
 
-User (2026-09-25): "mix in 30% in-batch of the synthetic knowledge dialogues. Think of something smart to make
-them work with personaplex." PersonaPlex trains on rows that carry a HYBRID system prompt (voice + role text);
+Goal: 30% of each batch from the synthetic knowledge dialogues, adapted to PersonaPlex's row format.
+PersonaPlex trains on rows that carry a HYBRID system prompt (voice + role text);
 the TTS'd TriviaQA-train dialogues carry neither. ``KnowledgeDialogueCodes`` gives them both, the way the
 PersonaPlex paper built its own QA data (arXiv 2602.06053, section 3.2):
 
@@ -43,7 +43,7 @@ class KnowledgeDialogueCodes(Job):
     cloned). ``system_prompt``: the role text of every row. ``loudness_norm``: the ingest's dict
     (``synthetic_train_data.PODCAST_INGEST["loudness_norm"]``). Output ``out_dir`` (dataset) + ``out_summary``.
 
-    v7 (user, 2026-09-28: random assistant voices + the JRE user augmentation), all three opt-in and hash-excluded
+    v7 (2026-09-28: random assistant voices + the JRE user augmentation), all three opt-in and hash-excluded
     when None (the v6 job keeps its hash):
       * ``assistant_audio``: ``[(name, KnowledgeVoiceConvert.out_dir)]`` with the SAME names as ``corpora``: each
         row's assistant channel is read from there (row-aligned, ids checked) instead of the annotated corpus;
@@ -54,8 +54,8 @@ class KnowledgeDialogueCodes(Job):
         variants of the USER channel (``codes_user_aug``, ``n_user_aug``, ``user_aug_json``) made by the ingest's
         own ``podcast_mimi_encode.augment_user_variants`` from the TTS waveform, encoded like the clean codes.
 
-    ``user_words`` (user, 2026-10-12: "make sure that for future synthetic and knowledge generations we always also
-    generate the word timings"; ON for every new declaration): the rows also carry the TTS questioner's words --
+    ``user_words`` (2026-10-12: future synthetic and knowledge corpora always carry the user side's
+    word timings; ON for every new declaration): the rows also carry the TTS questioner's words --
     ``alignments_other`` + ``other_ok``, the JRE windows' layout, which the user-text head reads -- taken from the
     annotated corpora's own ``alignments_other`` (``MoshiAnnotate(user_words=True)``: Whisper on the user channel),
     clamped and cut as the assistant's. Every input corpus must carry them (the worker refuses otherwise). Hashed only
@@ -227,12 +227,12 @@ class KnowledgeConcatMeta(Job):
 
 class KnowledgeUserWordsCTC(Job):
     """The USER side's word timings of TTS'd knowledge dialogues by CTC forced alignment of the KNOWN script
-    (backfill; user, 2026-10-13: "just backfill ... Lets do user word timings on the knowledge rows too"; worker
+    (backfill, 2026-10-13, for the knowledge rows; worker
     ``moshi_family.ctc_user_words``: torchaudio's MMS_FA aligner as published, per user turn of the TTS script on the
     annotated user channel inside the turn's TTS span). Chosen over the annotate stage's Whisper user pass
     (``MoshiAnnotateUserWords``) on cost: that pass measured ~1x the assistant pass, ~10 GPU-h for the 60,000 v6 rows,
     above the ~6 GPU-h bound; the two agree on onsets (220 seeded v6 rows: |CTC - Whisper| median 0.48 Mimi frames, 82%
-    within 1 frame, 97% within 2; rl_alignment.md "User word timings").
+    within 1 frame, 97% within 2).
 
     ``corpora``: ``[(name, annotated dir, ChatterboxInference dir)]``. Output per corpus ``out_sidecars[name]`` (the
     ``{id, alignments_other, other_ok}`` sidecar ``KnowledgeAttachUserWords`` reads, row-aligned with the annotated
@@ -316,8 +316,8 @@ class KnowledgeQuestionWordsCTC(Job):
 
 
 class KnowledgeAttachUserWords(Job):
-    """An existing knowledge codes corpus + the USER side's word timings (backfill; user, 2026-10-13: "just backfill
-    ... Lets do user word timings on the knowledge rows too"; worker ``moshi_family.knowledge_user_words``).
+    """An existing knowledge codes corpus + the USER side's word timings (backfill, 2026-10-13, for the knowledge
+    rows; worker ``moshi_family.knowledge_user_words``).
 
     ``codes``: a ``KnowledgeDialogueCodes(user_words=False)`` dataset (v6); ``corpora``: ``[(name, annotated dir,
     MoshiAnnotateUserWords sidecar)]`` with the codes build's names, in its order; ``loudness_norm`` / ``max_sec``:
@@ -388,8 +388,8 @@ class KnowledgeKnownScore(Job):
     """Which TriviaQA-train questions does base PersonaPlex already know? (ablation ab2_know_known, 2026-09-29; worker
     ``moshi_family.personaplex.knowledge_known_score``, whose docstring has the method.)
 
-    User: "restrict training to only those examples that are already known by the base model" (Gekhman et al. 2024),
-    "Make sure to normalize across length tho. We want to score the speech model tho, not some random text model".
+    Goal: train only on examples the base model already knows (Gekhman et al. 2024), with a length-normalised score
+    from the speech model itself, not from a text model.
     One teacher-forced forward of the RELEASED PersonaPlex per knowledge dialogue, read as the training loader reads a
     knowledge row; score = mean log-prob per token of the answer where the ASSISTANT first says it (TriviaQA's main
     answer; unscorable when never said or when the user says it first). Per question: the mean over its scorable
@@ -469,8 +469,8 @@ class KnowledgeKnownScore(Job):
 
 
 class KnowledgeVoicePool(Job):
-    """The assistant voices of the knowledge corpus v7 (user, 2026-09-28: "Maybe we should also get different voices
-    in there, to align with the jre training. Just use random voices ig."; worker ``moshi_family.knowledge_voices``,
+    """The assistant voices of the knowledge corpus v7 (2026-09-28: varied assistant voices, as in the
+    JRE training data, drawn at random; worker ``moshi_family.knowledge_voices``,
     CPU, minutes).
 
     ``n`` voice clips drawn uniformly (``seed``) from the (episode, speaker) clips that ``train_data``'s rows (p4's

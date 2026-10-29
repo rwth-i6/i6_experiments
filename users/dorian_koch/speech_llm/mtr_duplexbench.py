@@ -3,7 +3,7 @@
 Evaluation-only, multi-round benchmark (the multi-turn cousin of FDB) over four dimensions:
 Conversational Features (turn-taking/latency/backchannel + interruption/pause/background;
 ASR+heuristics), Dialogue Quality (GPT-4o 0-5/turn), Instruction Following (binary GPT-4o), Safety
-(binary GPT-4o). See ``projects/2026-01-speech-llm/mtr.md`` for the pinned data/scoring contract.
+(binary GPT-4o).
 
 Wired into Sisyphus mirroring ``fdb.py``. The coupling between our model code and the benchmark is a
 **file-based submission contract** (stereo audio L=user / R=model + a per-round ``round_start.json``)
@@ -233,8 +233,8 @@ class MTRDuplexInference(Job):
 #: benchmark. 2 = upstream's config: CF ASR = ``mtr.upstream_asr.TRANSCRIBE_KW`` (beam 5, best_of 5, temperature
 #: fallback, as IF/Safety/DQ already were) and the DQ judge fed the repr of ``merge_stereo_segments``' ``(lines, texts)``
 #: tuple (``_dq_upstream_transcript``). Setting 2 re-hashes 40 CF ``MTRDuplexEval`` + 10 DQ ``MTRJudge`` (ASR + judge
-#: over the saved submissions, ~27-47 GPU-h, no inference). HELD at 1 by the user (2026-10-12: "that much GPU-h is too
-#: much for a benchmark we rarely use; hold off and document").
+#: over the saved submissions, ~27-47 GPU-h, no inference). HELD at 1 (2026-10-12): that much GPU-h is too
+#: much for a benchmark we rarely use.
 MTR_PROTOCOL = 1
 #: ``code_version`` per job and dimension (run()-side; 1 = hash-excluded = the original hash) under ``MTR_PROTOCOL``.
 MTR_EVAL_CODE_VERSION = {"conv_features": 2} if MTR_PROTOCOL >= 2 else {}

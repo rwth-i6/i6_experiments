@@ -12,7 +12,7 @@ over two gloo processes with DIFFERENT data per rank, against a single-process r
       gradient averaging.
   [2] as launched (fp32 masters, bf16 compute, fp32 reduce): parameters, gradients and AdamW state are fp32
       DTensors; loss and gradients are no farther from the fp32 reference than a plain bf16 single process
-      (the finetuning.md parity criterion).
+      (the parity criterion).
   [3] CAN FAIL: calling ``core.forward_train`` instead of the root wrapper does not train the same model (it
       raises on the still-sharded embeddings, or differs).
   [4] CAN FAIL: without ``master_dtype`` (bf16 sharded params) an AdamW step at lr 1e-6 moves almost no

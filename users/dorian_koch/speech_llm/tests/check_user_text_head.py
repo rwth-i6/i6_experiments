@@ -1,4 +1,4 @@
-"""Guard: the PersonaPlex user-text head (2026-10-12; ``user_text_loss_weight``; rl_alignment.md "User-text probe and head").
+"""Guard: the PersonaPlex user-text head (2026-10-12; ``user_text_loss_weight``).
 
 WHY. An auxiliary head predicts the USER's words (delayed) from the temporal transformer's output. Four ways it could
 silently go wrong: the user's words leak into the ASSISTANT text row (``interleave_text`` ignores the speaker field, so

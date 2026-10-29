@@ -53,7 +53,7 @@ def _rejects(**kwargs) -> str:
 
     Every validation runs before any Sisyphus job is constructed, so an invalid call raises without
     touching the graph -- which is what lets this drive the real caller rather than a copy of its
-    rules (the ``check_mixed_loader`` lesson in CLAUDE.md).
+    rules (the ``check_mixed_loader`` lesson).
     """
     try:
         attach_knowledge_evals(moshi_checkpoint=None, **kwargs)

@@ -13,7 +13,6 @@ nothing to do here. Everything AFTER the episode rows is the JRE pipeline unchan
                           user-stream variants -> episode rows in ``PodcastEpisodeIngest``'s schema
 
 The pure helpers live in ``moshi_family/openyap_common.py`` (loaded by path here and in the workers).
-Decisions and measurements: projects/2026-01-speech-llm/audio_datasets.md, "Open Yap".
 """
 
 from __future__ import annotations
@@ -194,7 +193,7 @@ class OpenYapEpisodeIngest(Job):
     (module docstring: decode, word-derived segments, reference clips, loudness, offline encode, variants).
 
     Hashed: the archive, the shard file, ``gap`` (segment rule), ``loudness_norm``, ``user_augment`` (+
-    ``noise_pool``), ``mimi_encode_mode`` (offline only: the streaming chunked encode is wrong, CLAUDE.md),
+    ``noise_pool``), ``mimi_encode_mode`` (offline only: the streaming chunked encode is wrong),
     ``max_items`` (a pilot is its own job), ``code_version``. Not hashed: ``env_ffmpeg_path`` (where our ffmpeg
     lives), ``convs_per_part`` (arrow layout), ``rqmt``. Resumable (``resume="run"``): never
     ``hpc-rerun --include-interrupted`` it."""

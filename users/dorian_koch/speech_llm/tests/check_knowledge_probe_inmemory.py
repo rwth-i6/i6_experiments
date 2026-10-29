@@ -20,7 +20,7 @@ hostile filesystem condition costs audio and nothing else. Both halves are asser
 
 Both modes are driven through the REAL ``run_pairs`` with a fake model, rather than asserting on a
 reimplementation -- a guard that builds its own idealised caller is how ``check_mixed_loader`` missed
-a live DDP bug for months (see CLAUDE.md). The assertion that matters is ``os.listdir(tmp) == []``.
+a live DDP bug for months. The assertion that matters is ``os.listdir(tmp) == []``.
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_probe_inmemory.py
@@ -438,7 +438,7 @@ def check_transcripts_are_the_full_reply():
 def check_stereo_dump_is_role_ordered_and_aligned():
     """The dump must put the QUESTION on channel 0 and the REPLY on channel 1, same length.
 
-    This is the assertion CLAUDE.md's channel-seam rule exists for. Both orders produce a
+    This is the assertion the channel-seam rule exists for. Both orders produce a
     well-formed stereo file that plays; only the content says which one was written. So the two
     channels here are given *distinguishable* content and the file is read back and compared, rather
     than checking that a stereo file merely appeared.

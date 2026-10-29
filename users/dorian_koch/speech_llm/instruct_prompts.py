@@ -1,6 +1,6 @@
-"""Spoken instruction prompts for instruction-following GRPO (user, 2026-10-03).
+"""Spoken instruction prompts for instruction-following GRPO (2026-10-03).
 
-User: "implement one or more of those instruct datasets for use with RL training". GRPO needs PROMPTS (the reply is
+Instruct datasets as RL training data. GRPO needs PROMPTS (the reply is
 sampled from the policy and judged), so only the user turn is synthesised; the dataset's own reply is kept as the
 judge's REFERENCE (``moshi_family.rl.instruct_reward``). Sources: human-written requests with human replies and
 permissive licences (checked on their dataset cards 2026-10-03):
@@ -253,7 +253,7 @@ class InstructPromptPrep(Job):
         print(f"[instruct-prep] kept {len(kept)} / {len(rows)}", flush=True)
 
 
-# --- multi-turn threads (2026-10-11; rl_alignment.md "Multi-turn instruct GRPO") ------------------------------------
+# --- multi-turn threads (2026-10-11, multi-turn instruct GRPO) ------------------------------------
 #: user turns per kept thread (the rank-0 path of an oasst2 tree)
 MT_MIN_TURNS, MT_MAX_TURNS = 2, 3
 

@@ -1,4 +1,4 @@
-"""What a training corpus mix ACTUALLY contains (backlog F8).
+"""What a training corpus mix ACTUALLY contains.
 
 ``Corpus`` takes ``[(path, weight, window_sec)]`` and states nothing about the realised size, so the
 arithmetic that matters -- how many hours, how many rows, how much of an epoch a run covers -- had to
@@ -81,7 +81,7 @@ class CorpusManifest(Job):
 
     __sis_hash_exclude__ = {"note": ""}
 
-    #: Provenance fields (backlog B8). Descriptive metadata about where a corpus CAME FROM -- it
+    #: Provenance fields. Descriptive metadata about where a corpus CAME FROM -- it
     #: says nothing about what the manifest computes, so it must never reach the hash.
     _PROVENANCE = ("license", "source_url", "retrieved_at")
 
@@ -119,7 +119,7 @@ class CorpusManifest(Job):
     def hash(cls, parsed_args):
         # Provenance is dropped UNCONDITIONALLY, not via `__sis_hash_exclude__`.
         #
-        # ⚠ The backlog row specified "defaulting to None so nothing re-hashes", and that is only
+        # ⚠ The original spec said "defaulting to None so nothing re-hashes", and that is only
         # half right -- it is true exactly while the fields stay None. `__sis_hash_exclude__`
         # excludes an argument only while it EQUALS the listed default, so the first corpus that
         # actually records `license="CC-BY-4.0"` would be hashed like any other kwarg and re-run,

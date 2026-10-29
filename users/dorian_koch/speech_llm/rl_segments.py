@@ -6,7 +6,7 @@ the shared ``_moshi_family_pythonpath`` resolver. Output is a self-contained ``s
 (materialised user-channel audio + ``index.jsonl``) consumed by ``moshi_family.rl.segments
 .CorpusSegmentSource`` -- so it survives a ``tk.import_work_directory`` from a workdir that had raw-Fisher
 read access (the train-time process never touches the permission-restricted corpus). See
-``projects/2026-01-speech-llm/rl_alignment.md`` and ``moshi_family/rl/fisher_segments.py``.
+``moshi_family/rl/fisher_segments.py``.
 """
 
 from __future__ import annotations

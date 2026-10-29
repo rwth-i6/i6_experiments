@@ -1,5 +1,5 @@
 """PersonaPlex service-scenario training-data construction (Workstream A of the PersonaPlex
-replication; see ``projects/2026-01-speech-llm/personaplex.md`` and the plan file).
+replication).
 
 PersonaPlex (arXiv 2602.06053) trains its full-duplex model partly on **service-role** dialogs:
 a customer talks to a named service agent that must stay in character and grounded in a given

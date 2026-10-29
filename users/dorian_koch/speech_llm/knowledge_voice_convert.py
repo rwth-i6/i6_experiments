@@ -1,5 +1,5 @@
-"""Re-voice the ASSISTANT channel of TTS'd knowledge dialogues with the TTS's own decoder (knowledge corpus v7, user
-2026-09-28: "the assistant channel is always the same voice ... Just use random voices ig.").
+"""Re-voice the ASSISTANT channel of TTS'd knowledge dialogues with the TTS's own decoder (knowledge corpus v7,
+2026-09-28: the v6 assistant channel was always the same voice, so v7 draws random voices).
 
 Worker for ``persona_knowledge.KnowledgeVoiceConvert`` (chatterbox venv, one GPU). Run directly as a script, like
 ``chatterbox_inference.py``. The v6 corpus was made by Chatterbox-Turbo: per turn, T3 turns the text into S3 speech

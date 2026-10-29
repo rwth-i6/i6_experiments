@@ -1,6 +1,5 @@
-"""How much of a self-play conversation is copied VERBATIM from the training transcripts (user, 2026-09-28: "we
-should maybe measure how much theyre replicating the training data straight up ... we have a lot of joe rogan in
-our training data").
+"""How much of a self-play conversation is copied VERBATIM from the training transcripts (2026-09-28:
+much of the training data is one podcast, so verbatim replication is a real risk).
 
 ``SelfPlayCopyStats``: for every generated channel of every self-play run (the model's own TEXT stream and the ASR
 of its audio, both), each word n-gram (default 8, lower-cased, ``[a-z0-9']`` tokens) is looked up in three nested

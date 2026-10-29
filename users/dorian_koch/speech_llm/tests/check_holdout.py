@@ -138,7 +138,7 @@ def check_ddp_shards_within_side():
 #
 # and produced no `metrics.eval.jsonl` at all. Every arm of the knowledge-collapse investigation ran
 # that way (checked 2026-09-07: the only metrics.eval.jsonl in output/ predates the mechanism). This
-# is the exact lesson CLAUDE.md records as "a guard must exercise the caller's wiring, not an
+# is the exact lesson "a guard must exercise the caller's wiring, not an
 # idealised version of it" -- so assert the wiring, not just the split.
 
 

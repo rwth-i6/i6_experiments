@@ -3,7 +3,7 @@
 ``HfMergeShards`` and ``MergeMoshiOutputsViaSymlinks`` (clip datasets) used to ``concatenate_datasets(...)
 .save_to_disk()``, a full second copy of every sharded output (1.8 TiB on 2026-10-16). They now write the same
 ``state.json`` / ``dataset_info.json`` with ``data-*.arrow`` as relative symlinks to the shards' files
-(``jobs.hf.save_linked``); user: "make sure old jobs keep working and new behaviour exactly matches old behaviour".
+(``jobs.hf.save_linked``); old jobs must keep working and new behaviour must exactly match old behaviour.
 
 Drives the real ``HfMergeShards.run`` and ``MergeMoshiOutputsViaSymlinks.merge`` on tiny shards and compares with the
 OLD behaviour (``concatenate_datasets(parts).save_to_disk``, i.e. the code before the change) row by row, feature by

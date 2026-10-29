@@ -1,4 +1,4 @@
-"""Guard: the broad-spectrum knowledge-RL knobs (2026-10-11, knowledge_broad_rl.md) are hash-neutral at their defaults
+"""Guard: the broad-spectrum knowledge-RL knobs (2026-10-11) are hash-neutral at their defaults
 and do what they say; the prompt-prep filters catch what they claim.
 
 Can fail: a new ``RLFinetune`` knob re-hashes the existing arms (default not excluded); a broad pool does NOT re-hash

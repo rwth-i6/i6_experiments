@@ -17,8 +17,8 @@ drive Unmute through the unchanged wav -> reply-wav boundary:
   protocol and write the spoken reply, mirroring ``MoshiFileClient``'s lead-in +
   silence-timeout capture so downstream Whisper/grading/FDB scoring is identical.
 
-The Rust STT/TTS workers run from ``moshi-server.sif``; see
-``projects/2026-01-speech-llm.md`` ("Unmute integration") for how the image is built.
+The Rust STT/TTS workers run from ``moshi-server.sif``, baked from
+kyutai-labs/unmute's public.Dockerfile.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ from .moshi_client import (
 DEFAULT_UNMUTE_LLM = "google/gemma-3-1b-it"
 
 # Prebuilt Rust moshi-server (STT + TTS workers) Apptainer image. One inode; baked
-# from kyutai-labs/unmute's public.Dockerfile. See projects/2026-01-speech-llm.md.
+# from kyutai-labs/unmute's public.Dockerfile.
 MOSHI_SERVER_SIF = "/hpcwork/tt201262/unmute/moshi-server.sif"
 # Configs baked into the SIF at /opt/unmute/configs (override per-instance below).
 SIF_STT_CONFIG = "/opt/unmute/configs/stt.toml"

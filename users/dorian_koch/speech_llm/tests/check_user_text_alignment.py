@@ -1,13 +1,13 @@
 """Guard: the user-text targets are ALIGNED with the user's audio on every loader path (2026-10-12, ``knowledge_user_text``).
 
-User (2026-10-12): "is it aligned though?" -- the user-text head's targets (the user's words, delayed 6 frames) must move
+The user-text head's targets (the user's words, delayed 6 frames) must move
 with the USER AUDIO through every transform: the prompt lead-in, the build-time onset pull-up, the concatenation's
 splice offsets / gaps / barge-ins, the window crop, a swapped read, and the delay. Proven on REAL audio, not assumed:
 the fixture is 20 real v6 knowledge dialogues (10 seeded rows each of ``qa_direct`` and ``multi_turn_explanation``,
 seed 0) passed through the REAL builders -- ``moshi_annotate_inference.py --annotate_user`` (Whisper medium on the user
 channel, test node), ``knowledge_codes --user_words``, ``knowledge_concat`` meta -- under
-``/hpcwork/p0023999/tt201262/user_words/fixture/`` (``codes``, ``meta.npz``; how it was built: rl_alignment.md "User word
-timings"). Every item is read through the REAL loader (``build_knowledge_mix_loader`` / ``build_data_loader``), its
+``/hpcwork/p0023999/tt201262/user_words/fixture/`` (``codes``, ``meta.npz``).
+Every item is read through the REAL loader (``build_knowledge_mix_loader`` / ``build_data_loader``), its
 USER channel Mimi-DECODED from the item's own codes, and a frame-energy VAD run on that audio (frame RMS > ``VAD_DB``
 dBFS; speech runs bridged over < ``BRIDGE`` silent frames). For each target the audio frame it describes is
 ``t - prompt - 6``:

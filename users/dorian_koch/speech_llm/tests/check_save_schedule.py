@@ -63,7 +63,7 @@ for n in LENGTHS:
 counts = [len(scheds[n]) for n in LENGTHS]
 check("checkpoint count is non-decreasing in run length", counts == sorted(counts), str(counts))
 
-# 3. Every point is on a round boundary (user request) and strictly increasing.
+# 3. Every point is on a round boundary and strictly increasing.
 for n in LENGTHS:
     s = scheds[n]
     on_grid = all(x % 50 == 0 for x in s if x != n)

@@ -3,7 +3,7 @@
 Runs in a job venv (moshi_family_venv). Per the standing exception, it carries its own small
 helpers and imports nothing from sisyphus / i6_experiments.
 
-THE QUESTION (backlog E19). If a corpus is stored as mimi codes instead of waveforms (~12 KB vs
+THE QUESTION. If a corpus is stored as mimi codes instead of waveforms (~12 KB vs
 ~11.5 MB per 60 s stereo window), a waveform augmentation -- reverb, additive noise, gain -- can no
 longer be applied to the stored thing directly. The candidate fix is decode -> augment -> re-encode.
 That adds a CODEC ROUND TRIP the waveform pipeline never pays, and the whole design turns on whether

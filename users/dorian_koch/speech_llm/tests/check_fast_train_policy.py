@@ -1,7 +1,7 @@
 """Guard: the training fast path is the default for NEW arms of every family, and for no existing one.
 
-User, 2026-09-23: "just enable it for all new training runs". The switches (``moshi_family.train_perf``,
-finetuning.md "Training performance") are hashed hparams, so turning them on for an existing arm would
+On for all new training runs since 2026-09-23. The switches (``moshi_family.train_perf``) are hashed
+hparams, so turning them on for an existing arm would
 re-hash it -- a running one (p3) would restart from zero on different kernels. They are therefore a
 dated rule, ``runs.RULE_FAST_TRAIN = POLICY_2026_09_23`` (= ``POLICY_LATEST``):
 

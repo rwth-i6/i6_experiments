@@ -4,7 +4,7 @@ ab2_know_known, 2026-09-29; worker ``moshi_family.personaplex.knowledge_known_sc
 WHY. The known-only arm trains on whatever this score calls "known". Three silent ways to get it wrong: score frames
 that are not the answer (an off-by-one between the text row and the per-frame CE, or a word split that grabs the
 neighbouring word), let the answer's LENGTH decide (a summed log-prob ranks every one-token answer above every
-three-token one -- the user asked to "normalize across length"), or count an answer the USER said first (the
+three-token one -- hence the length-normalised score), or count an answer the USER said first (the
 assistant only copies it). Everything runs through the real worker ``main()`` on real rows of the v6 codes corpus,
 the real row reader and the real join; only the 7B forward is replaced (CPU):
 

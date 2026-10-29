@@ -315,7 +315,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # asked for (settings.MIN_GPUS_PER_JOB on a cluster whose smallest node is 4 cards); for an
     # inference job that is free speed, for a training run it would quadruple the effective batch
     # and silently make it a different experiment under the same hash. So the declared count wins
-    # and the surplus idles -- an arm that should use 4 GPUs says so (Compute(gpus=4), backlog G2).
+    # and the surplus idles -- an arm that should use 4 GPUs says so (Compute(gpus=4)).
     # `compute` first: from RULE_RQMT_NOT_HASHED (2026-09-17) the GPU count travels there, not in `hparams`,
     # and reading only `hparams` trained such a run on ONE rank of its N-GPU allocation (found 2026-09-23 on
     # p5 before it ran; no earlier multi-GPU arm used `compute`). Same fallback order as `SpeechFinetune.rqmt`.
@@ -516,7 +516,7 @@ PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
 )
 
 
-#: Every training-speed launcher key (``moshi_family.train_perf``; finetuning.md "Training performance")
+#: Every training-speed launcher key (``moshi_family.train_perf``)
 #: and its YAML type, in render order. A launcher reads only the keys that apply to its model; each
 #: renderer names the subset it supports and refuses the rest (see :func:`render_train_perf_keys`).
 TRAIN_PERF_KEYS = {
@@ -535,7 +535,7 @@ def render_train_perf_keys(hp: dict, supported, *, who: str, rendered_elsewhere=
     Rendered ONLY when set, so an arm without them renders a config byte-identical to before the keys
     existed (and its launcher falls back to the historical kernels). A key this launcher cannot act on
     raises instead of vanishing: it is in the hashed ``hparams``, so ignoring it would make a new job
-    that trains exactly like the old one -- the "knob that does nothing" trap (docs/sisyphus.md).
+    that trains exactly like the old one -- the "knob that does nothing" trap.
     ``rendered_elsewhere``: keys the template already renders itself (base Moshi's ``prefetch_batches``)."""
     unsupported = sorted(
         k for k in TRAIN_PERF_KEYS if k not in supported and k not in rendered_elsewhere and hp.get(k) is not None
@@ -574,7 +574,7 @@ def _render_personaplex_lora_config(
         return "null" if hp.get(k) is None else str(bool(hp[k])).lower()
 
     _tlf = "null" if hp.get("text_lead_frames") is None else int(hp["text_lead_frames"])
-    # Training-speed switches (PERSONAPLEX_FAST_HPARAMS; finetuning.md "Training performance"), rendered
+    # Training-speed switches (PERSONAPLEX_FAST_HPARAMS), rendered
     # ONLY when the arm sets them: an arm without them gets a config byte-identical to before they
     # existed, and the launcher's defaults are the historical kernels and batching.
     assert train_scope in ("lora", "full"), train_scope
@@ -795,8 +795,8 @@ def _render_personaplex_lora_config(
         ws = hp["train_word_spans"]
         ws = ws.get() if hasattr(ws, "get") else str(ws)
         pad = ""
-        # ... and each flagged word's AUDIO span widened by this many frames on both sides (POLICY_2026_09_29, user:
-        # "extend by a frame in each direction"). Rendered ONLY when set (> 0).
+        # ... and each flagged word's AUDIO span widened by this many frames on both sides (POLICY_2026_09_29:
+        # e.g. 1 = one frame in each direction). Rendered ONLY when set (> 0).
         if hp.get("train_word_pad_frames"):
             pf = hp["train_word_pad_frames"]
             if isinstance(pf, bool) or int(pf) != pf or int(pf) < 0:
@@ -870,8 +870,8 @@ loss_norm: "{hp.get("loss_norm", "weight")}"
     )
 
 
-#: Training-speed preset for FUTURE PersonaPlex LoRA arms (2026-09-23; measured in finetuning.md
-#: "Training performance"). Merge it into an arm's ``hparams`` -- that is a new hash, i.e. a new arm, so
+#: Training-speed preset for FUTURE PersonaPlex LoRA arms (2026-09-23).
+#: Merge it into an arm's ``hparams`` -- that is a new hash, i.e. a new arm, so
 #: it is never applied to a running or finished one (p2/p3 do not use it). Every entry computes the same
 #: training step as without it, to bf16 rounding (guard ``check_train_perf.py``); prefetching yields the
 #: same batches bit for bit. Not in here, because they change the EXPERIMENT and not just its speed:
@@ -1266,8 +1266,8 @@ MOSHIRAG_LIB_ADAPTER = FinetuneAdapter(
 # only raised: the released moshi-rag fork is inference-only, so its training seams (the ARC-Encoder
 # reference conditioner's forward/collate, the <ret> trigger supervision, reference dropout and the
 # retrieval-delay simulation) were never wired, and its venv was retired in the 2026-07-31 dedup. It
-# was constructible but could not run, so it is gone; see projects/2026-01-speech-llm/moshirag.md for
-# the remaining RAG-training seams, which apply to the lib adapter now.
+# was constructible but could not run, so it is gone. The remaining RAG-training
+# seams apply to the lib adapter now.
 
 
 # --------------------------------------------------------------------------- #

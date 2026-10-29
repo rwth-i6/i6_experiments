@@ -1,7 +1,7 @@
 """Guard: multi-task GRPO with ONE judge for both rewards (``RLFinetune._run_shared_judge``; 2026-10-18).
 
-User (2026-10-18): "having two cards for graders is a bit stupid, maybe we just consolidate to a single model", and to
-move the reward Whisper off the trainer's card ("there really is no reason to sequentially wait here right?"). Through
+Why (2026-10-18): a second card for a second grader is wasted, so both judges share one model; and the reward
+Whisper moves off the trainer's card, so nothing waits on it sequentially. Through
 the REAL ``RLFinetune.run`` with ``vllm_server`` and ``launch_training`` replaced by recorders:
 
   1. ``multitask["selfplay_judge"] == quality_judge`` on 2 GPUs: ONE server, on the first card, at

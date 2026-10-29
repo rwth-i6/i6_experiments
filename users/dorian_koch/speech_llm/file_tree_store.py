@@ -3,7 +3,7 @@
 The MFDB inference output is a tree ``<item>/{output.wav, output.json, transcription.json, pause.json, ...}``: the
 benchmark's own NeMo ASR (``asr.py``) and evaluators (``evaluate.py``) walk it by file name, and we run both
 unmodified. As files it costs ~6 inodes per item, ~1,300 per task -- 306K inodes over 433 finished jobs on
-2026-10-14, the largest consumer on the inode-bound ``/hpcwork/p0023999`` (clusters/i6-rz.md). Stored here it costs
+2026-10-14, the largest consumer on the inode-bound ``/hpcwork/p0023999``. Stored here it costs
 ~3, and every reader gets a real directory back for the duration of its run (``tree_root``).
 
 Layout: one row per regular file, ``relpath`` (POSIX, relative to the tree root) and ``data`` (the file's bytes,

@@ -1,6 +1,6 @@
 """Sisyphus jobs: Seamless Interaction (arXiv 2606.11167 data) -> durable audio -> per-axis Mimi codes.
 
-Four-stage pipeline (see ``projects/2026-01-speech-llm/rl_alignment.md``, Workstream 1), parameterized by
+Four-stage pipeline, parameterized by
 ``(label, split)`` so it scales from ``improvised``/``dev`` to naturalistic + train later:
 
   SeamlessInteractionIndexJob  -- filelist.csv -> paired interactions -> shards/<k>.json

@@ -1,4 +1,4 @@
-"""Backlog E19: does storing a corpus as MIMI CODES cost us waveform augmentation?
+"""Does storing a corpus as MIMI CODES cost us waveform augmentation?
 
 A permanent job rather than a one-off sbatch, deliberately: the /hpcwork one-off probes are covered
 by nothing, and on 2026-09-18 all six of them turned out to have been silently broken for four days

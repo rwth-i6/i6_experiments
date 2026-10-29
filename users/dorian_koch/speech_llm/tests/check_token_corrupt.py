@@ -1,6 +1,6 @@
 """Guard: input-token corruption never touches the TARGETS, and is never a silent no-op.
 
-Backlog A45. Two failure modes, and a guard that tested only one of them would be worse than
+Two failure modes, and a guard that tested only one of them would be worse than
 nothing, because each looks exactly like success from the other side:
 
   (1) CORRUPTING THE TARGET. `moshi_loss` takes its targets from the tensor it is handed -- "Targets

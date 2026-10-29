@@ -10,7 +10,6 @@ sizing; ``train_data`` is optional and only consumed by a real ``SeamlessSegment
 The saved adapter lands in the fork layout (``checkpoints/checkpoint_<step>/consolidated/
 lora.safetensors``), so an RL-tuned model evaluates through the unchanged
 ``moshi_family_backend_spec(lora_rank=...)`` -- same overlay path as every other LoRA finetune here.
-See ``projects/2026-01-speech-llm/rl_alignment.md``.
 """
 
 from __future__ import annotations
@@ -89,7 +88,7 @@ _SELFPLAY_EXTRA_KEYS = ("advantage_split", "scale_std", "brevity_weight", "garbl
 _INTERACTIVITY_EXTRA_KEYS = ("log_every", "skip_zero_signal", "probe_every", "loss_norm", "lr_schedule",
                              "advantage_split", "scale_std")  # fmt: skip
 # every run kind (moshi_family.rl.launcher main() -> apply_rollout_text_sampler): the rollout TEXT sampler, "released"
-# (T 0.7 / top-k 25, every run before 2026-10-12) or "t1" (T 1, no top-k = the trained pi; rl_alignment.md)
+# (T 0.7 / top-k 25, every run before 2026-10-12) or "t1" (T 1, no top-k = the trained pi)
 _COMMON_EXTRA_KEYS = ("rollout_text_sampler",)
 
 
@@ -398,7 +397,7 @@ class RLFinetune(Job):
         # Training-speed switches (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams): excluded at
         # None so every existing job keeps its hash; new runs pass the policy's dict.
         "train_perf": None,
-        # PersonaPlex knowledge GRPO (2026-09-29, rl_alignment.md "Knowledge GRPO"): excluded at their defaults, so
+        # PersonaPlex knowledge GRPO (2026-09-29): excluded at their defaults, so
         # every existing (base-Moshi interactivity) job keeps its hash.
         "family": "moshi",
         "knowledge_questions": None,
@@ -428,7 +427,7 @@ class RLFinetune(Job):
         # instruction-following GRPO (2026-10-03, moshi_family.rl.instruct_reward): excluded at the default
         "knowledge_reward": "knowledge",
         "answer_end_pad_s": 1.0,
-        # broad-spectrum knowledge pools (2026-10-11, knowledge_broad_rl.md): excluded at their defaults (TriviaQA only)
+        # broad-spectrum knowledge pools (2026-10-11): excluded at their defaults (TriviaQA only)
         "knowledge_sources": None,
         "knowledge_base_category": None,
         "knowledge_balance": False,
@@ -453,7 +452,7 @@ class RLFinetune(Job):
         "aux_prompt_set": "fixed",
         # the echo reward's error rate (2026-10-16, rl.aux_tasks.ECHO_METRICS): excluded at "wer" (every run before)
         "aux_echo_metric": "wer",
-        # PersonaPlex self-play GRPO (2026-10-01, rl_alignment.md "Self-play persona GRPO"): excluded at their defaults
+        # PersonaPlex self-play GRPO (2026-10-01): excluded at their defaults
         "selfplay_scenarios": None,
         "selfplay_policy": "shared",
         "conversation_s": 30.0,
@@ -870,8 +869,8 @@ class RLFinetune(Job):
         # "fixed" = the probes' own wordings; "varied" = 10 training paraphrases per task (rl.aux_tasks, 2026-10-12)
         assert aux_prompt_set in ("fixed", "varied") and (aux_prompt_set == "fixed" or aux_tasks), aux_prompt_set
         self.aux_prompt_set = aux_prompt_set
-        # the echo reward: 1 - min(1, WER) ("wer", every run before 2026-10-16) or 1 - min(1, CER) ("cer"; user
-        # 2026-10-16: "RL runs on echoing should be rewarded with CER, not WER"). Only meaningful with an echo task.
+        # the echo reward: 1 - min(1, WER) ("wer", every run before 2026-10-16) or 1 - min(1, CER) ("cer"; from
+        # 2026-10-16: echo is rewarded with CER, not WER). Only meaningful with an echo task.
         assert aux_echo_metric in ("wer", "cer") and (
             aux_echo_metric == "wer" or float((aux_tasks or {}).get("echo", 0)) > 0
         ), f"aux_echo_metric {aux_echo_metric!r}: 'cer' needs an echo task in aux_tasks"
@@ -998,8 +997,8 @@ class RLFinetune(Job):
     SHARED_JUDGE_GPU_MEM = 0.85
 
     def _run_shared_judge(self):
-        """Multi-task GRPO with ONE judge model for both rewards (``multitask["selfplay_judge"] == quality_judge``; user
-        2026-10-18: "having two cards for graders is a bit stupid"): one vLLM server on the first visible GPU
+        """Multi-task GRPO with ONE judge model for both rewards (``multitask["selfplay_judge"] == quality_judge``,
+        2026-10-18: a second card for a second grader is wasted): one vLLM server on the first visible GPU
         (``max_model_len`` = the larger of the two judges'), serving both RL_JUDGE_* and RL_SP_JUDGE_*; the trainer on the
         last GPU; the reward Whisper on the JUDGE's card (``RL_ASR_DEVICE=cuda:1``: the trainer process sees
         ``<trainer>,<judge>``, so its own card stays cuda:0 and ``launch_training`` still runs one rank, RLFinetune

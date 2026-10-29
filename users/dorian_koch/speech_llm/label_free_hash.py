@@ -1,5 +1,4 @@
-"""Run names never reach a NEW job's hash (user, 2026-10-13: "we should make sure the run name never makes its way
-into any hash").
+"""Run names never reach a NEW job's hash (since 2026-10-13).
 
 Ten job classes carry run names / tags in hashed parameters: the self-play labels (``PersonaSelfPlay.label_a/_b``),
 the ``{label: path}`` dicts of the multi-run read-outs (``SelfPlayCoherenceJudge``, ``SelfPlayJudgeV2``,
@@ -33,8 +32,8 @@ from .label_hash_legacy import LEGACY_LABEL_HASHED
 LABEL_FREE_KEY = "label_free_hash"
 LABEL_FREE_VERSION = 1
 
-#: ``{new run name: old run name}`` of arms renamed after their read-outs had hashed the old name (user, 2026-10-14:
-#: rename the three kept arms with short names). Substring-mapped in every string of the parsed arguments (labels,
+#: ``{new run name: old run name}`` of arms renamed after their read-outs had hashed the old name (2026-10-14:
+#: the three kept arms got short names). Substring-mapped in every string of the parsed arguments (labels,
 #: ``{label: path}`` keys, tags such as ``ppx_ft_<name>_echo_question_probe``) before the legacy lookup only; a new
 #: name must not occur inside any other run name (asserted). Never remove an entry: its legacy jobs would re-hash.
 RENAMED_RUNS: dict[str, str] = {

@@ -14,7 +14,7 @@ Drives the real code: a tiny PersonaPlex ``LMModel`` (real class, real delays, d
 depformer's 16 weights-per-step), LoRA via ``apply_lora_to`` with a NON-zero lora_B (else the LoRA
 path is invisible), two collated rows of different length with a loss-masked prompt prefix and right padding,
 the real ``personaplex_loss`` (weighted mean, EPAD) and ``backward``. float32 on CPU, so "same maths"
-means agreement to ~1e-6; the GPU/bf16 numbers are in finetuning.md "Training performance".
+means agreement to ~1e-6.
 
   [1] defaults are off and ``apply_train_perf()`` with no switch sets nothing
   [2] each switch alone and all together: loss and EVERY LoRA gradient == baseline (rel < 1e-5),

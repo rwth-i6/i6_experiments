@@ -4,7 +4,7 @@ Two bugs this pins down, both found 2026-08-05:
 
 1.  ``metrics.train.jsonl`` carried ``lr_scale`` (the schedule multiplier) but never the actual
     learning rate. Two arms with different ``lr`` render an IDENTICAL ``lr_scale`` curve, so the one
-    axis backlog A3/A4 exists to sweep was the one axis not recorded. Same for the gradient norm:
+    axis an LR sweep varies was the one axis not recorded. Same for the gradient norm:
     ``clip_grad_norm_`` already computes it and the return value was discarded, so there was no way
     to tell whether ``grad_clip`` was active -- and when it is, the effective LR is not the
     configured one, which silently changes what an LR sweep measures.
@@ -14,7 +14,7 @@ Two bugs this pins down, both found 2026-08-05:
 
 The loop is exercised for real here -- a tiny nn.Module, a real AdamW, real backward passes -- rather
 than by asserting on a hand-built record. A guard that builds its own idealised inputs is how
-``check_mixed_loader`` missed a live DDP bug for months (see CLAUDE.md).
+``check_mixed_loader`` missed a live DDP bug for months.
 
 Run: ``CUDA_HOME=/usr .venv/bin/python recipe/speech_llm/full_duplex/moshi_family/tests/...`` -- or
 from the setup root via the path used by the other checks.

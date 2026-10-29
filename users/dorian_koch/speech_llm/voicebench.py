@@ -157,7 +157,7 @@ class VoiceBenchResponses(Job):
         script_path = Path(__file__).resolve().parent / "voicebench_responses.py"
         out_jsonl = self.out_jsonl.get()
 
-        # Per-GPU fan-out (backlog G1): replies strided by index across workers, each writing its
+        # Per-GPU fan-out: replies strided by index across workers, each writing its
         # own jsonl part + .idx sidecar; merged back into clip order below.
         def args_for(k, n):
             return [

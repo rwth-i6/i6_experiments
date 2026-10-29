@@ -416,7 +416,7 @@ class BuildKnowledgeProbeSet(Job):
         # probe.jsonl records wav PATHS for a downstream worker, so an arrow clip store has to be
         # unpacked rather than read in place -- the same bridge SpeechInference._run_knowledge uses,
         # for the same reason. This matters because the shared benchmark TTS dir is a repack target
-        # (backlog E13a): without it a repacked input globs to zero wavs and writes an EMPTY
+        # (repack_clips): without it a repacked input globs to zero wavs and writes an EMPTY
         # probe.jsonl, which reads as "the model answered nothing" rather than as a broken read.
         # The wavs go into this job's output/: probe.jsonl records their paths, and work/ is removed
         # at job cleanup, which would leave every path dangling.

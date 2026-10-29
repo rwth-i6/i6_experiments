@@ -1,6 +1,5 @@
 """Guard: user semantic weight 1.0 is the DEFAULT for new PersonaPlex runs, the 2-hour ablations declared from then on are
-one change from ``ab2_usersem``, and no existing arm moved (user decision 2026-09-25: "I think we should run user
-semantic weight 1.0 on every new run").
+one change from ``ab2_usersem``, and no existing arm moved (2026-09-25).
 
 Mechanism: policy epoch ``runs.RULE_PPX_USER_SEMANTIC = POLICY_2026_09_25B`` ("2026-09-25b"; policies compare as
 strings, so it is after "2026-09-25"); ``track_persona._ppx_arm`` adds ``user_semantic_weight`` =

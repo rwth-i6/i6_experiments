@@ -1,6 +1,6 @@
 """Guard: a job scales to however many GPUs the cluster hands it, without changing what it produces.
 
-Backlog G1 (user directive 2026-09-08/09): the next cluster's smallest GPU node is 4 cards. Nothing in
+Since 2026-09-08/09: the next cluster's smallest GPU node is 4 cards. Nothing in
 a recipe says "4"; ``settings.MIN_GPUS_PER_JOB`` raises the request and the job reads what it got
 (``common.visible_gpus``) and fans out. Three things have to hold for that to be safe, and each is
 asserted here against the REAL helpers and the REAL source:

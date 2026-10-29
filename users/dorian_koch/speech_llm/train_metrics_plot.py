@@ -1,12 +1,12 @@
-"""Training-curve plots over ``metrics.train.jsonl`` (backlog D1, F3).
+"""Training-curve plots over ``metrics.train.jsonl``.
 
 The point of this job is the OVERLAY. Training loss and the in-loop knowledge probe are logged to
 the same file but tell opposite stories: loss descends smoothly while factual recall craters in the
-first few hundred steps (see ``finetuning.md`` -- collapse is front-loaded and training loss is blind
+first few hundred steps (collapse is front-loaded and training loss is blind
 to it). Reading them apart is how "the loss looks fine" survived as long as it did, so the top panel
 puts them on one step axis with twin y-axes.
 
-Below that sit the schedule and per-module panels (backlog F3): the learning rate the optimizer
+Below that sit the schedule and per-module panels: the learning rate the optimizer
 actually applied, the pre-clip gradient norm against its clip threshold, and the per-module gradient
 and weight-displacement curves that localise a collapse to one of the four stacks.
 
@@ -503,7 +503,7 @@ class TrainMetricsPlot(Job):
                 "first_loss": s["loss"][0] if s["loss"] else None,
                 "final_loss": s["loss"][-1] if s["loss"] else None,
                 # peak_probe_step is the actionable number: if recall peaks early and decays, the
-                # useful checkpoint is not the last one (backlog A10, early stopping).
+                # useful checkpoint is not the last one (early stopping).
                 "peak_probe_accuracy": max(acc) if acc else None,
                 "peak_probe_step": s["probe_steps"][acc.index(max(acc))] if acc else None,
                 "final_probe_accuracy": acc[-1] if acc else None,

@@ -48,7 +48,7 @@ def resolve_voice_dir(hf_repo: str, voice_prompt_dir: str | None = None) -> str:
     """Return a dir of voice prompts; download+extract voices.tgz from HF if not given.
 
     Replicates `moshi.offline._get_voice_prompt_dir` (kept local to avoid importing a
-    private name). The HF fetch is gated -- jobs carry HF_TOKEN; see personaplex.md.
+    private name). The HF fetch is gated -- jobs carry HF_TOKEN.
     """
     if voice_prompt_dir is not None:
         return voice_prompt_dir

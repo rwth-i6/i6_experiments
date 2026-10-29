@@ -211,7 +211,7 @@ try:
         failures.append(f"only-empty merge raised {type(exc).__name__}, expected a ValueError naming the cause")
     ok("empty shards        skipped when mixed in, and rejected clearly when that is all there is", _n)
 
-    # --- repack: rewriting a finished wav dir in place (backlog E13a) ---------------------------
+    # --- repack: rewriting a finished wav dir in place (repack_clips) ---------------------------
     # This runs over FINISHED experiment outputs and deletes the originals, so the checks that
     # matter are that what comes back is identical, that it refuses the cases where it would break
     # something, and that the refusals are not vacuous.
@@ -386,7 +386,7 @@ try:
     #
     # check_common_helpers.py already asserted the TTS worker's ClipSpool streams -- and it does.
     # It proved nothing about THIS writer or about its caller: the "a guard must exercise the
-    # caller's wiring, not an idealised version of it" trap in CLAUDE.md.
+    # caller's wiring, not an idealised version of it" trap.
     #
     # The meter is weakrefs, not tracemalloc: tracemalloc does not see numpy's buffers, so it
     # reports the same few MB of Python overhead for a streaming and an accumulating writer alike

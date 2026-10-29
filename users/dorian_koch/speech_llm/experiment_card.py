@@ -20,7 +20,7 @@ CARD_KEYS = {
     "baseline": "the arm/tag it is compared against",
     "compare": "what to read, and the numbers to beat",
     "evals": "where its results land (tags / output paths)",
-    "asked_by": "who asked for it, with the date (e.g. 'user, 2026-10-11')",
+    "asked_by": "who asked for it, with the date (e.g. 'the lead, 2026-10-11')",
     "notes": "anything else a future reader needs",
 }
 REQUIRED_KEYS = ("why", "change")

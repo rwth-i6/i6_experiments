@@ -8,7 +8,7 @@ references with permutation-invariant SI-SDR / SI-SDRi (full-file + overlap-only
 Model-agnostic: ``separator`` selects the approach (``separation.separators.build_separator``); to benchmark
 a new method later, register it there and pass its name -- this job is unchanged. HF gating (PixIT needs an
 accepted token) is handled by Sisyphus injecting ``HF_TOKEN`` into the job env (see ``settings.py``), which
-``run_worker_script`` forwards. See ``projects/2026-01-speech-llm/audio_datasets.md``.
+``run_worker_script`` forwards.
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """Guard: the PersonaPlex held-out loss (``moshi_family.personaplex.heldout_loss`` / ``heldout_set``, Sisyphus jobs in
-``persona_heldout.py``) is the TRAINING loss, on a fixed set, in eval mode (user, 2026-09-25).
+``persona_heldout.py``) is the TRAINING loss, on a fixed set, in eval mode (2026-09-25).
 
 A held-out number that is computed differently from the logged training loss is worse than none: the train vs
 held-out gap it shows would be an artifact. Each check drives the real code:

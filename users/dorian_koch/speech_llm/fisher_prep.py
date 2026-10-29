@@ -255,7 +255,7 @@ class FisherToMoshiTrainData(Job):
     Diversity: windows are taken round-robin over *conversations* (``windows_per_conv`` each, from a
     seeded shuffle) rather than exhaustively per conversation, so a capped run spans many speakers.
 
-    ``user_words`` (2026-10-12, user: every new corpus carries the USER side's word timings; ON for new declarations):
+    ``user_words`` (2026-10-12: every new corpus carries the USER side's word timings; ON for new declarations):
     each row also gets ``alignments_other`` (channel A's words, from the same LDC transcripts and spread over their
     utterances exactly as the agent's are -- the timing source this corpus already uses for its text stream) and
     ``other_ok`` (>= 1 user word in the window), the JRE windows' layout for the user-text head. The windows, their

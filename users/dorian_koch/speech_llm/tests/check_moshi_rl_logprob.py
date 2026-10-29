@@ -1,6 +1,6 @@
 """Guard: base-Moshi knowledge GRPO (``rl.moshi_policy``) samples like the benchmark and scores what it sampled.
 
-Knowledge GRPO on base Moshi (rl_alignment.md "Knowledge GRPO on Moshi") records what the streaming engine fed the
+Knowledge GRPO on base Moshi records what the streaming engine fed the
 backbone and computes pi_old / pi_theta / pi_ref by ONE teacher-forced ``forward_text`` over that recording. Two
 things must hold, or the run trains on a distribution the benchmark never sees, or on a wrong importance ratio:
 through the REAL ``MoshiRolloutGenerator`` + ``run_inference.InferenceState`` on a tiny random Moshi LM (real

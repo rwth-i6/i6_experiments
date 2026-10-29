@@ -1,11 +1,11 @@
 """Guard: the live server's adaptive jitter target (``moshi_family.personaplex.jitter.JitterTarget``).
 
 The live-mic server steps the model on its own 80 ms clock from a queue whose size this controller picks
-(2026-09-24; the user's tunnel delivered mic audio with gap p95 204 ms, max 719 ms). On synthetic arrival
+(2026-09-24; a tester's tunnel delivered mic audio with gap p95 204 ms, max 719 ms). On synthetic arrival
 traces (``simulate_arrivals`` + ``random_stalls``, pure Python, no torch):
 
   1. STEADY. A real-time stream with a constant network delay keeps the target at the floor (80 ms).
-  2. P95 BURSTS. Stalls like the user's (gap p95 ~0.2 s, no long ones) settle the target between 200
+  2. P95 BURSTS. Stalls like the tester's (gap p95 ~0.2 s, no long ones) settle the target between 200
      and 450 ms after 20 s (median), i.e. ~q95 lateness + a frame.
   3. SPIKE. One 700 ms stall grows the target at once (>= 600 ms = the ceiling) and it decays back to
      the floor within 30 s, one frame per hold period (never below the floor).

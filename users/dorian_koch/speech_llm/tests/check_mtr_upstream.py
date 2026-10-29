@@ -5,11 +5,11 @@ Why (duplication audit item 8, 2026-10-12): the Conversational Features runner (
 while the benchmark's ASR (``Eval/asr_incremental_save.whisper_ts_inference``, the one its README names for CF) uses
 ``beam_size=5, best_of=5, temperature=(0.0 ... 1.0), ...``. And our Dialogue Quality judge got the joined transcript
 lines, while upstream passes ``merge_stereo_segments``' ``(lines, texts)`` tuple into the f-string, so GPT-4o reads
-the tuple's repr. Both went unnoticed because the comments said "verbatim". User 2026-10-12: "mtr: align with
-upstream ... we should use their config."
+the tuple's repr. Both went unnoticed because the comments said "verbatim". Fix (2026-10-12):
+align with upstream and use its config.
 
 Both protocols stay runnable (``mtr_duplexbench.MTR_PROTOCOL``, per-job ``code_version``): v2 = upstream's config,
-v1 = our original calls (every published CF/DQ number; the v2 re-run is HELD by the user, 2026-10-12). Reads the
+v1 = our original calls (every published CF/DQ number; the v2 re-run is HELD since 2026-10-12). Reads the
 vendored ``Eval/`` (``output/mtr/code``, the ``MTRCodeDownload`` clone) and drives our real code:
   [1] the keywords of each upstream ``whisper.transcribe`` call (``asr_incremental_save`` for CF v2/IF/Safety,
       ``gpt4o_mark_in_turn_GT_condor`` for DQ) equal what ``eval_runner._asr_channel``, ``asr_runner._asr_text`` and

@@ -1,4 +1,4 @@
-"""Guard: the pre-encoded (mimi codes) corpus path, backlog E6.
+"""Guard: the pre-encoded (mimi codes) corpus path.
 
 WHY. Storing codes instead of waveforms removes the mimi encode from the training step and makes a
 2,400-hour podcast corpus fit in ~3.5 GB. Every way of getting it wrong produces an array of the

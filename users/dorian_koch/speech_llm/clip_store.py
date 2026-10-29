@@ -154,7 +154,7 @@ def write_clips(out_path, items, *, monologues=None, traces=None) -> None:
     features = clip_features()
 
     # Staging honours $TMPDIR, which SLURM points at node-local NVMe -- so the parts never land on
-    # the volume we are writing into. See CLAUDE.md: a tool must stage OFF the volume it is filling.
+    # the volume we are writing into. A tool must stage OFF the volume it is filling.
     tmpdir = tempfile.mkdtemp(prefix="write_clips.")
     loaded = []
     try:
@@ -404,7 +404,7 @@ def merge_clip_datasets(out_path, in_paths, *, link: bool = False) -> None:
 def repack_wav_dir(path, *, dry_run=True, follow_symlinks=False):
     """Rewrite a finished ``{i}.wav`` dir as one arrow dataset, in place. Returns a stats dict.
 
-    Backlog E13(a). Sisyphus hashes a job's *inputs*, never its output content, so this is
+    Sisyphus hashes a job's *inputs*, never its output content, so this is
     hash-neutral: the job keeps its id and its ``finished`` marker, and ``open_clips`` reads the
     result identically. It is the only lever that reclaims inodes from work already done -- flipping
     ``storage`` only helps future runs.

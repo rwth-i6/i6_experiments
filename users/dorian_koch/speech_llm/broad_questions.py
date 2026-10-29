@@ -1,4 +1,4 @@
-"""Broad-spectrum knowledge-RL prompts beyond TriviaQA (user, 2026-10-03/-11; knowledge_broad_rl.md).
+"""Broad-spectrum knowledge-RL prompts beyond TriviaQA (2026-10-03/-11).
 
 Knowledge GRPO's pool is TriviaQA only (pub-quiz facts about named entities). This adds further question categories
 with permissive data licences (checked 2026-10-11):

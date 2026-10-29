@@ -156,7 +156,7 @@ def personaplex_backend_spec() -> BackendSpec:
 
     End-to-end + causal, so it runs through the **offline** driver
     (``personaplex_offline_inference.py``) for both benchmarks -- no websocket server.
-    The model download is gated on an HF token (see ``personaplex.md``); the spec itself
+    The model download is gated on an HF token; the spec itself
     builds without it. ``inference_venv`` is resolved lazily to avoid an import cycle
     with the recipe that defines ``personaplex_venv``.
     """
@@ -181,7 +181,7 @@ def gemini_backend_spec() -> BackendSpec:
 
     Runs through the shared streaming harness like Moshi/Unmute, but the websocket is
     Google's. Needs ``GEMINI_API_KEY`` (or ``GOOGLE_API_KEY``) in the job env and the
-    ``cloud_venv`` (websockets); see cloud_realtime.py / personaplex.md gating notes.
+    ``cloud_venv`` (websockets); see cloud_realtime.py.
     """
     from .cloud_realtime import GeminiLiveFileClient, gemini_live_server, gemini_ws_url
 
@@ -217,7 +217,7 @@ def moshi_family_backend_spec(
 
     Runs the offline driver ``python -m moshi_family.offline_inference`` (no external moshi
     fork). Used to validate base-Moshi fidelity through the unified library before retiring
-    ``moshi_venv`` (see ``moshi_family.md``). ``inference_venv`` is the one-venv
+    ``moshi_venv``. ``inference_venv`` is the one-venv
     ``moshi_family_venv`` (torch 2.12.1+cu126), resolved lazily to dodge an import cycle.
 
     ``lora_rank``: when evaluating a Moshi LoRA finetune (``MOSHI_LIB_ADAPTER``), pass the trained
@@ -258,8 +258,8 @@ def audex_duplex_backend_spec() -> BackendSpec:
     through the same ``offline_module`` seam as base Moshi. The ``--overlay`` is a Stage-0/finetune
     checkpoint (partial state_dict of the trained Mimi audio emb + depformer) -- there is NO LoRA. Mimi +
     sampling config come from moshiko (``--hf_repo``); the Audex-2B trunk downloads lazily. ``inference_venv``
-    is the shared ``moshi_family_venv`` (Audex loads via trust_remote_code; no dedicated venv). See
-    ``projects/2026-01-speech-llm/audexduplex.md``."""
+    is the shared ``moshi_family_venv`` (Audex loads via trust_remote_code; no dedicated venv).
+    """
 
     def _venv():
         from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
@@ -289,8 +289,8 @@ def personaplex_family_backend_spec(
 
     Runs ``python -m moshi_family.personaplex.offline_inference`` through the same ``offline_module``
     seam as base-Moshi (no external personaplex fork). Used to validate PersonaPlex fidelity
-    (21.2%/1.66 + FDB 4.42) through the unified library before retiring ``personaplex_venv`` (see
-    ``moshi_family.md``). ``inference_venv`` is the one-venv ``moshi_family_venv`` (torch 2.12.1+cu126),
+    (21.2%/1.66 + FDB 4.42) through the unified library before retiring ``personaplex_venv``.
+    ``inference_venv`` is the one-venv ``moshi_family_venv`` (torch 2.12.1+cu126),
     resolved lazily to dodge an import cycle.
     """
 
@@ -341,7 +341,7 @@ def moshirag_family_backend_spec(
     Runs ``python -m moshi_family.moshirag.offline_inference`` through the ``offline_module`` seam
     (no external moshi-rag fork). The driver co-launches the ARC reference-encoder server; the job
     brings up our vLLM ``retrieval_llm`` (2 GPUs). Fidelity confirmed (50.5%/2.715 vs fork
-    48.0%/2.645) and the moshirag fork venv is retired (see ``moshi_family.md``). ``inference_venv``
+    48.0%/2.645) and the moshirag fork venv is retired. ``inference_venv``
     is the one-venv ``moshi_family_venv`` (torch 2.12.1+cu126 + xformers), resolved lazily to dodge
     an import cycle.
     """
@@ -371,7 +371,7 @@ def moshirag_family_backend_spec(
 
 
 def kame_family_backend_spec(hf_repo: str = "SakanaAI/kame", inject_at_s: float | None = None) -> BackendSpec:
-    """KAME via the local moshi_family lib (oracle text stream; see kame_engine.py + projects/kame.md).
+    """KAME via the local moshi_family lib (oracle text stream; see kame_engine.py).
 
     Runs ``python -m moshi_family.kame_offline_inference``; single-shard B=1 (oracle is per-clip). The
     driver reads the sampled dataset (``--oracle_dataset``, threaded by the knowledge pipeline) for the
@@ -399,7 +399,7 @@ def kame_family_backend_spec(hf_repo: str = "SakanaAI/kame", inject_at_s: float 
 def flm_audio_backend_spec(hf_repo: str = "CofeAI/FLM-Audio") -> BackendSpec:
     """FLM-Audio (arXiv 2509.02521): a native full-duplex ~7B speech chatbot with its own FLM
     backbone over the Mimi codec, vendored at ``speech_llm.full_duplex.flmaudio`` for *inference
-    only* (see ``flm_audio.md``).
+    only*.
 
     Runs ``python -m flmaudio.offline_inference`` through the ``offline_module`` seam -- a B=1
     synchronous step loop (Mimi.encode -> LMGen.step -> Mimi.decode), like base Moshi. It is a

@@ -1,6 +1,6 @@
 """Guard: the in-loop knowledge probe split across DDP ranks scores exactly what one rank would.
 
-Backlog G3. Under DDP each rank generates on its own replica for its stride of the probe set, the
+Under DDP each rank generates on its own replica for its stride of the probe set, the
 parts are gathered and merged, rank 0 writes. Three things make that safe and each is asserted
 against the real code:
 

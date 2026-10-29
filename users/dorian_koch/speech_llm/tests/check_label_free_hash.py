@@ -1,5 +1,4 @@
-"""Guard: run names never reach a NEW job's hash (user, 2026-10-13: "we should make sure the run name never makes its
-way into any hash"), and no job that existed then moved.
+"""Guard: run names never reach a NEW job's hash (2026-10-13), and no job that existed then moved.
 
 Mechanism (``label_free_hash.py``): the ten label-carrying job classes hash their label-free view unless their old,
 label-keyed hash is one of the jobs on disk on 2026-10-13 (``label_hash_legacy.py``).
