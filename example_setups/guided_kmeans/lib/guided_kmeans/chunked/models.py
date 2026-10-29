@@ -476,6 +476,17 @@ class MixtureModelBase(ArtifactModel):
     def scores(self, features: np.ndarray) -> np.ndarray:
         return self.scores_from_gaussian(self.scores_gaussian(features))
 
+    def scores_with_gaussian(self, features: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        ``(scores [T, L], scores_gaussian [T, C])``: :meth:`scores` together with
+        the density costs it marginalized, for a caller that hands the latter to
+        :meth:`responsibilities` once the sequence's label posteriors are back
+        (``run_chunk``). At full covariances the Mahalanobis pass is nearly all
+        of the parent process's work, and this way it runs once per sequence.
+        """
+        scores_gaussian = self.scores_gaussian(features)
+        return self.scores_from_gaussian(scores_gaussian), scores_gaussian
+
     def _check_posteriors(self, features: np.ndarray, label_gammas: np.ndarray) -> np.ndarray:
         label_gammas = np.asarray(label_gammas, dtype=np.float64)
         if label_gammas.ndim != 2 or label_gammas.shape[1] != self.num_labels:

@@ -51,13 +51,13 @@ class GaussianModelNumpy:
         """
         x = torch.as_tensor(X, dtype=torch.float32, device=self.device)
 
-        # 1. Compute differences: (M, N, D)
-        diff = x[:, None, :] - self.means[None, :, :]
+        # 1. Compute differences directly as (N, D, M), aligned with covs (N, D, D).
+        # Everything below stays in this layout: the elementwise product in 3.
+        # is memory-bound at full covariances (N*D*M elements), and reading y
+        # through a permuted view made it the larger half of this function.
+        diff_T = x.T[None, :, :] - self.means[:, :, None]
 
         # 2. Solve the linear system: cov^{-1} * diff
-        # Permute diff to (N, D, M) to align with covs (N, D, D)
-        diff_T = diff.permute(1, 2, 0)
-
         # Equivalent to solving cov @ y = diff_T for y, but using the
         # precomputed inverse turns this into a single batched matmul
         # instead of re-factorizing `covs` on every call.
@@ -66,11 +66,9 @@ class GaussianModelNumpy:
         else:
             y = diff_T
 
-        # Permute y back to match diff: (M, N, D)
-        y_aligned = y.permute(2, 0, 1)
-
         # 3. Compute Mahalanobis distance squared: diff^T * cov^{-1} * diff
-        mahal = (diff * y_aligned).sum(dim=-1)  # Shape: (M, N)
+        # contiguous: the result goes to librasr as a raw row-major buffer.
+        mahal = (diff_T * y).sum(dim=1).T.contiguous()  # Shape: (M, N)
 
         # 4. Compute the normalization constant
         # Use slogdet for numerical stability instead of det

@@ -987,6 +987,10 @@ class MixtureGaussianAccumulator:
         finalize leaves the step it took in ``step_statistics``.
     """
 
+    # observe() takes the density costs the sequence was scored with
+    # (``scores_gaussian``), so run_chunk can skip a second Mahalanobis pass.
+    takes_scores_gaussian = True
+
     def __init__(
         self,
         num_clusters: int,
@@ -1112,7 +1116,17 @@ class MixtureGaussianAccumulator:
                 f"{type(model).__name__} has {model.mixtures.shape}"
             )
 
-    def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
+    def observe(
+        self,
+        features: np.ndarray,
+        posteriors: Posteriors,
+        *,
+        scores_gaussian: Optional[np.ndarray] = None,
+    ) -> None:
+        """
+        :param scores_gaussian: the bound model's ``scores_gaussian(features)``,
+            if the caller already computed it; recomputed if not
+        """
         if self.model is None:
             raise RuntimeError(
                 "bind_model() must be called before observe(): the E-step splitting "
@@ -1135,7 +1149,11 @@ class MixtureGaussianAccumulator:
         if len(gammas) != T:
             raise ValueError(f"frame count mismatch: {T} features vs {len(gammas)} gammas")
 
-        density_gammas, joint_counts = self.model.responsibilities(features, gammas)
+        # Only when given: LabelCovarianceMixtureModel names its precomputed
+        # costs differently, and run_chunk only hands them to models that have
+        # scores_with_gaussian.
+        precomputed = {} if scores_gaussian is None else {"scores_gaussian": scores_gaussian}
+        density_gammas, joint_counts = self.model.responsibilities(features, gammas, **precomputed)
         if self.update_densities:
             self.gaussian_accumulator.observe(features, density_gammas)
         self.weighted_c += joint_counts

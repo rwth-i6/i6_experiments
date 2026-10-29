@@ -46,9 +46,15 @@ class PhoneticLexiconFromPhonemeListJob(Job):
     # phonemes_before_special only reorders lemmata for the forward-backward lexicon; at its
     # default the produced lexicon is byte-identical to the pre-FB one, so keep it out of the
     # hash and let every existing (non-FB) lexicon job stay on its old hash.
-    __sis_hash_exclude__ = {"phonemes_before_special": False}
+    # silence_special likewise: only a lexicon that does not mark silence as blank gets a new hash.
+    __sis_hash_exclude__ = {"phonemes_before_special": False, "silence_special": "blank"}
 
-    def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False, phonemes_before_special=False):
+    def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False, phonemes_before_special=False, silence_special="blank"):
+        """
+        :param silence_special: the ``special`` attribute of the silence lemma. ``"blank"`` (the
+            default) makes the searches treat silence as their blank label; ``None`` makes it an
+            ordinary label, which the HMM-state searches then give every HMM state as well.
+        """
         self.add_unknown = add_unknown
         self.add_unknown_phoneme = add_unknown_phoneme
         self.add_noise = add_noise
@@ -56,6 +62,7 @@ class PhoneticLexiconFromPhonemeListJob(Job):
         self.silence_orth = silence_orth
         self.add_empty_silence = add_empty_silence
         self.phonemes_before_special = phonemes_before_special
+        self.silence_special = silence_special
 
         self.out_bliss_lexicon = self.output_path("phoneme.lex.xml.gz", cached=True)
 
@@ -95,7 +102,7 @@ class PhoneticLexiconFromPhonemeListJob(Job):
                 orth=[self.silence_orth, ""],
                 phon=["[SILENCE]"],
                 synt=["<SIL>"],
-                special="blank",
+                special=self.silence_special,
                 eval=[[]],
             )
         )
@@ -185,18 +192,23 @@ def create_lexicon(use_eow_phonemes: bool = False, add_unknown_phoneme: bool = T
     tk.register_output(output_name, lexicon_job.out_bliss_lexicon)
     return lexicon_job.out_bliss_lexicon
 
-def create_fb_lexicon(use_eow_phonemes: bool = False) -> tk.Path:
+def create_fb_lexicon(use_eow_phonemes: bool = False, silence_as_label: bool = False) -> tk.Path:
     # Lexicon for forward-backward search: phoneme lemmas immediately after silence
-    # so their lemma IDs (1..N) match the score matrix column indices
+    # so their lemma IDs (1..N) match the score matrix column indices.
+    # silence_as_label: silence is not marked as blank, so the search treats it as an
+    # ordinary label (with num_hmm_states > 1: with all its states, like a phoneme).
     phoneme_list = PipelineJob(phonetic_vocabulary_path, ["cut -f1 -d ' '", "grep -vE \"'|<SIL>\""], mini_task=True).out
     if use_eow_phonemes:
         phoneme_list = AddEOWPhonemesToVocabListJob(phoneme_list).out_phoneme_list
     lexicon_job = PhoneticLexiconFromPhonemeListJob(
-        phoneme_list, add_unknown_phoneme=False, phonemes_before_special=True
+        phoneme_list, add_unknown_phoneme=False, phonemes_before_special=True,
+        silence_special=None if silence_as_label else "blank",
     )
     output_name = "lexicon/fb_phoneme.lex.xml.gz"
     if use_eow_phonemes:
         output_name = "lexicon/fb_eow_phoneme.lex.xml.gz"
+    if silence_as_label:
+        output_name = output_name.replace(".lex.xml.gz", ".silence-as-label.lex.xml.gz")
     tk.register_output(output_name, lexicon_job.out_bliss_lexicon)
     return lexicon_job.out_bliss_lexicon
 
@@ -291,17 +303,24 @@ def create_recog_rasr_config(
     apply_sentence_end_score=False,
     num_hmm_states=1,
     tie_hmm_states=True,
+    silence_as_label=False,
 ):
     """:param num_hmm_states: left-to-right HMM states per phoneme, each looping with
         ``loop_probability``. Linear and forward-backward search; needs
         ``tools.RASR_PATH_HMM_STATES`` (decoding) or
         ``tools.RASR_PATH_FORWARD_BACKWARD_HMM_STATES`` (training) as the RASR path.
     :param tie_hmm_states: False for a model with one score column per state
-        (``label * num_hmm_states + state``) instead of one per label."""
+        (``label * num_hmm_states + state``) instead of one per label.
+    :param silence_as_label: forward-backward search only. Silence is not the search's blank
+        but an ordinary label, with its loop probability, the label transition scores and
+        (with ``num_hmm_states``) all states, as the ``backoff_fb`` op models it.
+        ``silence_loop_probability`` then has no effect."""
     if apply_sentence_end_score and not use_forward_backward_search:
         raise ValueError("apply_sentence_end_score is a forward-backward search option")
     if (num_hmm_states != 1 or not tie_hmm_states) and use_tree_search:
         raise ValueError("num_hmm_states/tie_hmm_states are not implemented in the tree search")
+    if silence_as_label and not use_forward_backward_search:
+        raise ValueError("silence_as_label is a forward-backward search option")
     if loop_log_odds is not None:
         if transition_scale is not None:
             raise ValueError(
@@ -364,7 +383,7 @@ def create_recog_rasr_config(
         )
     elif use_forward_backward_search:
         recog_config = get_forward_backward_recog_config(
-            lexicon_file=create_fb_lexicon(use_eow_phonemes),
+            lexicon_file=create_fb_lexicon(use_eow_phonemes, silence_as_label=silence_as_label),
             collapse_repeated_labels=True,
             label_scorer_config=get_label_scorer_config(
                 emission_scale=emission_scale,
@@ -377,7 +396,7 @@ def create_recog_rasr_config(
             # the cheating-segment LM is only wired up for the linear/tree
             # searches, so forward-backward always uses the n-gram LM
             lm_config=get_lm_config(lm_path, lm_scale),
-            blank_index=0,
+            blank_index=None if silence_as_label else 0,
             max_beam_size=max_beam_size,
             score_threshold=score_threshold,
             log_statistics=False,

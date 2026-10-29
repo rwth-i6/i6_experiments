@@ -152,7 +152,13 @@ def run_chunk(
             f"{type(recognizer).__name__} does not report transition counts, which "
             f"the topology accumulator needs; only BackoffFBRecognizer("
             f"transition_counts=True) does")
-    pending: Dict[str, Tuple[np.ndarray, Optional[np.ndarray]]] = {}
+    pending: Dict[str, Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]] = {}
+    # A mixture model's E-step needs the per-density costs its label scores
+    # were marginalized from. Parked with the features rather than recomputed
+    # in observe(): at full covariances that Mahalanobis pass is nearly all of
+    # this process's work. Bounded by the same in-flight limit as ``pending``.
+    reuse_gaussian = (getattr(accumulator, "takes_scores_gaussian", False)
+                      and hasattr(model, "scores_with_gaussian"))
     hypotheses: Optional[Dict[str, str]] = {} if transcribe is not None else None
     stats = {"recognized": 0, "frames": 0}
     progress = {"total": 0, "started": 0.0, "last": 0.0}
@@ -172,7 +178,7 @@ def run_chunk(
     def on_result(result: RecognitionResult) -> None:
         seq_tag, posteriors, traceback = result.seq_tag, result.posteriors, result.traceback
         try:
-            seq_features, seq_scores = pending.pop(seq_tag)
+            seq_features, seq_scores, seq_gaussian = pending.pop(seq_tag)
         except KeyError:
             raise KeyError(
                 f"recognition result for unknown sequence {seq_tag!r}"
@@ -182,7 +188,10 @@ def run_chunk(
                 f"{seq_tag}: recognizer returned {len(posteriors)} labels for "
                 f"{len(seq_features)} frames"
             )
-        accumulator.observe(seq_features, posteriors)
+        if seq_gaussian is not None:
+            accumulator.observe(seq_features, posteriors, scores_gaussian=seq_gaussian)
+        else:
+            accumulator.observe(seq_features, posteriors)
         if topology_accumulator is not None:
             if result.transition_counts is None:
                 raise ValueError(f"{seq_tag}: the recognizer reported no transition counts")
@@ -235,11 +244,14 @@ def run_chunk(
         for seq_tag, seq_features in features:
             if seq_tag in pending:
                 raise ValueError(f"duplicate sequence tag in chunk: {seq_tag!r}")
-            seq_scores = model.scores(seq_features)
+            if reuse_gaussian:
+                seq_scores, seq_gaussian = model.scores_with_gaussian(seq_features)
+            else:
+                seq_scores, seq_gaussian = model.scores(seq_features), None
             # Park before submitting, not after: submit() may deliver a result
             # synchronously (SerialRasrRecognizer) or drain an older task to
             # stay under its in-flight limit, and on_result reads this dict.
-            pending[seq_tag] = (seq_features, seq_scores if probe is not None else None)
+            pending[seq_tag] = (seq_features, seq_scores if probe is not None else None, seq_gaussian)
             stats["frames"] += len(seq_features)
             num_seqs += 1
             if verbosity >= 2:
