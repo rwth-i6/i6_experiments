@@ -19,8 +19,8 @@ replaced by free ones. The first two data stages are constructed identically to
 ``knowledge_benchmark_py`` so they hit the SAME Sisyphus hash and reuse its cache (no recompute).
 
 Modularity:
-  * ``normalize_answer`` / ``alias_match``  -- pure functions, importable & unit-tested; could later
-    drive an in-training-loop probe without any Sisyphus.
+  * ``normalize_answer`` / ``alias_match``  -- ``speech_llm.full_duplex.text_scoring`` (one copy; the in-training
+    probe ``moshi_family.knowledge_probe`` imports the same file).
   * ``AliasMatchGrading``                   -- a drop-in, GPU-free replacement for ``LLMGrading``
     (identical eval_results.jsonl / summary.json schema, so every downstream printer/ResultNotify
     works unchanged).
@@ -36,8 +36,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
-import string
 
 from sisyphus import Job, Task, tk
 
@@ -56,6 +54,9 @@ from .knowledge_benchmark import (
     MOSHI_BACKEND,
 )
 from .knowledge_benchmark import GRADER_SCHEMA_VERSIONS, _grader_block, bench_out_prefix, echo_gold_legacy
+from speech_llm.full_duplex.text_scoring import ALIAS_MATCH_VERSION, alias_match, summarize_scores
+
+assert GRADER_SCHEMA_VERSIONS["alias_match"] == ALIAS_MATCH_VERSION, "the alias grader's version is text_scoring's"
 from .result_notify import notify_result
 from .tts import InstallFFmpeg
 from .speech_inference import SAVE_EVERY as _SAVE_EVERY
@@ -73,91 +74,10 @@ QUICK_SEED = 1234
 # Scoring (pure, importable, unit-tested)
 # ---------------------------------------------------------------------------
 
-_ARTICLES = re.compile(r"\b(a|an|the)\b")
-_PUNCT = str.maketrans("", "", string.punctuation)
-
-
-def normalize_answer(s: str) -> str:
-    """SQuAD-style normalization: lowercase, drop punctuation + articles, collapse whitespace.
-    A space is kept at both ends so substring tests respect word boundaries."""
-    s = s.lower().translate(_PUNCT)
-    s = _ARTICLES.sub(" ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return f" {s} "
-
-
-def _keeps_inner_article(cand: str) -> bool:
-    """True if the candidate has an article-like word after its first word ("Vitamin A", "Plan A"):
-    stripping it would shrink the gold to a bare prefix that any "Vitamin C" reply contains."""
-    words = cand.lower().translate(_PUNCT).split()
-    return any(_ARTICLES.fullmatch(w) for w in words[1:])
-
-
-def _normalize_keep_articles(s: str) -> str:
-    """Like ``normalize_answer`` but keeps every article except a leading one."""
-    s = re.sub(r"^(a|an|the)\s+", "", s.lower().translate(_PUNCT).strip())
-    s = re.sub(r"\s+", " ", s).strip()
-    return f" {s} "
-
-
-def alias_match(prediction: str, answer: str, aliases) -> tuple[int, int]:
-    """Return ``(binary_correct, quality_score)`` by normalized alias *containment*.
-
-    A prediction is correct if any of {answer} + aliases appears as a whole-word substring of the
-    (verbose) prediction -- the model typically says "It's New York City. In 2020..." so exact
-    match is too strict; substring on the article/punctuation-normalized strings is the right test.
-
-    quality: 5 if the prediction is essentially just the answer, 3 if the answer is embedded in a
-    longer reply, 1 if absent. This mirrors ``LLMGrading``'s 1-5 axis coarsely so summaries stay
-    comparable in shape (not in exact value).
-    """
-    if isinstance(aliases, str):
-        try:
-            aliases = json.loads(aliases)
-        except Exception:
-            aliases = [aliases]
-    aliases = aliases or []
-    pred_n = normalize_answer(prediction)
-    if pred_n.strip() == "":
-        return 0, 1
-    candidates = [answer, *aliases]
-    for cand in candidates:
-        if not cand:
-            continue
-        if _keeps_inner_article(cand):
-            cand_n, hay = _normalize_keep_articles(cand), _normalize_keep_articles(prediction)
-        else:
-            cand_n, hay = normalize_answer(cand), pred_n
-        core = cand_n.strip()
-        if core and cand_n in hay:
-            # essentially-just-the-answer if the reply is short and dominated by the match
-            quality = 5 if len(pred_n.strip()) <= len(core) + 6 else 3
-            return 1, quality
-    return 0, 1
-
 
 def summarize(eval_results: list[dict], grader: str = "alias_match") -> dict:
-    """Aggregate eval rows into the same {category: {n, accuracy, avg_quality}, overall: {...}}
-    schema ``LLMGrading`` emits, so downstream consumers are agnostic to which grader ran."""
-    cats: dict[str, list] = {}
-    for er in eval_results:
-        cats.setdefault(er.get("category", "unknown"), []).append(er)
-    summary: dict = {}
-    for cat, items in cats.items():
-        summary[cat] = {
-            "n": len(items),
-            "accuracy": sum(i["binary_correct"] for i in items) / len(items),
-            "avg_quality": sum(i["quality_score"] for i in items) / len(items),
-        }
-    n = len(eval_results)
-    summary["overall"] = {
-        "n": n,
-        "accuracy": sum(i["binary_correct"] for i in eval_results) / n if n else 0.0,
-        "avg_quality": sum(i["quality_score"] for i in eval_results) / n if n else 0.0,
-    }
-    # Stamped with the SAME helper LLMGrading uses, so the two graders cannot drift apart in how
-    # they identify themselves. This schema is deliberately identical to the judge's in every other
-    # respect -- which is exactly why the identity has to be a field and not a filename convention.
+    """``text_scoring.summarize_scores`` (the schema ``LLMGrading`` emits) stamped with the grader's identity."""
+    summary = summarize_scores(eval_results)
     summary["grader"] = _grader_block(grader)
     return summary
 

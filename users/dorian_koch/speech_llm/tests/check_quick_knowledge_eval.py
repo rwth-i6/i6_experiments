@@ -20,9 +20,9 @@ sys.path.insert(0, "recipe/sisyphus")
 
 from i6_experiments.users.dorian_koch.speech_llm.quick_knowledge_eval import (  # noqa: E402
     alias_match,
-    normalize_answer,
     summarize,
 )
+from speech_llm.full_duplex.text_scoring import normalize_answer  # noqa: E402
 
 # --- 1. scorer semantics ------------------------------------------------------------------------
 # Verbose reply that CONTAINS the answer -> correct (the common case; exact-match would miss it).
@@ -99,36 +99,17 @@ if os.path.exists(p):
 else:
     print("[skip] real-data smoke (no a7_mix transcriptions on disk)")
 
-# --- 4. the in-training-loop scorer copy is byte-identical -------------------------------------
-# moshi_family.knowledge_probe carries its OWN copy of the scorer (it runs in the job venv where
-# sisyphus/i6_experiments are not importable). It MUST agree with this one exactly, or the in-loop
-# probe would report a different number than the quick eval / full benchmark. Assert over a battery.
+# --- 4. one scorer: the in-training-loop probe grades with the same functions -------------------
+# moshi_family.knowledge_probe runs in the job venv (no sisyphus / i6_experiments); both it and this
+# module import text_scoring, so the in-loop probe and the quick eval cannot report different rules.
 sys.path.insert(0, "recipe/speech_llm/full_duplex")
+import text_scoring  # noqa: E402
 from moshi_family import knowledge_probe as kp  # noqa: E402
 
-_battery = [
-    ("It's New York City. In 2020 it had a population of ...", "New York", ["New York City"]),
-    ("the ANSWER is Molybdenum!", "molybdenum", []),
-    ("that is the black sea, yeah", "The Black Sea", []),
-    ("That was William Henry Harrison.", "Benjamin Britten", ["Britten"]),
-    ("", "Poland", ["Republic of Poland"]),
-    ("   ", "Poland", []),
-    ("I think it's gazpacho, served cold", "GAZPACHO", json.dumps(["gazpacho soup"])),
-    ("Conclave.", "Conclave", []),
-    ("The name of the assembly of cardinals that elects a pope is the Conclave.", "Conclave", []),
-    ("no idea, maybe France or Germany", "Spain", ["Kingdom of Spain"]),
-    ("The Nile, definitely the Nile river", "nile", []),
-    ("I think it's vitamin C.", "Vitamin A", []),
-    ("Plan A was used", "Plan A", []),
-]
-for pred, ans, al in _battery:
-    assert kp.normalize_answer(pred) == normalize_answer(pred), pred
-    assert kp.alias_match(pred, ans, al) == alias_match(pred, ans, al), (pred, ans, al)
-# also cross-check on the real-data rows if present (broadest coverage)
-if os.path.exists(p):
-    for r in data:
-        a = r.get("transcription", "")
-        assert kp.alias_match(a, r["answer"], r.get("aliases", [])) == alias_match(a, r["answer"], r.get("aliases", []))
-print("[ok] moshi_family.knowledge_probe scorer is identical to quick_knowledge_eval's")
+# two import names (job venv: text_scoring; manager: speech_llm.full_duplex.text_scoring) = one file
+_src = {os.path.realpath(f.__code__.co_filename) for f in (kp.alias_match, text_scoring.alias_match, alias_match,
+                                                           kp.normalize_answer, normalize_answer)}  # fmt: skip
+assert _src == {os.path.realpath(text_scoring.__file__)}, _src
+print("[ok] knowledge_probe and quick_knowledge_eval grade with text_scoring's alias_match")
 
 print("\nALL CHECKS PASSED")

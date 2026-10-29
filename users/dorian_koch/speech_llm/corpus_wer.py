@@ -36,6 +36,8 @@ import re
 
 from sisyphus import Job, Task, tk
 
+from speech_llm.full_duplex.text_scoring import norm_words
+
 #: Role whose speech the annotate stage transcribes, and whose turns are therefore the reference.
 #: `MoshiAnnotate.process_row` annotates `stereo[0]` == the assistant channel; the user channel is
 #: stored but never transcribed. Comparing against user turns would be measuring nothing.
@@ -60,21 +62,12 @@ def normalize_for_wer(text: str) -> list[str]:
     return _WS.sub(" ", _PUNCT.sub(" ", (text or "").lower())).strip().split()
 
 
-_WHISPER_NORM: list = []
-
-
 def whisper_normalize_words(text: str) -> list[str]:
-    """Whisper's EnglishTextNormalizer (openai/whisper-large-v3-turbo's normalizer.json, as ``moshi_family.text_norm``):
-    numbers as digits, US spelling, contractions expanded -> word list. The second WER column: it removes the
-    orthography floor described in the module docstring, at the price of also absorbing a TTS error that only changes
-    a number's spelling. Needs ``transformers`` (the setup .venv, where this mini task runs)."""
-    if not _WHISPER_NORM:
-        from huggingface_hub import hf_hub_download
-        from transformers.models.whisper.english_normalizer import EnglishTextNormalizer
-
-        with open(hf_hub_download("openai/whisper-large-v3-turbo", "normalizer.json")) as f:
-            _WHISPER_NORM.append(EnglishTextNormalizer(json.load(f)))
-    return _WHISPER_NORM[0](text or "").split()
+    """Whisper's EnglishTextNormalizer (``text_scoring.norm_words``): numbers as digits, US spelling, contractions
+    expanded -> word list. The second WER column: it removes the orthography floor described in the module docstring,
+    at the price of also absorbing a TTS error that only changes a number's spelling. Needs ``transformers`` (the
+    setup .venv, where this mini task runs)."""
+    return norm_words(text)
 
 
 def iter_structs(value) -> list[dict]:
