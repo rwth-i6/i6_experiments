@@ -162,4 +162,74 @@ print(
 assert rl_moved_bug < 0.05 and rl_err_bug > 0.9, "the RL bf16 bug did not reproduce -- [3] cannot fail"
 assert rl_moved_fix > 0.5 and rl_err_fix < 0.3, "RLTrainerConfig.fp32_master_weights did not recover the fp32 update"
 assert all(d == torch.float32 for d in rl_moments.values()), rl_moments
+
+# ---- [4] resume is exact: the masters and fp32 moments ride in the trainer state ----------------------
+from moshi_family.train_loop import restore_trainer_state, save_trainer_state  # noqa: E402
+
+N, M = 200, 200
+
+
+def resume_run(drop_masters: bool):
+    """Uninterrupted N+M steps (saving at N) vs a fresh model resumed from the step-N files; -> (equal, max diff)."""
+    torch.manual_seed(0)
+    x, y = torch.randn(32, 256), torch.randn(32, 64)
+    init = torch.nn.init.normal_(torch.empty(64, 256), std=1e-2).to(torch.bfloat16)
+
+    def make():
+        layer = torch.nn.Linear(256, 64, bias=False).to(torch.bfloat16)
+        with torch.no_grad():
+            layer.weight.copy_(init)
+        return layer, torch.optim.AdamW([layer.weight], lr=LR, betas=(0.9, 0.95), weight_decay=0.0)
+
+    def go(layer, opt, start, save_fn):
+        def batches():
+            while True:
+                yield x.to(torch.bfloat16), y.to(torch.bfloat16)
+
+        run_training(
+            optimizer=opt,
+            base_lrs=[LR],
+            trainable_params=[layer.weight],
+            batch_iter=batches(),
+            loss_step=lambda b: ((layer(b[0]).float() - b[1].float()) ** 2).mean(),
+            save_fn=save_fn,
+            cfg=TrainConfig(
+                max_steps=N + M, grad_accum=1, warmup_steps=0, save_every=N, log_every=10**9, fp32_master_weights=True
+            ),
+            out_dir=tempfile.mkdtemp(prefix="check_fp32_master_"),
+            log=lambda m: None,
+            start_step=start,
+        )
+
+    d = Path(tempfile.mkdtemp(prefix="check_fp32_resume_"))
+    saved = {}
+    layer, opt = make()
+
+    def save_at_n(step, final):
+        if step == N and not final:
+            save_trainer_state(d, step=step, optimizer=opt)
+            saved["w"] = layer.weight.detach().clone()
+
+    go(layer, opt, 0, save_at_n)
+    straight = layer.weight.detach().float()
+    if drop_masters:
+        st = torch.load(d / "trainer_state.pt", weights_only=False)
+        st["fp32_masters"] = None
+        torch.save(st, d / "trainer_state.pt")
+    layer2, opt2 = make()
+    with torch.no_grad():
+        layer2.weight.copy_(saved["w"])
+    restore_trainer_state(d / "trainer_state.pt", optimizer=opt2, expect_step=N)
+    go(layer2, opt2, N, lambda step, final: None)
+    resumed = layer2.weight.detach().float()
+    return torch.equal(straight, resumed), float((straight - resumed).abs().max())
+
+
+same, diff = resume_run(drop_masters=False)
+bad_same, bad_diff = resume_run(drop_masters=True)
+print(
+    f"[4] resume at step {N} of {N + M}: bit-identical {same} (max diff {diff:.2e}); without the saved masters {bad_same} ({bad_diff:.2e})"
+)
+assert same, "a resumed fp32-master run diverges from the uninterrupted one"
+assert not bad_same, "CAN FAIL: rebuilding the masters from bf16 must show the divergence, or [4] cannot fail"
 print("OK")

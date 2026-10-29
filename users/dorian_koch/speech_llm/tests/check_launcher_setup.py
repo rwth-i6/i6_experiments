@@ -255,8 +255,8 @@ MUTATIONS = [
     ),
     (
         "personaplex/finetune_launcher.py",
-        "            out = model(codes)\n",
-        "            out = core.forward_train(codes)\n",
+        "            out = model(codes, **fw)\n",
+        "            out = core.forward_train(codes, **fw)\n",
         "bug 3: PersonaPlex loss_step calls the unwrapped core",
         "calls .forward_train()",
     ),

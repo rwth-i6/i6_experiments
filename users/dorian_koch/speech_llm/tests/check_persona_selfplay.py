@@ -124,7 +124,7 @@ def model_inputs_train(prefix: np.ndarray) -> np.ndarray:
     """``forward_train``'s transformer input [17, P + D] for prefix + dialogue."""
     lm, rec = copy.deepcopy(base_lm), []
     orig = lm.embed_codes
-    lm.embed_codes = lambda seq: (rec.append(seq.detach().clone()), orig(seq))[1]
+    lm.embed_codes = lambda seq, *a: (rec.append(seq.detach().clone()), orig(seq, *a))[1]
     codes = torch.as_tensor(np.concatenate([prefix, dialogue], axis=1))[None]
     with torch.no_grad():
         lm.forward_train(codes)
@@ -135,7 +135,7 @@ def model_inputs_infer() -> np.ndarray:
     """``LMGen``'s transformer inputs, one per model call: the real prime, then the dialogue forced."""
     lm, rec = copy.deepcopy(base_lm), []
     orig = lm.embed_codes
-    lm.embed_codes = lambda seq: (rec.append(seq.detach().clone()), orig(seq))[1]
+    lm.embed_codes = lambda seq, *a: (rec.append(seq.detach().clone()), orig(seq, *a))[1]
     g = LMGen(lm, device="cpu", use_sampling=False, audio_silence_frame_cnt=SIL, sample_rate=24000, frame_rate=12.5)
     g.streaming_forever(1)
     with contextlib.redirect_stdout(open(os.devnull, "w")):

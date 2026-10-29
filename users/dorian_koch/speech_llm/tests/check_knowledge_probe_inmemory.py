@@ -242,6 +242,9 @@ def check_probe_scores_positionally_against_its_own_entries():
     )
     sig = inspect.signature(knowledge_probe.run_knowledge_probe)
     assert "out_dir" not in sig.parameters, sig
+    # a looping model runs into the capture window: the probe records truncated_fraction instead of raising and
+    # losing its metrics (the run_pairs ceiling is for benchmark jobs)
+    assert "max_truncated_frac=1.0" in src, "run_knowledge_probe must not inherit run_pairs' truncation ceiling"
     print("PASS  run_knowledge_probe takes no out_dir and asserts its positional join")
 
 

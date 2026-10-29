@@ -305,8 +305,9 @@ def main():
                 and getattr(c.func, "attr", getattr(c.func, "id", "")) == "DistributedDataParallel"
             ):
                 for k in c.keywords:
-                    if k.arg == "static_graph" and isinstance(k.value, ast.Constant) and k.value.value is True:
-                        found.append(f"{name}:{c.lineno}: DistributedDataParallel(static_graph=True)")
+                    # anything but a literal False: a config-driven value defaulted to True for old-epoch arms
+                    if k.arg == "static_graph" and not (isinstance(k.value, ast.Constant) and k.value.value is False):
+                        found.append(f"{name}:{c.lineno}: DistributedDataParallel(static_graph={ast.unparse(k.value)})")
         # Any .forward*() METHOD call inside loss_step (forward_train included): the bug-3 shape.
         for fn in ast.walk(tree):
             if isinstance(fn, ast.FunctionDef) and fn.name == "loss_step":
@@ -332,18 +333,19 @@ def main():
     print(f"[ok] no direct .forward   {len(launchers)} launcher(s) (moshi_family/**) invoke modules via __call__")
     ppx = FULL_DUPLEX / "moshi_family/personaplex/finetune_launcher.py"
     src = ppx.read_text()
-    assert "            out = model(codes)\n" in src, "mutation anchor moved: update the source can-fail check"
-    mutated = offenders_in(
-        "personaplex",
-        src.replace("            out = model(codes)\n", "            out = core.forward_train(codes)\n", 1),
-    )
+    anchor = "            out = model(codes, **fw)\n"
+    assert anchor in src, "mutation anchor moved: update the source can-fail check"
+    mutated = offenders_in("personaplex", src.replace(anchor, "            out = core.forward_train(codes, **fw)\n", 1))
     assert mutated, "the source half does not flag loss_step calling core.forward_train -- it cannot catch bug 3"
     print(f"[ok] source can fail      core.forward_train in loss_step is flagged ({mutated[0].split(': ', 1)[1]})")
     moshi_src = (FULL_DUPLEX / "moshi_family/moshi_finetune_launcher.py").read_text()
-    assert "static_graph=ddp_static_graph" in moshi_src, "mutation anchor moved: update the static_graph can-fail check"
-    mutated = offenders_in("moshi", moshi_src.replace("static_graph=ddp_static_graph", "static_graph=True", 1))
-    assert mutated, "the source half does not flag a literal static_graph=True"
-    print(f"[ok] source can fail      a literal static_graph=True is flagged ({mutated[0].split(': ', 1)[1]})")
+    anchor = "static_graph=False)"
+    assert moshi_src.count(anchor) == 1, "mutation anchor moved: update the static_graph can-fail check"
+    mutated = offenders_in("moshi", moshi_src.replace(anchor, "static_graph=ddp_static_graph)", 1))
+    assert mutated, "the source half does not flag a non-literal static_graph"
+    print(
+        f"[ok] source can fail      a static_graph other than a literal False is flagged ({mutated[0].split(': ', 1)[1]})"
+    )
 
     print("\nmulti-GPU runs synchronise gradients -- an N-GPU arm is one model, not N replicas")
 

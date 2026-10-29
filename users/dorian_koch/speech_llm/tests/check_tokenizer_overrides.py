@@ -26,7 +26,6 @@ Run from the setup root, no GPU needed:
 import ast
 import os
 import re
-import sys
 
 PKG = os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex", "moshi_family")
 
@@ -141,3 +140,58 @@ assert not problems, "unreachable tokenizer methods -- these look like customisa
 )
 
 print(f"\nall {len(subclasses)} tokenizer subclasses have reachable overrides")
+
+
+# ---- 2. an override accepts every argument its base hook is called with --------------------------------------------
+# AudexTextMoshiTokenizer.interleave_text took (alignments, num_frames) while MoshiTokenizer.build_codes passes four
+# keywords: every Stage-1 row raised TypeError inside the loader and was skipped until the skip limit killed the run.
+def signatures(path_rel):
+    """{class: {method: (parameter names, takes **kwargs)}} of one module."""
+    path = os.path.join(PKG, path_rel)
+    out = {}
+    for node in ast.walk(ast.parse(open(path).read(), filename=path)):
+        if isinstance(node, ast.ClassDef):
+            out[node.name] = {}
+            for m in node.body:
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    a = m.args
+                    names = {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+                    out[node.name][m.name] = (names, a.kwarg is not None)
+    return out
+
+
+def signature_problems(sigs: dict) -> list:
+    probs = []
+    for name in subclasses:
+        for method, (names, kw) in sigs.get(name, {}).items():
+            if method.startswith("__") or kw:
+                continue
+            for anc in [b for b in _ancestors_in_order(name)]:
+                if method in sigs.get(anc, {}):
+                    missing = sigs[anc][method][0] - names
+                    if missing:
+                        probs.append(f"{name}.{method} lacks {sorted(missing)} of {anc}.{method}")
+                    break
+    return probs
+
+
+def _ancestors_in_order(name, _seen=None):
+    _seen = _seen or set()
+    out = []
+    for b in classes.get(name, ([], {}, None))[0]:
+        if b in classes and b not in _seen:
+            _seen.add(b)
+            out += [b] + _ancestors_in_order(b, _seen)
+    return out
+
+
+sigs = {}
+for rel in SOURCES:
+    sigs.update(signatures(rel))
+sig_probs = signature_problems(sigs)
+assert not sig_probs, "tokenizer overrides that cannot take their base hook's arguments:\n  " + "\n  ".join(sig_probs)
+# CAN FAIL: the pre-fix Audex signature is flagged
+broken = {k: dict(v) for k, v in sigs.items()}
+broken["AudexTextMoshiTokenizer"]["interleave_text"] = ({"self", "alignments", "num_frames"}, False)
+assert signature_problems(broken), "the signature check cannot fail"
+print("[ok] every tokenizer override takes its base hook's arguments (can fail: the 2-argument Audex hook is flagged)")
