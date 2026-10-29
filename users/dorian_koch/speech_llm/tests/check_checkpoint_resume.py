@@ -70,9 +70,10 @@ print(f"[ok] save_trained_params writes only what the predicate selects  ({sorte
 
 try:
     save_trained_params(tmp / "empty.safetensors", model, predicate=lambda n: False)
-    raise AssertionError("a predicate matching nothing must not write an empty checkpoint")
 except AssertionError as e:
     assert "empty checkpoint" in str(e), e
+else:
+    raise SystemExit("FAIL: a predicate matching nothing wrote an empty checkpoint")
 print("[ok] a predicate matching nothing fails loudly, not silently")
 
 # --- take real optimizer steps so the moments are non-trivial ------------------------------------

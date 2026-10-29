@@ -21,25 +21,17 @@ Run: CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/spe
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_dir())
 sys.path.insert(0, str(SETUP / "recipe"))
 sys.path.insert(0, str(SETUP / "recipe/speech_llm/full_duplex"))
 os.environ.setdefault("CUDA_HOME", "/usr")
 
-import torch  # noqa: E402
-
 from moshi_family.train_data_common import (  # noqa: E402
-    AUDIO_OFFSET,
-    TEXT_EPAD_ID,
-    TEXT_PADDING_ID,
-    TEXT_ROW,
     duplex_ce_loss,
 )
 
-B, T, DEP_Q, CARD, TEXT_CARD = 2, 37, 8, 2048, 32000
-AUDIO_OTHER, TEXT_PAD = 0.02, 0.3
+from _loss_fixture import AUDIO_OTHER, B, CARD, DEP_Q, T, TEXT_CARD, TEXT_PAD, loss_fixture  # noqa: E402, F401
 
 FAILURES: list[str] = []
 
@@ -51,29 +43,7 @@ def check(cond, msg, detail=""):
 
 
 def fixture(seed=0):
-    g = torch.Generator().manual_seed(seed)
-    codes = torch.zeros(B, 1 + 16, T, dtype=torch.long)
-    kind = torch.rand(B, T, generator=g)
-    codes[:, TEXT_ROW] = torch.where(
-        kind < 0.60,
-        torch.full((B, T), TEXT_PADDING_ID),
-        torch.where(
-            kind < 0.68,
-            torch.full((B, T), TEXT_EPAD_ID),
-            torch.randint(4, TEXT_CARD, (B, T), generator=g),
-        ),
-    )
-    codes[:, AUDIO_OFFSET:] = torch.randint(0, CARD, (B, 16, T), generator=g)
-    out = SimpleNamespace(
-        text_logits=torch.randn(B, 1, T, TEXT_CARD, generator=g),
-        text_mask=torch.rand(B, 1, T, generator=g) > 0.1,
-        logits=torch.randn(B, DEP_Q, T, CARD, generator=g),
-        mask=torch.rand(B, DEP_Q, T, generator=g) > 0.1,
-    )
-    out.logits[~out.mask] = float("nan")
-    loss_mask = torch.ones(B, T, dtype=torch.bool)
-    loss_mask[0, :3] = False
-    return codes, out, loss_mask
+    return loss_fixture(seed)
 
 
 def run(w):

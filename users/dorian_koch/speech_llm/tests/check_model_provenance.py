@@ -1,14 +1,16 @@
 """Guard: every benchmark tag used in the recipe must have a provenance entry."""
 
-import re, sys
+import glob, re, sys
 
 sys.path.insert(0, "recipe")
 sys.path.insert(0, "recipe/sisyphus")
 from i6_experiments.users.dorian_koch.speech_llm.fdb import FDB_MODEL_ORIGIN, _origin_map
 
-# _origin_map is fed FDB eval-log labels, i.e. the tags passed to fdb_benchmark_py.
-src = open("recipe/speech_llm/full_duplex/sis_recipe/doriank/synthetic_train_data.py").read()
+# _origin_map is fed FDB eval-log labels, i.e. the tags passed to fdb_benchmark_py. Since the stage split the calls
+# live across the stage modules, so scan all of them; f-string tags are invisible here and surface only at plot time.
+src = "\n".join(open(f).read() for f in sorted(glob.glob("recipe/speech_llm/full_duplex/sis_recipe/doriank/*.py")))
 fdb_tags = set(re.findall(r'fdb_benchmark_py\((?:[^()]|\([^()]*\))*?tag="([^"]+)"', src))
+assert len(fdb_tags) >= 10, f"the scan found only {sorted(fdb_tags)}: it no longer sees the recipe's FDB calls"
 missing = sorted(fdb_tags - set(FDB_MODEL_ORIGIN))
 print("fdb tags in recipe:", sorted(fdb_tags))
 assert not missing, f"unmapped FDB tags: {missing}"

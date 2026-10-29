@@ -172,6 +172,39 @@ def check_failure_stops_the_others(tmp):
     print("PASS  a failing worker fails the job and the other workers are stopped, not awaited")
 
 
+def check_offline_driver_fanout_fails_fast(tmp):
+    """SpeechInference's per-GPU offline drivers go through the same runner: worker 0 failing stops worker 1."""
+    script = Path(tmp, "worker_fail2.py")
+    script.write_text(WORKER)
+    cwd = Path(tmp, "jobd")
+    cwd.mkdir()
+    here = os.getcwd()
+    env = dict(os.environ)
+    workers = [
+        ([sys.executable, str(script), "--fail"], {**env, "CUDA_VISIBLE_DEVICES": "0"}),
+        ([sys.executable, str(script), "--slow"], {**env, "CUDA_VISIBLE_DEVICES": "1"}),
+    ]
+    t0 = time.monotonic()
+    try:
+        os.chdir(cwd)
+        try:
+            common.run_cmds_per_gpu(workers, log_label="driver", worker_cwd=False, poll_s=0.5)
+        except RuntimeError as e:
+            assert "worker 0/2" in str(e), e
+        else:
+            raise SystemExit("FAIL: a failing offline driver did not fail the job")
+        assert (cwd / "gpu1" / "worker.log").exists(), "per-worker logs are missing"
+    finally:
+        os.chdir(here)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 10, f"the second driver was awaited after the first failed ({elapsed:.0f}s)"
+    src = (K / "speech_inference.py").read_text()
+    assert src.count("run_cmds_per_gpu(workers") == 2 and "ThreadPoolExecutor" not in src, (
+        "SpeechInference's two fan-outs (knowledge clips, FDB) must use run_cmds_per_gpu"
+    )
+    print("PASS  the offline-driver fan-out stops the other drivers on the first failure")
+
+
 def check_contiguous_slice_matches_datasets():
     from datasets import Dataset
 
@@ -388,6 +421,7 @@ if __name__ == "__main__":
         check_fan_out_runs_one_pinned_worker_per_gpu(tmp)
         check_single_gpu_path_is_the_old_call(tmp)
         check_failure_stops_the_others(tmp)
+        check_offline_driver_fanout_fails_fast(tmp)
         check_contiguous_slice_matches_datasets()
         check_nested_shard_partitions_the_outer_shard()
         check_jsonl_merge_restores_clip_order(tmp)

@@ -26,7 +26,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 
 from .clip_store import is_clip_dataset, materialise_clips, open_clips, write_clips
-from .common import nested_shard, visible_gpus
+from .common import nested_shard, run_cmds_per_gpu, visible_gpus
 from .file_tree_store import is_tree_dataset, pack_tree
 
 from .inference_harness import (
@@ -633,14 +633,11 @@ class SpeechInference(BackendInferenceMixin, Job):
                 shard, num_shards, _env = plan[0]
                 self._offline(shard=shard, num_shards=num_shards, **common)
             else:
-                from concurrent.futures import ThreadPoolExecutor
-
-                def one(spec):
-                    shard, num_shards, env = spec
-                    self._offline(shard=shard, num_shards=num_shards, extra_env=env, **common)
-
-                with ThreadPoolExecutor(max_workers=len(plan)) as ex:
-                    list(ex.map(one, plan))
+                workers = []
+                for shard, num_shards, env in plan:
+                    self._offline(shard=shard, num_shards=num_shards, extra_env=env, collect=workers, **common)
+                # cwd stays the job dir: the drivers' paths and progress are job-relative
+                run_cmds_per_gpu(workers, log_label="offline driver", worker_cwd=False)
             self._pack_clips(out_dir, final_dir)
             return
         wav_files = sorted(in_path.glob("*.wav"))
@@ -746,23 +743,19 @@ class SpeechInference(BackendInferenceMixin, Job):
                 # Per-GPU fan-out (backlog G1): the clip pairs are strided over the visible GPUs,
                 # one manifest each, every driver pinned to its card. Output paths are per clip, so
                 # the workers never touch the same file; the ASR scoring below runs once over all.
-                from concurrent.futures import ThreadPoolExecutor
-
                 n = len(gpus)
-                manifests = [
-                    write_pair_manifest(items[k::n], copy_sidecars=True, name=f"offline_manifest.gpu{k}.json")
-                    for k in range(n)
-                ]
-
-                def one(k):
+                workers = []
+                for k in range(n):
+                    manifest = write_pair_manifest(
+                        items[k::n], copy_sidecars=True, name=f"offline_manifest.gpu{k}.json"
+                    )
                     self._offline(
                         python_exe=self._python_exe(),
-                        manifest=manifests[k],
+                        manifest=manifest,
                         extra_env={"CUDA_VISIBLE_DEVICES": gpus[k]},
+                        collect=workers,
                     )
-
-                with ThreadPoolExecutor(max_workers=n) as ex:
-                    list(ex.map(one, range(n)))
+                run_cmds_per_gpu(workers, log_label="offline FDB driver", worker_cwd=False)
         else:
             self._stream(
                 items,

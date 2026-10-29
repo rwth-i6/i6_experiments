@@ -51,9 +51,10 @@ after touching `finetune.py` or adding an adapter, and `check_common_helpers.py`
 > `silence_length_sampler` and `strip_dialogue_markdown_fence` out of the enclosing function bodies.
 > Both migrated guards were verified to fail when the production code is broken.
 
-The RL suite lives separately and needs the moshi_family venv (5 tests):
+The RL suite lives separately in `recipe/speech_llm/full_duplex/moshi_family/rl/tests/` (`test_*.py` and `check_*.py`,
+each runnable as a script; shared fakes in `fakes.py`) and needs the moshi_family venv, which has no pytest:
 
 ```bash
-PYTHONPATH=recipe/speech_llm/full_duplex output/venv/moshi_family/bin/python \
-  -m pytest recipe/speech_llm/full_duplex/moshi_family/rl/tests/
+./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && export PYTHONPATH=$PWD/recipe/speech_llm/full_duplex \
+  && for f in recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_*.py; do python $f || echo "FAIL $f"; done'
 ```

@@ -264,6 +264,22 @@ finally:
 assert kind == "spun", f"guard is vacuous: the old unlimited skip did not spin ({kind})"
 print(f"[ok] guard can fail                the old unlimited skip spins ({got} rows, never raises)")
 
+# The base-Moshi / Audex mixed loader has its own epoch loop; it must skip through the same budget (it used to count
+# only consecutive failures, so a partly broken corpus in a mix trained on silently with a log line per bad row).
+import ast  # noqa: E402
+
+_mtd = os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex", "moshi_family", "moshi_train_data.py")
+_fn = next(
+    n
+    for n in ast.walk(ast.parse(open(_mtd).read()))
+    if isinstance(n, ast.FunctionDef) and n.name == "build_mixed_data_loader"
+)
+_calls = {ast.unparse(n.func) for n in ast.walk(_fn) if isinstance(n, ast.Call)}
+assert {"RowSkipBudget", "skips.failed", "skips.ok"} <= _calls, sorted(c for c in _calls if "kip" in c)
+_handlers = [h for h in ast.walk(_fn) if isinstance(h, ast.ExceptHandler)]
+assert any("skips.failed" in ast.unparse(h) for h in _handlers), "the per-row except no longer goes through the budget"
+print("[ok] moshi_train_data mixed loader  skips through RowSkipBudget")
+
 print("\nthe shared row loader shards disjointly, reproduces its order, and survives bad rows")
 print("a systematic row failure stops the run with the last exception instead of spinning")
 print("prefetch overlaps batch building without changing a single batch")

@@ -26,8 +26,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import random
-import signal
 import socket
 import subprocess
 import threading
@@ -40,6 +38,7 @@ import numpy as np
 # Unmute streams the *same* 24 kHz mono audio in 80 ms Opus frames as Moshi
 # (kyutai_constants.py: SAMPLE_RATE=24000, SAMPLES_PER_FRAME=1920), so we reuse
 # Moshi's framing/encoding helpers verbatim.
+from .common import _terminate_process_group, managed_subprocess_server, pick_free_port
 from .moshi_client import (
     FRAME_SAMPLES,
     SAMPLE_RATE,
@@ -79,24 +78,11 @@ def unmute_ws_url(addr: str) -> str:
     return f"ws://{addr}/v1/realtime"
 
 
-def _free_port(base: int) -> int:
-    """Pick a free localhost TCP port near ``base`` (job-id-seeded, like moshi_server)."""
-    if "SLURM_JOB_ID" in os.environ:
-        port = base + (int(os.environ["SLURM_JOB_ID"]) % 1000)
-    else:
-        port = base + random.randint(0, 999)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        for _ in range(200):
-            try:
-                s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                port += 1
-    return port
-
-
 def _wait_port(port: int, proc: subprocess.Popen, name: str, max_wait: float = 15 * 60):
-    """Block until ``port`` accepts connections, or raise if ``proc`` dies first."""
+    """Block until ``port`` accepts connections, or raise if ``proc`` dies first.
+
+    Only for the Rust moshi-server workers, whose ready line is not known; vLLM and the backend are uvicorn apps and
+    start through ``common.managed_subprocess_server``, which also waits for "Application startup complete"."""
     start = time.time()
     while time.time() - start < max_wait:
         if proc.poll() is not None:
@@ -120,26 +106,6 @@ def _pipe_output(proc: subprocess.Popen, name: str):
                     print(f"[{name}] {line.rstrip()}", flush=True)
 
     threading.Thread(target=reader, daemon=True).start()
-
-
-def _terminate(proc: subprocess.Popen | None):
-    if proc is None or proc.poll() is not None:
-        return
-    try:
-        if hasattr(os, "killpg"):
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        else:
-            proc.terminate()
-        proc.wait(timeout=10)
-    except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
-        try:
-            if hasattr(os, "killpg"):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            else:
-                proc.kill()
-            proc.wait(timeout=10)
-        except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
-            pass
 
 
 def _moshi_worker(config: str, port: int, env: dict) -> subprocess.Popen:
@@ -216,19 +182,19 @@ def unmute_servers(
     # host C++ compiler and picks the absent `icx` inside the SIF; eager mode avoids it.
     worker_env = {**base_env, "HF_HUB_OFFLINE": "1", "NO_TORCH_COMPILE": "1"}
 
-    stt_port = _free_port(8080)
-    tts_port = _free_port(8180)
-    llm_port = _free_port(18998)
-    backend_port = _free_port(28998)
+    stt_port = pick_free_port(8080)
+    tts_port = pick_free_port(8180)
+    llm_port = pick_free_port(18998)
+    backend_port = pick_free_port(28998)
 
     with ExitStack() as stack:
         # 1. STT + TTS Rust workers (from the SIF), each on its own port, using the
         #    configs baked into the SIF (port overridden on the CLI).
         stt = _moshi_worker(SIF_STT_CONFIG, stt_port, worker_env)
-        stack.callback(_terminate, stt)
+        stack.callback(_terminate_process_group, stt, "moshi-server STT")
         _pipe_output(stt, "stt")
         tts = _moshi_worker(SIF_TTS_CONFIG, tts_port, worker_env)
-        stack.callback(_terminate, tts)
+        stack.callback(_terminate_process_group, tts, "moshi-server TTS")
         _pipe_output(tts, "tts")
 
         # 2. vLLM serving the text LLM (OpenAI-compatible) on llm_port.
@@ -251,22 +217,18 @@ def unmute_servers(
             "--gpu-memory-utilization",
             "0.55",
         ]
-        print(f"Starting vLLM: {' '.join(llm_cmd)}")
-        llm_proc = subprocess.Popen(
-            llm_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
-            env=base_env,
+        # the Rust workers keep loading while vLLM starts
+        stack.enter_context(
+            managed_subprocess_server(
+                llm_cmd,
+                port=llm_port,
+                ready_substrings=("Uvicorn running on", "Application startup complete"),
+                log_prefix="vLLM",
+                env=base_env,
+            )
         )
-        stack.callback(_terminate, llm_proc)
-        _pipe_output(llm_proc, "llm")
-
         _wait_port(stt_port, stt, "moshi-server STT")
         _wait_port(tts_port, tts, "moshi-server TTS")
-        _wait_port(llm_port, llm_proc, "vLLM")
 
         # 3. Unmute FastAPI backend, wired to the three services by env.
         backend_env = {
@@ -287,21 +249,17 @@ def unmute_servers(
             str(backend_port),
             "--ws-per-message-deflate=false",
         ]
-        print(f"Starting Unmute backend: {' '.join(backend_cmd)}")
-        backend = subprocess.Popen(
-            backend_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
-            env=backend_env,
-            # Run from the unmute repo so the backend finds its relative resources.
-            cwd=backend_cwd or UNMUTE_REPO,
+        stack.enter_context(
+            managed_subprocess_server(
+                backend_cmd,
+                port=backend_port,
+                ready_substrings=("Uvicorn running on", "Application startup complete"),
+                log_prefix="Unmute backend",
+                env=backend_env,
+                # Run from the unmute repo so the backend finds its relative resources.
+                cwd=backend_cwd or UNMUTE_REPO,
+            )
         )
-        stack.callback(_terminate, backend)
-        _pipe_output(backend, "backend")
-        _wait_port(backend_port, backend, "Unmute backend")
 
         print("Unmute cascade ready")
         yield f"127.0.0.1:{backend_port}"

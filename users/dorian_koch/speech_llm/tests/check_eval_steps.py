@@ -83,8 +83,7 @@ def check_the_real_bug_is_caught():
     assert "FINAL checkpoint" in msg, msg
     assert "3750" in msg, "the message must name the step that is missing"
     # ...and the corrected track is accepted (validation passes; we stop before job construction).
-    steps = (1000, 2000, 3000, 3750)
-    assert 3750 in steps
+    _validation_passes(run_tag="moshi_ft_a8_4gpu", max_steps=3750, steps=(1000, 2000, 3000, 3750))
     print("PASS  the real a8-4gpu bug (track stops at 3000, run ends at 3750) is rejected")
 
 
@@ -206,36 +205,49 @@ def check_probe_batch_rule_skips_probe_free_runs():
     first cut of this rule and would have orphaned seven queued arms. Caught by hash_snapshot; this
     keeps it caught.
     """
+    import sisyphus.job
+    from sisyphus import tk
     from speech_llm.full_duplex.sis_recipe.doriank.runs import (
         POLICY_2026_09_15,
         POLICY_LATEST,
         PROBE_BATCH_SIZE,
-        RULE_PROBE_BATCH,
+        RULE_NO_GRAD_ACCUM,
         _policy_applies,
+        train,
     )
-    from speech_llm.full_duplex.sis_recipe.doriank.train_config import Probe
+    from speech_llm.full_duplex.sis_recipe.doriank.train_config import MOSHI_LIB, Corpus, Probe
+
+    corpus = Corpus(mix=tk.Path("/dev/null/corpus", hash_overwrite="eval_steps_guard_corpus"), duration_sec=60)
+    probe_set = tk.Path("/dev/null/probe", hash_overwrite="eval_steps_guard_probe")
 
     def fires(policy, probe):
-        return bool(
-            _policy_applies(policy, RULE_PROBE_BATCH)
-            and probe is not None
-            and getattr(probe, "data", None) is not None
-            and (getattr(probe, "every", None) or 0) > 0
-            and getattr(probe, "batch_size", None) is None
+        """Build the run through the REAL ``train()`` and read whether it got the probe batch size."""
+        sisyphus.job.created_jobs.clear()
+        extra = {"grad_accum": 1, "per_gpu_batch": 16} if _policy_applies(policy, RULE_NO_GRAD_ACCUM) else None
+        run = train(
+            "eval_steps_probe_guard",
+            model=MOSHI_LIB,
+            corpus=corpus,
+            policy=policy,
+            steps=100,
+            probe=probe,
+            extra_hparams=extra,
+            evals=False,
+            register=False,
         )
+        return run.job.hparams.get("knowledge_probe_batch_size") == PROBE_BATCH_SIZE
 
-    sentinel = object()
-    assert fires(POLICY_LATEST, Probe(data=sentinel, every=50)), (
+    assert fires(POLICY_LATEST, Probe(data=probe_set, every=50)), (
         "a new probing arm must get the batched probe -- otherwise the rule is inert"
     )
-    assert not fires(POLICY_LATEST, Probe(data=sentinel, every=0)), (
+    assert not fires(POLICY_LATEST, Probe(data=probe_set, every=0)), (
         "probe-free arm (every=0) must NOT get knowledge_probe_batch_size -- it re-hashes a run "
         "to configure something it never executes"
     )
-    assert not fires(POLICY_2026_09_15, Probe(data=sentinel, every=50)), (
+    assert not fires(POLICY_2026_09_15, Probe(data=probe_set, every=50)), (
         "the rule reached backwards into an older epoch"
     )
-    assert not fires(POLICY_LATEST, Probe(data=sentinel, every=50, batch_size=4)), (
+    assert not fires(POLICY_LATEST, Probe(data=probe_set, every=50, batch_size=4)), (
         "an arm that states its own probe batch size must win over the default"
     )
     assert PROBE_BATCH_SIZE > 4, "the point of the rule is a LARGER batch than the old default of 4"

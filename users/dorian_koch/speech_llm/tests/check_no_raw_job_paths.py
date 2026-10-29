@@ -35,7 +35,15 @@ from sisyphus import tk  # noqa: E402
 from sisyphus.job_path import AbstractPath  # noqa: E402
 from sisyphus.loader import config_manager  # noqa: E402
 
-JOB_DIR = re.compile(r"(?:^|/)work/(?:.+?/)?([A-Za-z0-9_]+\.[A-Za-z0-9_-]{12})(?:/|$)")
+#: any id length: ``hash_overwrite`` ids (``CreateVenv.moshi_family_venv_v1``) are not 12 characters
+JOB_DIR = re.compile(r"(?:^|/)work/(?:.+?/)?([A-Z][A-Za-z0-9_]*\.[A-Za-z0-9_-]+)(?:/|$)")
+for _s, _want in (
+    ("/x/work/i6_experiments/users/a/CreateVenv.moshi_family_venv_v1/output/venv", "CreateVenv.moshi_family_venv_v1"),
+    ("/x/work/a/b/RLFinetune.FESvleKrAwPk/output/checkpoints", "RLFinetune.FESvleKrAwPk"),
+    ("/x/work/notes.txt", None),
+):
+    _m = JOB_DIR.search(_s)
+    assert (_m.group(1) if _m else None) == _want, (_s, _m and _m.group(1))
 #: target job (Class.hash) -> where the raw path is built. Convert these; never add to this list.
 KNOWN = {
     "CreateVenv.vllm_venv_v030": "common.py _VLLM_VENV_JOB (deliberate: hash_overwrite-fixed id, documented)",

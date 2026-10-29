@@ -212,8 +212,10 @@ def run_offline_driver(
     seed: int | None = None,
     extra_args: Sequence[str] = (),
     extra_env: dict | None = None,
+    collect: list | None = None,
 ) -> None:
-    """Build + run an offline inference driver as a subprocess. Supports both the
+    """Build + run an offline inference driver as a subprocess (with ``collect``: append ``(argv, env)`` to it
+    instead of running, for :func:`common.run_cmds_per_gpu`). Supports both the
     knowledge dir-mode (``--in_dir/--out_dir/--batch_size/--shard``) and the FDB
     manifest-mode (``--manifest``); the caller passes whichever set its driver wants.
     argparse is order-independent, so the two callers share one builder. ``extra_env``
@@ -271,6 +273,9 @@ def run_offline_driver(
     env = worker_env(offline=module in HF_OFFLINE_DRIVERS, pythonpath=pythonpath or None)
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items()})
+    if collect is not None:
+        collect.append((cmd, env))
+        return
     print("[offline]", " ".join(cmd), flush=True)
     subprocess.run(cmd, env=env, check=True)
 
@@ -359,12 +364,13 @@ class BackendInferenceMixin:
             opts=opts,
         )
 
-    def _offline(self, *, python_exe, **driver_kwargs) -> None:
+    def _offline(self, *, python_exe, collect: list | None = None, **driver_kwargs) -> None:
         """Run the backend's offline driver (optionally behind a RAG retrieval LLM).
 
         ``driver_kwargs`` are forwarded to ``run_offline_driver`` (dir-mode for the
         knowledge benchmark, manifest-mode for FDB); LoRA paths and the backend's
-        extra args are spliced in here so both callers stay one line."""
+        extra args are spliced in here so both callers stay one line. With ``collect`` the
+        driver's ``(argv, env)`` is appended to it instead (the per-GPU fan-out runs them all)."""
         module = getattr(self, "offline_module", None)
         script_path = None if module else Path(__file__).resolve().parent.parent / self.offline_script
         pythonpath = _moshi_family_pythonpath() if module else None
@@ -394,7 +400,12 @@ class BackendInferenceMixin:
                 seed=seed,
                 extra_args=tuple(self.offline_extra_args) + driver_args + tuple(extra_args),
                 extra_env={**pinned_env, **(extra_env or {})} or None,
+                collect=collect,
                 **driver_kwargs,
             )
 
+        if collect is not None:
+            assert not getattr(self, "retrieval_llm", None), "a retrieval-backed driver is never fanned out"
+            _drive(())
+            return
         run_with_optional_retrieval(self, _drive)

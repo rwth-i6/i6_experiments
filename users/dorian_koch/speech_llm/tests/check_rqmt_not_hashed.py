@@ -219,18 +219,26 @@ def check_source_pins_the_fix():
     check('d.pop("compute", None)' in src, "SpeechFinetune.hash() still drops `compute` from the hashed args")
 
     init = inspect.getsource(SpeechFinetune.__init__)
-    for key, legacy in (("gpu", "gpu"), ("rqmt_time_h", "rqmt_time_h")):
-        line = next((ln for ln in init.splitlines() if "self.compute.get(" in ln and key in ln), "")
-        check(f'self.compute.get("{key}"' in line, f"rqmt reads {key} from the hash-excluded `compute` channel")
-        check(
-            f'self.hparams.get("{legacy}"' in line, f"...and still falls back to hparams[{legacy!r}] for pre-epoch runs"
-        )
+    for msg in source_findings(init):
+        check(False, msg)
+    if not source_findings(init):
+        check(True, "rqmt reads gpu/rqmt_time_h from `compute` and falls back to hparams for pre-epoch runs")
 
-    # Non-vacuous: the assertions above must be capable of failing on a plausible regression.
+    # Non-vacuous: the same finder must flag a plausible regression.
     tidied = init.replace('self.compute.get("gpu", self.hparams.get("gpu", 1))', 'self.hparams.get("gpu", 1)')
-    check(
-        'self.compute.get("gpu"' not in tidied, "the source check can fail (a tidied-away `compute` read is detectable)"
-    )
+    check(tidied != init and bool(source_findings(tidied)), "the source check can fail (a tidied-away `compute` read)")
+
+
+def source_findings(init):
+    """What is wrong with SpeechFinetune.__init__'s rqmt lines: an empty list when both keys read `compute` first."""
+    out = []
+    for key in ("gpu", "rqmt_time_h"):
+        line = next((ln for ln in init.splitlines() if f'self.compute.get("{key}"' in ln), "")
+        if not line:
+            out.append(f"rqmt no longer reads {key} from the hash-excluded `compute` channel")
+        elif f'self.hparams.get("{key}"' not in line:
+            out.append(f"rqmt no longer falls back to hparams[{key!r}] for pre-epoch runs")
+    return out
 
 
 def main():

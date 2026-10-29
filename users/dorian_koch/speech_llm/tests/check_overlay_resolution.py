@@ -136,11 +136,12 @@ def check_attach_evals_passes_the_runs_kind():
     """
     src = (SETUP / "recipe/speech_llm/full_duplex/sis_recipe/doriank/runs.py").read_text()
     body = src.split("def attach_evals(")[1].split("\ndef ")[0]
-    assert "moshi_overlay_kind=run.overlay_kind" in body, (
-        "attach_evals must pass the run's own overlay_kind to attach_knowledge_evals, not rely on "
-        "resolve_lora's default"
+    assert "**run.knowledge_kwargs()" in body, "attach_evals must take the checkpoint half from run.knowledge_kwargs()"
+    kk = src.split("def knowledge_kwargs(")[1].split("\n    def ")[0].split("\n    @property")[0]
+    assert "moshi_overlay_kind=self.overlay_kind" in kk, (
+        "knowledge_kwargs must pass the run's own overlay_kind, not rely on resolve_lora's default"
     )
-    assert 'lora_rank=None if run.overlay_kind == "full"' in body, (
+    assert 'lora_rank=None if self.overlay_kind == "full"' in kk, (
         "the backend-spec half must stay too -- both are needed and they are read by different jobs"
     )
 
@@ -158,7 +159,36 @@ def check_attach_evals_passes_the_runs_kind():
     print("PASS  attach_evals passes the run's overlay_kind, and the LoRA default is preserved")
 
 
+def check_graph_resolvers_match_their_runs():
+    """Every resolver in the graph resolves the layout its run writes (a benchmark copy that drops
+    ``moshi_overlay_kind`` builds a LoRA resolver on a full finetune)."""
+    import logging
+
+    logging.disable(logging.WARNING)
+    from sisyphus import tk
+    from sisyphus.loader import config_manager
+
+    os.chdir(SETUP)
+    config_manager.load_configs(["recipe/speech_llm/full_duplex/sis_recipe/doriank/synthetic_train_data.py"])
+    n, bad = 0, []
+    for j in tk.sis_graph.jobs():
+        if not isinstance(j, ResolveOverlayCheckpoint):
+            continue
+        run = getattr(j.run_dir, "creator", None)
+        kind = getattr(getattr(run, "adapter", None), "overlay_kind", None)
+        # the lora/full mix-up only: Audex and PersonaPlex resolvers have their own layouts by design
+        if kind not in ("lora", "full") or j.overlay_kind not in ("lora", "full"):
+            continue
+        n += 1
+        if kind != j.overlay_kind:
+            bad.append(f"{j._sis_id()}: resolves {j.overlay_kind!r}, its run writes {kind!r}")
+    assert n > 10, f"only {n} resolvers with a known run layout: the graph scan is not seeing them"
+    assert not bad, "\n".join(bad)
+    print(f"PASS  all {n} graph resolvers match their run's overlay_kind")
+
+
 if __name__ == "__main__":
+    check_graph_resolvers_match_their_runs()
     check_wrong_kind_is_refused_not_dangled()
     check_right_kind_still_resolves()
     check_attach_evals_passes_the_runs_kind()

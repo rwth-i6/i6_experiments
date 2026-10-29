@@ -139,4 +139,25 @@ print(
     f"[6] CAN FAIL: the pre-2026-10-12 single multi-frame streaming encode differs on {n_bad}/{ref.shape[1]} frames "
     f"(codebook-0 1263 on {(old_tail[0] == 1263).float().mean():.0%})"
 )
+
+# [7] every encode_pair call states its mode: the chunked encode must never be reached by omission
+import ast  # noqa: E402
+import inspect  # noqa: E402
+
+assert inspect.signature(encode_pair).parameters["mode"].default is inspect.Parameter.empty, "mode has a default again"
+_root = os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex", "moshi_family")
+_bare = []
+for _d, _, _fs in os.walk(_root):
+    for _f in _fs:
+        if _f.endswith(".py") and "/models" not in _d:
+            _p = os.path.join(_d, _f)
+            for _n in ast.walk(ast.parse(open(_p).read())):
+                if (
+                    isinstance(_n, ast.Call)
+                    and getattr(_n.func, "id", getattr(_n.func, "attr", None)) == "encode_pair"
+                    and not any(k.arg == "mode" for k in _n.keywords)
+                ):
+                    _bare.append(f"{os.path.relpath(_p, _root)}:{_n.lineno}")
+assert not _bare, f"encode_pair called without mode=: {_bare}"
+print("[7] encode_pair has no default mode and every call site passes one")
 print("OK")

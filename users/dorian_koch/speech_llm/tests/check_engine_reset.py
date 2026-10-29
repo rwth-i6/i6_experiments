@@ -27,7 +27,9 @@ STT LM hook and the pending-streaming-sum clear, one at a time.
 
 Tiny random LMs, float64, greedy, CPU. Mimi is a stateless stub codec (codes are a pure function of
 the frame's samples; decoding writes the audio codes into the PCM), so a difference can only come
-from engine/LM state, and the ARC encoder call is a deterministic stub of the network request.
+from engine/LM state, and the ARC encoder call is a deterministic stub of the network request. The
+codec reset itself is checked once on base Moshi with a stateful stub ([codec]): real Mimi carries
+state across calls, and a dropped ``mimi.reset_streaming()`` is invisible to the stateless stub.
 
 moshi_family venv, CPU, ~1 min (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \\
@@ -122,6 +124,31 @@ class StubMimi:
         return out
 
 
+class StatefulStubMimi(StubMimi):
+    """Like real Mimi, carries state across encode calls (its conv padding / KV cache); only a reset clears it.
+
+    The stateless stub cannot tell whether an engine resets the CODEC between clips, so the engines' codec resets
+    are checked with this one ([codec] in check_moshi)."""
+
+    def __init__(self, num_codebooks=8):
+        super().__init__(num_codebooks)
+        self._calls = 0
+
+    def reset_streaming(self, reset_mask=None):
+        self._calls = 0
+
+    def encode(self, pcm):
+        self._calls += 1
+        return (super().encode(pcm) + 7 * self._calls) % 2048
+
+
+class NoResetStatefulStubMimi(StatefulStubMimi):
+    """The mutant: an engine that never resets its codec."""
+
+    def reset_streaming(self, reset_mask=None):
+        pass
+
+
 class StubTok:
     def __init__(self, n=100):
         self.n = n
@@ -191,19 +218,19 @@ class NoHookLMGen(LMGen):
         return state
 
 
-def moshi_family_model(lm, lm_gen_cls, batch_size=2):
+def moshi_family_model(lm, lm_gen_cls, batch_size=2, mimi_cls=StubMimi):
     """Exactly MoshiModel/AudexModel minus the checkpoint load: `.state` is the real InferenceState."""
     m = types.SimpleNamespace(batch_size=batch_size, sample_rate=SR, device="cpu")
-    m.state = _inference_state(lm, lm_gen_cls, batch_size)
+    m.state = _inference_state(lm, lm_gen_cls, batch_size, mimi_cls)
     # The token printer binds the real stdout/stderr at import time, so redirecting cannot mute it.
     m.state.printer = RawPrinter(io.StringIO(), io.StringIO())
     return m
 
 
-def _inference_state(lm, lm_gen_cls, batch_size):
+def _inference_state(lm, lm_gen_cls, batch_size, mimi_cls=StubMimi):
     return InferenceState(
         types.SimpleNamespace(model_type="moshi"),
-        StubMimi(),
+        mimi_cls(),
         StubTok(lm.text_card),
         copy.deepcopy(lm),
         batch_size,
@@ -250,6 +277,14 @@ def check_moshi():
     check(len({r[0] for r in reused}) == len(reused), "the six clips' monologues all differ (outputs are not constant)")
     bad, _, _ = reused_equals_fresh(lambda: moshi_family_model(MOSHI_LM, NoHookLMGen), moshi_outputs, ins, 2)
     check(not bad, "CAN FAIL: without the LM reset hook batches 2-3 differ from fresh")
+    ok, _, _ = reused_equals_fresh(
+        lambda: moshi_family_model(MOSHI_LM, LMGen, mimi_cls=StatefulStubMimi), moshi_outputs, ins, 2
+    )
+    check(ok, "[codec] with a stateful codec, batches 2-3 == fresh (run_pairs resets mimi per batch)")
+    bad, _, _ = reused_equals_fresh(
+        lambda: moshi_family_model(MOSHI_LM, LMGen, mimi_cls=NoResetStatefulStubMimi), moshi_outputs, ins, 2
+    )
+    check(not bad, "[codec] CAN FAIL: without the codec reset batches 2-3 differ from fresh")
 
 
 def check_moshi_trim():

@@ -628,15 +628,34 @@ def run_worker_script_per_gpu(
         env_hook(base_env)
 
     print(f"[fan-out] {log_label}: {n} workers over GPUs {gpus[:n]}", flush=True)
-    procs = []
+    workers = []
     for k in range(n):
         env = dict(base_env)
         env["CUDA_VISIBLE_DEVICES"] = gpus[k]
-        cwd = os.path.join(os.getcwd(), f"gpu{k}")
-        os.makedirs(cwd, exist_ok=True)
-        cmd = [str(python_exe), str(script_path), *[str(a) for a in args_for_shard(k, n)]]
-        print(f"[fan-out] worker {k}/{n} on GPU {gpus[k]}: {' '.join(cmd)}", flush=True)
-        log = open(os.path.join(cwd, "worker.log"), "w")
+        workers.append(([str(python_exe), str(script_path), *[str(a) for a in args_for_shard(k, n)]], env))
+    run_cmds_per_gpu(workers, log_label=log_label)
+    return n
+
+
+def run_cmds_per_gpu(workers, *, log_label: str, worker_cwd: bool = True, poll_s: float = 5.0) -> None:
+    """Run ``[(argv, env), ...]`` concurrently (each env already pinned to its card) and wait for all.
+
+    Worker ``k`` logs to ``gpu<k>/worker.log`` (tail echoed, prefixed, to the job log) and, with ``worker_cwd``, also
+    runs in ``gpu<k>/`` so cwd-relative scratch cannot collide. The first worker to fail terminates the others and
+    this raises: a partial output must never be merged, and the others' hours of work would be wasted anyway.
+    """
+    n = len(workers)
+    procs = []
+    for k, (cmd, env) in enumerate(workers):
+        log_dir = os.path.join(os.getcwd(), f"gpu{k}")
+        os.makedirs(log_dir, exist_ok=True)
+        cmd = [str(c) for c in cmd]
+        print(
+            f"[fan-out] worker {k}/{n} (CUDA_VISIBLE_DEVICES={env.get('CUDA_VISIBLE_DEVICES')}): {' '.join(cmd)}",
+            flush=True,
+        )
+        log = open(os.path.join(log_dir, "worker.log"), "w")
+        cwd = log_dir if worker_cwd else None
         proc = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
         procs.append((k, proc, log))
 
@@ -658,7 +677,7 @@ def run_worker_script_per_gpu(
                         if j in pending and other.poll() is None:
                             other.terminate()
             if pending:
-                time.sleep(5)
+                time.sleep(poll_s)
     finally:
         for _k, _proc, log in procs:
             log.close()
@@ -678,7 +697,6 @@ def run_worker_script_per_gpu(
             f"{log_label}: worker {k}/{n} exited with {rc}; the other workers were terminated and "
             f"nothing was merged. Full log: {os.path.join(os.getcwd(), f'gpu{k}', 'worker.log')}"
         )
-    return n
 
 
 def contiguous_slice(total: int, k: int, n: int) -> tuple[int, int]:

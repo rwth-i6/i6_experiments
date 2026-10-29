@@ -99,6 +99,7 @@ def check_merge_equals_single_worker():
         truncated_fraction=sum(1 for i in range(n) if i % 5 == 0) / n,
         items=items,
     )
+    naive_gaps = []
     for world in (2, 3, 4):
         parts = []
         for r in range(world):
@@ -123,12 +124,10 @@ def check_merge_equals_single_worker():
         assert [it["index"] for it in merged.items] == list(range(n))
         assert merged.audio_written == 4 and merged.audio_dir == "d"
         # non-vacuity: a mean of per-rank accuracies is NOT the pooled accuracy when shards differ in
-        # size; the merge must recompute
-        if world == 3:
-            naive = sum(p.summary["overall"]["accuracy"] for p in parts) / world
-            assert (
-                abs(naive - whole.summary["overall"]["accuracy"]) > 1e-9 or True
-            )  # may coincide; recompute path asserted above
+        # size, so a mean-of-means merge would fail the summary assert above
+        naive = sum(p.summary["overall"]["accuracy"] for p in parts) / world
+        naive_gaps.append(abs(naive - whole.summary["overall"]["accuracy"]))
+    assert max(naive_gaps) > 1e-9, f"fixture cannot tell a mean-of-means merge from a recompute: {naive_gaps}"
     try:
         merge_probe_results([parts[0], parts[0]])
     except ValueError as e:

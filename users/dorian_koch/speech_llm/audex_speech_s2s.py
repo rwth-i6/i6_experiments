@@ -12,38 +12,17 @@ run_audio_gen_vllm.py`` (TTS), ported to plain HF (no vLLM): CFG via transformer
 ``UnbatchedClassifierFreeGuidanceLogitsProcessor``; the bundled decoder via its ``create_session`` API.
 """
 
-import glob
-import math
 import os
 import re
 
 from sisyphus import Job, Task, tk
 
+from .audex_audioqa import AudioQA, resolve
 from .clip_store import open_clips
 
-_AUDEX_REPO = "nvidia/Nemotron-Labs-Audex-2B"
-
-# --- audio-QA preprocessing (verbatim from audio_utils.py) -------------------------------------------
-SOUND_PLACEHOLDER, SOUND_TOKEN = "<sound>", "<so_embedding>"
-SOUND_START_TOKEN, SOUND_END_TOKEN, IM_END_TOKEN = "<so_start>", "<so_end>", "<|im_end|>"
 # --- audiogen constants (verbatim from run_audio_gen_vllm.py) --------------------------------------
 _CAUSAL_CHUNK_FRAMES, MIN_TTS_FRAMES, CODEC_FPS = 5, 50, 50
 SYSTEM_PROMPT = "You are a helpful and harmless assistant.\n\nYou are not allowed to use any tools."
-
-
-def _audioqa_prompt(q: str) -> str:
-    return f"<|im_start|>user\n<sound>\n{q}<|im_end|>\n<|im_start|>assistant\n<think></think>"
-
-
-def _expand_sound(prompt: str, n: int) -> str:
-    return prompt.replace(SOUND_PLACEHOLDER, SOUND_START_TOKEN + SOUND_TOKEN * n + SOUND_END_TOKEN)
-
-
-def _answer_text(dec: str) -> str:
-    s = dec.split(IM_END_TOKEN, 1)[0]
-    if "</think>" in s:
-        s = s.rsplit("</think>", 1)[1]
-    return s.strip()
 
 
 def _tts_prompt(text: str) -> str:
@@ -116,37 +95,21 @@ class AudexSpeechS2S(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
-    def _resolve(self, subdir: str) -> str:
-        # Always snapshot_download the subfolder into the roomy shared HF cache: it reuses the
-        # pre-staged checkpoint_folder_full and downloads only the MISSING files (e.g. the audiogen
-        # weight shards + the causal decoder, which were never fetched -> the FileNotFoundError).
-        os.environ.setdefault("HF_HUB_CACHE", "/hpcwork/p0023999/common_hf_home/hub")
-        from huggingface_hub import snapshot_download
-
-        root = snapshot_download(_AUDEX_REPO, allow_patterns=[f"{subdir}/*"])
-        return os.path.join(root, subdir)
-
     def run(self):
-        import librosa
         import numpy as np
         import soundfile as sf
         import torch
-        from transformers import (
-            AutoConfig,
-            AutoFeatureExtractor,
-            AutoModel,
-            AutoModelForCausalLM,
-            AutoTokenizer,
-        )
+        from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
         from transformers.generation.logits_process import (
             LogitsProcessorList,
             UnbatchedClassifierFreeGuidanceLogitsProcessor,
         )
 
-        qa_dir = self._resolve("checkpoint_folder_full")
-        gen_dir = self._resolve("checkpoint_folder_audiogen")
-        wh_dir = self._resolve("nv-whisper")
-        dec_dir = self._resolve("audex_causal_speech_decoder")
+        # --- audio-QA model (question audio -> text) ---
+        qa = AudioQA(max_new_tokens=self.max_new_tokens)
+        qa_dir = qa.model_dir
+        gen_dir = resolve("checkpoint_folder_audiogen")
+        dec_dir = resolve("audex_causal_speech_decoder")
 
         # The audiogen checkpoint SHARES checkpoint_folder_full's weights -- the repo ships only its
         # config/index; prepare_audiogen_vllm_checkpoint.sh symlinks full's 2 shards in. Do the same
@@ -156,16 +119,6 @@ class AudexSpeechS2S(Job):
             if not os.path.lexists(_dst):
                 os.symlink(os.path.join(qa_dir, _shard), _dst)
 
-        # --- audio-QA model (question audio -> text) ---
-        qa_tok = AutoTokenizer.from_pretrained(qa_dir, trust_remote_code=True)
-        qa_cfg = AutoConfig.from_pretrained(qa_dir, trust_remote_code=True)
-        feat = AutoFeatureExtractor.from_pretrained(wh_dir)
-        qa = AutoModelForCausalLM.from_pretrained(qa_dir, trust_remote_code=True, dtype=torch.bfloat16).eval().cuda()
-        clip_dur = float(getattr(qa_cfg, "sound_clip_duration", 30.0))
-        sound_emb = int(getattr(qa_cfg, "sound_embedding_size", 750))
-        sr_in = int(getattr(qa_cfg, "sound_target_rate", 16000))
-        qa_eos = qa_tok.convert_tokens_to_ids(IM_END_TOKEN)
-
         # --- audiogen model (text -> speech codec tokens) + bundled decoder (tokens -> wav) ---
         gen_tok = AutoTokenizer.from_pretrained(gen_dir, trust_remote_code=True)
         gen = AutoModelForCausalLM.from_pretrained(gen_dir, trust_remote_code=True, dtype=torch.bfloat16).eval().cuda()
@@ -174,47 +127,8 @@ class AudexSpeechS2S(Job):
         decoder = AutoModel.from_pretrained(dec_dir, trust_remote_code=True).cuda().eval()
         print(f"[s2s] loaded qa+audiogen+decoder; {len(maps['speech_codec'])} speechcodec toks", flush=True)
 
-        def whisper_feats(clip):
-            """clip is (samples, sample_rate) from clip_store.open_clips -- either layout."""
-            audio, clip_sr = clip
-            audio = np.asarray(audio, dtype=np.float32)
-            if clip_sr != sr_in:
-                audio = librosa.resample(audio, orig_sr=clip_sr, target_sr=sr_in)
-            audio = np.asarray(audio, dtype=np.float32)
-            mx = float(np.abs(audio).max()) if audio.size else 0.0
-            if mx > 1.0:
-                audio = audio / mx
-            cn = int(round(sr_in * clip_dur))
-            if audio.size == 0:
-                audio = np.zeros(1, dtype=np.float32)
-            clips = []
-            for j in range(max(1, math.ceil(audio.shape[0] / cn))):
-                c = audio[j * cn : (j + 1) * cn]
-                if c.shape[0] < cn:
-                    c = np.pad(c, (0, cn - c.shape[0]))
-                clips.append(c.astype(np.float32))
-            return feat(
-                clips, sampling_rate=sr_in, return_tensors="pt", padding="max_length", return_attention_mask=False
-            ).input_features
-
         def answer_text(wav):
-            feats = whisper_feats(wav)
-            # question is spoken (in the audio); text prompt is a generic instruction ONLY (no question leak)
-            prompt = _expand_sound(_audioqa_prompt("Answer the spoken question."), feats.shape[0] * sound_emb)
-            enc = qa_tok(prompt, return_tensors="pt", add_special_tokens=False)
-            with torch.inference_mode():
-                out = qa.generate(
-                    input_ids=enc.input_ids.cuda(),
-                    attention_mask=enc.attention_mask.cuda(),
-                    input_features=feats.cuda().to(torch.bfloat16),
-                    max_new_tokens=self.max_new_tokens,
-                    do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    eos_token_id=qa_eos,
-                    pad_token_id=qa_tok.pad_token_id or 0,
-                )
-            return _answer_text(qa_tok.decode(out[0, enc.input_ids.shape[-1] :], skip_special_tokens=False))
+            return qa.answer(wav)
 
         def synth_wav(text):
             cond = gen_tok(_tts_prompt(text), return_tensors="pt", add_special_tokens=False)

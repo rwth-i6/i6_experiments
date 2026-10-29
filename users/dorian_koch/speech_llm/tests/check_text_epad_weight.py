@@ -33,15 +33,14 @@ import torch.nn.functional as F  # noqa: E402
 import yaml  # noqa: E402
 
 from moshi_family.train_data_common import (  # noqa: E402
-    AUDIO_OFFSET,
     TEXT_EPAD_ID,
     TEXT_PADDING_ID,
     TEXT_ROW,
     duplex_ce_loss,
 )
 
-B, T, DEP_Q, CARD, TEXT_CARD = 2, 37, 8, 2048, 32000
-AUDIO_OTHER, TEXT_PAD = 0.02, 0.3
+from _loss_fixture import AUDIO_OTHER, B, CARD, DEP_Q, T, TEXT_CARD, TEXT_PAD, loss_fixture  # noqa: E402, F401
+
 FAILURES: list[str] = []
 
 
@@ -52,24 +51,8 @@ def check(cond, msg, detail=""):
 
 
 def fixture(seed=0):
-    g = torch.Generator().manual_seed(seed)
-    codes = torch.zeros(B, 1 + 16, T, dtype=torch.long)
-    kind = torch.rand(B, T, generator=g)
-    codes[:, TEXT_ROW] = torch.where(
-        kind < 0.60,
-        torch.full((B, T), TEXT_PADDING_ID),
-        torch.where(kind < 0.75, torch.full((B, T), TEXT_EPAD_ID), torch.randint(4, TEXT_CARD, (B, T), generator=g)),
-    )
-    codes[:, AUDIO_OFFSET:] = torch.randint(0, CARD, (B, 16, T), generator=g)
-    out = SimpleNamespace(
-        text_logits=torch.randn(B, 1, T, TEXT_CARD, generator=g),
-        text_mask=torch.rand(B, 1, T, generator=g) > 0.1,
-        logits=torch.randn(B, DEP_Q, T, CARD, generator=g),
-        mask=torch.rand(B, DEP_Q, T, generator=g) > 0.1,
-    )
-    loss_mask = torch.ones(B, T, dtype=torch.bool)
-    loss_mask[0, :3] = False
-    return codes, out, loss_mask
+    # more EPAD than the other two guards use: this one measures the EPAD weight
+    return loss_fixture(seed, epad_until=0.75)
 
 
 def run(**kw):

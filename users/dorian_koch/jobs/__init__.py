@@ -1,5 +1,1 @@
-from .DatasetToTextDictJob import DatasetToTextDictJob
-from .AggregateOutputsAsCsv import AggregateOutputsAsCsv
-from .lexicon import MergeLexiconWithoutDuplicatesJob
-from .FixTorchModel import FixTorchModelJob
-from .GetModelInfo import GetModelInfo
+"""Job modules; import each from its submodule (an eager import here pulled returnn and i6_core into every user)."""

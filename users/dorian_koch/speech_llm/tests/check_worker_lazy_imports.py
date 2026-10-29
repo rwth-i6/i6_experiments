@@ -136,6 +136,18 @@ def main():
         f"{len(bad)} Job module(s) import a recipe package lazily that the worker cannot find after its chdir: "
         "import it at module level"
     )
+    # The speech-LLM job modules must not need the RETURNN stack: jobs/__init__ once imported five RETURNN-era
+    # modules eagerly, so `jobs.hf` pulled in i6_core and killed a job whose venv lacks it.
+    probe = (
+        "import sys\n"
+        "sys.path[:0] = ['recipe', 'recipe/sisyphus']\n"
+        "for m in ('returnn', 'i6_core'):\n"
+        "    sys.modules[m] = None\n"
+        "import i6_experiments.users.dorian_koch.jobs.sqsh_venv, i6_experiments.users.dorian_koch.jobs.venv\n"
+        "import i6_experiments.users.dorian_koch.jobs.hf, i6_experiments.users.dorian_koch.jobs.io\n"
+    )
+    r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+    assert r.returncode == 0, f"jobs.* needs returnn/i6_core:\n{r.stderr[-1500:]}"
     print(f"check_worker_lazy_imports: OK ({len(todo)} Job modules, their lazy imports resolve after the worker chdir)")
 
 

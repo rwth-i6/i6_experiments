@@ -20,6 +20,7 @@ Run from the setup root:
 
 import os
 import random
+import re
 import socket
 import sys
 import tempfile
@@ -459,6 +460,20 @@ if _left:
     failures.append(f"a timed-out server start left process(es) {_left} running")
     _sp.run(["pkill", "-f", "time.sleep(600)"])
 ok("server start      a timed-out start kills the server's process group", _n)
+
+# One copy of the server scaffolding: a fix to the shared one (leak on a failed start) must reach every server.
+_n = len(failures)
+_copies = []
+for _p in sorted((SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm").glob("*.py")):
+    if _p.name == "common.py":
+        continue
+    for _ln in _p.read_text().splitlines():
+        _m = re.match(r"def (_?terminate\w*|\w*free_port)\(", _ln)
+        if _m:
+            _copies.append(f"{_p.name}: {_m.group(1)}")
+if _copies:
+    failures.append(f"private copies of common.py's server helpers: {_copies}")
+ok("server helpers    no module re-implements the port picker or the process-group teardown", _n)
 
 if failures:
     print("\nFAILED:", file=sys.stderr)

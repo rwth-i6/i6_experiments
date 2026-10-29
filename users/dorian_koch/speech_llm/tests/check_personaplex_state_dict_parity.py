@@ -31,18 +31,24 @@ from safetensors import safe_open  # noqa: E402
 from moshi_family.personaplex.models import loaders  # noqa: E402
 from moshi_family.personaplex.models.lm import LMModel  # noqa: E402
 
-CKPT = (
-    "/hpcwork/p0023999/common_hf_home/hub/models--nvidia--personaplex-7b-v1/"
-    "snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/model.safetensors"
-)
+#: The shared hub cache; the checkpoint is resolved as the engines resolve it (the current snapshot), so an upstream
+#: re-upload is the file this reads.
+HF_HUB_CACHE = "/hpcwork/p0023999/common_hf_home/hub"
 #: Frozen so an upstream re-upload is caught rather than silently absorbed.
 EXPECTED_CKPT_KEYS = 475
 #: Groups the deleted Patch 2 used to back-fill for depformer steps 8..15.
 BACKFILL_GROUPS = ["gating", "linears", "depformer_in", "depformer_emb"]
 
-if not os.path.exists(CKPT):
-    print(f"[skip] checkpoint not present: {CKPT}")
-    sys.exit(0)
+from huggingface_hub import hf_hub_download  # noqa: E402
+
+try:
+    CKPT = hf_hub_download(
+        "nvidia/personaplex-7b-v1", loaders.MOSHI_NAME, cache_dir=HF_HUB_CACHE, local_files_only=True
+    )
+except Exception as exc:  # noqa: BLE001
+    # Not a pass: a missing checkpoint leaves the strict-load invariant unchecked.
+    sys.exit(f"SKIP-AS-FAIL: PersonaPlex checkpoint not in the HF cache ({exc!r})")
+print(f"[ok] checkpoint                          {CKPT}")
 
 with safe_open(CKPT, framework="pt") as handle:
     ckpt_shapes = {k: tuple(handle.get_slice(k).get_shape()) for k in handle.keys()}

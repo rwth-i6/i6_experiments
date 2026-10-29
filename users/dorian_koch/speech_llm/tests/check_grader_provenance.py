@@ -180,6 +180,15 @@ if checked:
 else:
     print("[skip] no registered summaries found (run from the setup root after a manager pass)")
 
+# One ledger: a second read_benchmarks.py under recipe/ read a stale layout and ranked across graders.
+_copies = [
+    os.path.join(d, "read_benchmarks.py")
+    for d, _, fs in os.walk("recipe/i6_experiments/users/dorian_koch")
+    if "read_benchmarks.py" in fs
+]
+_real = [c for c in _copies if "runpy.run_path" not in open(c).read()]
+check(not _real, f"no second benchmark ledger under recipe/ (only stubs that run the setup-root one): {_real}")
+
 print()
 if failures:
     print(f"FAILED ({len(failures)}):")
