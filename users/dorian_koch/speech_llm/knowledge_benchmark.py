@@ -800,6 +800,24 @@ def asr_label(asr: str | None) -> str | None:
     return "parakeet_" + asr.rsplit("-", 1)[-1]
 
 
+#: The reply ASR of a new knowledge tag (2026-10-29): about 10x faster than Whisper large-v3-turbo, accuracy within
+#: noise on 4 of 5 models in the 2026-10-28 compare (track_asr_compare).
+KNOWLEDGE_DEFAULT_ASR = "nvidia/parakeet-tdt-0.6b-v3"
+#: ``(key, asr)`` of every default resolution in this process (guard check_knowledge_default_asr).
+DEFAULT_ASR_CALLS: list = []
+
+
+def default_knowledge_asr(tag: str, n: int | None) -> str | None:
+    """Whisper (None) for a tag declared before 2026-10-29 (``knowledge_whisper_tags``), else
+    :data:`KNOWLEDGE_DEFAULT_ASR`. Keyed by the tag's Whisper output path, so a renamed tag is a new tag."""
+    from .knowledge_whisper_tags import WHISPER_TAGS
+
+    key = f"{bench_out_prefix('llm_judge', n)}/{tag}"
+    asr = None if key in WHISPER_TAGS else KNOWLEDGE_DEFAULT_ASR
+    DEFAULT_ASR_CALLS.append((key, asr))
+    return asr
+
+
 def bench_out_prefix(grader: str, n: int | None, asr: str | None = None) -> str:
     """Where a benchmark tag's outputs are registered: ``benchmark/<grader>[-<asr>]/n<N>/<tag>/...``.
 
@@ -1039,7 +1057,7 @@ def knowledge_benchmark_py(
     data: tk.Path | None = None,
     data_label: str | None = None,
     data_n: int | None = None,
-    asr: str | None = None,
+    asr: str | None = "default",
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -1105,10 +1123,11 @@ def knowledge_benchmark_py(
             subsample. Its TTS registers under ``benchmark/<data_label>/tts_output`` (the default TriviaQA paths would
             collide), the model stages under ``benchmark/llm_judge/n<data_n>/<tag>/``; the summary's per-``category``
             accuracies are the per-set numbers. None (default) = the original path, unchanged.
-        asr: the reply ASR. None (default) = faster-whisper ``whisper_model``, as every tag before 2026-10-28;
-            a ``PARAKEET_MODELS`` entry = Parakeet. Changes only the transcription and grading jobs (the
-            inference job is shared), so a Parakeet re-score of an existing tag runs ASR + grading only.
-            Never compare tags scored with different ASR.
+        asr: the reply ASR. "default" = :data:`KNOWLEDGE_DEFAULT_ASR` (Parakeet v3) for a new tag, faster-whisper
+            ``whisper_model`` for the tags declared before 2026-10-29 (``knowledge_whisper_tags``: they keep their
+            hash and table); None = Whisper; a ``PARAKEET_MODELS`` entry = Parakeet. Changes only the transcription
+            and grading jobs (the inference job is shared), so a Parakeet re-score of an existing tag runs ASR +
+            grading only. Each ASR writes its own table: never compare tags scored with different ASR.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -1116,6 +1135,8 @@ def knowledge_benchmark_py(
         make_speakers,
     )
 
+    if asr == "default":
+        asr = default_knowledge_asr(tag, data_n if data is not None else max_examples)
     tts_alias = "benchmark/tts_output"
     if data is not None:  # a prepared question set (docstring: data / data_label / data_n)
         assert data_label and data_n and max_examples is None, (data_label, data_n, max_examples)
