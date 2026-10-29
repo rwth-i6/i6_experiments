@@ -618,7 +618,7 @@ ck(
 # ------------------------------------------------------------------------------------------------------------------
 print("[7] renderer + launcher")
 src_f = open(
-    os.path.join(SETUP, "recipe", "i6_experiments", "users", "dorian_koch", "speech_llm", "finetune.py")
+    os.path.join(SETUP, "recipe", "i6_experiments", "users", "dorian_koch", "speech_llm", "finetune_adapters.py")
 ).read()
 ck(
     'if hp.get("knowledge_user_augment"):' in src_f and "knowledge_user_augment: true" in src_f,

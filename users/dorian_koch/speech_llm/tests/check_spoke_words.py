@@ -129,6 +129,11 @@ def check_parity(es_path):
 def make_sandbox(root):
     shutil.copy(SETUP / "read_benchmarks.py", root / "read_benchmarks.py")
     shutil.copytree(ANALYSIS, root / "analysis", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"), symlinks=True)
+    # analysis/evalstats.py & co. are symlinks into the repo: copy them as files, or a mutant would edit the real one.
+    for f in (root / "analysis").glob("*.py"):
+        if f.is_symlink():
+            shutil.copy((ANALYSIS / f.name).resolve(), f.with_suffix(".copy"))
+            os.replace(f.with_suffix(".copy"), f)  # rename replaces the link itself
     d = root / "output" / "benchmark" / "llm_judge" / f"n{len(FIXTURE)}" / TAG
     d.mkdir(parents=True)
     n = len(FIXTURE)

@@ -141,7 +141,7 @@ def check_every_declared_key_is_rendered():
     """
     import re
 
-    src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
+    src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune_adapters.py").read_text()
     # Keys as they appear in a rendered YAML template: `<key>: {...}` at the start of a line.
     rendered = set(re.findall(r"^([a-z_][a-z0-9_]*):", src, re.MULTILINE))
 

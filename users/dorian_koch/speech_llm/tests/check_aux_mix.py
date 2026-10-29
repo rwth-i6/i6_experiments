@@ -143,7 +143,7 @@ for name, kw in (
         check(f"[4] refuses {name}", True)
 
 # ---- 5: render ----------------------------------------------------------------------------------------------------
-src_ft = open(os.path.join(SETUP, "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py")).read()
+src_ft = open(os.path.join(SETUP, "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune_adapters.py")).read()
 check(
     "[5] finetune renders aux_data / aux_share / aux_train_rows",
     all(f"{k}: " in src_ft for k in ("aux_data", "aux_share", "aux_train_rows")),

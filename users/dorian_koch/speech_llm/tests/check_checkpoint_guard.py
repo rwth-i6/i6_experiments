@@ -243,8 +243,10 @@ def check_wiring():
     assert "impossible_checkpoint_reason(s, max_steps=max_steps, save_every=save_every)" in src, src
     assert qke.SAVE_EVERY == SAVE_EVERY
     # The trainer's template default is the constant the rule assumes.
-    ft_src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
-    assert f'hp.get("save_every", {SAVE_EVERY})' in ft_src, "finetune.py's save_every default drifted from SAVE_EVERY"
+    ft_src = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune_adapters.py").read_text()
+    assert f'hp.get("save_every", {SAVE_EVERY})' in ft_src, (
+        "finetune_adapters.py's save_every default drifted from SAVE_EVERY"
+    )
     # And the real training job exposes what the stub above stood in for.
     assert callable(getattr(SpeechFinetune, "_sis_path", None))
     assert "self.hparams = hparams" in inspect.getsource(SpeechFinetune.__init__)

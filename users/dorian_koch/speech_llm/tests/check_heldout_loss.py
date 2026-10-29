@@ -59,6 +59,7 @@ from moshi_family.train_data_common import TEXT_EPAD_ID  # noqa: E402
 SETUP = os.getcwd()
 LIB = os.path.join(SETUP, "recipe", "speech_llm", "full_duplex", "moshi_family")
 LAUNCHER = os.path.join(LIB, "personaplex", "finetune_launcher.py")
+CFG_READERS = ("main", "train_loader_args", "make_train_loader")
 HL_SRC = os.path.join(LIB, "personaplex", "heldout_loss.py")
 I6 = os.path.join(SETUP, "recipe", "i6_experiments", "users", "dorian_koch", "speech_llm")
 OUT = os.path.join(SETUP, "output")
@@ -80,13 +81,16 @@ def ck(cond, label, extra=""):
 # ---------------------------------------------------------------------------------------------------------------
 print("[1] config defaults == the launcher's; the minimal prompt == persona_prompts'")
 tree = ast.parse(open(LAUNCHER).read())
-main_fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main")
+# The config is read in main() and, since the shared train loader, in train_loader_args / make_train_loader.
+cfg_fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in CFG_READERS]
+assert {f.name for f in cfg_fns} >= {"main"}, "launcher has no main()"
 launcher_defaults = {}
-for n in ast.walk(main_fn):
+for n in (m for f in cfg_fns for m in ast.walk(f)):
     if (
         isinstance(n, ast.Call)
         and getattr(n.func, "attr", None) == "get"
         and getattr(n.func.value, "id", None) == "cfg"
+        and isinstance(n.args[0], ast.Constant)  # cfg.get(<variable>) loops read the keys listed elsewhere
     ):
         key = n.args[0].value
         try:
@@ -171,7 +175,11 @@ with torch.no_grad():
             p.normal_(0, 0.05)
 
 # The launcher's loss_step, verbatim: its source cut out of main() and executed with main()'s variables.
-ls_node = next(n for n in ast.walk(main_fn) if isinstance(n, ast.FunctionDef) and n.name == "loss_step")
+ls_node = next(
+    n
+    for n in ast.walk(next(f for f in cfg_fns if f.name == "main"))
+    if isinstance(n, ast.FunctionDef) and n.name == "loss_step"
+)
 LOSS_STEP_SRC = textwrap.dedent(ast.get_source_segment(open(LAUNCHER).read(), ls_node))
 from moshi_family.personaplex.finetune_launcher import _ForwardTrain  # noqa: E402
 

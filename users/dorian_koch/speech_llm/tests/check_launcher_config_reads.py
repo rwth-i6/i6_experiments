@@ -45,18 +45,18 @@ RECIPES = SETUP / "recipe" / "i6_experiments" / "users" / "dorian_koch" / "speec
 #: launcher file -> (recipe file, name of the function rendering its YAML).
 #: The fork launcher under ``i6_experiments/`` is the live A/B reference and is checked too.
 PAIRS = {
-    LIB / "moshi_family/moshi_finetune_launcher.py": ("finetune.py", "_render_moshi_lib_config"),
-    LIB / "moshi_family/moshirag_finetune_launcher.py": ("finetune.py", "_render_moshirag_lib_config"),
-    LIB / "moshi_family/personaplex/finetune_launcher.py": ("finetune.py", "_render_personaplex_config"),
+    LIB / "moshi_family/moshi_finetune_launcher.py": ("finetune_adapters.py", "_render_moshi_lib_config"),
+    LIB / "moshi_family/moshirag_finetune_launcher.py": ("finetune_adapters.py", "_render_moshirag_lib_config"),
+    LIB / "moshi_family/personaplex/finetune_launcher.py": ("finetune_adapters.py", "_render_personaplex_config"),
     LIB / "moshi_family/audex/finetune_launcher.py": ("audex_finetune.py", "_render_audex_config"),
     LIB / "moshi_family/rl/launcher.py": ("rl_finetune.py", "_render_rl_config"),
-    RECIPES / "moshi_finetune_launcher.py": ("finetune.py", "_render_moshi_finetune_config"),
+    RECIPES / "moshi_finetune_launcher.py": ("finetune_adapters.py", "_render_moshi_finetune_config"),
 }
 
 #: Launchers fed by MORE than one renderer (one adapter per train_scope): each extra renderer's keys
 #: must be read by the same launcher, under the same rules.
 EXTRA_RENDERERS = [
-    (LIB / "moshi_family/personaplex/finetune_launcher.py", "finetune.py", "_render_personaplex_lora_config"),
+    (LIB / "moshi_family/personaplex/finetune_launcher.py", "finetune_adapters.py", "_render_personaplex_lora_config"),
 ]
 
 #: Launchers that must read their whole config before branching. Every launcher whose recipe calls
@@ -411,7 +411,7 @@ def _get_defaults(tree, obj_name: str) -> dict:
 #: an entry here is a claim that a silent divergence is FINE for that key, which needs an argument.
 DEFAULT_MISMATCH_OK: dict = {}
 
-_render_tree = ast.parse((RECIPES / "finetune.py").read_text())
+_render_tree = ast.parse((RECIPES / "finetune_adapters.py").read_text())
 mismatches = 0
 for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
     render_fn = next(

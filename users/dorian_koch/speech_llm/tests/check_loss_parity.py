@@ -206,7 +206,7 @@ def check_wiring():
     calls = launcher.count("moshi_loss(")
     forwards = launcher.count("weighted_mean=weighted_mean")
     assert calls >= 3 and forwards == calls, f"{calls} moshi_loss call sites, {forwards} forward the knob"
-    template = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
+    template = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune_adapters.py").read_text()
     assert 'loss_norm: {hp.get("loss_norm", "count")}' in template, "the template must render loss_norm"
     from speech_llm.full_duplex.sis_recipe.doriank.train_config import MOSHI_WEIGHTS, PERSONAPLEX_WEIGHTS, Loss
 
@@ -247,7 +247,7 @@ def check_ppx_loss_weight_wiring():
 
     s = loss_settings({})
     assert s["text_pad_weight"] == default and s["user_semantic_weight"] is None, s
-    template = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune.py").read_text()
+    template = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/finetune_adapters.py").read_text()
     for key in ("text_pad_weight", "user_semantic_weight"):
         assert f'if hp.get("{key}") is not None:\n        perf = f"{key}: ' in template, (
             f"renderer: {key} not render-if-set"

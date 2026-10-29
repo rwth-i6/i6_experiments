@@ -344,12 +344,14 @@ def part_refusal():
     lm = tiny_lm()
     gen = LMGen(lm, device="cpu", use_sampling=True, user_stream=stream_for(lm))
     gen.streaming_forever(1)
+    # Since GRPO replays the stream (USER_ROW), the core records it instead of refusing it; the replay's
+    # logprob parity is check_ppx_rollout_parity.py check 6.
     try:
         Recorder(gen).install()
-        raised = False
-    except NotImplementedError:
-        raised = True
-    check("8 the rollout core refuses an LMGen with a user-text stream", raised)
+        err = None
+    except NotImplementedError as e:
+        err = e
+    check("8 the rollout core accepts an LMGen with a user-text stream", err is None, repr(err))
 
 
 def main():

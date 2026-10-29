@@ -469,6 +469,8 @@ LAUNCHERS = {
     "rl/launcher.py": (ALL_BOOL, "TEXT_ONLY_FORWARD = True", "RLTrainerConfig"),
 }
 
+CFG_READERS = ("main", "train_loader_args", "make_train_loader")
+
 
 def _cfg_keys(fn):
     return {
@@ -484,8 +486,12 @@ def _cfg_keys(fn):
 
 for rel, (want, marker, cfg_call) in LAUNCHERS.items():
     src = (LIBDIR / rel).read_text()
-    main = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "main")
-    keys = _cfg_keys(main)
+    tree = ast.parse(src)
+    main = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main")
+    # The PersonaPlex launcher reads its loader keys in the shared train_loader_args, not main().
+    keys = set().union(
+        *(_cfg_keys(n) for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in CFG_READERS)
+    )
     ck(want <= keys, f"{rel}: reads {sorted(want)}", str(sorted(want - keys)))
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "apply_train_perf"]
     ifs = [n for n in ast.walk(main) if isinstance(n, ast.If)]
@@ -508,7 +514,7 @@ for rel, (want, marker, cfg_call) in LAUNCHERS.items():
     )
     ck(kw_ok, f"{rel}: {cfg_call}(model_flops_per_frame=...) -> the logged MFU")
 ck(
-    "forward_train(codes)" in (LIBDIR / "personaplex/finetune_launcher.py").read_text(),
+    "forward_train(codes, **kw)" in (LIBDIR / "personaplex/finetune_launcher.py").read_text(),
     "PersonaPlex loss_step keeps the plain forward_train(codes) call for runs without the row skip",
 )
 

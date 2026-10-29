@@ -254,21 +254,22 @@ def job_part():
 
     # ---- 5 ----
     src = Path("recipe/speech_llm/full_duplex/moshi_family/personaplex/finetune_launcher.py").read_text()
-    main = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "main")
+    # Since the shared train loader: train_loader_args reads the key, make_train_loader builds both loaders.
+    fns = {n.name: n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef)}
     reads = [
         n
-        for n in ast.walk(main)
+        for n in ast.walk(fns["train_loader_args"])
         if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "get" and n.args
         and isinstance(n.args[0], ast.Constant) and n.args[0].value == "train_rows"
     ]  # fmt: skip
     calls = {
         n.func.id: {k.arg: ast.unparse(k.value) for k in n.keywords}
-        for n in ast.walk(main)
+        for n in ast.walk(fns["make_train_loader"])
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
         and n.func.id in ("build_data_loader", "build_knowledge_mix_loader")
     }  # fmt: skip
     ck(
-        len(reads) == 1 and all(c.get("train_rows") == "train_rows" for c in calls.values()) and len(calls) == 2,
+        len(reads) == 1 and all(c.get("train_rows") == "la.train_rows" for c in calls.values()) and len(calls) == 2,
         "[5] the launcher reads train_rows and hands it to both loaders",
         str({k: v.get("train_rows") for k, v in calls.items()}),
     )
