@@ -90,6 +90,8 @@ DEFAULT_CAPTURE_S = 20.0
 SOURCES = ("monologue", "asr", "reference")
 
 #: Upstream's explicit verdict for the SimpleQA / LlamaQ prompts; anything else falls back to a substring test.
+#: A word for ``spoke``: the same rule as evalstats.spoke and the trainer (check_spoke_words.py).
+_SPOKE_WORD = re.compile(r"[A-Za-z0-9']+")
 _EXPLICIT_VERDICT = r"[Tt]he score is \[(Correct|Incorrect)\]"
 
 
@@ -391,6 +393,9 @@ def summarize(rows: list[dict], sources=SOURCES) -> dict:
             if not scores:
                 continue
             empty = sum(1 for r in sub if r["scores"].get(src) is None and not r["texts"].get(src))
+            # spoke uses the knowledge tables' rule (>= 1 word, evalstats.spoke): a reply of only
+            # punctuation or non-Latin script is silent there. n_empty stays upstream's rule ("" only).
+            silent = sum(1 for r in sub if len(_SPOKE_WORD.findall(r["texts"].get(src) or "")) == 0)
             judged = [s for s in scores if s in (0, 1)]
             k = sum(judged)
             block[src] = {
@@ -402,7 +407,7 @@ def summarize(rows: list[dict], sources=SOURCES) -> dict:
                 "acc_strict": round(k / n, 4),
                 "ci95_upstream": _wilson(k, len(judged)),
                 "ci95_strict": _wilson(k, n),
-                "spoke": round((n - empty) / n, 4),
+                "spoke": round((n - silent) / n, 4),
                 "n_verdict_fallback": sum(1 for r in sub if r.get("verdict_fallback", {}).get(src)),
             }
             fr = [r.get("scores_fullreply", {}).get(src) for r in sub]

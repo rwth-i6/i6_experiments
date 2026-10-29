@@ -86,6 +86,20 @@ def normalize_answer(s: str) -> str:
     return f" {s} "
 
 
+def _keeps_inner_article(cand: str) -> bool:
+    """True if the candidate has an article-like word after its first word ("Vitamin A", "Plan A"):
+    stripping it would shrink the gold to a bare prefix that any "Vitamin C" reply contains."""
+    words = cand.lower().translate(_PUNCT).split()
+    return any(_ARTICLES.fullmatch(w) for w in words[1:])
+
+
+def _normalize_keep_articles(s: str) -> str:
+    """Like ``normalize_answer`` but keeps every article except a leading one."""
+    s = re.sub(r"^(a|an|the)\s+", "", s.lower().translate(_PUNCT).strip())
+    s = re.sub(r"\s+", " ", s).strip()
+    return f" {s} "
+
+
 def alias_match(prediction: str, answer: str, aliases) -> tuple[int, int]:
     """Return ``(binary_correct, quality_score)`` by normalized alias *containment*.
 
@@ -110,9 +124,12 @@ def alias_match(prediction: str, answer: str, aliases) -> tuple[int, int]:
     for cand in candidates:
         if not cand:
             continue
-        cand_n = normalize_answer(cand)
+        if _keeps_inner_article(cand):
+            cand_n, hay = _normalize_keep_articles(cand), _normalize_keep_articles(prediction)
+        else:
+            cand_n, hay = normalize_answer(cand), pred_n
         core = cand_n.strip()
-        if core and cand_n in pred_n:
+        if core and cand_n in hay:
             # essentially-just-the-answer if the reply is short and dominated by the match
             quality = 5 if len(pred_n.strip()) <= len(core) + 6 else 3
             return 1, quality
@@ -476,9 +493,10 @@ class BuildKnowledgeProbeSet(Job):
         # for the same reason. This matters because the shared benchmark TTS dir is a repack target
         # (backlog E13a): without it a repacked input globs to zero wavs and writes an EMPTY
         # probe.jsonl, which reads as "the model answered nothing" rather than as a broken read.
-        # Scratch lives in the job work dir, so those inodes are transient.
+        # The wavs go into this job's output/: probe.jsonl records their paths, and work/ is removed
+        # at job cleanup, which would leave every path dangling.
         if is_clip_dataset(tts_dir):
-            scratch = os.path.abspath("clip_input")
+            scratch = os.path.join(os.path.dirname(os.path.abspath(str(self.out_jsonl.get()))), "probe_wavs")
             materialise_clips(tts_dir, scratch)
             tts_dir = scratch
         wavs = sorted(

@@ -35,6 +35,12 @@ assert b == 1, "normalization (case/punct) must not break a real match"
 b, _ = alias_match("that is the black sea, yeah", "The Black Sea", [])
 assert b == 1, "leading article on the reference must be normalized"
 
+# A gold answer ending in a letter ("Vitamin A", "Plan A") must not shrink to its prefix.
+assert alias_match("I think it's vitamin C.", "Vitamin A", [])[0] == 0, "Vitamin A must not match vitamin C"
+assert alias_match("Plan B was used", "Plan A", [])[0] == 0, "Plan A must not match Plan B"
+assert alias_match("it is vitamin a, found in carrots", "Vitamin A", [])[0] == 1, "Vitamin A must still match itself"
+assert alias_match("A Tale of Two Cities", "Tale of Two Cities", [])[0] == 1
+
 # A wrong (confabulated) answer -> incorrect, even though it's fluent.
 b, q = alias_match("That was William Henry Harrison.", "Benjamin Britten", ["Britten"])
 assert b == 0 and q == 1, "a fluent-but-wrong reply must score 0 / quality 1"
@@ -112,6 +118,8 @@ _battery = [
     ("The name of the assembly of cardinals that elects a pope is the Conclave.", "Conclave", []),
     ("no idea, maybe France or Germany", "Spain", ["Kingdom of Spain"]),
     ("The Nile, definitely the Nile river", "nile", []),
+    ("I think it's vitamin C.", "Vitamin A", []),
+    ("Plan A was used", "Plan A", []),
 ]
 for pred, ans, al in _battery:
     assert kp.normalize_answer(pred) == normalize_answer(pred), pred

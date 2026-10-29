@@ -169,20 +169,26 @@ def materialise_tree(path, out_dir) -> Path:
 
 
 @contextlib.contextmanager
-def tree_root(path, *, name: str = "speech_output"):
+def tree_root(path, *, name: str = "speech_output", writable: bool = False):
     """A real directory with the tree at ``path``: ``path`` itself if it is a plain dir, else a temporary unpack.
 
     The unpack goes to ``$TMPDIR/<tmp>/<name>`` (node-local on SLURM, local disk on the login node) and is deleted on
     exit, so anything a reader writes into it (``eval_user_interruption`` writes ``rating.json`` per item) never
     touches the stored output. ``name`` keeps the root's last component equal to the original
     (``.../speech_output``), so per-item paths in evaluator logs parse the same (``evalstats._mfdb_item_of``).
+
+    A plain dir is yielded in place unless ``writable``: then it is copied too, because a caller that writes into it
+    (older, pre-2026-10-14 SpeechInference outputs are plain) would otherwise modify the stored output.
     """
-    if not is_tree_dataset(path):
+    if not is_tree_dataset(path) and not writable:
         yield str(path)
         return
     tmp = tempfile.mkdtemp(prefix="tree_root.")
     try:
-        yield str(materialise_tree(path, os.path.join(tmp, name)))
+        if is_tree_dataset(path):
+            yield str(materialise_tree(path, os.path.join(tmp, name)))
+        else:
+            yield shutil.copytree(str(path), os.path.join(tmp, name))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

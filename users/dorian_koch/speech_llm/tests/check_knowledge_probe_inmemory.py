@@ -26,6 +26,7 @@ Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_probe_inmemory.py
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -127,12 +128,35 @@ def check_disk_mode_still_writes():
         txts = sorted(out.glob("*.txt"))
         assert len(wavs) == N_CLIPS, wavs
         assert len(txts) == N_CLIPS, txts
-        assert (out / "truncation.json").exists(), "the truncation rate must stay queryable"
+        assert (out / "truncation.0.json").exists(), "the truncation rate must stay queryable"
+        # Two workers into one dir (the per-GPU fan-out): two stats files whose clip counts sum to the input.
+        out2 = tmp / "out2"
+        half = N_CLIPS // 2
+        for lo, hi in ((0, half), (half, N_CLIPS)):
+            run_pairs(
+                _FakeModel(), [(ins[i], str(out2 / f"{i}.wav")) for i in range(lo, hi)], capture_s=0.1, progress_every=0
+            )
+        stats = [json.loads(p.read_text()) for p in sorted(out2.glob("truncation.*.json"))]
+        assert len(stats) == 2 and sum(s["clips"] for s in stats) == N_CLIPS, stats
         # The sidecar content must equal what the caller now gets in memory -- otherwise the
         # in-memory path is scoring something different from what the benchmark path records.
         for i, mono in enumerate(res.monologues):
             assert (out / f"{i}.txt").read_text() == mono, i
-    print("PASS  disk mode writes one wav + one txt per clip, and truncation.json")
+    print("PASS  disk mode writes one wav + one txt per clip, and one truncation.<first clip>.json per worker")
+
+
+def check_unreadable_input_raises():
+    """An unreadable prompt wav raises after one retry instead of being scored as a reply to 0.5 s of silence."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        ins = _inputs(tmp) + [str(tmp / "missing.wav")]
+        try:
+            run_pairs(_FakeModel(), [(p, None) for p in ins], capture_s=0.1, progress_every=0)
+        except RuntimeError as e:
+            assert "missing.wav" in str(e), e
+        else:
+            raise AssertionError("run_pairs scored a nonexistent input instead of raising")
+    print("PASS  an unreadable input raises (no silent silence substitute)")
 
 
 def check_memory_mode_writes_nothing():
@@ -498,6 +522,7 @@ if __name__ == "__main__":
     check_memory_mode_writes_nothing()
     check_truncation_accounting_survives_without_a_directory()
     check_probe_scores_positionally_against_its_own_entries()
+    check_unreadable_input_raises()
     check_keep_audio_returns_pcm_without_writing()
     check_audio_dump_cannot_break_a_probe()
     check_dump_happens_after_scoring()

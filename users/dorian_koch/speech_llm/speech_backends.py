@@ -108,6 +108,22 @@ MOSHI_BACKEND = BackendSpec(
 )
 
 
+def offline_routing_kwargs(spec: BackendSpec) -> dict:
+    """The offline/server routing kwargs a knowledge-mode SpeechInference gets from ``spec``.
+
+    A spec with ``server_hf_repo`` streams through the server with that repo: the offline drivers do not take the
+    repo, so routing it offline would silently run base Moshi under the spec's name.
+    """
+    offline = bool(spec.offline_script or spec.offline_module) and spec.server_hf_repo is None
+    kw = dict(
+        offline_script=(spec.offline_script or "moshi_offline_inference.py") if offline else None,
+        offline_module=spec.offline_module if offline else None,
+    )
+    if spec.server_hf_repo is not None:
+        kw["hf_repo"] = spec.server_hf_repo
+    return kw
+
+
 def moshi_hf_repo_backend_spec(hf_repo: str) -> BackendSpec:
     """MOSHI_BACKEND (streaming server) but loading a specific HF repo instead of base Moshi.
 

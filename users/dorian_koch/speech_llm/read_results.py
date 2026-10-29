@@ -163,6 +163,29 @@ def render(rec: dict) -> tuple[str, bool]:
     return f"? no reader for keys {keys} (--raw)", False
 
 
+def renamed_runs() -> dict[str, str]:
+    """``label_free_hash.RENAMED_RUNS`` ({new name: old name}), read from the source so this script needs no package."""
+    import ast
+
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "label_free_hash.py")).read()
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "RENAMED_RUNS":
+            return ast.literal_eval(node.value)
+    return {}
+
+
+def with_old_names(patterns: list[str]) -> list[str]:
+    """``patterns`` plus each with a renamed arm's new name replaced by its old one. A ResultNotify's tag is label-free,
+    so its line keeps the name the arm had when the job was set up; a query by the current name must find it too.
+    (Query-side on purpose: rewriting stored tags would hit arms whose names merely contain an old name.)"""
+    out = list(patterns)
+    for p in patterns:
+        for new, old in renamed_runs().items():
+            if new in p:
+                out.append(p.replace(new, old))
+    return out
+
+
 def load(path: str) -> dict[str, dict]:
     """Last line wins per tag -- a re-run appends rather than replacing."""
     out: dict[str, dict] = {}
@@ -198,7 +221,8 @@ def main(argv=None) -> int:
         return 2
 
     records = load(args.log)
-    keep = lambda t: not args.filters or any(f in t for f in args.filters)  # noqa: E731
+    filters = with_old_names(args.filters)
+    keep = lambda t: not filters or any(f in t for f in filters)  # noqa: E731
     sel = {t: r for t, r in records.items() if keep(t)}
     if not sel:
         print("no matching results", file=sys.stderr)

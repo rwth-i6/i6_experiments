@@ -104,24 +104,27 @@ def main():
 
     ref_ds = load_from_disk(args.reference_data)
     clips = open_clips(args.in_dir)
-    valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in clips and mine(i)]
+    keys = set(clips)  # the index keys; ``i in clips`` would decode every clip
+    valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in keys and mine(i)]
     print(f"Transcribing {len(valid)}/{len(ref_ds)} clips (batch_size={args.batch_size})", flush=True)
 
-    audios = {i: load_audio(clips[i]) for i, _ in valid}
-    longest = max((a.size for a in audios.values()), default=0) / TARGET_SR
+    # Lengths first, audio per batch: holding every reply at once is ~6 GB for 90 s clips at n1000
+    # (the OOM the Whisper worker fixed with _LazyArrowClips).
+    sizes = {i: load_audio(clips[i]).size for i, _ in valid}
+    longest = max(sizes.values(), default=0) / TARGET_SR
     if longest > LOCAL_ATTN_ABOVE_S:
         print(f"longest clip {longest:.0f}s > {LOCAL_ATTN_ABOVE_S}s: local attention", flush=True)
         model.change_attention_model("rel_pos_local_attn", [256, 256])
 
     # Sub-10 ms / empty audio: an empty hypothesis (a benchmark miss), as in the Whisper worker.
-    todo = [i for i, _ in valid if audios[i].size >= TARGET_SR // 100]
+    todo = [i for i, _ in valid if sizes[i] >= TARGET_SR // 100]
     texts = {i: "" for i, _ in valid}
-    audio_s = sum(audios[i].size for i in todo) / TARGET_SR
+    audio_s = sum(sizes[i] for i in todo) / TARGET_SR
     t1 = time.time()
     for k in range(0, len(todo), args.batch_size):
         chunk = todo[k : k + args.batch_size]
         with torch.inference_mode():
-            hyps = model.transcribe([audios[i] for i in chunk], batch_size=args.batch_size, verbose=False)
+            hyps = model.transcribe([load_audio(clips[i]) for i in chunk], batch_size=args.batch_size, verbose=False)
         for i, h in zip(chunk, hyps):
             texts[i] = (h.text if hasattr(h, "text") else str(h)).strip()
         if (k // args.batch_size) % 10 == 0:

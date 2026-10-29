@@ -58,8 +58,8 @@ check(s["overall"]["n"] == 2 and s["overall"]["accuracy"] == 0.5, "stamping did 
 judged = _grader_block("llm_judge", model="google/gemma-4-31B-it")
 check(judged["name"] == "llm_judge" and judged.get("model"), "the judge stamp records its MODEL too")
 check(
-    judged["schema_version"] == 2 and s["grader"]["schema_version"] == 1,
-    "judge v2 (T0 + seed + strict binary) does not relabel the unchanged alias grader",
+    judged["schema_version"] == 2 and s["grader"]["schema_version"] == 2,
+    "judge v2 (T0 + seed + strict binary) and alias v2 (inner articles kept) each stamp their own version",
 )
 
 # --- 1b. Judge schema v2 (2026-10-12): deterministic decoding and a strict verdict parse. Under v1 a
@@ -171,7 +171,8 @@ for sp in _glob.glob("output/benchmark/*/n*/*/summary"):
         mismatched += 1
         print(f"      {sp}: path says {n_dir}, summary says n={n_actual}")
     g = data.get("grader", {}).get("name")
-    if g and g != grader_dir:
+    # the dir is <grader>[-<reply ASR>] since 2026-10-28 (bench_out_prefix); the stamp names the grader only
+    if g and g != grader_dir.split("-", 1)[0]:
         mismatched += 1
         print(f"      {sp}: path says {grader_dir}, data says {g}")
 if checked:

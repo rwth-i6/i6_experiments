@@ -1,3 +1,4 @@
+import logging
 import json
 from pathlib import Path
 from sisyphus import Job, Task, tk
@@ -234,8 +235,9 @@ class FullDuplexBenchEval_Evaluation(Job):
     def run(self):
         # The inference output is a packed tree since 2026-10-14 (file_tree_store); the evaluator walks files, so it
         # runs on a temporary unpack (or the plain tree of an older job). Anything it writes into the tree
-        # (eval_user_interruption: <item>/rating.json) stays in the temp dir and never mutates the upstream output.
-        with tree_root(self.in_audios.get_path()) as root:
+        # (eval_user_interruption: <item>/rating.json) stays in the temp dir and never mutates the upstream output;
+        # writable=True copies an older plain tree too.
+        with tree_root(self.in_audios.get_path(), writable=True) as root:
             self._run(root)
 
     def _run(self, root: str):
@@ -771,6 +773,9 @@ def fdb_latency_histograms_from_registry(hist_tag, model_tags, tasks=("candor_tu
     fdb_benchmark_py calls it references (registry is populated at config-load time).
     """
     runs = {tag: _FDB_REGISTRY[tag] for tag in model_tags if tag in _FDB_REGISTRY}
+    skipped = [tag for tag in model_tags if tag not in _FDB_REGISTRY]
+    if skipped:
+        logging.warning("fdb_latency %s: not (yet) registered, left out: %s", hist_tag, skipped)
     for task in tasks:
         logs = {tag: jobs[task].out_log for tag, jobs in runs.items() if task in jobs}
         if len(logs) < 2:

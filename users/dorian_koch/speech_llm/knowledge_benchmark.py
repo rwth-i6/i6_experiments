@@ -31,7 +31,7 @@ from .common import (
 )
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
-from .speech_backends import MOSHI_BACKEND
+from .speech_backends import MOSHI_BACKEND, offline_routing_kwargs
 from .speech_inference import SpeechInference, ResolveOverlayCheckpoint
 from .tts import InstallFFmpeg
 
@@ -152,9 +152,15 @@ LLM_PREPROCESS_INSTRUCTIONS = (
 class LLMPreprocess(Job):
     """Clean raw dataset questions for speech synthesis via LLM."""
 
-    def __init__(self, *, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it"):
+    #: gold_from_source=True keeps ``answer``/``aliases`` from the source row and takes only ``question`` from the LLM.
+    #: The echo changes them: aliases are sent joined by ", ", so "Hitler, Adolph" returns as two aliases (measured
+    #: 2026-10-29 on the 12,000-row TriviaQA input: 101 answers and 2,514 alias lists differ). False = every set before.
+    __sis_hash_exclude__ = {"gold_from_source": False}
+
+    def __init__(self, *, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it", gold_from_source: bool = False):
         self.in_hf = in_hf
         self.llm_name = llm_name
+        self.gold_from_source = gold_from_source
         self.out_hf = self.output_path("out_hf", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 6, "mem": 32, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
 
@@ -200,6 +206,8 @@ class LLMPreprocess(Job):
                 )
                 try:
                     data = json.loads(resp.choices[0].message.content)
+                    if getattr(self, "gold_from_source", False):
+                        data = {"question": data.get("question", example["question"])}
                     return {
                         "question": data.get("question", example["question"]),
                         "answer": data.get("answer", example["answer"]),
@@ -591,20 +599,23 @@ class ReferenceStringTranscription(Job):
 
     def run(self):
         import json
-        import os
         from datasets import load_from_disk
 
         ref_ds = load_from_disk(self.reference_data.get())
-        in_dir = self.in_dir.get()
+        # Either clip-store layout: under storage="hf" the <i>.json traces live in the arrow store's
+        # trace column, so globbing for files would find none and score an empty set.
+        clips = open_clips(self.in_dir.get())
         n = 0
         empty = 0
         with open(self.out_json.get(), "w") as f:
             for i, example in enumerate(ref_ds):
-                trace_path = os.path.join(in_dir, f"{i}.json")
-                if not os.path.exists(trace_path):
+                try:
+                    raw = clips.sidecar(i, "trace")
+                except KeyError:
+                    raw = None
+                if raw is None:
                     continue  # no reply for this clip (same filter semantics as the wav check)
-                with open(trace_path, encoding="utf-8") as tf:
-                    trace = json.load(tf)
+                trace = json.loads(raw)
                 reference = (trace.get("reference_text") or "").strip()
                 if not reference:
                     empty += 1
@@ -622,6 +633,8 @@ class ReferenceStringTranscription(Job):
                 )
                 n += 1
         print(f"[reference-strings] wrote {n} rows ({empty} empty references) to {self.out_json.get()}", flush=True)
+        if n == 0:
+            raise RuntimeError(f"no reply traces found in {self.in_dir.get()}")
 
 
 # ---------------------------------------------------------------------------
@@ -710,7 +723,8 @@ Return ONLY JSON: {{"binary": 0 or 1, "quality": 1-5, "reasoning": "brief explan
 #:                   LLMGrading that RUNS after this lands as v2 -- read ``grader.schema_version``
 #:                   before putting two judged numbers in one table (measured gap:
 #:                   projects/2026-01-speech-llm/grader_t0_measure.py).
-GRADER_SCHEMA_VERSIONS = {"llm_judge": 2, "alias_match": 1}
+# alias_match 2: an article after the first word of a gold answer is kept ("Vitamin A" != "vitamin C").
+GRADER_SCHEMA_VERSIONS = {"llm_judge": 2, "alias_match": 2}
 GRADER_SCHEMA_VERSION = GRADER_SCHEMA_VERSIONS["llm_judge"]
 
 #: The judge's decoding: greedy, plus a fixed seed so any residual sampling is reproducible too.
@@ -823,6 +837,8 @@ class LLMGrading(Job):
         with open(str(self.in_json.get())) as f:
             for line in f:
                 results.append(json.loads(line))
+        if not results:
+            raise RuntimeError(f"{self.in_json.get()} is empty: a broken input, not accuracy 0")
 
         # Both numbers are MEASURED, and they trade against each other -- pick them together
         # (JUDGE_MAX_MODEL_LEN / JUDGE_GPU_MEM_UTIL, module level; run()-side, so no hash moves).
@@ -1210,11 +1226,8 @@ def knowledge_benchmark_py(
         lora_config=lora_config,
         # SpeechInference infers offline-vs-server from offline_script/module presence (no
         # explicit `backend`): an offline backend keeps Moshi's default script (or rides its
-        # offline_module); a pure server backend passes neither so it streams.
-        offline_script=(speech_backend.offline_script or "moshi_offline_inference.py")
-        if (speech_backend.offline_script or speech_backend.offline_module)
-        else None,
-        offline_module=speech_backend.offline_module,
+        # offline_module); a pure server backend, or one naming a released repo, streams.
+        **offline_routing_kwargs(speech_backend),
         offline_extra_args=speech_backend.offline_extra_args,
         extra_inputs=speech_backend.extra_inputs,
         server=speech_backend.server,

@@ -48,6 +48,12 @@ def _pythonpath_env() -> dict:
     return env
 
 
+#: The dataset revision and code commit our outputs hold (read from the finished downloads, 2026-10-29).
+#: Pinned because the data and the scorer are the measurement. Hash-excluded at these values.
+MTR_DATA_REVISION = "f3f16e0ed2b5d61946edaf5af48d54dc4f104192"
+MTR_CODE_COMMIT = "6d7c125db26822c8309cb9f73c87a889e10b6451"
+
+
 class MTRDownload(Job):
     """Snapshot the MTR-DuplexBench HF *dataset* repo (incl. git-LFS audio) to a local dir.
 
@@ -55,8 +61,11 @@ class MTRDownload(Job):
     mini_task (needs internet); ``snapshot_download`` resolves LFS. One-time + cached.
     """
 
-    def __init__(self, *, hf_repo: str = MTR_HF_REPO):
+    __sis_hash_exclude__ = {"revision": MTR_DATA_REVISION}
+
+    def __init__(self, *, hf_repo: str = MTR_HF_REPO, revision: str = MTR_DATA_REVISION):
         self.hf_repo = hf_repo
+        self.revision = revision
         self.out_dir = self.output_path("mtr_duplexbench", directory=True)
 
     def tasks(self):
@@ -65,7 +74,9 @@ class MTRDownload(Job):
     def run(self):
         from huggingface_hub import snapshot_download
 
-        snapshot_download(repo_id=self.hf_repo, repo_type="dataset", local_dir=self.out_dir.get())
+        snapshot_download(
+            repo_id=self.hf_repo, repo_type="dataset", revision=self.revision, local_dir=self.out_dir.get()
+        )
 
 
 MTR_CODE_REPO = "https://github.com/ZhangHe0918/MTR-DuplexBench"
@@ -76,8 +87,11 @@ class MTRCodeDownload(Job):
     scoring scripts -- the HF *dataset* ships data only, NOT the eval code. Login-node mini_task (needs
     internet). One-time + cached; output dir IS the repo root (holds ``Eval/``)."""
 
-    def __init__(self, *, repo_url: str = MTR_CODE_REPO):
+    __sis_hash_exclude__ = {"commit": MTR_CODE_COMMIT}
+
+    def __init__(self, *, repo_url: str = MTR_CODE_REPO, commit: str = MTR_CODE_COMMIT):
         self.repo_url = repo_url
+        self.commit = commit
         self.out_dir = self.output_path("mtr_code", directory=True)
 
     def tasks(self):
@@ -88,7 +102,12 @@ class MTRCodeDownload(Job):
         # output_path(directory=True) pre-creates an empty dir; git refuses to clone into a non-empty
         # one, so clone into a temp sibling then move its contents in.
         tmp = out + ".gitclone"
-        subprocess.run(["git", "clone", "--depth", "1", self.repo_url, tmp], check=True)
+        subprocess.run(["git", "clone", self.repo_url, tmp], check=True)
+        subprocess.run(["git", "-C", tmp, "checkout", "-q", self.commit], check=True)
+        head = subprocess.run(
+            ["git", "-C", tmp, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ).stdout.strip()
+        assert head == self.commit, f"cloned {head}, expected {self.commit}"
         for name in os.listdir(tmp):
             os.rename(os.path.join(tmp, name), os.path.join(out, name))
         os.rmdir(tmp)
@@ -231,7 +250,11 @@ class MTRDuplexEval(Job):
     untouched) when the run()-side protocol changes; :data:`MTR_PROTOCOL` / :data:`MTR_EVAL_CODE_VERSION`.
     """
 
-    __sis_hash_exclude__ = {"code_version": 1}
+    #: ``redetect_pause`` (excluded at False): re-derive each pause round's window from the submission's user channel
+    #: with the fixed ``mtr.conventions._detect_pause``. The driver's detector rejected a whole turn whenever its edge
+    #: silence was longer than the pause (1403 of 2000 rounds had an empty window), so the talk-over check passed
+    #: trivially. Re-scores without re-inference.
+    __sis_hash_exclude__ = {"code_version": 1, "redetect_pause": False}
 
     def __init__(
         self,
@@ -245,7 +268,10 @@ class MTRDuplexEval(Job):
         whisper_model: str = "medium.en",
         rqmt: dict | None = None,
         code_version: int = 1,
+        redetect_pause: bool = False,
     ):
+        assert not redetect_pause or dimension == "conv_features", "redetect_pause scores the CF pause scenario"
+        self.redetect_pause = redetect_pause
         if code_version not in _EVAL_VERSIONS.get(dimension, (1,)):
             raise ValueError(
                 f"MTRDuplexEval({dimension}): code_version {code_version} not implemented "
@@ -321,6 +347,8 @@ class MTRDuplexEval(Job):
                 "--asr_protocol",
                 str(self.code_version),
             ]
+            if getattr(self, "redetect_pause", False):
+                cmd.append("--redetect_pause")
         print("[mtr-eval]", " ".join(cmd), flush=True)
         subprocess.run(cmd, env=_pythonpath_env(), check=True)
 
@@ -605,6 +633,8 @@ def mtr_benchmark_py(
     dimensions (instruction_following / safety) add an ASR step + an LLM ``MTRJudge`` (``judge="vllm"``
     co-launches a vLLM server; ``"gpt4o"`` hits the real API once a key is set).
     """
+    # One inference job covers shard 0 only; a sharded run would need a merge before scoring.
+    assert num_shards == 1, "sharded MTR inference needs a merge step before MTRDuplexEval"
     data = MTRDownload()
     code = MTRCodeDownload()
     tk.register_output("mtr/code", code.out_dir)

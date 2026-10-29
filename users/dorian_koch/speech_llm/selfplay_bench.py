@@ -1043,9 +1043,15 @@ class SelfPlayJudgeV2Table(Job):
         rows = {}
         for label, path in self.judges.items():
             with open(path.get_path()) as f:
-                rows[label] = [r for r in map(json.loads, f) if r["label"] == label]
+                all_rows = list(map(json.loads, f))
+            rows[label] = [r for r in all_rows if r["label"] == label]
             if not rows[label]:
-                raise RuntimeError(f"{path}: no rows labelled {label}")
+                # A label-free judge keeps the label of its first declaration, so after a rename its rows carry the
+                # old one. A file with exactly one label is unambiguous: take it under the table's key.
+                found = sorted({r["label"] for r in all_rows})
+                if len(found) != 1:
+                    raise RuntimeError(f"{path}: no rows labelled {label} (labels: {found})")
+                rows[label] = [{**r, "label": label} for r in all_rows]
         table = {"reference": self.reference, "models": {}}
         metrics = ("overall",) + tuple(m for m in SPJ2_DERIVED + SPJ2_METRICS if m != "overall")
         for label in self.order:

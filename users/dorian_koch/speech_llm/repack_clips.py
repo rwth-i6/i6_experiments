@@ -51,7 +51,22 @@ def is_finished(job_dir: Path) -> bool:
     return (job_dir / "finished").exists() or (job_dir / "finished.tar.gz").exists()
 
 
+def probe_referenced_dirs() -> set[Path]:
+    """TTS dirs a ``BuildKnowledgeProbeSet`` points into: probe.jsonl stores absolute wav paths, so
+    repacking such a dir would leave every in-loop knowledge probe that reads it dangling."""
+    import json
+
+    refs = set()
+    for pj in WORK.glob("quick_knowledge_eval/BuildKnowledgeProbeSet.*/output/probe.jsonl"):
+        with open(pj) as f:
+            for line in f:
+                if line.strip():
+                    refs.add(Path(json.loads(line)["wav"]).parent)
+    return refs
+
+
 def candidates(kinds):
+    protected = probe_referenced_dirs() if "tts" in kinds else set()
     for kind in kinds:
         for pat in KINDS[kind]:
             for d in sorted(WORK.glob(pat)):
@@ -61,6 +76,9 @@ def candidates(kinds):
                 # job's output dir is being written right now.
                 job_dir = d.parent.parent
                 if not is_finished(job_dir):
+                    continue
+                if d.resolve() in protected or d in protected:
+                    print(f"[keep] {d}: a probe.jsonl reads its wavs by path", flush=True)
                     continue
                 yield kind, d
 

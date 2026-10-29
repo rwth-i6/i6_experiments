@@ -33,6 +33,7 @@ Recipe venv, login node, ~1 min:
 import contextlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 
@@ -350,6 +351,22 @@ exp = np.mean(
     [max(1, r["judged"]["responsiveness"]["score"] - 1) - r["judged"]["responsiveness"]["score"] for r in rows]
 )
 check(abs(dr - exp) < 1e-9, f"paired responsiveness delta {dr:.3f} == {exp:.3f}")
+# A renamed arm: its label-free judge's rows still carry the old label ("new"); the table key is "renamed". (A copy of
+# the rows file, so this is a different table job, not the one above under other labels.)
+shutil.copy(os.path.join(tmp, "new.jsonl"), os.path.join(tmp, "new_copy.jsonl"))
+tb2 = b.SelfPlayJudgeV2Table(
+    judges={"ref": as_path(os.path.join(tmp, "ref.jsonl")), "renamed": as_path(os.path.join(tmp, "new_copy.jsonl"))},
+    reference="ref",
+    order=["ref", "renamed"],
+)
+tb2.out_json = as_path(os.path.join(tmp, "t2.json"))
+tb2.out_md = as_path(os.path.join(tmp, "t2.md"))
+tb2.run()
+t2 = json.load(open(os.path.join(tmp, "t2.json")))
+check(
+    abs(t2["models"]["renamed"]["metrics"]["responsiveness"]["delta_vs_ref"] - exp) < 1e-9,
+    "a judge file whose rows carry the pre-rename label builds under the new key",
+)
 
 # ------------------------------------------------------------------ 9
 print("[9] verbatim-copy statistics", flush=True)

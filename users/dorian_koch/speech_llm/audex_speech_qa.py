@@ -153,10 +153,11 @@ class AudexSpeechQA(Job):
 
         # Either clip layout (dir of <i>.wav, or one arrow dataset under storage="hf").
         clips = open_clips(in_dir)
+        keys = set(clips)  # the index keys; ``i in clips`` would decode the clip
         results = []
         missing = 0
         for i, ex in enumerate(ds):
-            if i not in clips:
+            if i not in keys:
                 missing += 1
                 continue
             input_features = whisper_features(clips[i])
@@ -191,7 +192,9 @@ class AudexSpeechQA(Job):
                 print(f"[audex-speechqa] {i + 1}/{n} | last: {answer[:80]!r}", flush=True)
 
         n_empty = sum(1 for r in results if not r["transcription"].strip())
-        assert len(results) >= max(1, (n - missing) // 2), f"too few answers: {len(results)}/{n} (missing {missing})"
+        # Every present clip yields a row, so the bound must be on the missing clips: otherwise a TTS dir with 40%
+        # of its clips gone is scored over the survivors.
+        assert missing <= 0.01 * n, f"{missing}/{n} question clips missing from {in_dir}"
         with open(self.out_json.get(), "w") as f:
             for r in results:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")

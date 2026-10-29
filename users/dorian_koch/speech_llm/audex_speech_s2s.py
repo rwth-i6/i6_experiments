@@ -237,12 +237,17 @@ class AudexSpeechS2S(Job):
             if not ids:
                 return None
             session = decoder.create_session(chunk_frames=_CAUSAL_CHUNK_FRAMES)
-            chunks = []
+            chunks, rates = [], set()
             for _sr, ch in session.push([[int(c)] for c in ids]):
                 chunks.append(np.asarray(ch).reshape(-1))
+                rates.add(int(_sr))
             for _sr, ch in session.flush():
                 chunks.append(np.asarray(ch).reshape(-1))
-            return np.concatenate(chunks).astype(np.float32) if chunks else None
+                rates.add(int(_sr))
+            if not chunks:
+                return None
+            assert len(rates) == 1, f"decoder reported several sample rates: {sorted(rates)}"
+            return np.concatenate(chunks).astype(np.float32), rates.pop()
 
         in_dir = self.in_dir.get()
         # Either clip layout; indices (not filenames) are the identity the downstream join uses.
@@ -250,20 +255,31 @@ class AudexSpeechS2S(Job):
         indices = sorted(clips)[self.shard :: self.num_shards]
         out_dir = self.out_dir.get()
         os.makedirs(out_dir, exist_ok=True)
-        min_samples = int((MIN_TTS_FRAMES / CODEC_FPS) * 16000)
+        min_seconds = MIN_TTS_FRAMES / CODEC_FPS
+        seen_rates = set()
         n = len(indices)
         print(f"[s2s] shard {self.shard}/{self.num_shards}: {n} clips", flush=True)
         done = blank = 0
         for k, idx in enumerate(indices):
             name = f"{idx}.wav"
             text = answer_text(clips[idx])
-            w = synth_wav(text) if text.strip() else None
+            res = synth_wav(text) if text.strip() else None
+            # Write at the decoder's own rate: writing at a fixed 16 kHz would pitch-shift any other rate.
+            if res is not None:
+                w, sr = res
+                if sr not in seen_rates:
+                    print(f"[s2s] decoder sample rate {sr} Hz", flush=True)
+                seen_rates.add(sr)
+                assert len(seen_rates) == 1, f"decoder sample rate changed between clips: {sorted(seen_rates)}"
+            else:  # a blank reply: written at the decoder's rate once known
+                w, sr = None, next(iter(seen_rates), 16000)
+            min_samples = int(min_seconds * sr)
             if w is None or len(w) == 0:
                 w = np.zeros(min_samples, dtype=np.float32) + 1e-3
                 blank += 1
             elif len(w) < min_samples:
                 w = np.pad(w, (0, min_samples - len(w)))
-            sf.write(os.path.join(out_dir, name), w, 16000)
+            sf.write(os.path.join(out_dir, name), w, sr)
             done += 1
             if (k + 1) % 10 == 0 or k + 1 == n:
                 print(f"[s2s] {k + 1}/{n} | text[:60]={text[:60]!r}", flush=True)

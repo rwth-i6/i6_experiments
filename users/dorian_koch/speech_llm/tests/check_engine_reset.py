@@ -252,6 +252,31 @@ def check_moshi():
     check(not bad, "CAN FAIL: without the LM reset hook batches 2-3 differ from fresh")
 
 
+def check_moshi_trim():
+    print("\n== base Moshi: run_pairs(trim_to_input=True) gives each clip its own reply window")
+    ins = write_inputs(6, 7, "trim")
+    lens = [len(sphn.read(p, sample_rate=SR)[0][0]) for p in ins]
+    a, b = min(range(6), key=lambda i: lens[i]), max(range(6), key=lambda i: lens[i])
+    pair = [ins[a], ins[b]]  # the short clip shares a batch with the long one
+
+    def mono(paths, trim):
+        with quiet():
+            res = moshi_engine.run_pairs(
+                moshi_family_model(MOSHI_LM, LMGen),
+                [(p, None) for p in paths],
+                lead_in_s=0.16,
+                capture_s=0.8,
+                max_truncated_frac=1.0,
+                trim_to_input=trim,
+            )
+        return res.monologues
+
+    alone = mono([ins[a]], True)[0]
+    check(lens[a] < lens[b], f"the batch mixes lengths ({lens[a]} vs {lens[b]} samples)")
+    check(mono(pair, True)[0] == alone, "trimmed: the short clip's monologue in a mixed batch == the clip alone")
+    check(mono(pair, False)[0] != alone, "CAN FAIL: untrimmed, the short clip's monologue runs into the padding")
+
+
 def audex_lm():
     """A tiny AudexDuplexLM: the real class over a tiny random Nemotron-dense trunk (the vendored
     ``modeling_nemotron_dense.py`` from the HF cache; no weights read)."""
@@ -443,6 +468,7 @@ def check_moshirag():
         return m
 
     leftover = []
+    n_retrievals = []
 
     def run(model, ins):
         outs = [str(TMP / f"rag_out_{Path(p).stem}.wav") for p in ins]
@@ -463,6 +489,7 @@ def check_moshirag():
             import json
 
             tr = json.loads(Path(o).with_suffix(".json").read_text())
+            n_retrievals.append(len(tr["retrievals"]))
             with wave.open(o) as wf:
                 pcm = wf.readframes(wf.getnframes())
             got.append(
@@ -483,6 +510,23 @@ def check_moshirag():
     fired = [r[0][2] for r in reused]
     print(f"  (retrieval fired at steps {fired} with <ret>={rag_id}; pending rows left after each run: {leftover})")
     check(all(s >= 0 for s in fired), "retrieval fires in every clip (the streaming-sum path is exercised)")
+    # Re-arming: a clip long enough for the model to emit <ret> again after its first retrieval retrieves again.
+    long_out = str(TMP / "rag_out_long.wav")
+    with quiet():
+        asyncio.run(
+            reng.run_pairs(
+                make(rag_token_id=rag_id),
+                [(ins[0], long_out)],
+                lead_in_s=0.16,
+                capture_s=4.0,
+                tail_s=0.0,
+                gt_reference_for={ins[0]: "reference"},
+            )
+        )
+    import json as _json
+
+    n_long = len(_json.loads(Path(long_out).with_suffix(".json").read_text())["retrievals"])
+    check(n_long >= 2, f"every <ret> retrieves, not only the first ({n_long} retrievals in a 4 s capture)")
     check(min(leftover) > 0, "a clip ends with unconsumed reference rows pending (the state a reset must clear)")
     check(first_ok, "clip 1 on the reused instance == clip 1 alone")
     check(ok, "clips 2-3 of one run_pairs call == each clip on a fresh instance (text, STT, trace, wav)")
@@ -496,7 +540,7 @@ def check_moshirag():
 
 
 def main():
-    for fn in (check_moshi, check_audex, check_kame, check_moshirag):
+    for fn in (check_moshi, check_moshi_trim, check_audex, check_kame, check_moshirag):
         fn()
     print()
     if FAILURES:

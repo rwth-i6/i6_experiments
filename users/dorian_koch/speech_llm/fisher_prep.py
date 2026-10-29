@@ -271,6 +271,7 @@ class FisherToMoshiTrainData(Job):
         max_windows: int | None = None,
         seed: int = 0,
         user_words: bool = True,
+        whole_conversations: bool = False,
     ):
         self.cutset = cutset
         self.wav_dir = wav_dir
@@ -282,6 +283,9 @@ class FisherToMoshiTrainData(Job):
         self.max_windows = max_windows
         self.seed = seed
         self.user_words = bool(user_words)
+        # True: one row per conversation, [0, min(duration_sec, conversation length)], at its real length. With False a
+        # window is planned only if it fits entirely, so duration_sec=660 kept just the 2.9% of calls >= 660 s.
+        self.whole_conversations = bool(whole_conversations)
         self.out_dataset = self.output_path("dataset", directory=True)
         self.out_stats = self.output_path("stats.json")
         self.rqmt = {"cpu": 8, "mem": 16, "time": 8}
@@ -291,6 +295,8 @@ class FisherToMoshiTrainData(Job):
         d = dict(parsed_args)
         if not d.get("user_words"):
             d.pop("user_words", None)  # False = every Fisher corpus before 2026-10-12: their hashes are unchanged
+        if not d.get("whole_conversations"):
+            d.pop("whole_conversations", None)  # False = every Fisher corpus before 2026-10-29
         return super().hash(d)
 
     def tasks(self):
@@ -362,10 +368,15 @@ class FisherToMoshiTrainData(Job):
             conv_duration_sec = float(cut.get("duration", 0.0))
             windows_from_this_conv = 0
             win_start = 0.0
-            while win_start + window_sec <= conv_duration_sec and windows_from_this_conv < self.windows_per_conv:
+            whole = getattr(self, "whole_conversations", False)
+            while (
+                win_start + window_sec <= conv_duration_sec or (whole and win_start == 0.0 and conv_duration_sec > 0)
+            ) and windows_from_this_conv < self.windows_per_conv:
                 if self.max_windows is not None and len(windows) >= self.max_windows:
                     break
                 win_end = win_start + window_sec
+                if whole:
+                    win_end = min(win_end, conv_duration_sec)
 
                 # Reject near-silent windows: with almost no agent speech the target is nearly all
                 # text-pad, which feeds exactly the pad-collapse failure mode we are investigating.
@@ -385,6 +396,8 @@ class FisherToMoshiTrainData(Job):
                     continue
 
                 window = {"conv": cut["id"], "start": win_start, "alignments": word_alignments}
+                if whole:
+                    window["duration"] = win_end - win_start
                 if getattr(self, "user_words", False):
                     user_supervisions = [
                         sup for sup in cut.get("supervisions", []) if sup.get("speaker") == CUTSET_USER_SPEAKER
@@ -469,7 +482,7 @@ class FisherToMoshiTrainData(Job):
             "agent": os.path.join(wav_root, f"fe_03_{conv_number}B.wav"),  # channel B
         }
 
-    def _slice_window_wav(self, wav_path: str, window_start_sec: float) -> bytes:
+    def _slice_window_wav(self, wav_path: str, window_start_sec: float, duration_sec: float | None = None) -> bytes:
         """Cut ``duration_sec`` starting at ``window_start_sec`` out of one channel's wav and
         re-encode it as 16-bit PCM wav bytes at the source rate (native 8 kHz is preserved; mimi
         resamples at train time)."""
@@ -478,7 +491,7 @@ class FisherToMoshiTrainData(Job):
 
         with sf.SoundFile(wav_path) as snd:
             sample_rate = snd.samplerate
-            num_samples_wanted = int(round(self.duration_sec * sample_rate))
+            num_samples_wanted = int(round((duration_sec or self.duration_sec) * sample_rate))
             snd.seek(int(round(window_start_sec * sample_rate)))
             samples = snd.read(num_samples_wanted, dtype="int16", always_2d=False)
         if samples.ndim > 1:  # per-channel files should be mono; take channel 0 if ever not
@@ -497,8 +510,9 @@ class FisherToMoshiTrainData(Job):
         window_start_sec = window["start"]
         # Named per role, then assigned per loader column -- so the agent->assistant and
         # user->user mapping is spelled out rather than implied by argument order.
-        agent_wav = self._slice_window_wav(wav_paths["agent"], window_start_sec)
-        user_wav = self._slice_window_wav(wav_paths["user"], window_start_sec)
+        duration = window.get("duration", self.duration_sec)
+        agent_wav = self._slice_window_wav(wav_paths["agent"], window_start_sec, duration)
+        user_wav = self._slice_window_wav(wav_paths["user"], window_start_sec, duration)
         # Both channels of a Fisher conversation are the same length (asserted upstream in
         # `create_fisher_manifest`), so equal slice sizes confirm we read the same span of both.
         assert len(agent_wav) == len(user_wav), (
@@ -507,7 +521,7 @@ class FisherToMoshiTrainData(Job):
         )
         return {
             "id": f"{window['conv']}_{window_start_sec:.1f}",
-            "duration": float(self.duration_sec),
+            "duration": float(duration),
             # channel B (agent) is the track the model is trained to produce ...
             "audio_assistant": {"bytes": agent_wav, "path": ""},
             # ... channel A (user) is the interlocutor, conditioning input only.

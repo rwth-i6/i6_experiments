@@ -88,6 +88,8 @@ class StreamOptions:
     copy_sidecars: bool = False  # copy inp.parent/*.json next to each output
     length_check: bool = False  # warn if reply << input (alignment regression guard)
     progress_every: int = 50
+    # share of clips that may fail every retry; above it the job raises instead of shrinking n
+    max_failed_frac: float = 0.005
 
 
 def stream_inference(
@@ -108,26 +110,36 @@ def stream_inference(
         url = ws_url(handle)
         server_name = getattr(server, "__name__", "server")
         print(f"[{server_name}] streaming {n} clips at {url}", flush=True)
+        failed = []
         for i, (inp, out) in enumerate(items):
             inp, out = Path(inp), Path(out)
             out.parent.mkdir(parents=True, exist_ok=True)
             if opts.resume and out.exists() and out.stat().st_size > 0:
                 print("[SKIP]", out.parent.name, inp.name, "(already done)", flush=True)
                 continue
+            # The client writes a partial name and it is renamed on success, so a clip cut by a timeout never looks
+            # done to a resumed run.
+            partial = out.with_name(out.stem + ".partial" + out.suffix)
             for attempt in range(opts.retries):
                 try:
                     file_client(
                         url,
                         inp,
-                        out,
+                        partial,
                         lead_in_s=opts.lead_in_s,
                         capture_s=opts.capture_s,
                     ).run()
+                    os.replace(partial, out)
                     break
                 except Exception as e:
                     print(f"[RETRY {attempt + 1}/{opts.retries}] {inp.name}: {e}", flush=True)
                     if opts.retry_sleep_s:
                         time.sleep(opts.retry_sleep_s)
+            else:
+                partial.unlink(missing_ok=True)
+                failed.append(str(inp))
+                print(f"[FAILED] {inp} after {opts.retries} attempts", flush=True)
+                continue
             if opts.length_check:
                 _warn_if_truncated(inp, out)
             if opts.copy_sidecars:
@@ -135,6 +147,10 @@ def stream_inference(
                     shutil.copy(json_file, out.parent / json_file.name)
             if opts.progress_every and (i + 1) % opts.progress_every == 0:
                 print(f"[inference] {i + 1}/{n} clips done", flush=True)
+        if failed:
+            print(f"[inference] {len(failed)}/{n} clips failed every retry: {failed[:10]}", flush=True)
+        if len(failed) > opts.max_failed_frac * n:
+            raise RuntimeError(f"{len(failed)}/{n} clips failed every retry (limit {opts.max_failed_frac:.1%})")
 
 
 def _warn_if_truncated(inp: Path, out: Path) -> None:

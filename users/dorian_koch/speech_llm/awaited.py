@@ -56,7 +56,8 @@ def append(path: str, rec: dict) -> None:
 
 
 def landed(item: dict, records: dict) -> list[str]:
-    return sorted({t for t in records for p in item["tags"] if fnmatch.fnmatchcase(t, p)})
+    pats = read_results.with_old_names(item["tags"])  # a renamed arm's results may carry its old name
+    return sorted({t for t in records for p in pats if fnmatch.fnmatchcase(t, p)})
 
 
 def show(item: dict, records: dict) -> bool:

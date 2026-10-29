@@ -334,10 +334,13 @@ def main():
         sdr_c = si_sdr(x, x_rt)
 
         for name, fn in AUGS.items():
+            # One realisation per (row, aug), applied to both arms: PENALTY is d(E(A(x)), E(A(D(c0)))) with the SAME
+            # A, so a stochastic aug (noise, RIR) must not draw a fresh noise vector / room for the stored arm.
+            aug_seed = int(rng.integers(2**63))
             t0 = time.perf_counter()
-            xa = fn(x, rng, sr)
+            xa = fn(x, np.random.default_rng(aug_seed), sr)
             timing["aug_ms"][name].append(1000 * (time.perf_counter() - t0))
-            xa_s = fn(x_rt, rng, sr)
+            xa_s = fn(x_rt, np.random.default_rng(aug_seed), sr)
 
             ca_ideal = enc(xa)
             ca_stored = enc(xa_s)

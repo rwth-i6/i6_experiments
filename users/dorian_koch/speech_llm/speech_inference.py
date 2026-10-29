@@ -16,6 +16,7 @@ feed the same per-run ``lora_weights`` / ``lora_config`` overlay seam on ``Speec
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -692,6 +693,15 @@ class SpeechInference(BackendInferenceMixin, Job):
             traces=traces,
         )
         print(f"[clips] packed {len(clips)} clips into {final_dir}", flush=True)
+        # The engine's per-worker truncation stats (truncation.<first clip>.json) would go with the scratch: sum them.
+        parts = [json.loads(p.read_text()) for p in sorted(scratch.glob("truncation.*.json"))]
+        if parts:
+            total = {k: v for k, v in parts[0].items() if k not in ("clips", "truncated", "truncated_fraction")}
+            total["clips"] = sum(p["clips"] for p in parts)
+            total["truncated"] = sum(p["truncated"] for p in parts)
+            total["truncated_fraction"] = total["truncated"] / total["clips"] if total["clips"] else 0.0
+            total["workers"] = len(parts)
+            (final_dir / "truncation.json").write_text(json.dumps(total, indent=2))
         shutil.rmtree(scratch, ignore_errors=True)
 
     def _driver_shards(self) -> list:

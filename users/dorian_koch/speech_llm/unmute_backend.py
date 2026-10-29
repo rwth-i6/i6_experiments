@@ -374,11 +374,12 @@ class UnmuteFileClient:
     def run(self):
         import asyncio
 
-        from websockets.exceptions import ConnectionClosed
+        from websockets.exceptions import ConnectionClosedOK
 
+        # An abnormal close propagates so the harness retries the clip (see moshi_client.run).
         try:
             asyncio.run(self._converse())
-        except ConnectionClosed as exc:
+        except ConnectionClosedOK as exc:
             print("[unmute-client] websocket closed early:", exc)
 
     async def _converse(self):

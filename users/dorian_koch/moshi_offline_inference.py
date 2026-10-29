@@ -52,6 +52,11 @@ def main():
         default=4.0,
         help="Flag clips still non-silent in the last N seconds (likely truncated by capture_s).",
     )
+    p.add_argument(
+        "--trim_to_input",
+        action="store_true",
+        help="cut each reply to its own input length (default: the batch's longest, the historical behaviour)",
+    )
     args = p.parse_args()
 
     device = args.device
@@ -123,6 +128,9 @@ def main():
             out_items = state.run(in_pcms)
         for b, w in enumerate(batch):  # save only the real clips (ignore padding rows)
             out_pcm = out_items[b][1][0].detach().cpu().numpy()  # mono (T_out,)
+            if args.trim_to_input:
+                fs = int(mimi.sample_rate / mimi.frame_rate)
+                out_pcm = out_pcm[: (len(inputs[b]) // fs) * fs]
             sphn.write_wav(str(out_dir / w.name), out_pcm, sr)
             if out_pcm.size >= tail_n and float(np.max(np.abs(out_pcm[-tail_n:]))) >= speech_threshold:
                 truncated += 1

@@ -83,6 +83,10 @@ def run_checks(tmp: Path) -> list[str]:
         check("0/rating.json" not in snapshot(root), "a reader's write never reaches the stored tree")
     with fts.tree_root(src) as root:
         check(root == str(src), "a plain tree (pre-2026-10-14 output) is passed through unchanged")
+    with fts.tree_root(src, writable=True) as root:
+        check(root != str(src) and snapshot(root) == want, "writable=True copies a plain tree")
+        (Path(root) / "0" / "rating.json").write_text("{}")
+    check(not (src / "0" / "rating.json").exists(), "a writer never reaches a stored plain tree (writable=True)")
     check(fts.verify_tree(packed, src) is None, "verify_tree accepts the matching source")
 
     # 2. verify_tree catches a changed byte, a missing file and an extra file

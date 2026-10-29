@@ -23,6 +23,7 @@ Usage (from synthetic_train_data.py):
     voicebench_all_py(models={"moshi_base": MOSHI_BACKEND, "moshi_rl_ckpt1400": ...}, subsets=("openbookqa", "mmsu"))
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -34,7 +35,7 @@ from .knowledge_benchmark import (
     resolve_personaplex_weights,
     sharded_knowledge_inference,
 )
-from .speech_backends import MOSHI_BACKEND
+from .speech_backends import MOSHI_BACKEND, offline_routing_kwargs
 from .label_free_hash import hash_bytes, label_free_hash, values_canon  # noqa: F401
 
 # Pinned upstream commit — reproducibility contract. Bumping this re-hashes the whole chain (intended).
@@ -262,10 +263,7 @@ def _inference_out_dir(
         in_dir=prompts_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,
-        offline_script=(speech_backend.offline_script or "moshi_offline_inference.py")
-        if (speech_backend.offline_script or speech_backend.offline_module)
-        else None,
-        offline_module=speech_backend.offline_module,
+        **offline_routing_kwargs(speech_backend),
         offline_extra_args=speech_backend.offline_extra_args,
         server=speech_backend.server,
         file_client=speech_backend.file_client,

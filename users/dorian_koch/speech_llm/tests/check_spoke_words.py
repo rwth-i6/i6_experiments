@@ -19,7 +19,7 @@ goes through ``evalstats.spoke`` / ``n_words`` at >= 1 word.
       ``spoke`` name imports evalstats (``SPOKE_OK`` lists the deliberate non-reply uses).
 
 Out of scope on purpose (different measures, kept): echo/WER ``words`` (lowercase + strip, a word SEQUENCE for WER),
-MRQA's ``spoke`` (upstream evaluator: non-empty text), the in-loop probe's ``coherence_stats`` (a logged time series),
+MRQA's ``n_empty`` (upstream evaluator: non-empty text; its ``spoke`` uses the shared rule, pinned in [1]), the in-loop probe's ``coherence_stats`` (a logged time series),
 corpus / prompt / self-play-rate word counts.
 
 CAN FAIL: ``--selftest`` mutates the sandbox copies (never the real files) and requires a flag for each: evalstats
@@ -116,6 +116,9 @@ def check_parity(es_path):
         a, b, c = kr.count_words(r), es.n_words(r), len(ip.findall(r))
         if not (a == b == c):
             fails.append(f"{r!r}: trainer {a}, evalstats {b}, instruct_prompts {c}")
+    mrqa = ast_word_pattern(I6 / "speech_llm" / "moshirag_qa_bench.py", "_SPOKE_WORD")
+    if mrqa != kr._WORD.pattern:
+        fails.append(f"moshirag_qa_bench._SPOKE_WORD {mrqa!r} != the trainer's {kr._WORD.pattern!r}")
     if es.SPOKE_MIN_WORDS != 1:
         fails.append(f"evalstats.SPOKE_MIN_WORDS = {es.SPOKE_MIN_WORDS} (user: >= 1)")
     return fails

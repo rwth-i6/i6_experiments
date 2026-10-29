@@ -203,11 +203,13 @@ class MoshiFileClient:
     def run(self):
         import asyncio
 
-        from websockets.exceptions import ConnectionClosed
+        from websockets.exceptions import ConnectionClosedOK
 
+        # A clean close is the server ending the session; an abnormal one (ConnectionClosedError) propagates so the
+        # harness retries the clip instead of keeping a cut reply.
         try:
             asyncio.run(self._converse())
-        except ConnectionClosed as exc:
+        except ConnectionClosedOK as exc:
             print("[moshi-client] websocket closed early:", exc)
 
     async def _converse(self):
@@ -271,7 +273,7 @@ class MoshiFileClient:
         """Capture the reply overlapping the prompt, trimmed to the prompt length (fdb.py)."""
         import soundfile as sf
 
-        from websockets.exceptions import ConnectionClosed
+        from websockets.exceptions import ConnectionClosedOK
 
         self._reply_len = 0
         padded = False
@@ -308,7 +310,7 @@ class MoshiFileClient:
                         sink.write(_pcm_to_int16(pcm[:take]))
                         self._reply_len += take
                         pcm = self._decoder.append_bytes(b"")
-            except ConnectionClosed as exc:
+            except ConnectionClosedOK as exc:
                 print("[moshi-client] receive interrupted:", exc)
             finally:
                 self._reply_done = True
