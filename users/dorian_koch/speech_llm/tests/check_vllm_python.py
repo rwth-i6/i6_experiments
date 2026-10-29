@@ -43,4 +43,12 @@ args = common._VLLM_MODEL_ARGS["google/gemma-4-31B-it"]
 i = args.index("--default-chat-template-kwargs")
 assert args[i + 1] == '{"enable_thinking": false}', args
 print("[ok] gemma-4 server default enable_thinking=false")
+
+# the recipe builds the image under the same name this module looks it up by (one constant, no second literal)
+import re  # noqa: E402
+
+venvs_src = open("recipe/speech_llm/full_duplex/sis_recipe/doriank/venvs.py").read()
+assert not re.search(r"[\"']vllm_venv_v\d", venvs_src), "venvs.py spells the vLLM image name: use VLLM_VENV_HASH"
+assert common._VLLM_VENV_JOB.endswith("CreateVenv." + common.VLLM_VENV_HASH), common._VLLM_VENV_JOB
+print("[ok] vllm_venv and vllm_python share VLLM_VENV_HASH")
 print("\nALL CHECKS PASSED")

@@ -6,6 +6,9 @@ import shutil
 class AggregateFoldersJob(Job):
     def __init__(self, *, inputs: dict[tk.Path, str | tuple[str, str]]):
         self.inputs = inputs
+        # Sisyphus finds no input among dict keys: register them, else the copy runs before its sources exist
+        for path in inputs:
+            self.add_input(path)
         self.out_dir = self.output_path("out_folders", directory=True)
 
     def tasks(self):

@@ -732,7 +732,11 @@ class HfToDialogue(Job):
         templates_version: int = 1,
         template_name: str | None = None,
         extra_facts: int = 0,
+        seed_offset_effective: bool = False,
     ):
+        """``seed_offset`` is hashed but, unless ``seed_offset_effective``, never reached the generator: every corpus
+        built so far drew the same per-uid seeds whatever its offset. Set ``seed_offset_effective=True`` for a corpus
+        that should really draw other seeds (hashed only when True)."""
         self.dataset_split_path = dataset_split_path
         self.llm_name = llm_name
         # dialogue_instructions kept in hash for backward compat with existing jobs
@@ -741,6 +745,7 @@ class HfToDialogue(Job):
         self.shard = shard
         self.num_shards = num_shards
         self.seed_offset = seed_offset
+        self.seed_offset_effective = bool(seed_offset_effective)
         # DIALOGUE_INSTRUCTION_TEMPLATES / DIALOGUE_TEMPLATE_WEIGHTS are module constants, so editing
         # them does NOT change this job's hash and a finished corpus would silently NOT regenerate.
         # Bump `templates_version` to force a fresh corpus (and the TTS/annotate cascade below it)
@@ -783,6 +788,8 @@ class HfToDialogue(Job):
             d["__version"] = 2
         else:
             d["__version"] = 5
+        if not d.get("seed_offset_effective"):
+            d.pop("seed_offset_effective", None)
         if d.get("templates_version", 1) == 1:
             d.pop("templates_version", None)  # no-op at the default: existing corpora keep their hash
         if d.get("template_name") is None:
@@ -813,7 +820,7 @@ class HfToDialogue(Job):
                     shard=shard,
                     num_shards=num_shards,
                     llm_name=shard_llm,
-                    seed_offset=shard,  # different seed offset per shard for more variety
+                    seed_offset=shard,  # hashed only (seed_offset_effective): the seeds come from each row's uid
                     **kwargs,
                 )
             )
@@ -872,7 +879,8 @@ class HfToDialogue(Job):
                 template_name=self.template_name,
                 extra_facts=self.extra_facts,
             )
-            dataset = dataset.map(gen_fn, num_proc=32)
+            fn_kwargs = {"seed_offset": self.seed_offset} if self.seed_offset_effective else None
+            dataset = dataset.map(gen_fn, num_proc=32, fn_kwargs=fn_kwargs)
 
             # Count and remove failed rows; abort if failure rate > 1%
             num_failures = sum(1 for row in dataset if row["dialogue"] is None)

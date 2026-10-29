@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -22,17 +23,37 @@ def dedup_repeats(text: str) -> str:
     return re.sub(r"([?!.,])\1+", r"\1", " ".join(out))
 
 
+def file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 class HeadTranscriptQuestions(Job):
     """``offline_inference --question_context`` rows (``{"index", "question"}``, as ``questions``) with each question
     replaced by the head's transcript of its clip: ``hypotheses`` = ``analysis/ppx_user_text_head_eval.py``'s
     ``per_unit.jsonl`` (rows ``step`` / ``pop`` / ``unit`` "q<index>" / ``hyp``), read at ``step`` for ``pop``.
     ``dedup``: :func:`dedup_repeats` on every transcript. Every index of ``questions`` must have a transcript; an empty
-    one stays empty (the prompt then names no question). ``out_stats``: counts + examples (gold vs transcript)."""
+    one stays empty (the prompt then names no question). ``out_stats``: counts + examples (gold vs transcript).
+    ``hypotheses_sha256``: the file's content hash, since a script (not a Job) writes it in place; ``run`` checks it,
+    and it is hashed unless it is the content the first job read (``HYPOTHESES_PINNED_SHA256``)."""
+
+    HYPOTHESES_PINNED_SHA256 = "2ed2d1942f3c5df2fc8762423255c75435acf6b4b1fbebd74c93a842906ba654"
 
     def __init__(
-        self, *, hypotheses: tk.Path, questions: tk.Path, step: int, pop: str = "knowledge", dedup: bool = True
+        self,
+        *,
+        hypotheses: tk.Path,
+        questions: tk.Path,
+        step: int,
+        pop: str = "knowledge",
+        dedup: bool = True,
+        hypotheses_sha256: str | None = None,
     ):
         self.hypotheses = hypotheses
+        self.hypotheses_sha256 = hypotheses_sha256
         self.questions = questions
         self.step = step
         self.pop = pop
@@ -40,10 +61,21 @@ class HeadTranscriptQuestions(Job):
         self.out_questions = self.output_path("questions.jsonl")
         self.out_stats = self.output_path("stats.json")
 
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(parsed_args)
+        if d.get("hypotheses_sha256") in (None, cls.HYPOTHESES_PINNED_SHA256):
+            d.pop("hypotheses_sha256", None)
+        return super().hash(d)
+
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
+        if self.hypotheses_sha256 is not None:
+            got = file_sha256(self.hypotheses.get_path())
+            if got != self.hypotheses_sha256:
+                raise RuntimeError(f"{self.hypotheses}: sha256 {got} != declared {self.hypotheses_sha256}")
         hyp = {}
         for r in map(json.loads, open(self.hypotheses.get_path())):
             if r["step"] == self.step and r["pop"] == self.pop:

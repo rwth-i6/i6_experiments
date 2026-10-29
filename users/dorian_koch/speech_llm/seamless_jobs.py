@@ -17,6 +17,7 @@ moshi_family lib (``rl/seamless_*_main.py``) and run in ``moshi_family_venv``.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import os
@@ -30,6 +31,11 @@ from .common import run_worker_script
 from .inference_harness import _moshi_family_pythonpath
 
 FILELIST_URL = "https://raw.githubusercontent.com/facebookresearch/seamless_interaction/main/assets/filelist.csv"
+#: What ``FILELIST_URL`` (``main``, hashed as the default) resolves to: the last commit touching the file (2025-08-16),
+#: which reproduces every shard of SeamlessInteractionIndexJob.Fn8d3uPvrmdJ (2026-07-01). An upstream change to ``main``
+#: no longer changes a rebuild under the same hash.
+FILELIST_COMMIT = "29f819d1d6610fabd0e9d9d3bea67afb644dde9e"
+FILELIST_SHA256 = "e8ecdfd690286502193489b638208b70d1834dc3e25e2145050618e14dd568dc"
 
 
 class SeamlessInteractionIndexJob(Job):
@@ -65,7 +71,14 @@ class SeamlessInteractionIndexJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        data = urllib.request.urlopen(self.filelist_url, timeout=120).read().decode()
+        url = self.filelist_url
+        if url == FILELIST_URL:
+            url = url.replace("/main/", f"/{FILELIST_COMMIT}/")
+        raw = urllib.request.urlopen(url, timeout=120).read()
+        sha = hashlib.sha256(raw).hexdigest()
+        if url != self.filelist_url and sha != FILELIST_SHA256:
+            raise RuntimeError(f"{url}: sha256 {sha} != pinned {FILELIST_SHA256}")
+        data = raw.decode()
         by_key: dict[str, list[dict]] = defaultdict(list)
         for row in csv.DictReader(io.StringIO(data)):
             if row["label"] != self.label or row["split"] != self.split:
@@ -93,7 +106,13 @@ class SeamlessInteractionIndexJob(Job):
                 json.dump({"label": self.label, "split": self.split, "interactions": interactions}, f)
         with open(os.path.join(out, "summary.json"), "w") as f:
             json.dump(
-                {"num_shards": self.num_shards, "n_interactions": len(paired), "per_shard": [len(s) for s in shards]},
+                {
+                    "num_shards": self.num_shards,
+                    "n_interactions": len(paired),
+                    "per_shard": [len(s) for s in shards],
+                    "filelist_url": url,
+                    "filelist_sha256": sha,
+                },
                 f,
             )
         print(f"[index] {self.label}/{self.split}: {len(paired)} paired interactions -> {self.num_shards} shards")
@@ -203,6 +222,8 @@ class SeamlessSegmentEncodeJob(Job):
         self.per_axis_cap = per_axis_cap
         self.both_directions = both_directions
         self.vad_backend = vad_backend
+        # seamless_encode_main encodes at Mimi's own rate and takes no --sample_rate
+        assert sample_rate == 24000, f"sample_rate={sample_rate}: the encoder always runs at 24 kHz"
         self.sample_rate = sample_rate
         self.seed = seed
         self.out_dir = self.output_path("data", directory=True)

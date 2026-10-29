@@ -99,6 +99,11 @@ def spec_digest(name: str) -> str:
     return hashlib.sha256(json.dumps(PROMPT_SPECS[name], sort_keys=True).encode()).hexdigest()[:16]
 
 
+#: ``PersonaPromptGen`` hashed no digest until 2026-10-29: a spec at its pinned content keeps that hash, an edited one
+#: (or a new spec) adds its digest. Never update a pin; an edit is meant to move the hash.
+PINNED_SPEC_DIGESTS = {"persona_v1": "9f6ebf38c69e6ba4"}
+
+
 def _words(text: str) -> list[str]:
     return ["".join(c for c in w.lower() if c.isalnum()) for w in text.split()]
 
@@ -433,6 +438,15 @@ class PersonaPromptGen(Job):
         yield Task("run", rqmt=self.rqmt)
 
     __sis_hash_exclude__ = {"sides": ("assistant",)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The spec's CONTENT is part of the hash once it differs from its pin (``PINNED_SPEC_DIGESTS``)."""
+        d = dict(parsed_args)
+        digest = spec_digest(d["spec"])
+        if digest != PINNED_SPEC_DIGESTS.get(d["spec"]):
+            d["spec_digest"] = digest
+        return super().hash(d)
 
     def prompt_set_for(self, side: str) -> str:
         base = f"{self.spec}|{self.llm_name}|{self.input_view}"

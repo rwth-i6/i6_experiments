@@ -47,6 +47,7 @@ from speech_llm.full_duplex.sis_recipe.doriank.train_config import (  # noqa: E4
     MOSHI_LIB_FULL,
     MOSHIRAG_LIB,
     Corpus,
+    Loss,
 )
 
 FAILURES: list[str] = []
@@ -166,6 +167,13 @@ def run_checks(fix_hparams):
             check(rendered(old.job) == rendered(without.job), f"{fam}: ...and renders the same config")
             if preset:
                 check(new.job._sis_id() != old.job._sis_id(), f"{fam}: the new arm hashes apart")
+        # an explicit typed knob wins over the preset (the preset fills only what the arm left unset)
+        sisyphus.job.created_jobs.clear()
+        stated = runs.train(
+            "fix_policy_guard_norm", model=MOSHIRAG_LIB, corpus=CORPUS, policy=runs.POLICY_2026_09_23, steps=100,
+            evals=False, register=False, loss=Loss(audio_other=0.02, text_pad=0.3, norm="count"),
+        )  # fmt: skip
+        check(stated.job.hparams.get("loss_norm") == "count", "moshirag_lib: an explicit Loss(norm='count') survives")
 
         print("[3] _ppx_arm (PersonaPlex LoRA)")
         data = tk.Path("/dev/null/ppx", hash_overwrite="fix_policy_guard_ppx")

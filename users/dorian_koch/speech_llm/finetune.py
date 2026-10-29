@@ -190,6 +190,47 @@ def write_finetune_config(job: "SpeechFinetune", adapter: FinetuneAdapter) -> No
         f.write(text)
 
 
+class _ReadTrackingDict(dict):
+    """A dict that records every key read through ``[]``, ``get`` or ``in``."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.read: set = set()
+
+    def __getitem__(self, k):
+        self.read.add(k)
+        return super().__getitem__(k)
+
+    def get(self, k, default=None):
+        self.read.add(k)
+        return super().get(k, default)
+
+    def __contains__(self, k):
+        self.read.add(k)
+        return super().__contains__(k)
+
+
+#: hparams keys read outside the renderers: scheduling (``SpeechFinetune.__init__``, ``declared_train_gpus``), the
+#: step plan evals check against (``speech_inference.assert_checkpoint_will_exist``), and ``data_pipeline_version``,
+#: a marker whose only job is to move the hash (``train_config.merge_hparams``).
+HPARAMS_READ_ELSEWHERE = frozenset({"gpu", "rqmt_time_h", "max_steps", "num_epochs", "data_pipeline_version"})
+
+
+def unread_hparams(job: "SpeechFinetune", adapter: FinetuneAdapter, max_steps: int = 1000) -> list[str]:
+    """``job.hparams`` keys its adapter's renderer never reads: hashed knobs that configure nothing (the RL side's
+    ``check_knobs_rendered``). Renders at graph time from a copy; the job is untouched."""
+    hp = _ReadTrackingDict(getattr(job, "hparams", None) or {})
+    if not hp:
+        return []
+    saved = job.hparams
+    try:
+        job.hparams = hp
+        adapter.render_config(job, adapter.batch_size, max_steps)
+    finally:
+        job.hparams = saved
+    return sorted(set(hp) - hp.read - HPARAMS_READ_ELSEWHERE)
+
+
 def finetune_completed_fraction(job: "SpeechFinetune", adapter: FinetuneAdapter):
     """Shared ``completed_fraction``: tail-read the trainer's metrics file."""
     rel, field_name = adapter.progress
@@ -1109,7 +1150,11 @@ knowledge_probe_transcripts: {str(bool(hp.get("knowledge_probe_transcripts", Tru
 knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
 """
         + render_train_perf_keys(
-            hp, MOSHI_LIB_PERF_KEYS, who="base-Moshi lib", rendered_elsewhere=("prefetch_batches",)
+            hp,
+            # a full finetune has no LoRA linears to fuse: refuse the key, as the PersonaPlex renderer does
+            [k for k in MOSHI_LIB_PERF_KEYS if not (job.adapter.overlay_kind == "full" and k == "fused_lora_add")],
+            who="base-Moshi lib",
+            rendered_elsewhere=("prefetch_batches",),
         )
         + render_launcher_fix_keys(
             hp, ("ddp_static_graph",), who="base-Moshi lib", rendered_elsewhere=("fp32_master_weights", "loss_norm")

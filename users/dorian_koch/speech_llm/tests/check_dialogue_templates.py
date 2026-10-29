@@ -310,3 +310,19 @@ if failures:
     raise SystemExit(1)
 
 print(f"\nall {len(DIALOGUE_INSTRUCTION_TEMPLATES)} templates forbid inventing time/place-dependent facts")
+
+# The two prompt levers re-hash independently: a facts-prompt bump moves every fact slice, v7's included; today's
+# values (and hashes) stay.
+from speech_llm.full_duplex.sis_recipe.doriank import pipelines as _pl  # noqa: E402
+
+_now = _pl.EXTRA_FACTS_PROMPT_VERSION
+assert _now == 3, f"EXTRA_FACTS_PROMPT_VERSION is {_now}: update the legacy expectations below"
+assert [_pl.slice_templates_version(tv, n) for tv, n in ((1, 0), (7, 0), (1, 2), (7, 2))] == [1, 7, 3, 7]
+_pl.EXTRA_FACTS_PROMPT_VERSION = _now + 1
+try:
+    bumped = [_pl.slice_templates_version(tv, 2) for tv in (1, 7)]
+finally:
+    _pl.EXTRA_FACTS_PROMPT_VERSION = _now
+assert bumped[0] != 3 and bumped[1] != 7, f"a facts-prompt bump left a fact slice's version unchanged: {bumped}"
+assert _pl.slice_templates_version(8, 2) != _pl.slice_templates_version(7, 2), "a templates bump left a fact slice"
+print("[ok] prompt levers     facts-prompt and templates bumps each move every fact slice, v7's included")

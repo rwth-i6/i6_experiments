@@ -121,6 +121,14 @@ b.SPJ2_RUBRICS["spj2_judge_v1"] = old.replace("at most 30 words", "at most 20 wo
 k2 = b.SelfPlayJudgeV2(runs=fake_runs)
 b.SPJ2_RUBRICS["spj2_judge_v1"] = old
 check(k1._sis_id() != k2._sis_id(), "an edited rubric moves the judge hash")
+import i6_experiments.users.dorian_koch.speech_llm.selfplay_judge as sj  # noqa: E402
+
+c1 = sj.SelfPlayCoherenceJudge(runs=fake_runs, real_data=as_path("/tmp/spj2_fake_real"))
+old_c = json.loads(json.dumps(sj.COHERENCE_RUBRICS["coherence_v1"]))
+sj.COHERENCE_RUBRICS["coherence_v1"] = {**old_c, "_edit": "x"} if isinstance(old_c, dict) else str(old_c) + " x"
+c2 = sj.SelfPlayCoherenceJudge(runs=fake_runs, real_data=as_path("/tmp/spj2_fake_real"))
+sj.COHERENCE_RUBRICS["coherence_v1"] = old_c
+check(c1._sis_id() != c2._sis_id(), "an edited coherence rubric moves the coherence judge hash")
 
 # ------------------------------------------------------------------ 3
 print("[3] scenario-set job -> self-play worker", flush=True)

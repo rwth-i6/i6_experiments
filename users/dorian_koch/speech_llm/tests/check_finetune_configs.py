@@ -279,4 +279,17 @@ lora_same = ppx.render_config(_FakeJob(SINGLE, hparams=P2_HPARAMS, adapter=ppx),
 assert 'train_scope: "lora"\nlora_rank: 128\nlora_scaling: 2.0\ngradient_checkpointing:' in lora_same
 print("[ok] personaplex_lib_full: train_scope full, no lora_* keys, its presets render, fused_lora_add refused")
 
+# base-Moshi full finetune refuses fused_lora_add too (no LoRA linears to fuse); the LoRA adapter still renders it
+mfull = MOSHI_LIB_FULL_ADAPTER
+try:
+    mfull.render_config(_FakeJob(SINGLE, hparams={"fused_lora_add": True}, adapter=mfull), mfull.batch_size, 10)
+    raise SystemExit("moshi_lib_full rendered fused_lora_add -- a LoRA switch on a full finetune")
+except ValueError:
+    pass
+mlora = ADAPTERS["moshi_lib"]
+assert "fused_lora_add: true" in mlora.render_config(
+    _FakeJob(SINGLE, hparams={"fused_lora_add": True}, adapter=mlora), mlora.batch_size, 10
+)
+print("[ok] moshi_lib_full: fused_lora_add refused; moshi_lib renders it")
+
 print("\nALL CHECKS PASSED")

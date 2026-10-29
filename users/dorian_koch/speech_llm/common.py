@@ -203,9 +203,11 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 }
 
 
-#: ``CreateVenv(hash_overwrite="vllm_venv")`` (sis_recipe venvs.vllm_venv): its job id is fixed by hash_overwrite, so
-#: the image's place is known without making every vLLM job depend on it (which would re-hash ~13 job types).
-_VLLM_VENV_JOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.vllm_venv_v030"
+#: ``CreateVenv(hash_overwrite=VLLM_VENV_HASH)`` (sis_recipe venvs.vllm_venv, which imports this name): its job id is
+#: fixed by hash_overwrite, so the image's place is known without making every vLLM job depend on it (which would
+#: re-hash ~13 job types). Bump the image here, in one place.
+VLLM_VENV_HASH = "vllm_venv_v030"
+_VLLM_VENV_JOB = f"work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.{VLLM_VENV_HASH}"
 
 
 def vllm_python(hf_model: str | None = None) -> str:

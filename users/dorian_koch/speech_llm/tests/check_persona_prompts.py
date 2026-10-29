@@ -352,6 +352,12 @@ single = pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), inp
 assert single._sis_hash() == pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant", sides=("assistant",))._sis_hash()
 assert single._sis_hash() != g._sis_hash()
 print(f"[7] two-sided prompt job: {len(ctx)} windows x 2 sides, each side from its own channel; the default keeps its hash")
+_old_instr = pp.PROMPT_SPECS["persona_v1"]["instruction"]
+pp.PROMPT_SPECS["persona_v1"]["instruction"] = _old_instr + " Be brief."
+edited = pp.PersonaPromptGen(context_data=tk.Path(os.path.join(tmp, "ctx")), input_view="assistant")
+pp.PROMPT_SPECS["persona_v1"]["instruction"] = _old_instr
+assert edited._sis_hash() != single._sis_hash(), "an edited prompt spec keeps the PersonaPromptGen hash"
+print("[7b] an edited prompt spec moves the PersonaPromptGen hash; the pinned spec keeps it")
 
 # ---- 8 ----
 from i6_experiments.users.dorian_koch.speech_llm.persona_prompts import _joint_labels, _label_for  # noqa: E402

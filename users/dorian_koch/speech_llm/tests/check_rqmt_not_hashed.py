@@ -95,9 +95,10 @@ def build(policy, *, compute=None, optim=None, extra_hparams=None, tag="rqmt_gua
     import sisyphus.job
 
     sisyphus.job.created_jobs.clear()
-    # From RULE_NO_GRAD_ACCUM (2026-09-25) a run must state grad_accum=1 or ``make_finetune_run`` refuses it.
+    # From RULE_NO_GRAD_ACCUM (2026-09-25) a run must state grad_accum=1 and its per_gpu_batch or ``make_finetune_run``
+    # refuses it.
     if _policy_applies(policy, RULE_NO_GRAD_ACCUM):
-        extra_hparams = {"grad_accum": 1, **(extra_hparams or {})}
+        extra_hparams = {"grad_accum": 1, "per_gpu_batch": 16, **(extra_hparams or {})}
     return train(
         tag,
         model=MOSHI_LIB,
@@ -241,6 +242,7 @@ def main():
         check_legacy_epoch_is_pinned,
         check_compute_beats_hparams,
         check_source_pins_the_fix,
+        check_rl_v2_walltime_not_hashed,
     ):
         print(f"\n== {fn.__name__}")
         fn()
@@ -251,6 +253,25 @@ def main():
             print(f"  - {f}")
         sys.exit(1)
     print("all checks passed")
+
+
+def check_rl_v2_walltime_not_hashed():
+    """RLFinetuneV2 keeps its walltime / card memory out of the hash. The V1 RL / Audex jobs DO hash an ``rqmt`` passed
+    to the constructor (excluded only at None) and are frozen that way: set ``job.rqmt`` after construction there."""
+    sys.path.insert(0, "recipe")
+    from speech_llm.full_duplex.rl_spec.job import RLFinetuneV2
+    from speech_llm.full_duplex.rl_spec.tests import refs
+
+    import sisyphus.job
+
+    arm = refs.know_asr_greedy_b04()
+    venv = tk.Path("/dev/null/venv", hash_overwrite="rqmt_guard_venv")
+    sisyphus.job.created_jobs.clear()  # else the second construction IS the first (same hash) and keeps its rqmt
+    a = RLFinetuneV2(venv_python_path=venv, policy=refs.POL, **arm, time_h=23.0)
+    sisyphus.job.created_jobs.clear()
+    b = RLFinetuneV2(venv_python_path=venv, policy=refs.POL, **arm, time_h=30.0, gpu_mem_gb=120)
+    check(a._sis_id() == b._sis_id(), "RLFinetuneV2: time_h / gpu_mem_gb do not reach the hash")
+    check(a.rqmt["time"] != b.rqmt["time"], "...and they still set the rqmt")
 
 
 if __name__ == "__main__":

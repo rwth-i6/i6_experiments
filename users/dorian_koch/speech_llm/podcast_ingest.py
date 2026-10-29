@@ -448,6 +448,8 @@ class PodcastMimiIngest(Job):
         # reasoning (and the same guard) as knowledge_benchmark's env_ffmpeg_path.
         d = dict(parsed_args)
         d.pop("env_ffmpeg_path", None)
+        # download_workers is how fast, not what: every shard so far hashed the default 8, so pin it there
+        d["download_workers"] = 8
         return super().hash(d)
 
     def tasks(self):

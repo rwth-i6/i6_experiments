@@ -101,10 +101,10 @@ def build(**kw):
     kw.setdefault("tag", "hparams_dest_guard")
     tag = kw.pop("tag")
     # POLICY_LATEST is past RULE_NO_GRAD_ACCUM (09-25c): make_finetune_run then refuses a run that does not state
-    # grad_accum=1 (the launcher default accumulates). Every build states it, so each check below reaches the
+    # grad_accum=1 and its per_gpu_batch (the launcher default accumulates). Every build states them, so each check below reaches the
     # property it tests; [3b] shows the refusal is still in force without it. ``grad_accum_unset=True`` omits it.
     if not kw.pop("grad_accum_unset", False):
-        kw["extra_hparams"] = {"grad_accum": 1, **(kw.get("extra_hparams") or {})}
+        kw["extra_hparams"] = {"grad_accum": 1, "per_gpu_batch": 16, **(kw.get("extra_hparams") or {})}
     return train(
         tag,
         model=MOSHI_LIB,
@@ -181,6 +181,22 @@ check(
     "_construction_parameter_names()" in src,
     "`_anchored` splits on the same reflected name set the assert uses",
 )
+
+print("[5b] a codes corpus refuses the waveform-only knobs at graph time")
+from speech_llm.full_duplex.sis_recipe.doriank import runs as _runs  # noqa: E402
+
+# the class name is what the check reads; _sis_path lets the error message name the path
+PodcastCodesTrainData = type("PodcastCodesTrainData", (), {"_sis_path": lambda self, *a, **k: "/dev/null/codes_job"})
+_codes = tk.Path("/dev/null/codes", hash_overwrite="hparams_dest_guard_codes")
+_codes.creator = PodcastCodesTrainData()
+for mix in ([(_codes, 1.0)], ((_codes, 1.0),)):
+    try:
+        _runs._assert_codes_corpus_knobs(Corpus(mix=mix, duration_sec=60, jitter_sec=2.0), None)
+        check(False, f"jitter_sec on a codes corpus raises ({type(mix).__name__} mix)")
+    except ValueError:
+        check(True, f"jitter_sec on a codes corpus raises ({type(mix).__name__} mix)")
+_runs._assert_codes_corpus_knobs(Corpus(mix=[(_codes, 1.0)], duration_sec=60), None)
+check(True, "a codes corpus without jitter passes")
 
 print("[6] the REAL graph carries no argument name in any hparams bag")
 from sisyphus.loader import config_manager  # noqa: E402

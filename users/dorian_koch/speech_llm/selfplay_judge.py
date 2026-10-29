@@ -71,6 +71,16 @@ def rubric_digest(name: str) -> str:
     return hashlib.sha256(json.dumps(COHERENCE_RUBRICS[name], sort_keys=True).encode()).hexdigest()[:16]
 
 
+#: ``SelfPlayCoherenceJudge`` hashed no digest until 2026-10-29: a rubric at its pinned content keeps that hash, an
+#: edited one (or a new rubric) adds its digest. Never update a pin; an edit is meant to move the hash.
+PINNED_RUBRIC_DIGESTS = {"coherence_v1": "1512cf772a9ab49b"}
+
+
+def _with_rubric_digest(a: dict) -> dict:
+    digest = rubric_digest(a["rubric"])
+    return a if digest == PINNED_RUBRIC_DIGESTS.get(a["rubric"]) else {**a, "rubric_digest": digest}
+
+
 def two_sided_transcript(words_a: list[dict], words_b: list[dict], dur: float, gap: float = 1.5) -> str:
     """Both channels as utterances (one channel's consecutive words < ``gap`` s apart), ordered by onset,
     ``[12.3] A: ...`` per line. Words with an onset outside ``[0, dur)`` are dropped (the real rows' first
@@ -161,7 +171,7 @@ class SelfPlayCoherenceJudge(Job):
             cls,
             parsed_args,
             canon=lambda a: {**a, "runs": values_canon(a["runs"])},
-            base_hash=lambda a: super(SelfPlayCoherenceJudge, cls).hash(a),
+            base_hash=lambda a: super(SelfPlayCoherenceJudge, cls).hash(_with_rubric_digest(a)),
             labels=lambda a: sorted(a["runs"]),
         )
 

@@ -157,6 +157,15 @@ check(
     raises(lambda: runs.make_finetune_run("_g4", policy=B, hparams={"grad_accum": 4}, **ml, **mf)) is None,
     "... but not at 09-25b",
 )
+check(
+    bool(raises(lambda: runs.make_finetune_run("_g5", policy=C, hparams={"grad_accum": 1}, **ml, **mf))),
+    "make_finetune_run: grad_accum 1 without per_gpu_batch raises (the launcher default batch is 1)",
+)
+check(
+    raises(lambda: runs.make_finetune_run("_g6", policy=C, hparams={"grad_accum": 1, "per_gpu_batch": 16}, **ml, **mf))
+    is None,
+    "make_finetune_run: grad_accum 1 with per_gpu_batch is accepted",
+)
 
 print("[4] CAN FAIL: the gate")
 hb = arm("b", policy=B).hparams
