@@ -127,9 +127,9 @@ class MTRDuplexInference(Job):
     # ``engine_version`` (excluded at 1): bump to re-run a backend whose inference ENGINE changed while its arguments
     # did not (the engine is run()-side code, so nothing else re-hashes). 2 = PersonaPlex after the 2026-08/09 port
     # (ring-KV off-by-one and reset fixes); the 2026-06-30 personaplex_family cells ran on the pre-port stack.
-    # ⚠ The finished MoshiRAG cells ran an engine that retrieved once per dialogue and gave the generator no turn
-    # history (fixed 2026-10-29 to match upstream's RAGManager). They were NOT re-run (MTR is not in use); bump this
-    # for moshirag before quoting its MTR numbers.
+    # 2 = MoshiRAG after 2026-10-29: the finished cell (engine_version 1) retrieved once per dialogue and gave the
+    # generator no turn history (now upstream's RAGManager). The engine-1 cells of both are legacy pins: a new cell
+    # gets 2 from mtr_benchmark_py; never pass 1 for them.
     # ``batch_size`` (excluded at 1): dialogues per forward (engines with ``reply_batch``: PersonaPlex). A protocol
     # setting, not a speed knob -- the per-row random draws differ from B=1 -- so it is hashed when set.
     __sis_hash_exclude__ = {"retrieval_llm": None, "engine_version": 1, "batch_size": 1}
@@ -256,8 +256,8 @@ class MTRDuplexEval(Job):
     #: ``redetect_pause`` (excluded at False): re-derive each pause round's window from the submission's user channel
     #: with the fixed ``mtr.conventions._detect_pause``. The driver's detector rejected a whole turn whenever its edge
     #: silence was longer than the pause (1403 of 2000 rounds had an empty window), so the talk-over check passed
-    #: trivially. Re-scores without re-inference. ⚠ No finished cell sets it (MTR is not in use as of 2026-10-29): every
-    #: pause column in the ledger still has the empty windows; turn it on before quoting a pause number.
+    #: trivially. Re-scores without re-inference. The pause cells evaluated before 2026-10-29 keep the empty windows
+    #: (legacy pins, not re-run: MTR is not in use); mtr_benchmark_py turns it on for every new pause cell.
     __sis_hash_exclude__ = {"code_version": 1, "redetect_pause": False}
 
     def __init__(
@@ -644,7 +644,7 @@ def mtr_benchmark_py(
     tk.register_output("mtr/code", code.out_dir)
     tk.register_output("mtr/data", data.out_dir)
 
-    inf = MTRDuplexInference(
+    inf_kw = dict(
         mtr_data=data.out_dir,
         dimension=dimension,
         inference_venv=speech_backend.inference_venv(),
@@ -656,9 +656,15 @@ def mtr_benchmark_py(
         lora_rank=lora_rank,
         lora_scaling=lora_scaling,
         retrieval_llm=retrieval_llm,
-        engine_version=engine_version,
         batch_size=batch_size,
     )
+    from .legacy_pins import MTR_FIXED_ENGINE_BACKENDS, pinned_or_default
+
+    if mtr_backend in MTR_FIXED_ENGINE_BACKENDS and engine_version == 1:
+        # engine 1 is the unfixed engine of these backends: only its pinned cells keep it (legacy_pins)
+        inf = pinned_or_default(MTRDuplexInference, "engine_version", 1, new_value=2, **inf_kw)
+    else:
+        inf = MTRDuplexInference(**inf_kw, engine_version=engine_version)
     ev_kw = dict(
         submission_dir=inf.out_dir,
         mtr_data=data.out_dir,
@@ -669,8 +675,6 @@ def mtr_benchmark_py(
         code_version=MTR_EVAL_CODE_VERSION.get(dimension, 1),
     )
     if dimension == "conv_features" and scenario == "pause":
-        from .legacy_pins import pinned_or_default
-
         # the pause cells evaluated before 2026-10-29 keep the old windows (legacy_pins); a new one re-detects
         ev = pinned_or_default(MTRDuplexEval, "redetect_pause", False, new_value=True, **ev_kw)
     else:

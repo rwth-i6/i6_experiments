@@ -40,6 +40,8 @@ class HeadTranscriptQuestions(Job):
     ``hypotheses_sha256``: the file's content hash, since a script (not a Job) writes it in place; ``run`` checks it,
     and it is hashed unless it is the content the first job read (``HYPOTHESES_PINNED_SHA256``)."""
 
+    #: The first job's content, hash-excluded so that job keeps its id. Never update it: a new hypotheses file is
+    #: meant to re-hash.
     HYPOTHESES_PINNED_SHA256 = "2ed2d1942f3c5df2fc8762423255c75435acf6b4b1fbebd74c93a842906ba654"
 
     def __init__(

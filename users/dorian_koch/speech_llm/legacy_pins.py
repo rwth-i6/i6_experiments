@@ -224,13 +224,33 @@ LEGACY_PINS = {
             }
         ),
     ),
+    ("MTRDuplexInference", "engine_version", 1): (
+        "PersonaPlex on the pre-port engine (ring-KV off-by-one, no reset) / MoshiRAG retrieving once per dialogue "
+        "with no turn history; a new cell runs the fixed engine (mtr_benchmark_py passes 2)",
+        frozenset(
+            {
+                "1iKc684D7PO8",
+                "3FiOMMAgAAs7",
+                "7A2NgHtn55xG",
+                "UvZ6ih2zWSXX",
+                "mImrydfA0OkZ",
+                "qgeC9LoTWg2g",
+                "wQldmM6WH33A",
+                "mKtYiFWMJWfn",
+            }
+        ),
+    ),
 }
 
 
 #: Pins that concern only some jobs of a class (the value is right elsewhere): (class, attribute, value) -> predicate.
 APPLIES = {
     ("MTRDuplexEval", "redetect_pause", False): lambda j: j.dimension == "conv_features" and j.scenario == "pause",
+    ("MTRDuplexInference", "engine_version", 1): lambda j: j.mtr_backend in MTR_FIXED_ENGINE_BACKENDS,
 }
+
+#: MTR driver backends whose engine was fixed after their first cells ran (engine_version 2 = the fixed engine).
+MTR_FIXED_ENGINE_BACKENDS = ("personaplex", "moshirag")
 
 
 def pinned_or_default(job_cls, attr: str, legacy_value, new_value=None, **kwargs):
