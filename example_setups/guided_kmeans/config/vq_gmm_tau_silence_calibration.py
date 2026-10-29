@@ -33,6 +33,14 @@ the topology's push, not a trained silence model. Models of ``vq_gmm_tau_silence
 VAD arms are added to ``MODELS`` once their updates have *finished*: this config runs
 under its own manager and must not build that config's pending jobs.
 
+*Added 2026-10-28:* the from-scratch VAD arm with the re-silenced LM after update 20,
+where silence has half formed (4.8% of the frames by argmax, against 8.9%). Trained
+arms sit ~2 points below the epoch-200 model's one-step share, so the setting that
+lifts silence to the target has to be read off a model that learned it. Its own LM
+only, with exit offsets up to +4 nats. Its q = 0.71, b = 0 row must come out near the
+arm's own statistics at that update (4.4% soft, 4.8% argmax, silence runs of 5.7,
+speech 4.12), which checks the method.
+
 Cost: an S=2 E-step on 2% of the corpus, ~0.5-1 GPU-h with the graph compile; 24
 settings per model, on gpu_11gb at ``--nice=1600``.
 """
@@ -48,9 +56,11 @@ from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import
     DuplicateCovsJob,
     GlobalCovarianceJob,
     NormalTableJob,
+    RandomCentroidsJob,
     ScaleCovsJob,
     chunked_clustering,
     mixture_flavor,
+    unguided_flavor,
 )
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.chunked.flavors import (
     BackoffFBSearch,
@@ -83,12 +93,20 @@ version = 1
 
 #: Models recognized with, by label: only finished jobs (module docstring).
 REFERENCE_EPOCHS = 200
-MODELS = ["epoch 200 (trained without silence)"]
+#: vq_gmm_tau_silence's from-scratch VAD arm with the re-silenced LM, after this
+#: update: silence half learned (4.8% argmax, runs of 5.7 frames). Its chain is
+#: rebuilt only up to here, all finished (5 passes).
+SCRATCH_MODEL_UPDATE = 20
+MODELS = ["epoch 200 (trained without silence)",
+          f"from scratch, VAD, VAD-silence LM, update {SCRATCH_MODEL_UPDATE}"]
 
 #: Exit-offset grid: silence loop (generative mean S / (1 - q) = 4, 5, 6.9, 10, 20
 #: frames at S=2) by silence exit offset in nats.
 SILENCE_LOOPS = [0.5, 0.6, 0.71, 0.8, 0.9]
 SILENCE_EXIT_OFFSETS = [-1.0, 0.0, 1.0, 2.0]
+#: The from-scratch model learned only half the data's silence share, so its grid
+#: reaches further, and it runs with its own LM only.
+SCRATCH_EXIT_OFFSETS = SILENCE_EXIT_OFFSETS + [3.0, 4.0]
 #: Loops only: ``(transition scale, silence loop)``; the speech loop gives the
 #: bonus-0.5 arm's per-phoneme bonus at that scale, and q=None is its own topology.
 LOOP_ONLY = [(bonus.TRANSITION_SCALE, None), (bonus.TRANSITION_SCALE, 0.71),
@@ -128,7 +146,7 @@ def run():
             exit_offset=exit_offset,
         )
 
-    def flavor(centroids, covs, mixtures, backoff_fb):
+    def flavor(centroids, covs, mixtures, backoff_fb, over_relaxation=1.0):
         return mixture_flavor(
             centroids=centroids,
             covs=covs,
@@ -142,6 +160,7 @@ def run():
             update_covariances=None,
             mixture_floor=1e-2,
             num_workers=bonus.NUM_WORKERS,
+            over_relaxation=over_relaxation,
             backoff_fb=backoff_fb,
         )
 
@@ -180,36 +199,98 @@ def run():
         alias_prefix=f"guided_kmeans/{bonus.exp_dir}/{reference_name}",
         **common,
     )
-    models = {
-        MODELS[0]: {name: reference.out_artifacts[name][REFERENCE_EPOCHS]
-                    for name in ("centroids", "covs", "mixtures")},
-    }
     #: The training LM: the original, and the one re-silenced to the VAD frames.
     lms = {"original": None, "VAD silence": vad_silence_lm(bonus.LM_ORDER)}
+
+    # vq_gmm_tau_silence's from-scratch VAD arm with the re-silenced LM, argument for
+    # argument up to SCRATCH_MODEL_UPDATE: its covariance, codebook and chain.
+    vad_base_covs = DuplicateCovsJob(
+        GlobalCovarianceJob(vad.out_features).out_cov, bonus.NUM_CODEWORDS).out_covs
+    vad_covs = ScaleCovsJob(vad_base_covs, bonus.TAU).out_covs
+    codebook = chunked_clustering(
+        num_epochs=bonus.CODEBOOK_EPOCHS,
+        features_hdf=vad.out_features,
+        num_clusters=bonus.NUM_CODEWORDS,
+        flavor=unguided_flavor(
+            centroids=RandomCentroidsJob(
+                vad.out_features, bonus.NUM_CODEWORDS, seed=bonus.SEED).out_centroids,
+            covs=vad_base_covs,
+            num_clusters=bonus.NUM_CODEWORDS,
+        ),
+        num_chunks=bonus.CODEBOOK_CHUNKS,
+        alias_prefix=f"guided_kmeans/{silence.exp_dir}/codebook-frames-vad-{bonus.NUM_CODEWORDS}",
+    ).out_centroids[bonus.CODEBOOK_EPOCHS]
+    scratch_name = (
+        f"weights_tau-{bonus.TAU}_s-{bonus.NUM_STATES}_init-uniform_cb-frames-vad_data-vad"
+        f"_speech-{silence.SPEECH_LOOP:g}-exit-{silence.SPEECH_BONUS:g}"
+        f"_sil-{silence.SILENCE_LOOP:g}-exit-{silence.SILENCE_EXIT_OFFSET:g}"
+        f"_online-b{silence.BATCHES_PER_EPOCH}_ema-{silence.EMA.alpha:g}"
+        f"_relax-{silence.OVER_RELAXATION:g}_lm-vadsil")
+    assert SCRATCH_MODEL_UPDATE % silence.BATCHES_PER_EPOCH == 0
+    scratch = chunked_clustering(
+        num_epochs=SCRATCH_MODEL_UPDATE // silence.BATCHES_PER_EPOCH,
+        features_hdf=vad.out_features,
+        flavor=flavor(
+            codebook, vad_covs, uniform,
+            search(silence.SPEECH_LOOP, silence.SILENCE_LOOP,
+                   {**{phoneme: silence.SPEECH_BONUS for phoneme in silence.PHONEMES},
+                    silence.SILENCE: silence.SILENCE_EXIT_OFFSET},
+                   arpa_path=lms["VAD silence"]),
+            over_relaxation=silence.OVER_RELAXATION),
+        segments=vad.out_segments,
+        batches_per_epoch=silence.BATCHES_PER_EPOCH,
+        ema=silence.EMA,
+        num_chunks=silence.CHUNKS,
+        rqmt=silence.RQMT,
+        alias_prefix=f"guided_kmeans/{silence.exp_dir}/{scratch_name}",
+        **common,
+    )
 
     calibration_segments = ShuffleAndSplitSegmentsJob(
         vad.out_segments,
         split={"calibration": CALIBRATION_FRACTION, "rest": 1.0 - CALIBRATION_FRACTION},
     ).out_segments["calibration"]
 
-    # (LM, label, search, transition scale, speech loop, silence loop, silence exit
-    # offset). The original LM's labels carry no LM tag, so its jobs keep their names.
-    settings = []
-    for lm_name, arpa_path in lms.items():
-        tag = "" if lm_name == "original" else "_lm-vadsil"
-        for q in SILENCE_LOOPS:
-            for b in SILENCE_EXIT_OFFSETS:
-                offsets = {**{phoneme: silence.SPEECH_BONUS for phoneme in silence.PHONEMES},
-                           silence.SILENCE: b}
-                settings.append((lm_name, f"exit-offsets_q-{q:g}_b-{b:g}{tag}",
-                                 search(silence.SPEECH_LOOP, q, offsets, arpa_path=arpa_path),
-                                 bonus.TRANSITION_SCALE, silence.SPEECH_LOOP, q, b))
-        for ts, q in LOOP_ONLY:
-            p = bonus.loop_for_lambda(reference_lam, ts)
-            q_eff = p if q is None else q
-            settings.append((lm_name, f"loops_ts-{ts:g}_p-{round(p, 4)}_q-{round(q_eff, 4)}{tag}",
-                             search(p, q, transition_scale=ts, arpa_path=arpa_path),
-                             ts, p, q_eff, 0.0))
+    def make_settings(lm_names, exit_offsets, loop_only):
+        """``(LM, label, search, ts, speech loop, silence loop, silence exit offset)`` per
+        setting. The original LM's labels carry no LM tag, so its jobs keep their names."""
+        settings = []
+        for lm_name in lm_names:
+            arpa_path = lms[lm_name]
+            tag = "" if lm_name == "original" else "_lm-vadsil"
+            for q in SILENCE_LOOPS:
+                for b in exit_offsets:
+                    offsets = {**{phoneme: silence.SPEECH_BONUS for phoneme in silence.PHONEMES},
+                               silence.SILENCE: b}
+                    settings.append((lm_name, f"exit-offsets_q-{q:g}_b-{b:g}{tag}",
+                                     search(silence.SPEECH_LOOP, q, offsets, arpa_path=arpa_path),
+                                     bonus.TRANSITION_SCALE, silence.SPEECH_LOOP, q, b))
+            if not loop_only:
+                continue
+            for ts, q in LOOP_ONLY:
+                p = bonus.loop_for_lambda(reference_lam, ts)
+                q_eff = p if q is None else q
+                settings.append((lm_name,
+                                 f"loops_ts-{ts:g}_p-{round(p, 4)}_q-{round(q_eff, 4)}{tag}",
+                                 search(p, q, transition_scale=ts, arpa_path=arpa_path),
+                                 ts, p, q_eff, 0.0))
+        return settings
+
+    # label -> (job name prefix, start, settings)
+    models = {
+        MODELS[0]: (
+            f"{reference_name}_model-ep{REFERENCE_EPOCHS}",
+            {name: reference.out_artifacts[name][REFERENCE_EPOCHS]
+             for name in ("centroids", "covs", "mixtures")},
+            make_settings(list(lms), SILENCE_EXIT_OFFSETS, loop_only=True),
+        ),
+        MODELS[1]: (
+            f"{scratch_name}_model-upd{SCRATCH_MODEL_UPDATE}",
+            {"centroids": codebook, "covs": vad_covs,
+             "mixtures": scratch.jobs[SCRATCH_MODEL_UPDATE - 1].artifact("mixtures")},
+            make_settings(["VAD silence"], SCRATCH_EXIT_OFFSETS, loop_only=False),
+        ),
+    }
 
     headers = {
         "frame_term": ("Sil. frame", "term f"),
@@ -257,9 +338,9 @@ def run():
         ),
     )
 
-    for model_label, start in models.items():
+    for model_label, (prefix, start, settings) in models.items():
         for lm_name, label, backoff_fb, ts, p, q, b in settings:
-            name = f"{reference_name}_model-ep{REFERENCE_EPOCHS}_{label}"
+            name = f"{prefix}_{label}"
             calibration = chunked_clustering(
                 num_epochs=1,
                 features_hdf=vad.out_features,
