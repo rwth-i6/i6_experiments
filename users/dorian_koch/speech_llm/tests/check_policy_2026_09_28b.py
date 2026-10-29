@@ -184,7 +184,9 @@ check(
     "ab2_wordmask's rendered config carries train_word_spans + train_word_weight 0",
 )
 src = Path("recipe/speech_llm/full_duplex/moshi_family/personaplex/finetune_launcher.py").read_text()
-main = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "main")
+# main() and the loader helpers it calls (the reads and loader calls moved there on 2026-10-29)
+_fns = {n.name: n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef)}
+main = ast.Module(body=[_fns[k] for k in ("main", "train_loader_args", "make_train_loader")], type_ignores=[])
 got = {
     n.args[0].value
     for n in ast.walk(main)

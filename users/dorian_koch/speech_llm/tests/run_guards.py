@@ -48,6 +48,8 @@ VENV_GLOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.{name}/o
 DEFAULT_TIMEOUT = 900
 #: Graph guards load the whole config (~9 s, a few GB each): at most this many at once.
 MAX_GRAPH_PARALLEL = 4
+#: Set by ``run`` from the CPUs this process may use and ``--jobs``.
+THREADS_PER_GUARD = 1
 
 
 def setup_root() -> str:
@@ -74,6 +76,9 @@ def load_manifest() -> dict:
 def command(path: str, spec: dict, root: str):
     """(argv, env) of one guard."""
     env = dict(os.environ, CUDA_HOME="/usr", HF_HUB_OFFLINE="1")
+    # Torch starts one thread per core in every guard; 16 guards at once then thrash. Share the cores out.
+    threads = str(THREADS_PER_GUARD)
+    env.update(OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, OPENBLAS_NUM_THREADS=threads)
     fd = os.path.join(root, "recipe/speech_llm/full_duplex")
     kind = spec["env"]
     args = list(spec.get("args", []))
@@ -136,6 +141,8 @@ def select(root: str, manifest: dict, only, gpu: bool):
 
 
 def run(root: str, args) -> int:
+    global THREADS_PER_GUARD
+    THREADS_PER_GUARD = max(1, len(os.sched_getaffinity(0)) // args.jobs)
     manifest = load_manifest()
     todo, skipped, unlisted, missing = select(root, manifest, args.only, args.gpu)
     graph = [t for t in todo if t[1].get("graph")]
@@ -206,7 +213,6 @@ def sbatch(root: str, args) -> int:
 #SBATCH --time={args.time}
 #SBATCH --output={d}/guards_{stamp}.log
 set -u
-export HF_HOME=/hpcwork/p0023999/common_hf_home
 cd {root}
 python3 {me} --jobs {args.jobs} --out {args.out}{only}
 """)

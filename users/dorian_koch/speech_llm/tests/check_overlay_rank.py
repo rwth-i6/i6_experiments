@@ -51,8 +51,11 @@ def main() -> int:
         # for history we cannot change.
         if _finished(job):
             continue
-        if getattr(job, "lora_weights", None) is None:
+        lw = getattr(job, "lora_weights", None)
+        if lw is None:
             continue  # base model / no overlay -- nothing to wrap, correctly no rank
+        if getattr(getattr(lw, "creator", None), "overlay_kind", None) == "full":
+            continue  # full-finetune overlay: a whole state dict, correctly no rank
         checked += 1
         extra = tuple(getattr(job, "offline_extra_args", ()) or ())
         if "--lora_rank" not in extra:
@@ -70,7 +73,9 @@ def main() -> int:
         print("              lora_rank=None if run.overlay_kind == 'full' else run.lora_rank)")
         return 1
 
-    print(f"PASS  all {checked} pending SpeechInference jobs with a LoRA overlay carry --lora_rank")
+    print(
+        f"PASS  all {checked} pending SpeechInference jobs with a LoRA overlay carry --lora_rank (full overlays skipped)"
+    )
 
     # Non-vacuous: the check must be able to FAIL. Build the spec the broken call site built and
     # assert it really produces no rank -- otherwise a change making every spec carry a rank

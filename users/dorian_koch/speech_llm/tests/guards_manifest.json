@@ -75,10 +75,12 @@
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_engine_reset.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_episode_edge_rows.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_episode_schema.py": {
   "env": "setup"
@@ -118,7 +120,8 @@
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fp32_master_weights.py": {
-  "env": "setup"
+  "env": "setup",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_fsdp_full_ft.py": {
   "env": "setup"
@@ -172,13 +175,15 @@
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_mix.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_probe_inmemory.py": {
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_knowledge_v7.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_label_free_hash.py": {
   "env": "setup",
@@ -201,7 +206,8 @@
   "graph": true
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_live_server_reset.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_live_voice_draw.py": {
   "env": "venv:moshi_family_venv_v1"
@@ -225,7 +231,8 @@
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mimi_encode.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_mix_word_weights.py": {
   "env": "venv:moshi_family_venv_v1"
@@ -300,7 +307,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_persona_selfplay.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_personaplex_lm_parity.py": {
   "env": "setup"
@@ -338,7 +346,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_batch_parity.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_fsdp.py": {
   "env": "setup"
@@ -351,13 +360,16 @@
   "graph": true
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_reset.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_rl_logprob.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_selfplay_rl.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_usersem_default.py": {
   "env": "setup",
@@ -426,7 +438,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_scale_diagnostics.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_self_rehearsal.py": {
   "env": "setup"
@@ -438,7 +451,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_shared_base.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_shared_train_loader.py": {
   "env": "login"
@@ -468,7 +482,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_logits_dump.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_text_loss_weight.py": {
   "env": "setup"
@@ -502,7 +517,8 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_train_perf.py": {
-  "env": "setup"
+  "env": "setup",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_turn_tail.py": {
   "env": "venv:moshi_family_venv_v1"
@@ -514,20 +530,23 @@
   "env": "setup"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_alignment.py": {
-  "env": "venv:moshi_family_venv_v1"
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_head.py": {
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_text_stream.py": {
-  "env": "setup"
+  "env": "setup",
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_variants.py": {
   "env": "venv:moshi_family_venv_v1"
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_user_word_timings.py": {
   "env": "setup",
-  "graph": true
+  "graph": true,
+  "timeout": 1800
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_venv_pins.py": {
   "env": "setup"
@@ -537,14 +556,16 @@
  },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_voice_reembed.py": [
   {
-   "env": "venv:moshi_family_venv_v1"
+   "env": "venv:moshi_family_venv_v1",
+   "timeout": 1800
   },
   {
    "args": [
     "--graph"
    ],
    "env": "setup",
-   "graph": true
+   "graph": true,
+   "timeout": 1800
   }
  ],
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_voice_study_length.py": {
@@ -590,10 +611,12 @@
   "env": "module"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_worker.py": {
-  "env": "module"
+  "env": "module",
+  "gpu": true
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_audio_quality.py": {
-  "env": "module"
+  "env": "module",
+  "gpu": true
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_aux_tasks.py": {
   "env": "module"
@@ -605,7 +628,8 @@
   "env": "module"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_fw_asr.py": {
-  "env": "module"
+  "env": "module",
+  "gpu": true
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_grpo_oom.py": {
   "env": "module"
@@ -638,6 +662,9 @@
   "env": "module"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_multitask.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_parakeet_confidence.py": {
   "env": "module"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_partner_channel.py": {

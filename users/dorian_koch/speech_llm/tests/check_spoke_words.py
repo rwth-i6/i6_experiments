@@ -83,6 +83,8 @@ FIXTURE = [
 ]
 WANT = ("44.4%", "50.0%")  # whitespace rule would give 88.9% / 25.0%
 REPLY_HINT = re.compile(r"reply|transcri|response|pred|hyp|\brep\b")
+#: A word-token class ([A-Za-z0-9] or [A-Za-z0-9']); identifier classes with ``_`` are not word counts.
+WORD_CLASS = re.compile(r"\[A-Za-z0-9'?\]")
 #: scripts whose `spoke` is not a reply-word rule: selfplay_timeline = first-word ONSET timing of self-play audio.
 SPOKE_OK = {"selfplay_timeline.py"}
 
@@ -202,13 +204,13 @@ def scan(files):
                 and n.func.value.id == "re"
                 and n.args
                 and isinstance(n.args[0], ast.Constant)
-                and "A-Za-z0-9" in str(n.args[0].value)
+                and WORD_CLASS.search(str(n.args[0].value))
             ):
                 fails.append(f"{name}:{n.lineno}: private word regex -- use evalstats.n_words")
             if isinstance(n, ast.FunctionDef) and n.name in ("n_words", "spoke", "count_words", "_n_words"):
                 fails.append(f"{name}:{n.lineno}: def {n.name} -- the one copy is evalstats")
         uses = [i for i in ids if re.fullmatch(r"(n_)?spoke(_frac|_share)?|acc_spoke|frac_spoke", i)]
-        if uses and not imports_es and name not in SPOKE_OK:
+        if uses and not imports_es and name not in SPOKE_OK and name != "evalstats.py":
             fails.append(f"{name}: uses {sorted(uses)} without importing evalstats")
     return fails
 

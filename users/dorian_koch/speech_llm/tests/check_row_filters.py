@@ -359,7 +359,9 @@ def job_part():
 
     # ---- 7 ----
     src = Path("recipe/speech_llm/full_duplex/moshi_family/personaplex/finetune_launcher.py").read_text()
-    main = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "main")
+    # main() and the loader helpers it calls (the reads and loader calls moved there on 2026-10-29)
+    _fns = {n.name: n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef)}
+    main = ast.Module(body=[_fns[k] for k in ("main", "train_loader_args", "make_train_loader")], type_ignores=[])
     reads = [
         n
         for n in ast.walk(main)
@@ -381,7 +383,7 @@ def job_part():
     }
     ck(
         len(reads) == 1
-        and all(c.get("train_row_weights") == "train_row_weights" for c in calls.values()) and len(calls) == 2
+        and all(c.get("train_row_weights") in ("train_row_weights", "la.train_row_weights") for c in calls.values()) and len(calls) == 2
         and loss_kw.get("sample_frame_weight") == "sample_frame_weight",
         "[7] main() reads train_row_weights once, passes it to both loaders; loss_step passes sample_frame_weight",
     )  # fmt: skip
