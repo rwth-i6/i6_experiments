@@ -150,7 +150,9 @@ def get_forward_config(
     default_target_key = config.get("default_target_key", "text")
     if extern_data is None:
         extern_data = {
-            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(),
+            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(
+                available_for_inference=True
+            ),
         }
 
     if add_text_to_extern_data:

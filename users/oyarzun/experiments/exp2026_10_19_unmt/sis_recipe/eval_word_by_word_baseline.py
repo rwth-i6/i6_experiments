@@ -13,6 +13,7 @@ import numpy as np
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
 from .bleu_eval import compute_corpus_bleu_fallback, clean_mt_tokens
+from .eval_sequence_difference import compute_all_sequence_differences, format_sequence_difference_report
 
 
 def normalize_vectors(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -47,7 +48,7 @@ class WordByWordCrossLingualEvalJob(Job):
     source sentences into target sentences word-by-word via nearest neighbor retrieval
     (supporting cosine similarity or CSLS) and evaluates the output with BLEU-4.
     """
-    _version = 1
+    __sis_hash_exclude__ = {"num_sample_sentences": 500}
 
     def __init__(
         self,
@@ -64,6 +65,7 @@ class WordByWordCrossLingualEvalJob(Job):
         copy_oov: bool = True,
         lowercase_eval: bool = False,
         batch_size: int = 2048,
+        num_sample_sentences: int = 500,
     ):
         super().__init__()
         self.src_embeddings_npy = src_embeddings_npy
@@ -79,6 +81,7 @@ class WordByWordCrossLingualEvalJob(Job):
         self.copy_oov = copy_oov
         self.lowercase_eval = lowercase_eval
         self.batch_size = batch_size
+        self.num_sample_sentences = num_sample_sentences
 
         # Outputs
         self.out_hypotheses_txt = self.output_path("hypotheses.txt")
@@ -87,12 +90,19 @@ class WordByWordCrossLingualEvalJob(Job):
         self.out_bleu = self.output_var("bleu", pickle=False)
         self.out_bleu_summary_json = self.output_path("bleu_summary.json")
         self.out_bleu_report_txt = self.output_path("bleu_report.txt")
+        self.out_sequence_difference_summary_json = self.output_path("sequence_difference_summary.json")
+        self.out_sequence_difference_report_txt = self.output_path("sequence_difference_report.txt")
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 2})
 
     def run(self):
         logging.basicConfig(level=logging.INFO)
+
+        if getattr(self, "out_sequence_difference_summary_json", None) is None:
+            self.out_sequence_difference_summary_json = self.output_path("sequence_difference_summary.json")
+        if getattr(self, "out_sequence_difference_report_txt", None) is None:
+            self.out_sequence_difference_report_txt = self.output_path("sequence_difference_report.txt")
 
         X = np.load(self.src_embeddings_npy.get_path()).astype(np.float32)
         Z = np.load(self.trg_embeddings_npy.get_path()).astype(np.float32)
@@ -247,6 +257,32 @@ class WordByWordCrossLingualEvalJob(Job):
             "sacrebleu_signature": sacrebleu_str,
         }
 
+        # Sequence Length and Absolute Difference Evaluation
+        input_lang = "de" if self.direction == "src2trg" else "en"
+        target_lang = "en" if self.direction == "src2trg" else "de"
+        seq_diff_summary = compute_all_sequence_differences(
+            input_lines=src_lines,
+            hypothesis_lines=hyp_lines,
+            reference_lines=ref_lines,
+        )
+        seq_diff_summary["direction"] = self.direction
+        seq_diff_summary["input_lang"] = input_lang
+        seq_diff_summary["target_lang"] = target_lang
+        seq_diff_summary["retrieval_metric"] = self.retrieval_metric
+        summary["sequence_differences"] = seq_diff_summary
+
+        with open(self.out_sequence_difference_summary_json.get_path(), "w", encoding="utf-8") as fs:
+            json.dump(seq_diff_summary, fs, indent=2)
+
+        seq_diff_report = format_sequence_difference_report(
+            summary_data=seq_diff_summary,
+            input_lang=input_lang,
+            target_lang=target_lang,
+            title=f"Sequence Difference Evaluation ({self.direction}, {self.retrieval_metric})",
+        )
+        with open(self.out_sequence_difference_report_txt.get_path(), "w", encoding="utf-8") as fr:
+            fr.write(seq_diff_report)
+
         with open(self.out_bleu_summary_json.get_path(), "w", encoding="utf-8") as fj:
             json.dump(summary, fj, indent=2)
 
@@ -261,9 +297,11 @@ class WordByWordCrossLingualEvalJob(Job):
             frep.write(f"Corpus BLEU-4       : {bleu_score:.2f}\n")
             frep.write(f"Multi-BLEU Summary  : {multi_bleu_res['summary']}\n")
             frep.write(f"SacreBLEU Output    : {sacrebleu_str}\n")
+            frep.write("\n" + seq_diff_report + "\n")
             frep.write("--------------------------------------------------------------------\n")
-            frep.write("Sample Word-by-Word Translations (first 10 sentences):\n")
-            for idx in range(min(10, len(src_lines))):
+            num_samples = min(getattr(self, "num_sample_sentences", 500), len(src_lines))
+            frep.write(f"Sample Word-by-Word Translations (first {num_samples} sentences):\n")
+            for idx in range(num_samples):
                 frep.write(f"\n[{idx}] SRC: {src_lines[idx]}\n")
                 frep.write(f"[{idx}] REF: {ref_lines[idx]}\n")
                 frep.write(f"[{idx}] HYP: {hyp_lines[idx]}\n")

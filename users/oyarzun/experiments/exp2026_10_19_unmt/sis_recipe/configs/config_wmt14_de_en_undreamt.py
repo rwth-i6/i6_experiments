@@ -31,3 +31,16 @@ def py():
         learning_rate=0.0003,
     )
 
+    # 3. Ablation with paper Word2Vec settings (subsampling 1e-5, 10 iterations) using larger batch size
+    run_wmt14_de_en_unmt_pipeline(
+        prefix_name="exp2026_10_19_unmt/wmt14_de_en_b25k_sample1e5_iter10",
+        train_name="undreamt_rnn_aed",
+        num_epochs=100,
+        eval_epochs=(20, 40, 60, 80, 100),
+        batch_size=25000,
+        batch_max_seqs=500,
+        learning_rate=0.0003,
+        w2v_sample=1e-5,
+        w2v_epochs=10,
+    )
+

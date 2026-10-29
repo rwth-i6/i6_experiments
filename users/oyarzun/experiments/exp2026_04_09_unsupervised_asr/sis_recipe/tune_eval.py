@@ -292,6 +292,42 @@ def eval_model(
             tk.register_output(f"{recog_dataset_path}/wer", score_result.main_measure_value)
             tk.register_output(f"{recog_dataset_path}/report", score_result.report)
 
+            from .eval_sequence_difference import SequenceDifferenceEvalJob, ReturnnDatasetInputToTextDictJob
+            from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+
+            ref_dataset = dataset.as_returnn_opts() if hasattr(dataset, "as_returnn_opts") else dataset
+            ref_txt = ReturnnDatasetToTextDictJob(
+                returnn_dataset=score_data_dict[key] if score_data_dict else ref_dataset,
+                data_key=output_data_key,
+                vocab=train_data.datastreams[output_data_key].as_returnn_targets_opts(),
+            ).out_txt
+
+            input_vocab = None
+            if hasattr(train_data.datastreams.get(input_data_key, None), "as_returnn_targets_opts"):
+                try:
+                    input_vocab = train_data.datastreams[input_data_key].as_returnn_targets_opts()
+                except Exception:
+                    input_vocab = None
+
+            input_txt = ReturnnDatasetInputToTextDictJob(
+                returnn_dataset=ref_dataset,
+                data_key=input_data_key,
+                vocab=input_vocab,
+            ).out_txt
+
+            seq_diff_job = SequenceDifferenceEvalJob(
+                hypothesis_txt=out_search_files[checkpoint_name][key],
+                reference_txt=ref_txt,
+                input_txt=input_txt,
+                name=f"{key}_ep{checkpoint_name}",
+                input_lang=input_modality,
+                target_lang=output_modality,
+            )
+            seq_diff_job.add_alias(f"{recog_dataset_path}/length_analysis")
+            tk.register_output(f"{recog_dataset_path}/length_analysis/report.txt", seq_diff_job.out_report_txt)
+            tk.register_output(f"{recog_dataset_path}/length_analysis/summary.json", seq_diff_job.out_summary_json)
+            tk.register_output(f"{recog_dataset_path}/length_analysis/sentence_differences.tsv", seq_diff_job.out_sentence_diffs_tsv)
+
         score_collection_job = JoinScoreResultsJobV2(outputs)
         tk.register_output(f"{recog_path}/score_results", score_collection_job.out_score_results_table)
         result_collections[checkpoint_name] = join_score_results(outputs, main_measure_key=main_eval_measure_key)
@@ -501,6 +537,42 @@ def eval_model_rasr(
             outputs[key] = score_result
             tk.register_output(f"{recog_dataset_path}/wer", score_result.main_measure_value)
             tk.register_output(f"{recog_dataset_path}/report", score_result.report)
+
+            from .eval_sequence_difference import SequenceDifferenceEvalJob, ReturnnDatasetInputToTextDictJob
+            from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+
+            ref_dataset = dataset.as_returnn_opts() if hasattr(dataset, "as_returnn_opts") else dataset
+            ref_txt = ReturnnDatasetToTextDictJob(
+                returnn_dataset=score_data_dict[key] if score_data_dict else ref_dataset,
+                data_key=output_data_key,
+                vocab=train_data.datastreams[output_data_key].as_returnn_targets_opts(),
+            ).out_txt
+
+            input_vocab = None
+            if hasattr(train_data.datastreams.get(input_data_key, None), "as_returnn_targets_opts"):
+                try:
+                    input_vocab = train_data.datastreams[input_data_key].as_returnn_targets_opts()
+                except Exception:
+                    input_vocab = None
+
+            input_txt = ReturnnDatasetInputToTextDictJob(
+                returnn_dataset=ref_dataset,
+                data_key=input_data_key,
+                vocab=input_vocab,
+            ).out_txt
+
+            seq_diff_job = SequenceDifferenceEvalJob(
+                hypothesis_txt=out_search_files[checkpoint_name][key],
+                reference_txt=ref_txt,
+                input_txt=input_txt,
+                name=f"{key}_ep{checkpoint_name}",
+                input_lang=input_modality,
+                target_lang=output_modality,
+            )
+            seq_diff_job.add_alias(f"{recog_dataset_path}/length_analysis")
+            tk.register_output(f"{recog_dataset_path}/length_analysis/report.txt", seq_diff_job.out_report_txt)
+            tk.register_output(f"{recog_dataset_path}/length_analysis/summary.json", seq_diff_job.out_summary_json)
+            tk.register_output(f"{recog_dataset_path}/length_analysis/sentence_differences.tsv", seq_diff_job.out_sentence_diffs_tsv)
 
         score_collection_job = JoinScoreResultsJobV2(outputs)
         tk.register_output(f"{recog_path}/score_results", score_collection_job.out_score_results_table)

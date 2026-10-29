@@ -35,6 +35,9 @@ base_config["training"]["max_seqs"] = 1000
 base_config["train_rqmt"]["cpu_rqmt"] = 12
 base_config["train_rqmt"]["gpu_mem"] = 80
 base_config["train_rqmt"]["mem_rqmt"] = 64
+base_config["recog"] = {
+    "batch_size": 20000,
+}
 
 base_config["model_args"].update({
     "num_enc_layers": 6,
@@ -167,7 +170,14 @@ def py():
                 },
             })
 
-            config["recog_rqmt"] = {"time": 48, "mem": 64, "cpu": 12, "device": "cpu"}
+            config["recog_rqmt"] = {
+                "time": 4,
+                "mem": 32,
+                "cpu": 6,
+                "gpu": 1,
+                "device": "gpu",
+                "gpu_mem": 80,
+            }
             config.setdefault("train_rqmt", {})["mem_rqmt"] = 64
 
             ft_train_job = run_experiment(

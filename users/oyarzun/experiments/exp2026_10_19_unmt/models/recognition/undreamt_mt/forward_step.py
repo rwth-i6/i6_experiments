@@ -74,7 +74,17 @@ def forward_step(
     data_key = input_data_key if input_data_key is not None else _input_data_key_param
 
     if data_key is None or data_key not in extern_data.data:
-        data_key = "data" if "data" in extern_data.data else list(extern_data.data.keys())[0]
+        if "data" in extern_data.data:
+            data_key = "data"
+        else:
+            candidates = [k for k in extern_data.data.keys() if k != "seq_tag"]
+            if candidates:
+                data_key = candidates[0]
+            else:
+                raise KeyError(
+                    f"Data key '{data_key}' not found in extern_data (available keys: {list(extern_data.data.keys())}). "
+                    f"Make sure '{data_key or 'data'}' has available_for_inference=True in the extern_data config."
+                )
 
     input_tensor = extern_data[data_key]
     batch_dims = input_tensor.remaining_dims(remove=(input_tensor.dims[1],))

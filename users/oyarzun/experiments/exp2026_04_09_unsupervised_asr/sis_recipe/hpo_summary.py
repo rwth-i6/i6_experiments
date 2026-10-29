@@ -40,11 +40,13 @@ class HpoResultsExcelJob(tk.Job):
         self.variance_outputs = variance_outputs or {}
         self.eval_epochs = eval_epochs or [50, 100, 150, 200]
         self.target_num_epochs = target_num_epochs
+        self.report_name = report_name
 
         self.out_excel = self.output_path(f"{report_name}.xlsx")
         self.out_csv = self.output_path(f"{report_name}.csv")
         self.out_ppl_plot = self.output_path(f"{report_name}_perplexity_summary.png")
         self.out_var_plot = self.output_path(f"{report_name}_variance_summary.png")
+        self.out_aux_plot = self.output_path(f"{report_name}_aux_rec_summary.png")
 
         self.prefix_name = prefix_name
 
@@ -54,6 +56,7 @@ class HpoResultsExcelJob(tk.Job):
             tk.register_output(f"{prefix_name}/joined_results/{report_name}.csv", self.out_csv)
             tk.register_output(f"{prefix_name}/joined_results/{report_name}_perplexity_summary.png", self.out_ppl_plot)
             tk.register_output(f"{prefix_name}/joined_results/{report_name}_variance_summary.png", self.out_var_plot)
+            tk.register_output(f"{prefix_name}/joined_results/{report_name}_aux_rec_summary.png", self.out_aux_plot)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -83,6 +86,8 @@ class HpoResultsExcelJob(tk.Job):
         records = []
         all_prob_ppl_curves = {}
         all_hard_ppl_curves = {}
+        all_aux_ce_curves = {}
+        all_aux_fer_curves = {}
 
         # For tracking variance across epochs: ep -> list of values across all configs
         epoch_audio_vars = {ep: [] for ep in self.eval_epochs}
@@ -93,20 +98,34 @@ class HpoResultsExcelJob(tk.Job):
             runtimes = []
             prob_ppls = {}
             hard_ppls = {}
+            aux_ces = {}
+            aux_fers = {}
+            dev_aux_ces = {}
+            dev_aux_fers = {}
             max_epoch_seen = 0
             is_killed = False
             is_completed = False
 
             # 1. Parse learning_rates & determine status
+            lr_path = None
+            train_job_dir = None
             if name in self.train_jobs:
                 t_job = self.train_jobs[name]
-                lr_path = None
-                train_job_dir = None
                 try:
-                    if hasattr(t_job, "out_files") and "learning_rates" in t_job.out_files:
+                    if hasattr(t_job, "_sis_path"):
+                        train_job_dir = t_job._sis_path()
+                        for cand in [
+                            os.path.join(train_job_dir, "work", "learning_rates"),
+                            os.path.join(train_job_dir, "output", "learning_rates"),
+                            os.path.join(train_job_dir, "learning_rates"),
+                        ]:
+                            if os.path.isfile(cand):
+                                lr_path = cand
+                                break
+                    if not lr_path and hasattr(t_job, "out_files") and "learning_rates" in t_job.out_files:
                         lr_path = t_job.out_files["learning_rates"].get_path()
                         train_job_dir = os.path.dirname(os.path.dirname(os.path.realpath(lr_path)))
-                    elif hasattr(t_job, "output_path"):
+                    elif not lr_path and hasattr(t_job, "output_path"):
                         train_job_dir = t_job.output_path().get_path()
                         cand = os.path.join(train_job_dir, "learning_rates")
                         if os.path.exists(cand):
@@ -114,51 +133,78 @@ class HpoResultsExcelJob(tk.Job):
                 except Exception:
                     pass
 
-                if lr_path and os.path.exists(lr_path):
-                    try:
-                        with open(lr_path, "r") as f:
-                            content = f.read()
+            if not lr_path and self.prefix_name:
+                for cand in [
+                    os.path.join(gs.BASE_DIR, "alias", self.prefix_name, name, "training", "work", "learning_rates"),
+                    os.path.join(gs.BASE_DIR, "alias", self.prefix_name, name, "training", "output", "learning_rates"),
+                    os.path.join(gs.BASE_DIR, "alias", self.prefix_name, name, "training", "learning_rates"),
+                    os.path.join(gs.BASE_DIR, "output", self.prefix_name, name, "training", "work", "learning_rates"),
+                    os.path.join(gs.BASE_DIR, "output", self.prefix_name, name, "learning_rates"),
+                ]:
+                    if os.path.isfile(cand):
+                        lr_path = cand
+                        train_job_dir = os.path.dirname(os.path.realpath(cand))
+                        break
 
-                        for line in content.splitlines():
-                            m_time = time_pattern.search(line)
-                            if m_time:
-                                runtimes.append(float(m_time.group(1)))
+            if lr_path and os.path.exists(lr_path):
+                try:
+                    with open(lr_path, "r", errors="ignore") as f:
+                        content = f.read()
 
-                        epoch_blocks = re.split(r"(?m)^(?=\d+:\s*EpochData)", content)
-                        for block in epoch_blocks:
-                            m_ep = re.match(r"^(\d+):", block.strip())
-                            if not m_ep:
-                                continue
-                            ep = int(m_ep.group(1))
-                            if ep > max_epoch_seen:
-                                max_epoch_seen = ep
+                    for line in content.splitlines():
+                        m_time = time_pattern.search(line)
+                        if m_time:
+                            runtimes.append(float(m_time.group(1)))
 
-                            m_prob = re.search(r"'(?:train_)?(?:error_)?codebook_prob_ppl[^']*':\s*([0-9.]+)", block)
-                            if m_prob:
-                                prob_ppls[ep] = float(m_prob.group(1))
+                    epoch_blocks = re.split(r"(?m)^(?=\d+:\s*EpochData)", content)
+                    for block in epoch_blocks:
+                        m_ep = re.match(r"^(\d+):", block.strip())
+                        if not m_ep:
+                            continue
+                        ep = int(m_ep.group(1))
+                        if ep > max_epoch_seen:
+                            max_epoch_seen = ep
 
-                            m_hard = re.search(r"'(?:train_)?(?:error_)?codebook_hard_ppl[^']*':\s*([0-9.]+)", block)
-                            if m_hard:
-                                hard_ppls[ep] = float(m_hard.group(1))
-                    except Exception:
-                        pass
+                        m_prob = re.search(r"'(?:train_)?(?:error_)?codebook_prob_ppl[^']*':\s*([0-9.]+)", block)
+                        if m_prob:
+                            prob_ppls[ep] = float(m_prob.group(1))
 
-                target_ep = meta.get("num_epochs", self.target_num_epochs)
-                # Check if killed / finished
-                if max_epoch_seen >= target_ep:
-                    is_completed = True
-                elif train_job_dir and os.path.isdir(train_job_dir):
-                    for f in os.listdir(train_job_dir):
-                        if f.startswith(".killed") or f.startswith(".interrupted") or f.startswith(".error"):
-                            is_killed = True
-                            break
+                        m_hard = re.search(r"'(?:train_)?(?:error_)?codebook_hard_ppl[^']*':\s*([0-9.]+)", block)
+                        if m_hard:
+                            hard_ppls[ep] = float(m_hard.group(1))
 
-                if not is_completed and max_epoch_seen > 0 and (is_killed or max_epoch_seen < target_ep):
-                    status_str = f"Killed (Ep {max_epoch_seen})" if is_killed else f"Running (Ep {max_epoch_seen})"
-                elif is_completed:
-                    status_str = "Completed"
-                else:
-                    status_str = "Pending"
+                        m_aux_ce = re.search(r"'(?:train_)?loss_aux_rec_ce[^']*':\s*([0-9.]+)", block)
+                        if m_aux_ce:
+                            aux_ces[ep] = float(m_aux_ce.group(1))
+
+                        m_aux_fer = re.search(r"'(?:train_)?loss_aux_rec_fer[^']*':\s*([0-9.]+)", block)
+                        if m_aux_fer:
+                            aux_fers[ep] = float(m_aux_fer.group(1))
+
+                        m_dev_aux_ce = re.search(r"'dev_loss_aux_rec_ce[^']*':\s*([0-9.]+)", block)
+                        if m_dev_aux_ce:
+                            dev_aux_ces[ep] = float(m_dev_aux_ce.group(1))
+
+                        m_dev_aux_fer = re.search(r"'dev_loss_aux_rec_fer[^']*':\s*([0-9.]+)", block)
+                        if m_dev_aux_fer:
+                            dev_aux_fers[ep] = float(m_dev_aux_fer.group(1))
+                except Exception:
+                    pass
+
+            target_ep = meta.get("num_epochs", self.target_num_epochs)
+            # Check if killed / finished
+            if max_epoch_seen >= target_ep:
+                is_completed = True
+            elif train_job_dir and os.path.isdir(train_job_dir):
+                for f in os.listdir(train_job_dir):
+                    if f.startswith(".killed") or f.startswith(".interrupted") or f.startswith(".error") or f.startswith("error."):
+                        is_killed = True
+                        break
+
+            if not is_completed and max_epoch_seen > 0 and (is_killed or max_epoch_seen < target_ep):
+                status_str = f"Killed (Ep {max_epoch_seen})" if is_killed else f"Running (Ep {max_epoch_seen})"
+            elif is_completed:
+                status_str = "Completed"
             else:
                 status_str = "Pending"
 
@@ -166,6 +212,10 @@ class HpoResultsExcelJob(tk.Job):
                 all_prob_ppl_curves[name] = prob_ppls
             if hard_ppls:
                 all_hard_ppl_curves[name] = hard_ppls
+            if aux_ces:
+                all_aux_ce_curves[name] = aux_ces
+            if aux_fers:
+                all_aux_fer_curves[name] = aux_fers
 
             # 2. Parse PER / WER score_results
             pers = {}
@@ -254,6 +304,8 @@ class HpoResultsExcelJob(tk.Job):
             total_rt = round(sum(runtimes) / 3600.0, 2) if runtimes else ""
             latest_prob_ppl = round(prob_ppls[max(prob_ppls.keys())], 2) if prob_ppls else ("Killed" if is_killed else "")
             latest_hard_ppl = round(hard_ppls[max(hard_ppls.keys())], 2) if hard_ppls else ("Killed" if is_killed else "")
+            latest_aux_ce = round(aux_ces[max(aux_ces.keys())], 4) if aux_ces else ("Killed" if is_killed else "")
+            latest_aux_fer = f"{round(aux_fers[max(aux_fers.keys())] * 100, 2)}%" if aux_fers else ("Killed" if is_killed else "")
 
             rec = {
                 "name": name,
@@ -264,6 +316,12 @@ class HpoResultsExcelJob(tk.Job):
                 "latest_hard_ppl": latest_hard_ppl,
                 "prob_ppls": prob_ppls,
                 "hard_ppls": hard_ppls,
+                "latest_aux_ce": latest_aux_ce,
+                "latest_aux_fer": latest_aux_fer,
+                "aux_ces": aux_ces,
+                "aux_fers": aux_fers,
+                "dev_aux_ces": dev_aux_ces,
+                "dev_aux_fers": dev_aux_fers,
                 "pers": pers,
                 "audio_vars": audio_vars,
                 "text_vars": text_vars,
@@ -274,20 +332,37 @@ class HpoResultsExcelJob(tk.Job):
             records.append(rec)
 
         # Determine extra meta keys dynamically
+        standard_keys = [
+            "name", "status", "mean_rt", "total_rt", "latest_prob_ppl", "latest_hard_ppl",
+            "prob_ppls", "hard_ppls", "latest_aux_ce", "latest_aux_fer", "aux_ces", "aux_fers",
+            "dev_aux_ces", "dev_aux_fers", "pers", "audio_vars", "text_vars", "mixed_vars", "is_killed"
+        ]
         extra_keys = []
         for r in records:
             for k in r.keys():
-                if k not in ["name", "status", "mean_rt", "total_rt", "latest_prob_ppl", "latest_hard_ppl", "prob_ppls", "hard_ppls", "pers", "audio_vars", "text_vars", "mixed_vars", "is_killed"] and k not in extra_keys:
+                if k not in standard_keys and k not in extra_keys:
                     extra_keys.append(k)
+
+        has_ppl = any(r["prob_ppls"] for r in records)
+        has_aux_rec = any(r["aux_ces"] for r in records)
 
         # --- CSV Generation ---
         headers = ["Config Name", "Status"] + [k.replace("_", " ").title() for k in extra_keys] + [
-            "Mean Ep Time (s)", "Total Time (h)", "Latest Prob PPL", "Latest Hard PPL",
+            "Mean Ep Time (s)", "Total Time (h)"
         ]
-        for ep in self.eval_epochs:
-            headers.append(f"Prob PPL Ep {ep}")
-        for ep in self.eval_epochs:
-            headers.append(f"Hard PPL Ep {ep}")
+        if has_ppl:
+            headers.extend(["Latest Prob PPL", "Latest Hard PPL"])
+            for ep in self.eval_epochs:
+                headers.append(f"Prob PPL Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Hard PPL Ep {ep}")
+        if has_aux_rec:
+            headers.extend(["Latest Aux Rec CE", "Latest Aux Rec FER (%)"])
+            for ep in self.eval_epochs:
+                headers.append(f"Aux Rec CE Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Aux Rec FER Ep {ep} (%)")
+
         for ep in self.eval_epochs:
             headers.append(f"PER Ep {ep}")
         for ep in self.eval_epochs:
@@ -303,15 +378,24 @@ class HpoResultsExcelJob(tk.Job):
                 row = [str(r["name"]), str(r["status"])]
                 for k in extra_keys:
                     row.append(str(r.get(k, "")))
-                row.extend([
-                    str(r["mean_rt"]), str(r["total_rt"]), str(r["latest_prob_ppl"]), str(r["latest_hard_ppl"]),
-                ])
-                for ep in self.eval_epochs:
-                    val = str(r["prob_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
-                    row.append(val)
-                for ep in self.eval_epochs:
-                    val = str(r["hard_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
-                    row.append(val)
+                row.extend([str(r["mean_rt"]), str(r["total_rt"])])
+                if has_ppl:
+                    row.extend([str(r["latest_prob_ppl"]), str(r["latest_hard_ppl"])])
+                    for ep in self.eval_epochs:
+                        row.append(str(r["prob_ppls"].get(ep, "Killed" if r["is_killed"] else "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["hard_ppls"].get(ep, "Killed" if r["is_killed"] else "")))
+                if has_aux_rec:
+                    row.extend([str(r["latest_aux_ce"]), str(r["latest_aux_fer"])])
+                    for ep in self.eval_epochs:
+                        row.append(str(r["aux_ces"].get(ep, "Killed" if r["is_killed"] else "")))
+                    for ep in self.eval_epochs:
+                        fer_val = r["aux_fers"].get(ep, "")
+                        if isinstance(fer_val, (int, float)):
+                            row.append(f"{fer_val * 100:.2f}%")
+                        else:
+                            row.append(str(fer_val if not r["is_killed"] else "Killed"))
+
                 for ep in self.eval_epochs:
                     row.append(str(r["pers"].get(ep, "")))
                 for ep in self.eval_epochs:
@@ -330,7 +414,7 @@ class HpoResultsExcelJob(tk.Job):
 
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "v6_Summary"
+            ws.title = self.report_name[:31]
             ws.append(headers)
 
             header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
@@ -348,13 +432,24 @@ class HpoResultsExcelJob(tk.Job):
                 row = [r["name"], r["status"]]
                 for k in extra_keys:
                     row.append(r.get(k, ""))
-                row.extend([
-                    r["mean_rt"], r["total_rt"], r["latest_prob_ppl"], r["latest_hard_ppl"],
-                ])
-                for ep in self.eval_epochs:
-                    row.append(r["prob_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
-                for ep in self.eval_epochs:
-                    row.append(r["hard_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
+                row.extend([r["mean_rt"], r["total_rt"]])
+                if has_ppl:
+                    row.extend([r["latest_prob_ppl"], r["latest_hard_ppl"]])
+                    for ep in self.eval_epochs:
+                        row.append(r["prob_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["hard_ppls"].get(ep, "Killed" if r["is_killed"] else ""))
+                if has_aux_rec:
+                    row.extend([r["latest_aux_ce"], r["latest_aux_fer"]])
+                    for ep in self.eval_epochs:
+                        row.append(r["aux_ces"].get(ep, "Killed" if r["is_killed"] else ""))
+                    for ep in self.eval_epochs:
+                        fer_val = r["aux_fers"].get(ep, "")
+                        if isinstance(fer_val, (int, float)):
+                            row.append(f"{fer_val * 100:.2f}%")
+                        else:
+                            row.append(fer_val if not r["is_killed"] else "Killed")
+
                 for ep in self.eval_epochs:
                     row.append(r["pers"].get(ep, ""))
                 for ep in self.eval_epochs:
@@ -479,3 +574,54 @@ class HpoResultsExcelJob(tk.Job):
             plt.close()
         except Exception:
             pass
+
+        # --- 3. Automated Auxiliary Reconstruction Summary Plot with Confidence Bounds ---
+        if all_aux_ce_curves or all_aux_fer_curves:
+            try:
+                plt.figure(figsize=(14, 6))
+
+                # Subplot 1: Aux Rec Cross-Entropy Loss
+                plt.subplot(1, 2, 1)
+                all_ce_eps = sorted(list({ep for c in all_aux_ce_curves.values() for ep in c.keys()}))
+                if all_ce_eps:
+                    ce_means = [np.mean([c[e] for c in all_aux_ce_curves.values() if e in c]) for e in all_ce_eps]
+                    ce_stds = [np.std([c[e] for c in all_aux_ce_curves.values() if e in c]) for e in all_ce_eps]
+                    ce_means, ce_stds = np.array(ce_means), np.array(ce_stds)
+
+                    plt.plot(all_ce_eps, ce_means, color="darkred", linewidth=2.5, label="Mean Aux Rec CE")
+                    plt.fill_between(all_ce_eps, ce_means - ce_stds, ce_means + ce_stds, color="red", alpha=0.2, label="Confidence (±1 std)")
+
+                    for name, curve in all_aux_ce_curves.items():
+                        plt.plot(sorted(curve.keys()), [curve[e] for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
+
+                plt.xlabel("Epoch")
+                plt.ylabel("Auxiliary Reconstruction Cross Entropy")
+                plt.title("Aux Rec CE Loss Mean & Confidence Envelope")
+                plt.grid(True, linestyle="--", alpha=0.6)
+                plt.legend(loc="upper right")
+
+                # Subplot 2: Aux Rec Frame Error Rate (%)
+                plt.subplot(1, 2, 2)
+                all_fer_eps = sorted(list({ep for c in all_aux_fer_curves.values() for ep in c.keys()}))
+                if all_fer_eps:
+                    fer_means = [np.mean([c[e] * 100 for c in all_aux_fer_curves.values() if e in c]) for e in all_fer_eps]
+                    fer_stds = [np.std([c[e] * 100 for c in all_aux_fer_curves.values() if e in c]) for e in all_fer_eps]
+                    fer_means, fer_stds = np.array(fer_means), np.array(fer_stds)
+
+                    plt.plot(all_fer_eps, fer_means, color="indigo", linewidth=2.5, label="Mean Aux Rec FER (%)")
+                    plt.fill_between(all_fer_eps, fer_means - fer_stds, fer_means + fer_stds, color="purple", alpha=0.2, label="Confidence (±1 std)")
+
+                    for name, curve in all_aux_fer_curves.items():
+                        plt.plot(sorted(curve.keys()), [curve[e] * 100 for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
+
+                plt.xlabel("Epoch")
+                plt.ylabel("Auxiliary Frame Error Rate (%)")
+                plt.title("Aux Rec FER (%) Mean & Confidence Envelope")
+                plt.grid(True, linestyle="--", alpha=0.6)
+                plt.legend(loc="upper right")
+
+                plt.tight_layout()
+                plt.savefig(self.out_aux_plot.get_path(), dpi=300, bbox_inches="tight")
+                plt.close()
+            except Exception:
+                pass

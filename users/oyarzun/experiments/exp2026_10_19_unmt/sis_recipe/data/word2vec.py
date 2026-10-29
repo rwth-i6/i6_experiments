@@ -24,6 +24,7 @@ class TrainWord2VecJob(Job):
       - out_counts_txt: word frequency counts
     """
     _version = 3
+    __sis_hash_exclude__ = {"sample": None}
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class TrainWord2VecJob(Job):
         sg: int = 1,  # 1 for Skip-gram, 0 for CBOW
         negative: int = 10,
         epochs: int = 5,
+        sample: Optional[float] = None,
         workers: int = 8,
         seed: int = 42,
         fixed_vocab_file: Optional[tk.Path] = None,
@@ -50,6 +52,7 @@ class TrainWord2VecJob(Job):
         self.sg = sg
         self.negative = negative
         self.epochs = epochs
+        self.sample = sample
         self.workers = workers
         self.seed = seed
         self.fixed_vocab_file = fixed_vocab_file
@@ -96,18 +99,22 @@ class TrainWord2VecJob(Job):
             f"Training Word2Vec (sg={self.sg}, negative={self.negative}, window={self.window}, "
             f"dim={self.vector_size}, max_vocab={self.max_vocab_size}) on {self.token_text_file.get_path()}..."
         )
-        model = Word2Vec(
-            sentences=corpus,
-            vector_size=self.vector_size,
-            window=self.window,
-            min_count=self.min_count,
-            max_final_vocab=self.max_vocab_size,
-            sg=self.sg,
-            negative=self.negative,
-            epochs=self.epochs,
-            workers=self.workers,
-            seed=self.seed,
-        )
+        w2v_kwargs = {
+            "sentences": corpus,
+            "vector_size": self.vector_size,
+            "window": self.window,
+            "min_count": self.min_count,
+            "max_final_vocab": self.max_vocab_size,
+            "sg": self.sg,
+            "negative": self.negative,
+            "epochs": self.epochs,
+            "workers": self.workers,
+            "seed": self.seed,
+        }
+        if self.sample is not None:
+            w2v_kwargs["sample"] = self.sample
+
+        model = Word2Vec(**w2v_kwargs)
 
         model.save(self.out_model.get_path())
 
