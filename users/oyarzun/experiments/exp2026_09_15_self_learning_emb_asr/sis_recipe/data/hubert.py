@@ -357,13 +357,19 @@ class HuBERTCheatingSegmentAveragingAndClusterJob(Job):
         num_clusters: int = 483,
         pca_components_npy: Optional[tk.Path] = None,
         pca_mean_npy: Optional[tk.Path] = None,
+        normalize_segments: Optional[str] = None,
         sample_pct: float = 0.2,
         seed: int = 42,
         collapse_consecutive: bool = True,
         _version: int = 2,
     ):
         super().__init__()
-        self._version = max(_version, 3) if pca_components_npy is not None else _version
+        ver = _version
+        if pca_components_npy is not None:
+            ver = max(ver, 3)
+        if normalize_segments is not None:
+            ver = max(ver, 4)
+        self._version = ver
         self.features_npy = features_npy
         self.lengths_txt = lengths_txt
         self.seq_tags_txt = seq_tags_txt
@@ -371,6 +377,7 @@ class HuBERTCheatingSegmentAveragingAndClusterJob(Job):
         self.num_clusters = num_clusters
         self.pca_components_npy = pca_components_npy
         self.pca_mean_npy = pca_mean_npy
+        self.normalize_segments = normalize_segments
         self.sample_pct = sample_pct
         self.seed = seed
         self.collapse_consecutive = collapse_consecutive
@@ -383,7 +390,7 @@ class HuBERTCheatingSegmentAveragingAndClusterJob(Job):
         self.out_cluster_counts_txt = self.output_path("cluster_counts.txt")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 8, "mem": 32, "time": 6})
+        yield Task("run", rqmt={"cpu": 8, "mem": 64, "time": 6})
 
     def run(self):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -520,11 +527,45 @@ class HuBERTCheatingSegmentAveragingAndClusterJob(Job):
         # 3b. Apply Frame-Fitted PCA Projection (if configured)
         if self.pca_components_npy is not None and self.pca_mean_npy is not None:
             logging.info("Applying frame-fitted PCA projection to segment representations...")
-            pca_comp = np.load(self.pca_components_npy.get_path())
-            pca_mean = np.load(self.pca_mean_npy.get_path())
+            pca_comp = np.load(self.pca_components_npy.get_path()).astype(np.float32)
+            pca_mean = np.load(self.pca_mean_npy.get_path()).astype(np.float32)
             # Linearity: Average( (x - μ) @ W ) == (Average(x) - μ) @ W
-            all_segment_reps = np.dot(all_segment_reps - pca_mean, pca_comp.T).astype(np.float32)
+            # Project in chunks to avoid allocating ~60GB of temporary arrays
+            n_segs = len(all_segment_reps)
+            out_dim = pca_comp.shape[0]
+            projected = np.empty((n_segs, out_dim), dtype=np.float32)
+            chunk_size = 500000
+            for c_start in range(0, n_segs, chunk_size):
+                c_end = min(c_start + chunk_size, n_segs)
+                chunk = all_segment_reps[c_start:c_end] - pca_mean
+                projected[c_start:c_end] = np.dot(chunk, pca_comp.T)
+            del all_segment_reps
+            all_segment_reps = projected
             logging.info(f"Projected segment representations to shape: {all_segment_reps.shape}")
+
+        # 3c. Optional Normalization to Unit Sphere (v5.4 setup)
+        if self.normalize_segments:
+            norm_mode = str(self.normalize_segments).lower().strip()
+            if norm_mode in ("unit_sphere", "l2", "unit", "sphere", "true"):
+                logging.info("Normalizing segment representations to the unit sphere (L2 norm = 1.0)...")
+                norms = np.linalg.norm(all_segment_reps, axis=1, keepdims=True)
+                all_segment_reps /= np.maximum(norms, 1e-12)
+            elif norm_mode in ("z_score", "z_transform", "standardize"):
+                logging.info("Applying z-score standardization (zero mean, unit variance) across segment representations...")
+                mean = np.mean(all_segment_reps, axis=0, keepdims=True)
+                std = np.std(all_segment_reps, axis=0, keepdims=True)
+                all_segment_reps -= mean
+                all_segment_reps /= np.maximum(std, 1e-12)
+            elif norm_mode in ("center_unit", "unit_center_unit"):
+                logging.info("Applying unit-norm + mean-centering + unit-norm to segment representations...")
+                norms = np.linalg.norm(all_segment_reps, axis=1, keepdims=True)
+                all_segment_reps /= np.maximum(norms, 1e-12)
+                mean = np.mean(all_segment_reps, axis=0, keepdims=True)
+                all_segment_reps -= mean
+                norms = np.linalg.norm(all_segment_reps, axis=1, keepdims=True)
+                all_segment_reps /= np.maximum(norms, 1e-12)
+            else:
+                raise ValueError(f"Unknown normalize_segments mode: {self.normalize_segments}")
 
         # 4. K-Means Clustering on Segment Representations
         n_sample = min(len(all_segment_reps), max(200000, int(len(all_segment_reps) * self.sample_pct)))

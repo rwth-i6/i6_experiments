@@ -17,8 +17,9 @@ from .data.hubert import (
     HuBERTFramePCAFitJob,
 )
 from .data.text import GenerateTextNgramsJob
-from .data.word2vec import TrainWord2VecJob
+from .data.word2vec import TrainWord2VecJob, TrainStructuredSkipGramJob
 from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
+from ..models.gan_alignment import GANEmbeddingAlignmentJob
 from ..models.analysis import EmbeddingAlignmentAnalysisJob
 from recipe.i6_experiments.users.oyarzun.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.cluster_adapter import (
     get_cheating_phoneme_ref_hdfs,
@@ -52,11 +53,17 @@ def build_self_learning_asr_alignment_pipeline(
     retrieval_metrics: Optional[List[str]] = None,
     csls_k: int = 10,
     model_tag: Optional[str] = None,
+    alignment_method: str = "artetxe",
+    text_version: Optional[str] = None,
+    code_cluster_map: Optional[Dict[str, List[Tuple[int, str]]]] = None,
+    normalize_segments: Optional[str] = None,
+    embedding_model: str = "word2vec",
 ):
     """
-    Constructs the end-to-end self-learning embedding alignment ASR pipeline across
+    Constructs the end-to-end cross-modal embedding alignment ASR pipeline across
     diphone and triphone cross-modal codes, cluster sizes K, dimensions d, windows w,
-    and dictionary retrieval metrics (Cosine & CSLS) with frequency-based initialization.
+    and dictionary retrieval metrics (Cosine & CSLS) with Artetxe frequency-based initialization
+    or Domain-Adversarial (GAN) alignment (Chung et al., 2018, arXiv:1805.07467).
     Supports both HuBERT and Wav2Vec 2.0 backbones.
     """
     if hubert_model_name is not None:
@@ -102,9 +109,12 @@ def build_self_learning_asr_alignment_pipeline(
 
     pca_tag = f"_pca{pca_dim}" if pca_dim else ""
     ver_suffix = f"_{version}{cov_tag}" if version else cov_tag
-    text_alias_prefix = f"experiments/self_learning_emb_asr{ver_suffix}/{librispeech_key}/{model_tag}"
+    txt_ver = text_version if text_version is not None else version
+    txt_ver_suffix = f"_{txt_ver}{cov_tag}" if txt_ver else cov_tag
+    text_alias_prefix = f"experiments/self_learning_emb_asr{txt_ver_suffix}/{librispeech_key}/{model_tag}"
     alias_prefix = f"experiments/self_learning_emb_asr{ver_suffix}{seg_tag}{pca_tag}/{librispeech_key}/{model_tag}"
     audio_shared_prefix = f"experiments/self_learning_emb_asr{seg_tag}{pca_tag}/{librispeech_key}/{model_tag}"
+    audio_cluster_prefix = alias_prefix if normalize_segments is not None else audio_shared_prefix
 
     # -------------------------------------------------------------
     # 1. TEXT PIPELINE: Phonemization, N-grams & Text Word2Vec
@@ -152,17 +162,30 @@ def build_self_learning_asr_alignment_pipeline(
         for d in word2vec_dims:
             for w in word2vec_windows:
                 dw_tag = _make_dw_tag(d, w)
-                train_text_w2v_job = TrainWord2VecJob(
-                    token_text_file=token_text_file,
-                    vector_size=d,
-                    window=w,
-                    min_count=1,
-                    sg=1,
-                    epochs=word2vec_epochs,
-                    fixed_vocab_file=fixed_vocab_file,
-                    _version=2,
-                )
-                train_text_w2v_job.add_alias(f"{text_alias_prefix}/text_w2v_{code_type}s_{dw_tag}")
+                if embedding_model in ("structured_skipgram", "ssg"):
+                    train_text_w2v_job = TrainStructuredSkipGramJob(
+                        token_text_file=token_text_file,
+                        vector_size=d,
+                        window=w,
+                        min_count=1,
+                        negative=5,
+                        epochs=word2vec_epochs,
+                        fixed_vocab_file=fixed_vocab_file,
+                    )
+                    train_text_w2v_job.add_alias(f"{text_alias_prefix}/text_{code_type}_ssg_{dw_tag}")
+                    tk.register_output(f"{text_alias_prefix}/text/{code_type}/{dw_tag}/ssg_loss.png", train_text_w2v_job.out_loss_plot)
+                else:
+                    train_text_w2v_job = TrainWord2VecJob(
+                        token_text_file=token_text_file,
+                        vector_size=d,
+                        window=w,
+                        min_count=1,
+                        sg=1,
+                        epochs=word2vec_epochs,
+                        fixed_vocab_file=fixed_vocab_file,
+                        _version=2,
+                    )
+                    train_text_w2v_job.add_alias(f"{text_alias_prefix}/text_w2v_{code_type}s_{dw_tag}")
 
                 tk.register_output(f"{text_alias_prefix}/text/{code_type}/{dw_tag}/embeddings.npy", train_text_w2v_job.out_embeddings_npy)
                 tk.register_output(f"{text_alias_prefix}/text/{code_type}/{dw_tag}/vocab.txt", train_text_w2v_job.out_vocab_txt)
@@ -217,8 +240,9 @@ def build_self_learning_asr_alignment_pipeline(
                 num_clusters=K,
                 pca_components_npy=pca_components,
                 pca_mean_npy=pca_mean,
+                normalize_segments=normalize_segments,
             )
-            cluster_job.add_alias(f"{audio_shared_prefix}/{cluster_name}/cheat_seg_average_kmeans")
+            cluster_job.add_alias(f"{audio_cluster_prefix}/{cluster_name}/cheat_seg_average_kmeans")
         else:
             # 3a. Cluster frames and collapse consecutive runs
             cluster_job = HuBERTClusterAndCollapseJob(
@@ -227,11 +251,15 @@ def build_self_learning_asr_alignment_pipeline(
                 seq_tags_txt=feat_job.out_seq_tags_txt,
                 num_clusters=K,
             )
-            cluster_job.add_alias(f"{audio_shared_prefix}/{cluster_name}/kmeans_collapse")
+            cluster_job.add_alias(f"{audio_cluster_prefix}/{cluster_name}/kmeans_collapse")
 
         tk.register_output(
             f"{alias_prefix}/{cluster_name}/collapsed_tokens.txt",
             cluster_job.out_collapsed_tokens_txt,
+        )
+        tk.register_output(
+            f"{alias_prefix}/{cluster_name}/raw_clusters.txt",
+            cluster_job.out_raw_clusters_txt,
         )
         tk.register_output(
             f"{alias_prefix}/{cluster_name}/cluster_vocab.txt",
@@ -245,41 +273,65 @@ def build_self_learning_asr_alignment_pipeline(
         for d in word2vec_dims:
             for w in word2vec_windows:
                 dw_tag = _make_dw_tag(d, w)
-                train_audio_w2v_job = TrainWord2VecJob(
-                    token_text_file=cluster_job.out_collapsed_tokens_txt,
-                    vector_size=d,
-                    window=w,
-                    min_count=1,
-                    sg=1,
-                    epochs=word2vec_epochs,
-                    fixed_vocab_file=cluster_job.out_cluster_vocab_txt,
-                    _version=1,
-                )
-                train_audio_w2v_job.add_alias(f"{audio_shared_prefix}/{cluster_name}/audio_w2v_{dw_tag}")
+                if embedding_model in ("structured_skipgram", "ssg"):
+                    train_audio_w2v_job = TrainStructuredSkipGramJob(
+                        token_text_file=cluster_job.out_collapsed_tokens_txt,
+                        vector_size=d,
+                        window=w,
+                        min_count=1,
+                        negative=5,
+                        epochs=word2vec_epochs,
+                        fixed_vocab_file=cluster_job.out_cluster_vocab_txt,
+                    )
+                    train_audio_w2v_job.add_alias(f"{audio_cluster_prefix}/{cluster_name}/audio_ssg_{dw_tag}")
+                    tk.register_output(
+                        f"{alias_prefix}/{cluster_name}/{dw_tag}/audio_ssg_loss.png",
+                        train_audio_w2v_job.out_loss_plot,
+                    )
+                else:
+                    train_audio_w2v_job = TrainWord2VecJob(
+                        token_text_file=cluster_job.out_collapsed_tokens_txt,
+                        vector_size=d,
+                        window=w,
+                        min_count=1,
+                        sg=1,
+                        epochs=word2vec_epochs,
+                        fixed_vocab_file=cluster_job.out_cluster_vocab_txt,
+                        _version=1,
+                    )
+                    train_audio_w2v_job.add_alias(f"{audio_cluster_prefix}/{cluster_name}/audio_w2v_{dw_tag}")
 
                 tk.register_output(
                     f"{alias_prefix}/{cluster_name}/{dw_tag}/audio_embeddings.npy",
                     train_audio_w2v_job.out_embeddings_npy,
                 )
 
-                audio_pipelines[(cluster_name, d, w)] = {
+                audio_pipelines[(K, d, w)] = {
                     "cluster_job": cluster_job,
                     "w2v_job": train_audio_w2v_job,
                 }
 
     # -------------------------------------------------------------
-    # 4. ARTETXE SELF-LEARNING EMBEDDING ALIGNMENT (Cosine & CSLS)
+    # 4. EMBEDDING ALIGNMENT (Artetxe Self-Learning & GAN Domain-Adversarial)
     # -------------------------------------------------------------
     alignment_results = {}
 
     for code_type in code_types:
-        if coverage_threshold is not None and set(cluster_counts) == {483, 6161}:
+        if code_cluster_map is not None and code_type in code_cluster_map:
+            target_pairs = code_cluster_map[code_type]
+        elif coverage_threshold is not None and set(cluster_counts) == {483, 6161}:
             matched_k_list = [483] if code_type == "diphone" else [6161]
+            target_pairs = [(k, f"clus_{k}_{k}") for k in matched_k_list]
+        elif coverage_threshold is not None and set(cluster_counts) == {483, 500, 6161}:
+            if code_type == "diphone":
+                target_pairs = [(483, "clus_483_483"), (500, "clus_500_483")]
+            else:
+                target_pairs = [(6161, "clus_6161_6161"), (500, "clus_500_6161")]
         else:
-            matched_k_list = cluster_counts
+            target_pairs = [(k, f"clus_{k}_{k}") for k in cluster_counts]
 
-        for K in matched_k_list:
-            cluster_name = f"clus_{K}_{K}"
+        for K, cluster_name in target_pairs:
+            base_audio_clus = f"clus_{K}_{K}"
 
             for d in word2vec_dims:
                 for w in word2vec_windows:
@@ -288,93 +340,204 @@ def build_self_learning_asr_alignment_pipeline(
                     t_w2v = t_info["w2v_job"]
                     t_vocab = t_info["vocab_file"]
 
-                    a_info = audio_pipelines[(cluster_name, d, w)]
+                    a_info = audio_pipelines[(K, d, w)]
                     a_clus = a_info["cluster_job"]
                     a_w2v = a_info["w2v_job"]
 
+                    # Also register alias links under cluster_name if asymmetric (e.g., clus_500_483 / clus_500_6161)
+                    if cluster_name != base_audio_clus:
+                        tk.register_output(
+                            f"{alias_prefix}/{cluster_name}/collapsed_tokens.txt",
+                            a_clus.out_collapsed_tokens_txt,
+                        )
+                        tk.register_output(
+                            f"{alias_prefix}/{cluster_name}/raw_clusters.txt",
+                            a_clus.out_raw_clusters_txt,
+                        )
+                        tk.register_output(
+                            f"{alias_prefix}/{cluster_name}/cluster_vocab.txt",
+                            a_clus.out_cluster_vocab_txt,
+                        )
+                        tk.register_output(
+                            f"{alias_prefix}/{cluster_name}/cluster_counts.txt",
+                            a_clus.out_cluster_counts_txt,
+                        )
+                        tk.register_output(
+                            f"{alias_prefix}/{cluster_name}/{dw_tag}/audio_embeddings.npy",
+                            a_w2v.out_embeddings_npy,
+                        )
+
                     for metric in retrieval_metrics:
-                        if metric == "cosine":
-                            m_sub = "align_freq"
-                            m_alias = "align_init_freq"
-                            an_sub = "analysis_v2"
-                            an_alias = "analysis_freq_v2"
-                        else:
-                            m_sub = f"align_freq_{metric}"
-                            m_alias = f"align_init_freq_{metric}"
-                            an_sub = f"analysis_v2_{metric}"
-                            an_alias = f"analysis_freq_v2_{metric}"
+                        if alignment_method in ("artetxe", "both"):
+                            if metric == "cosine":
+                                m_sub = "align_freq"
+                                m_alias = "align_init_freq"
+                                an_sub = "analysis_v2"
+                                an_alias = "analysis_freq_v2"
+                            else:
+                                m_sub = f"align_freq_{metric}"
+                                m_alias = f"align_init_freq_{metric}"
+                                an_sub = f"analysis_v2_{metric}"
+                                an_alias = f"analysis_freq_v2_{metric}"
 
-                        target_path_prefix = f"{alias_prefix}/{code_type}/{cluster_name}/{dw_tag}/{m_sub}"
-                        alias_job_prefix = f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{m_alias}"
+                            target_path_prefix = f"{alias_prefix}/{code_type}/{cluster_name}/{dw_tag}/{m_sub}"
+                            alias_job_prefix = f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{m_alias}"
 
-                        # Frequency-Rank Matching Initialization with specified metric
-                        align_freq_job = SelfLearningEmbeddingAlignmentJob(
-                            audio_embeddings_npy=a_w2v.out_embeddings_npy,
-                            text_embeddings_npy=t_w2v.out_embeddings_npy,
-                            audio_vocab_file=a_clus.out_cluster_vocab_txt,
-                            text_vocab_file=t_vocab,
-                            audio_counts_file=a_clus.out_cluster_counts_txt,
-                            text_counts_file=t_w2v.out_counts_txt,
-                            init_method="frequency",
-                            top_n_freq=None,
-                            retrieval_metric=metric,
-                            csls_k=csls_k,
-                        )
-                        align_freq_job.add_alias(alias_job_prefix)
+                            align_freq_job = SelfLearningEmbeddingAlignmentJob(
+                                audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                                text_vocab_file=t_vocab,
+                                audio_counts_file=a_clus.out_cluster_counts_txt,
+                                text_counts_file=t_w2v.out_counts_txt,
+                                init_method="frequency",
+                                top_n_freq=None,
+                                retrieval_metric=metric,
+                                csls_k=csls_k,
+                            )
+                            align_freq_job.add_alias(alias_job_prefix)
 
-                        tk.register_output(
-                            f"{target_path_prefix}/dict.json",
-                            align_freq_job.out_dictionary_json,
-                        )
-                        tk.register_output(
-                            f"{target_path_prefix}/report.json",
-                            align_freq_job.out_alignment_report,
-                        )
-                        tk.register_output(
-                            f"{target_path_prefix}/W_star.npy",
-                            align_freq_job.out_mapping_matrix_npy,
-                        )
-                        tk.register_output(
-                            f"{target_path_prefix}/mapped_audio_embeddings.npy",
-                            align_freq_job.out_mapped_audio_emb_npy,
-                        )
+                            tk.register_output(
+                                f"{target_path_prefix}/dict.json",
+                                align_freq_job.out_dictionary_json,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/report.json",
+                                align_freq_job.out_alignment_report,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/W_star.npy",
+                                align_freq_job.out_mapping_matrix_npy,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/mapped_audio_embeddings.npy",
+                                align_freq_job.out_mapped_audio_emb_npy,
+                            )
 
-                        # Standalone Analysis Job (Metric 1A & 3A)
-                        analysis_freq_job = EmbeddingAlignmentAnalysisJob(
-                            mapped_audio_embeddings_npy=align_freq_job.out_mapped_audio_emb_npy,
-                            text_embeddings_npy=t_w2v.out_embeddings_npy,
-                            dictionary_json=align_freq_job.out_dictionary_json,
-                            audio_vocab_file=a_clus.out_cluster_vocab_txt,
-                            text_vocab_file=t_vocab,
-                            alignment_report_json=align_freq_job.out_alignment_report,
-                            title_prefix=f"Cross-Modal 2D PCA ({code_type}, {cluster_name}, {dw_tag}, {metric})",
-                            _version=2,
-                        )
-                        analysis_freq_job.add_alias(f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{an_alias}")
+                            analysis_freq_job = EmbeddingAlignmentAnalysisJob(
+                                mapped_audio_embeddings_npy=align_freq_job.out_mapped_audio_emb_npy,
+                                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                                dictionary_json=align_freq_job.out_dictionary_json,
+                                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                                text_vocab_file=t_vocab,
+                                alignment_report_json=align_freq_job.out_alignment_report,
+                                title_prefix=f"Cross-Modal 2D PCA ({code_type}, {cluster_name}, {dw_tag}, {metric})",
+                                _version=2,
+                            )
+                            analysis_freq_job.add_alias(f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{an_alias}")
 
-                        tk.register_output(
-                            f"{target_path_prefix}/{an_sub}/analysis_report.json",
-                            analysis_freq_job.out_analysis_report_json,
-                        )
-                        tk.register_output(
-                            f"{target_path_prefix}/{an_sub}/cross_modal_pca.json",
-                            analysis_freq_job.out_cross_modal_pca_json,
-                        )
-                        tk.register_output(
-                            f"{target_path_prefix}/{an_sub}/cross_modal_pca.png",
-                            analysis_freq_job.out_cross_modal_pca_plot,
-                        )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/analysis_report.json",
+                                analysis_freq_job.out_analysis_report_json,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/cross_modal_pca.json",
+                                analysis_freq_job.out_cross_modal_pca_json,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/cross_modal_pca.png",
+                                analysis_freq_job.out_cross_modal_pca_plot,
+                            )
 
-                        alignment_results[(code_type, cluster_name, d, w, metric)] = {
-                            "cluster_job": a_clus,
-                            "audio_w2v_job": a_w2v,
-                            "text_w2v_job": t_w2v,
-                            "align_freq_job": align_freq_job,
-                            "analysis_freq_job": analysis_freq_job,
-                        }
+                            alignment_results[(code_type, cluster_name, d, w, metric)] = {
+                                "cluster_job": a_clus,
+                                "audio_w2v_job": a_w2v,
+                                "text_w2v_job": t_w2v,
+                                "align_freq_job": align_freq_job,
+                                "analysis_freq_job": analysis_freq_job,
+                            }
+
+                        if alignment_method in ("gan", "both"):
+                            if metric == "cosine":
+                                gan_sub = "align_gan"
+                                gan_alias = "align_init_gan"
+                                gan_an_sub = "analysis_v2"
+                                gan_an_alias = "analysis_gan_v2"
+                            else:
+                                gan_sub = f"align_gan_{metric}"
+                                gan_alias = f"align_init_gan_{metric}"
+                                gan_an_sub = f"analysis_v2_{metric}"
+                                gan_an_alias = f"analysis_gan_v2_{metric}"
+
+                            gan_target_prefix = f"{alias_prefix}/{code_type}/{cluster_name}/{dw_tag}/{gan_sub}"
+                            gan_job_prefix = f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{gan_alias}"
+
+                            align_gan_job = GANEmbeddingAlignmentJob(
+                                audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                                text_vocab_file=t_vocab,
+                                audio_counts_file=a_clus.out_cluster_counts_txt,
+                                text_counts_file=t_w2v.out_counts_txt,
+                                disc_hidden_dim=512,
+                                disc_num_layers=2,
+                                lr=1e-3,
+                                retrieval_metric=metric,
+                                csls_k=csls_k,
+                            )
+                            align_gan_job.add_alias(gan_job_prefix)
+
+                            tk.register_output(
+                                f"{gan_target_prefix}/dict.json",
+                                align_gan_job.out_dictionary_json,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/report.json",
+                                align_gan_job.out_alignment_report,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/W_star.npy",
+                                align_gan_job.out_mapping_matrix_npy,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/W_adv.npy",
+                                align_gan_job.out_adv_mapping_matrix_npy,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/mapped_audio_embeddings.npy",
+                                align_gan_job.out_mapped_audio_emb_npy,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/gan_training_curves.png",
+                                align_gan_job.out_gan_loss_plot,
+                            )
+
+                            analysis_gan_job = EmbeddingAlignmentAnalysisJob(
+                                mapped_audio_embeddings_npy=align_gan_job.out_mapped_audio_emb_npy,
+                                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                                dictionary_json=align_gan_job.out_dictionary_json,
+                                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                                text_vocab_file=t_vocab,
+                                alignment_report_json=align_gan_job.out_alignment_report,
+                                title_prefix=f"GAN Cross-Modal 2D PCA ({code_type}, {cluster_name}, {dw_tag}, {metric})",
+                                _version=2,
+                            )
+                            analysis_gan_job.add_alias(f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{gan_an_alias}")
+
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/analysis_report.json",
+                                analysis_gan_job.out_analysis_report_json,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/cross_modal_pca.json",
+                                analysis_gan_job.out_cross_modal_pca_json,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/cross_modal_pca.png",
+                                analysis_gan_job.out_cross_modal_pca_plot,
+                            )
+
+                            alignment_results[(code_type, cluster_name, d, w, f"gan_{metric}")] = {
+                                "cluster_job": a_clus,
+                                "audio_w2v_job": a_w2v,
+                                "text_w2v_job": t_w2v,
+                                "align_gan_job": align_gan_job,
+                                "analysis_gan_job": analysis_gan_job,
+                            }
 
     return alignment_results
 
 
 if __name__ == "__main__":
     pipeline_jobs = build_self_learning_asr_alignment_pipeline()
+

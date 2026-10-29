@@ -568,18 +568,22 @@ def get_v3_text_embeddings_path(
     dim: Optional[int] = None,
     cluster: Optional[str] = None,
 ) -> str:
-    """Finds text embeddings for v3 (code_type, win, dim)."""
+    """Finds text embeddings for v3/v5 (code_type, win, dim)."""
     active = cluster if cluster is not None else get_cluster()
     norm = active.lower().replace("_", "-")
 
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5.3_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5.3_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
@@ -604,18 +608,22 @@ def get_v3_vocab_path(
     dim: Optional[int] = None,
     cluster: Optional[str] = None,
 ) -> tk.Path:
-    """Finds text vocabulary for v3 (code_type, win, dim)."""
+    """Finds text vocabulary for v3/v5 (code_type, win, dim)."""
     active = cluster if cluster is not None else get_cluster()
     norm = active.lower().replace("_", "-")
 
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5.3_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5.3_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
@@ -653,6 +661,8 @@ def get_cluster_counts_path(
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -660,6 +670,8 @@ def get_cluster_counts_path(
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -693,6 +705,8 @@ def get_raw_clusters_path(
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -700,6 +714,8 @@ def get_raw_clusters_path(
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -734,6 +750,8 @@ def get_collapsed_clusters_path(
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -741,6 +759,8 @@ def get_collapsed_clusters_path(
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca512/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v2/train-clean-100/hubert_l6"),
@@ -785,7 +805,7 @@ def get_v3_counts_path(
     cluster: Optional[str] = None,
 ) -> Optional[tk.Path]:
     """
-    Finds diphone or triphone counts.txt for v3.
+    Finds diphone or triphone counts.txt for v3/v5.
     """
     active = cluster if cluster is not None else get_cluster()
     norm = active.lower().replace("_", "-")
@@ -793,10 +813,14 @@ def get_v3_counts_path(
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, "output/experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v5_matched_cov90/train-clean-100/hubert_l6/text"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3_matched_cov90/train-clean-100/hubert_l6/text"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, "experiments/self_learning_emb_asr_v3/train-clean-100/hubert_l6/text"),
         ])
 
@@ -844,7 +868,8 @@ def get_v5_cheat_seg_tokens_path(
 ) -> Optional[tk.Path]:
     """
     Returns path to precomputed segment-clustered tokens (collapsed_tokens.txt)
-    for v5 cheating segmentation 512-dim PCA + K-Means, or None if not yet computed.
+    for v5/v5.3 cheating segmentation 512-dim PCA + K-Means, or None if not yet computed.
+    Supports rectangular cluster names (e.g., clus_500_483, clus_500_6161) by also checking clus_500_500.
     """
     active = cluster if cluster is not None else get_cluster()
     norm = active.lower().replace("_", "-")
@@ -852,21 +877,168 @@ def get_v5_cheat_seg_tokens_path(
     search_roots = []
     if norm in ("curium", "local"):
         search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
         ])
     else:
         search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
             os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
         ])
 
+    c_candidates = [clus_str]
+    if clus_str.startswith("clus_500_") and "clus_500_500" not in c_candidates:
+        c_candidates.append("clus_500_500")
+
     for root in search_roots:
-        cand = os.path.join(root, clus_str, "collapsed_tokens.txt")
-        if os.path.exists(cand):
-            return tk.Path(cand)
+        for c_name in c_candidates:
+            cand = os.path.join(root, c_name, "collapsed_tokens.txt")
+            if os.path.exists(cand):
+                return tk.Path(cand)
 
     return None
+
+
+def get_v5_3_gan_audio_embeddings_path(
+    code_type: str,
+    clus_str: str,
+    win: int = 2,
+    dim: int = 128,
+    retrieval_metric: str = "csls",
+    pca_dim: int = 512,
+    cluster: Optional[str] = None,
+) -> str:
+    """
+    Finds mapped audio embeddings for v5.3 GAN alignment (Chung et al., 2018 + CSLS Procrustes refinement).
+    """
+    active = cluster if cluster is not None else get_cluster()
+    norm = active.lower().replace("_", "-")
+    c_name = clus_str if clus_str.startswith("clus_") else f"clus_{clus_str}"
+
+    search_roots = []
+    if norm in ("curium", "local"):
+        search_roots.extend([
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
+        ])
+    else:
+        search_roots.extend([
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.3_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6"),
+        ])
+
+    dw_candidates = [f"dim{dim}_win{win}", f"win{win}"]
+    metric_subdirs = [f"align_gan_{retrieval_metric}", "align_gan"]
+
+    for root in search_roots:
+        for dw_tag in dw_candidates:
+            for m_sub in metric_subdirs:
+                align_gan_dir = os.path.join(root, code_type, c_name, dw_tag, m_sub)
+                target_mapped = os.path.join(align_gan_dir, "mapped_audio_embeddings.npy")
+                if os.path.exists(target_mapped):
+                    return target_mapped
+                target_wstar = os.path.join(align_gan_dir, "W_star.npy")
+                if os.path.exists(target_wstar):
+                    return resolve_mapped_audio_embeddings(target_wstar)
+
+    return ""
+
+
+def get_v5_4_cheat_seg_tokens_path(
+    clus_str: str = "clus_483_483",
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    norm_tag: str = "unit_sphere",
+) -> Optional[tk.Path]:
+    """
+    Returns path to precomputed segment-clustered tokens (collapsed_tokens.txt)
+    for v5.4 cheating segmentation (unit-sphere or z-score normalized) 512-dim PCA + K-Means, or None if not yet computed.
+    Supports rectangular cluster names (e.g., clus_500_483, clus_500_6161) by also checking clus_500_500.
+    """
+    active = cluster if cluster is not None else get_cluster()
+    norm = active.lower().replace("_", "-")
+
+    search_roots = []
+    norm_clean = norm_tag.strip().lower()
+    if norm in ("curium", "local"):
+        search_roots.append(
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.4_{norm_clean}_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+        search_roots.append(
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.4_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+    else:
+        search_roots.append(
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.4_{norm_clean}_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+        search_roots.append(
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.4_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+
+    c_candidates = [clus_str]
+    if clus_str.startswith("clus_500_") and "clus_500_500" not in c_candidates:
+        c_candidates.append("clus_500_500")
+
+    for root in search_roots:
+        for c_name in c_candidates:
+            cand = os.path.join(root, c_name, "collapsed_tokens.txt")
+            if os.path.exists(cand):
+                return tk.Path(cand)
+
+    return None
+
+
+def get_v5_4_gan_audio_embeddings_path(
+    code_type: str,
+    clus_str: str,
+    win: int = 2,
+    dim: int = 128,
+    retrieval_metric: str = "csls",
+    pca_dim: int = 512,
+    cluster: Optional[str] = None,
+    norm_tag: str = "unit_sphere",
+) -> str:
+    """
+    Finds mapped audio embeddings for v5.4 GAN alignment (Unit sphere or Z-score normalized + CSLS Procrustes refinement).
+    """
+    active = cluster if cluster is not None else get_cluster()
+    norm = active.lower().replace("_", "-")
+    c_name = clus_str if clus_str.startswith("clus_") else f"clus_{clus_str}"
+    norm_clean = norm_tag.strip().lower()
+
+    search_roots = []
+    if norm in ("curium", "local"):
+        search_roots.append(
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.4_{norm_clean}_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+        search_roots.append(
+            os.path.join(ClusterPaths.CURIUM_LOCAL_ROOT, f"output/experiments/self_learning_emb_asr_v5.4_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+    else:
+        search_roots.append(
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.4_{norm_clean}_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+        search_roots.append(
+            os.path.join(ClusterPaths.HPC_WORK_DIR, f"experiments/self_learning_emb_asr_v5.4_matched_cov90_cheat_seg_pca{pca_dim}/train-clean-100/hubert_l6")
+        )
+
+    dw_candidates = [f"dim{dim}_win{win}", f"win{win}"]
+    metric_subdirs = [f"align_gan_{retrieval_metric}", "align_gan"]
+
+    for root in search_roots:
+        for dw_tag in dw_candidates:
+            for m_sub in metric_subdirs:
+                align_gan_dir = os.path.join(root, code_type, c_name, dw_tag, m_sub)
+                target_mapped = os.path.join(align_gan_dir, "mapped_audio_embeddings.npy")
+                if os.path.exists(target_mapped):
+                    return target_mapped
+                target_wstar = os.path.join(align_gan_dir, "W_star.npy")
+                if os.path.exists(target_wstar):
+                    return resolve_mapped_audio_embeddings(target_wstar)
+
+    return ""
 
 
 def get_v5_w2v2_cheat_seg_tokens_path(
@@ -899,6 +1071,28 @@ def get_v5_w2v2_cheat_seg_tokens_path(
             return tk.Path(cand)
 
     return None
+
+
+def get_phoneme_text_corpus_path(cluster: Optional[str] = None) -> Optional[tk.Path]:
+    """
+    Returns the path to the LibriSpeech training phonemes corpus for N-gram Language Modeling.
+    """
+    active = get_cluster() if cluster is None else cluster
+    paths = [
+        os.path.join(
+            ClusterPaths.CURIUM_LOCAL_ROOT,
+            "work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/text/PhonemizeTextDataJob.h2XaligKUcKZ/output/text.phonemes.txt",
+        ),
+        os.path.join(
+            ClusterPaths.HPC_WORK_DIR,
+            "sisyphus-work-dirs/exp2026_09_15_self_learning_emb_asr/data/text/PhonemizeTextDataJob.h2XaligKUcKZ/output/text.phonemes.txt",
+        ),
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return tk.Path(p)
+    return None
+
 
 
 

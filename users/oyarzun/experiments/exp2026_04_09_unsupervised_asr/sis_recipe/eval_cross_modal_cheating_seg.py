@@ -14,6 +14,8 @@ import os
 import glob
 import json
 import logging
+import math
+import collections
 import numpy as np
 
 from sisyphus import tk, Task
@@ -969,3 +971,420 @@ class CheatingSegmentationNearestNeighborEvalJob(tk.Job):
             f.write(report)
 
         logging.info(f"Evaluation complete. Final PER: {per_str}. Report written to {self.out_per_report_txt.get_path()}")
+
+
+# =============================================================================
+# Phoneme N-gram Language Model Rescoring Job
+# =============================================================================
+
+class FastPhonemeNgramLM:
+    """
+    N-gram Phoneme Language Model with Stupid Backoff smoothing and precomputed hash tables.
+    """
+    def __init__(self, n_order: int = 4, backoff_alpha: float = 0.4):
+        self.n = n_order
+        self.alpha = backoff_alpha
+        self.log_alpha = math.log(backoff_alpha)
+        self.vocab = set()
+        self.vocab_list = []
+        self.V = 0
+
+        self.unigram_lp = {}
+        self.bigram_lp = {}
+        self.trigram_lp = {}
+        self.fourgram_lp = {}
+        self.context_followers = collections.defaultdict(set)
+        self.top_unigrams = []
+        self.cand_for_ctx = {}
+        self.default_cands = ()
+
+    def fit_file(self, text_phonemes_path: str):
+        logging.info(f"Training Fast {self.n}-gram LM on: {text_phonemes_path} ...")
+        unigram_counts = collections.Counter()
+        bigram_counts = collections.Counter()
+        trigram_counts = collections.Counter()
+        fourgram_counts = collections.Counter()
+
+        ctx1_totals = collections.Counter()
+        ctx2_totals = collections.Counter()
+        ctx3_totals = collections.Counter()
+        total_tokens = 0
+        num_sentences = 0
+
+        with open(text_phonemes_path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw_tokens = [p for p in line.strip().split() if p not in ("<SIL>", "SIL", "[SIL]", "")]
+                if not raw_tokens:
+                    continue
+                num_sentences += 1
+                tokens = ["<s>", "<s>", "<s>"] + raw_tokens + ["</s>"]
+                self.vocab.update(raw_tokens)
+
+                for i in range(3, len(tokens)):
+                    w0, w1, w2, w3 = tokens[i - 3], tokens[i - 2], tokens[i - 1], tokens[i]
+                    fourgram_counts[(w0, w1, w2, w3)] += 1
+                    ctx3_totals[(w0, w1, w2)] += 1
+
+                    trigram_counts[(w1, w2, w3)] += 1
+                    ctx2_totals[(w1, w2)] += 1
+                    self.context_followers[(w1, w2)].add(w3)
+
+                    bigram_counts[(w2, w3)] += 1
+                    ctx1_totals[w2] += 1
+                    self.context_followers[(w2,)].add(w3)
+
+                    unigram_counts[w3] += 1
+                    total_tokens += 1
+
+        self.vocab_list = sorted(list(self.vocab))
+        self.V = len(self.vocab_list)
+        self.top_unigrams = [w for w, _ in unigram_counts.most_common(5) if w != "</s>"]
+
+        for w, c in unigram_counts.items():
+            self.unigram_lp[w] = math.log(c / total_tokens)
+        for (w1, w2), c in bigram_counts.items():
+            self.bigram_lp[(w1, w2)] = math.log(c / ctx1_totals[w1])
+        for (w1, w2, w3), c in trigram_counts.items():
+            self.trigram_lp[(w1, w2, w3)] = math.log(c / ctx2_totals[(w1, w2)])
+        for (w0, w1, w2, w3), c in fourgram_counts.items():
+            self.fourgram_lp[(w0, w1, w2, w3)] = math.log(c / ctx3_totals[(w0, w1, w2)])
+
+        self.context_followers = {k: sorted(list(v)) for k, v in self.context_followers.items()}
+        for ctx in self.context_followers.keys():
+            if len(ctx) == 2:
+                w1, w2 = ctx
+                f2 = self.context_followers.get((w1, w2), [])[:6]
+                f1 = self.context_followers.get((w2,), [])[:4]
+                s = set(f2 + f1 + self.top_unigrams)
+                s.discard("</s>")
+                s.discard("<s>")
+                self.cand_for_ctx[(w1, w2)] = tuple(s)
+
+        fb = set(self.top_unigrams)
+        fb.discard("</s>")
+        fb.discard("<s>")
+        self.default_cands = tuple(fb)
+        logging.info(f"Fast LM ready: {num_sentences} sentences, {total_tokens} tokens, {len(self.fourgram_lp)} 4-grams.")
+
+    def log_prob(self, w: str, w0: str, w1: str, w2: str) -> float:
+        lp = self.fourgram_lp.get((w0, w1, w2, w))
+        if lp is not None:
+            return lp
+        lp = self.trigram_lp.get((w1, w2, w))
+        if lp is not None:
+            return self.log_alpha + lp
+        lp = self.bigram_lp.get((w2, w))
+        if lp is not None:
+            return 2.0 * self.log_alpha + lp
+        lp = self.unigram_lp.get(w)
+        if lp is not None:
+            return 3.0 * self.log_alpha + lp
+        return 4.0 * self.log_alpha - math.log(max(1, self.V))
+
+
+def _rescore_viterbi_beam_decode(
+    obs_tokens: List[str],
+    lm: FastPhonemeNgramLM,
+    lm_weight: float = 0.5,
+    match_bonus: float = 2.0,
+    beam_width: int = 10,
+) -> List[str]:
+    if not obs_tokens:
+        return []
+
+    beam = {("<s>", "<s>", "<s>"): (0.0, -1, "")}
+    beam_history = []
+
+    for obs in obs_tokens:
+        next_beam = {}
+        beam_list = list(beam.items())
+        beam_history.append(beam_list)
+
+        for bp_idx, ((w0, w1, w2), (score, _, _)) in enumerate(beam_list):
+            cands = lm.cand_for_ctx.get((w1, w2), lm.default_cands)
+            for cand in cands:
+                emis = match_bonus if cand == obs else 0.0
+                lp = lm.log_prob(cand, w0, w1, w2)
+                tot = score + emis + lm_weight * lp
+                new_ctx = (w1, w2, cand)
+                if new_ctx not in next_beam or tot > next_beam[new_ctx][0]:
+                    next_beam[new_ctx] = (tot, bp_idx, cand)
+
+            if obs not in cands:
+                lp = lm.log_prob(obs, w0, w1, w2)
+                tot = score + match_bonus + lm_weight * lp
+                new_ctx = (w1, w2, obs)
+                if new_ctx not in next_beam or tot > next_beam[new_ctx][0]:
+                    next_beam[new_ctx] = (tot, bp_idx, obs)
+
+        sorted_items = sorted(next_beam.items(), key=lambda x: x[1][0], reverse=True)[:beam_width]
+        beam = dict(sorted_items)
+
+    best_score, best_bp, best_ph = max(beam.values(), key=lambda x: x[0])
+    path = [best_ph]
+    curr_bp = best_bp
+    for t in range(len(obs_tokens) - 1, 0, -1):
+        prev_list = beam_history[t]
+        _, (_, prev_bp, prev_ph) = prev_list[curr_bp]
+        path.append(prev_ph)
+        curr_bp = prev_bp
+    path.reverse()
+    return path
+
+
+def _rescore_collapse_runs(tokens: List[str]) -> List[str]:
+    res = []
+    for t in tokens:
+        if not res or res[-1] != t:
+            res.append(t)
+    return res
+
+
+class PhonemeNgramRescoreJob(tk.Job):
+    """
+    N-gram Phoneme Language Model Rescoring Job on top of Cheating / Direct Segmentation Nearest-Neighbor Transcriptions.
+    """
+    def __init__(
+        self,
+        hypotheses_file: Union[tk.Path, str],
+        reference_file: Union[tk.Path, str],
+        text_corpus_file: Optional[Union[tk.Path, str]] = None,
+        lm_order: int = 4,
+        backoff_alpha: float = 0.4,
+        lm_weight: float = 0.5,
+        match_bonus: float = 2.0,
+        beam_width: int = 10,
+        collapse_before: bool = True,
+        name_prefix: str = "phoneme_ngram_rescore",
+    ):
+        super().__init__()
+        self.hypotheses_file = hypotheses_file
+        self.reference_file = reference_file
+        self.text_corpus_file = text_corpus_file
+        self.lm_order = lm_order
+        self.backoff_alpha = backoff_alpha
+        self.lm_weight = lm_weight
+        self.match_bonus = match_bonus
+        self.beam_width = beam_width
+        self.collapse_before = collapse_before
+        self.name_prefix = name_prefix
+
+        self.out_hypotheses_txt = self.output_path("hypotheses.txt")
+        self.out_reference_txt = self.output_path("reference.txt")
+        self.out_per_summary_json = self.output_path("per_summary.json")
+        self.out_per_report_txt = self.output_path("per_report.txt")
+        self.out_pra_report_txt = self.output_path("sclite.pra")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 1})
+
+    def _resolve_path(self, p: Optional[Union[tk.Path, str]]) -> Optional[str]:
+        if p is None:
+            return None
+        if isinstance(p, tk.Path):
+            path_str = p.get_path()
+        else:
+            path_str = os.path.expandvars(str(p))
+        if path_str.startswith("/hpcwork/"):
+            path_str = "/rwthfs/rz/cluster/hpcwork/" + path_str[len("/hpcwork/"):]
+        return path_str
+
+    def run(self):
+        hyp_path = self._resolve_path(self.hypotheses_file)
+        ref_path = self._resolve_path(self.reference_file)
+        corpus_path = self._resolve_path(self.text_corpus_file)
+
+        if corpus_path is None or not os.path.exists(corpus_path):
+            default_candidates = [
+                "/u/benjamin.oyarzun/experiments/2026_05_07_first_experiments/work/i6_experiments/users/oyarzun/experiments/exp2026_09_15_self_learning_emb_asr/sis_recipe/data/text/PhonemizeTextDataJob.h2XaligKUcKZ/output/text.phonemes.txt",
+                "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_09_15_self_learning_emb_asr/data/text/PhonemizeTextDataJob.h2XaligKUcKZ/output/text.phonemes.txt",
+            ]
+            for c in default_candidates:
+                if os.path.exists(c):
+                    corpus_path = c
+                    break
+
+        if corpus_path is None or not os.path.exists(corpus_path):
+            raise FileNotFoundError(f"Could not locate phoneme text corpus: {corpus_path}")
+
+        logging.info(f"Phoneme text corpus: {corpus_path}")
+        logging.info(f"Input hypotheses: {hyp_path}")
+        logging.info(f"Input references: {ref_path}")
+
+        # 1. Train LM
+        lm = FastPhonemeNgramLM(n_order=self.lm_order, backoff_alpha=self.backoff_alpha)
+        lm.fit_file(corpus_path)
+
+        # 2. Read References
+        refs = {}
+        with open(ref_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if parts:
+                    tag = parts[0]
+                    phones = [p for p in parts[1:] if p not in ("<SIL>", "SIL", "[SIL]", "")]
+                    refs[tag] = phones
+
+        # 3. Read Hypotheses
+        hyps = {}
+        with open(hyp_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if parts:
+                    tag = parts[0]
+                    phones = [p for p in parts[1:] if p not in ("<SIL>", "SIL", "[SIL]", "")]
+                    hyps[tag] = phones
+
+        common_tags = sorted([t for t in hyps.keys() if t in refs])
+
+        hypotheses_records = []
+        references_records = []
+        pra_records = []
+
+        total_ref_tokens = 0
+        tot_base_uncoll_errs = 0
+        tot_base_coll_errs = 0
+        tot_ngram_uncoll_errs = 0
+        tot_ngram_coll_errs = 0
+
+        tot_chosen_subs = 0
+        tot_chosen_dels = 0
+        tot_chosen_inss = 0
+        tot_chosen_correct = 0
+
+        for idx, tag in enumerate(common_tags):
+            ref_toks = refs[tag]
+            raw_hyp_toks = hyps[tag]
+            coll_hyp_toks = _rescore_collapse_runs(raw_hyp_toks)
+
+            ref_len = len(ref_toks)
+            total_ref_tokens += ref_len
+
+            # Baseline edit distance
+            s, d, i, _ = compute_edit_distance(ref_toks, raw_hyp_toks)
+            tot_base_uncoll_errs += (s + d + i)
+
+            cs, cd, ci, _ = compute_edit_distance(ref_toks, coll_hyp_toks)
+            tot_base_coll_errs += (cs + cd + ci)
+
+            # 4-gram w/o collapse before
+            pred_nu = _rescore_viterbi_beam_decode(
+                raw_hyp_toks, lm, lm_weight=self.lm_weight, match_bonus=self.match_bonus, beam_width=self.beam_width
+            )
+            s_nu, d_nu, i_nu, _ = compute_edit_distance(ref_toks, pred_nu)
+            tot_ngram_uncoll_errs += (s_nu + d_nu + i_nu)
+
+            # 4-gram w/ collapse before
+            pred_nc = _rescore_viterbi_beam_decode(
+                coll_hyp_toks, lm, lm_weight=self.lm_weight, match_bonus=self.match_bonus, beam_width=self.beam_width
+            )
+            s_nc, d_nc, i_nc, _ = compute_edit_distance(ref_toks, pred_nc)
+            tot_ngram_coll_errs += (s_nc + d_nc + i_nc)
+
+            # Chosen hypothesis for output files
+            chosen_pred = pred_nc if self.collapse_before else pred_nu
+            s_ch, d_ch, i_ch, _, alignment = compute_edit_distance(ref_toks, chosen_pred, return_alignment=True)
+            tot_chosen_subs += s_ch
+            tot_chosen_dels += d_ch
+            tot_chosen_inss += i_ch
+            tot_chosen_correct += (ref_len - (s_ch + d_ch))
+
+            hypotheses_records.append(f"{tag} {' '.join(chosen_pred)}")
+            references_records.append(f"{tag} {' '.join(ref_toks)}")
+            pra_records.append(
+                format_sclite_pra_sentence(
+                    idx + 1,
+                    tag,
+                    ref_len - (s_ch + d_ch),
+                    s_ch,
+                    d_ch,
+                    i_ch,
+                    alignment,
+                )
+            )
+
+        # Write files
+        with open(self.out_hypotheses_txt.get_path(), "w") as f:
+            for rec in hypotheses_records:
+                f.write(rec + "\n")
+
+        with open(self.out_reference_txt.get_path(), "w") as f:
+            for rec in references_records:
+                f.write(rec + "\n")
+
+        with open(self.out_pra_report_txt.get_path(), "w") as f:
+            for block in pra_records:
+                f.write(block)
+
+        base_uncoll_per = round(100.0 * tot_base_uncoll_errs / total_ref_tokens, 2) if total_ref_tokens else None
+        base_coll_per = round(100.0 * tot_base_coll_errs / total_ref_tokens, 2) if total_ref_tokens else None
+        ngram_uncoll_per = round(100.0 * tot_ngram_uncoll_errs / total_ref_tokens, 2) if total_ref_tokens else None
+        ngram_coll_per = round(100.0 * tot_ngram_coll_errs / total_ref_tokens, 2) if total_ref_tokens else None
+        final_chosen_per = ngram_coll_per if self.collapse_before else ngram_uncoll_per
+
+        summary = {
+            "lm_order": self.lm_order,
+            "lm_weight": self.lm_weight,
+            "match_bonus": self.match_bonus,
+            "beam_width": self.beam_width,
+            "collapse_before": self.collapse_before,
+            "total_sequences": len(common_tags),
+            "total_ref_tokens": total_ref_tokens,
+            "baseline_uncollapsed_per_pct": base_uncoll_per,
+            "baseline_collapsed_per_pct": base_coll_per,
+            "ngram_rescore_uncollapsed_per_pct": ngram_uncoll_per,
+            "ngram_rescore_collapsed_per_pct": ngram_coll_per,
+            "final_phoneme_error_rate_pct": final_chosen_per,
+            "substitutions": tot_chosen_subs,
+            "deletions": tot_chosen_dels,
+            "insertions": tot_chosen_inss,
+            "correct_tokens": tot_chosen_correct,
+            "hypotheses_source": hyp_path,
+            "reference_source": ref_path,
+            "text_corpus_source": corpus_path,
+        }
+
+        with open(self.out_per_summary_json.get_path(), "w") as f:
+            json.dump(summary, f, indent=2)
+
+        sample_count = min(10, len(pra_records))
+        sample_section = (
+            f"----------------------------------------------------------------------\n"
+            f"SAMPLE TRANSCRIPTION ALIGNMENTS (FIRST {sample_count} UTTERANCES)\n"
+            f"Full pairwise NIST SCLITE alignment written to: {self.out_pra_report_txt.get_path()}\n"
+            f"----------------------------------------------------------------------\n"
+            + "".join(pra_records[:sample_count])
+        )
+
+        report = (
+            "======================================================================\n"
+            f"   PHONEME {self.lm_order}-GRAM LM RESCORING EVALUATION REPORT\n"
+            "======================================================================\n"
+            f"LM Order:               {self.lm_order}-gram\n"
+            f"LM Weight:              {self.lm_weight}\n"
+            f"Match Bonus:            {self.match_bonus}\n"
+            f"Beam Width:             {self.beam_width}\n"
+            f"Collapse Before LM:     {self.collapse_before}\n"
+            f"Evaluated Sequences:    {len(common_tags)}\n"
+            f"Total Reference Tokens: {total_ref_tokens}\n"
+            f"----------------------------------------------------------------------\n"
+            f"BASELINE PER (w/o LM, uncollapsed):   {base_uncoll_per:.2f}%\n"
+            f"BASELINE PER (w/o LM, collapsed):     {base_coll_per:.2f}%\n"
+            f"4-GRAM PER (w/o collapsing before):   {ngram_uncoll_per:.2f}%\n"
+            f"4-GRAM PER (w/ collapsing before):     {ngram_coll_per:.2f}%\n"
+            f"----------------------------------------------------------------------\n"
+            f"FINAL REPORTED PER:                   {final_chosen_per:.2f}%\n"
+            f"  Substitutions (S):    {tot_chosen_subs}\n"
+            f"  Deletions (D):        {tot_chosen_dels}\n"
+            f"  Insertions (I):       {tot_chosen_inss}\n"
+            f"{sample_section}"
+            "======================================================================\n"
+        )
+
+        with open(self.out_per_report_txt.get_path(), "w") as f:
+            f.write(report)
+
+        logging.info(
+            f"4-gram rescoring complete. Final PER: {final_chosen_per:.2f}%. Report written to {self.out_per_report_txt.get_path()}"
+        )
+
