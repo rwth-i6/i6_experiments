@@ -1607,7 +1607,7 @@ class PodcastDialogueSlice(Job):
         # (podcast_slice_main.pre_roll_start; user 2026-09-24). Hashed when set.
         self.pre_roll_sec = float(pre_roll_sec)
         # True (the default since 2026-10-29): a word straddling the row start starts at 0 instead of a negative time,
-        # which interleave_text drops. The slicings built before pin False (SLICE_UNCLAMPED_TAGS).
+        # which interleave_text drops. The slicings built before keep False (``legacy_pins``).
         self.clamp_row_start = bool(clamp_row_start)
         self.rows_per_part = int(rows_per_part)
         self.code_version = int(code_version)
@@ -1684,22 +1684,6 @@ class PodcastDialogueSlice(Job):
         )
 
 
-#: The slicings built before 2026-10-29: they keep a row-start-straddling word at its negative start (dropped from the
-#: text stream). Frozen: a new tag gets ``clamp_row_start=True``.
-SLICE_UNCLAMPED_TAGS = frozenset(
-    {
-        "jre_chunked_duplexchat_default",
-        "jre_pilot_duplexchat_default",
-        "jre_nofilter_duplexchat_default",
-        "jre_duplexchat_default",
-        "jre_full_duplexchat_default",
-        "jre_full_intr1_duplexchat_default",
-        "jre_full_intr1_pre1_duplexchat_default",
-        "openyap_pilot_duplexchat_default",
-        "openyap_duplexchat_default",
-        "openyap_heldout_duplexchat_default",
-    }
-)
 
 
 def podcast_sliced_codes(
@@ -1717,10 +1701,16 @@ def podcast_sliced_codes(
     everything, so the fan-out matches the ingest and a re-slice parallelises the same way.
     """
     repo = duplexchat_repo()
-    slice_kwargs.setdefault("clamp_row_start", tag not in SLICE_UNCLAMPED_TAGS)
+    from .legacy_pins import pinned_or_default
+
     slice_dirs = []
     for d in episode_shard_dirs:
-        job = PodcastDialogueSlice(mimi_venv_python=mimi_venv_python, repo_dir=repo, in_dir=d, **slice_kwargs)
+        kw = dict(mimi_venv_python=mimi_venv_python, repo_dir=repo, in_dir=d, **slice_kwargs)
+        # a slicing built before 2026-10-29 keeps clamp_row_start=False (legacy_pins); every other one clamps
+        if "clamp_row_start" in kw:
+            job = PodcastDialogueSlice(**kw)
+        else:
+            job = pinned_or_default(PodcastDialogueSlice, "clamp_row_start", False, **kw)
         slice_dirs.append(job.out_dir)
     codes_index = PodcastCodesIndex(in_dirs=slice_dirs, require_all_shards=require_all_shards)
     if register:

@@ -63,8 +63,11 @@ assert json.loads(slice_words(asr, 0, 10.0, 20.0))[0]["start"] < 0, "CAN FAIL: t
 assert json.loads(slice_words(asr, 0, 10.0, 20.0, True))[0]["start"] == 0.0, "clamped start is not 0"
 sk = dict(mimi_venv_python=p, repo_dir=p, in_dir=p)
 assert pi.PodcastDialogueSlice(**sk, clamp_row_start=False)._sis_id() != pi.PodcastDialogueSlice(**sk)._sis_id()
-assert len(pi.SLICE_UNCLAMPED_TAGS) == 10, "SLICE_UNCLAMPED_TAGS is frozen"
+from i6_experiments.users.dorian_koch.speech_llm.legacy_pins import pinned_or_default  # noqa: E402
+
+new = pinned_or_default(pi.PodcastDialogueSlice, "clamp_row_start", False, **sk)
+assert new.clamp_row_start is True, "a slicing that is not a pinned legacy job clamps"
 src = inspect.getsource(pi.podcast_sliced_codes)
-assert 'slice_kwargs.setdefault("clamp_row_start", tag not in SLICE_UNCLAMPED_TAGS)' in src
-print("[4] slicer: a row-start-straddling word starts at 0 for new slicings; the ten existing ones keep their hash")
+assert 'pinned_or_default(PodcastDialogueSlice, "clamp_row_start", False' in src
+print("[4] slicer: a row-start-straddling word starts at 0 for new slicings; the pinned ones (legacy_pins) keep their hash")
 print("check_data_job_knobs: OK")

@@ -2,11 +2,12 @@
 
 Two run()-side launcher fixes, hashed because they are config keys, so they are gated to new arms:
 
-  [1] epochs: 10-16 < 10-29 = POLICY_LATEST, both rules dated 10-29, no PersonaPlex arm declared at 10-29 yet.
-  [2] a single-GPU PersonaPlex FULL finetune at 10-29 (``_ppx_arm``, in memory) gets ``fp32_master_weights`` and the
-      renderer writes it; a 2-GPU full arm (FSDP2 keeps fp32 masters) and a LoRA arm do not get the key; an explicit
-      False is kept.
-  [3] a base-Moshi arm at 10-29 (``runs.train``) gets ``eval_fixed_batches`` and the renderer writes it.
+  [1] epochs: 10-16 < 10-29 = POLICY_LATEST, both rules dated 10-29.
+  [2] a single-GPU PersonaPlex FULL finetune at 10-29 (``_ppx_arm``, in memory) is refused: it needs fp32 masters
+      and one GPU cannot hold them (7.7B: bf16 weights + grads 30 GB, masters 31 GB, Adam 62 GB); an explicitly
+      stated ``fp32_master_weights`` is kept; a 2-GPU full arm (FSDP2 keeps fp32 masters) and a LoRA arm get no key.
+  [3] a base-Moshi arm at 10-29 (``runs.train``, LoRA and full) gets ``eval_fixed_batches`` and the renderer writes
+      it.
   [4] CAN FAIL: the same two arms at 10-16 get neither key.
 
 Run from the setup root (~2 min, one config load, no GPU):
@@ -49,8 +50,6 @@ N, O = runs.POLICY_2026_10_29, runs.POLICY_2026_10_16
 print("[1] epochs")
 check(O < N == runs.POLICY_LATEST and N in runs.KNOWN_POLICIES, "10-16 < 10-29 = POLICY_LATEST, known")
 check(runs.RULE_EVAL_FIXED_BATCHES == runs.RULE_PPX_FULL_FP32_MASTERS == N, "both rules dated 10-29")
-at_n = sorted(t for t, p in tp.PPX_POLICY.items() if p >= N)
-check(not at_n, f"no declared PersonaPlex arm at 10-29 yet ({at_n})")
 
 data = ab2h._STATE["train_data"]
 
@@ -79,9 +78,14 @@ def rendered(job):
 
 
 print("[2] PersonaPlex full finetune at 10-29")
-j = ppx_job("full1", N)
-check(j.hparams.get("fp32_master_weights") is True, "single-GPU full arm: fp32_master_weights True")
-check("fp32_master_weights: true" in rendered(j), "... and its config.yaml says so")
+try:
+    ppx_job("full1", N)
+    refused = ""
+except ValueError as e:
+    refused = str(e)
+check("no room for fp32 master weights" in refused, "single-GPU full arm: refused (masters do not fit)")
+j = ppx_job("full1_true", N, extra={"fp32_master_weights": True})
+check("fp32_master_weights: true" in rendered(j), "an explicit True is kept and rendered")
 check("fp32_master_weights" not in ppx("full2", N, gpus=2), "2-GPU full arm (FSDP2 masters): no key")
 check(
     "fp32_master_weights" not in ppx("lora1", N, adapter=tp.PERSONAPLEX_LIB_LORA_ADAPTER),
@@ -92,11 +96,11 @@ check(ppx("off", N, extra={"fp32_master_weights": False}).get("fp32_master_weigh
 print("[3] base-Moshi arm at 10-29")
 
 
-def moshi_job(tag, policy):
+def moshi_job(tag, policy, model=None):
     return runs.train(
         f"_guard1029_{tag}",
         policy=policy,
-        model=tc.MOSHI_LIB,
+        model=model or tc.MOSHI_LIB,
         corpus=tc.Corpus(data, duration_sec=40),
         optim=tc.Optim(lr=1e-6),
         compute=tc.Compute(hours=1),
@@ -114,9 +118,11 @@ def moshi(tag, policy):
 jm = moshi_job("m", N)
 check(jm.hparams.get("eval_fixed_batches") is True, "eval_fixed_batches True")
 check("eval_fixed_batches: true" in rendered(jm), "... and its config.yaml says so")
+jf = moshi_job("mf", N, model=tc.MOSHI_LIB_FULL)
+check(jf.hparams.get("eval_fixed_batches") is True and "eval_fixed_batches: true" in rendered(jf), "full arm too")
 
 print("[4] CAN FAIL: the same arms at 10-16")
-check("fp32_master_weights" not in ppx("full_old", O), "PersonaPlex full at 10-16: no key")
+check("fp32_master_weights" not in ppx("full_old", O), "PersonaPlex single-GPU full at 10-16: allowed, no key")
 check("eval_fixed_batches" not in moshi("m_old", O), "base Moshi at 10-16: no key")
 
 print("\nFAILURES: " + ("; ".join(FAILURES) if FAILURES else "none"))

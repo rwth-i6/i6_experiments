@@ -149,14 +149,13 @@ LLM_PREPROCESS_INSTRUCTIONS = (
 )
 
 
-#: (dataset_name, split) of the question sets built before 2026-10-29 with the LLM-echoed gold. Frozen: never add to it,
-#: a new set takes its gold from the source rows.
-ECHO_GOLD_SETS = frozenset({("triviaqa", "validation"), ("triviaqa", "train")})
+def llm_preprocess(*, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it") -> "LLMPreprocess":
+    """The ``LLMPreprocess`` of ``in_hf``: one of the question sets built before 2026-10-29 keeps its LLM-echoed gold
+    (``legacy_pins``), every other set takes the source gold. Build question sets through this, never with an
+    explicit ``gold_from_source``."""
+    from .legacy_pins import pinned_or_default
 
-
-def echo_gold_legacy(dataset_name: str, split: str) -> bool:
-    """True for a set that keeps the LLM-echoed gold (built before 2026-10-29); pass ``gold_from_source=not ...``."""
-    return (dataset_name, split) in ECHO_GOLD_SETS
+    return pinned_or_default(LLMPreprocess, "gold_from_source", False, in_hf=in_hf, llm_name=llm_name)
 
 
 class LLMPreprocess(Job):
@@ -165,7 +164,8 @@ class LLMPreprocess(Job):
     #: gold_from_source=True keeps ``answer``/``aliases`` from the source row and takes only ``question`` from the LLM.
     #: The echo changes them: aliases are sent joined by ", ", so "Hitler, Adolph" returns as two aliases (measured
     #: 2026-10-29 on the 12,000-row TriviaQA input: 101 answers and 2,514 alias lists differ). Every NEW set takes the
-    #: source gold (the default); the sets built before pass False (``echo_gold_legacy``) and keep their hash and rows.
+    #: source gold (the default); the sets built before keep False, their hash and rows (``llm_preprocess``,
+    #: ``legacy_pins``).
     __sis_hash_exclude__ = {"gold_from_source": False}
 
     def __init__(self, *, in_hf: tk.Path, llm_name: str = "google/gemma-4-31B-it", gold_from_source: bool = True):
@@ -1127,9 +1127,7 @@ def knowledge_benchmark_py(
         tk.register_output("benchmark/raw_dataset", raw.out_hf)
 
         # 2. LLM preprocessing on the FULL dataset (cached; reused across subsamples)
-        preprocess = LLMPreprocess(
-            in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
-        )
+        preprocess = llm_preprocess(in_hf=raw.out_hf, llm_name=llm_name)
         tk.register_output("benchmark/preprocessed", preprocess.out_hf)
 
         # 2b. Reproducible random subsample AFTER preprocessing, so changing the sample size/seed

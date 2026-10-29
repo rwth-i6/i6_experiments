@@ -42,7 +42,6 @@ from sisyphus import Job, Task, tk
 from .clip_store import is_clip_dataset, materialise_clips
 from .knowledge_benchmark import (
     LoadRawDataset,
-    LLMPreprocess,
     SubsampleDataset,
     ChatterboxSingleSpeakerInference,
     MonologueTranscription,
@@ -53,7 +52,7 @@ from .knowledge_benchmark import (
     resolve_audex_weights,
     MOSHI_BACKEND,
 )
-from .knowledge_benchmark import GRADER_SCHEMA_VERSIONS, _grader_block, bench_out_prefix, echo_gold_legacy
+from .knowledge_benchmark import GRADER_SCHEMA_VERSIONS, _grader_block, bench_out_prefix, llm_preprocess
 from speech_llm.full_duplex.text_scoring import ALIAS_MATCH_VERSION, alias_match, summarize_scores
 
 assert GRADER_SCHEMA_VERSIONS["alias_match"] == ALIAS_MATCH_VERSION, "the alias grader's version is text_scoring's"
@@ -190,9 +189,7 @@ def quick_knowledge_eval_py(
     # 1-2. SHARED cached data stages (constructed identically to knowledge_benchmark_py so the hash
     # matches and nothing recomputes).
     raw = LoadRawDataset(dataset_name=dataset_name, split=split)
-    preprocess = LLMPreprocess(
-        in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
-    )
+    preprocess = llm_preprocess(in_hf=raw.out_hf, llm_name=llm_name)
 
     # 2b. Small reproducible subsample (own seed -> its own tiny cached artifact).
     data = SubsampleDataset(in_hf=preprocess.out_hf, n=n, seed=seed).out_hf
@@ -479,9 +476,7 @@ def knowledge_probe_set_py(
     )
 
     raw = LoadRawDataset(dataset_name=dataset_name, split=split)
-    preprocess = LLMPreprocess(
-        in_hf=raw.out_hf, llm_name=llm_name, gold_from_source=not echo_gold_legacy(dataset_name, split)
-    )
+    preprocess = llm_preprocess(in_hf=raw.out_hf, llm_name=llm_name)
     data = SubsampleDataset(in_hf=preprocess.out_hf, n=n, seed=seed).out_hf
     speakers = make_speakers()
     tts = ChatterboxSingleSpeakerInference(

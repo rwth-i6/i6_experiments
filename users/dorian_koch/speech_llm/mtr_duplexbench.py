@@ -659,7 +659,7 @@ def mtr_benchmark_py(
         engine_version=engine_version,
         batch_size=batch_size,
     )
-    ev = MTRDuplexEval(
+    ev_kw = dict(
         submission_dir=inf.out_dir,
         mtr_data=data.out_dir,
         mtr_code=code.out_dir,
@@ -668,6 +668,13 @@ def mtr_benchmark_py(
         scenario=scenario,
         code_version=MTR_EVAL_CODE_VERSION.get(dimension, 1),
     )
+    if dimension == "conv_features" and scenario == "pause":
+        from .legacy_pins import pinned_or_default
+
+        # the pause cells evaluated before 2026-10-29 keep the old windows (legacy_pins); a new one re-detects
+        ev = pinned_or_default(MTRDuplexEval, "redetect_pause", False, new_value=True, **ev_kw)
+    else:
+        ev = MTRDuplexEval(**ev_kw)
     tag = f"{backend_name}/{dimension}_{scenario}" if dimension == "conv_features" else f"{backend_name}/{dimension}"
     tk.register_output(f"benchmark/mtr/{tag}/submission", inf.out_dir)
     if dimension == "conv_features":
