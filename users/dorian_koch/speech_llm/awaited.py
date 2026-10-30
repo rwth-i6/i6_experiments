@@ -14,6 +14,9 @@ and what they were for:
 A ``--tag`` is a result tag as ``read_results.py`` prints it (the output name; ``fnmatch`` patterns allowed);
 ``--expect N`` = how many tags the patterns must match in total (default: one per ``--tag``). An item is READY once that
 many have landed. ``AWAITED.jsonl`` (setup root) is an append-only event log: ``add`` / ``done`` lines.
+``add`` checks the patterns against ``RESULTS_SINKED.json`` (every sink tag in the graph, written at each manager start):
+a pattern no sink can produce is refused (``--unsinked`` to override: declared but the manager not restarted yet), and
+sinked results of the same arm that no pattern covers are listed, so an item does not miss part of the arm's suite.
 Dependency-free (the login node's python3, 3.9), like ``read_results.py``.
 """
 
@@ -24,6 +27,7 @@ import fnmatch
 import getpass
 import json
 import os
+import re
 import sys
 import time
 
@@ -31,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import read_results  # noqa: E402
 
 DEFAULT_FILE = "AWAITED.jsonl"
+DEFAULT_SINKED = "RESULTS_SINKED.json"
 
 
 def events(path: str) -> list[dict]:
@@ -83,6 +88,27 @@ def matching(item: dict, records: dict) -> list[str]:
     return sorted({t for t in records for p in pats if fnmatch.fnmatchcase(t, p)})
 
 
+def _arm_key(pattern: str) -> str:
+    """The longest path component of a pattern, cut at its first wildcard (the arm name, usually); "" if none is
+    distinctive."""
+    parts = [re.split(r"[*?\[]", p)[0] for p in pattern.split("/")]
+    best = max(parts, key=len, default="")
+    return best if len(best) >= 12 and best not in ("n1000", "eval", "summary") else ""
+
+
+def sink_check(tags: list[str], sinked: list[str], records: dict) -> tuple[list[str], list[str]]:
+    """``(patterns no sink or past record can match, sinked tags of the same arms that no pattern covers)``."""
+    known = set(sinked) | set(records)
+    pats = read_results.with_old_names(tags)
+    dead = [
+        t for t in tags if not any(fnmatch.fnmatchcase(k, p) for k in known for p in read_results.with_old_names([t]))
+    ]
+    keys = {k for k in map(_arm_key, tags) if k}
+    covered = {k for k in known for p in pats if fnmatch.fnmatchcase(k, p)}
+    missed = sorted(s for s in sinked if s not in covered and any(k in s for k in keys))
+    return dead, missed
+
+
 def show(item: dict, records: dict) -> bool:
     got = landed(item, records)
     ready = len(got) >= item["expect"]
@@ -108,6 +134,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", default=DEFAULT_FILE)
     ap.add_argument("--log", default=read_results.DEFAULT_LOG, help="the results log")
+    ap.add_argument("--sinked", default=DEFAULT_SINKED, help="the sink manifest (written at each manager start)")
     sub = ap.add_subparsers(dest="cmd")
     a = sub.add_parser("add", help="mark results as awaited")
     a.add_argument("--tag", action="append", required=True, help="result tag or fnmatch pattern (repeatable)")
@@ -115,6 +142,9 @@ def main(argv=None) -> int:
     a.add_argument("--why", required=True, help="what the result decides or answers")
     a.add_argument("--next", default="", help="what to do once it has landed")
     a.add_argument("--since", help="count results produced from this time on (YYYY-MM-DD[ HH:MM]; default: now)")
+    a.add_argument(
+        "--unsinked", action="store_true", help="accept patterns no sink produces yet (manager not restarted)"
+    )
     d = sub.add_parser("done", help="close an item (after its read-out)")
     d.add_argument("id", type=lambda x: int(x) if x.isdigit() else x, help="item id (N, or N.1 for a duplicate)")
     d.add_argument("--note", default="")
@@ -126,6 +156,23 @@ def main(argv=None) -> int:
     its = items(args.file)
     if args.cmd == "add":
         import fcntl
+
+        if os.path.exists(args.sinked):
+            with open(args.sinked) as f:
+                man = json.load(f)
+            recs = read_results.load(args.log) if os.path.exists(args.log) else {}
+            dead, missed = sink_check(args.tag, man["tags"], recs)
+            if dead and not args.unsinked:
+                print(f"refused: no result sink produces {dead} (manifest of {man['written']}), so the item could "
+                      "never turn READY. Read the result by hand, add its class to result_notify.SINK_KINDS or call "
+                      "notify_result; --unsinked if it is declared but the manager has not been restarted yet",
+                      file=sys.stderr)  # fmt: skip
+                return 2
+            if missed:
+                print(f"note: {len(missed)} sinked result(s) of the same arm are not awaited (add a --tag if the "
+                      f"decision needs them): {', '.join(missed[:8])}")  # fmt: skip
+        else:
+            print(f"awaited: no {args.sinked}, patterns not checked against the sinks", file=sys.stderr)
 
         # read + append under one lock: two sessions adding at once took the same id, and the later replaced the first
         with open(args.file, "a") as lock:

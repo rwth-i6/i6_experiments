@@ -2,6 +2,8 @@
 
 An awaited item that never turns READY is a result nobody reads; one that turns READY early is a read-out of numbers that
 are not all there. Both are checked on a temporary log, plus closing an item and the pattern count (``--expect``).
+``add`` against a sink manifest: a pattern no sink produces is refused (a Mimi probe item waited on a kind with no sink),
+and the same arm's sinked results no pattern covers are listed (a staleness item left out the arm's MFDB).
 
     python3 recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_awaited.py
 """
@@ -17,11 +19,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import awaited  # noqa: E402
 
 
-def run(*argv) -> str:
+def run(*argv, rc=0) -> str:
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        assert awaited.main(list(argv)) == 0, argv
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        assert awaited.main(list(argv)) == rc, argv
     return buf.getvalue()
+
+
+def check_sinks(d):
+    aw, log, man = (os.path.join(d, n) for n in ("A2.jsonl", "R2.jsonl", "S2.json"))
+    arm = "ppx_ft_some_long_arm_name"
+    with open(man, "w") as f:
+        json.dump({"written": "2026-10-30 10:00:00", "tags": [f"benchmark/llm_judge/n1000/{arm}", f"fdb_{arm}"]}, f)
+    base = ["--file", aw, "--log", log, "--sinked", man]
+    out = run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", rc=2)
+    assert "refused" in out, out
+    run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", "--unsinked")
+    out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--why", "w")
+    assert f"fdb_{arm}" in out and "not awaited" in out, f"the arm's MFDB was not listed:\n{out}"
+    out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--tag", f"fdb_{arm}", "--why", "w")
+    assert "not awaited" not in out, out
 
 
 def land(log, tag, acc, produced_at=None):
@@ -66,6 +83,7 @@ def main():
             f.write('{"event": "add", "id": 9, "ta\n')
         out = run(*base)
         assert "decides Z" in out and "dup" in out, f"a duplicate id replaced an item:\n{out}"
+        check_sinks(d)
     print("check_awaited: ALL PASS")
 
 

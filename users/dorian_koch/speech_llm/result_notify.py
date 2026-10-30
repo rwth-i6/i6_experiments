@@ -269,6 +269,20 @@ def unsinked_results(kinds: dict = SINK_KINDS, sinked: set | None = None) -> dic
     return out
 
 
+SINKED_MANIFEST = "RESULTS_SINKED.json"
+
+
+def write_sink_manifest(path: str = SINKED_MANIFEST) -> int:
+    """Write every ``ResultNotify`` tag in the graph to ``path`` (setup root): what can ever reach RESULTS.jsonl.
+    ``awaited.py add`` refuses a pattern that matches none of them (it could never turn READY)."""
+    tags = sorted({j.tag for j in tk.sis_graph.jobs() if isinstance(j, ResultNotify)})
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump({"written": time.strftime("%Y-%m-%d %H:%M:%S"), "tags": tags}, f)
+    os.replace(tmp, path)
+    return len(tags)
+
+
 def attach_result_sinks(kinds: dict = SINK_KINDS) -> int:
     """Give every result output of a ``kinds`` class its own sink (tag = its registered output name minus a trailing
     ``/summary``); call once, after the whole config is declared. Returns how many were attached."""
