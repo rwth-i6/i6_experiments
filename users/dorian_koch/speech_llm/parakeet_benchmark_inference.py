@@ -40,6 +40,9 @@ class _LazyArrowClips:
     def __contains__(self, i):
         return i in self._row
 
+    def keys(self):
+        return self._row.keys()
+
     def __getitem__(self, i):
         r = self._ds[self._row[i]]
         return decode_row(r), int(r["sampling_rate"])
@@ -104,7 +107,7 @@ def main():
 
     ref_ds = load_from_disk(args.reference_data)
     clips = open_clips(args.in_dir)
-    keys = set(clips)  # the index keys; ``i in clips`` would decode every clip
+    keys = set(clips.keys())  # set(clips) would iterate the lazy store by __getitem__ and decode every clip
     valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in keys and mine(i)]
     print(f"Transcribing {len(valid)}/{len(ref_ds)} clips (batch_size={args.batch_size})", flush=True)
 
