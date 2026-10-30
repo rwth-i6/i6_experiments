@@ -25,6 +25,10 @@ held-out gap it shows would be an artifact. Each check drives the real code:
       differs); ``evaluate_set(indices=, cache=)`` == the whole-set rows at those indices, cached or not; a cache of
       another set is rebuilt; CAN FAIL: another set's cached items under this set's path change the numbers; the
       eval leaves the global torch RNG untouched (the launcher also forks it).
+  [8] the training loader's weight tensor (the RL SFT anchor, ``rl.sft_anchor``): ``make_loss_step(row_weights=True,
+      word_spans=True)`` == the launcher's real ``loss_step`` with ``train_row_weights`` / ``train_word_spans`` set, on
+      the real loader over synthetic per-row weights and flagged-word spans (word weight 0, pad 1 frame); the weights
+      change the loss (non-vacuous); CAN FAIL: a step that drops the word weights is caught.
   [6] ``persona_heldout._consolidated_complete`` (how an eval waits for a checkpoint of a run that is still
       training): weights without ``config.json`` -> not available, with it -> available.
 
@@ -34,6 +38,7 @@ moshi_family venv, CPU, ~3 min (the real window tables, the HF-cached mimi + tok
 """
 
 import ast
+import json
 import os
 import sys
 import tempfile
@@ -184,8 +189,9 @@ LOSS_STEP_SRC = textwrap.dedent(ast.get_source_segment(open(LAUNCHER).read(), ls
 from moshi_family.personaplex.finetune_launcher import _ForwardTrain  # noqa: E402
 
 
-def launcher_loss_step(cfg: dict, model):
-    """``main()``'s variables from ``cfg`` (as main() reads them), then its ``loss_step``."""
+def launcher_loss_step(cfg: dict, model, **over):
+    """``main()``'s variables from ``cfg`` (as main() reads them), then its ``loss_step``. ``over``: variables set
+    otherwise (check [8]: the row weights and word spans on)."""
     ns = {
         "model": model,
         "device": "cpu",
@@ -209,6 +215,7 @@ def launcher_loss_step(cfg: dict, model):
         # ... and the user-text head (user_text_loss_weight, eef4e848, default off): main()'s user_head is None
         "user_head": None,
         "stream": None,  # the user-text input stream (user_text_input_stream), off
+        **over,
     }
     exec(LOSS_STEP_SRC, ns)
     return ns["loss_step"]
@@ -378,6 +385,70 @@ ck([r["loss"] for r in bad] != [r["loss"] for r in a], "CAN FAIL: reusing anothe
 st0 = torch.get_rng_state()
 HL.evaluate_set(core, set_dirs["heldout"], tok, s, device="cpu", indices=sub, cache=cache)
 ck(torch.equal(st0, torch.get_rng_state()), "evaluate_set leaves the global torch RNG untouched (CPU)")
+
+# ---------------------------------------------------------------------------------------------------------------
+print("[8] the loader's row / flagged-word weights: make_loss_step == the launcher's loss_step")
+import itertools  # noqa: E402
+
+n_rows = int(ts0.num_rows)
+w8 = os.path.join(tmp, "row_weights.npy")
+np.save(w8, np.array([0.3, 1.0, 0.5, 1.0][:n_rows] + [1.0] * max(0, n_rows - 4), dtype=np.float32))
+sp8 = os.path.join(tmp, "spans.json")
+from moshi_family.train_data_common import normalize_alignments  # noqa: E402
+
+
+def _hits(i):
+    """Two real assistant words of row ``i`` as flagged hits (the loader rejects spans that match no word)."""
+    words = normalize_alignments(ts0[i]["alignments"])
+    return [[[float(a), float(b)]] for _w, (a, b), _sp in (words[2], words[5])]
+
+
+json.dump({"num_rows": n_rows, "rows": {str(i): {"assistant": _hits(i)} for i in range(n_rows)}}, open(sp8, "w"))
+cfg8 = yaml.safe_load(open(CONFIGS["p5"]))
+s8 = HL.loss_settings(cfg8)
+tok8 = HL.make_tokenizer({**s8, "hf_repo_id": "nvidia/personaplex-7b-v1"}, "cpu")
+core.eval()
+launch8 = launcher_loss_step(cfg8, _ForwardTrain(core), train_row_weights=w8, train_word_spans=sp8)
+
+
+def anchor_step(mod):
+    return mod.make_loss_step(_ForwardTrain(core), device="cpu", dep_q=core.dep_q, settings=s8, row_weights=True,
+                              word_spans=True)  # fmt: skip
+
+
+step8, plain8 = anchor_step(HL), HL.make_loss_step(_ForwardTrain(core), device="cpu", dep_q=core.dep_q, settings=s8)
+loader8 = build_data_loader(set_dirs["train_sample"], tok8, batch_size=1, seed=0, system_prompt_key="context",
+                            voice_codes_key="voice_codes", swap_channels=False, stored_user_augment=False, infinite=False,
+                            train_row_weights=w8, train_word_spans=sp8, train_word_weight=0.0,
+                            train_word_pad_frames=1)  # fmt: skip
+batches8 = list(itertools.islice(loader8, 4))
+worst8, moved8, weighted8 = 0.0, 0.0, 0
+for b in batches8:
+    with torch.no_grad():
+        lt, ct = launch8(b)
+        la, ca = step8(b)
+        lp, _ = plain8(b[:2])
+    weighted8 += int(bool((b[2] != 1).any()))
+    for k, v in {"loss": float(lt), **ct}.items():
+        if v is None or ca.get(k) is None or not isinstance(v, (int, float, torch.Tensor)):
+            continue
+        av = float(la) if k == "loss" else float(ca[k])
+        worst8 = max(worst8, abs(av - float(v)) / max(1e-6, abs(float(v))))
+    moved8 = max(moved8, abs(float(la) - float(lp)))
+ck(len(batches8) >= 2 and worst8 < 1e-6, f"anchor step == launcher loss_step on {len(batches8)} weighted windows",
+   f"max rel diff {worst8:.2e}")  # fmt: skip
+ck(
+    weighted8 >= 1 and moved8 > 1e-4,
+    "the weights change the loss (non-vacuous)",
+    f"max |weighted - plain| {moved8:.2e}",
+)
+mut8 = anchor_step(mutant('            **({"asst_sample_weight": asst_sample_weight} if word_spans else {}),\n', "",
+                          "word weights dropped"))  # fmt: skip
+worst_m = 0.0
+for b in batches8:
+    with torch.no_grad():
+        worst_m = max(worst_m, abs(float(mut8(b)[0]) - float(launch8(b)[0])))
+ck(worst_m > 1e-4, "CAN FAIL: a step that drops the word weights is caught", f"max diff {worst_m:.2e}")
 
 # ---------------------------------------------------------------------------------------------------------------
 print("[6] a checkpoint path is available only once consolidated/config.json is written")
