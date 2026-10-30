@@ -65,6 +65,9 @@ answer_end_pad_s: {getattr(job, "answer_end_pad_s", 1.0)}
         keys += f'text_teacher_gate: "{job.text_teacher_gate.get()}"\n'
     if getattr(job, "opd_only", False):  # absent at the default (2026-10-16): distillation only, no GRPO advantage
         keys += "opd_only: true\n"
+    if getattr(job, "text_teacher", None) == "qctx_traj":  # absent before 2026-10-30: trajectory distillation's weights
+        keys += f"text_teacher_control_weight: {job.text_teacher_control_weight}\n"
+        keys += f"text_teacher_hidden_weight: {job.text_teacher_hidden_weight}\n"
     if getattr(job, "knowledge_train_cycle", 0):  # absent at the default (2026-10-18): overfit diagnostics
         keys += f"knowledge_train_cycle: {job.knowledge_train_cycle}\n"
     if getattr(job, "teacher_grade_questions", 0):  # absent at the default (2026-10-16): the graded teacher pass
@@ -445,6 +448,9 @@ class RLFinetune(Job):
         "text_teacher_gate": None,
         "teacher_grade_questions": 0,
         "opd_only": False,
+        # trajectory distillation (2026-10-30, text_teacher "qctx_traj"): its control / hidden-state weights; excluded at 0
+        "text_teacher_control_weight": 0.0,
+        "text_teacher_hidden_weight": 0.0,
         # overfit diagnostics (2026-10-18): the first N training questions repeated; excluded at 0 (off)
         "knowledge_train_cycle": 0,
         # auxiliary prompt tasks (2026-10-12, moshi_family.rl.aux_tasks): excluded at their defaults (off)
@@ -556,6 +562,8 @@ class RLFinetune(Job):
         teacher_grade_questions: int = 0,
         opd_only: bool = False,
         knowledge_train_cycle: int = 0,
+        text_teacher_control_weight: float = 0.0,
+        text_teacher_hidden_weight: float = 0.0,
         aux_tasks: dict | None = None,
         question_draw_offset: int = 0,
         aux_seed: int = 0,
@@ -822,7 +830,9 @@ class RLFinetune(Job):
         # text-mode OPD (moshi_family.rl.text_teacher): "base_text" = the frozen base LM in text-only mode as a per-token
         # teacher on the reply's content tokens, reverse KL x text_teacher_weight next to the GRPO loss; "qctx_speech"
         # (2026-10-16) = the frozen init with the question in its system prompt (gap-ladder rung B) on every reply frame
-        assert text_teacher in (None, "base_text", "qctx_speech"), text_teacher
+        # "qctx_traj" (2026-10-30) = that teacher ROLLS OUT and the student learns its correct rollouts (forward KL on
+        # content / control frames + the depformer-input hidden state; Kim et al. 2026, arXiv 2610.34991)
+        assert text_teacher in (None, "base_text", "qctx_speech", "qctx_traj"), text_teacher
         assert (text_teacher is None) == (float(text_teacher_weight) == 0.0), (text_teacher, text_teacher_weight)
         assert text_teacher is None or (
             family == "personaplex" and segment_source == "knowledge" and questions_per_episode == 1
@@ -847,6 +857,12 @@ class RLFinetune(Job):
             "opd_only: needs text_teacher + skip_zero_signal"
         )
         self.opd_only = bool(opd_only)
+        assert text_teacher != "qctx_traj" or opd_only, "qctx_traj: distillation only (opd_only)"
+        assert text_teacher == "qctx_traj" or not (text_teacher_control_weight or text_teacher_hidden_weight), (
+            "text_teacher_control_weight / _hidden_weight: qctx_traj only"
+        )
+        self.text_teacher_control_weight = float(text_teacher_control_weight)
+        self.text_teacher_hidden_weight = float(text_teacher_hidden_weight)
         # ``knowledge_train_cycle`` = N: train on the first N pool questions, repeated (overfit diagnostics: does the
         # loss fit questions it sees again?); the probe set stays held out
         assert not knowledge_train_cycle or (segment_source == "knowledge" and questions_per_episode == 1), (

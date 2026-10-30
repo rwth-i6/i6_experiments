@@ -745,5 +745,8 @@
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_policy_2026_10_30.py": {
   "env": "setup",
   "graph": true
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_qctx_traj.py": {
+  "env": "module"
  }
 }
