@@ -59,7 +59,7 @@ text_pad_weight: {job.text_pad_weight}
 """
         + render_launcher_fix_keys(
             getattr(job, "launcher_fixes", None),
-            ("fp32_master_weights", "resume_data_position", "text_pad_weight_in_full_stage1"),
+            ("fp32_master_weights", "resume_data_position", "text_pad_weight_in_full_stage1", "stable_softmax"),
             who="Audex",
         )
         + render_train_perf_keys(

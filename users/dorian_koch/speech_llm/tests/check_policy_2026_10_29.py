@@ -2,7 +2,7 @@
 
 Two run()-side launcher fixes, hashed because they are config keys, so they are gated to new arms:
 
-  [1] epochs: 10-16 < 10-29 = POLICY_LATEST, both rules dated 10-29.
+  [1] epochs: 10-16 < 10-29 <= POLICY_LATEST, both rules dated 10-29.
   [2] a single-GPU PersonaPlex FULL finetune at 10-29 (``_ppx_arm``, in memory) is refused: it needs fp32 masters
       and one GPU cannot hold them (7.7B: bf16 weights + grads 30 GB, masters 31 GB, Adam 62 GB); an explicitly
       stated ``fp32_master_weights`` is kept; a 2-GPU full arm (FSDP2 keeps fp32 masters) and a LoRA arm get no key.
@@ -48,7 +48,7 @@ def check(ok, what):
 
 N, O = runs.POLICY_2026_10_29, runs.POLICY_2026_10_16
 print("[1] epochs")
-check(O < N == runs.POLICY_LATEST and N in runs.KNOWN_POLICIES, "10-16 < 10-29 = POLICY_LATEST, known")
+check(O < N <= runs.POLICY_LATEST and N in runs.KNOWN_POLICIES, "10-16 < 10-29 <= POLICY_LATEST, known")
 check(runs.RULE_EVAL_FIXED_BATCHES == runs.RULE_PPX_FULL_FP32_MASTERS == N, "both rules dated 10-29")
 
 data = ab2h._STATE["train_data"]

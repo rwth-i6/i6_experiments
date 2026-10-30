@@ -268,7 +268,9 @@ seed: {job.seed}
             )
         )
         + _render_non_default(job, _COMMON_EXTRA_KEYS)
-        + render_launcher_fix_keys(getattr(job, "launcher_fixes", None), ("fp32_master_weights",), who="RL GRPO")
+        + render_launcher_fix_keys(
+            getattr(job, "launcher_fixes", None), ("fp32_master_weights", "stable_softmax"), who="RL GRPO"
+        )
         + render_train_perf_keys(
             # Training-speed keys (finetune.RL_FAST_TRAIN_PERF; runs.fast_train_hparams), only when set.
             # depformer_skip_masked = text-only log-prob forwards; no loader, so no prefetch.

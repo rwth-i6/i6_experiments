@@ -553,7 +553,10 @@ loss_norm: "{hp.get("loss_norm", "weight")}"
 """
         + perf
         + render_launcher_fix_keys(
-            hp, ("resume_data_position", "fp32_master_weights"), who=who, rendered_elsewhere=("loss_norm",)
+            hp,
+            ("resume_data_position", "fp32_master_weights", "stable_softmax"),
+            who=who,
+            rendered_elsewhere=("loss_norm",),
         )
     )
 
@@ -649,6 +652,7 @@ LAUNCHER_FIX_KEYS = {
     "text_pad_weight_in_full_stage1": bool,
     "ddp_static_graph": bool,
     "eval_fixed_batches": bool,
+    "stable_softmax": bool,
 }
 
 
@@ -849,7 +853,7 @@ knowledge_probe_audio_n: {hp.get("knowledge_probe_audio_n", 0)}
         )
         + render_launcher_fix_keys(
             hp,
-            ("ddp_static_graph", "eval_fixed_batches"),
+            ("ddp_static_graph", "eval_fixed_batches", "stable_softmax"),
             who="base-Moshi lib",
             rendered_elsewhere=("fp32_master_weights", "loss_norm"),
         )
@@ -929,7 +933,9 @@ seed: {getattr(job, "seed", 0)}
         + render_train_perf_keys(
             hp, ("contiguous_step_inputs", "fused_causal_attention", "fused_lora_add"), who="MoshiRAG lib"
         )
-        + render_launcher_fix_keys(hp, ("fp32_master_weights", "loss_norm", "resume_data_position"), who="MoshiRAG lib")
+        + render_launcher_fix_keys(
+            hp, ("fp32_master_weights", "loss_norm", "resume_data_position", "stable_softmax"), who="MoshiRAG lib"
+        )
     )
 
 

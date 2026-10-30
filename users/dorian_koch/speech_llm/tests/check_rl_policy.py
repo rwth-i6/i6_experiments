@@ -49,7 +49,6 @@ def mod(suffix):
 
 
 runs, tpr, tsp = mod(".doriank.runs"), mod(".track_persona_rl"), mod(".track_persona_rl_selfplay")
-from i6_experiments.users.dorian_koch.speech_llm.finetune import LAUNCHER_FIX_PRESETS  # noqa: E402
 from i6_experiments.users.dorian_koch.speech_llm.rl_finetune import RLFinetune  # noqa: E402
 
 FAILURES = []
@@ -101,10 +100,10 @@ def latest_checks(sink):
         check(
             job.rollout_text_sampler == "t1"
             and job.quality_asr_num_beams == 1
-            and job.launcher_fixes == LAUNCHER_FIX_PRESETS["rl_grpo"]
+            and job.launcher_fixes == runs.launcher_fix_hparams(runs.POLICY_LATEST, "rl_grpo")
             and job.declared_policy == runs.POLICY_LATEST,
             f"{name} at POLICY_LATEST: sampler {job.rollout_text_sampler}, num_beams {job.quality_asr_num_beams}, "
-            f"launcher fixes {'preset' if job.launcher_fixes == LAUNCHER_FIX_PRESETS['rl_grpo'] else job.launcher_fixes}",
+            f"launcher fixes {'preset' if job.launcher_fixes == runs.launcher_fix_hparams(runs.POLICY_LATEST, 'rl_grpo') else job.launcher_fixes}",
             sink,
         )
 

@@ -40,7 +40,7 @@ import sisyphus.job  # noqa: E402
 import yaml  # noqa: E402
 from sisyphus import tk  # noqa: E402
 
-from i6_experiments.users.dorian_koch.speech_llm import audex_finetune, finetune, rl_finetune  # noqa: E402
+from i6_experiments.users.dorian_koch.speech_llm import audex_finetune, finetune, finetune_adapters, rl_finetune  # noqa: E402
 from speech_llm.full_duplex.sis_recipe.doriank import runs, track_persona  # noqa: E402
 from speech_llm.full_duplex.sis_recipe.doriank.train_config import (  # noqa: E402
     MOSHI_LIB,
@@ -122,8 +122,8 @@ def rendered(job) -> dict:
 
 def run_checks(fast_train_hparams, render_perf):
     """Everything below, against the given helper implementations (the real ones, or a mutant)."""
-    saved = (runs.fast_train_hparams, finetune.render_train_perf_keys)
-    runs.fast_train_hparams, finetune.render_train_perf_keys = fast_train_hparams, render_perf
+    saved = (runs.fast_train_hparams, finetune_adapters.render_train_perf_keys)
+    runs.fast_train_hparams, finetune_adapters.render_train_perf_keys = fast_train_hparams, render_perf
     n0 = len(FAILURES)
     try:
         print("[1] epochs")
@@ -238,24 +238,27 @@ def run_checks(fast_train_hparams, render_perf):
             keys = launcher_keys(LAUNCHER_OF[fam])
             check(set(preset) <= keys, f"{fam}: {LAUNCHER_OF[fam]} reads {sorted(preset)}", str(set(preset) - keys))
     finally:
-        runs.fast_train_hparams, finetune.render_train_perf_keys = saved
+        runs.fast_train_hparams, finetune_adapters.render_train_perf_keys = saved
     return len(FAILURES) - n0
 
 
-assert run_checks(runs.fast_train_hparams, finetune.render_train_perf_keys) == 0, FAILURES
+assert run_checks(runs.fast_train_hparams, finetune_adapters.render_train_perf_keys) == 0, FAILURES
 print("[6] the checks can fail (mutated real sources)")
 real = list(FAILURES)
 for label, fth, rpk in (
     (
         "a rule that fires for every epoch",
         mutated(runs, "fast_train_hparams", "if not _policy_applies(policy, RULE_FAST_TRAIN):", "if False:"),
-        finetune.render_train_perf_keys,
+        finetune_adapters.render_train_perf_keys,
     ),
     (
         "a renderer that emits keys the arm did not set",
         runs.fast_train_hparams,
         mutated(
-            finetune, "render_train_perf_keys", "if k in supported and hp.get(k) is not None:", "if k in supported:"
+            finetune_adapters,
+            "render_train_perf_keys",
+            "if k in supported and hp.get(k) is not None:",
+            "if k in supported:",
         ),
     ),
 ):
