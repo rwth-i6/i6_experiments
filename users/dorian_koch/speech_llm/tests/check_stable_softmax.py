@@ -15,7 +15,8 @@ target's ``q - p`` from two rounded softmaxes is noise when student ~ teacher.
      (values and gradients) to the expressions their call sites used before.
   5. The real ``duplex_ce_loss`` (text + audio rows): on = off to 1e-6 in value; with one text target at margin 20 the
      target-logit gradient is ~ -e^-20 on and exactly 0 off (CAN FAIL), and the gradient sums to ~0 per row.
-  6. Wiring (source): every ``moshi_family/**/*launcher.py`` calls ``stable_softmax.configure(cfg)``; the loss modules
+  6. Wiring (source): every ``moshi_family/**/*launcher.py`` calls ``stable_softmax.configure(cfg)`` and the native V2
+     runtime (``rl/v2/launcher_v2.py``) applies ``Model.stable_softmax``; the loss modules
      (``train_data_common``, ``audex/train_data``) call no ``F.cross_entropy`` / ``F.log_softmax`` directly; the three RL
      log-prob paths call ``stable_softmax.target_logprobs``. CAN FAIL: a mutated source is flagged.
 
@@ -213,6 +214,8 @@ def wiring(src: dict) -> list[str]:
         for n, s in src.items()
         if n.endswith("launcher.py") and "stable_softmax.configure(cfg)" not in s
     ]
+    if "stable_softmax.ENABLED = bool(model_spec.stable_softmax)" not in src["rl/v2/launcher_v2.py"]:
+        bad.append("rl/v2/launcher_v2.py: Model.stable_softmax not applied")  # the native V2 runtime reads config.json
     for n in ("train_data_common.py", "audex/train_data.py"):
         bad += [f"{n}: raw {m.group(0)}" for m in RAW.finditer(src[n])]
     for n in ("rl/generator.py", "rl/moshi_policy.py", "rl/ppx_rollout.py"):
@@ -222,7 +225,14 @@ def wiring(src: dict) -> list[str]:
 
 
 SRC = {str(p.relative_to(MF)): p.read_text() for p in MF.rglob("*launcher.py") if "tests" not in p.parts}
-for n in ("train_data_common.py", "audex/train_data.py", "rl/generator.py", "rl/moshi_policy.py", "rl/ppx_rollout.py"):
+for n in (
+    "train_data_common.py",
+    "audex/train_data.py",
+    "rl/generator.py",
+    "rl/moshi_policy.py",
+    "rl/ppx_rollout.py",
+    "rl/v2/launcher_v2.py",
+):
     SRC[n] = (MF / n).read_text()
 launchers = sorted(n for n in SRC if n.endswith("launcher.py"))
 check(len(launchers) >= 5, f"{len(launchers)} launchers: {launchers}")
@@ -235,7 +245,8 @@ mut["train_data_common.py"] = SRC["train_data_common.py"].replace(
     "stable_softmax.cross_entropy(", "F.cross_entropy(", 1
 )
 mut["rl/launcher.py"] = SRC["rl/launcher.py"].replace("stable_softmax.configure(cfg)", "pass")
-check(len(wiring(mut)) == 2, "CAN FAIL: a raw CE and a launcher without configure are both flagged")
+mut["rl/v2/launcher_v2.py"] = SRC["rl/v2/launcher_v2.py"].replace("stable_softmax.ENABLED = bool(", "_ = bool(")
+check(len(wiring(mut)) == 3, "CAN FAIL: a raw CE, a launcher without configure and the native runtime are flagged")
 
 print("\nFAILURES: " + ("; ".join(FAILURES) if FAILURES else "none"))
 sys.exit(1 if FAILURES else 0)
