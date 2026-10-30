@@ -748,5 +748,8 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_qctx_traj.py": {
   "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_sft_anchor.py": {
+  "env": "module"
  }
 }
