@@ -3,7 +3,7 @@
 ``stable_softmax`` (exact CE / log-softmax / KL gradients, ``moshi_family.stable_softmax``; guard
 ``check_stable_softmax.py``) is a launcher config key, hashed, so it is dated:
 
-  [1] epochs: 10-29 < 10-30 = POLICY_LATEST, RULE_STABLE_SOFTMAX dated 10-30; RL2_POLICY_LATEST = rl2-2026-10-30.
+  [1] epochs: 10-29 < 10-30 = POLICY_LATEST, RULE_STABLE_SOFTMAX dated 10-30; RL2_POLICY_LATEST >= rl2-2026-10-30.
   [2] at 10-30 every launcher-fix family gets the key (``launcher_fix_hparams``), and it reaches the rendered config of
       a PersonaPlex LoRA arm, a 2-GPU PersonaPlex full arm and a base-Moshi LoRA and full arm (``runs.train``); an
       explicit False is kept; an RL V2 PersonaPlex model at rl2-2026-10-30 lowers to ``launcher_fixes`` with it.
@@ -54,8 +54,8 @@ print("[1] epochs")
 check(OLD < NEW == runs.POLICY_LATEST and NEW in runs.KNOWN_POLICIES, "10-29 < 10-30 = POLICY_LATEST, known")
 check(runs.RULE_STABLE_SOFTMAX == NEW, "RULE_STABLE_SOFTMAX dated 10-30")
 check(
-    RO < RN == rl_policy.RL2_POLICY_LATEST and RN in rl_policy.KNOWN_POLICIES,
-    "rl2-10-29 < rl2-10-30 = RL2_POLICY_LATEST",
+    RO < RN <= rl_policy.RL2_POLICY_LATEST and RN in rl_policy.KNOWN_POLICIES,
+    "rl2-10-29 < rl2-10-30 <= RL2_POLICY_LATEST",
 )
 
 data = ab2h._STATE["train_data"]
