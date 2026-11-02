@@ -22,6 +22,7 @@ from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from .data.common import TrainingDatasets
 
 ENCODER_PCA_FORWARD_STEP_MODULE = "analysis.encoder_state_pca.forward_step.forward_step"
+ENCODER_PCA_HYPOTHESIS_FORWARD_STEP_MODULE = "analysis.encoder_state_pca.forward_step_hypothesis.forward_step"
 ENCODER_PCA_CALLBACK_MODULE = "analysis.encoder_state_pca.callback.EncoderStatePcaCallback"
 
 
@@ -31,6 +32,19 @@ class EncoderPcaConfig:
 
     audio_data_key: str = "data"
     text_data_key: str = "target"
+
+
+@dataclass
+class EncoderPcaHypothesisConfig:
+    """forward_init args passed to the hypothesis analysis ``forward_step`` (hashed)."""
+
+    audio_data_key: str = "data"
+    src_data_key: str = "data"
+    beam_size: int = 1
+    max_ratio: float = 2.0
+    lp_alpha: float = 0.6
+    src_lang: str = "src"
+    trg_lang: str = "trg"
 
 
 def analyze_encoder_states(
@@ -45,13 +59,25 @@ def analyze_encoder_states(
     analysis_name: str = "encoder_pca",
     forward_step_module: str = ENCODER_PCA_FORWARD_STEP_MODULE,
     callback_module: str = ENCODER_PCA_CALLBACK_MODULE,
-    base_analysis_config: Optional[EncoderPcaConfig] = None,
+    base_analysis_config: Optional[Union[EncoderPcaConfig, EncoderPcaHypothesisConfig]] = None,
+    compare_to_hypothesis: bool = False,
+    beam_size: int = 1,
+    max_ratio: float = 2.0,
+    lp_alpha: float = 0.6,
+    src_lang: str = "src",
+    trg_lang: str = "trg",
+    ref_label: Optional[str] = None,
     max_points_per_modality: int = 50_000,
     plot_seq_tags: Optional[List[str]] = None,
     max_plotted_seqs: int = 20,
     cosine_similarity_summary: bool = False,
     src_label: Optional[str] = None,
     trg_label: Optional[str] = None,
+    src_vocab_file: Optional[Union[str, tk.Path]] = None,
+    trg_vocab_file: Optional[Union[str, tk.Path]] = None,
+    src_text_file: Optional[Union[str, tk.Path]] = None,
+    trg_text_file: Optional[Union[str, tk.Path]] = None,
+    seq_tags_file: Optional[Union[str, tk.Path]] = None,
     out_dir_name: str = "encoder_pca",
     loss_name: str = "dev_loss_ce",
     extra_forward_config: Optional[ReturnnConfig] = None,
@@ -65,13 +91,30 @@ def analyze_encoder_states(
     :param checkpoints: list of epochs (int) or "best"/"best4".
     :param base_analysis_config: forward_step keys; if None, derived from the config's
         ``default_data_key`` / ``default_target_key``.
+    :param compare_to_hypothesis: if True, decode sequence A into hypothesized translation N(A),
+        feed N(A) into the target encoder, and visualize sequence A embeddings against N(A) embeddings.
     :param plot_seq_tags: if given, only these seq_tags are plotted; else the first
         ``max_plotted_seqs`` seqs are plotted (all seqs still contribute to the PCA pool).
     :param cosine_similarity_summary: if True, also summarize, for each plotted seq, the avg pairwise
         cosine similarity within src, within trg, and between languages in the original (pre-PCA)
         feature space (written to ``cosine_similarities.txt`` + each ``*.npz``).
     """
-    if base_analysis_config is None:
+    if compare_to_hypothesis:
+        if forward_step_module == ENCODER_PCA_FORWARD_STEP_MODULE:
+            forward_step_module = ENCODER_PCA_HYPOTHESIS_FORWARD_STEP_MODULE
+        if out_dir_name == "encoder_pca":
+            out_dir_name = "encoder_pca_hypothesis"
+        if base_analysis_config is None:
+            base_analysis_config = EncoderPcaHypothesisConfig(
+                audio_data_key=config.get("default_data_key", "data"),
+                src_data_key=config.get("default_data_key", "data"),
+                beam_size=beam_size,
+                max_ratio=max_ratio,
+                lp_alpha=lp_alpha,
+                src_lang=src_lang,
+                trg_lang=trg_lang,
+            )
+    elif base_analysis_config is None:
         base_analysis_config = EncoderPcaConfig(
             audio_data_key=config.get("default_data_key", "data"),
             text_data_key=config.get("default_target_key", "target"),
@@ -89,10 +132,24 @@ def analyze_encoder_states(
     }
     if cosine_similarity_summary:
         callback_opts["cosine_similarity_summary"] = cosine_similarity_summary
+    if compare_to_hypothesis:
+        callback_opts["use_hypothesis"] = True
+    if ref_label is not None:
+        callback_opts["ref_label"] = ref_label
     if src_label is not None:
         callback_opts["src_label"] = src_label
     if trg_label is not None:
         callback_opts["trg_label"] = trg_label
+    if src_vocab_file is not None:
+        callback_opts["src_vocab_file"] = src_vocab_file
+    if trg_vocab_file is not None:
+        callback_opts["trg_vocab_file"] = trg_vocab_file
+    if src_text_file is not None:
+        callback_opts["src_text_file"] = src_text_file
+    if trg_text_file is not None:
+        callback_opts["trg_text_file"] = trg_text_file
+    if seq_tags_file is not None:
+        callback_opts["seq_tags_file"] = seq_tags_file
 
     # both modalities must be available to the forward_step, so declare the text key in extern_data
     returnn_forward_config = get_forward_config(

@@ -51,6 +51,7 @@ def get_training_config(
         "log_batch_size": True,
         "use_tensorboard": True,
         "log_grad_norm": True,
+        "gpu_local_cpu_affinity": False,
     }
 
     base_config = {

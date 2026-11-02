@@ -53,6 +53,7 @@ def forward_step(
         feat_dim = Dim(int(src_enc.shape[-1]), name="enc_feat")
         src_enc_rf = rf.convert_to_tensor(src_enc, dims=[batch_dim, src_time_dim, feat_dim])
         ctx.mark_as_output(src_enc_rf, "audio_states", dims=[batch_dim, src_time_dim, feat_dim])
+        ctx.mark_as_output(src_data, "src_indices", dims=[batch_dim, src_time_dim])
 
     trg_data = extern_data.data.get(t_key)
     if _lang_present(trg_data):
@@ -67,3 +68,4 @@ def forward_step(
             feat_dim = Dim(int(trg_enc.shape[-1]), name="enc_feat")
         trg_enc_rf = rf.convert_to_tensor(trg_enc, dims=[batch_dim, trg_time_dim, feat_dim])
         ctx.mark_as_output(trg_enc_rf, "text_states", dims=[batch_dim, trg_time_dim, feat_dim])
+        ctx.mark_as_output(trg_data, "trg_indices", dims=[batch_dim, trg_time_dim])

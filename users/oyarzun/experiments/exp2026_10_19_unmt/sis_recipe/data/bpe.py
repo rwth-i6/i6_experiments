@@ -13,6 +13,7 @@ import os
 import re
 
 from sisyphus import Job, Task, tk
+from ..cluster_adapter import setup_extra_python_paths
 
 
 class TrainBpeJob(Job):
@@ -20,7 +21,7 @@ class TrainBpeJob(Job):
     Learns BPE merge operations from one or more tokenized text files using subword-nmt.
     Exports out_bpe_codes.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -42,16 +43,9 @@ class TrainBpeJob(Job):
 
     def run(self):
         logging.basicConfig(level=logging.INFO)
-        import sys
         import tempfile
 
-        extra_paths = [
-            "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs",
-        ]
-        for p in extra_paths:
-            if os.path.exists(p) and p not in sys.path:
-                sys.path.insert(0, p)
-
+        setup_extra_python_paths()
         from subword_nmt import learn_bpe
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,7 +88,7 @@ class ApplyBpeJob(Job):
     Applies BPE codes to a tokenized text file using subword-nmt.
     Preserves exact 1-to-1 line mapping.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -114,15 +108,8 @@ class ApplyBpeJob(Job):
 
     def run(self):
         logging.basicConfig(level=logging.INFO)
-        import sys
 
-        extra_paths = [
-            "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs",
-        ]
-        for p in extra_paths:
-            if os.path.exists(p) and p not in sys.path:
-                sys.path.insert(0, p)
-
+        setup_extra_python_paths()
         from subword_nmt import apply_bpe
 
         with open(self.bpe_codes.get_path(), "r", encoding="utf-8") as cf:
@@ -147,7 +134,7 @@ class DeBpeTextJob(Job):
     Strips subword BPE merge separators ('@@ ') from a text file or RETURNN search result dict,
     recovering word-level text for standard MT evaluation.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,

@@ -106,6 +106,13 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         trg_label: str = "en",
         audio_output: str = "audio_states",
         text_output: str = "text_states",
+        src_vocab_file: Optional[str] = None,
+        trg_vocab_file: Optional[str] = None,
+        src_text_file: Optional[str] = None,
+        trg_text_file: Optional[str] = None,
+        seq_tags_file: Optional[str] = None,
+        use_hypothesis: bool = False,
+        ref_label: Optional[str] = None,
         vocab=None,  # injected by serialize_forward; unused here (we plot states, not labels)
     ):
         self.out_dir = out_dir
@@ -117,6 +124,13 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         self.trg_label = trg_label
         self.audio_output = audio_output
         self.text_output = text_output
+        self.src_vocab_file = src_vocab_file
+        self.trg_vocab_file = trg_vocab_file
+        self.src_text_file = src_text_file
+        self.trg_text_file = trg_text_file
+        self.seq_tags_file = seq_tags_file
+        self.use_hypothesis = use_hypothesis
+        self.ref_label = ref_label
 
         self._plot_selected: set = set()
 
@@ -129,9 +143,52 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         # Per-seq states kept for plotting
         self._src_seqs: Dict[str, np.ndarray] = {}
         self._trg_seqs: Dict[str, np.ndarray] = {}
+        self._src_tokens: Dict[str, np.ndarray] = {}
+        self._trg_tokens: Dict[str, np.ndarray] = {}
+
+        self._src_vocab: Dict[int, str] = {}
+        self._trg_vocab: Dict[int, str] = {}
+        self._tag_to_src_text: Dict[str, str] = {}
+        self._tag_to_trg_text: Dict[str, str] = {}
+
+    @staticmethod
+    def _load_vocab(vocab_path: Optional[str]) -> Dict[int, str]:
+        if not vocab_path or not os.path.exists(vocab_path):
+            return {}
+        try:
+            with open(vocab_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            if content.startswith("{") and content.endswith("}"):
+                import ast
+                d = ast.literal_eval(content)
+                return {int(idx): str(tok) for tok, idx in d.items()}
+            res = {}
+            for idx, line in enumerate(content.splitlines()):
+                line = line.strip()
+                if line:
+                    res[idx] = line.split()[0]
+            return res
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _load_text_by_tag(text_path: Optional[str], tags_path: Optional[str]) -> Dict[str, str]:
+        if not text_path or not os.path.exists(text_path):
+            return {}
+        with open(text_path, "r", encoding="utf-8", errors="replace") as f:
+            texts = [l.strip() for l in f]
+        if tags_path and os.path.exists(tags_path):
+            with open(tags_path, "r", encoding="utf-8", errors="replace") as f:
+                tags = [l.strip() for l in f]
+            return {tag: text for tag, text in zip(tags, texts)}
+        return {f"line-{i}": text for i, text in enumerate(texts)}
 
     def init(self, *args, **kwargs):
         os.makedirs(self.out_dir, exist_ok=True)
+        self._src_vocab = self._load_vocab(self.src_vocab_file)
+        self._trg_vocab = self._load_vocab(self.trg_vocab_file)
+        self._tag_to_src_text = self._load_text_by_tag(self.src_text_file, self.seq_tags_file)
+        self._tag_to_trg_text = self._load_text_by_tag(self.trg_text_file, self.seq_tags_file)
 
     def _should_plot(self, seq_tag: str) -> bool:
         if self.plot_seq_tags is not None:
@@ -170,6 +227,29 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 self._add_to_pool(trg_arr, is_src=False)
                 if self._should_plot(seq_tag):
                     self._trg_seqs[seq_tag] = trg_arr
+        if "src_indices" in outputs.data and self._should_plot(seq_tag):
+            self._src_tokens[seq_tag] = np.asarray(outputs["src_indices"].raw_tensor, dtype=np.int64).reshape(-1)
+        if "trg_indices" in outputs.data and self._should_plot(seq_tag):
+            self._trg_tokens[seq_tag] = np.asarray(outputs["trg_indices"].raw_tensor, dtype=np.int64).reshape(-1)
+
+    def _get_seq_string(self, seq_tag: str, *, is_src: bool) -> str:
+        if is_src:
+            if seq_tag in self._tag_to_src_text:
+                return self._tag_to_src_text[seq_tag]
+            tokens_dict = self._src_tokens
+            vocab = self._src_vocab
+        else:
+            if not self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                return self._tag_to_trg_text[seq_tag]
+            tokens_dict = self._trg_tokens
+            vocab = self._trg_vocab
+
+        if seq_tag in tokens_dict and vocab:
+            token_ids = tokens_dict[seq_tag]
+            toks = [vocab.get(int(i), f"<{i}>") for i in token_ids if int(i) not in (0, 2, 3)]
+            clean_str = " ".join(toks).replace("@@ ", "")
+            return clean_str
+        return ""
 
     def finish(self, **kwargs):
         import matplotlib
@@ -227,18 +307,27 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 src_coords = _project(src_states, mean, components)
                 trg_coords = _project(trg_states, mean, components)
 
+                src_seq_str = self._get_seq_string(seq_tag, is_src=True)
+                trg_seq_str = self._get_seq_string(seq_tag, is_src=False)
+
                 npz_data = dict(
                     seq_tag=seq_tag,
                     src_lang=self.src_label,
                     trg_lang=self.trg_label,
                     src_coords=src_coords,
                     trg_coords=trg_coords,
+                    src_sequence=src_seq_str,
+                    trg_sequence=trg_seq_str,
                     # Keep backward-compatible keys as well
                     audio_coords=src_coords,
                     text_coords=trg_coords,
                     src_time_idx=np.arange(src_coords.shape[0]),
                     trg_time_idx=np.arange(trg_coords.shape[0]),
                 )
+                if self.use_hypothesis:
+                    npz_data["hyp_sequence"] = trg_seq_str
+                    if seq_tag in self._tag_to_trg_text:
+                        npz_data["ref_sequence"] = self._tag_to_trg_text[seq_tag]
 
                 if self.cosine_similarity_summary:
                     cos = {
@@ -256,16 +345,16 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 safe_seq_tag = seq_tag.replace("/", "_")
                 np.savez(os.path.join(self.out_dir, f"{safe_seq_tag}.npz"), **npz_data)
 
-                plt.figure(figsize=(8, 8))
-                plt.scatter(src_coords[:, 0], src_coords[:, 1], s=18, alpha=0.7, label=self.src_label, c="#1f77b4")
-                plt.scatter(trg_coords[:, 0], trg_coords[:, 1], s=18, alpha=0.7, label=self.trg_label, c="#d62728")
+                fig, ax = plt.subplots(figsize=(9, 9))
+                ax.scatter(src_coords[:, 0], src_coords[:, 1], s=18, alpha=0.7, label=self.src_label, c="#1f77b4")
+                ax.scatter(trg_coords[:, 0], trg_coords[:, 1], s=18, alpha=0.7, label=self.trg_label, c="#d62728")
                 if len(src_coords) > 1:
-                    plt.plot(src_coords[:, 0], src_coords[:, 1], alpha=0.35, c="#1f77b4")
+                    ax.plot(src_coords[:, 0], src_coords[:, 1], alpha=0.35, c="#1f77b4")
                 if len(trg_coords) > 1:
-                    plt.plot(trg_coords[:, 0], trg_coords[:, 1], alpha=0.35, c="#d62728")
-                self._mark_start_end(plt, src_coords, label_prefix=self.src_label)
-                self._mark_start_end(plt, trg_coords, label_prefix=self.trg_label)
-                title = f"Shared encoder PCA ({self.src_label} vs. {self.trg_label}) for {seq_tag}"
+                    ax.plot(trg_coords[:, 0], trg_coords[:, 1], alpha=0.35, c="#d62728")
+                self._mark_start_end(ax, src_coords, label_prefix=self.src_label)
+                self._mark_start_end(ax, trg_coords, label_prefix=self.trg_label)
+                title = f"Shared encoder PCA ({self.src_label} vs. {self.trg_label})\nSequence ID: {seq_tag}"
                 if self.cosine_similarity_summary:
                     cos = cosine_similarities[seq_tag]
                     dist = {
@@ -274,38 +363,73 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                         "src_trg": _avg_pairwise_l2_distance(src_states, trg_states),
                     }
                     title += (
-                        f"\navg cos-sim (orig. space)  {self.src_label}-{self.src_label} {cos['src_src']:.3f}"
-                        f"  {self.trg_label}-{self.trg_label} {cos['trg_trg']:.3f}"
-                        f"  {self.src_label}-{self.trg_label} {cos['src_trg']:.3f}"
-                        f"\navg L2-dist (orig. space)  {self.src_label}-{self.src_label} {dist['src_src']:.3f}"
-                        f"  {self.trg_label}-{self.trg_label} {dist['trg_trg']:.3f}"
-                        f"  {self.src_label}-{self.trg_label} {dist['src_trg']:.3f}"
+                        f"\navg cos-sim: {self.src_label}-{self.src_label} {cos['src_src']:.3f} | "
+                        f"{self.trg_label}-{self.trg_label} {cos['trg_trg']:.3f} | "
+                        f"{self.src_label}-{self.trg_label} {cos['src_trg']:.3f}\n"
+                        f"avg L2-dist: {self.src_label}-{self.src_label} {dist['src_src']:.3f} | "
+                        f"{self.trg_label}-{self.trg_label} {dist['trg_trg']:.3f} | "
+                        f"{self.src_label}-{self.trg_label} {dist['src_trg']:.3f}"
                     )
-                plt.title(title)
-                plt.xlabel("PC1")
-                plt.ylabel("PC2")
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
-                plt.close()
+                ax.set_title(title, fontsize=10)
+                ax.set_xlabel("PC1")
+                ax.set_ylabel("PC2")
+                ax.legend(loc="best")
+                ax.grid(True, linestyle=":", alpha=0.4)
+
+                import textwrap
+                src_disp = (src_seq_str[:300] + "...") if len(src_seq_str) > 300 else src_seq_str
+                trg_disp = (trg_seq_str[:300] + "...") if len(trg_seq_str) > 300 else trg_seq_str
+                lines = []
+                if src_disp:
+                    lines.append(f"[{self.src_label}]: " + "\n  ".join(textwrap.wrap(src_disp, width=85)))
+                if trg_disp:
+                    lines.append(f"[{self.trg_label}]: " + "\n  ".join(textwrap.wrap(trg_disp, width=85)))
+                if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                    ref_text = self._tag_to_trg_text[seq_tag]
+                    ref_disp = (ref_text[:300] + "...") if len(ref_text) > 300 else ref_text
+                    r_lbl = self.ref_label or (self.trg_label.replace(" (hyp)", "").replace("(hyp)", "").strip() + " (ref)")
+                    lines.append(f"[{r_lbl}]: " + "\n  ".join(textwrap.wrap(ref_disp, width=85)))
+                seq_box_text = "\n".join(lines)
+
+                if seq_box_text:
+                    fig.text(
+                        0.5, 0.02,
+                        seq_box_text,
+                        ha="center", va="bottom",
+                        fontsize=7.5,
+                        family="monospace",
+                        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
+                    )
+                    fig.subplots_adjust(bottom=0.22 if (self.use_hypothesis and seq_tag in self._tag_to_trg_text) else 0.20)
+                else:
+                    fig.tight_layout()
+
+                fig.savefig(os.path.join(self.out_dir, f"{safe_seq_tag}.png"), dpi=200)
+                plt.close(fig)
 
                 summary.write(
                     f"{seq_tag} {self.src_label}_points={src_coords.shape[0]} {self.trg_label}_points={trg_coords.shape[0]}\n"
                 )
+                if src_seq_str:
+                    summary.write(f"  {self.src_label}: {src_seq_str}\n")
+                if trg_seq_str:
+                    summary.write(f"  {self.trg_label}: {trg_seq_str}\n")
+                if self.use_hypothesis and seq_tag in self._tag_to_trg_text:
+                    summary.write(f"  ref: {self._tag_to_trg_text[seq_tag]}\n")
 
         if self.cosine_similarity_summary:
             self._write_cosine_summary(cosine_similarities)
 
     @staticmethod
-    def _mark_start_end(plt, coords: np.ndarray, *, label_prefix: str) -> None:
+    def _mark_start_end(ax, coords: np.ndarray, *, label_prefix: str) -> None:
         if len(coords) == 0:
             return
-        plt.scatter(
+        ax.scatter(
             coords[0, 0], coords[0, 1], s=120, marker="*", c="#2ca02c",
             edgecolors="black", linewidths=0.8, zorder=5, label=f"{label_prefix} start",
         )
         if len(coords) > 1:
-            plt.scatter(
+            ax.scatter(
                 coords[-1, 0], coords[-1, 1], s=120, marker="X", c="black",
                 edgecolors="white", linewidths=0.8, zorder=5, label=f"{label_prefix} end",
             )

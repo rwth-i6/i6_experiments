@@ -418,11 +418,17 @@ def build_self_learning_asr_alignment_pipeline(
                                 mapped_audio_embeddings_npy=align_freq_job.out_mapped_audio_emb_npy,
                                 text_embeddings_npy=t_w2v.out_embeddings_npy,
                                 dictionary_json=align_freq_job.out_dictionary_json,
+                                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
                                 audio_vocab_file=a_clus.out_cluster_vocab_txt,
                                 text_vocab_file=t_vocab,
+                                audio_counts_file=a_clus.out_cluster_counts_txt,
+                                text_counts_file=t_w2v.out_counts_txt,
                                 alignment_report_json=align_freq_job.out_alignment_report,
                                 title_prefix=f"Cross-Modal 2D PCA ({code_type}, {cluster_name}, {dw_tag}, {metric})",
-                                _version=2,
+                                src_label="Audio Clusters",
+                                trg_label="Text Phonemes",
+                                _version=4,
                             )
                             analysis_freq_job.add_alias(f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{an_alias}")
 
@@ -437,6 +443,34 @@ def build_self_learning_asr_alignment_pipeline(
                             tk.register_output(
                                 f"{target_path_prefix}/{an_sub}/cross_modal_pca.png",
                                 analysis_freq_job.out_cross_modal_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/source_audio_pca.png",
+                                analysis_freq_job.out_source_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/target_text_pca.png",
+                                analysis_freq_job.out_target_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/cross_modal_pca_panel.png",
+                                analysis_freq_job.out_cross_modal_panel_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/source_raw_pca.png",
+                                analysis_freq_job.out_source_raw_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/target_raw_pca.png",
+                                analysis_freq_job.out_target_raw_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/unaligned_cross_modal_pca.png",
+                                analysis_freq_job.out_unaligned_joint_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{target_path_prefix}/{an_sub}/alignment_comparison_panel.png",
+                                analysis_freq_job.out_alignment_comparison_panel_plot,
                             )
 
                             alignment_results[(code_type, cluster_name, d, w, metric)] = {
@@ -506,11 +540,17 @@ def build_self_learning_asr_alignment_pipeline(
                                 mapped_audio_embeddings_npy=align_gan_job.out_mapped_audio_emb_npy,
                                 text_embeddings_npy=t_w2v.out_embeddings_npy,
                                 dictionary_json=align_gan_job.out_dictionary_json,
+                                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
                                 audio_vocab_file=a_clus.out_cluster_vocab_txt,
                                 text_vocab_file=t_vocab,
+                                audio_counts_file=a_clus.out_cluster_counts_txt,
+                                text_counts_file=t_w2v.out_counts_txt,
                                 alignment_report_json=align_gan_job.out_alignment_report,
                                 title_prefix=f"GAN Cross-Modal 2D PCA ({code_type}, {cluster_name}, {dw_tag}, {metric})",
-                                _version=2,
+                                src_label="Audio Clusters",
+                                trg_label="Text Phonemes",
+                                _version=4,
                             )
                             analysis_gan_job.add_alias(f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/{gan_an_alias}")
 
@@ -525,6 +565,34 @@ def build_self_learning_asr_alignment_pipeline(
                             tk.register_output(
                                 f"{gan_target_prefix}/{gan_an_sub}/cross_modal_pca.png",
                                 analysis_gan_job.out_cross_modal_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/source_audio_pca.png",
+                                analysis_gan_job.out_source_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/target_text_pca.png",
+                                analysis_gan_job.out_target_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/cross_modal_pca_panel.png",
+                                analysis_gan_job.out_cross_modal_panel_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/source_raw_pca.png",
+                                analysis_gan_job.out_source_raw_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/target_raw_pca.png",
+                                analysis_gan_job.out_target_raw_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/unaligned_cross_modal_pca.png",
+                                analysis_gan_job.out_unaligned_joint_pca_plot,
+                            )
+                            tk.register_output(
+                                f"{gan_target_prefix}/{gan_an_sub}/alignment_comparison_panel.png",
+                                analysis_gan_job.out_alignment_comparison_panel_plot,
                             )
 
                             alignment_results[(code_type, cluster_name, d, w, f"gan_{metric}")] = {

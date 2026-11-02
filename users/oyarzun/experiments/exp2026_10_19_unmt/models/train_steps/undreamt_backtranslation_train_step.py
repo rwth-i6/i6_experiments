@@ -142,6 +142,8 @@ def train_step(
     enable_backtranslation: bool = True,
     denoise_backtranslation: bool = True,
     bt_max_ratio: float = 2.0,
+    bt_src2trg_max_ratio: Optional[float] = None,
+    bt_trg2src_max_ratio: Optional[float] = None,
     denoise_scale: float = 1.0,
     bt_scale: float = 1.0,
     **kwargs,
@@ -214,13 +216,15 @@ def train_step(
         )
 
         # 3a. Greedy translate src -> synthetic trg_hat (no grad, eval mode)
+        eff_src2trg_ratio = bt_src2trg_max_ratio if bt_src2trg_max_ratio is not None else bt_max_ratio
+        eff_trg2src_ratio = bt_trg2src_max_ratio if bt_trg2src_max_ratio is not None else bt_max_ratio
         with torch.no_grad():
             syn_trg_ids, syn_trg_lens = model.greedy_translate(
                 src_ids=src_clean_enc,
                 src_lengths=src_clean_lens,
                 src_lang="src",
                 trg_lang="trg",
-                max_ratio=bt_max_ratio,
+                max_ratio=eff_src2trg_ratio,
             )
             if denoise_backtranslation:
                 syn_trg_ids, syn_trg_lens = apply_swap_noise_to_generated_batch(syn_trg_ids, syn_trg_lens)
@@ -247,7 +251,7 @@ def train_step(
                 src_lengths=trg_clean_lens,
                 src_lang="trg",
                 trg_lang="src",
-                max_ratio=bt_max_ratio,
+                max_ratio=eff_trg2src_ratio,
             )
             if denoise_backtranslation:
                 syn_src_ids, syn_src_lens = apply_swap_noise_to_generated_batch(syn_src_ids, syn_src_lens)

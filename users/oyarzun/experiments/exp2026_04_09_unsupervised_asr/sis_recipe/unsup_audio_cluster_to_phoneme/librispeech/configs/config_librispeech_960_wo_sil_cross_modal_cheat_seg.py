@@ -62,6 +62,9 @@ from ....analysis.distribution_analysis import (
     TextNgramDistributionAnalysisJob,
     SpeechClusterDistributionAnalysisJob,
 )
+from i6_experiments.users.oyarzun.experiments.exp2026_09_15_self_learning_emb_asr.models.analysis import (
+    EmbeddingAlignmentAnalysisJob,
+)
 from ... import __setup_base_name__
 
 
@@ -841,6 +844,40 @@ def eval_v5_3_gan_pca512(
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
 
+        # Cross-Modal Embedding Alignment & Representation Analysis (PCA, Frequency Gradient, Unaligned & Aligned Spaces)
+        analysis_gan = res_entry.get("analysis_gan_job") if res_entry is not None else None
+        if analysis_gan is None and res_entry is not None:
+            a_w2v = res_entry.get("audio_w2v_job")
+            analysis_gan = EmbeddingAlignmentAnalysisJob(
+                mapped_audio_embeddings_npy=align_gan.out_mapped_audio_emb_npy,
+                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                dictionary_json=align_gan.out_dictionary_json,
+                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy if a_w2v is not None else None,
+                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                text_vocab_file=t_w2v.out_vocab_txt,
+                audio_counts_file=a_clus.out_cluster_counts_txt,
+                text_counts_file=t_w2v.out_counts_txt,
+                alignment_report_json=align_gan.out_alignment_report,
+                title_prefix=f"v5.3 Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                src_label="Audio Clusters",
+                trg_label="Text Phonemes",
+                _version=4,
+            )
+
+        if analysis_gan is not None:
+            analysis_gan.add_alias(f"{prefix_name}/{exp_key}/pca_analysis")
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gan.out_cross_modal_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gan.out_cross_modal_pca_json)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gan.out_source_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gan.out_target_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gan.out_cross_modal_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gan.out_source_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gan.out_target_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
+
     if run_analysis:
         analysis_prefix = f"{prefix_name}/analysis"
         # 1. Text N-gram Frequency Analysis (Diphones & Triphones)
@@ -1028,6 +1065,40 @@ def eval_v5_4_gan_pca512(
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
 
+        # Cross-Modal Embedding Alignment & Representation Analysis (PCA, Frequency Gradient, Unaligned & Aligned Spaces)
+        analysis_gan = res_entry.get("analysis_gan_job") if res_entry is not None else None
+        if analysis_gan is None and res_entry is not None:
+            a_w2v = res_entry.get("audio_w2v_job")
+            analysis_gan = EmbeddingAlignmentAnalysisJob(
+                mapped_audio_embeddings_npy=align_gan.out_mapped_audio_emb_npy,
+                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                dictionary_json=align_gan.out_dictionary_json,
+                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy if a_w2v is not None else None,
+                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                text_vocab_file=t_w2v.out_vocab_txt,
+                audio_counts_file=a_clus.out_cluster_counts_txt,
+                text_counts_file=t_w2v.out_counts_txt,
+                alignment_report_json=align_gan.out_alignment_report,
+                title_prefix=f"v5.4 Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                src_label="Audio Clusters",
+                trg_label="Text Phonemes",
+                _version=4,
+            )
+
+        if analysis_gan is not None:
+            analysis_gan.add_alias(f"{prefix_name}/{exp_key}/pca_analysis")
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gan.out_cross_modal_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gan.out_cross_modal_pca_json)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gan.out_source_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gan.out_target_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gan.out_cross_modal_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gan.out_source_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gan.out_target_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
+
     if run_analysis:
         analysis_prefix = f"{prefix_name}/analysis"
         # 1. Text N-gram Frequency Analysis (Diphones & Triphones)
@@ -1193,6 +1264,40 @@ def eval_v5_5_gan_pca512(
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
 
+        # Cross-Modal Embedding Alignment & Representation Analysis (PCA, Frequency Gradient, Unaligned & Aligned Spaces)
+        analysis_gan = res_entry.get("analysis_gan_job") if res_entry is not None else None
+        if analysis_gan is None and res_entry is not None:
+            a_w2v = res_entry.get("audio_w2v_job")
+            analysis_gan = EmbeddingAlignmentAnalysisJob(
+                mapped_audio_embeddings_npy=align_gan.out_mapped_audio_emb_npy,
+                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                dictionary_json=align_gan.out_dictionary_json,
+                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy if a_w2v is not None else None,
+                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                text_vocab_file=t_w2v.out_vocab_txt,
+                audio_counts_file=a_clus.out_cluster_counts_txt,
+                text_counts_file=t_w2v.out_counts_txt,
+                alignment_report_json=align_gan.out_alignment_report,
+                title_prefix=f"v5.5 Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                src_label="Audio Clusters",
+                trg_label="Text Phonemes",
+                _version=4,
+            )
+
+        if analysis_gan is not None:
+            analysis_gan.add_alias(f"{prefix_name}/{exp_key}/pca_analysis")
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gan.out_cross_modal_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gan.out_cross_modal_pca_json)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gan.out_source_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gan.out_target_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gan.out_cross_modal_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gan.out_source_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gan.out_target_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
+
     if run_analysis:
         analysis_prefix = f"{prefix_name}/analysis"
         v5_5_cluster_configs = [
@@ -1330,6 +1435,40 @@ def eval_v5_6_gan_pca512(
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_per_summary.json", rescore_train_job.out_per_summary_json)
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
         tk.register_output(f"{prefix_name}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
+
+        # Cross-Modal Embedding Alignment & Representation Analysis (PCA, Frequency Gradient, Unaligned & Aligned Spaces)
+        analysis_gan = res_entry.get("analysis_gan_job") if res_entry is not None else None
+        if analysis_gan is None and res_entry is not None:
+            a_w2v = res_entry.get("audio_w2v_job")
+            analysis_gan = EmbeddingAlignmentAnalysisJob(
+                mapped_audio_embeddings_npy=align_gan.out_mapped_audio_emb_npy,
+                text_embeddings_npy=t_w2v.out_embeddings_npy,
+                dictionary_json=align_gan.out_dictionary_json,
+                raw_audio_embeddings_npy=a_w2v.out_embeddings_npy if a_w2v is not None else None,
+                raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                text_vocab_file=t_w2v.out_vocab_txt,
+                audio_counts_file=a_clus.out_cluster_counts_txt,
+                text_counts_file=t_w2v.out_counts_txt,
+                alignment_report_json=align_gan.out_alignment_report,
+                title_prefix=f"v5.6 Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                src_label="Audio Clusters",
+                trg_label="Text Phonemes",
+                _version=4,
+            )
+
+        if analysis_gan is not None:
+            analysis_gan.add_alias(f"{prefix_name}/{exp_key}/pca_analysis")
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gan.out_cross_modal_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gan.out_cross_modal_pca_json)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gan.out_source_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gan.out_target_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gan.out_cross_modal_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gan.out_source_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gan.out_target_raw_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
 
     if run_analysis:
         analysis_prefix = f"{prefix_name}/analysis"

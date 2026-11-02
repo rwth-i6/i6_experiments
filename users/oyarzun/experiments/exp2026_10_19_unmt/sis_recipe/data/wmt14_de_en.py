@@ -16,9 +16,10 @@ import logging
 import numpy as np
 
 from sisyphus import Job, Task, tk
+from ..cluster_adapter import get_wmt14_dir, setup_extra_python_paths
 
 
-HPCWORK_WMT14_DIR = "/hpcwork/bpd03090/wmt14_de_en"
+HPCWORK_WMT14_DIR = get_wmt14_dir()
 
 
 def simple_moses_tokenize(text: str, lang: str = "en", tokenizer=None) -> str:
@@ -51,27 +52,38 @@ def simple_moses_detokenize(tokens: List[str], lang: str = "en", detokenizer=Non
     return text.strip()
 
 
-def extract_sgm_file(sgm_path: str) -> List[str]:
+def extract_sgm_file(sgm_path: str) -> Tuple[List[str], List[str]]:
     """
-    Extracts plain text segments from WMT SGM files (<seg id="...">...</seg>).
+    Extracts plain text segments and their segment IDs from WMT SGM files (<seg id="...">...</seg>).
     """
-    seg_regex = re.compile(r"<seg[^>]*>(.*?)</seg>", re.IGNORECASE | re.DOTALL)
+    doc_regex = re.compile(r'<doc[^>]*docid="([^"]+)"', re.IGNORECASE)
+    seg_regex = re.compile(r'<seg(?:\s+id="([^"]+)")?[^>]*>(.*?)</seg>', re.IGNORECASE | re.DOTALL)
     sentences = []
+    seg_ids = []
+    current_docid = "doc"
     with open(sgm_path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
+            m_doc = doc_regex.search(line)
+            if m_doc:
+                current_docid = m_doc.group(1).strip()
             m = seg_regex.search(line)
             if m:
-                sent = html.unescape(m.group(1)).strip()
+                s_id = m.group(1)
+                content = m.group(2)
+                tag = f"{current_docid}:{s_id}" if s_id else f"{current_docid}:{len(sentences)}"
+                sent = html.unescape(content).strip()
                 sentences.append(" ".join(sent.split()))
-    return sentences
+                seg_ids.append(tag)
+    return sentences, seg_ids
 
 
 class PrepareWmt14TestSetJob(Job):
     """
     Extracts and tokenizes WMT14 newstest2014 (or dev newstest2013) for German and English.
-    Outputs both raw detokenized reference files (for sacrebleu) and tokenized files (for model input).
+    Outputs both raw detokenized reference files (for sacrebleu), tokenized files (for model input),
+    and extracted sequence IDs.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -92,18 +104,13 @@ class PrepareWmt14TestSetJob(Job):
         self.out_trg_raw = self.output_path(f"test.raw.{trg_lang}")
         self.out_src_tok = self.output_path(f"test.tok.{src_lang}")
         self.out_trg_tok = self.output_path(f"test.tok.{trg_lang}")
+        self.out_seg_ids = self.output_path("test.seg_ids.txt")
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", mini_task=True)
 
     def run(self):
-        import sys
-        extra_paths = [
-            "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs",
-        ]
-        for p in extra_paths:
-            if os.path.exists(p) and p not in sys.path:
-                sys.path.insert(0, p)
+        setup_extra_python_paths()
 
         try:
             from sacremoses import MosesTokenizer
@@ -113,14 +120,16 @@ class PrepareWmt14TestSetJob(Job):
             src_tokenizer = None
             trg_tokenizer = None
 
-        def load_lines(path: str) -> List[str]:
+        def load_lines_and_tags(path: str) -> Tuple[List[str], List[str]]:
             if path.endswith(".sgm"):
                 return extract_sgm_file(path)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
-                return [line.strip() for line in f if line.strip()]
+                lines = [line.strip() for line in f if line.strip()]
+            tags = [f"line-{i}" for i in range(len(lines))]
+            return lines, tags
 
-        src_lines = load_lines(self.src_sgm_or_txt.get_path())
-        trg_lines = load_lines(self.trg_sgm_or_txt.get_path())
+        src_lines, src_tags = load_lines_and_tags(self.src_sgm_or_txt.get_path())
+        trg_lines, trg_tags = load_lines_and_tags(self.trg_sgm_or_txt.get_path())
         assert len(src_lines) == len(trg_lines), f"Line count mismatch: {len(src_lines)} vs {len(trg_lines)}"
 
         with (
@@ -128,10 +137,12 @@ class PrepareWmt14TestSetJob(Job):
             open(self.out_trg_raw.get_path(), "w", encoding="utf-8") as f_t_raw,
             open(self.out_src_tok.get_path(), "w", encoding="utf-8") as f_s_tok,
             open(self.out_trg_tok.get_path(), "w", encoding="utf-8") as f_t_tok,
+            open(self.out_seg_ids.get_path(), "w", encoding="utf-8") as f_tags,
         ):
-            for s, t in zip(src_lines, trg_lines):
+            for s, t, tag in zip(src_lines, trg_lines, src_tags):
                 f_s_raw.write(s + "\n")
                 f_t_raw.write(t + "\n")
+                f_tags.write(tag + "\n")
                 s_tok = simple_moses_tokenize(s, lang=self.src_lang, tokenizer=src_tokenizer)
                 t_tok = simple_moses_tokenize(t, lang=self.trg_lang, tokenizer=trg_tokenizer)
                 if self.lowercase:
@@ -174,13 +185,7 @@ class PrepareWmt14MonolingualNewsCrawlJob(Job):
         yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 4})
 
     def run(self):
-        import sys
-        extra_paths = [
-            "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/container_libs",
-        ]
-        for p in extra_paths:
-            if os.path.exists(p) and p not in sys.path:
-                sys.path.insert(0, p)
+        setup_extra_python_paths()
 
         try:
             from sacremoses import MosesTokenizer
@@ -223,7 +228,7 @@ class DumpTextToReturnnHdfJob(Job):
     append EOS. By default append_eos=False so the stored sequence is exact token IDs and the model/train_step
     handles SOS/EOS explicitly (matching existing RETURNN AED pipelines).
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -234,6 +239,7 @@ class DumpTextToReturnnHdfJob(Job):
         eos_id: int = 2,
         max_sentences: Optional[int] = None,
         seq_tag_prefix: str = "line",
+        seq_tags_file: Optional[tk.Path] = None,
     ):
         super().__init__()
         self.text_file = text_file
@@ -243,6 +249,7 @@ class DumpTextToReturnnHdfJob(Job):
         self.eos_id = eos_id
         self.max_sentences = max_sentences
         self.seq_tag_prefix = seq_tag_prefix
+        self.seq_tags_file = seq_tags_file
 
         self.out_hdf = self.output_path("data.hdf")
 
@@ -255,6 +262,11 @@ class DumpTextToReturnnHdfJob(Job):
 
         with open(self.returnn_vocab_file.get_path(), "r", encoding="utf-8") as f:
             vocab_dict: Dict[str, int] = ast.literal_eval(f.read().strip())
+
+        tags: List[str] = []
+        if self.seq_tags_file is not None and os.path.exists(self.seq_tags_file.get_path()):
+            with open(self.seq_tags_file.get_path(), "r", encoding="utf-8") as ft:
+                tags = [l.strip() for l in ft if l.strip()]
 
         num_classes = max(vocab_dict.values()) + 1 if vocab_dict else 4
         writer = SimpleHDFWriter(filename=self.out_hdf.get_path(), dim=num_classes, ndim=1)
@@ -270,7 +282,7 @@ class DumpTextToReturnnHdfJob(Job):
                 if self.append_eos:
                     ids.append(self.eos_id)
                 arr = np.array(ids, dtype="int32")
-                seq_tag = f"{self.seq_tag_prefix}-{idx}"
+                seq_tag = tags[count] if count < len(tags) else f"{self.seq_tag_prefix}-{idx}"
                 writer.insert_batch(
                     inputs=arr[None, :],
                     seq_len=[len(ids)],

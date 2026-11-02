@@ -215,8 +215,9 @@ class TextNgramDistributionAnalysisJob(tk.Job):
                 return 0.0
             h = 0.0
             for c in counts.values():
-                p = c / total
-                h -= p * math.log2(p)
+                if c > 0 and total > 0:
+                    p = c / total
+                    h -= p * math.log2(p)
             return h
 
         bg_entropy = _calc_entropy(bigram_counts)
@@ -607,6 +608,7 @@ class SpeechClusterDistributionAnalysisJob(tk.Job):
     zoomed and full corpus distribution) and cumulative coverage curves, along with entropy,
     perplexity, Gini coefficient, and audio hours statistics.
     """
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -722,7 +724,7 @@ class SpeechClusterDistributionAnalysisJob(tk.Job):
         # Entropy & perplexity
         entropy = 0.0
         for _, cnt in sorted_clusters:
-            if total_frames > 0:
+            if total_frames > 0 and cnt > 0:
                 p = cnt / total_frames
                 entropy -= p * math.log2(p)
         perplexity = 2.0 ** entropy
@@ -816,7 +818,8 @@ class SpeechClusterDistributionAnalysisJob(tk.Job):
             rf.write(f"Active Clusters:       {num_clusters} (configured K={k_val})\n")
             rf.write(f"Total Corpus Frames:   {total_frames:,}\n")
             rf.write(f"Total Audio Duration:  {total_hours:,.2f} hours (frame shift = {self.frame_shift_sec * 1000:.0f} ms)\n")
-            rf.write(f"Cluster Entropy:       {entropy:.3f} bits (max = {math.log2(k_val):.3f} bits)\n")
+            max_entropy = math.log2(k_val) if k_val > 0 else 0.0
+            rf.write(f"Cluster Entropy:       {entropy:.3f} bits (max = {max_entropy:.3f} bits)\n")
             rf.write(f"Perplexity:            {perplexity:.1f} ({utilization_pct:.1f}% of K)\n")
             rf.write(f"Gini Coefficient:      {gini:.3f} (0 = uniform, 1 = concentrated in 1 cluster)\n")
             rf.write("=" * 85 + "\n\n")
