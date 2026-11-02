@@ -693,6 +693,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_word_budget.py": {
   "env": "module"
  },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_knowledge_quality.py": {
+  "env": "module"
+ },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_sp_rate_mask.py": {
   "env": "module"
  },
