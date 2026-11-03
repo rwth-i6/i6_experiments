@@ -13,7 +13,14 @@ from sisyphus import tk
 
 
 def _detect_default_cluster() -> str:
-    if os.path.exists("/work/smt4/benjamin.oyarzun") or os.path.exists("/u/corpora"):
+    cluster_env = os.environ.get("SIS_CLUSTER") or os.environ.get("ACTIVE_CLUSTER")
+    if cluster_env:
+        return "curium" if cluster_env.lower() in ("curium", "local", "i6") else "rwth-hpc"
+
+    real_exists = getattr(os.path, "_orig_exists", None) or getattr(os, "_orig_exists", None) or os.path.exists
+    if os.environ.get("HPCWORK") or real_exists("/rwthfs/rz/cluster"):
+        return "rwth-hpc"
+    if real_exists("/work/smt4/benjamin.oyarzun") or real_exists("/u/corpora"):
         return "curium"
     return "rwth-hpc"
 

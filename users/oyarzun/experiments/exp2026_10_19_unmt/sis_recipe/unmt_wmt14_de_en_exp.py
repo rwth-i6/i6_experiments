@@ -52,17 +52,16 @@ from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
 from ..models.analysis import EmbeddingAlignmentAnalysisJob
 
 
-DEFAULT_HPCWORK_WMT14_DIR = get_wmt14_dir()
-
-
 def get_wmt14_monolingual_paths(
-    wmt14_dir: str = DEFAULT_HPCWORK_WMT14_DIR,
+    wmt14_dir: Optional[str] = None,
     years: Tuple[int, ...] = (2007, 2008, 2009, 2010, 2011, 2012, 2013),
 ) -> Tuple[List[tk.Path], List[tk.Path]]:
     """
     Returns lists of tk.Path objects pointing to WMT14 News Crawl monolingual .shuffled.gz files
     in $HPCWORK/wmt14_de_en/monolingual for German ('de') and English ('en').
     """
+    if wmt14_dir is None:
+        wmt14_dir = get_wmt14_dir()
     de_files = []
     en_files = []
     for y in years:
@@ -76,7 +75,7 @@ def get_wmt14_monolingual_paths(
 def run_wmt14_de_en_unmt_pipeline(
     prefix_name: str = "exp2026_10_19_unmt/wmt14_de_en",
     train_name: str = "undreamt_rnn_aed",
-    wmt14_dir: str = DEFAULT_HPCWORK_WMT14_DIR,
+    wmt14_dir: Optional[str] = None,
     news_crawl_years: Tuple[int, ...] = (2013,),
     max_mono_sentences: int = 2000000,
     unmt_train_sentences: int = 500000,
@@ -156,6 +155,9 @@ def run_wmt14_de_en_unmt_pipeline(
             effective_en_vocab_size = vocab_size  # 50k words for word, bpe, or averaged diphone/triphone word embeddings
     else:
         effective_en_vocab_size = en_vocab_size
+
+    if wmt14_dir is None:
+        wmt14_dir = get_wmt14_dir()
 
     if eval_epochs is None:
         eval_epochs = [num_epochs]
