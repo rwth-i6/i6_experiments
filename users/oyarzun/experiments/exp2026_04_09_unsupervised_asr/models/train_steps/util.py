@@ -108,11 +108,19 @@ def mask_sequence(x: Tensor, lens: Tensor, mask: Tensor, mask_value: Union[int, 
 
     return result, new_lens
 
-def mask_sequence_expand(x: Tensor, lens: Tensor, mask: Tensor, mask_value: Union[int, Tensor], insert_prob: float = 0.1) -> Tuple[Tensor, Tensor]:
+def mask_sequence_expand(
+    x: Tensor,
+    lens: Tensor,
+    mask: Tensor,
+    mask_value: Union[int, Tensor],
+    insert_prob: float = 0.1,
+    min_k: int = 1,
+    max_k: int = 5,
+) -> Tuple[Tensor, Tensor]:
     """
     Given x of shape (B, T, ...) and a boolean mask of shape (B, T), return a new tensor where spans of False
-    are masked but not collapsed. Instead, a span of length N is replaced by N + K masks where K is U(1, 5).
-    Additionally, random masks of length 1-5 can be inserted before unmasked tokens with `insert_prob`.
+    are masked but not collapsed. Instead, a span of length N is replaced by N + K masks where K is U(min_k, max_k).
+    Additionally, random masks of length min_k to max_k can be inserted before unmasked tokens with `insert_prob`.
     """
     B = x.size(0)
     device = x.device
@@ -138,7 +146,7 @@ def mask_sequence_expand(x: Tensor, lens: Tensor, mask: Tensor, mask_value: Unio
                 span_len = i - start
                 
                 # N + K masks
-                K = torch.randint(1, 6, (1,)).item()
+                K = torch.randint(min_k, max_k + 1, (1,)).item()
                 num_masks = span_len + K
                 
                 if isinstance(mask_value, int):
@@ -150,7 +158,7 @@ def mask_sequence_expand(x: Tensor, lens: Tensor, mask: Tensor, mask_value: Unio
                 # Found an unmasked token
                 # Decide if we insert random masks before it
                 if torch.rand((1,)).item() < insert_prob:
-                    K_insert = torch.randint(1, 6, (1,)).item()
+                    K_insert = torch.randint(min_k, max_k + 1, (1,)).item()
                     if isinstance(mask_value, int):
                         masks_tensor = torch.full((K_insert,) + x_b.shape[1:], mask_value, dtype=x_b.dtype, device=device)
                     else:

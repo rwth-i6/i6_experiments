@@ -111,7 +111,13 @@ def train_step(
             
         if masking_opts.get("expand", False):
             label_indices_masked, label_indices_masked_lens = mask_sequence_expand(
-                label_indices, label_indices_lens.to(label_indices.device), phon_mask, mask_value=model.mask_idx, insert_prob=masking_opts.get("insert_prob", 0.1)
+                label_indices,
+                label_indices_lens.to(label_indices.device),
+                phon_mask,
+                mask_value=model.mask_idx,
+                insert_prob=masking_opts.get("insert_prob", 0.1),
+                min_k=masking_opts.get("min_k", 1),
+                max_k=masking_opts.get("max_k", 5),
             )
         else:
             label_indices_masked, label_indices_masked_lens = mask_sequence(

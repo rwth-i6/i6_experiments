@@ -26,7 +26,7 @@ from i6_experiments.users.zeyer.datasets.score_results import ScoreResult
 
 from .data.common import TrainingDatasets, DatasetSettings
 from .data.bpe import TrainBpeJob, ApplyBpeJob, DeBpeTextJob
-from .data.phonemize import PhonemizeEnglishTextJob, GenerateTextNgramsJob
+from .data.phonemize import PhonemizeEnglishTextJob, PhonemizeGermanTextJob, GenerateTextNgramsJob
 from .data.word2vec import (
     TrainWord2VecJob,
     GetVocabSizeJob,
@@ -86,6 +86,7 @@ def run_wmt14_de_en_unmt_pipeline(
     bpe_operations: int = 50000,
     bpe_mode: str = "separate",  # "separate" (independent BPE on DE and EN) or "joint" (shared BPE codes on DE+EN)
     vocab_size: int = 50000,
+    de_vocab_size: Optional[int] = None,
     en_vocab_size: Optional[int] = None,
     w2v_dim: int = 300,
     w2v_window: int = 10,
@@ -107,6 +108,7 @@ def run_wmt14_de_en_unmt_pipeline(
     align_init_method: Optional[str] = None,
     gpu_mem: Optional[int] = None,
 ):
+<<<<<<< HEAD
     assert de_code_type in ("word", "bpe"), f"Unsupported de_code_type: {de_code_type}"
     assert en_code_type in (
         "word",
@@ -138,6 +140,22 @@ def run_wmt14_de_en_unmt_pipeline(
     )
 
     effective_de_vocab_size = vocab_size
+=======
+    assert de_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported de_code_type: {de_code_type}"
+    assert en_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported en_code_type: {en_code_type}"
+    assert bpe_mode in ("separate", "joint"), f"Unsupported bpe_mode: {bpe_mode}"
+
+    if de_vocab_size is None:
+        if de_code_type == "diphone":
+            effective_de_vocab_size = 2000
+        elif de_code_type == "triphone":
+            effective_de_vocab_size = 20000
+        else:
+            effective_de_vocab_size = vocab_size
+    else:
+        effective_de_vocab_size = de_vocab_size
+
+>>>>>>> 06e111a23 (sync)
     if en_vocab_size is None:
         if en_code_type == "diphone":
             effective_en_vocab_size = 2000
@@ -258,7 +276,14 @@ def run_wmt14_de_en_unmt_pipeline(
             else:
                 en_bpe_codes = None
 
-    # German corpora preparation (word or BPE)
+    # German corpora preparation (word, BPE, diphone, or triphone)
+    mono_de_phn_job = None
+    mono_de_ngram_job = None
+    dev2013_de_phn_job = None
+    dev2013_de_ngram_job = None
+    test2014_de_phn_job = None
+    test2014_de_ngram_job = None
+
     if de_code_type == "bpe":
         mono_de_bpe_job = ApplyBpeJob(text_file=mono_de_job.out_tokenized_txt, bpe_codes=de_bpe_codes)
         mono_de_bpe_job.add_alias(f"{prefix_name}/data/prepare_mono_de_bpe")
@@ -274,6 +299,42 @@ def run_wmt14_de_en_unmt_pipeline(
         test2014_de_bpe_job.add_alias(f"{prefix_name}/data/test2014_de_bpe")
         tk.register_output(f"{prefix_name}/data/newstest2014.de.bpe.txt", test2014_de_bpe_job.out_bpe_text)
         de_test_txt = test2014_de_bpe_job.out_bpe_text
+    elif de_code_type in ("diphone", "triphone"):
+        ngram_order_de = 2 if de_code_type == "diphone" else 3
+
+        mono_de_phn_job = PhonemizeGermanTextJob(text_file=mono_de_job.out_tokenized_txt)
+        mono_de_phn_job.add_alias(f"{prefix_name}/data/prepare_mono_de_phonemize")
+        tk.register_output(f"{prefix_name}/data/news_crawl.de.phn.txt", mono_de_phn_job.out_phoneme_text)
+
+        mono_de_ngram_job = GenerateTextNgramsJob(
+            phoneme_text_file=mono_de_phn_job.out_phoneme_text,
+            ngram_order=ngram_order_de,
+        )
+        mono_de_ngram_job.add_alias(f"{prefix_name}/data/prepare_mono_de_{de_code_type}s")
+        tk.register_output(f"{prefix_name}/data/news_crawl.de.{de_code_type}.txt", mono_de_ngram_job.out_ngram_text)
+        tk.register_output(f"{prefix_name}/data/news_crawl.de.{de_code_type}.vocab.txt", mono_de_ngram_job.out_vocab_list)
+        tk.register_output(f"{prefix_name}/data/news_crawl.de.{de_code_type}.counts.txt", mono_de_ngram_job.out_vocab_counts)
+        de_train_txt = mono_de_ngram_job.out_ngram_text
+
+        dev2013_de_phn_job = PhonemizeGermanTextJob(text_file=dev2013_job.out_src_tok)
+        dev2013_de_phn_job.add_alias(f"{prefix_name}/data/dev2013_de_phonemize")
+        dev2013_de_ngram_job = GenerateTextNgramsJob(
+            phoneme_text_file=dev2013_de_phn_job.out_phoneme_text,
+            ngram_order=ngram_order_de,
+        )
+        dev2013_de_ngram_job.add_alias(f"{prefix_name}/data/dev2013_de_{de_code_type}s")
+        tk.register_output(f"{prefix_name}/data/newstest2013.de.{de_code_type}.txt", dev2013_de_ngram_job.out_ngram_text)
+        de_dev_txt = dev2013_de_ngram_job.out_ngram_text
+
+        test2014_de_phn_job = PhonemizeGermanTextJob(text_file=test2014_job.out_src_tok)
+        test2014_de_phn_job.add_alias(f"{prefix_name}/data/test2014_de_phonemize")
+        test2014_de_ngram_job = GenerateTextNgramsJob(
+            phoneme_text_file=test2014_de_phn_job.out_phoneme_text,
+            ngram_order=ngram_order_de,
+        )
+        test2014_de_ngram_job.add_alias(f"{prefix_name}/data/test2014_de_{de_code_type}s")
+        tk.register_output(f"{prefix_name}/data/newstest2014.de.{de_code_type}.txt", test2014_de_ngram_job.out_ngram_text)
+        de_test_txt = test2014_de_ngram_job.out_ngram_text
     else:
         de_train_txt = mono_de_job.out_tokenized_txt
         de_dev_txt = dev2013_job.out_src_tok
@@ -909,7 +970,7 @@ def run_wmt14_de_en_unmt_pipeline(
         callback_module = "recognition.undreamt_mt.callback.RecognitionToTextDictCallback"
 
         net_args = {
-            "src_vocab_size": vocab_size,
+            "src_vocab_size": effective_de_vocab_size,
             "trg_vocab_size": effective_en_vocab_size,
             "embedding_size": w2v_dim,
             "hidden_size": 600,

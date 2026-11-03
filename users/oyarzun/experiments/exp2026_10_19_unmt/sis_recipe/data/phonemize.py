@@ -189,6 +189,100 @@ class PhonemizeEnglishTextJob(Job):
         logging.info(f"Finished phonemizing {count} sentences to {out_path}")
 
 
+class PhonemizeGermanTextJob(Job):
+    """
+    Phonemizes a German tokenized text file line-by-line using espeak-ng.
+    Strips stress marks, diacritics, and language switch tags.
+    Preserves exact line count so test sets (e.g. newstest2014) match the source line-for-line.
+    Uses batching and in-memory caching to achieve high throughput on large text corpora.
+    """
+    _version = 1
+
+    def __init__(
+        self,
+        token_text_file: Optional[tk.Path] = None,
+        text_file: Optional[tk.Path] = None,
+        chunk_size: int = 5000,
+    ):
+        super().__init__()
+        self.token_text_file = token_text_file or text_file
+        assert self.token_text_file is not None, "Must provide text_file or token_text_file"
+        self.chunk_size = chunk_size
+        self.out_phoneme_text = self.output_path("text.phonemes.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 4})
+
+    def run(self):
+        import gzip
+        import logging
+        import os
+        import re
+        import shutil
+        import subprocess
+
+        _STRIP_CHARS = "ˈˌːˑ̩̃͡ʲ ̪‍"
+
+        exe = shutil.which("espeak-ng") or shutil.which("espeak") or "/usr/bin/espeak-ng"
+
+        in_path = self.token_text_file.get_path()
+        open_fn = gzip.open if in_path.endswith(".gz") else open
+
+        logging.info(f"Scanning vocabulary for German phonemization: {in_path}")
+        all_words = set()
+        with open_fn(in_path, "rt", encoding="utf-8", errors="replace") as f_in:
+            for line in f_in:
+                for w in line.strip().split():
+                    clean_w = re.sub(r"[^\w\-]", "", w)
+                    if clean_w:
+                        all_words.add(clean_w)
+
+        word_list = sorted(all_words)
+        logging.info(f"Phonemizing {len(word_list)} unique German words with espeak-ng...")
+
+        cache: Dict[str, List[str]] = {}
+        chunk_size = self.chunk_size
+        for i in range(0, len(word_list), chunk_size):
+            chunk = word_list[i : i + chunk_size]
+            input_text = "\n".join(chunk)
+            proc = subprocess.run(
+                [exe, "-q", "-v", "de", "--ipa", "--sep=_"],
+                input=input_text,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            out_lines = proc.stdout.splitlines()
+            for w, outline in zip(chunk, out_lines):
+                phones: List[str] = []
+                for item in outline.strip().split():
+                    for ph in item.split("_"):
+                        ph_clean = re.sub(r"\([^)]*\)", "", ph)
+                        ph_clean = "".join(c for c in ph_clean if c not in _STRIP_CHARS)
+                        if ph_clean:
+                            phones.append(ph_clean)
+                cache[w] = phones
+
+        logging.info(f"Cached {len(cache)} unique German word pronunciations. Writing phonemized text...")
+
+        count = 0
+        with open_fn(in_path, "rt", encoding="utf-8", errors="replace") as f_in, open(
+            self.out_phoneme_text.get_path(), "w", encoding="utf-8"
+        ) as f_out:
+            for line in f_in:
+                line_phones: List[str] = []
+                for w in line.strip().split():
+                    clean_w = re.sub(r"[^\w\-]", "", w)
+                    if clean_w in cache:
+                        line_phones.extend(cache[clean_w])
+                f_out.write(" ".join(line_phones) + "\n")
+                count += 1
+                if count % 100000 == 0:
+                    logging.info(f"Wrote {count} phonemized German sentences...")
+
+        logging.info(f"Finished phonemizing {count} sentences to {self.out_phoneme_text.get_path()}")
+
+
 class GenerateTextNgramsJob(Job):
     """
     Takes a space-separated token file (e.g. phoneme sequences) and generates n-gram sequences

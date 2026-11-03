@@ -7,9 +7,6 @@ from typing import Dict, List, Any, Optional
 from sisyphus import tk, Task
 import sisyphus.global_settings as gs
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 
 class HpoResultsExcelJob(tk.Job):
@@ -44,9 +41,6 @@ class HpoResultsExcelJob(tk.Job):
 
         self.out_excel = self.output_path(f"{report_name}.xlsx")
         self.out_csv = self.output_path(f"{report_name}.csv")
-        self.out_ppl_plot = self.output_path(f"{report_name}_perplexity_summary.png")
-        self.out_var_plot = self.output_path(f"{report_name}_variance_summary.png")
-        self.out_aux_plot = self.output_path(f"{report_name}_aux_rec_summary.png")
 
         self.prefix_name = prefix_name
 
@@ -54,9 +48,6 @@ class HpoResultsExcelJob(tk.Job):
             self.add_alias(f"{prefix_name}/joined_results/hpo_excel_job")
             tk.register_output(f"{prefix_name}/joined_results/{report_name}.xlsx", self.out_excel)
             tk.register_output(f"{prefix_name}/joined_results/{report_name}.csv", self.out_csv)
-            tk.register_output(f"{prefix_name}/joined_results/{report_name}_perplexity_summary.png", self.out_ppl_plot)
-            tk.register_output(f"{prefix_name}/joined_results/{report_name}_variance_summary.png", self.out_var_plot)
-            tk.register_output(f"{prefix_name}/joined_results/{report_name}_aux_rec_summary.png", self.out_aux_plot)
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -475,153 +466,3 @@ class HpoResultsExcelJob(tk.Job):
             # Fallback: copy CSV content if openpyxl is not installed
             import shutil
             shutil.copyfile(self.out_csv.get_path(), self.out_excel.get_path())
-
-        # --- 1. Automated Perplexity Summary Plot with Confidence Bounds ---
-        try:
-            plt.figure(figsize=(14, 6))
-
-            # Subplot 1: Soft Probability Perplexity
-            plt.subplot(1, 2, 1)
-            # Find all recorded epochs
-            all_eps = sorted(list({ep for c in all_prob_ppl_curves.values() for ep in c.keys()}))
-            if all_eps:
-                ep_means = [np.mean([c[e] for c in all_prob_ppl_curves.values() if e in c]) for e in all_eps]
-                ep_stds = [np.std([c[e] for c in all_prob_ppl_curves.values() if e in c]) for e in all_eps]
-                ep_means, ep_stds = np.array(ep_means), np.array(ep_stds)
-
-                plt.plot(all_eps, ep_means, color="navy", linewidth=2.5, label="Mean Prob PPL")
-                plt.fill_between(all_eps, ep_means - ep_stds, ep_means + ep_stds, color="blue", alpha=0.2, label="Confidence (±1 std)")
-
-                for name, curve in all_prob_ppl_curves.items():
-                    short_name = name.replace("asr_v6_codebook_opt_", "").replace("_ep-200", "")
-                    plt.plot(sorted(curve.keys()), [curve[e] for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
-
-            plt.xlabel("Epoch")
-            plt.ylabel("Codebook Soft Prob Perplexity")
-            plt.title("Soft Codebook Perplexity Mean & Confidence Envelope")
-            plt.grid(True, linestyle="--", alpha=0.6)
-            plt.legend(loc="lower right")
-
-            # Subplot 2: Hard Codebook Perplexity
-            plt.subplot(1, 2, 2)
-            all_hard_eps = sorted(list({ep for c in all_hard_ppl_curves.values() for ep in c.keys()}))
-            if all_hard_eps:
-                hard_means = [np.mean([c[e] for c in all_hard_ppl_curves.values() if e in c]) for e in all_hard_eps]
-                hard_stds = [np.std([c[e] for c in all_hard_ppl_curves.values() if e in c]) for e in all_hard_eps]
-                hard_means, hard_stds = np.array(hard_means), np.array(hard_stds)
-
-                plt.plot(all_hard_eps, hard_means, color="darkgreen", linewidth=2.5, label="Mean Hard PPL")
-                plt.fill_between(all_hard_eps, hard_means - hard_stds, hard_means + hard_stds, color="green", alpha=0.2, label="Confidence (±1 std)")
-
-                for name, curve in all_hard_ppl_curves.items():
-                    plt.plot(sorted(curve.keys()), [curve[e] for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
-
-            plt.xlabel("Epoch")
-            plt.ylabel("Codebook Hard Perplexity")
-            plt.title("Hard Codebook Perplexity Mean & Confidence Envelope")
-            plt.grid(True, linestyle="--", alpha=0.6)
-            plt.legend(loc="lower right")
-
-            plt.tight_layout()
-            plt.savefig(self.out_ppl_plot.get_path(), dpi=300, bbox_inches="tight")
-            plt.close()
-        except Exception:
-            pass
-
-        # --- 2. Automated Representation Variance Plot with Confidence Bounds ---
-        try:
-            plt.figure(figsize=(10, 6))
-
-            eps = sorted([ep for ep in self.eval_epochs if epoch_audio_vars[ep] or epoch_text_vars[ep] or epoch_mixed_vars[ep]])
-            if eps:
-                a_means = [np.mean(epoch_audio_vars[e]) if epoch_audio_vars[e] else np.nan for e in eps]
-                a_stds = [np.std(epoch_audio_vars[e]) if len(epoch_audio_vars[e]) > 1 else 0.0 for e in eps]
-
-                t_means = [np.mean(epoch_text_vars[e]) if epoch_text_vars[e] else np.nan for e in eps]
-                t_stds = [np.std(epoch_text_vars[e]) if len(epoch_text_vars[e]) > 1 else 0.0 for e in eps]
-
-                m_means = [np.mean(epoch_mixed_vars[e]) if epoch_mixed_vars[e] else np.nan for e in eps]
-                m_stds = [np.std(epoch_mixed_vars[e]) if len(epoch_mixed_vars[e]) > 1 else 0.0 for e in eps]
-
-                eps, a_means, a_stds = np.array(eps), np.array(a_means), np.array(a_stds)
-                t_means, t_stds, m_means, m_stds = np.array(t_means), np.array(t_stds), np.array(m_means), np.array(m_stds)
-
-                # Audio Variance
-                valid_a = ~np.isnan(a_means)
-                if np.any(valid_a):
-                    plt.plot(eps[valid_a], a_means[valid_a], label="Audio Representation Variance", color="blue", marker="o", linewidth=2)
-                    plt.fill_between(eps[valid_a], a_means[valid_a] - a_stds[valid_a], a_means[valid_a] + a_stds[valid_a], color="blue", alpha=0.2)
-
-                # Text Variance
-                valid_t = ~np.isnan(t_means)
-                if np.any(valid_t):
-                    plt.plot(eps[valid_t], t_means[valid_t], label="Text Representation Variance", color="red", marker="s", linewidth=2)
-                    plt.fill_between(eps[valid_t], t_means[valid_t] - t_stds[valid_t], t_means[valid_t] + t_stds[valid_t], color="red", alpha=0.2)
-
-                # Mixed Variance
-                valid_m = ~np.isnan(m_means)
-                if np.any(valid_m):
-                    plt.plot(eps[valid_m], m_means[valid_m], label="Mixed Representation Variance", color="purple", marker="^", linewidth=2)
-                    plt.fill_between(eps[valid_m], m_means[valid_m] - m_stds[valid_m], m_means[valid_m] + m_stds[valid_m], color="purple", alpha=0.2)
-
-            plt.xlabel("Epoch")
-            plt.ylabel("State Variance (Trace of Covariance)")
-            plt.title("Representation Variance Trajectory with Confidence Bounds (±1 std)")
-            plt.grid(True, linestyle="--", alpha=0.6)
-            plt.legend(loc="best")
-            plt.tight_layout()
-            plt.savefig(self.out_var_plot.get_path(), dpi=300, bbox_inches="tight")
-            plt.close()
-        except Exception:
-            pass
-
-        # --- 3. Automated Auxiliary Reconstruction Summary Plot with Confidence Bounds ---
-        if all_aux_ce_curves or all_aux_fer_curves:
-            try:
-                plt.figure(figsize=(14, 6))
-
-                # Subplot 1: Aux Rec Cross-Entropy Loss
-                plt.subplot(1, 2, 1)
-                all_ce_eps = sorted(list({ep for c in all_aux_ce_curves.values() for ep in c.keys()}))
-                if all_ce_eps:
-                    ce_means = [np.mean([c[e] for c in all_aux_ce_curves.values() if e in c]) for e in all_ce_eps]
-                    ce_stds = [np.std([c[e] for c in all_aux_ce_curves.values() if e in c]) for e in all_ce_eps]
-                    ce_means, ce_stds = np.array(ce_means), np.array(ce_stds)
-
-                    plt.plot(all_ce_eps, ce_means, color="darkred", linewidth=2.5, label="Mean Aux Rec CE")
-                    plt.fill_between(all_ce_eps, ce_means - ce_stds, ce_means + ce_stds, color="red", alpha=0.2, label="Confidence (±1 std)")
-
-                    for name, curve in all_aux_ce_curves.items():
-                        plt.plot(sorted(curve.keys()), [curve[e] for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
-
-                plt.xlabel("Epoch")
-                plt.ylabel("Auxiliary Reconstruction Cross Entropy")
-                plt.title("Aux Rec CE Loss Mean & Confidence Envelope")
-                plt.grid(True, linestyle="--", alpha=0.6)
-                plt.legend(loc="upper right")
-
-                # Subplot 2: Aux Rec Frame Error Rate (%)
-                plt.subplot(1, 2, 2)
-                all_fer_eps = sorted(list({ep for c in all_aux_fer_curves.values() for ep in c.keys()}))
-                if all_fer_eps:
-                    fer_means = [np.mean([c[e] * 100 for c in all_aux_fer_curves.values() if e in c]) for e in all_fer_eps]
-                    fer_stds = [np.std([c[e] * 100 for c in all_aux_fer_curves.values() if e in c]) for e in all_fer_eps]
-                    fer_means, fer_stds = np.array(fer_means), np.array(fer_stds)
-
-                    plt.plot(all_fer_eps, fer_means, color="indigo", linewidth=2.5, label="Mean Aux Rec FER (%)")
-                    plt.fill_between(all_fer_eps, fer_means - fer_stds, fer_means + fer_stds, color="purple", alpha=0.2, label="Confidence (±1 std)")
-
-                    for name, curve in all_aux_fer_curves.items():
-                        plt.plot(sorted(curve.keys()), [curve[e] * 100 for e in sorted(curve.keys())], alpha=0.3, linewidth=0.8)
-
-                plt.xlabel("Epoch")
-                plt.ylabel("Auxiliary Frame Error Rate (%)")
-                plt.title("Aux Rec FER (%) Mean & Confidence Envelope")
-                plt.grid(True, linestyle="--", alpha=0.6)
-                plt.legend(loc="upper right")
-
-                plt.tight_layout()
-                plt.savefig(self.out_aux_plot.get_path(), dpi=300, bbox_inches="tight")
-                plt.close()
-            except Exception:
-                pass

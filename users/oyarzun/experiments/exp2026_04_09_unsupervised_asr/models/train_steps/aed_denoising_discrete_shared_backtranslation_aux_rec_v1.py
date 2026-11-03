@@ -160,6 +160,8 @@ def denoise_and_aux_rec_step(
                 phon_mask,
                 mask_value=model.mask_idx,
                 insert_prob=masking_opts.get("insert_prob", 0.1),
+                min_k=masking_opts.get("min_k", 1),
+                max_k=masking_opts.get("max_k", 5),
             )
 
     if loss_name in ("audio", "text") and ctx.stage == "train_step":
