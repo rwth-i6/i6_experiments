@@ -176,12 +176,16 @@ ck(tr.CONTIGUOUS_STEP_INPUTS is False, "transformer.CONTIGUOUS_STEP_INPUTS defau
 ck(tr.StreamingMultiheadAttention.fused_causal_training is False, "fused_causal_training defaults to False")
 ck(lora_mod.LoRALinear.fused_add is False, "LoRALinear.fused_add defaults to False")
 ck(
+    tr.StreamingMultiheadAttention.decode_kernel is False,
+    "decode_kernel defaults to False (parity: check_decode_attention)",
+)
+ck(
     inspect.signature(base.forward_train).parameters["depformer_frame_mask"].default is None,
     "forward_train: no row skip by default",
 )
 done = apply_train_perf(base)
 ck(
-    done == {"contiguous_step_inputs": False, "fused_causal_attention": 0, "fused_lora_add": 0},
+    done == {"contiguous_step_inputs": False, "fused_causal_attention": 0, "fused_lora_add": 0, "decode_attention": 0},
     "apply_train_perf() with no switch sets nothing",
     str(done),
 )
