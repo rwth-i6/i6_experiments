@@ -108,8 +108,7 @@ def run_wmt14_de_en_unmt_pipeline(
     align_init_method: Optional[str] = None,
     gpu_mem: Optional[int] = None,
 ):
-<<<<<<< HEAD
-    assert de_code_type in ("word", "bpe"), f"Unsupported de_code_type: {de_code_type}"
+    assert de_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported de_code_type: {de_code_type}"
     assert en_code_type in (
         "word",
         "bpe",
@@ -139,12 +138,6 @@ def run_wmt14_de_en_unmt_pipeline(
         "cluster_monophone_avg",
     )
 
-    effective_de_vocab_size = vocab_size
-=======
-    assert de_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported de_code_type: {de_code_type}"
-    assert en_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported en_code_type: {en_code_type}"
-    assert bpe_mode in ("separate", "joint"), f"Unsupported bpe_mode: {bpe_mode}"
-
     if de_vocab_size is None:
         if de_code_type == "diphone":
             effective_de_vocab_size = 2000
@@ -154,8 +147,6 @@ def run_wmt14_de_en_unmt_pipeline(
             effective_de_vocab_size = vocab_size
     else:
         effective_de_vocab_size = de_vocab_size
-
->>>>>>> 06e111a23 (sync)
     if en_vocab_size is None:
         if en_code_type == "diphone":
             effective_en_vocab_size = 2000
@@ -656,7 +647,28 @@ def run_wmt14_de_en_unmt_pipeline(
     tk.register_output(f"{prefix_name}/alignment/alignment_report.json", align_job.out_alignment_report)
     tk.register_output(f"{prefix_name}/alignment/de_to_en_dict.json", align_job.out_dictionary_json)
 
-    trg_label_str = "English Words (en)" if is_word_level_en else ("English Clusters" if is_cluster_en else "English Phonemes")
+    src_label_str = (
+        "German Words (de)" if de_code_type == "word"
+        else "German BPE (de)" if de_code_type == "bpe"
+        else "German Diphones (de)" if de_code_type == "diphone"
+        else "German Triphones (de)" if de_code_type == "triphone"
+        else f"German ({de_code_type})"
+    )
+    if en_code_type == "word":
+        trg_label_str = "English Words (en)"
+    elif en_code_type == "bpe":
+        trg_label_str = "English BPE (en)"
+    elif is_cluster_en:
+        trg_label_str = "English Clusters (en)"
+    elif "diphone" in en_code_type:
+        trg_label_str = "English Diphones (en)"
+    elif "triphone" in en_code_type:
+        trg_label_str = "English Triphones (en)"
+    elif is_word_level_en:
+        trg_label_str = "English Words (en)"
+    else:
+        trg_label_str = "English Phonemes (en)"
+
     align_analysis_job = EmbeddingAlignmentAnalysisJob(
         mapped_audio_embeddings_npy=align_job.out_mapped_src_emb_npy,
         text_embeddings_npy=align_job.out_normalized_trg_emb_npy,
@@ -669,12 +681,13 @@ def run_wmt14_de_en_unmt_pipeline(
         text_counts_file=w2v_en_job.out_counts_txt,
         alignment_report_json=align_job.out_alignment_report,
         title_prefix=f"Cross-Lingual 2D PCA ({prefix_name})",
-        src_label="German Words (de)",
+        src_label=src_label_str,
         trg_label=trg_label_str,
         _version=4,
     )
     align_analysis_job.add_alias(f"{prefix_name}/alignment/pca_analysis")
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_lingual_pca.png", align_analysis_job.out_cross_modal_pca_plot)
+    tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_lingual_pca.json", align_analysis_job.out_cross_modal_pca_json)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/source_de_pca.png", align_analysis_job.out_source_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/target_en_pca.png", align_analysis_job.out_target_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/cross_lingual_pca_panel.png", align_analysis_job.out_cross_modal_panel_plot)
@@ -1291,6 +1304,7 @@ def run_wmt14_de_en_unmt_pipeline(
         "w2v_de_job": w2v_de_job,
         "w2v_en_job": w2v_en_job,
         "align_job": align_job,
+        "align_analysis_job": align_analysis_job,
         "train_job": train_job,
         "pca_jobs": pca_jobs,
         "pca_hyp_jobs": pca_hyp_jobs,
