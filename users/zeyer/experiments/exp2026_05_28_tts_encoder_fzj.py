@@ -4518,6 +4518,8 @@ def _train_loquacious_baselines(*, prefix: str):
             env_updates=env_updates,
             recog_training_func=functools.partial(recog_training_exp_batched, num_shards=1),
         )
+        if name == "base-large-nFullEp6_5-muon-lr2_5e3-bs24m-specaug60-stepcomp-len40s":
+            _loq_bench_exp = exp
         _table_results[f"{prefix}/loq/aed/{name}/train_time_hours"] = _train_hours(exp)
         _table_results[f"{prefix}/loq/aed/{name}/train_steps"] = _train_steps(exp)
         _table_results[f"{prefix}/loq/aed/{name}/aed+ctc-batched"] = aed_ctc_timesync_recog_recomb_auto_scale_batched(
@@ -4574,6 +4576,57 @@ def _train_loquacious_baselines(*, prefix: str):
                     num_shards=8,
                 )
             )
+
+    # NUMA pinning A/B on the production 4-GPU packed graphc config (AZ 2026-10-07).
+    # Nothing pins the ranks today, 4 processes float over the 4 Grace CPUs of the node.
+    # RZ (2-socket H100): 4 ranks cost +58 ms/step, 17-20 ms of it the exposed grad all-reduce,
+    # the rest host-side (shm batch unbind, pageable copy-in), see the paper project notes.
+    # as-is = the config exactly as the training runs it, numapin = + each rank on its GPU's NUMA node.
+    from i6_experiments.users.zeyer.experiments.exp2026_05_23_returnn import TrainStepBenchmarkJob
+    from i6_experiments.users.zeyer.utils.numa_pin import numa_pin_config_code
+
+    bench_cfg = _loq_bench_exp.get_training_job().returnn_config
+    # optstep = + torch_optimizer_step, the Muon step compiled and captured as its own graph after the reduce
+    # (the as-is profile: 23.9k cpu ops and 10.6k kernel launches for 60 ms of GPU work per step, launch-bound).
+    # pinmem = + pin_memory in the loader: the pageable copy-in is the largest host gap left
+    # with optstep + numapin (7-9 ms of a 535 ms step), see the paper project notes.
+    for tag, pin, steps, profile, optstep, pinmem in [
+        ("as-is", False, 300, False, False, False),
+        ("numapin", True, 300, False, False, False),
+        ("as-is-profiled", False, 31, True, False, False),
+        ("numapin-profiled", True, 31, True, False, False),
+        ("optstep", False, 300, False, True, False),
+        ("optstep-numapin", True, 300, False, True, False),
+        ("optstep-profiled", False, 31, True, True, False),
+        ("optstep-numapin-profiled", True, 31, True, True, False),
+        # the profiled pinmem twin (NGl1M106JmG2) is not re-run: with pin_memory the other ranks hang at exit
+        # after rank 0 leaves at the end of profiling (gloo timeout, then no shutdown); trace in the notes
+        ("optstep-numapin-pinmem", True, 300, False, True, True),
+    ]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=bench_cfg,
+            mode="as_is",
+            num_steps=steps,
+            num_processes=4,
+            extra_config_code=numa_pin_config_code() if pin else None,
+            config_overrides={
+                **(
+                    {
+                        "torch_profile": {
+                            "schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}
+                        }
+                    }
+                    if profile
+                    else {}
+                ),
+                **({"torch_optimizer_step": {"dynamic_state_keys": ["step"]}} if optstep else {}),
+                **({"torch_dataloader_opts": {"num_workers": 1, "pin_memory": True}} if pinmem else {}),
+            }
+            or None,
+        )
+        # the training's node memory (4 x 200 GB), the bench job default is sized for RZ
+        job.rqmt["mem"] = 800
+        tk.register_output(f"{prefix}/loq/bench/numapin-{tag}.json", job.out_results)
 
 
 def _train_tts_encoder(
