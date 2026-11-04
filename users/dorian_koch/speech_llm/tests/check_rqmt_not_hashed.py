@@ -20,7 +20,8 @@ pinned below, and the legacy half is asserted to still behave the old way.
 
 Four things are checked, and each one is a way the fix could rot:
 
-  * **hash-free** -- two runs differing only in ``hours`` / ``gpus`` hash identically;
+  * **hash-free** -- two runs differing only in ``hours`` hash identically. ``gpus`` above 1 DOES re-hash: it is
+    the DDP world size, which scales the effective batch, and a 4-GPU arm would otherwise reuse its 1-GPU twin;
   * **not merely dropped** -- ...and their ``rqmt`` still DIFFERS. A "fix" that routed the value
     nowhere would pass a hash-equality test perfectly while silently pinning every run to 23 h;
   * **non-vacuous** -- a run differing in a real experiment knob still re-hashes, so the equality
@@ -129,7 +130,9 @@ def check_hours_and_gpus_are_hash_free():
 
     one = build(POLICY_LATEST, compute=Compute(gpus=1, hours=24))
     four = build(POLICY_LATEST, compute=Compute(gpus=4, hours=24))
-    check(sis_hash(one) == sis_hash(four), "gpus 1 vs 4 hash identically")
+    four_long = build(POLICY_LATEST, compute=Compute(gpus=4, hours=48))
+    check(sis_hash(one) != sis_hash(four), "gpus 1 vs 4 re-hash (the DDP world size is part of the experiment)")
+    check(sis_hash(four) == sis_hash(four_long), "...while hours stay hash-free on a 4-GPU run")
     check(four.job.rqmt["gpu"] == 4, f"gpus=4 reaches rqmt (got {four.job.rqmt['gpu']})")
     check(
         four.job.rqmt["cpu"] == 24 and four.job.rqmt["mem"] == 96,
@@ -217,6 +220,7 @@ def check_source_pins_the_fix():
 
     src = inspect.getsource(SpeechFinetune)
     check('d.pop("compute", None)' in src, "SpeechFinetune.hash() still drops `compute` from the hashed args")
+    check('d["train_world_size"]' in src, "SpeechFinetune.hash() keeps a training GPU count > 1 as train_world_size")
 
     init = inspect.getsource(SpeechFinetune.__init__)
     for msg in source_findings(init):

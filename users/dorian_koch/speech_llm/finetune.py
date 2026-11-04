@@ -451,6 +451,7 @@ class SpeechFinetune(Job):
         # exactly the damage this split exists to prevent. Do not "tidy" the fallback away; it retires
         # when the pre-2026-09-17 runs do.
         self.compute = dict(compute or {})
+        self.world_size_unhashed = bool(self.compute.get("world_size_unhashed", False))  # legacy pin, see hash()
         self.hf_cache_dir = hf_cache_dir
         _gpu = int(self.compute.get("gpu", self.hparams.get("gpu", 1)))
         _time_h = int(self.compute.get("rqmt_time_h", self.hparams.get("rqmt_time_h", 23)))
@@ -477,7 +478,12 @@ class SpeechFinetune(Job):
         # to another and look fixed. Asserted by `check_rqmt_not_hashed.py`, which failed on exactly
         # that before this line existed. Popping a key the old runs never had is hash-neutral for
         # them (verified: 2,100 hashes unchanged).
-        d.pop("compute", None)
+        compute = d.pop("compute", None) or {}
+        # ...except a training GPU count above 1: it is the DDP world size, which scales the effective batch and
+        # each rank's data stride. 1-GPU runs (all of them until 2026-11-04) keep their hashes.
+        # The two finished 4-GPU p5 runs keep their hashes via `world_size_unhashed` (legacy_pins.LEGACY_PINS).
+        if int(compute.get("gpu", 1)) != 1 and not compute.get("world_size_unhashed"):
+            d["train_world_size"] = int(compute["gpu"])
         # The experiment card is documentation, never identity (hash-neutral for every run: none had the key).
         d.pop("card", None)
         return super().hash(d)

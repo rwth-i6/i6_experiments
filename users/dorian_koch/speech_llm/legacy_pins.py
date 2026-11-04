@@ -240,6 +240,11 @@ LEGACY_PINS = {
             }
         ),
     ),
+    ("SpeechFinetune", "world_size_unhashed", True): (
+        "the training GPU count (DDP world size, which scales the effective batch) is left out of the hash, so a run "
+        "differing only in it reuses its twin; a new run hashes a count above 1 (the default)",
+        frozenset({"HChMu04ogT3c", "SWboYEq1ncUk"}),
+    ),
 }
 
 
