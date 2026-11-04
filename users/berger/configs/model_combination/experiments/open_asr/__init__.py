@@ -7,12 +7,12 @@ No test-set tuning, LM training, or reference-derived vocabulary construction.
 
 import hashlib
 from dataclasses import replace
-from pathlib import Path
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 from i6_core.rasr.config import RasrConfig, WriteRasrConfigJob
 from i6_core.am.config import acoustic_model_config
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_path
 
 from ... import tools
 from ...data.open_asr import DATASETS, PrepareOpenAsrDatasetJob
@@ -43,14 +43,13 @@ def source_version():
     the one-time migration below avoids rerunning ASR for a scoring-only fix.
     Config values and dependency paths still enter each job's ordinary hash.
     """
-    base = Path(__file__).parents[2]
     paths = [
-        base / "data/open_asr.py",
-        base / "data/benchmark_lexicon.py",
-        base / "data/huggingface.py",
-        base / "model_pipelines/common/hf_scoring.py",
+        source_path("data/open_asr.py"),
+        source_path("data/benchmark_lexicon.py"),
+        source_path("data/huggingface.py"),
+        source_path("model_pipelines/common/hf_scoring.py"),
     ]
-    paths += sorted((base / "model_pipelines/common/hf_normalizer").glob("*.py"))
+    paths += sorted(source_path("model_pipelines/common/hf_normalizer").glob("*.py"))
     digest = hashlib.sha256(b"\0".join(p.read_bytes() for p in paths)).hexdigest()
     if digest == "1da74feffccf8e357fb4e43996345ac6aeee3aabb31c34abb246885df69e2fd3":
         return "c37b1c7c749309ef10c6e704b895bdb7f689ffa5be54364a73afb0f017d73cb7"
@@ -64,7 +63,7 @@ def recognition_version(family, dataset=None):
     chunk-capable adapter (whose single-chunk CTC/RNNT computation is unchanged).
     Future adapter edits invalidate all models unless explicitly audited here.
     """
-    adapter = Path(__file__).parents[2] / "model_pipelines/common/hf_benchmark.py"
+    adapter = source_path("model_pipelines/common/hf_benchmark.py")
     digest = hashlib.sha256(adapter.read_bytes()).hexdigest()
     original = "33163df58f92d0f621edc3e31e36b516351f077c476a25e4d7b4b49517c2dc52"
     chunked = "75293c0009a1b78811cc07b1cc8cbc7675654e90cc5bc44939a55d7330a90cb0"
@@ -88,7 +87,7 @@ def recognition_version(family, dataset=None):
 
 def scoring_version():
     """Invalidate only scoring/comparison jobs when their implementation changes."""
-    scoring = Path(__file__).parents[2] / "model_pipelines/common/benchmark_scoring.py"
+    scoring = source_path("model_pipelines/common/benchmark_scoring.py")
     return hashlib.sha256(source_version().encode() + b"\0" + scoring.read_bytes()).hexdigest()
 
 
@@ -465,7 +464,7 @@ def run_all(
                     code_version=(
                         hashlib.sha256(
                             recognition_version(family, name).encode()
-                            + (Path(__file__).parents[2] / "model_pipelines/common/benchmark_oov.py").read_bytes()
+                            + source_path("model_pipelines/common/benchmark_oov.py").read_bytes()
                         ).hexdigest()
                         if condition.startswith("tree-open")
                         else recognition_version(family, name)

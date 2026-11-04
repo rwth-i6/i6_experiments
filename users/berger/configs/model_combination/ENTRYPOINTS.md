@@ -6,8 +6,9 @@ All entrypoints provide a `py()` function, allowing filename-style invocation:
 ./sis m config/rnnt_qwen.py
 ```
 
-This assumes `config` points to this baselines directory, as in the current
-setup. The `.main` selectors below remain supported for compatibility.
+Point `config` at `users/berger/configs/model_combination` for canonical launchers.
+The old baselines directory and `.main` selectors below remain supported through
+compatibility launchers and historical import aliases.
 
 Keep the existing combined entrypoint:
 
@@ -336,7 +337,7 @@ selected-evaluation snapshot in Step 4, set
 as for Step 2. No best-on-test result is substituted.
 
 For company-side preparation and the decision gates for AppTek, see
-[APPTEK_HANDOFF.md](../../asr_research/setup/experiments/open_asr/APPTEK_HANDOFF.md).
+[APPTEK_HANDOFF.md](experiments/open_asr/APPTEK_HANDOFF.md).
 
 The full, Open-ASR, RNN-T/Qwen and wordwise-LM entrypoints register ten live
 reports with `tk.register_report`, under `output/reports/asr-lm/`. Start with

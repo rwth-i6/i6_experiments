@@ -3,696 +3,700 @@
   "files": [
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/benchmark_lexicon.py",
-      "research_path": "users/berger/asr_research/setup/data/benchmark_lexicon.py",
+      "research_path": "users/berger/data/benchmark_lexicon.py",
       "sha256": "2d129d4bd0838c3f7f3d32d9dbb5e29e08bd57d23ecbcbda17cb67c083f407c3"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/benchmark_subset.py",
-      "research_path": "users/berger/asr_research/setup/data/benchmark_subset.py",
+      "research_path": "users/berger/data/benchmark_subset.py",
       "sha256": "5f850217b8308657182f25df6473a115371f0d7045aa752ec0186f244fb17e9f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/huggingface.py",
-      "research_path": "users/berger/asr_research/setup/data/huggingface.py",
+      "research_path": "users/berger/data/huggingface.py",
       "sha256": "2b13d396be7ae6aaf165ebc314f121a02a198b78692720b524a517be8490a589"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/librispeech/datasets.py",
-      "research_path": "users/berger/asr_research/setup/data/librispeech/datasets.py",
+      "research_path": "users/berger/data/librispeech/datasets.py",
       "sha256": "baaaf33ad8beda8da6f83874c7666625553b4717351e10349b64e89df07a59d7"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/librispeech/lexicon.py",
-      "research_path": "users/berger/asr_research/setup/data/librispeech/lexicon.py",
+      "research_path": "users/berger/data/librispeech/lexicon.py",
       "sha256": "fbc0b654b266c61fcfc8f40e88078395ff1e413f19862eb06a09c49637895267"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/librispeech/lexicon_oov.py",
-      "research_path": "users/berger/asr_research/setup/data/librispeech/lexicon_oov.py",
+      "research_path": "users/berger/data/librispeech/lexicon_oov.py",
       "sha256": "368de4721c5484d2f09b70eef729769e3fb1720bc5cf69b6e6f1c08ecf52c0ca"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/librispeech/lm.py",
-      "research_path": "users/berger/asr_research/setup/data/librispeech/lm.py",
+      "research_path": "users/berger/data/librispeech/lm.py",
       "sha256": "e09bd706a3c61d93802bd3154cf4468137852239429c9cb017e8ae4f9bc6911d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/librispeech/lm_text_normalization.py",
-      "research_path": "users/berger/asr_research/setup/data/librispeech/lm_text_normalization.py",
+      "research_path": "users/berger/data/librispeech/lm_text_normalization.py",
       "sha256": "e7046f08b21cbf8b3b6bcc8dedf653aa5040b7504375cea0437ef3afd2595a3e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/llm_fusion.py",
-      "research_path": "users/berger/asr_research/setup/data/llm_fusion.py",
+      "research_path": "users/berger/data/llm_fusion.py",
       "sha256": "017b221100989477daa489c88bd94b09dfc4a0a23060752039bcd22c16fc383b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/loquacious/datasets.py",
-      "research_path": "users/berger/asr_research/setup/data/loquacious/datasets.py",
+      "research_path": "users/berger/data/loquacious/datasets.py",
       "sha256": "ccb9d606b426beac83a0e5bb5aa0558387ce3d434a2187d380a3429299e17a2e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/loquacious_benchmark.py",
-      "research_path": "users/berger/asr_research/setup/data/loquacious_benchmark.py",
+      "research_path": "users/berger/data/loquacious_benchmark.py",
       "sha256": "e0eb30f60dc02f7fb40f5ae91e4be45404d31d13cf2fadabc24a3914eb62bc7f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_decoder_smoke.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_decoder_smoke.py",
+      "research_path": "users/berger/data/oov_decoder_smoke.py",
       "sha256": "082d597d17a58485e6bcd48b89a7924491e508ecf9ac7ad8e9601f71c4d46f2c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_diagnostics.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_diagnostics.py",
+      "research_path": "users/berger/data/oov_diagnostics.py",
       "sha256": "7b330b12cc5bb293488c9ba7089b22333df6df076e7652cf7ef5d51e8bd1f48d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_extended_lexicon.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_extended_lexicon.py",
+      "research_path": "users/berger/data/oov_extended_lexicon.py",
       "sha256": "a18f957ab1d6675f019ff3f22573b1053feeca60068d28578707c142a2565c03"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_length_smoke.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_length_smoke.py",
+      "research_path": "users/berger/data/oov_length_smoke.py",
       "sha256": "482c77f1a508fe4817c9734c4231560b601b7165060793201d10ad0161c56d47"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_multitoken_smoke.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_multitoken_smoke.py",
+      "research_path": "users/berger/data/oov_multitoken_smoke.py",
       "sha256": "b0fce209d0eaebb3925017ed362d9b1881f7b6dce6e8bb31be56b32984de8faa"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_neural_lm.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_neural_lm.py",
+      "research_path": "users/berger/data/oov_neural_lm.py",
       "sha256": "2c51df53c19146a5f3530d9a347515b376d1a49a2242925dd724c0b3cd801327"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/oov_prototype.py",
-      "research_path": "users/berger/asr_research/setup/data/oov_prototype.py",
+      "research_path": "users/berger/data/oov_prototype.py",
       "sha256": "c9d6bdef480ac865e21b77bdee463f2badff291e425cfcda98bd246f93d8a314"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/open_asr.py",
-      "research_path": "users/berger/asr_research/setup/data/open_asr.py",
+      "research_path": "users/berger/data/open_asr.py",
       "sha256": "472291fdcc8d930b335dc2a9525a6e7b9f709f2ef251cfe07e700e0b9f30d16b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/data/qwen_text_variants.py",
-      "research_path": "users/berger/asr_research/setup/data/qwen_text_variants.py",
+      "research_path": "users/berger/data/qwen_text_variants.py",
       "sha256": "61ca7c24c202022e3479faebacb6d18b360d95288fad4a1ae2ca475870bba753"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/WORDWISE_LM.md",
-      "research_path": "users/berger/asr_research/setup/experiments/WORDWISE_LM.md",
+      "research_path": "users/berger/configs/model_combination/experiments/WORDWISE_LM.md",
       "sha256": "11ae5b69fc50bc61b1e7ffbc9fe077ed5ef10fedb821fc895d6cb6931e49066b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/LLM_FUSION.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/LLM_FUSION.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/LLM_FUSION.md",
       "sha256": "5e27471f9c9883ef18263afade528e9f506a92abdd39cc07ad7c61d44db89dc0"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/OOV_101ED636.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/OOV_101ED636.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/OOV_101ED636.md",
       "sha256": "9ac274a03ce646c58fda4d13358863aabe77178a5d7d92cd3a20a5865281805c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/OOV_3ED6D27B.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/OOV_3ED6D27B.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/OOV_3ED6D27B.md",
       "sha256": "b8b3430a3b21a9f2d4c2ef530d8ba94ea686fc69a58cc0727732e32a2c523ee3"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/OOV_6E07A2E5.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/OOV_6E07A2E5.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/OOV_6E07A2E5.md",
       "sha256": "6aec77ee1c0005af77f199487b23f1039780d4c3a21eebce54961ae87831e22f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/OOV_PROTOTYPE.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/OOV_PROTOTYPE.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/OOV_PROTOTYPE.md",
       "sha256": "5f239842a7c11fd87e698e356cb9487f1b1e42bd27c3621cad9667c580aac222"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/QWEN_DYNAMIC.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/QWEN_DYNAMIC.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/QWEN_DYNAMIC.md",
       "sha256": "035d913fa5536d2e8c15b9dce09d2360e399d47c1aa84d8cb4fc18e3cb893772"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/QWEN_NBEST.md",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/QWEN_NBEST.md",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/QWEN_NBEST.md",
       "sha256": "71c4ee3717bf5f78f328f8348fb6aeac4311bf245974467447be94a2dfee003d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/__init__.py",
       "sha256": "2c3dcec1693d7144d0dbf4f84d08369d7d43a09ef5bfc98cb8344465ed8d08a2"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/dynamic_qwen.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/dynamic_qwen.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/dynamic_qwen.py",
       "sha256": "333305cc4bd7feddb01166f55ab38aa690ae86d73cdb3609ec11f26d36eac5b0"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/lexicon_oov.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/lexicon_oov.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/lexicon_oov.py",
       "sha256": "47c45535cd8cdd342885c3ba6cef1b83688395cd653c2484fa11e26c8d4b0466"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/llm_fusion.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/llm_fusion.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/llm_fusion.py",
       "sha256": "deef7170b50924379fc257efda1844677abccb7af415855b78c750b3b8389884"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/nbest_qwen.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/nbest_qwen.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/nbest_qwen.py",
       "sha256": "7bf61b026990ca8abb28816b3d14cd50136a3285479be302cb4cf5bee0f19cbe"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/oov_length.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/oov_length.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/oov_length.py",
       "sha256": "3a3d9fe03f69c44872419159800ebee32327edd4b49f931e0f9a52fbd85a244b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/oov_prototype.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/oov_prototype.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/oov_prototype.py",
       "sha256": "89fdc3f7ccf06717a501cad869e04b199f9c501e7bfd042c244c830d4e6fc522"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/__init__.py",
       "sha256": "24361baa8ae74c34b79dbd4cb24a7b2134db5a23be2705f5b2b3a0924af035f6"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/aed_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/aed_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/aed_bpe.py",
       "sha256": "f6223093bd1adfbb8cdb1b3ebbb1609a31113b8f51d2ec33f5cfc5a73b8ac175"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/aed_ctc_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/aed_ctc_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/aed_ctc_bpe.py",
       "sha256": "f799cb3d639808b3542b99d161ad54dbe0f05466ec6612d01a40e5280f3b9c2c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/common.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/common.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/common.py",
       "sha256": "82dc8caae5deac9b8186383a3ea8b09cd02053172806733b7777bc6d87064ef8"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ctc_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ctc_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ctc_bpe.py",
       "sha256": "6ec5392b74c23706ea87663e429a51b24a795e9daba55c09a9d4ad52cb2f9d34"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ctc_byte.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ctc_byte.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ctc_byte.py",
       "sha256": "d2c2f3cccf8ea487a906929c32c4b7b2188d3d447837b6f20d28a89a625f5843"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ctc_granite.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ctc_granite.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ctc_granite.py",
       "sha256": "89bc2c61397dc6068c6be3ef64058d2e0b72eaeae9162a33461f0b4777a93f7d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ctc_phoneme.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ctc_phoneme.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ctc_phoneme.py",
       "sha256": "ff405597be30843c4adfa04f411ce38e19467cb370dbd2dbdc029fe203f60b67"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ffnn_transducer_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ffnn_transducer_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ffnn_transducer_bpe.py",
       "sha256": "98ade625163dd7b319bf99caf55ab05989c0673b31a4140c1643281049f1b89c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/ffnn_transducer_byte.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/ffnn_transducer_byte.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/ffnn_transducer_byte.py",
       "sha256": "295c99b2ca839dccd083300636e893c67437f88ba5774bfa46b788c19f199163"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/recognition/full_ctx_transducer_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/recognition/full_ctx_transducer_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/recognition/full_ctx_transducer_bpe.py",
       "sha256": "48b41195b495049c6eb8b3ff4d4e0bcb4f1fd575af09fc0008ff06570f78f797"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/training/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/training/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/training/__init__.py",
       "sha256": "2d3353cecef896ef35c14e84a817e3cef2452801613da032d5ed56e56c9299aa"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/librispeech/training/combination_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/librispeech/training/combination_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/librispeech/training/combination_bpe.py",
       "sha256": "cf833cfab820fa72c3c828145470468824894b123ed4cebfc93899fdafd05521"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/__init__.py",
       "sha256": "d8ccd31c1216d81e53d7e4f1759f94a4fcf7dbd2a7c765215e70dbf140cf3098"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/__init__.py",
       "sha256": "9b19eefff3fd8ec77ae460f2a2855b3f010ba720c681a799793b367c0669e214"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/aed_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/aed_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/aed_bpe.py",
       "sha256": "ac87bbf7ac5d80b953aaecef5f4ea165149780cbcde88c80b89babcae80c7c63"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/common.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/common.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/common.py",
       "sha256": "8cd08791971aad93f444129f322f8c38b586f7518bf2bd5c40d0959eb066c1ab"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ctc_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ctc_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ctc_bpe.py",
       "sha256": "bbfe492bb8dc5c07776f9f8328f9120bf32409f0d5084b66234b0a10361952b1"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ctc_byte.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ctc_byte.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ctc_byte.py",
       "sha256": "5124a7e49e0ad8f48b782e97bc4ad53c4f41fd590c39cdd139a3fc967c07ced5"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ctc_byte_speech_llm.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ctc_byte_speech_llm.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ctc_byte_speech_llm.py",
       "sha256": "e6327d961694bcb53bb8d11abde2431b0d4d10b6dc588479b72030d95d9c5e85"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ctc_granite.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ctc_granite.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ctc_granite.py",
       "sha256": "0a24b44db8e1b31a85478a94ac0e01005e175a217a8e3226f8528dede6ff5de2"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ffnn_transducer_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ffnn_transducer_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ffnn_transducer_bpe.py",
       "sha256": "5fdc616c64266b45248ad02ba8f419af382a1e1545923db0371a9e16b0c11022"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ffnn_transducer_byte.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ffnn_transducer_byte.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ffnn_transducer_byte.py",
       "sha256": "a0855d06bc59faa1fb512235adc9de2679d8ecdc3815cf9a08f66ab6593acb24"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ffnn_transducer_byte_speech_llm.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ffnn_transducer_byte_speech_llm.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ffnn_transducer_byte_speech_llm.py",
       "sha256": "3e83dd95a7cf9e5af9555f8dcafd792e5172f8348c8817945b6e719718599cfc"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/ffnn_transducer_phoneme.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/ffnn_transducer_phoneme.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/ffnn_transducer_phoneme.py",
       "sha256": "e06bfa47d5ef27b16476217ae5adc4ed0f1d30b7e4fb71e0e37f2320566c4189"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/recognition/speech_llm.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/recognition/speech_llm.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/recognition/speech_llm.py",
       "sha256": "5f9679ae1bb1d960181df6ebd1091584320364e59a0017306b801102eeb818ea"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/training/medium/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/training/medium/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/training/medium/__init__.py",
       "sha256": "88f1870ca5c200b97726ae976d55d0a871be4e266dccf3294f865020725084ea"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/training/medium/combination_model_bpe.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/training/medium/combination_model_bpe.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/training/medium/combination_model_bpe.py",
       "sha256": "9d3afed39dd41582030033567ee5a2e64be744aafdc9fc7cca56b70fab67d148"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/loquacious/training/medium/ctc_byte.py",
-      "research_path": "users/berger/asr_research/setup/experiments/loquacious/training/medium/ctc_byte.py",
+      "research_path": "users/berger/configs/model_combination/experiments/loquacious/training/medium/ctc_byte.py",
       "sha256": "0b9a845210286bbcbbe3adf5ca867bd88f29e9022807b0e8947bb3cdce86bc7f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/APPTEK_HANDOFF.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/APPTEK_HANDOFF.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/APPTEK_HANDOFF.md",
       "sha256": "44de80663c0512f16017693d7bc784540fa85bbcc549d76dd04e0f3b6c35bf2f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/MODEL_COMBINATION_RESEARCH_PLAN.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/MODEL_COMBINATION_RESEARCH_PLAN.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/MODEL_COMBINATION_RESEARCH_PLAN.md",
       "sha256": "a53ab4c14cecad521bb187b4690ada83580bef766ba6a60a8704c54b372515e4"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/QWEN.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/QWEN.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/QWEN.md",
       "sha256": "c9fc2ad6466b85a9fa5f3f2a3756601f384ea7dc85d93a082804c03f48821d7e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/QWEN_SPEECH.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/QWEN_SPEECH.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/QWEN_SPEECH.md",
       "sha256": "b343ea2d1242790eebfd7789a337f5c17862a041e3fc5f87f0ddfebe16889c2c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/README.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/README.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/README.md",
       "sha256": "87758f601cf9284d65a7c167bac155823b251bd96b9e903e5921dc6de826833a"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/RNNT_QWEN.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/RNNT_QWEN.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/RNNT_QWEN.md",
       "sha256": "405ba253689c0e3ec62d3ade51ed95e0b3d1a58a54519a662ca33cf8f6bbe167"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/__init__.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/__init__.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/__init__.py",
       "sha256": "03cbc5bd3dbb8167dee88b0923ebc08d79a0fb01cfd14e19d8ec8b3390569201"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/controlled_comparison.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/controlled_comparison.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/controlled_comparison.py",
       "sha256": "e4953723a1fdd62884a57d0a21c0973b49eb88646ec8434a64cc933b2c4f1fa8"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/controlled_evaluation.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/controlled_evaluation.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/controlled_evaluation.py",
       "sha256": "86a2989a1895b5dced5b061080ea99e9330bb9d25faa0bd3f5a8175a5a665adc"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/earnings_qwen.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/earnings_qwen.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/earnings_qwen.py",
       "sha256": "86150529a79594b73c316529651bc165e5cc4c09f3603c3fedc34c10a2fa2349"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/error_complementarity.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/error_complementarity.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/error_complementarity.py",
       "sha256": "bc19ef2fc6cd8d80db0e00dfd52eb742c2ec59dbdc4fb29ee2708d680aba33a6"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/pretrained_extensions.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/pretrained_extensions.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/pretrained_extensions.py",
       "sha256": "1e856f5af0447c509253884b79d986473d4fad827482c64824700a1bb551683f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/qwen.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/qwen.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/qwen.py",
       "sha256": "80b79f74cc60bc1a3f15b92a9cfcf41940b83377eb80927a34ce690596b34bfa"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/qwen_speech.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/qwen_speech.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/qwen_speech.py",
       "sha256": "1a60f19c5a6638f067fee59eb4fc8425efbc3a372d4880e045091a7583c2775d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/qwen_tuning.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/qwen_tuning.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/qwen_tuning.py",
       "sha256": "3756ff0ccbb70a8dc2610748fbb7d423c1f1ba70c88e385c0d59c13bb3ce18f3"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/research_diagnostics.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/research_diagnostics.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/research_diagnostics.py",
       "sha256": "585b5e69410b9e016d7d2d04447a60aa0a95224f259dbf322b13e5d99e1bc4aa"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/results_audit_2026-10-03.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/results_audit_2026-10-03.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/results_audit_2026-10-03.md",
       "sha256": "2b4b1eec970455abd33bd52e3d81b2ba8e3e625b7fa862616c0e97c0970fd90b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/results_audit_2026-10-05.md",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/results_audit_2026-10-05.md",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/results_audit_2026-10-05.md",
       "sha256": "e38b4635e619158a49e910ae3fc475015981ab930ca67363950195fbc148f16d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/rnnt_qwen.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/rnnt_qwen.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/rnnt_qwen.py",
       "sha256": "744ad531df5313b38063b86e45977b61e9bf21710948923e05b7d860be29de5f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/runtime_budget.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/runtime_budget.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/runtime_budget.py",
       "sha256": "257e5f3b2967429b45f1b244771a0e5c9ad45ec900d9365add3fe80a564f3cb1"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/open_asr/speech_qwen_round.py",
-      "research_path": "users/berger/asr_research/setup/experiments/open_asr/speech_qwen_round.py",
+      "research_path": "users/berger/configs/model_combination/experiments/open_asr/speech_qwen_round.py",
       "sha256": "1ebf87e98e6199ab88b3091a8baaee6d91149cb9779e11db5598a8d02d7f6170"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/experiments/wordwise_lm.py",
-      "research_path": "users/berger/asr_research/setup/experiments/wordwise_lm.py",
+      "research_path": "users/berger/configs/model_combination/experiments/wordwise_lm.py",
       "sha256": "ed74f2a0d37b82764c60113b5423d28b232c320aee7308a78c78be40ec00648c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/combination_model/__init__.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/combination_model/__init__.py",
+      "research_path": "users/berger/model_pipelines/combination_model/__init__.py",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/combination_model/prior.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/combination_model/prior.py",
+      "research_path": "users/berger/model_pipelines/combination_model/prior.py",
       "sha256": "f5e12804478c683023381764e8af1c6ec925ac02610185bf8b40971a548c9406"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/combination_model/pytorch_modules.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/combination_model/pytorch_modules.py",
+      "research_path": "users/berger/model_pipelines/combination_model/pytorch_modules.py",
       "sha256": "d2b4567b9e69cb8b0c6f33cd9c8616c75deeec1311ddea07c43e02efe4697069"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/combination_model/train.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/combination_model/train.py",
+      "research_path": "users/berger/model_pipelines/combination_model/train.py",
       "sha256": "adf93f609a0154ddff25b51a36f9c3c5a6cdf764b2fc29843ace72f3cd8bfec9"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/audio_provenance.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/audio_provenance.py",
+      "research_path": "users/berger/model_pipelines/common/audio_provenance.py",
       "sha256": "2e540afd95979262226044380b83944d4ca74a810bfac49c7025d1e0450590fa"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_oov.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/benchmark_oov.py",
+      "research_path": "users/berger/model_pipelines/common/benchmark_oov.py",
       "sha256": "621844a604dcdee4e241f1c001d58f7bd0faa375125af400fe7574a99c5bb90c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_overview.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/benchmark_overview.py",
+      "research_path": "users/berger/model_pipelines/common/benchmark_overview.py",
       "sha256": "7b87a0691536d06acc805b92bebb5829dc4b627846773c08d940d65a2de1f754"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/benchmark_scoring.py",
+      "research_path": "users/berger/model_pipelines/common/benchmark_scoring.py",
       "sha256": "93fd523a1529ef78c98c3c2834a342f0811253c3e73e5cd1be463997aa141bce"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/controlled_comparison.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/controlled_comparison.py",
+      "research_path": "users/berger/model_pipelines/common/controlled_comparison.py",
       "sha256": "5a27f6481d55340f92bef9ab299625c62d0b08e2664cc033067483b5db68cc7e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/corpus.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/corpus.py",
+      "research_path": "users/berger/model_pipelines/common/corpus.py",
       "sha256": "13f78e7f01248ecf0e4391346ac64f47392550289b199ee02334eaf2b041f9ef"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/dynamic_llm.py",
+      "research_path": "users/berger/model_pipelines/common/dynamic_llm.py",
       "sha256": "d4aecbb3aab6c2768b11501457c51eef76635b113bc2cd99f6a96b3a7a60ffa6"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/dynamic_llm_jobs.py",
+      "research_path": "users/berger/model_pipelines/common/dynamic_llm_jobs.py",
       "sha256": "11100507217a4a2ac33605b940b2e6317f8e0708cca1e947e0665116102a0b94"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_qwen_tuned.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/dynamic_qwen_tuned.py",
+      "research_path": "users/berger/model_pipelines/common/dynamic_qwen_tuned.py",
       "sha256": "911ee054d209c2fbdbc8d3c87e74eecb43863ee54049f895d1460f0cba6030e2"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/error_complementarity.py",
+      "research_path": "users/berger/model_pipelines/common/error_complementarity.py",
       "sha256": "d61695d47560b6ae1722a904a4b598e93e350b8f44bfd6561671aa2486991913"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/hf_benchmark.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/hf_benchmark.py",
+      "research_path": "users/berger/model_pipelines/common/hf_benchmark.py",
       "sha256": "a2e96c25c0ca2172c98947c3aefe318ae65885d54b55b525aaebc069f2398d53"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/hf_normalizer/__init__.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/hf_normalizer/__init__.py",
+      "research_path": "users/berger/model_pipelines/common/hf_normalizer/__init__.py",
       "sha256": "62272b548c9193fc7da88dec4238513256249b47fbf279af94ff04bb239f3562"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/hf_normalizer/english_abbreviations.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/hf_normalizer/english_abbreviations.py",
+      "research_path": "users/berger/model_pipelines/common/hf_normalizer/english_abbreviations.py",
       "sha256": "912ebf0c3c75e9bbdd12f5dfaba5b20df3b888c9f57610fb62a1f4c1f26662b1"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/hf_normalizer/normalizer.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/hf_normalizer/normalizer.py",
+      "research_path": "users/berger/model_pipelines/common/hf_normalizer/normalizer.py",
       "sha256": "7d7d7fe3495716c8234162caafb8e025cdf7d389fd9f7c33aae70b2f8551184d"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/hf_scoring.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/hf_scoring.py",
+      "research_path": "users/berger/model_pipelines/common/hf_scoring.py",
       "sha256": "412878a493faf71a4f08ded0ad2d32da6a39a358486edf1f6f8fe54f44e039fd"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/job_reports.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/job_reports.py",
+      "research_path": "users/berger/model_pipelines/common/job_reports.py",
       "sha256": "5c428edf921da1bc2672fe9fdadb7be11cc25771ea1102952bd2464f553fbf39"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/nbest_rescoring.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/nbest_rescoring.py",
+      "research_path": "users/berger/model_pipelines/common/nbest_rescoring.py",
       "sha256": "4fc889a0e6dab0b1d9be08680241bde7fe884e100017e9ba0bbe006a2a334d28"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/oov_guard.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/oov_guard.py",
+      "research_path": "users/berger/model_pipelines/common/oov_guard.py",
       "sha256": "cfb346c05535e5bd3123a869be7aa25ce55e228f051a9af43034a2dc87a6e6c7"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/oov_traceback.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/oov_traceback.py",
+      "research_path": "users/berger/model_pipelines/common/oov_traceback.py",
       "sha256": "a3257e3296cf8126a8bdff1a4d7007611169943d376d7e516a754821bf57c999"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/pretrained_correction.py",
+      "research_path": "users/berger/model_pipelines/common/pretrained_correction.py",
       "sha256": "4d3885087870366a3eff4c98e9a66ff47a6655cd408d8842323d498a470127a7"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_benchmark.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_benchmark.py",
       "sha256": "e223af1e0d2813a33b247cdce61f8e67579336dffb12f7c50cc6a2aa37ee7be2"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_full_dev.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_full_dev.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_full_dev.py",
       "sha256": "166770ed37506c39fbfdd27118ac7535373cf123bb3b8b58d87c91d022e3f324"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_nbest_diagnostics.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_nbest_diagnostics.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_nbest_diagnostics.py",
       "sha256": "1ed38b75523879a197409fc25d1e38b80826e3734fa23b3716e84d3cd66ea653"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_nbest_selection.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_nbest_selection.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_nbest_selection.py",
       "sha256": "2c3b09c97b731e432da22862a83e0b6253520dc00b8cf1345ae8c82bc482d658"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_speech.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_speech.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_speech.py",
       "sha256": "c5cafcfd0cec939ec1d2198b97635dcf1bfe33fb7b9dc2ff7eb27d78fee8d3c5"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_traceback.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/qwen_traceback.py",
+      "research_path": "users/berger/model_pipelines/common/qwen_traceback.py",
       "sha256": "93491821a2b41a5dcde41ce7b84e1e9a5640859bc2ebcf0fd31d22887894be9f"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/recog.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/recog.py",
+      "research_path": "users/berger/model_pipelines/common/recog.py",
       "sha256": "3a852ecb21444fe6028150a43f8d569e0310eca1dd5325e538303a3e893f34b7"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/recog_rasr_config.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/recog_rasr_config.py",
+      "research_path": "users/berger/model_pipelines/common/recog_rasr_config.py",
       "sha256": "cabf40f178f45b1b168075f324775ff5dfb05cb77dbf4bd7fcaaa06a7e7e7043"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/research_diagnostics.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/research_diagnostics.py",
+      "research_path": "users/berger/model_pipelines/common/research_diagnostics.py",
       "sha256": "586e127289d8748d502c0229523770930889459c4ab6ec4601fef23efd7da768"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/result_collection.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/result_collection.py",
+      "research_path": "users/berger/model_pipelines/common/result_collection.py",
       "sha256": "26c056c52fe1aa418d32fbb3a7788fa3bff9f10b60737762c5db7d8762aa1c01"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/rnnt_llm.py",
+      "research_path": "users/berger/model_pipelines/common/rnnt_llm.py",
       "sha256": "29d5694d4d02dd357cd362f6f5c3ecfb886cfe328dd3d257ff9f338286b5078e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/serializers.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/serializers.py",
+      "research_path": "users/berger/model_pipelines/common/serializers.py",
       "sha256": "873e6120ba05cf559b79c2304098629b045ef89eb914265600f526150561c7fd"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/speech_qwen_round.py",
+      "research_path": "users/berger/model_pipelines/common/speech_qwen_round.py",
       "sha256": "8f76a1af09ef9cff6ab619c675c2757b3773821fe6a981beb95748b0681aac31"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/wordwise_transformer.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/wordwise_transformer.py",
+      "research_path": "users/berger/model_pipelines/common/wordwise_transformer.py",
       "sha256": "69783464079f459a70ee4158b1b988507917022bc0569f26c9b268d79be1f47e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/common/wordwise_unknown.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/common/wordwise_unknown.py",
+      "research_path": "users/berger/model_pipelines/common/wordwise_unknown.py",
       "sha256": "f01ee7492574c2b2ba7daa1992a63b6e13389d3d7cf6978c79e1b1166b4492d4"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/granite_ctc/__init__.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/granite_ctc/__init__.py",
+      "research_path": "users/berger/model_pipelines/granite_ctc/__init__.py",
       "sha256": "5dd67a77dfa5e0fc83ef5ad2bcd566eed45df7706bec1857f9edf0c99d8b82f2"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/granite_ctc/prior.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/granite_ctc/prior.py",
+      "research_path": "users/berger/model_pipelines/granite_ctc/prior.py",
       "sha256": "f96b5c2da6afdc1b8ec3c8f6738207f03d68afcaeb8962d73ff9ced2598b268a"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/granite_ctc/pytorch_modules.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/granite_ctc/pytorch_modules.py",
+      "research_path": "users/berger/model_pipelines/granite_ctc/pytorch_modules.py",
       "sha256": "3042267c3629e2b7587c87210dd0b35e3e5eabccb23be837928927cafecbe38b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/speech_llm/__init__.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/speech_llm/__init__.py",
+      "research_path": "users/berger/model_pipelines/speech_llm/__init__.py",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/speech_llm/export.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/speech_llm/export.py",
+      "research_path": "users/berger/model_pipelines/speech_llm/export.py",
       "sha256": "b29b3e964bb105da91ae57a63fc6ca8179e5d646e322e55961a24835edb2650e"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/speech_llm/label_scorer_config.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/speech_llm/label_scorer_config.py",
+      "research_path": "users/berger/model_pipelines/speech_llm/label_scorer_config.py",
       "sha256": "a39785513d1bdc3b024eb75c8b4d79832b4cc2d494b0f7685c5c7d648642acfd"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/speech_llm/python_encoder.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/speech_llm/python_encoder.py",
+      "research_path": "users/berger/model_pipelines/speech_llm/python_encoder.py",
       "sha256": "f92880b3d0ac3ae64683b094f0ca6a41308405be197454b853b867433a2c81a1"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/speech_llm/pytorch_modules.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/speech_llm/pytorch_modules.py",
+      "research_path": "users/berger/model_pipelines/speech_llm/pytorch_modules.py",
       "sha256": "b351e7ba85d983b1c4110b6e16c4fdb6d8fbf020e1896f66280476414a11967b"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/transformer_lm/export.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/transformer_lm/export.py",
+      "research_path": "users/berger/model_pipelines/transformer_lm/export.py",
       "sha256": "1e0951d4f49216f259f5fafc25a715f675965cdcc62a276d290b31bc118ae38c"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/model_pipelines/transformer_lm/qwen.py",
-      "research_path": "users/berger/asr_research/setup/model_pipelines/transformer_lm/qwen.py",
+      "research_path": "users/berger/model_pipelines/transformer_lm/qwen.py",
       "sha256": "c0c8dd11511eb2ad252c812b7a889af98d4267e01611a5f0de84b76122562511"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/oov_robust_tree_search_requirements.md",
-      "research_path": "users/berger/asr_research/setup/oov_robust_tree_search_requirements.md",
+      "research_path": "users/berger/configs/model_combination/oov_robust_tree_search_requirements.md",
       "sha256": "59dbb3a750a1cea0eb4575cb4d5f5cfbbb36a771f459546269aaca662724d4fc"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/rasr_oov_separator.patch",
-      "research_path": "users/berger/asr_research/setup/rasr_oov_separator.patch",
+      "research_path": "users/berger/configs/model_combination/rasr_oov_separator.patch",
       "sha256": "2f6d32ee5944ea43b3d0600a942b5430781dea28d7790ebd5a426c7e6029dcfd"
     },
     {
       "legacy_path": "example_setups/seq2seq_rasr_2025/tools.py",
-      "research_path": "users/berger/asr_research/setup/tools.py",
+      "research_path": "users/berger/configs/model_combination/tools.py",
       "sha256": "5f4c97dab6a79cdab75ff27f2110c2fac3d2b4a805cdcc8d7a28f872db999878"
     }
   ],
   "exceptions": [
     "setup/model_pipelines/common/serializers.py: portable recipe path; RECIPE_ROOT hash retained"
-  ]
+  ],
+  "relocation_exceptions": {
+    "users/berger/configs/model_combination/experiments/open_asr/__init__.py": "Resolve source fingerprints across the split directories; fingerprint inputs and resulting job IDs unchanged",
+    "users/berger/model_pipelines/common/serializers.py": "Portable recipe-root resolver; RECIPE_ROOT hash retained"
+  }
 }

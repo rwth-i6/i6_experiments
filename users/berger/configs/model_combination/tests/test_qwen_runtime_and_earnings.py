@@ -27,7 +27,14 @@ def test_duration_based_runtime_requests():
 
 
 def test_settings_enforces_cap_and_selects_48gb_queue():
-    settings = Path(__file__).resolve().parents[3] / "settings.py"
+    import os
+    import i6_experiments
+
+    # Find setup settings from the checkout, not the relocated tests directory.
+    # users/berger/settings.py is unrelated to this Sisyphus setup.
+    settings = Path(os.environ.get(
+        "ASR_SISYPHUS_SETTINGS", str(Path(i6_experiments.__file__).resolve().parents[2] / "settings.py")
+    ))
     if not settings.exists():
         pytest.skip("Local Sisyphus settings unavailable")
     source = ast.parse(settings.read_text())

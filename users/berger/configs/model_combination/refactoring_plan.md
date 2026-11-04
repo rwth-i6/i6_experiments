@@ -1,5 +1,10 @@
 # Template/research separation plan
 
+Final amendment: branch `berger_dev`, with shared preparation under
+`users/berger/data`, runtime under `users/berger/model_pipelines`, and the setup
+under `users/berger/configs/model_combination`. The original plan below records
+the first relocation; the split supersedes its broad package name.
+
 The full pre-refactoring checkout (including .git, ignored and untracked files,
 and symlinks without dereferencing them) is backed up at
 `/work/asr4/berger/backups/i6_experiments-20261104-cleanup`.

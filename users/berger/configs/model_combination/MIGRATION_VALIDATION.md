@@ -3,6 +3,18 @@
 Validated 2026-11-04 in isolated worktrees. The live checkout and its running
 Sisyphus jobs were not changed, stopped or resubmitted.
 
+The final `berger_dev` layout splits data and runtime into `users/berger/data`
+and `users/berger/model_pipelines`; launchers and this document are under
+`users/berger/configs/model_combination`. Canonical imports alias historical
+modules. The source-fingerprint resolver accounts for the split while retaining
+the fingerprint inputs and resulting job IDs.
+
+Final split validation: 248 tests passed and three optional tests skipped.
+Both historical and canonical split imports reproduce the same 1,197 job IDs.
+The settings test locates external setup settings from the repository root
+(or `ASR_SISYPHUS_SETTINGS`), rather than accidentally reading
+`users/berger/settings.py` after the tests moved.
+
 ## Before/after reuse check
 
 The mixed-source archive and migrated research branch constructed identical
@@ -17,7 +29,7 @@ sets of **1,197 job IDs**, including dependencies, for:
 No tasks were executed by this graph comparison. Both sides used the same
 external dependency checkouts and Sisyphus defaults. This validates relocation
 for these graphs, not every historical setup or future dependency version.
-`tools/job_hash_probe.py OUTPUT.json` reproduces the graph inventory. The
+`scripts/job_hash_probe.py OUTPUT.json` reproduces the graph inventory. The
 pre/post JSON inventories are retained alongside the filesystem backup/worktrees.
 
 The identical sorted JSON inventory has SHA256

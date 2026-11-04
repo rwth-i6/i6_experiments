@@ -6,7 +6,12 @@ import json
 
 def main(output):
     from sisyphus import tk
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import qwen, qwen_speech, rnnt_qwen
+    from i6_experiments.users.berger.data.huggingface import DownloadHuggingFaceRepoJob
+    from i6_experiments.users.berger.model_pipelines.common.rnnt_llm import RnntQwenRecogJob
+    from i6_experiments.users.berger.configs.model_combination.experiments.open_asr import qwen, qwen_speech, rnnt_qwen
+
+    assert DownloadHuggingFaceRepoJob.__module__.startswith("i6_experiments.example_setups.")
+    assert RnntQwenRecogJob.__module__.startswith("i6_experiments.example_setups.")
 
     ctc = qwen.run(loquacious=True, two_pass=True, matched_controls=True)
     speech = qwen_speech.run(data=ctc["data"])
@@ -27,7 +32,7 @@ def main(output):
         speech_only=True,
     )
     rnnt_qwen.run(tuning_only=True, focused_tuning=True)
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import training, recognition
+    from i6_experiments.users.berger.configs.model_combination.experiments.librispeech import training, recognition
 
     for name in ("ctc_bpe", "ffnn_transducer_bpe", "full_ctx_transducer_bpe", "aed_bpe"):
         model = getattr(training, name).run(descriptor=name)
