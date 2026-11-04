@@ -52,5 +52,6 @@ positions for scoring, not forced alignments. Output limits retain partial
 hypotheses and report truncation; no EOS is fabricated.
 
 Research OOV searches, delayed fusion, Open-ASR evaluation, leaderboard scoring,
-results and research plans are maintained separately on `berger_asr_research`
-under `users/berger/asr_research`.
+results and research plans are maintained separately on `berger_dev`, under
+`users/berger/data`, `users/berger/model_pipelines` and
+`users/berger/configs/model_combination`.
