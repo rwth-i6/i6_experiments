@@ -5,7 +5,8 @@ v1 (``SelfPlayScenarioGen``) let gpt-oss pick the names: 321 first names over 4,
 ``SelfPlayScenarioPool`` per category, gives the LLM each scenario's two names (``FirstNamePool``: a pinned
 name-census list, uniform country then uniform name) and mixes pools by weight (``SelfPlayTrainScenarioMix``).
 
-  [1] name folding: accents dropped (Jose, Omer), anything not plain Latin rejected (Cyrillic, 'ł', spaces)
+  [1] name folding: accents dropped (Jose, Omer), anything not plain Latin rejected (Cyrillic, 'ł', spaces), and
+      initials without a vowel (Ch, Mj)
   [2] census CSV -> pool: one entry per (country, name), a name listed for both genders is ``u``, non-Latin dropped
   [3] name pairs: seeded, the two sides differ, no name twice in a call, countries spread (uniform country first)
   [4] pool requests: each call states its pairs in order (``SP_POOL_NAMES_RULE``); two categories draw different
@@ -18,6 +19,11 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       seeded. CAN FAIL: a mutant label set with "punctuation:use no comma" keeps a written-only row
   [5c] generation resumes: a requeued pool job requests only the calls missing from its cache (a cut line ignored);
       an edited request is generated again
+  [5d] persona IF requests written into scenarios (``SelfPlayPersonaIfScenes``, the v2 generator): the real run on a
+      fake server -- one scenario per request in order with the assigned names, a lost quoted phrase or number
+      truncation or a copied example dropped by rule, a lost requirement or a B told to answer by the LLM check,
+      judge notes from B's instructions. CAN FAIL: a mutant
+      without the rule check keeps a scenario that lost a number
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
       [6b] the real mix job on tiny pools: rows per category, ``grader_info`` carried, unknown names blank
   [7] v1 untouched: the declared v1 jobs keep their hashes (``SelfPlayScenarioGen.99kKTwOy4fJc``,
@@ -44,7 +50,8 @@ import i6_experiments.users.dorian_koch.speech_llm.selfplay_bench as sb  # noqa:
 
 # [1] ---------------------------------------------------------------------------------------------------------------
 cases = {"José": "Jose", "Ömer": "Omer", "Anne-Marie": "Anne-Marie", "O'Neil": "O'Neil", "Kofi": "Kofi",
-         "Michał": None, "Сергей": None, "Mary Ann": None, "maya": None, "R2": None, "": None}  # fmt: skip
+         "Michał": None, "Сергей": None, "Mary Ann": None, "maya": None, "R2": None, "": None,
+         "Mj": None, "Ch": None, "Li": "Li", "Ty": "Ty"}  # fmt: skip
 for raw, want in cases.items():
     assert sb.ascii_first_name(raw) == want, (raw, sb.ascii_first_name(raw), want)
 print(f"[1] name folding: {len(cases)} cases")
@@ -93,10 +100,11 @@ def pool_job(cat, **kw):
 
 jt = pool_job("topic", per_level=20, per_call=5)
 calls = jt.calls(big)
-assert len(calls) == 3 * jt.calls_per_level and jt.calls_per_level == 6, (len(calls), jt.calls_per_level)
+assert len(calls) == 3 * jt.calls_per_level and jt.calls_per_level == 7, (len(calls), jt.calls_per_level)
 for c in calls:
     assert len(c["names"]) == 5
     assert sb.SP_POOL_NAMES_RULE in c["user"]
+    assert sb.SP_POOL_STYLE_RULE in c["user"]
     for k, (a, b) in enumerate(c["names"]):
         assert f"{k + 1}. A: {a[0]}, B: {b[0]}" in c["user"], c["user"][-300:]
 assert calls == pool_job("topic", per_level=20, per_call=5).calls(big), "pool requests are not deterministic"
@@ -133,6 +141,13 @@ _, mnm, _ = run5(lambda *a: True)
 assert mnm[(wrong[2], wrong[3])][0] == ("Jose", "m", "ES"), "mutant should record the unused assignment"
 print("[5] names: every scenario kept; a scenario using other names records the names it uses (mutant: the assignment)")
 
+fp_c = [("topic", "fp1", "Your name is Dita. My toilet won't flush; ask how to fix it now.", "Your name is Josh. You fix toilets and explain plungers.", "minimal"),
+        ("topic", "fp2", "Your name is Mira. Your bike chain keeps slipping off; ask what causes it.", "Your name is Tom. You repair bicycles and explain gears.", "minimal")]  # fmt: skip
+fp_k, fp_r = sb.filter_train_scenarios(fp_c, [], per_cell=5, require_you=True)
+assert [k[1] for k in fp_k] == ["fp2"] and fp_r == {"not_second_person": 1}, (fp_k, fp_r)
+assert len(sb.filter_train_scenarios(fp_c, [], per_cell=5)[0]) == 2, "v1 default must keep first-person sides"
+print("[5] style: v2 pools drop a side not going on as You/Your (here: My); v1's default keeps it")
+
 
 # [5b] Tulu 3 persona IF requests ------------------------------------------------------------------------------------
 def prow(i, prompt, *labels):
@@ -155,9 +170,17 @@ cases5b = {
 }
 for want, r in cases5b.items():
     assert sb.persona_if_candidate(r)[1] == want, (want, sb.persona_if_candidate(r))
+assert (
+    sb.persona_if_candidate(prow(10, "List three upcoming events in Kelmscott within the next 30 days."))[1]
+    == "time_sensitive"
+)
+role_row = prow(11, "What would a lighthouse say about storms? Imagine you are a lighthouse and answer that question.")
+assert sb.persona_if_candidate(role_row)[1] == "role_play"
 for txt in ("Write exactly 150 words about tea.", "Two paragraphs separated by ^^^^ about tea.", "Write a 300-word story.",
             "Give a detailed plan for a garden.", "Use no commas in a story about tea.",
-            "Repeat this question changing ? to !: why is tea hot?", "Create a one-page document about tea."):  # fmt: skip
+            "Repeat this question changing ? to !: why is tea hot?", "Create a one-page document about tea.",
+            "Repeat this without changing anything except changing . to ! Why is tea hot.", "Design a user interface mockup for a tea shop.", "Explain how to brew tea and include two screenshots of the timer app.", "Compose a short instrumental piece for a tea ceremony.",
+            "Develop a user authentication feature for a tea shop website.", "Name brands that worked with this persona."):  # fmt: skip
     assert sb.persona_if_candidate(prow(7, txt))[1] == "written_text", txt
 assert sb.persona_if_candidate(prow(8, "In a poem about tea, end with the sentence: Cheers to that."))[1] == ""
 
@@ -233,6 +256,125 @@ finally:
     sb.vllm_server, openai.OpenAI = orig_server, orig_client
     os.chdir(SETUP_DIR)
 print("[5c] generation cache: a requeued job requests only the calls it had not finished; an edited request is redone")
+
+# [5d] persona IF requests written into scenarios -------------------------------------------------------------------
+assert sb.spoken_numbers("twenty-five words, said twice, in 3 sentences") == {25, 2, 3}
+assert sb.spoken_numbers("seventy\u2011five words") == {75}
+assert sb.spoken_numbers("choose one of these", min_word=2) == set()
+req_ok = 'Give me 3 tips for growing tomatoes and end with the phrase "happy gardening".'
+nm_ok = [["Kofi", "m", "GH"], ["Ama", "f", "GH"]]
+pa_ok = "Your name is Kofi. You run a small garden centre and help customers with their plants."
+pb_ok = 'Your name is Ama. You just planted tomatoes. Ask for three tips and ask that it ends with "Happy gardening".'
+cases5d = {
+    "": (pa_ok, pb_ok),
+    "names": (pa_ok.replace("Kofi", "Kojo"), pb_ok),
+    "b_names_a": (pa_ok, pb_ok.replace("Ask for", "Ask Kofi for")),
+    "length": (pa_ok, pb_ok + " word" * 60),
+    "lost_quote": (pa_ok, pb_ok.replace('"Happy gardening"', "a friendly goodbye")),
+    "lost_number": (pa_ok, pb_ok.replace("three tips", "some tips")),
+    "truncated": (pa_ok, pb_ok[:-20]),
+    "written_format": (pa_ok, pb_ok.replace("three tips", "three tips (short ones)")),
+    "copied_example": (pa_ok, sb.SP_IF_SCENE_EXAMPLE[3].replace("Malik", "Ama")),
+}
+for want, (a_, b_) in cases5d.items():
+    assert sb.persona_if_scene_reject(req_ok, a_, b_, nm_ok) == want, (
+        want,
+        sb.persona_if_scene_reject(req_ok, a_, b_, nm_ok),
+    )
+assert (
+    sb.persona_if_scene_reject("Pick one of: red, blue. Don't use 'very'.", pa_ok, pb_ok + " Avoid 'very'.", nm_ok)
+    == ""
+)
+
+seen5d = []
+
+
+class _SceneClient:
+    """Generation: B repeats each request (request 2 drops its number), answers in reverse order with the request
+    numbers; check: "LOSTREQ" fails keeps_all, "NOASK" fails b_asks."""
+
+    def __init__(self, **_):
+        self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
+
+    def create(self, *, messages, **_):
+        import re as _re
+
+        user = messages[1]["content"]
+        seen5d.append(messages[0]["content"] == sb.SP_IF_VERIFY_SYSTEM)
+        if messages[0]["content"] == sb.SP_IF_VERIFY_SYSTEM:
+            items = _re.split(r"(?m)^Item \d+\n", user)[1:]
+            body = {"items": [{"i": j + 1, "keeps_all": "LOSTREQ" not in t, "b_asks": "NOASK" not in t,
+                               "a_neutral": True, "problem": "x"} for j, t in enumerate(items)]}  # fmt: skip
+        else:
+            reqs = _re.findall(
+                r"(?m)^\d+\. (.*)$", user.split("give each its request number.\n", 1)[1].split("\n\n")[0]
+            )
+            pairs = _re.findall(r"(?m)^\d+\. A: (\S+), B: (\S+)$", user)
+            body = {"scenarios": [{"request": j + 1, "name": "x", "prompt_a": f"Your name is {a}. You answer questions about anything.",
+                                   "prompt_b": f"Your name is {b}. Please ask the other person: {q.replace('7', 'many') if q.startswith('Two') else q}"}
+                                  for j, (q, (a, b)) in enumerate(zip(reqs, pairs))][::-1]}  # fmt: skip
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(body)))]
+        )
+
+
+sb.vllm_server = contextlib.contextmanager(lambda *_a, **_k: iter(["http://fake"]))
+openai.OpenAI = _SceneClient
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src")
+        os.makedirs(src)
+        texts = ["Name 7 birds.", "Two facts on owls, in 7 words.", "LOSTREQ: say why tea is hot.", "List 4 rivers.",
+                 "NOASK: name 5 trees.", "Name 6 lakes &amp; ponds.", 'End with "the end".']  # fmt: skip
+        reqs5d = [{"scenario": f"if_{i}", "prompt": t} for i, t in enumerate(texts)]
+        with open(os.path.join(src, "provenance.jsonl"), "w") as f:
+            for r in reqs5d:
+                f.write(json.dumps({**r, "tulu_id": r["scenario"], "constraints": ["include keywords"]}) + "\n")
+        json.dump({r["scenario"]: [[f"A{i}x", "f", "ES"], [f"B{i}x", "m", "GH"]] for i, r in enumerate(reqs5d)},
+                  open(os.path.join(src, "names.json"), "w"))  # fmt: skip
+        json.dump(
+            {r["scenario"]: f"notes {r['scenario']}" for r in reqs5d}, open(os.path.join(src, "grader_info.json"), "w")
+        )
+        job5d = sb.SelfPlayPersonaIfScenes(requests=tk.Path(src), n_keep=3, per_call=4)
+        os.makedirs(os.path.join(tmp, "pool"))
+        job5d.out_dir = tk.Path(os.path.join(tmp, "pool"))
+        os.chdir(tmp)
+        job5d.run()
+        kept_scen = json.load(open(os.path.join(tmp, "pool", "scenarios.json")))
+        rej = [json.loads(x) for x in open(os.path.join(tmp, "pool", "rejected.jsonl"))]
+        assert [s[1] for s in kept_scen] == ["if_0", "if_3", "if_5"], kept_scen
+        assert {r["scenario"]: r["reason"] for r in rej} == {
+            "if_1": "lost_number",
+            "if_2": "lost_requirement",
+            "if_4": "b_not_asking",
+        }, rej
+        assert all(s[3].endswith(texts[int(s[1][3:])].replace("&amp;", "&")) for s in kept_scen), kept_scen
+        notes5d = json.load(open(os.path.join(tmp, "pool", "grader_info.json")))
+        assert all(notes5d[s[1]].startswith(f'B was told: "{s[3]}"') for s in kept_scen), notes5d
+        assert all(sb.SP_IF_LABEL_CHECKS["include keywords"] in v for v in notes5d.values())
+        assert all(s[3].startswith(f"Your name is B{s[1][3:]}x.") for s in kept_scen)
+        assert seen5d.count(True) == 2 and seen5d.count(False) == 2, seen5d  # 7 requests / 4 per call, 6 checked
+        orig_rej = sb.persona_if_scene_reject
+        sb.persona_if_scene_reject = lambda *a: ""  # mutant: no rule check
+        try:
+            k_m, _, _ = job5d.assemble(
+                job5d.read_requests(src),
+                {s: (None, s, "a", "b") for s in ["if_1"]},
+                {"if_1": ["if_1", True, True, True, ""]},
+            )
+            assert [s[1] for _, s in k_m] == ["if_1"], "mutant should keep the scenario that lost a number"
+        finally:
+            sb.persona_if_scene_reject = orig_rej
+finally:
+    sb.vllm_server, openai.OpenAI = orig_server, orig_client
+    os.chdir(SETUP_DIR)
+pools5d = sb.SelfPlayPersonaIfScenes(requests=tk.Path("/x"))
+assert pools5d._sis_hash() != sb.SelfPlayPersonaIfScenes(requests=tk.Path("/x"), per_call=6)._sis_hash()
+print(
+    "[5d] IF scenes: one scenario per request matched by number, assigned names, entities decoded; lost quote/number, "
+    "truncated, copied example dropped by rule (mutant keeps one), lost requirement / B not asking by the check; judge "
+    "notes quote B's instructions"
+)
 
 # [6] ---------------------------------------------------------------------------------------------------------------
 assert sb.mix_counts({"a": 10, "b": 10, "c": 10}, {"a": 2, "b": 1, "c": 1}, 8) == {"a": 4, "b": 2, "c": 2}

@@ -1189,12 +1189,15 @@ def filter_train_scenarios(
     max_jaccard: float = 0.2,
     levels: dict | None = None,
     max_words: int = 45,
+    require_you: bool = False,
 ):
     """Keep generated ``(category, name, prompt_a, prompt_b, level)`` in order, up to ``per_cell`` per (category,
     level): each side within the level's word range (``levels``, default ``SP_TRAIN_LEVELS``, inside
     ``check_scenarios``' 8-``max_words``), a name new
     to the set AND to ``held_out`` (spj2), and the pair's word-5-gram Jaccard with every held-out pair and every kept
-    pair of its category <= ``max_jaccard``. -> (kept, reject counts by reason)."""
+    pair of its category <= ``max_jaccard``. ``require_you`` (v2 pools) also drops a scenario whose side does not go on as "You ..."/"Your ..." after its
+    name line, as every spj2 prompt does (v2's first full run: first person "I"/"My" in 19% of minimal topic
+    scenarios, note-style fragments in half the minimal instruction sides). -> (kept, reject counts by reason)."""
     import re
 
     norm = lambda x: re.sub(r"[^a-z0-9]+", "_", str(x).lower()).strip("_")  # noqa: E731
@@ -1213,6 +1216,8 @@ def filter_train_scenarios(
             reject("cell_full")
         elif not all(max(8, lo - 3) <= len(p.split()) <= min(max_words, hi + 5) for p in (pa, pb)):  # a little slack
             reject("length")
+        elif require_you and not all(re.match(r"\s*Your name is [^.]+\.\s+Your?\b", p) for p in (pa, pb)):
+            reject("not_second_person")
         elif not n or n in held_names:
             reject("name_in_spj2" if n in held_names else "no_name")
         elif n in names:
@@ -1485,16 +1490,24 @@ SP_POOL_NAMES_RULE = (
     'is <A>." and side B\'s with "Your name is <B>."; use no other names for A or B.'
 )
 
+#: v2 pools: spj2's prompt style. Without it, minimal-level sides came out as "I ..." or as notes ("ask about time,
+#: answer with word, hide budget").
+SP_POOL_STYLE_RULE = (
+    'After "Your name is ...", each side continues in full sentences addressed to the agent ("You ...", "Your ..."); '
+    'never "I" or "My", never note-style fragments.'
+)
+
 
 def ascii_first_name(name: str) -> str | None:
     """``name`` folded to plain Latin letters (NFKD, accents dropped: Jose, Omer), or None if anything else is left
-    (Cyrillic, Arabic, 'ł', digits, spaces)."""
+    (Cyrillic, Arabic, 'ł', digits, spaces) or it has no vowel (initials: Ch, Mj, Sk)."""
     import re
     import unicodedata
 
     s = unicodedata.normalize("NFKD", str(name).strip())
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s if re.fullmatch(r"[A-Z](?:[a-z]+|(?='))(?:[-'][A-Z]?[a-z]+)?", s) else None
+    ok = re.fullmatch(r"[A-Z](?:[a-z]+|(?='))(?:[-'][A-Z]?[a-z]+)?", s) and re.search(r"[aeiouyAEIOUY]", s)
+    return s if ok else None
 
 
 def name_pool_from_csv(text: str) -> dict:
@@ -1673,7 +1686,8 @@ class SelfPlayScenarioPool(Job):
         self.names = names
         self.per_level, self.per_call = int(per_level), int(per_call)
         # ~7% of v1's scenarios failed a filter other than "cell full"; 30% headroom
-        self.calls_per_level = int(calls_per_level or -(-self.per_level * 13 // (10 * self.per_call)))
+        # 13/10 headroom in v1; v2's style filter (``require_you``) dropped up to a quarter of a level
+        self.calls_per_level = int(calls_per_level or -(-self.per_level * 16 // (10 * self.per_call)))
         self.levels = dict(levels or SP_TRAIN_LEVELS)
         self.domains, self.held_out = tuple(domains), held_out
         self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
@@ -1683,7 +1697,7 @@ class SelfPlayScenarioPool(Job):
     @classmethod
     def hash(cls, parsed_args):
         """The held-out set's content, the generator prompt and the resolved levels are part of the hash."""
-        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE])
+        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_POOL_STYLE_RULE])
         return super(SelfPlayScenarioPool, cls).hash(
             {
                 **parsed_args,
@@ -1721,7 +1735,7 @@ class SelfPlayScenarioPool(Job):
                     f"Example of the category (its level of detail may differ; do not reuse its situation or "
                     f"names):\n{example}\n\n"
                     f"Write {self.per_call} new, varied scenarios of this category, at this level of detail, in "
-                    f"this domain.\n\n{SP_POOL_NAMES_RULE}\n{names}"
+                    f"this domain. {SP_POOL_STYLE_RULE}\n\n{SP_POOL_NAMES_RULE}\n{names}"
                 )
                 out.append(
                     {
@@ -1747,7 +1761,9 @@ class SelfPlayScenarioPool(Job):
         if failed > 0.05 * len(calls):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
         cands, names, followed = assign_names(outs, calls)
-        kept, rej = filter_train_scenarios(cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level)
+        kept, rej = filter_train_scenarios(
+            cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level, require_you=True
+        )
         check_scenarios([k[:4] for k in kept], categories=None)
         sides = {k[1]: names[(k[2], k[3])] for k in kept}
         first = collections.Counter(s[0] for pair in sides.values() for s in pair if s)
@@ -1819,15 +1835,21 @@ SP_IF_PROMPT_WORDS = 50
 #: context = conversation + 256 frames; voice 50 + 12 silence + text).
 SP_IF_MAX_WORDS = 70
 #: A request whose text still asks for something visual or written, an unlabelled constraint the labels miss (on a
-#: sample of 30 rows: "Format: Bullet points", "2 paragraphs separated by ^^^^"), or an answer far longer than a
-#: one-minute call ("exactly 150 words", "a 300-word article", "detailed"): the row is dropped, never edited.
+#: sample of 30 rows: "Format: Bullet points", "2 paragraphs separated by ^^^^"; on 40 written scenarios: a UI
+#: mockup, "changing . to !"), or an answer far longer than a one-minute call ("exactly 150 words", "a 300-word
+#: article", "detailed"): the row is dropped, never edited.
 SP_IF_REJECT = (
     r"\b(capital(ized)? letters?|all caps|upper ?case|lower ?case|commas?|punctuation|quotation marks?|"
     r"double quotes|brackets?|asterisks?|bold|italics?|bullets?|bullet points?|markdown|headings?|titled?|sections?|"
     r"paragraphs?|blank lines?|line breaks?|json|tables?|columns?|code|format(ted|ting)?|placeholders?|postscript|"
     r"highlight(ed)?|numbered|font|layout|pdf|emoji|separated by|wrap(ped)?|graphic|logo|poster|diagram|chart|"
-    r"infographic|slides?|sketch|pages?|documents?|detailed|comprehensive|in-depth)\b|"
-    r"\b([1-9]\d{2,}|\d{1,3},\d{3})[- ]words?\b|\^\^|\*\*|<<|>>|\[|\]|\bp\.\s?s\.?(?=\W)|\? to !"
+    r"infographic|slides?|sketch|pages?|documents?|detailed|comprehensive|in-depth|mock-?ups?|murals?|"
+    r"user interface|web ?site design|(?:this|the) persona|screenshots?|images?|photos?|pictures?|illustrations?|"
+    r"instrumental|sheet music|chord progressions?)\b|"
+    r"\b(develop|build|implement|create|code) (?:an? )?(?:\w+ ){0,3}(feature|app|application|program|website|function|"
+    r"algorithm|class|script for an? \w+ app)\b|"
+    r"\b([1-9]\d{2,}|\d{1,3},\d{3})[- ]words?\b|\^\^|\*\*|<<|>>|\[|\]|\bp\.\s?s\.?(?=\W)|\? to !|"
+    r"\. to [!?]|\b(period|full stop)s? (to|with) (an? )?(question|exclamation)"
 )
 #: An answer asked for in another language: the duplex models speak English only.
 SP_IF_OTHER_LANGUAGE = (
@@ -1855,8 +1877,13 @@ _IF_TEXT_ONLY = (
     r"\bNAME_\d",  # anonymised names
     r"https?://",  # links
 )
+#: "What would X say ...? Imagine you are X and answer": role-play rows, mostly labelled "repeat the prompt" though
+#: they ask for no repetition; on 60 written scenarios, 4 of the 5 muddled ones (B took the role it should ask A to
+#: play).
+_IF_ROLE_PLAY = r"\b(imagine|pretend) (that )?you are\b|\bas if you were\b"
 _IF_TIME_SENSITIVE = (
-    r"\b(today|tonight|this (?:week|month|year)|latest|current(?:ly)?|right now|news|stock price|20[2-3]\d)\b"
+    r"\b(today|tonight|this (?:week|month|year)|latest|current(?:ly)?|right now|news|stock price|20[2-3]\d|upcoming|"
+    r"next \d+ (?:days|weeks|months)|next (?:week|month))\b"
 )
 
 
@@ -1864,7 +1891,7 @@ def persona_if_candidate(row: dict, max_words: int = SP_IF_PROMPT_WORDS) -> tupl
     """A Tulu 3 persona IF row -> (its prompt, whitespace-collapsed, "") or (None, reason). Reasons, in order:
     ``written_label`` (a constraint label outside ``SP_IF_SPOKEN_LABELS``), ``long`` (over ``max_words``),
     ``text_only`` (code, tables, JSON, placeholders, links), ``written_text`` (``SP_IF_REJECT``), ``other_language``
-    (``SP_IF_OTHER_LANGUAGE``), ``time_sensitive``, ``non_english`` (under 97% ASCII)."""
+    (``SP_IF_OTHER_LANGUAGE``), ``time_sensitive``, ``role_play`` (``_IF_ROLE_PLAY``), ``non_english`` (under 97% ASCII)."""
     import re
 
     labels = {str(c).strip() for c in row.get("constraints") or []}
@@ -1881,6 +1908,8 @@ def persona_if_candidate(row: dict, max_words: int = SP_IF_PROMPT_WORDS) -> tupl
         return None, "other_language"
     if re.search(_IF_TIME_SENSITIVE, prompt, re.I):
         return None, "time_sensitive"
+    if re.search(_IF_ROLE_PLAY, prompt, re.I):
+        return None, "role_play"
     if sum(ch.isascii() for ch in prompt) < 0.97 * len(prompt):
         return None, "non_english"
     return prompt, ""
@@ -1931,7 +1960,7 @@ class SelfPlayPersonaIfPool(Job):
     def hash(cls, parsed_args):
         """The held-out set's content and the selection rules (labels, patterns, caps, prompt lines) are hashed."""
         rules = [SP_IF_SPOKEN_LABELS, SP_IF_LABEL_CHECKS, SP_IF_PROMPT_WORDS, SP_IF_MAX_WORDS, SP_IF_REJECT,
-                 _IF_TEXT_ONLY, _IF_TIME_SENSITIVE, SP_IF_ANSWERER, SP_IF_INTROS]  # fmt: skip
+                 _IF_TEXT_ONLY, _IF_TIME_SENSITIVE, SP_IF_ANSWERER, SP_IF_INTROS, SP_IF_OTHER_LANGUAGE, _IF_ROLE_PLAY]  # fmt: skip
         return super(SelfPlayPersonaIfPool, cls).hash(
             {
                 **parsed_args,
@@ -2017,6 +2046,361 @@ class SelfPlayPersonaIfPool(Job):
         print(f"[sp-pool:{self.category}] {stats}", flush=True)
         if len(kept) < self.n_keep:
             raise RuntimeError(f"only {len(kept)} requests for n_keep={self.n_keep}")
+
+
+# ---- ask_and_answer as role-play: the persona IF requests written into scenarios by the v2 generator ---------------
+# ``SelfPlayPersonaIfPool`` picks the requests (by label, no LLM); this job has the same generator as the other v2
+# pools (``SP_TRAIN_SYSTEM``, assigned names, ``generate_scenario_batches``) write a scenario around each one: B gets a
+# reason to ask and the request worded as spoken, A a role suited to answering. A rewrite that loses a requirement is
+# dropped, never repaired: a quoted phrase or number missing from B (``persona_if_scene_reject``), then a gpt-oss check
+# of every requirement (``SP_IF_VERIFY_SYSTEM``). The verbatim pool stays declared, so the rewrite can be ablated.
+SP_IF_SCENE_DEFINITION = (
+    "B needs what a given written request asks for and asks A for it out loud; A answers. B's instructions say who B "
+    'is and why B needs it, then tell B what to ask for ("Ask for ...", "You want ..."); they never speak to A and '
+    "never tell B to write or answer it. Word the request the way a person would say it: no brackets, parentheses, "
+    'dashes or lists, options as "X, Y or Z". Keep EVERY requirement of the request: each quoted word or phrase '
+    "exactly and in curly quotes \u201clike this\u201d, each number, each option, the exact ending, every word to use, avoid or repeat, "
+    "and any length. If the request asks the answerer to imagine being someone, B asks A to answer as that person; B "
+    "never takes that role. A's instructions say who A is, someone suited to the topic, and nothing about the "
+    "requirements. B's instructions never use A's name"
+)
+#: ``(request, name, prompt A, prompt B)``, written for this job (not a Tulu row).
+SP_IF_SCENE_EXAMPLE = (
+    "Write a short toast for my sister's wedding in exactly 4 sentences and end it with the phrase \"to love and "
+    'laughter".',
+    "wedding_toast",
+    "Your name is Ines. You write speeches and toasts for people who are nervous about speaking in public.",
+    "Your name is Malik. Your sister marries on Saturday and you have to give a toast. Ask for a short toast of exactly "
+    "four sentences that ends with the phrase \u201cto love and laughter\u201d.",
+)
+#: Word range of A's instructions (B's cap is ``SP_IF_MAX_WORDS``).
+SP_IF_SCENE_A_WORDS = (8, 30)
+SP_IF_VERIFY_SYSTEM = """You check rewritten requests. Each item has an ORIGINAL written request, the instructions B gets for asking for it in a spoken conversation, and the instructions A (who answers) gets.
+
+For each item decide:
+- keeps_all: true only if B, asking as instructed, states the original's question or task itself, with every fact or claim it gives, and every requirement of the original: each word or phrase to include, avoid or repeat, each count (sentences, words, how often), each option to choose from, the exact ending, repeating the request, the language. Different wording is fine; a requirement that is lost, weakened, loosened or changed is not, and neither is an added one.
+- b_asks: true if B's instructions clearly tell B to ask A for it. False if they tell B to write or answer it, speak to the answerer directly ("Provide ...", "Write ...") instead of telling B what to ask, are muddled about who asks what, or make B the person the answerer is asked to imagine being.
+- a_neutral: false only if A's instructions state or hint at a requirement on the answer's form: words to use or avoid, a count, the ending, options, repeating, the language. A role that fits the topic is fine.
+- problem: empty if all three are true, else one short sentence.
+
+Answer with JSON only: {"items": [{"i": 1, "keeps_all": true, "b_asks": true, "a_neutral": true, "problem": ""}, ...]}"""
+_SP_IF_VERIFY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "i": {"type": "integer"},
+                    "keeps_all": {"type": "boolean"},
+                    "b_asks": {"type": "boolean"},
+                    "a_neutral": {"type": "boolean"},
+                    "problem": {"type": "string", "maxLength": 300},
+                },
+                "required": ["i", "keeps_all", "b_asks", "a_neutral", "problem"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+#: The generator's reply: ``_SP_TRAIN_JSON_SCHEMA`` plus the request's number (alignment), with room for B's 70 words
+#: (the 400-character cap cut ~3% of B prompts mid-sentence on the first full run).
+_SP_IF_SCENE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenarios": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "request": {"type": "integer"},
+                    "name": {"type": "string", "minLength": 3, "maxLength": 40},
+                    "prompt_a": {"type": "string", "minLength": 20, "maxLength": 400},
+                    "prompt_b": {"type": "string", "minLength": 20, "maxLength": 800},
+                },
+                "required": ["request", "name", "prompt_a", "prompt_b"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["scenarios"],
+    "additionalProperties": False,
+}
+_NUMBER_WORDS = {
+    **{w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                  "fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())},
+    **{w: 10 * i for i, w in enumerate("thirty forty fifty sixty seventy eighty ninety".split(), 3)},
+    "once": 1, "twice": 2, "thrice": 3, "hundred": 100,
+}  # fmt: skip
+
+
+def spoken_numbers(text: str, min_word: int = 0) -> set:
+    """The numbers ``text`` states, as digits or words (``twenty-five`` -> 25; a word below ``min_word`` is ignored,
+    so the original's "one of" is not a count)."""
+    import re
+
+    t = re.sub(r"[\u2010-\u2015]", "-", text.lower().replace(",", ""))
+    out = {int(x) for x in re.findall(r"(?<![\d.])\d+(?![\d.]\d)", t)}
+    words = "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True))
+    for tens, unit in re.findall(rf"\b({words})(?:[- ]({words}))?\b", t):
+        a, b = _NUMBER_WORDS[tens], _NUMBER_WORDS.get(unit)
+        n = a + b if b is not None and a >= 20 and a % 10 == 0 and 0 < b < 10 else a
+        out |= {n} if n >= min_word else set()
+        if b is not None and n == a and b >= min_word:  # two separate number words
+            out.add(b)
+    return out
+
+
+def quoted_phrases(text: str) -> list[str]:
+    """Phrases the request puts in double quotes (straight or curly) or in single quotes that are not apostrophes."""
+    import re
+
+    found = re.findall(r'["“”]([^"“”]{1,80})["“”]', text) + re.findall(r"(?<![\w])'([^']{1,60})'(?![\w])", text)
+    return [q.strip(" .,!?;:").lower() for q in found if q.strip(" .,!?;:")]
+
+
+def persona_if_scene_grader_info(prompt_b: str, labels: list[str]) -> str:
+    """The judge's notes for a written scenario: B's instructions (what B was told to ask; a rewrite that slipped
+    past the checks then still scores A on what B asked) and the source's labels as hints."""
+    hints = ", ".join(SP_IF_LABEL_CHECKS[lb] for lb in sorted(labels))
+    return (
+        f'B was told: "{prompt_b}" Check that A meets every requirement B asks for in the conversation '
+        f"(the source data labels them as: {hints})."
+    )
+
+
+def persona_if_scene_reject(request: str, prompt_a: str, prompt_b: str, names: list) -> str:
+    """A written scenario's first, rule-based check -> "" or the reason: ``names`` (not opening with the assigned
+    pair), ``length`` (A outside ``SP_IF_SCENE_A_WORDS`` with a little slack, B outside 8-``SP_IF_MAX_WORDS``),
+    ``b_names_a`` (B's instructions use A's name, which B cannot know), ``truncated`` (B not ending a sentence), ``written_format`` (brackets, parentheses or "--" left in B), ``copied_example`` (B near the example's B: word-5-gram Jaccard > 0.2),
+    ``lost_quote`` (a quoted phrase of the request missing from B), ``lost_number`` (a count of the request missing
+    from B, digits or words)."""
+    import re
+
+    lo, hi = SP_IF_SCENE_A_WORDS
+    if not follows_names(prompt_a, prompt_b, names[0][0], names[1][0]):
+        return "names"
+    if re.search(rf"\b{re.escape(names[0][0])}\b", prompt_b):
+        return "b_names_a"
+    if not lo <= len(prompt_a.split()) <= hi + 5 or not 8 <= len(prompt_b.split()) <= SP_IF_MAX_WORDS:
+        return "length"
+    if not re.search(r"[.?!][\"”'’)]*\s*$", prompt_b):
+        return "truncated"
+    if re.search(r"[()\[\]\\]|--", prompt_b):
+        return "written_format"
+    if ngram_jaccard(word_ngrams(prompt_b), word_ngrams(SP_IF_SCENE_EXAMPLE[3])) > 0.2:
+        return "copied_example"
+    b = " ".join(prompt_b.lower().replace("’", "'").split())
+    if any(q.replace("’", "'") not in b for q in quoted_phrases(request)):
+        return "lost_quote"
+    if not spoken_numbers(request, min_word=2) <= spoken_numbers(prompt_b):
+        return "lost_number"
+    return ""
+
+
+class SelfPlayPersonaIfScenes(Job):
+    """``ask_and_answer`` scenarios (v2) written by the v2 generator around the persona IF requests of
+    ``SelfPlayPersonaIfPool`` (``requests`` = its ``out_dir``; its names, grader notes and order are kept).
+
+    ``per_call`` requests per gpt-oss call under ``SP_TRAIN_SYSTEM``, with the category ``SP_IF_SCENE_DEFINITION``, one
+    example (``SP_IF_SCENE_EXAMPLE``) and the requests' assigned names (``SP_POOL_NAMES_RULE``); one scenario per
+    request, in order. Each scenario must then pass ``persona_if_scene_reject``, not be near spj2 (pair word-5-gram
+    Jaccard > 0.2), and pass a gpt-oss check that B keeps every requirement, is told to ask, and A is told none
+    (``SP_IF_VERIFY_SYSTEM``, temperature 0). Kept in the source's order, up to ``n_keep``; the judge's notes are
+    built from B's instructions (``persona_if_scene_grader_info``), not the original: A is scored on what B asked. Both LLM phases resume after
+    an interruption.
+
+    Output dir ``pool/`` as ``SelfPlayPersonaIfPool``'s (``provenance.jsonl`` adds both prompts) plus
+    ``rejected.jsonl`` (scenario, reason, the check's note, the two prompts)."""
+
+    LEVEL = "persona_if"
+
+    def __init__(
+        self,
+        *,
+        requests: tk.Path,
+        n_keep: int = 800,
+        per_call: int = 5,  # 10 per call hit the token cap on 8 of 110 calls
+        category: str = "ask_and_answer",
+        held_out: str = "spj2_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 1.0,
+        seed: int = 0,
+    ):
+        assert held_out in SPJ2_SCENARIOS, held_out
+        self.requests, self.n_keep, self.per_call, self.category = requests, int(n_keep), int(per_call), category
+        self.held_out, self.llm_name, self.temperature, self.seed = held_out, llm_name, float(temperature), int(seed)
+        self.out_dir = self.output_path("pool", directory=True)
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The held-out set's content, the prompts and the check's caps are hashed."""
+        rules = [SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_IF_SCENE_DEFINITION, SP_IF_SCENE_EXAMPLE, SP_IF_SCENE_A_WORDS,
+                 SP_IF_MAX_WORDS, SP_IF_VERIFY_SYSTEM, sorted(_NUMBER_WORDS.items()), _SP_IF_SCENE_SCHEMA]  # fmt: skip
+        return super(SelfPlayPersonaIfScenes, cls).hash(
+            {
+                **parsed_args,
+                "held_out_digest": scenario_digest(parsed_args["held_out"]),
+                "rules_digest": hashlib.sha256(json.dumps(rules).encode()).hexdigest()[:16],
+            }
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, resumable=True)
+
+    def completed_fraction(self):
+        from .common import job_progress_fraction
+
+        return job_progress_fraction(self)
+
+    @staticmethod
+    def read_requests(d: str) -> list[dict]:
+        """A ``SelfPlayPersonaIfPool`` dir -> per scenario ``{scenario, request, names, grader_info, provenance}``."""
+        names = json.load(open(os.path.join(d, "names.json")))
+        notes = json.load(open(os.path.join(d, "grader_info.json")))
+        out = []
+        for line in open(os.path.join(d, "provenance.jsonl")):
+            p = json.loads(line)
+            s = p["scenario"]
+            out.append({"scenario": s, "request": " ".join(p["prompt"].split()), "names": names[s],
+                        "grader_info": notes[s], "provenance": p})  # fmt: skip
+        return out
+
+    def calls(self, reqs: list[dict]) -> list[dict]:
+        import numpy as np
+
+        rng = np.random.default_rng([self.seed, int(hashlib.sha256(self.category.encode()).hexdigest()[:8], 16)])
+        req_ex, *example = SP_IF_SCENE_EXAMPLE
+        example = json.dumps({"name": example[0], "prompt_a": example[1], "prompt_b": example[2]})
+        lo, hi = SP_IF_SCENE_A_WORDS
+        out = []
+        for k in range(0, len(reqs), self.per_call):
+            chunk = reqs[k : k + self.per_call]
+            listed = "\n".join(f"{j + 1}. {r['request']}" for j, r in enumerate(chunk))
+            names = "\n".join(f"{j + 1}. A: {r['names'][0][0]}, B: {r['names'][1][0]}" for j, r in enumerate(chunk))
+            user = (
+                f"Category: {self.category} -- {SP_IF_SCENE_DEFINITION}.\n"
+                f"Length: A {lo} to {hi} words; B at most {SP_IF_MAX_WORDS} words.\n\n"
+                f"Example, for the request: {req_ex}\n{example}\n\n"
+                f"Write {len(chunk)} scenarios, one per request below; give each its request number.\n{listed}\n\n"
+                f"{SP_POOL_NAMES_RULE}\n{names}"
+            )
+            out.append({"user": user, "seed": int(rng.integers(2**31)), "scenarios": [r["scenario"] for r in chunk]})
+        return out
+
+    def parse_scenes(self, call: dict, reply: dict) -> list:
+        """One scenario per request, matched by its ``request`` number (each number once, else the attempt fails and
+        is retried); named after the request; HTML entities decoded."""
+        import html
+
+        got = {int(x["request"]): x for x in reply["scenarios"]}
+        if sorted(got) != list(range(1, len(call["scenarios"]) + 1)) or len(reply["scenarios"]) != len(got):
+            raise ValueError(f"request numbers {sorted(got)} for {len(call['scenarios'])} requests")
+        clean = lambda t: " ".join(html.unescape(t).split())  # noqa: E731
+        return [(self.category, s, clean(got[j + 1]["prompt_a"]), clean(got[j + 1]["prompt_b"]), self.LEVEL)
+                for j, s in enumerate(call["scenarios"])]  # fmt: skip
+
+    def verify_calls(self, items: list[tuple]) -> list[dict]:
+        """``items`` = ``(request, scenario tuple)``; ``per_call`` per check request."""
+        out = []
+        for k in range(0, len(items), self.per_call):
+            chunk = items[k : k + self.per_call]
+            user = "\n\n".join(
+                f"Item {j + 1}\nORIGINAL: {req}\nB: {s[3]}\nA: {s[2]}" for j, (req, s) in enumerate(chunk)
+            )
+            out.append({"user": user, "seed": k, "scenarios": [s[1] for _, s in chunk]})
+        return out
+
+    @staticmethod
+    def parse_verdicts(call: dict, reply: dict) -> list:
+        got = sorted(reply["items"], key=lambda x: x["i"])
+        if [x["i"] for x in got] != list(range(1, len(call["scenarios"]) + 1)):
+            raise ValueError("verdicts do not match the items")
+        return [[s, bool(x["keeps_all"]), bool(x["b_asks"]), bool(x["a_neutral"]), x["problem"]]
+                for s, x in zip(call["scenarios"], got)]  # fmt: skip
+
+    def assemble(self, reqs: list[dict], scenes: dict, verdicts: dict) -> tuple[list, list, dict]:
+        """``scenes`` / ``verdicts`` by scenario name (verdict ``[name, keeps_all, b_asks, a_neutral, problem]``; a missing
+        one = its call failed) -> (kept ``(request dict, scenario)``, rejected rows, stats)."""
+        import collections
+
+        why = collections.Counter()
+        kept, rejected = [], []
+        for r in reqs:
+            s, v = scenes.get(r["scenario"]), verdicts.get(r["scenario"])
+            if len(kept) == self.n_keep:
+                break
+            if s is None:
+                reason, note = "generation_failed", ""
+            else:
+                reason, note = self.rule_reject(r, s), ""
+                if not reason:
+                    if v is None:
+                        reason = "verify_failed"
+                    elif not all(v[1:4]):
+                        reason = ("lost_requirement", "b_not_asking", "a_told_requirement")[[*v[1:4]].index(False)]
+                        note = v[4]
+            why[reason or "kept"] += 1
+            if reason:
+                rejected.append({"scenario": r["scenario"], "reason": reason, "note": note, "request": r["request"],
+                                 "prompt_a": s[2] if s else "", "prompt_b": s[3] if s else ""})  # fmt: skip
+            else:
+                kept.append((r, s))
+        return kept, rejected, {"requests": len(reqs), "kept": len(kept), "reasons": dict(why)}
+
+    def rule_reject(self, r: dict, s: tuple) -> str:
+        reason = persona_if_scene_reject(r["request"], s[2], s[3], r["names"])
+        if not reason and any(ngram_jaccard(word_ngrams(s[2] + " " + s[3]), h) > 0.2 for h in self._held_grams()):
+            reason = "near_spj2"
+        return reason
+
+    def _held_grams(self):
+        if not hasattr(self, "_held"):
+            self._held = [word_ngrams(s[2] + " " + s[3]) for s in SPJ2_SCENARIOS[self.held_out]]
+        return self._held
+
+    def run(self):
+        reqs = self.read_requests(self.requests.get_path())
+        calls = self.calls(reqs)
+        tag = f"sp-pool:{self.category}"
+        print(f"[{tag}] {len(reqs)} requests, {len(calls)} calls x {self.per_call} ({self.llm_name})", flush=True)
+        outs = generate_scenario_batches(self.llm_name, self.temperature, calls, tag=tag, parse=self.parse_scenes,
+                                         schema=_SP_IF_SCENE_SCHEMA, cache_path=os.path.abspath("calls.jsonl"))  # fmt: skip
+        failed = sum(o is None for o in outs)
+        if failed > 0.05 * len(calls):
+            raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
+        scenes = {s[1]: s for o in outs if o for s in o}
+        to_check = [(r["request"], scenes[r["scenario"]]) for r in reqs
+                    if r["scenario"] in scenes and not self.rule_reject(r, scenes[r["scenario"]])]  # fmt: skip
+        vcalls = self.verify_calls(to_check)
+        print(f"[{tag}] checking {len(to_check)} scenarios in {len(vcalls)} calls", flush=True)
+        vouts = generate_scenario_batches(self.llm_name, 0.0, vcalls, tag=f"{tag}:verify", system=SP_IF_VERIFY_SYSTEM,
+                                          schema=_SP_IF_VERIFY_SCHEMA, parse=self.parse_verdicts,
+                                          cache_path=os.path.abspath("verify.jsonl"))  # fmt: skip
+        verdicts = {v[0]: v for o in vouts if o for v in o}
+        kept, rejected, stats = self.assemble(reqs, scenes, verdicts)
+        stats.update({"calls": len(calls), "failed_calls": failed, "verify_calls": len(vcalls),
+                      "failed_verify_calls": sum(o is None for o in vouts)})  # fmt: skip
+        check_scenarios([s[:4] for _, s in kept], categories=None, max_words=SP_IF_MAX_WORDS)
+        d = self.out_dir.get_path()
+        json.dump([list(s) for _, s in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
+        json.dump({s[1]: r["names"] for r, s in kept}, open(os.path.join(d, "names.json"), "w"), indent=1)
+        notes = {s[1]: persona_if_scene_grader_info(s[3], r["provenance"]["constraints"]) for r, s in kept}
+        json.dump(notes, open(os.path.join(d, "grader_info.json"), "w"), indent=1)
+        with open(os.path.join(d, "provenance.jsonl"), "w") as f:
+            for r, s in kept:
+                f.write(json.dumps({**r["provenance"], "prompt_a": s[2], "prompt_b": s[3]}) + "\n")
+        with open(os.path.join(d, "rejected.jsonl"), "w") as f:
+            for x in rejected:
+                f.write(json.dumps(x) + "\n")
+        json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
+        print(f"[{tag}] {stats}", flush=True)
+        if len(kept) < self.n_keep:
+            raise RuntimeError(f"only {len(kept)} scenarios for n_keep={self.n_keep}")
 
 
 def mix_counts(sizes: dict, weights: dict, n_rows: int) -> dict:
