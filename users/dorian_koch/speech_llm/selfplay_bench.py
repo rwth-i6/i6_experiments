@@ -1696,6 +1696,11 @@ class SelfPlayScenarioPool(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, resumable=True)
 
+    def completed_fraction(self):
+        from .common import job_progress_fraction
+
+        return job_progress_fraction(self)
+
     def calls(self, pool: dict) -> list[dict]:
         """The generation requests; ``pool`` = ``FirstNamePool``'s ``countries``. Seeded per category, so two pools
         draw different domains and names."""
@@ -2144,6 +2149,11 @@ class SelfPlayIfChatPool(Job):
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, resumable=True)
+
+    def completed_fraction(self):
+        from .common import job_progress_fraction
+
+        return job_progress_fraction(self)
 
     def calls(self, convs: list[dict], pool: dict) -> list[dict]:
         """Per conversation: the name pair, A's prompt, the seed (seeded per category)."""
