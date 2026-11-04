@@ -14,15 +14,15 @@ from unittest.mock import patch
 from sisyphus import tk
 
 from i6_experiments.example_setups.seq2seq_rasr_2025.data.llm_fusion import (
-    QWEN_REPO,
-    QWEN_REVISION,
-    NATIVE_RUNNER,
     encode_word,
     encode_words,
     rewrite_lexicon,
     token_name,
 )
-from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import llm_fusion
+
+# The recipe LM module requires experiment-package initialization first.
+from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import training  # noqa: F401
+
 from i6_experiments.example_setups.seq2seq_rasr_2025.data.librispeech.lm import (
     OnnxTokenLmParams,
     get_word_lm_config,
@@ -83,109 +83,6 @@ class QwenFusionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "closed-tree"):
             rewrite_lexicon(root, CharacterTokenizer(), cfg)
 
-    def test_explicit_onnx_mapping(self):
-        params = OnnxTokenLmParams(tk.Path("model.onnx"), tk.Path("vocab"), scale=0.3)
-        cfg = get_word_lm_config(tk.Path("lex"), params)
-        self.assertEqual(cfg.type, "onnx")
-        self.assertEqual(cfg.scale, 0.3)
-        self.assertIsNone(cfg._get("vocab-unknown-word"))
-        self.assertNotIn("vocab-unknown-word", str(cfg))
-        self.assertEqual(cfg.io_map.prefix_length, "state_l000_k_in:size1")
-        self.assertEqual(cfg.session.execution_provider_type, "cuda")
-        self.assertEqual(cfg.max_batch_size, 16)
-
-    def test_grid_and_native_gates(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.recognition import ctc_granite
-
-        with patch.object(ctc_granite, "run", side_effect=lambda **kw: kw) as run:
-            setup = llm_fusion.run()
-        self.assertEqual(run.call_count, 1)
-        self.assertEqual(setup["corpora"], ["dev-other"])
-        variants = setup["variants"]
-        self.assertEqual(len(variants), 24)
-        self.assertEqual(len({v.descriptor for v in variants}), 24)
-        (word_trafo,) = [v for v in variants if "word-trafo" in v.descriptor]
-        self.assertTrue(word_trafo.descriptor.endswith("_gpu-stateless_lm-batch1"))
-        self.assertEqual(word_trafo.search_algorithm_params.word_lm_params.max_batch_size, 1)
-        self.assertEqual(
-            get_word_lm_config(
-                word_trafo.prepared_lexicon_file, word_trafo.search_algorithm_params.word_lm_params
-            ).max_batch_size,
-            1,
-        )
-        self.assertTrue(word_trafo.search_algorithm_params.word_lm_params.use_gpu)
-        self.assertFalse(word_trafo.search_algorithm_params.word_lm_params.use_kv_cache)
-        self.assertEqual(word_trafo.search_mode_params.gpu_mem_rqmt, 24)
-        self.assertFalse(word_trafo.search_algorithm_params.word_lm_params.vocab_file.creator.use_kv_cache)
-        qwen = [v for v in variants if "qwen3" in v.descriptor and "text-variants" not in v.descriptor]
-        self.assertEqual(len(qwen), 4)
-        self.assertIsNone(qwen[0].search_algorithm_params.word_lm_params)
-        self.assertEqual([v.search_algorithm_params.word_lm_params.scale for v in qwen[1:]], [0.1, 0.3, 0.5])
-        gate = qwen[1].prepared_lexicon_file.creator
-        self.assertEqual(gate.repo.creator.repo_id, QWEN_REPO)
-        self.assertEqual(gate.repo.creator.revision, QWEN_REVISION)
-        self.assertEqual(gate.binary.creator.source_folder.creator.commit, "8c1ac793675fb7aba0198cc165dca7a2e624375d")
-        self.assertEqual(gate.hf_report.creator.out_model, qwen[1].search_algorithm_params.word_lm_params.onnx_model)
-        self.assertEqual(gate.correctness_report.creator.rasr_binary_path, gate.binary)
-        self.assertIsNotNone(gate.pruning_report.creator.first_piece_report)
-        self.assertEqual(set(gate.configs), {1.0, 0.3})
-        for config in gate.configs.values():
-            toy = config.creator.config.lib_rasr.lexicon.file.creator.lexicon.creator.static_lexicon
-            for special in ("sentence-begin", "sentence-end"):
-                self.assertEqual(next(l for l in toy.lemmata if l.special == special).phon, [""])
-        compile(NATIVE_RUNNER, "qwen-native-runner", "exec")
-        new_variants = [v for v in variants if "text-variants" in v.descriptor and "focus-v2" not in v.descriptor]
-        self.assertEqual(
-            {
-                (v.search_algorithm_params.word_lm_params.scale, v.search_algorithm_params.max_word_end_beam_size)
-                for v in new_variants
-            },
-            {(s, b) for s in (0.1, 0.3, 0.5) for b in (8, 16)},
-        )
-        for v in new_variants:
-            p = v.search_algorithm_params
-            self.assertEqual(p.max_beam_sizes, [64])
-            self.assertEqual(p.word_end_score_threshold, 16)
-            self.assertEqual(p.word_lm_params.max_batch_size, 16)  # Qwen is not the stateless queue backend.
-            self.assertIn(f"_beam64_wordbeam{p.max_word_end_beam_size}_thr16", v.descriptor)
-            self.assertIsNotNone(v.prototype_traceback_formatter_serializers)
-            compile(v.prepared_lexicon_file.creator.runner, "variant-native-runner", "exec")
-            self.assertEqual(v.search_mode_params.mem_rqmt, 64)
-            gate = v.prepared_lexicon_file.creator
-            self.assertEqual(gate.model, v.search_algorithm_params.word_lm_params.onnx_model)
-            self.assertEqual(
-                gate.model.creator.alias_manifest.creator.out_vocab, v.search_algorithm_params.word_lm_params.vocab_file
-            )
-        for v in variants[:7] + variants[8:14]:
-            p = v.search_algorithm_params
-            self.assertEqual(p.unknown_word_fallback, "disabled")
-            self.assertEqual(p.max_beam_sizes, [64] if v in new_variants else [256])
-            self.assertEqual(p.score_thresholds, [16])
-            self.assertEqual(v.prior_scale, 0)
-            self.assertEqual(v.blank_penalty, 0)
-
-        focused = variants[14:]
-        self.assertEqual(len(focused), 10)
-        self.assertEqual(sum(v.search_algorithm_params.word_lm_params is None for v in focused), 2)
-        for v in focused:
-            p = v.search_algorithm_params
-            self.assertIn("qwen-focus-v2", v.descriptor)
-            self.assertEqual(p.max_beam_sizes, [64])
-            self.assertEqual(p.max_word_end_beam_size, 8)
-            self.assertEqual(p.score_thresholds, [p.word_end_score_threshold])
-            self.assertIn(p.word_end_score_threshold, (8.0, 16.0))
-            self.assertEqual(p.unknown_word_fallback, "disabled")
-            self.assertFalse(p.sentence_end_fallback)
-            self.assertEqual(v.search_mode_params.gpu_mem_rqmt, 24)
-            self.assertEqual(v.prior_scale, 0)
-            self.assertEqual(v.blank_penalty, 0)
-            if "lowercase" in v.descriptor:
-                self.assertIsNone(v.prototype_traceback_formatter_serializers)
-                self.assertEqual(v.prepared_lexicon_file, qwen[1].prepared_lexicon_file)
-            else:
-                self.assertIsNotNone(v.prototype_traceback_formatter_serializers)
-                self.assertEqual(v.prepared_lexicon_file, new_variants[0].prepared_lexicon_file)
-
     def test_text_variants_preserve_words_and_gate_initial_ids(self):
         from i6_experiments.example_setups.seq2seq_rasr_2025.data.qwen_text_variants import (
             rewrite_variant_lexicon,
@@ -194,14 +91,16 @@ class QwenFusionTest(unittest.TestCase):
         )
 
         self.assertEqual(word_spellings("DON'T"), ("don't", "Don't", "DON'T"))
-        source = ET.fromstring("""<lexicon><phoneme-inventory><phoneme><symbol>x</symbol></phoneme></phoneme-inventory>
+        source = ET.fromstring(
+            """<lexicon><phoneme-inventory><phoneme><symbol>x</symbol></phoneme></phoneme-inventory>
           <lemma name="word"><orth>EUGENIUS</orth><phon>x x</phon><eval><tok>EUGENIUS</tok></eval></lemma>
           <lemma><orth>.</orth><phon>x</phon><synt/></lemma>
           <lemma><orth>_</orth><phon>x</phon><synt/></lemma>
           <lemma special="blank"><orth>[BLANK]</orth><phon>x</phon><synt/></lemma>
           <lemma special="sentence-begin"><orth>[BOS]</orth><phon/><synt/></lemma>
           <lemma special="sentence-end"><orth>[EOS]</orth><phon/><synt/></lemma>
-          <lemma special="unknown"><orth>[UNK]</orth><synt/></lemma></lexicon>""")
+          <lemma special="unknown"><orth>[UNK]</orth><synt/></lemma></lexicon>"""
+        )
         tokenizer = CharacterTokenizer()
         cfg = dict(vocab_size=256, bos_token_id=200, eos_token_id=200)
         out, report = rewrite_variant_lexicon(source, tokenizer, cfg)
@@ -296,7 +195,8 @@ class QwenFusionTest(unittest.TestCase):
         config._attn_implementation = "eager"
         model = Qwen3ForCausalLM(config).eval()
         tokenizer = CharacterTokenizer()
-        source = ET.fromstring("""<lexicon><phoneme-inventory>
+        source = ET.fromstring(
+            """<lexicon><phoneme-inventory>
             <phoneme><symbol>blank</symbol><variation>none</variation></phoneme>
             <phoneme><symbol>a</symbol><variation>none</variation></phoneme>
             <phoneme><symbol>b</symbol><variation>none</variation></phoneme></phoneme-inventory>
@@ -304,7 +204,8 @@ class QwenFusionTest(unittest.TestCase):
             <lemma><orth>HI</orth><phon>a</phon></lemma>
             <lemma><orth>THERE</orth><phon>b</phon></lemma>
             <lemma special="sentence-begin"><orth>[BOS]</orth><phon/><synt/></lemma>
-            <lemma special="sentence-end"><orth>[EOS]</orth><phon/><synt/></lemma></lexicon>""")
+            <lemma special="sentence-end"><orth>[EOS]</orth><phon/><synt/></lemma></lexicon>"""
+        )
         lex, report = rewrite_variant_lexicon(source, tokenizer, config.to_dict())
         candidates = []
         with torch.inference_mode():

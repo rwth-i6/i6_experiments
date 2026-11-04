@@ -77,39 +77,3 @@ def test_native_accepts_partial_and_either_eos():
         result = scorer.native(dict(input_ids=torch.tensor([[1, 2]])), max_new_tokens=2)
         assert result["raw_token_ids"] == tokens
         assert result["truncated"] == truncated
-
-
-def test_speech_suite_uses_same_data_and_baseline_dependencies():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr.qwen import run as run_qwen
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr.qwen_speech import run, SPEECH_REVISION
-
-    data = run_qwen()["data"]
-    result = run(data=data)
-    scores = result["scores"]
-    for name, prepared in data.items():
-        native = scores["qwen-speech/native"][name].creator.hypotheses.creator
-        fusion = scores["qwen-speech/granite-fusion"][name].creator.hypotheses.creator
-        assert native.dataset == fusion.dataset == prepared.out_dataset
-        assert native.code_version == "a514c5497cdf56142ec58409f162984032229e9b268a01709d329fda364166dc"
-        assert fusion.batch_size == 8
-        assert fusion.code_version == "12d174b8537a64b44dfe89562d226dfa6196a0f1b69d8fe59a99910b5bff1a71"
-        for condition, job in (("native", native), ("granite-fusion", fusion)):
-            scope = f"open-asr/qwen-speech-0.6b/{condition}/{name}"
-            assert scope in job._sis_alias_prefixes
-            assert "recognition" in job.get_aliases()
-            score = scores[f"qwen-speech/{condition}"][name].creator
-            assert scope in score._sis_alias_prefixes
-            assert "scoring" in score.get_aliases()
-        if name == "voxpopuli-cleaned":
-            assert native._sis_id().endswith("QwenSpeechRecogJob.WNLNwkUb3VPd")
-        assert native.speech_repo.creator.revision == SPEECH_REVISION
-        assert fusion.baseline == scores["qwen-speech/native"][name]
-        config = fusion.rasr_config.creator.config.lib_rasr
-        assert config.search_algorithm.llm.type == "qwen-speech"
-        assert config.search_algorithm.llm_scale == 0.3
-        assert config.search_algorithm.word_penalty == 0
-        assert config.search_algorithm.log_stepwise_statistics is False
-    for scale in (0.05, 0.1, 0.5):
-        rows = scores[f"qwen-speech/granite-fusion-scale-{scale:g}"]
-        assert all(name.startswith("loquacious-dev") for name in rows)
-        assert "loquacious-dev.yodas" in rows

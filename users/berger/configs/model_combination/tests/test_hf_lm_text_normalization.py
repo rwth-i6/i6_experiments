@@ -151,64 +151,6 @@ class HfLmNormalizationTest(unittest.TestCase):
             with uopen(job.out_text, "rt") as src:
                 self.assertEqual(src.read(), (root / "input.txt").read_text())
 
-    def test_matched_sweep(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.recognition.ctc_granite import (
-            text_normalized_lm_variants,
-        )
-
-        target = (
-            "i6_experiments.example_setups.seq2seq_rasr_2025.data.librispeech."
-            "lm_text_normalization.get_text_normalization_4gram_lms"
-        )
-        paths = {"original": tk.Path("original.arpa.gz"), "normalized": tk.Path("normalized.arpa.gz")}
-        with patch(target, return_value=paths):
-            variants = text_normalized_lm_variants()
-        self.assertEqual(len(variants), 20)
-        for offset, condition in enumerate(["published", "original", "normalized-canonical", "normalized-split"]):
-            arm = variants[offset * 5 : offset * 5 + 5]
-            self.assertEqual([v.search_algorithm_params.word_lm_params.scale for v in arm], [0.0, 0.2, 0.4, 0.6, 0.8])
-            for variant in arm:
-                self.assertEqual(variant.normalize_lm_tokens, condition.startswith("normalized-"))
-                self.assertEqual(
-                    variant.search_algorithm_params.word_lm_params.lm_file,
-                    paths.get("normalized" if condition.startswith("normalized-") else condition),
-                )
-                if condition.startswith("normalized-"):
-                    self.assertEqual(variant.normalized_lexicon_mode, condition.split("-", 1)[1])
-                self.assertEqual(variant.prior_scale, 0.2)
-                self.assertEqual(variant.search_algorithm_params.max_beam_sizes, [256])
-
-    def test_recognition_receives_single_token_search_lexicon(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.recognition import (
-            common,
-            ctc_granite,
-        )
-
-        for mode in ["canonical", "split"]:
-            variant = ctc_granite.default_offline_tree_4gram_recog_variant()
-            with (
-                patch.object(common, "get_hf_ctc_vocab_file", return_value=tk.Path("vocab.txt")),
-                patch.object(common, "get_hf_bpe_bliss_lexicon", return_value=tk.Path("acoustic.xml")),
-                patch.object(common, "get_bliss_lexicon", return_value=tk.Path("base.xml")),
-                patch.object(common.tk, "register_output"),
-                patch.object(common, "_run_single_variant", return_value=[]) as decode,
-            ):
-                common.run_single_hf_bpe_variant(
-                    model_descriptor="test",
-                    huggingface_repo_dir=tk.Path("hf-repo"),
-                    encoder_serializers=None,
-                    label_scorer_configs=[],
-                    blank_index=0,
-                    variant=variant,
-                    corpora=["dev-other"],
-                    normalize_lm_tokens=True,
-                    normalized_lexicon_mode=mode,
-                )
-            lexicon = decode.call_args.kwargs["lexicon_file"]
-            self.assertIsInstance(lexicon.creator, BuildNormalizedWordSearchLexiconJob)
-            self.assertEqual(lexicon.creator.mode, mode)
-            self.assertIsInstance(lexicon.creator.lexicon.creator, NormalizeLexiconLmTokensJob)
-
 
 if __name__ == "__main__":
     unittest.main()

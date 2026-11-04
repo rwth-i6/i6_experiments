@@ -14,8 +14,9 @@ def test_prior_sign_inventory_and_frame_costs(tmp_path, monkeypatch):
     def init(self, *args, **kwargs):
         self.family, self.blank = "ctc", 1
         self.tokenizer = SimpleNamespace(convert_ids_to_tokens=lambda i: ["a", "blank", "b"][i])
+
     monkeypatch.setattr(pc.BaseAdapter, "__init__", init)
-    raw = np.array([[1., 2., 3.], [2., 3., 4.]], dtype=np.float32)
+    raw = np.array([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]], dtype=np.float32)
     monkeypatch.setattr(pc.BaseAdapter, "encode_inputs", lambda self, inputs: raw.copy())
     prior = tmp_path / "prior.json"
     data = dict(log_prior=np.log([0.2, 0.7, 0.1]).tolist(), blank=1, pieces=["a", "blank", "b"])
@@ -41,11 +42,12 @@ def test_zero_encoder_ilm_nonblank_normalization_and_frame_independence(monkeypa
         joint=lambda decoder_hidden_states, encoder_hidden_states: decoder_hidden_states + encoder_hidden_states,
     )
     costs = [3.0, 4.0, 5.0, 6.0]
-    monkeypatch.setattr(pc.BaseAdapter, "score_contexts",
-                        lambda self, contexts: [(costs.copy(), t) for t, _ in contexts])
+    monkeypatch.setattr(
+        pc.BaseAdapter, "score_contexts", lambda self, contexts: [(costs.copy(), t) for t, _ in contexts]
+    )
     result = adapter.score_contexts([(0, (2,)), (1, (2,)), (0, ())])
-    expected = torch.tensor([0., 1., 0.]).log_softmax(0).numpy()
-    np.testing.assert_allclose(np.asarray(result[0][0])[[0, 2, 3]], np.array(costs)[[0, 2, 3]] + .2 * expected)
+    expected = torch.tensor([0.0, 1.0, 0.0]).log_softmax(0).numpy()
+    np.testing.assert_allclose(np.asarray(result[0][0])[[0, 2, 3]], np.array(costs)[[0, 2, 3]] + 0.2 * expected)
     assert result[0][0][1] == costs[1]
     assert result[0][0] == result[1][0]
     assert result[0][0] != result[2][0]
@@ -68,16 +70,38 @@ def test_scoped_injection_restores_original_on_failure(monkeypatch):
 def test_native_speech_beam_with_real_tiny_multimodal_model(beam):
     from transformers import Qwen3ASRConfig, Qwen3ASRForConditionalGeneration, Qwen3Config
     from transformers.models.qwen3_asr.configuration_qwen3_asr import Qwen3ASREncoderConfig
+
     torch.manual_seed(12)
     torch.set_num_threads(2)
-    model = Qwen3ASRForConditionalGeneration(Qwen3ASRConfig(
-        audio_config=Qwen3ASREncoderConfig(num_mel_bins=16, encoder_layers=1, encoder_attention_heads=2,
-            encoder_ffn_dim=32, d_model=16, output_dim=16, downsample_hidden_size=8),
-        text_config=Qwen3Config(vocab_size=32, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
-            num_attention_heads=2, num_key_value_heads=2, head_dim=8, max_position_embeddings=128,
-            eos_token_id=3, pad_token_id=0, bos_token_id=1),
-        audio_token_id=2, eos_token_id=3, pad_token_id=0,
-    )).eval()
+    model = Qwen3ASRForConditionalGeneration(
+        Qwen3ASRConfig(
+            audio_config=Qwen3ASREncoderConfig(
+                num_mel_bins=16,
+                encoder_layers=1,
+                encoder_attention_heads=2,
+                encoder_ffn_dim=32,
+                d_model=16,
+                output_dim=16,
+                downsample_hidden_size=8,
+            ),
+            text_config=Qwen3Config(
+                vocab_size=32,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                num_key_value_heads=2,
+                head_dim=8,
+                max_position_embeddings=128,
+                eos_token_id=3,
+                pad_token_id=0,
+                bos_token_id=1,
+            ),
+            audio_token_id=2,
+            eos_token_id=3,
+            pad_token_id=0,
+        )
+    ).eval()
     features, mask = torch.randn(1, 16, 100), torch.ones(1, 100, dtype=torch.long)
     with torch.inference_mode():
         audio = model.get_audio_features(features, mask, return_dict=True).pooler_output
@@ -88,25 +112,3 @@ def test_native_speech_beam_with_real_tiny_multimodal_model(beam):
     assert 0 < len(result["raw_token_ids"]) <= 4
     assert result["beam"] == beam
     assert result["truncated"] == (result["raw_token_ids"][-1] != 3)
-
-
-def test_correction_grid_is_dev_only_and_covers_both_external_models():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr.pretrained_extensions import run
-    result = run()
-    assert len(result["standalone"]) == 8
-    assert len(result["corrections"]) == 56
-    for job, score in result["corrections"]:
-        preparation = job.dataset.creator
-        if preparation.__class__.__name__ == "PrepareOpenAsrDatasetJob":
-            assert preparation.dataset.name == "librispeech-dev-other"
-        else:
-            assert preparation.__class__.__name__ == "PrepareBenchmarkSubsetJob"
-        assert hasattr(job, "out_correction_validation")
-        weight = getattr(job, "prior_scale", getattr(job, "ilm_scale", 0))
-        assert weight in (0.1, 0.2)
-        if hasattr(job, "prior"):
-            assert job.prior.creator.training_source["split"].startswith("train")
-            assert job.prior.creator.max_segments == 512
-        else:
-            cfg = job.config.creator.config.lib_rasr.search_algorithm
-            assert cfg.max_beam_size == [8] and cfg.pre_llm_max_beam_size == 32

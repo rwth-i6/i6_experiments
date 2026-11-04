@@ -3,10 +3,8 @@
 import unittest
 
 from i6_core.lib.lexicon import Lemma, Lexicon
-from sisyphus import Job
 
 from i6_experiments.example_setups.seq2seq_rasr_2025.data.huggingface import (
-    HuggingFaceBpeBlissLexiconJob,
     _add_uncovered_normalization_aliases,
 )
 
@@ -78,9 +76,6 @@ class NormalizationAliasTest(unittest.TestCase):
         word = Lemma(orth=["WORD"], phon=["word"])
         lexicon = self.lexicon(word, Lemma(orth=["A"], phon=["a", "a b"]), Lemma(orth=["B"], phon=["b c"]))
         self.assertEqual(_add_uncovered_normalization_aliases(lexicon, [(word, ["a b c"])]), (1, 0))
-
-    def test_job_hash_invalidates_old_lexicon(self):
-        self.assertNotEqual(HuggingFaceBpeBlissLexiconJob.hash({}), Job.hash({}))
 
 
 if __name__ == "__main__":

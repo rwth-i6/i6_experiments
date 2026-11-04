@@ -24,13 +24,6 @@ def test_surface_policy_does_not_change_words():
     assert lm_surface("", "initial-capital-period") == ""
 
 
-def test_selection_is_cost_minimization_not_token_average():
-    candidates = [candidate("wrong", 1, 20), candidate("right", 2, 1)]
-    assert select_candidate(candidates, 50, 0, "lowercase")["text"] == "wrong"
-    assert select_candidate(candidates, 50, 0.1, "lowercase")["text"] == "right"
-    assert select_candidate(candidates, 1, 0.1, "lowercase")["text"] == "wrong"
-
-
 def test_evaluation_reports_first_pass_and_oracle(tmp_path):
     ref = tmp_path / "refs.jsonl"
     data = tmp_path / "candidates.jsonl"
@@ -49,23 +42,14 @@ def test_evaluation_reports_first_pass_and_oracle(tmp_path):
     assert result["n1_oracle_scale0"]["wer_percent"] == 50
 
 
-def test_driver_uses_actual_dev_split_and_open_candidates():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.nbest_qwen import run
-
-    conditions = run()
-    assert set(conditions) == {"open-no-lm", "open-4gram"}
-    for evaluation in conditions.values():
-        scoring = evaluation.candidates.creator
-        generation = scoring.candidates.creator
-        assert generation.binary.creator.source_folder.creator.commit == "ff206f90c64fa5c44fa1acb7059f23722bfefc8c"
-        assert generation.binary.creator.source_folder.creator.patches
-        assert generation.n == 50
-        assert generation.dataset.creator.dataset.split == "validation"
-        assert generation.dataset.creator.dataset.config == "other"
-        assert evaluation.references.creator == generation.dataset.creator
-        cfg = generation.rasr_config.creator.config.lib_rasr
-        assert cfg.search_algorithm.unknown_word_fallback == "known-excluding"
-        assert cfg.search_algorithm.recombination_mode == "on"
-        assert cfg.search_algorithm.max_word_end_beam_size == 256
-        validation = cfg.lexicon.file.creator
-        assert validation.decoder_smoke_report.creator.rasr_binary_path == generation.binary
+def test_rescoring_uses_summed_cost_and_preserves_first_pass_and_nbest_cutoff():
+    short = candidate("short", 1.0, 3.0)
+    long = candidate("a much longer sentence", 2.0, 4.0)
+    # Averaging by LLM-token count would incorrectly prefer the long candidate.
+    for c, costs in ((short, [3.0]), (long, [1.0, 1.0, 1.0, 1.0])):
+        for scores in c["qwen"].values():
+            scores["token_costs"] = costs
+    assert select_candidate([short, long], 2, 1.0, "lowercase") is short
+    long["first_pass_cost"] = -1.0
+    assert select_candidate([short, long], 2, 1.0, "lowercase") is long
+    assert select_candidate([short, long], 1, 1.0, "lowercase") is short

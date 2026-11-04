@@ -245,8 +245,8 @@ class BoostArpaUnknownProbabilityJob(Job):
     """Multiply the probability of every ARPA n-gram ending in ``unknown_token``."""
 
     def __init__(self, arpa_lm: tk.Path, probability_factor: float, unknown_token: str = "<UNK>") -> None:
-        if probability_factor <= 0.0:
-            raise ValueError("probability_factor must be positive")
+        if not math.isfinite(probability_factor) or probability_factor <= 0.0:
+            raise ValueError("probability_factor must be finite and positive")
         self.arpa_lm = arpa_lm
         self.probability_factor = probability_factor
         self.unknown_token = unknown_token
@@ -255,29 +255,30 @@ class BoostArpaUnknownProbabilityJob(Job):
     def tasks(self):
         yield Task("run", mini_task=True)
 
+    @classmethod
+    def hash(cls, parsed_args):
+        # The old implementation divided by the factor and misread numeric
+        # predicted words. Never reuse those cached ARPA outputs.
+        return super().hash({**parsed_args, "probability_factor_semantics": 2})
+
     def run(self) -> None:
         # ARPA probabilities are log10 probabilities.  A multiplicative boost is
         # therefore an additive log10(probability_factor) bonus.
         bonus = math.log10(self.probability_factor)
         changed = 0
+        order = None
         with uopen(self.arpa_lm, "rt") as source, uopen(self.out_arpa_lm, "wt") as target:
             for line in source:
+                section = re.fullmatch(r"\\(\d+)-grams:", line.strip())
+                if section:
+                    order = int(section[1])
+                elif line.lstrip().startswith("\\"):
+                    order = None
                 fields = line.split()
-                # ARPA n-gram lines may end in a numeric backoff weight.  Find
-                # the final (word) field instead of assuming it is fields[-1].
-                words = []
-                for field in fields[1:]:
-                    try:
-                        float(field)
-                    except ValueError:
-                        words.append(field)
-                try:
-                    is_ngram = bool(fields)
-                    float(fields[0])
-                except (IndexError, ValueError):
-                    is_ngram = False
-                if is_ngram and words and words[-1] == self.unknown_token:
-                    fields[0] = f"{float(fields[0]) - bonus:.7f}"
+                # Section order distinguishes a numeric word from the optional
+                # backoff weight; only the predicted (last) token is boosted.
+                if order and len(fields) in (order + 1, order + 2) and fields[order] == self.unknown_token:
+                    fields[0] = f"{float(fields[0]) + bonus:.7f}"
                     line = " ".join(fields) + "\n"
                     changed += 1
                 target.write(line)

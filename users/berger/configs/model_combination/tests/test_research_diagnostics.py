@@ -2,7 +2,6 @@
 
 import gzip
 import json
-from pathlib import Path
 
 import pytest
 from sisyphus import tk
@@ -113,7 +112,6 @@ def test_no_training_audio_download_is_scheduled(tmp_path):
 
 
 def test_ranking_job_uses_frozen_settings_and_checks_actual_selection(tmp_path):
-    from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common import error_complementarity as ec
 
     rows = [candidate("the dog", 0, 10), candidate("the cat", 10, 1)]
     pool = tmp_path / "pool.jsonl"

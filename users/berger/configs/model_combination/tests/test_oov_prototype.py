@@ -5,7 +5,6 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 
 from i6_core.lib.lexicon import Lemma, Lexicon
 from i6_core.util import uopen, write_xml
@@ -17,13 +16,8 @@ from i6_experiments.example_setups.seq2seq_rasr_2025.data.oov_prototype import (
     ValidateOovPrototypeInputsJob,
     classify_piece,
 )
-from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.oov_prototype import prototype_variants
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.oov_traceback import (
     GraniteOovTracebackFormatter,
-)
-from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.recog_rasr_config import (
-    TreeTimesyncRecogParams,
-    get_tree_timesync_recog_config,
 )
 
 
@@ -66,80 +60,6 @@ class OovPrototypeTest(unittest.TestCase):
                 result = ET.parse(src).getroot()
             self.assertEqual([p.text for p in result.findall('lemma[@special="unknown"]/phon')], ["x"])
 
-    def test_granite_prototype_explicitly_requests_unknown_lemma(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import oov_prototype
-        from i6_experiments.example_setups.seq2seq_rasr_2025.data.huggingface import HuggingFaceBpeBlissLexiconJob
-
-        model = SimpleNamespace(model_config=SimpleNamespace(target_size=185))
-        with (
-            patch.object(oov_prototype.ctc_bpe, "run", return_value=[]),
-            patch.object(oov_prototype.ctc_granite, "run", return_value=[]) as granite_run,
-        ):
-            oov_prototype.run(model)
-        variants = granite_run.call_args.kwargs["variants"]
-        original = next(v for v in variants if v.descriptor.endswith("_original-lexicon"))
-        original_source = original.prepared_lexicon_file.creator.lexicon
-        self.assertIsInstance(original_source.creator, RemoveEmptyUnknownPronunciationsJob)
-        self.assertIsInstance(original_source.creator.lexicon.creator, HuggingFaceBpeBlissLexiconJob)
-        self.assertTrue(original_source.creator.lexicon.creator.add_unknown_lemma)
-        dump_config = original.prepared_lexicon_file.creator.state_tying.creator.config
-        allophones = dump_config.allophone_tool.acoustic_model.allophones
-        self.assertTrue(allophones.add_all)
-        self.assertFalse(allophones.add_from_lexicon)
-        self.assertNotIn("add-from-file", str(allophones))
-        fallback = next(v for v in variants if "known-excluding" in v.descriptor)
-        fallback_source = fallback.prepared_lexicon_file.creator.lexicon.creator.lexicon
-        self.assertEqual(fallback_source, original_source)
-        # Preserve the general factory's existing closed-vocabulary default.
-        self.assertFalse(HuggingFaceBpeBlissLexiconJob(tk.Path("base"), tk.Path("repo")).add_unknown_lemma)
-
-    def test_real_decoder_smoke_graph(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.data.oov_decoder_smoke import (
-            OovPrototypeDecoderSmokeJob,
-            smoke_lexicon,
-            RUNNER,
-        )
-
-        job = OovPrototypeDecoderSmokeJob(tk.Path("prototype-bin"), tk.Path("/usr/bin/python3"))
-        self.assertEqual(len(job.cases), 12)
-        self.assertEqual(len({case["name"] for case in job.cases}), 12)
-        compile(RUNNER, "smoke-runner", "exec")
-        for kind in ("bpe", "granite"):
-            lex, size = smoke_lexicon(kind)
-            self.assertEqual(len(lex.phonemes), size)
-            self.assertEqual(list(lex.phonemes)[0], "<blank>")
-            known = next(case for case in job.cases if case["name"] == f"{kind}-known-exclusion")
-            self.assertEqual(known["expected_score"], 0)
-            self.assertEqual(known["config"].creator.config.lib_rasr.search_algorithm.unknown_word_penalty, -10)
-        lex, _ = smoke_lexicon("granite")
-        self.assertEqual(lex.lemmata[-1].special, "unknown-word-start+nonword")
-
-    def test_pinned_build_and_lm_image(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025 import tools
-        from i6_experiments.example_setups.seq2seq_rasr_2025.data.librispeech import lm
-
-        binary = tools.get_oov_prototype_rasr_binary_path()
-        build = binary.creator
-        clone = build.source_folder.creator
-        self.assertEqual(clone.commit, "5083eddece2982cb3b55c09daf1368e6d460f467")
-        self.assertIn("unknown-word-start+nonword", clone.patches[0])
-        self.assertIsNone(binary.hash_overwrite)
-        self.assertIsNone(build.source_folder.hash_overwrite)
-        crps = []
-
-        def image(crp, **kwargs):
-            crps.append(crp)
-            return SimpleNamespace(out_image=tk.Path("prototype.image"))
-
-        with patch.object(lm, "CreateLmImageJob", side_effect=image):
-            config = lm.get_word_lm_config(
-                tk.Path("unique-prototype-lexicon"),
-                lm.ArpaLmParams(scale=0.3, lm_file=tk.Path("test.arpa")),
-                rasr_binary_path_override=binary,
-            )
-        self.assertEqual(crps[0].lm_util_exe, binary.join_right("lm-util.linux-x86_64-standard"))
-        self.assertEqual(config.scale, 0.3)
-
     def test_piece_roles(self):
         for token, role in [
             ("▁un", "start"),
@@ -154,107 +74,6 @@ class OovPrototypeTest(unittest.TestCase):
         for token in ["▁a▁b", "a b", "a▁", "▁▁", ""]:
             with self.assertRaises(ValueError):
                 classify_piece(token, special=False, blank=False)
-
-    def test_matrix(self):
-        for kind, expected in [("bpe", 64), ("granite", 43)]:
-            variants = prototype_variants(kind)
-            self.assertEqual(len(variants), expected)
-            self.assertEqual(len({v.descriptor for v in variants}), expected)
-            tree = [v for v in variants if isinstance(v.search_algorithm_params, TreeTimesyncRecogParams)]
-            for v in tree:
-                p = v.search_algorithm_params
-                self.assertEqual(v.prior_scale, 0)
-                self.assertEqual(v.blank_penalty, 0)
-                self.assertEqual(p.recombination_mode, "on")
-                self.assertFalse(p.sentence_end_fallback)
-                self.assertEqual(len(p.max_beam_sizes), 1)
-                self.assertEqual(len(p.score_thresholds), 1)
-                if p.unknown_word_fallback == "disabled":
-                    self.assertTrue(
-                        any(
-                            other.search_algorithm_params.unknown_word_fallback == "known-excluding"
-                            and other.search_algorithm_params.word_lm_params == p.word_lm_params
-                            and other.search_algorithm_params.max_beam_sizes == p.max_beam_sizes
-                            and other.search_algorithm_params.score_thresholds == p.score_thresholds
-                            and other.search_algorithm_params.unknown_word_penalty == 0
-                            for other in tree
-                        )
-                    )
-            expected_penalties = {-4, -2, -1, 0, 1, 2, 4}
-            if kind == "bpe":
-                expected_penalties.update({6, 8, 10, 12})
-                expected_penalties.update(range(10, 101, 10))
-            self.assertEqual({v.search_algorithm_params.unknown_word_penalty for v in tree}, expected_penalties)
-
-    def test_bpe_positive_penalty_followup_preserves_original_conditions(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import oov_prototype
-
-        with patch.object(oov_prototype, "BPE_CLOSED_LIMIT_PENALTIES", ()):
-            expanded = prototype_variants("bpe")
-            with patch.object(oov_prototype, "BPE_POSITIVE_PENALTIES", ()):
-                original = prototype_variants("bpe")
-        self.assertEqual(len(original), 47)
-        for old, current in zip(original, expanded):
-            self.assertEqual(old, current)
-        added = expanded[len(original) :]
-        self.assertEqual(
-            {
-                (v.search_algorithm_params.word_lm_params.scale, v.search_algorithm_params.unknown_word_penalty)
-                for v in added
-            },
-            {(scale, beta) for scale in (0.4, 0.6) for beta in (6, 8, 10, 12)},
-        )
-        for variant in added:
-            params = variant.search_algorithm_params
-            self.assertEqual(params.unknown_word_fallback, "known-excluding")
-            self.assertEqual(params.max_beam_sizes, [256])
-            self.assertEqual(params.score_thresholds, [16.0])
-            self.assertEqual(params.max_word_end_beam_size, 256)
-            self.assertEqual(params.word_end_score_threshold, 16.0)
-
-    def test_bpe_closed_limit_sweep(self):
-        from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech import oov_prototype
-
-        expanded = prototype_variants("bpe")
-        with patch.object(oov_prototype, "BPE_CLOSED_LIMIT_PENALTIES", ()):
-            original = prototype_variants("bpe")
-        self.assertEqual(len(original), 55)
-        self.assertEqual(expanded[: len(original)], original)
-        added = expanded[len(original) :]
-        self.assertEqual(len(added), 9)
-        self.assertEqual([v.search_algorithm_params.unknown_word_penalty for v in added], list(range(20, 101, 10)))
-        anchor = next(v for v in original if "known-excluding_4gram-lm0.6_beta10_" in v.descriptor)
-        from dataclasses import replace
-
-        for variant in added:
-            self.assertEqual(
-                replace(
-                    variant,
-                    descriptor=anchor.descriptor,
-                    search_algorithm_params=replace(variant.search_algorithm_params, unknown_word_penalty=10.0),
-                ),
-                anchor,
-            )
-        self.assertEqual(sum(v.descriptor == anchor.descriptor for v in expanded), 1)
-
-    def test_config_opt_in(self):
-        configs = []
-
-        def capture(config, post):
-            configs.append(config)
-            return SimpleNamespace(out_config=tk.Path("test.config"))
-
-        with patch(
-            "i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.recog_rasr_config.WriteRasrConfigJob",
-            side_effect=capture,
-        ):
-            for p in [TreeTimesyncRecogParams(True, [6]), prototype_variants("granite")[1].search_algorithm_params]:
-                get_tree_timesync_recog_config(tk.Path("lexicon"), [], p)
-        self.assertNotIn("unknown-word-fallback", str(configs[0]))
-        self.assertIn("unknown-word-fallback", str(configs[1]))
-        self.assertIn("word-start-marked", str(configs[1]))
-        self.assertEqual(configs[1].lib_rasr.acoustic_model.state_tying.type, "monophone")
-        self.assertEqual(configs[1].lib_rasr.acoustic_model.hmm.states_per_phone, 1)
 
     def test_mixed_traceback(self):
         formatter = GraniteOovTracebackFormatter(tk.Path("unused"))

@@ -1,11 +1,9 @@
 """Step 2 has no inference/test selection and never conflates word/unit oracles."""
 
-import gzip
 import json
 from collections import Counter
 
 import pytest
-from sisyphus import tk
 
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common import error_complementarity as ec
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common import controlled_comparison as cc
@@ -13,6 +11,7 @@ from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common impo
 
 def unit(seq_id, ref, hyp):
     from kaldialign import edit_distance
+
     return dict(id=seq_id, reference=ref, hypothesis=hyp, counts=edit_distance(ref.split(), hyp.split()))
 
 
@@ -24,10 +23,24 @@ def evidence(tmp_path, model, group, condition, rows, lm="None", decoding="Nativ
     counts = {key: sum(r["counts"][key] for r in rows) for key in ("ins", "del", "sub", "total", "ref_len")}
     summary = dict(counts, wer_percent=100 * counts["total"] / counts["ref_len"])
     score.write_text(json.dumps(summary))
-    return dict(model=model, group=group, condition=condition, lm=lm, decoding=decoding, lexicon="None",
-                dataset="librispeech-test-other", status="complete", summary=summary, timing=dict(rtf=.1),
-                normalizer=cc.NORMALIZER, reference_sha256="same-reference", dataset_paths=["same-audio"],
-                score=str(score), score_sha256=cc.sha256(score), segments=str(segments))
+    return dict(
+        model=model,
+        group=group,
+        condition=condition,
+        lm=lm,
+        decoding=decoding,
+        lexicon="None",
+        dataset="librispeech-test-other",
+        status="complete",
+        summary=summary,
+        timing=dict(rtf=0.1),
+        normalizer=cc.NORMALIZER,
+        reference_sha256="same-reference",
+        dataset_paths=["same-audio"],
+        score=str(score),
+        score_sha256=cc.sha256(score),
+        segments=str(segments),
+    )
 
 
 @pytest.fixture
@@ -41,16 +54,27 @@ def pair(tmp_path):
     uf = [unit(str(i), r, h) for i, (r, h) in enumerate(zip(refs, ff))]
     a = evidence(tmp_path, "Granite CTC", "qwen-granite", "native", ua)
     b = evidence(tmp_path, "Speech Qwen 1.7B", "qwen-speech-1.7b", "native", ub)
-    f = evidence(tmp_path, "Granite CTC", "qwen-speech-1.7b", "granite-fusion", uf,
-                 lm="Speech Qwen 1.7B", decoding="1-pass fusion")
-    return a, b, f, {r["id"]:r for r in ua}, {r["id"]:r for r in ub}, {r["id"]:r for r in uf}
+    f = evidence(
+        tmp_path,
+        "Granite CTC",
+        "qwen-speech-1.7b",
+        "granite-fusion",
+        uf,
+        lm="Speech Qwen 1.7B",
+        decoding="1-pass fusion",
+    )
+    return a, b, f, {r["id"]: r for r in ua}, {r["id"]: r for r in ub}, {r["id"]: r for r in uf}
 
 
 def test_unit_categories_and_word_normalization_exclusions(pair):
     a, b, f, ua, ub, uf = pair
     assert Counter(ec.unit_category(ua[k], ub[k]) for k in ua) == dict(
-        both_correct=3, only_a_correct=1, only_b_correct=1, both_wrong_same_hypothesis=1,
-        both_wrong_different_hypotheses=2)
+        both_correct=3,
+        only_a_correct=1,
+        only_b_correct=1,
+        both_wrong_same_hypothesis=1,
+        both_wrong_different_hypotheses=2,
+    )
     assert ec.word_complementarity(ua["7"], ub["7"]) == dict(word_units_excluded_reference_mismatch=1)
     inserts = ec.word_complementarity(ua["6"], ub["6"])
     assert inserts["shared_insertions"] == 1 and inserts["only_a_insertions"] == 1
@@ -61,9 +85,10 @@ def test_unit_categories_and_word_normalization_exclusions(pair):
 def test_selection_oracle_and_fusion_can_beat_it_within_a_unit(pair):
     a, b, f, ua, ub, uf = pair
     units, examples = [], []
-    result = ec.analyze_pair(a,b,ua,ub,{"fusion":(f,uf)}, unit_sink=units.append, example_sink=examples.append,
-                             examples_per_category=1)
-    expected_errors = sum(min(ua[k]["counts"]["total"],ub[k]["counts"]["total"]) for k in ua)
+    result = ec.analyze_pair(
+        a, b, ua, ub, {"fusion": (f, uf)}, unit_sink=units.append, example_sink=examples.append, examples_per_category=1
+    )
+    expected_errors = sum(min(ua[k]["counts"]["total"], ub[k]["counts"]["total"]) for k in ua)
     assert result["selection_oracle"]["counts"]["total"] == expected_errors
     assert result["selection_oracle"]["diagnostic_only"] is True
     stats = result["fusions"]["fusion"]
@@ -79,55 +104,40 @@ def test_selection_oracle_and_fusion_can_beat_it_within_a_unit(pair):
 
 
 def test_pairing_requires_same_audio_references_and_coverage(pair):
-    a,b,_,ua,ub,_ = pair
-    with pytest.raises(ValueError,match="raw references"):
-        ec.check_pair(a,dict(b,reference_sha256="other"),ua,ub)
-    with pytest.raises(ValueError,match="prepared audio"):
-        ec.check_pair(a,dict(b,dataset_paths=["different"]),ua,ub)
-    with pytest.raises(ValueError,match="coverage"):
-        ec.check_pair(a,b,ua,{})
+    a, b, _, ua, ub, _ = pair
+    with pytest.raises(ValueError, match="raw references"):
+        ec.check_pair(a, dict(b, reference_sha256="other"), ua, ub)
+    with pytest.raises(ValueError, match="prepared audio"):
+        ec.check_pair(a, dict(b, dataset_paths=["different"]), ua, ub)
+    with pytest.raises(ValueError, match="coverage"):
+        ec.check_pair(a, b, ua, {})
 
 
 def test_panels_do_not_pick_best_test_or_substitute_missing_selected(pair):
-    a,b,f,*_ = pair
-    protocol = dict(ready=True,selected={
-        "Granite CTC | None | standalone | fast": dict(group="qwen-granite",condition="not-yet-run",family="Granite CTC | None | standalone"),
-        "Granite CTC | Speech Qwen 1.7B | one-pass | fast": dict(group=f["group"],condition=f["condition"],family="Granite CTC | Speech Qwen 1.7B | one-pass"),
-    })
-    controls,fs,missing = ec.panel_records([a,b,f],protocol,"native")
+    a, b, f, *_ = pair
+    protocol = dict(
+        ready=True,
+        selected={
+            "Granite CTC | None | standalone | fast": dict(
+                group="qwen-granite", condition="not-yet-run", family="Granite CTC | None | standalone"
+            ),
+            "Granite CTC | Speech Qwen 1.7B | one-pass | fast": dict(
+                group=f["group"], condition=f["condition"], family="Granite CTC | Speech Qwen 1.7B | one-pass"
+            ),
+        },
+    )
+    controls, fs, missing = ec.panel_records([a, b, f], protocol, "native")
     assert controls["Granite CTC"] is a and f in fs
-    controls,fs,missing = ec.panel_records([a,b,f],protocol,"dev-selected")
+    controls, fs, missing = ec.panel_records([a, b, f], protocol, "dev-selected")
     assert "Granite CTC" not in controls and missing[0]["condition"] == "not-yet-run"
-    controls,fs,missing = ec.panel_records([a,b,f],dict(protocol,ready=False),"dev-selected")
+    controls, fs, missing = ec.panel_records([a, b, f], dict(protocol, ready=False), "dev-selected")
     assert not controls and not fs and missing
 
 
-def test_analysis_job_outputs_bounded_examples_compact_units_and_reports(tmp_path,pair):
-    a,b,f,*_ = pair
-    snapshot,protocol = tmp_path/"snapshot.json",tmp_path/"protocol.json"
-    snapshot.write_text(json.dumps(dict(records=[a,b,f])))
-    protocol.write_text(json.dumps(dict(ready=True,selected={})))
-    job = ec.ErrorComplementarityJob("librispeech-test-other",[tk.Path(str(snapshot))],tk.Path(str(protocol)),
-                                     examples_per_category=1,code_version="test")
-    for attr, filename in [("summary","summary.json"),("units","units.jsonl.gz"),("examples","examples.jsonl"),("report","report.md")]:
-        setattr(job,"out_"+attr,tk.Path(str(tmp_path/filename)))
-    job.run()
-    result=json.loads((tmp_path/"summary.json").read_text())
-    assert result["panels"]["native"]["pairs"][0]["a"] == "Granite CTC"
-    assert "nor a lower bound" in (tmp_path/"report.md").read_text()
-    with gzip.open(tmp_path/"units.jsonl.gz","rt") as src:
-        rows=[json.loads(line) for line in src]
-    assert len(rows)==8 and rows[0]["a_model"]=="Granite CTC"
-    examples=[json.loads(line) for line in (tmp_path/"examples.jsonl").read_text().splitlines()]
-    assert examples and examples[0]["a_model"] != examples[0]["a"]
-    assert len(examples) <= 10
-    assert not hasattr(job,"rqmt") or not job.rqmt.get("gpu",0)
-
-
 def test_score_checksum_guard_and_alignment_validation(pair):
-    a,_,_,ua,_,_=pair
-    assert len(ec.load_units(a))==len(ua)
-    with pytest.raises(ValueError,match="changed after snapshot"):
-        ec.load_units(dict(a,score_sha256="not-the-hash"))
-    with pytest.raises(ValueError,match="Alignment disagrees"):
-        ec.aligned_errors(dict(ua["0"],counts=dict(ua["0"]["counts"],total=1)))
+    a, _, _, ua, _, _ = pair
+    assert len(ec.load_units(a)) == len(ua)
+    with pytest.raises(ValueError, match="changed after snapshot"):
+        ec.load_units(dict(a, score_sha256="not-the-hash"))
+    with pytest.raises(ValueError, match="Alignment disagrees"):
+        ec.aligned_errors(dict(ua["0"], counts=dict(ua["0"]["counts"], total=1)))

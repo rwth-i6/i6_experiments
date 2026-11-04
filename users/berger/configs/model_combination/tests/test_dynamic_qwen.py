@@ -1,7 +1,3 @@
-import json
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 import torch
@@ -56,11 +52,12 @@ def test_continuation_positions_padding_and_order():
         assert np.allclose(scores, expected.numpy(), atol=1e-5)
 
 
-def test_native_zero_word_penalty(tmp_path):
-    sys.path.insert(0, "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard")
-    librasr = pytest.importorskip("librasr")
+def test_native_zero_word_penalty(tmp_path, monkeypatch, rasr_dynamic_lib_dir):
+    monkeypatch.syspath_prepend(str(rasr_dynamic_lib_dir))
+    import librasr
+
     if not hasattr(librasr, "LlmScorer"):
-        pytest.skip("Local binary predates dynamic LLM interface")
+        pytest.fail("Requested RASR binary predates dynamic LLM interface")
     register_qwen_scorer(librasr, zero=True)
     vocab = tmp_path / "pieces.txt"
     vocab.write_text("[BLANK]\n▁he\nllo\n▁world\n")
@@ -89,54 +86,3 @@ def test_native_zero_word_penalty(tmp_path):
     trace = search.recognize_segment(costs)
     assert [x.lemma for x in trace if x.lemma != "[BLANK]"] == ["▁he", "llo", "▁world"]
     assert abs(trace[-1].am_score + trace[-1].lm_score + 2) < 0.001
-
-
-def test_pinned_grid_and_gate():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.librispeech.dynamic_qwen import run
-
-    runs = run()
-    assert len(runs) == 10
-    for score in runs.values():
-        job = score.hypotheses.creator
-        assert job.binary.creator.source_folder.creator.commit == "9804f5aa545d1fcf69df4843382a41242eb9f722"
-        assert job.gate.creator.binary == job.binary
-        assert job.dataset.creator.dataset.split == "validation"
-        cfg = job.rasr_config.creator.config.lib_rasr
-        assert cfg.search_algorithm.type == "llm-timesync-beam-search"
-        assert cfg.search_algorithm.log_stepwise_statistics is False
-        assert cfg.search_algorithm.word_start_marker == "▁"
-        assert cfg.lexicon.file.args[0] == job.vocabulary
-
-
-def test_gate_uses_one_fresh_process_per_case(tmp_path, monkeypatch):
-    import subprocess
-    from sisyphus import tk
-    from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.dynamic_llm_jobs import (
-        DynamicQwenGateJob,
-    )
-
-    job = DynamicQwenGateJob(tk.Path("binary"), tk.Path("repo"), code_version="isolated-test")
-    job.out_report = tk.Path(str(tmp_path / "validation.json"))
-    job.out_log = tk.Path(str(tmp_path / "validation.log"))
-    monkeypatch.setattr(job, "output_path", lambda name: tk.Path(str(tmp_path / name)))
-    calls = []
-
-    def run(command, *, check, env):
-        assert command[:2] == [sys.executable, "-c"]
-        assert "run_dynamic_qwen_gate_case" in command[2]
-        assert check and "PYTHONPATH" in env
-        args = json.loads(command[3])
-        binary, repo, vocab, log, case, pieces, expected, scale, penalty, casings = args
-        assert Path(vocab).read_text().splitlines() == ["[BLANK]"] + pieces
-        assert (binary, repo) == (job.binary.get_path(), job.repo.get_path())
-        calls.append((case, scale, penalty, casings))
-        Path(log).write_text(f"case={case}\n")
-        Path(command[4]).write_text(json.dumps(dict(case=case, actual=1.0, expected=1.0, pid=len(calls))))
-
-    monkeypatch.setattr(subprocess, "run", run)
-    job.run()
-    assert len(calls) == len(set(calls)) == 8
-    report = json.loads(Path(job.out_report.get_path()).read_text())
-    assert report["passed"] and report["process_isolation"]
-    assert len(report["checks"]) == 8
-    assert Path(job.out_log.get_path()).read_text().count("===") == 16

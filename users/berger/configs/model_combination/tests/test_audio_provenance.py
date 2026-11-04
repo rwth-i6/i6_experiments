@@ -1,11 +1,11 @@
 """Pre-decode subset selection and post-decode filtering have the same audio."""
 
-from pathlib import Path
-
 import pytest
 
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.audio_provenance import (
-    canonical_audio_origin, audio_origins, check_audio_origins,
+    canonical_audio_origin,
+    audio_origins,
+    check_audio_origins,
 )
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.error_complementarity import check_pair
 
@@ -48,7 +48,7 @@ def test_unrelated_origins_and_nonselection_transforms_remain_distinct(tmp_path)
         check_audio_origins(dict(dataset_paths=[str(short)]), dict(dataset_paths=[str(other)]))
     # Sharing one origin is insufficient when another unrelated origin exists.
     with pytest.raises(ValueError, match="different prepared audio"):
-        check_audio_origins(dict(dataset_paths=[str(short),str(other)]), dict(dataset_paths=[str(parent)]))
+        check_audio_origins(dict(dataset_paths=[str(short), str(other)]), dict(dataset_paths=[str(parent)]))
     transformed = subset(tmp_path, parent, "NormalizeAudioJob.changed")
     assert canonical_audio_origin(str(transformed)) == str(transformed.resolve())
     with pytest.raises(ValueError, match="different prepared audio"):

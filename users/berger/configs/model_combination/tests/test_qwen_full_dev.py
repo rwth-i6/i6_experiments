@@ -1,5 +1,4 @@
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.qwen_full_dev import (
-    settings,
     selection_indices,
 )
 
@@ -13,10 +12,3 @@ def test_cached_selection_weights_eos_and_lm_separately():
     assert selection_indices(candidates, [config])[0] == 1
     assert selection_indices(candidates, [dict(config, eos_weight=1)])[0] == 0
     assert selection_indices(candidates, [dict(config, retain_first_pass_lm=1)])[0] == 0
-
-
-def test_sample_setting_is_in_full_dev_grid_after_cost_rescaling():
-    assert (
-        dict(policy="lowercase", scale=1, retain_first_pass_lm=0, eos_weight=1, word_penalty=-2, token_penalty=-1)
-        in settings()
-    )

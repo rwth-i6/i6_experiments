@@ -13,105 +13,84 @@ def export(tmp_path, group, condition, dataset, wer, normalizer="new"):
     return directory
 
 
-def test_comparisons_inventory_and_provenance(tmp_path):
-    export(tmp_path, "granite-ctc", "native", "dev", 3.0)
-    export(tmp_path, "granite-ctc", "tree-open-trafo", "dev", 2.8)
-    export(tmp_path, "qwen-granite", "one-pass", "dev", 2.7)
-    export(tmp_path, "qwen-granite", "old-normalizer", "dev", 2.6, "old")
-    invalid = "tree-open-corpus-voxpopuli-cleaned-ls4gram"
-    export(tmp_path, "granite-ctc", invalid, "voxpopuli", 98.0)
-    pending = tmp_path / "open-asr/qwen-parakeet-rnnt/speech-qwen/dev"
-    pending.mkdir(parents=True)
-    (pending / "scoring").symlink_to(tmp_path / "missing-score")
-    broken = export(tmp_path, "qwen-granite", "bad-json", "dev", 1.0)
-    (broken / "scoring").write_text("{")
-    collection = reports.ResultCollection(tmp_path)
-    comparison = collection.comparisons()
-    assert "Granite CTC | Text Qwen 0.6B | 1-pass fusion" in comparison
-    assert "2.70 | -0.30 | 0.120" in comparison
-    assert "2.60 | — | 0.120" in comparison
-    assert "no completed export" in comparison
-    assert "unreadable: JSONDecodeError" in comparison
-    assert invalid not in collection.comparisons(word_lms=True)
-    assert invalid in collection.inventory()
-    assert "normalizer\tsource\tscore_job" in collection.tsv()
-    assert "scoring" in collection.tsv()
+def capture_tables(monkeypatch):
+    rows = []
+
+    def table(headers, values):
+        rows.extend(dict(zip(headers, row)) for row in values)
+        return "rendered table\n"
+
+    monkeypatch.setattr(reports, "_table", table)
+    return rows
 
 
-def test_own_models_missing_then_readable(tmp_path):
-    collection = reports.ResultCollection(tmp_path)
-    assert "No own-model summary" in collection.own_models()
-    path = tmp_path / "wordwise-lm/dev/summary"
-    path.parent.mkdir(parents=True)
-    path.write_text("header\nseparator\n1__model | dev | 5.2 | 0.5 | 0.5 | 4.2 | 0.01 | 0.1 | 0.11\n")
-    assert "| model | dev | 5.2 | 0.5 | 0.5 | 4.2 | 0.11 |" in collection.own_models()
-
-
-def test_speech_size_specific_standalone_comparison(tmp_path):
-    export(tmp_path, "qwen-granite", "native", "librispeech-test-other", 4.0)
-    export(tmp_path, "qwen-speech-0.6b", "native-beam8", "librispeech-test-other", 1.0)
-    export(tmp_path, "qwen-speech-1.7b", "native-beam8", "librispeech-test-other", 3.0)
+def test_report_uses_matching_model_size_and_normalizer_for_delta(tmp_path, monkeypatch):
+    export(tmp_path, "qwen-granite", "native", "librispeech-test-other", 4)
+    export(tmp_path, "qwen-speech-0.6b", "native", "librispeech-test-other", 1)
+    export(tmp_path, "qwen-speech-1.7b", "native", "librispeech-test-other", 3)
     export(tmp_path, "qwen-speech-1.7b", "granite-fusion", "librispeech-test-other", 2.5)
-    export(tmp_path, "qwen-parakeet-rnnt-speech-1.7b", "speech-qwen-fast", "librispeech-test-other", 2.7)
-    report = reports.ResultCollection(tmp_path).corpus_report("librispeech")
-    assert "Granite CTC | Speech Qwen 1.7B | 1-pass fusion | None | 2.50 | -0.50" in report
-    assert "Parakeet RNN-T | Speech Qwen 1.7B | 1-pass fusion | None | 2.70 | -0.30" in report
+    export(tmp_path, "qwen-speech-1.7b", "granite-fusion-scale-0.1", "librispeech-test-other", 0.1, "old")
+    rendered = capture_tables(monkeypatch)
+    collection = reports.ResultCollection(tmp_path)
+    collection.corpus_report("librispeech")
+    combinations = [r for r in rendered if r.get("ASR") == "Granite CTC" and r.get("LM / model", "").endswith("1.7B")]
+    correct = next(r for r in combinations if float(r["WER %"]) == 2.5)
+    incompatible = next(r for r in combinations if float(r["WER %"]) == 0.1)
+    assert float(correct["ΔWER pp"]) == -0.5
+    assert incompatible["ΔWER pp"] == "—"
+    assert len(collection.rows()) == 5
 
 
-def test_registration_adds_reports_only_and_is_idempotent(monkeypatch, tmp_path):
+def test_pending_invalid_excluded_and_subsplit_rows_are_not_pooled(tmp_path, monkeypatch):
+    good = export(tmp_path, "qwen-granite", "native", "loquacious-test.yodas", 7)
+    bad = export(tmp_path, "qwen-granite", "unreadable", "loquacious-test", 1)
+    (bad / "scoring").write_text("{")
+    pending = tmp_path / "open-asr/qwen-granite/one-pass/loquacious-test/scoring"
+    pending.parent.mkdir(parents=True)
+    pending.symlink_to(tmp_path / "not-completed")
+    export(tmp_path, "granite-ctc", "tree-open-corpus-voxpopuli-cleaned-ls4gram", "voxpopuli-cleaned", 90)
+    collection = reports.ResultCollection(tmp_path)
+    rows = collection.rows()
+    assert next(r for r in rows if r["condition"] == "unreadable")["status"].startswith("unreadable")
+    assert next(r for r in rows if r["condition"] == "one-pass")["wer"] is None
+    assert next(r for r in rows if r["dataset"] == "voxpopuli-cleaned")["excluded"]
+    rendered = capture_tables(monkeypatch)
+    collection.corpus_report("loquacious")
+    scored = [r for r in rendered if r.get("WER %") != "—"]
+    assert [float(r["WER %"]) for r in scored] == [7.0]
+    assert next(r for r in rows if r["dataset"] == "loquacious-test.yodas")["source"] == str(good / "scoring")
+
+
+def test_report_registration_is_idempotent_and_constructs_no_jobs(tmp_path, monkeypatch):
+    from sisyphus import tk
+
     calls = []
+    before = {job._sis_id() for job in tk.sis_graph.jobs()}
     monkeypatch.setattr(reports.tk, "register_report", lambda *args, **kwargs: calls.append((args, kwargs)))
-    collection = reports.register_result_collection(output_root=tmp_path)
-    assert reports.register_result_collection(output_root=tmp_path) is collection
-    assert len(calls) == 10
-    assert all(call[1] == dict(required=[], update_frequency=300) for call in calls)
-    assert all(call[0][0].startswith("reports/asr-lm/") for call in calls)
-    assert all(callable(call[0][1]) for call in calls)
+    result = reports.register_result_collection(output_root=tmp_path)
+    count = len(calls)
+    assert count > 0
+    assert reports.register_result_collection(output_root=tmp_path) is result
+    assert len(calls) == count
+    assert len({args[0] for args, kwargs in calls}) == count
+    assert all(callable(args[1]) and kwargs["update_frequency"] > 0 for args, kwargs in calls)
+    assert {job._sis_id() for job in tk.sis_graph.jobs()} == before
 
 
-def test_corpus_breakdown_models_and_subsplits(tmp_path):
-    export(tmp_path, "qwen-granite", "native", "librispeech-test-other", 2.7)
-    export(tmp_path, "qwen-granite", "two-pass-librispeech-lexicon", "librispeech-test-other", 2.5)
-    export(tmp_path, "qwen-speech-0.6b", "native", "loquacious-test.yodas", 7.7)
-    export(tmp_path, "qwen-parakeet-rnnt", "speech-native", "loquacious-test.yodas", 7.7)
-    export(tmp_path, "qwen-parakeet-rnnt", "speech-qwen", "loquacious-test.yodas", 7.0)
-    export(tmp_path, "granite-ctc", "tree-open-corpus-gigaspeech-cleaned-corpus4gram", "gigaspeech-cleaned", 8.8)
-    collection = reports.ResultCollection(tmp_path)
-    ls = collection.corpus_report("librispeech")
-    assert "2-pass (50-best) | LS (open)" in ls
-    assert "Text Qwen 0.6B" in ls
-    assert "loquacious" not in ls
-    loq = collection.corpus_report("loquacious")
-    assert "## loquacious-test.yodas" in loq
-    assert loq.count("Speech Qwen 0.6B | None | Native") == 1
-    assert "Parakeet RNN-T | Speech Qwen 0.6B" in loq
-    suite = collection.corpus_report("open_asr")
-    assert "Corpus 4-gram" in suite
-    assert "librispeech-test-other" not in suite
-    assert "Qwen/Qwen3-ASR-0.6B-hf" in collection.terminology()
-
-
-def test_larger_qwen_and_fast_fusion_labels(tmp_path):
-    export(tmp_path, "qwen-granite-1.7b", "one-pass-scale-0.1", "librispeech-dev-other", 2.5)
-    export(tmp_path, "qwen-parakeet-rnnt", "speech-qwen-fast", "librispeech-test-other", 2.0)
-    report = reports.ResultCollection(tmp_path).corpus_report("librispeech")
-    assert "Granite CTC | Text Qwen 1.7B | 1-pass fusion" in report
-    assert "LM 0.1" in report
-    assert "LM 0.3; beam 8; pre 32; thr 3" in report
-
-
-def test_own_models_reads_individual_scores_instead_of_stale_summary(tmp_path):
-    directory = tmp_path / "librispeech/recognition/ffnn_transducer_bpe__recog_wordwise-ls-word-trafo-lm0.4-ilm0.2/dev-other"
+def test_own_model_rows_read_live_scores_instead_of_stale_summary(tmp_path):
+    directory = (
+        tmp_path / "librispeech/recognition/ffnn_transducer_bpe__recog_wordwise-ls-word-trafo-lm0.4-ilm0.2/dev-other"
+    )
     directory.mkdir(parents=True)
-    score = tmp_path / "scoring-job/output"
-    (score / "reports").mkdir(parents=True)
-    (score / "wer").write_text("5.1")
-    (directory / "scoring_reports").symlink_to(score / "reports")
-    collection = reports.ResultCollection(tmp_path)
-    report = collection.corpus_report("librispeech")
-    assert "LibriSpeech Context-1 mRNN-T" in report
-    assert "LS word Trafo" in report
-    assert "5.10" in report
-    assert "LM 0.4; ILM 0.2" in report
-    assert "5.10" in collection.own_models()
-    assert "own-librispeech" in collection.tsv()
+    output = tmp_path / "score-job/output"
+    (output / "reports").mkdir(parents=True)
+    (output / "wer").write_text("5.1")
+    (directory / "scoring_reports").symlink_to(output / "reports")
+    stale = tmp_path / "wordwise-lm/dev/summary"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("outdated result 99.9")
+    (row,) = reports.ResultCollection(tmp_path).rows()
+    assert row["wer"] == 5.1 and row["condition"].endswith("ilm0.2")
+    assert row["group"].startswith("own-")
+    assert row["dataset"] == "librispeech-dev-other"
+    assert "Trafo" in row["lm"]

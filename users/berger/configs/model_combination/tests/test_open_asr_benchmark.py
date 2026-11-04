@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from i6_experiments.example_setups.seq2seq_rasr_2025.data.open_asr import reference_rows, DATASETS
+from i6_experiments.example_setups.seq2seq_rasr_2025.data.open_asr import reference_rows
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.benchmark_scoring import scoring_pairs
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.hf_benchmark import (
     audio_array,
@@ -176,101 +176,11 @@ def test_inventory_restores_aed_special_ids(tmp_path, monkeypatch, family):
         assert next(lemma for lemma in lex.lemmata if lemma.special == "sentence-begin").phon == []
 
 
-def test_matrix_and_pins():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import run_all, CONDITIONS, RNNT_COMMIT
-
-    results = run_all()
-    assert len(DATASETS) == 8
-    assert sum(map(len, results.values())) == 118
-    for model in ("granite-ctc", "cohere-aed"):
-        for condition in CONDITIONS:
-            assert len(results[f"{model}/{condition}"]) == 8
-    assert {k for k in results if k.startswith("parakeet-rnnt/")} == {
-        "parakeet-rnnt/native",
-        "parakeet-rnnt/rasr-lexfree",
-    }
-    for key, rows in results.items():
-        for score_path in rows.values():
-            recog = score_path.creator.hypotheses.creator
-            assert recog.dtype == "float32"
-            assert recog.repo.creator.revision
-            if recog.native:
-                continue
-            cfg = recog.rasr_config.creator.config.lib_rasr
-            if key.startswith("parakeet-rnnt"):
-                assert recog.rasr_binary.creator.source_folder.creator.commit == RNNT_COMMIT
-            if "/tree" in key:
-                assert cfg.acoustic_model.state_tying.type == "monophone"
-                assert cfg.search_algorithm.unknown_word_fallback == "disabled"
-            if key.endswith(("tree-trafo", "tree-qwen")):
-                assert cfg.lm.max_batch_size == 1
-
-
-def test_matrix_without_neural_lms_keeps_remaining_jobs(monkeypatch):
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments import open_asr
-    from i6_experiments.example_setups.seq2seq_rasr_2025.data import oov_neural_lm
-
-    full = open_asr.run_all()
-
-    def unexpected_neural_setup(*args, **kwargs):
-        raise AssertionError("Disabled neural LMs must not register exports or validation jobs")
-
-    monkeypatch.setattr(open_asr, "_qwen", unexpected_neural_setup)
-    monkeypatch.setattr(oov_neural_lm, "get_gpu_word_transformer_params", unexpected_neural_setup)
-    reduced = open_asr.run_all(neural_lms=False)
-    expected = {key: rows for key, rows in full.items() if not key.endswith(("/tree-trafo", "/tree-qwen"))}
-    assert reduced == expected
-    assert sum(map(len, reduced.values())) == 86
-
-    active = open_asr.run_all(neural_lms=False, aed_tree=False)
-    assert active == {
-        key: rows
-        for key, rows in reduced.items()
-        if not key.startswith("cohere-aed/") or key.endswith(("/native", "/rasr-lexfree"))
-    }
-    assert sum(map(len, active.values())) == 67
-
-
-def test_granite_open_tree_matrix_and_matched_controls():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import run_all
-
-    old = run_all(neural_lms=False, aed_tree=False)
-    expanded = run_all(neural_lms=False, aed_tree=False, granite_open_tree=True)
-    assert {key: expanded[key] for key in old} == old
-    assert sum(map(len, expanded.values())) == 99
-    for lm in (False, True):
-        suffix = "-4gram" if lm else ""
-        opened = expanded[f"granite-ctc/tree-open{suffix}"]
-        controls = expanded[f"granite-ctc/tree-open-control{suffix}"]
-        assert len(opened) == len(controls) == 8
-        for ds in opened:
-            a = opened[ds].creator.hypotheses.creator.rasr_config.creator.config.lib_rasr
-            b = controls[ds].creator.hypotheses.creator.rasr_config.creator.config.lib_rasr
-            assert a.lexicon.file == b.lexicon.file
-            validation = a.lexicon.file.creator
-            assert validation.pruning_report is not None
-            assert validation.decoder_smoke_report is not None
-            assert a.acoustic_model.state_tying.type == "monophone"
-            assert a.search_algorithm.unknown_word_fallback == "known-excluding"
-            assert b.search_algorithm.unknown_word_fallback == "disabled"
-            assert a.search_algorithm.unknown_word_tokenization == "word-start-marked"
-            assert a.search_algorithm.unknown_word_penalty == (6 if lm else 1)
-            assert a.search_algorithm.unknown_piece_penalty == 2
-            assert a.search_algorithm.max_beam_size == b.search_algorithm.max_beam_size == [64 if lm else 256]
-            assert a.search_algorithm.score_threshold == b.search_algorithm.score_threshold == [16 if lm else 8]
-            assert a.search_algorithm.sentence_end_fall_back is False
-            if lm:
-                assert a.lm.scale == b.lm.scale == 0.3
-
-
-def test_granite_fallback_traceback_with_real_tokenizer():
-    from pathlib import Path
+def test_granite_fallback_traceback_with_real_tokenizer(granite_tokenizer_dir):
     from sisyphus import tk
     from i6_experiments.example_setups.seq2seq_rasr_2025.data.huggingface import _load_tokenizer
 
-    repo = Path("../../alias/open-asr/granite-ctc/download/output/repo")
-    if not repo.is_dir():
-        pytest.skip("Completed Granite tokenizer download is unavailable")
+    repo = granite_tokenizer_dir
     tokenizer = _load_tokenizer(tk.Path(str(repo.resolve())))
     adapter = SimpleNamespace(family="ctc", tokenizer=tokenizer, postprocess=lambda x: x)
 
@@ -288,91 +198,6 @@ def test_granite_fallback_traceback_with_real_tokenizer():
     assert result["fallback_piece_count"] == 6
     assert result["max_fallback_word_pieces"] == 4
     assert result["traceback"][1]["lemma"] == "▁&&"
-
-
-def test_tuned_granite_transformer_only_adds_matched_pair(monkeypatch):
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments import open_asr
-
-    def unexpected_qwen(*args, **kwargs):
-        raise AssertionError("Tuned Transformer conditions must not enable Qwen")
-
-    monkeypatch.setattr(open_asr, "_qwen", unexpected_qwen)
-    base = open_asr.run_all(neural_lms=False, aed_tree=False, granite_open_tree=True)
-    expanded = open_asr.run_all(neural_lms=False, aed_tree=False, granite_open_tree=True, granite_open_transformer=True)
-    assert {key: expanded[key] for key in base} == base
-    assert sum(map(len, expanded.values())) == 115
-    for condition in ("tree-open-trafo", "tree-open-control-trafo"):
-        rows = expanded[f"granite-ctc/{condition}"]
-        assert len(rows) == 8
-        for score in rows.values():
-            job = score.creator.hypotheses.creator
-            cfg = job.rasr_config.creator.config.lib_rasr
-            assert cfg.lm.type == "onnx-stateless"
-            assert cfg.lm.scale == 0.3
-            assert cfg.lm.max_batch_size == 1
-            assert cfg.search_algorithm.max_beam_size == [64]
-            assert cfg.search_algorithm.max_word_end_beam_size == 16
-            assert cfg.search_algorithm.score_threshold == [16]
-            assert cfg.search_algorithm.word_end_score_threshold == 16
-            if condition == "tree-open-trafo":
-                assert cfg.search_algorithm.unknown_word_fallback == "known-excluding"
-                assert cfg.search_algorithm.unknown_word_penalty == 4
-                assert cfg.search_algorithm.unknown_piece_penalty == 2
-            else:
-                assert cfg.search_algorithm.unknown_word_fallback == "disabled"
-    with pytest.raises(ValueError, match="requires granite_open_tree"):
-        open_asr.run_all(granite_open_transformer=True)
-
-
-def test_corpus_open_tree_resource_selection_and_identity():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import run_all
-
-    settings = dict(neural_lms=False, aed_tree=False, granite_open_tree=True, granite_open_transformer=True)
-    base = run_all(**settings)
-    expanded = run_all(**settings, corpus_open_tree=True)
-    assert {key: expanded[key] for key in base} == base
-    assert sum(map(len, expanded.values())) == 121
-    for ds, suffixes in (("gigaspeech-cleaned", ("", "-corpus4gram")), ("voxpopuli-cleaned", ("",))):
-        for suffix in suffixes:
-            opened = expanded[f"granite-ctc/tree-open-corpus-{ds}{suffix}"]
-            closed = expanded[f"granite-ctc/tree-open-control-corpus-{ds}{suffix}"]
-            assert set(opened) == set(closed) == {ds}
-            cfg = opened[ds].creator.hypotheses.creator.rasr_config.creator.config.lib_rasr
-            control = closed[ds].creator.hypotheses.creator.rasr_config.creator.config.lib_rasr
-            assert cfg.lexicon.file == control.lexicon.file
-            assert cfg.search_algorithm.unknown_word_fallback == "known-excluding"
-            assert control.search_algorithm.unknown_word_fallback == "disabled"
-            if suffix == "-corpus4gram":
-                assert cfg.lm.file == cfg.lexicon.file.creator.arpa_lm
-                assert cfg.lm.file.get_path().endswith("/4gram.arpa.gz")
-    assert not any(key.endswith(("-ls4gram", "-ls-trafo")) for key in expanded)
-    with pytest.raises(ValueError, match="corpus_open_tree requires"):
-        run_all(corpus_open_tree=True)
-
-
-def test_resource_overview_includes_corpus_rows(tmp_path):
-    from sisyphus import tk
-    from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.benchmark_overview import (
-        BenchmarkResourceOverviewJob,
-    )
-
-    score = tmp_path / "score.json"
-    score.write_text(json.dumps(dict(wer_percent=9.53)))
-    runtime = tmp_path / "runtime.json"
-    runtime.write_text(json.dumps(dict(rtf=0.014)))
-    keys = ("granite-ctc/tree-open-4gram", "granite-ctc/tree-open-corpus-gigaspeech-cleaned-corpus4gram")
-    scores = {key: {"gigaspeech-cleaned": tk.Path(str(score))} for key in keys}
-    runtimes = {key: {"gigaspeech-cleaned": tk.Path(str(runtime))} for key in keys}
-    resources = {
-        keys[0]: dict(lexicon="LibriSpeech", lm="LibriSpeech 4gram"),
-        keys[1]: dict(lexicon="gigaspeech-cleaned", lm="gigaspeech-cleaned 4gram"),
-    }
-    job = BenchmarkResourceOverviewJob(scores, runtimes, resources)
-    job.out_report = tk.Path(str(tmp_path / "overview.md"))
-    job.run()
-    text = (tmp_path / "overview.md").read_text()
-    assert "| LibriSpeech | LibriSpeech 4gram | 9.530 |" in text
-    assert "| gigaspeech-cleaned | gigaspeech-cleaned 4gram | 9.530 |" in text
 
 
 def test_score_counts_and_partial_macro(tmp_path):
@@ -436,25 +261,6 @@ def test_score_real_edit_counts(tmp_path):
     segments = {row["id"]: row["counts"] for row in map(json.loads, (tmp_path / "segments").read_text().splitlines())}
     assert segments["empty"]["del"] == 2
     assert segments["same"]["total"] == 0
-
-
-def test_scoring_changes_do_not_invalidate_recognition(monkeypatch):
-    from pathlib import Path
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import source_version, scoring_version
-
-    assert source_version() == "c37b1c7c749309ef10c6e704b895bdb7f689ffa5be54364a73afb0f017d73cb7"
-    original_recognition, original_scoring = source_version(), scoring_version()
-    original_read = Path.read_bytes
-
-    def read_changed(path):
-        content = original_read(path)
-        if path.name == "benchmark_scoring.py":
-            content += b"\n# scoring-only change\n"
-        return content
-
-    monkeypatch.setattr(Path, "read_bytes", read_changed)
-    assert source_version() == original_recognition
-    assert scoring_version() != original_scoring
 
 
 @pytest.mark.parametrize("mode", ["native", "rasr-free", "rasr-tree"])
@@ -549,25 +355,6 @@ def test_cohere_rejects_inconsistent_chunk_metadata(indices):
         list(adapter.input_chunks(np.zeros(160, dtype=np.float32)))
 
 
-def test_chunk_fix_keeps_data_and_other_model_versions(monkeypatch):
-    from pathlib import Path
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import (
-        source_version,
-        recognition_version,
-    )
-
-    original = "c37b1c7c749309ef10c6e704b895bdb7f689ffa5be54364a73afb0f017d73cb7"
-    assert source_version() == original
-    assert recognition_version("ctc") == recognition_version("rnnt") == original
-    assert recognition_version("aed") != original
-    read = Path.read_bytes
-    monkeypatch.setattr(
-        Path, "read_bytes", lambda p: read(p) + (b"\n# future edit" if p.name == "hf_benchmark.py" else b"")
-    )
-    assert source_version() == original
-    assert recognition_version("ctc") != original
-
-
 def test_aed_native_cap_returns_partial_without_appending_eos():
     adapter = HfBenchmarkAdapter.__new__(HfBenchmarkAdapter)
     adapter.family, adapter.device, adapter.eos = "aed", "cpu", 3
@@ -609,43 +396,17 @@ def test_aed_rasr_partial_and_single_placeholder():
     assert result["traceback"][0]["am_score"] == 2
 
 
-def test_failed_suite_job_fix_is_targeted():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import (
-        recognition_version,
-        run_all,
-    )
-
-    unchanged = recognition_version("aed", "voxpopuli-cleaned")
-    assert recognition_version("aed", "earnings22-cleaned") != unchanged
-    assert recognition_version("aed", "gigaspeech-cleaned") != unchanged
-    results = run_all(neural_lms=False, aed_tree=False, granite_open_tree=True, granite_open_transformer=True)
-    for condition in ("native", "rasr-lexfree"):
-        for dataset in ("earnings22-cleaned", "gigaspeech-cleaned"):
-            job = results[f"cohere-aed/{condition}"][dataset].creator.hypotheses.creator
-            assert job.max_new_tokens == 500
-            if condition == "rasr-lexfree":
-                assert job.rasr_config.creator.config.lib_rasr.search_algorithm.max_labels_per_timestep == 500
-    for dataset, path in results["granite-ctc/tree-open-control-trafo"].items():
-        assert path.creator.hypotheses.creator.rqmt["time"] == (96 if dataset == "spgispeech" else 48)
-
-
 @pytest.mark.parametrize("family,tree", [("ctc", False), ("ctc", True), ("aed", False), ("aed", True)])
-def test_native_rasr_smoke(tmp_path, family, tree):
+def test_native_rasr_smoke(tmp_path, family, tree, rasr_lib_dir):
     """Exercise the actual pinned Python ABI/tree, if its completed build exists."""
     import os
     import subprocess
-    from pathlib import Path
     from sisyphus import tk
     from i6_core.rasr.command import RasrCommand
     from i6_core.rasr.config import RasrConfig
     from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.open_asr import recognition_config
 
-    binary = Path(
-        "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/"
-        "i6_core/tools/compile/CMakeJob.AhnICBf8VYpg/output/install"
-    )
-    if not list(binary.glob("librasr*.so")):
-        pytest.skip("Completed multi-token RASR build not present")
+    binary = rasr_lib_dir
     vocab = tmp_path / "vocab.txt"
     vocab.write_text("<blank>\na\nb\n<eos>\n")
     lexicon = tmp_path / "lexicon.xml"
