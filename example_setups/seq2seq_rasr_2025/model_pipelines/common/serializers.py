@@ -1,6 +1,7 @@
 __all__ = ["recipe_imports", "get_model_serializers"]
 
 import os
+import i6_experiments
 from typing import List, Type
 
 from i6_core.returnn.config import CodeWrapper
@@ -16,7 +17,7 @@ recipe_imports = [
     "import sys",
     ExternalImport(
         import_path=tk.Path(
-            f"{os.path.realpath(__file__).split('recipe')[0]}recipe/",
+            os.path.dirname(os.path.dirname(os.path.realpath(i6_experiments.__file__))),
             hash_overwrite="RECIPE_ROOT",
         )
     ),
