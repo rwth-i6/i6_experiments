@@ -106,7 +106,7 @@ def pool_job(cat, **kw):
 
 jt = pool_job("topic", per_level=20, per_call=5)
 calls = jt.calls(big)
-assert len(calls) == 3 * jt.calls_per_level and jt.calls_per_level == 7, (len(calls), jt.calls_per_level)
+assert len(calls) == 3 * jt.calls_per_level and jt.calls_per_level == 8, (len(calls), jt.calls_per_level)
 for c in calls:
     assert len(c["names"]) == 5
     assert sb.SP_POOL_NAMES_RULE in c["user"]
@@ -499,11 +499,23 @@ try:
 finally:
     sb.vllm_server, openai.OpenAI = orig_server, orig_client
     os.chdir(SETUP_DIR)
+# v2 scene rules
+_ok_a, _ok_b = "Your name is Rosa. You teach the word gracias.", "Your name is Kwame. You listen and say it back."
+assert sb.v2_scene_reject("teach_check", _ok_a, _ok_b) == ""
+assert sb.v2_scene_reject("topic", _ok_a + " Never reveal your salary.", _ok_b) == "secret"
+assert sb.v2_scene_reject("instruction", _ok_a + " Never reveal your salary.", _ok_b) == ""
+assert sb.v2_scene_reject("task", _ok_a + " Demonstrate the fold.", _ok_b) == "not_voice"
+assert sb.v2_scene_reject("task", _ok_a, _ok_b + " Answer briefly.") == "vague_manner"
+assert sb.v2_scene_reject("task", _ok_a, _ok_b + " Answer briefly, in ten words or fewer.") == ""
+_ta = "Your name is Rosa. Teach that the knight moves two squares then one to the side, then check it."
+_tb = "Your name is Kwame. You know the knight moves two squares then one to the side."
+assert sb.v2_scene_reject("teach_check", _ta, _tb) == "taught_in_learner"
 # held values: the rule and its parse
 _pa = "Your name is Priya. You work at a pharmacy. Find out which medicine and strength the customer means."
 _pb = "Your name is Leon. You want a refill of your allergy pills. They are cetirizine, 10 milligrams, but only say so if asked."
 assert sb.held_values_reject("clarify", _pa, _pb, "B", ["cetirizine", "10 milligrams"]) == ""
 assert sb.held_values_reject("clarify", _pa, _pb, "A", ["cetirizine"]) == "wrong_holder"
+assert sb.held_values_reject("clarify", _pa + " Never reveal the stock.", _pb, "B", ["cetirizine"]) == "secret"
 assert sb.held_values_reject("clarify", _pa, _pb, "B", ["loratadine"]) == "value_missing"
 assert sb.held_values_reject("clarify", _pa + " It is cetirizine.", _pb, "B", ["cetirizine"]) == "value_leaked"
 assert (

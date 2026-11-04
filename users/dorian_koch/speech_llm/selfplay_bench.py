@@ -1656,6 +1656,71 @@ SP_V2_INSTRUCTION = (
         SP_TRAIN_EXAMPLES["instruction"][2].replace("in one short sentence", "in ten words or fewer"),
     ),
 )
+#: v2 levels: v1's, except that detailed instructions are things to say, mention or ask, or how to speak with a
+#: number, and carry their facts. On strict audits of the first v2 pools nearly every detailed side had a "never
+#: reveal" item the other side never asks about (the judge learns nothing from it) and many told a side to state a
+#: price or time without giving it.
+SP_V2_LEVELS = {
+    **SP_TRAIN_LEVELS,
+    "detailed": (28, 45, "a first name, a role, a goal, and two or three explicit, checkable instructions: things to "
+                 "say, mention or ask, or how to speak, with a number of words or seconds; every fact, price, time or "
+                 "name the side must say is written in its instructions with its exact value"),
+}  # fmt: skip
+#: Added to every v2 pool's request (hashed with the prompts): what the audits found missing across categories.
+SP_V2_CONTENT_RULE = (
+    "Every fact, price, time, name or number a side is told to give, state or confirm is written in that side's "
+    "instructions with its exact value. A side may be told to keep something back only if the other side is told to "
+    "ask about exactly that. Rules on how to answer (only yes or no, numbers only, one word) must fit the questions "
+    "the other side is told to ask. Everything happens by voice: nothing to show, demonstrate, point at, write, send "
+    "or open on a screen. No medicine doses or medical advice."
+)
+#: Per-category additions to the definition for v2 (the v1 texts stay as v1's jobs read them).
+SP_V2_EXTRA = {
+    "topic": "; the curious side's questions can be answered from common knowledge or from facts in the other side's "
+    "instructions, and neither side is a service provider serving a customer",
+    "task": "; one side needs something concrete and the other can provide it, and the prices, times and details the "
+    "provider must state are in its instructions",
+    "tension": "; each side holds a clear position it does not give up in its first reply, neither side's instructions "
+    "contain a ready-made compromise, and any secret is the hidden reason for that side's own position",
+    "teach_check": "; the teacher's instructions state exactly what is taught (the words, rule, numbers or steps) and "
+    "end with correcting any mistake; the learner's instructions never contain what is taught; only things that can "
+    "be said back (words, phrases, rules, numbers, steps in order), nothing done with the hands or eyes",
+}
+#: v2 scene rules (``v2_scene_reject``): "never reveal" items in categories that have no use for them, acts not
+#: possible by voice, manner rules without a number, and (teach_check) the taught content in the learner's prompt.
+_V2_SECRET = r"\b(never|not|don't) (reveal|disclose|share)\b|\bconfidential\b"
+_V2_NOT_VOICE = (
+    r"\b(demonstrat\w*|show (?:him|her|them|you|the other|how)|perform the|point (?:to|at|east|west|north|south)|links?|"
+    r"URL|download\w*|slides?|e-?mail\w*|send (?:the|a|an|it|them|you)|chat|on (?:the|a|your) screen|bullet points?|"
+    r"write (?:it|down|them))\b"
+)
+_V2_VAGUE = (
+    r"\b(briefly|concisely|concise(?: answers?| replies)?|brief (?:answers?|replies|comments?|sentences|phrases)|"
+    r"short (?:phrases|sentences|answers?|replies))\b"
+    r"(?![^.]{0,40}\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)\b)"
+)
+
+
+def v2_scene_reject(category: str, prompt_a: str, prompt_b: str) -> str:
+    """ "" or why a v2 scenario fails a rule: ``secret`` (a "never reveal" item outside instruction and tension, where
+    one is a checkable behaviour), ``not_voice``, ``vague_manner``, ``taught_in_learner`` (teach_check: the learner's
+    instructions share two or more 4-word runs with the teacher's after the name)."""
+    import re
+
+    both = prompt_a + " " + prompt_b
+    if category not in ("instruction", "tension") and re.search(_V2_SECRET, both, re.I):
+        return "secret"
+    if re.search(_V2_NOT_VOICE, both, re.I):
+        return "not_voice"
+    if re.search(_V2_VAGUE, both, re.I):
+        return "vague_manner"
+    if category == "teach_check":
+        body = lambda p: p.split(".", 1)[1] if "." in p else p  # noqa: E731
+        if len(word_ngrams(body(prompt_a), 4) & word_ngrams(body(prompt_b), 4)) >= 2:
+            return "taught_in_learner"
+    return ""
+
+
 #: v2-only categories (2026-11-04), each a ``SelfPlayScenarioPool`` of its own: (definition, example). Kept apart from
 #: ``SP_TRAIN_CATEGORY_TEXT``, which v1's declared jobs read.
 SP_V2_CATEGORIES = {
@@ -1673,7 +1738,10 @@ SP_V2_CATEGORIES = {
         "B asks A for something but leaves out one specific detail A needs to act (which item, size, date, address, "
         "account); B's instructions state that detail's exact value and tell B to give it only when asked; A's "
         "instructions say what A does and what A must find out before acting, never the value; A must notice the gap "
-        "and ask a clarifying question instead of guessing",
+        "and ask a clarifying question instead of guessing. B is the customer or the one asking for help, and the "
+        "detail is B's own choice or B's own number, something A could not know or look up (never a fact A's own job "
+        "would give A: the platform A announces, A's clinic address). At the detailed level the extra instructions are "
+        "only about how to speak or reading the detail back: no secrets to keep and no other detail to confirm",
         ("allergy_refill",
          "Your name is Priya. You work at a pharmacy counter. Before you refill anything, make sure you know exactly "
          "which medicine and which strength the customer means.",
@@ -1739,6 +1807,10 @@ def held_values_reject(category: str, prompt_a: str, prompt_b: str, holder: str,
         return "value_missing"
     if any(f" {v} " in f" {norm(other)} " for v in vals):
         return "value_leaked"
+    if category == "clarify" and re.search(
+        r"\b(never|not|don't) (reveal|disclose|share|mention)\b|\bconfidential\b", prompt_a + " " + prompt_b, re.I
+    ):
+        return "secret"
     if category == "clarify":
         for sent in re.split(r"(?<=[.!?])\s+", prompt_b):
             want = re.search(r"\b(want|wants|need|needs|would like|request|ask(?:ing)? for|order|book)\b", sent, re.I)
@@ -1859,7 +1931,8 @@ class SelfPlayScenarioPool(Job):
         self.per_level, self.per_call = int(per_level), int(per_call)
         # ~7% of v1's scenarios failed a filter other than "cell full"; 30% headroom
         # 13/10 headroom in v1; v2's style filter (``require_you``) dropped up to a quarter of a level
-        self.calls_per_level = int(calls_per_level or -(-self.per_level * 16 // (10 * self.per_call)))
+        # 2026-11-04: 20/10, the scene rules and the stricter check left instruction 40 scenarios of headroom at 16/10
+        self.calls_per_level = int(calls_per_level or -(-self.per_level * 20 // (10 * self.per_call)))
         self.levels = dict(levels or SP_TRAIN_LEVELS)
         self.domains, self.held_out = tuple(domains), held_out
         self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
@@ -1870,7 +1943,8 @@ class SelfPlayScenarioPool(Job):
     @classmethod
     def hash(cls, parsed_args):
         """The held-out set's content, the generator and check prompts and the resolved levels are hashed."""
-        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_POOL_STYLE_RULE, SP_POOL_CHECK_SYSTEM])
+        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_POOL_STYLE_RULE, SP_POOL_CHECK_SYSTEM,
+                             SP_V2_CONTENT_RULE, _V2_SECRET, _V2_NOT_VOICE, _V2_VAGUE])  # fmt: skip
         if parsed_args.get("values"):
             prompt += json.dumps([SP_V2_VALUES, SP_V2_VALUES_RULE, _FRAGMENT, _SENTENCE_COUNT])
         return super(SelfPlayScenarioPool, cls).hash(
@@ -1916,7 +1990,7 @@ class SelfPlayScenarioPool(Job):
                     f"Example of the category (its level of detail may differ; do not reuse its situation or "
                     f"names):\n{example}\n\n"
                     f"Write {self.per_call} new, varied scenarios of this category, at this level of detail, in "
-                    f"this domain. {SP_POOL_STYLE_RULE}{vrule}\n\n{SP_POOL_NAMES_RULE}\n{names}"
+                    f"this domain. {SP_POOL_STYLE_RULE} {SP_V2_CONTENT_RULE}{vrule}\n\n{SP_POOL_NAMES_RULE}\n{names}"
                 )
                 out.append(
                     {
@@ -1946,10 +2020,15 @@ class SelfPlayScenarioPool(Job):
         bad_values = collections.Counter(s[5] for s in cands if len(s) > 5 and s[5])
         dropped = [(s[:5], f"values: {s[5]}") for s in cands if len(s) > 5 and s[5]]
         cands = [tuple(s[:5]) for s in cands if not (len(s) > 5 and s[5])]
+        scene_why = {s[1]: v2_scene_reject(self.category, s[2], s[3]) for s in cands}
+        bad_scene = collections.Counter(w for w in scene_why.values() if w)
+        dropped += [(s, f"rule: {scene_why[s[1]]}") for s in cands if scene_why[s[1]]]
+        cands = [s for s in cands if not scene_why[s[1]]]
         flags = dict(require_you=True, reject_sentence_counts=True, latin_only=True)
         held = SPJ2_SCENARIOS[self.held_out]
         passed, rej = filter_train_scenarios(cands, held, per_cell=10**9, **flags)
         rej.update(bad_values)
+        rej.update(bad_scene)
         if self.check:
             vcalls = pool_check_calls(self.category, self.definition, passed)
             print(f"[sp-pool:{self.category}] checking {len(passed)} scenarios in {len(vcalls)} calls", flush=True)
