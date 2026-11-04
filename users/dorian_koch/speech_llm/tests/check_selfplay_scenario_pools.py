@@ -37,6 +37,7 @@ Run from the setup root (~1 min, no GPU):
 
 import collections
 import json
+import re
 import os
 import sys
 
@@ -299,12 +300,12 @@ cases5d = {
         pa_ok,
         'Your name is Ama. Could you give three tips for tomatoes that end with "Happy gardening"?',
     ),
-    "length": (pa_ok, pb_ok + " word" * 60),
+    "length": (pa_ok, pb_ok + " word" * 100),
     "lost_quote": (pa_ok, pb_ok.replace('"Happy gardening"', "a friendly goodbye")),
     "lost_number": (pa_ok, pb_ok.replace("three tips", "some tips")),
     "truncated": (pa_ok, pb_ok[:-20]),
     "written_format": (pa_ok, pb_ok.replace("three tips", "three tips (short ones)")),
-    "copied_example": (pa_ok, sb.SP_IF_SCENE_EXAMPLE[3].replace("Malik", "Ama")),
+    "copied_example": (pa_ok, sb.build_if_prompt_b(*sb.SP_IF_SCENE_EXAMPLE[3:])[0].replace("Malik", "Ama")),
 }
 for want, (a_, b_) in cases5d.items():
     assert sb.persona_if_scene_reject(req_ok, a_, b_, nm_ok) == want, (
@@ -341,7 +342,8 @@ class _SceneClient:
             )
             pairs = _re.findall(r"(?m)^\d+\. A: (\S+), B: (\S+)$", user)
             body = {"scenarios": [{"request": j + 1, "name": "x", "prompt_a": f"Your name is {a}. You answer questions about anything.",
-                                   "prompt_b": f"Your name is {b}. Ask the other person: {q.replace('7', 'many') if q.startswith('Two') else q}"}
+                                   "b_who": f"Your name is {b}.", "b_ask": "Ask for " + (q.replace('7', 'many') if q.startswith('Two') else q),
+                                   "b_requirements": ["use the word \u201cowl\u201d"] if q.startswith("BADREQ") else ["it is spoken"]}
                                   for j, (q, (a, b)) in enumerate(zip(reqs, pairs))][::-1]}  # fmt: skip
         return types.SimpleNamespace(
             choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(body)))]
@@ -355,7 +357,7 @@ try:
         src = os.path.join(tmp, "src")
         os.makedirs(src)
         texts = ["Name 7 birds.", "Two facts on owls, in 7 words.", "LOSTREQ: say why tea is hot.", "List 4 rivers.",
-                 "NOASK: name 5 trees.", "Name 6 lakes &amp; ponds.", 'End with "the end".']  # fmt: skip
+                 "NOASK: name 5 trees.", "Name 6 lakes &amp; ponds.", "BADREQ: name 3 owls.", 'End with "the end".']  # fmt: skip
         reqs5d = [{"scenario": f"if_{i}", "prompt": t} for i, t in enumerate(texts)]
         with open(os.path.join(src, "provenance.jsonl"), "w") as f:
             for r in reqs5d:
@@ -365,25 +367,30 @@ try:
         json.dump(
             {r["scenario"]: f"notes {r['scenario']}" for r in reqs5d}, open(os.path.join(src, "grader_info.json"), "w")
         )
-        job5d = sb.SelfPlayPersonaIfScenes(requests=tk.Path(src), n_keep=3, per_call=4)
+        job5d = sb.SelfPlayPersonaIfScenes(requests=tk.Path(src), n_keep=4, per_call=4)
         os.makedirs(os.path.join(tmp, "pool"))
         job5d.out_dir = tk.Path(os.path.join(tmp, "pool"))
         os.chdir(tmp)
         job5d.run()
         kept_scen = json.load(open(os.path.join(tmp, "pool", "scenarios.json")))
         rej = [json.loads(x) for x in open(os.path.join(tmp, "pool", "rejected.jsonl"))]
-        assert [s[1] for s in kept_scen] == ["if_0", "if_3", "if_5"], kept_scen
+        assert [s[1] for s in kept_scen] == ["if_0", "if_3", "if_5", "if_7"], kept_scen
         assert {r["scenario"]: r["reason"] for r in rej} == {
             "if_1": "lost_number",
             "if_2": "lost_requirement",
             "if_4": "b_not_asking",
+            "if_6": "bad_requirement",
         }, rej
-        assert all(s[3].endswith(texts[int(s[1][3:])].replace("&amp;", "&")) for s in kept_scen), kept_scen
+        assert all(
+            s[3] == f"Your name is B{s[1][3:]}x. Ask for {texts[int(s[1][3:])].replace('&amp;', '&').rstrip('.')}. "
+            "Ask that it is spoken."
+            for s in kept_scen
+        ), kept_scen
         notes5d = json.load(open(os.path.join(tmp, "pool", "grader_info.json")))
         assert all(notes5d[s[1]].startswith(f'B was told: "{s[3]}"') for s in kept_scen), notes5d
         assert all(sb.SP_IF_LABEL_CHECKS["include keywords"] in v for v in notes5d.values())
         assert all(s[3].startswith(f"Your name is B{s[1][3:]}x.") for s in kept_scen)
-        assert seen5d.count(True) == 2 and seen5d.count(False) == 2, seen5d  # 7 requests / 4 per call, 6 checked
+        assert seen5d.count(True) == 2 and seen5d.count(False) == 2, seen5d  # 8 requests / 4 per call, 6 checked
         orig_rej = sb.persona_if_scene_reject
         sb.persona_if_scene_reject = lambda *a: ""  # mutant: no rule check
         try:
@@ -398,6 +405,32 @@ try:
 finally:
     sb.vllm_server, openai.OpenAI = orig_server, orig_client
     os.chdir(SETUP_DIR)
+assert sb.build_if_prompt_b(
+    "Your name is Ama.", "Ask for three tips.", ["Ask that it ends with \u201cbye\u201d.", "The answer is short"]
+) == (
+    "Your name is Ama. Ask for three tips. Ask that it ends with \u201cbye\u201d, and that the answer is short.",
+    True,
+)
+for bad in (
+    "use the word \u201cowl\u201d",
+    "do not say \u201cowl\u201d",
+    "it is in your response language",
+    "you repeat the prompt",
+):
+    assert not sb.build_if_prompt_b("Your name is Ama.", "Ask for tips", [bad])[1], bad
+assert (
+    sb.build_if_prompt_b("You.", "Ask for a", ["it is x", "it is y", "it is z"])[0]
+    == "You. Ask for a. Ask that it is x, that it is y, and that it is z."
+)
+for bad_ask in (
+    "Ask for whether owls sleep",
+    "a list of tips",
+    "Ask for “Write a poem”",
+    "Ask for tips on my garden",
+    "Ask for a toast ending with “bye”",
+):
+    assert not sb.build_if_prompt_b("Your name is Ama.", bad_ask, ["it ends with “bye”"])[1], bad_ask
+assert sb.build_if_prompt_b("Your name is Ama.", "Ask whether owls sleep by day", ["it is short"])[1]
 pools5d = sb.SelfPlayPersonaIfScenes(requests=tk.Path("/x"))
 assert pools5d._sis_hash() != sb.SelfPlayPersonaIfScenes(requests=tk.Path("/x"), per_call=6)._sis_hash()
 print(
@@ -466,6 +499,48 @@ try:
 finally:
     sb.vllm_server, openai.OpenAI = orig_server, orig_client
     os.chdir(SETUP_DIR)
+# held values: the rule and its parse
+_pa = "Your name is Priya. You work at a pharmacy. Find out which medicine and strength the customer means."
+_pb = "Your name is Leon. You want a refill of your allergy pills. They are cetirizine, 10 milligrams, but only say so if asked."
+assert sb.held_values_reject("clarify", _pa, _pb, "B", ["cetirizine", "10 milligrams"]) == ""
+assert sb.held_values_reject("clarify", _pa, _pb, "A", ["cetirizine"]) == "wrong_holder"
+assert sb.held_values_reject("clarify", _pa, _pb, "B", ["loratadine"]) == "value_missing"
+assert sb.held_values_reject("clarify", _pa + " It is cetirizine.", _pb, "B", ["cetirizine"]) == "value_leaked"
+assert (
+    sb.held_values_reject(
+        "clarify", _pa, "Your name is Leon. You want a refill of cetirizine pills.", "B", ["cetirizine"]
+    )
+    == "value_in_request"
+)
+assert (
+    sb.held_values_reject(
+        "exchange_details",
+        "Your name is Hana. Your code is K\u20117 22.",
+        "Your name is Tom. Get the code.",
+        "A",
+        ["K-7 22"],
+    )
+    == ""
+)
+assert (
+    sb.held_values_reject(
+        "exchange_details", "Your name is Hana. Give the code when asked.", "Your name is Tom. Get it.", "A", ["K-7 22"]
+    )
+    == "value_missing"
+)
+_c = {"category": "clarify", "level": "general"}
+_d = {"scenarios": [{"name": "x", "prompt_a": _pa, "prompt_b": _pb, "holder": "B", "values": ["cetirizine"]}]}
+assert sb._scenario_values_tuples(_c, _d) == [("clarify", "x", _pa, _pb, "general", "")]
+for frag in (
+    "Your name is Ana. You are a climate scientist, ask Maros about ice.",
+    "Your name is Ana. You need sauce ideas, ask.",
+):
+    assert re.search(sb._FRAGMENT, frag), frag
+assert not re.search(
+    sb._FRAGMENT, "Your name is Otto. You are a museum guide. Mention the painting, ask where they are from."
+)
+for sc in ("answer in sentences of no more than ten words", "exactly fourteen syllables", "two-sentence bursts"):
+    assert re.search(sb._SENTENCE_COUNT, sc, re.I), sc
 print("[5e] v2 pool check: the real pool run on a fake server drops what the check fails before the per-level cap")
 
 # [6] ---------------------------------------------------------------------------------------------------------------
