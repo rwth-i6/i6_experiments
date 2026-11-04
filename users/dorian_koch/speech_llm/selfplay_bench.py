@@ -1529,14 +1529,15 @@ def ascii_first_name(name: str) -> str | None:
 def name_pool_from_csv(text: str, min_frequency: int = 0) -> dict:
     """The census CSV (``;``-separated) -> ``{country code: sorted [[name, gender], ...]}``, one entry per name and
     country; gender ``m`` / ``f``, or ``u`` when the country lists the name for both. Rows with ``Frequency`` below
-    ``min_frequency`` are skipped."""
+    ``min_frequency`` are skipped, and so are names equal to the name of the country listing them (Qatar in Qatar; Jordan in the US stays)."""
     import csv
     import io
 
     by: dict = {}
     for row in csv.DictReader(io.StringIO(text), delimiter=";"):
         n = ascii_first_name(row["Name"])
-        if n is None or int(row.get("Frequency") or 0) < min_frequency:
+        own_country = n is not None and n.lower() == str(row.get("Country name") or "").strip().lower()
+        if n is None or int(row.get("Frequency") or 0) < min_frequency or own_country:
             continue
         g = row["Gender"].strip().lower()
         d = by.setdefault(row["Country code"].strip(), {})
@@ -1661,9 +1662,10 @@ SP_V2_CATEGORIES = {
          "number is 0171 555 2093. Give these details when asked."),
     ),
     "clarify": (
-        "one side's request is ambiguous or misses a detail the other side needs; the other side must notice and ask a "
-        "clarifying question before acting, instead of guessing; the first side has the missing detail and gives it "
-        "only when asked",
+        "B asks A for something but leaves out one specific detail A needs to act (which item, size, date, address, "
+        "account); B's instructions state that detail's exact value and tell B to give it only when asked; A's "
+        "instructions say what A does and what A must find out before acting, never the value; A must notice the gap "
+        "and ask a clarifying question instead of guessing",
         ("allergy_refill",
          "Your name is Priya. You work at a pharmacy counter. Before you refill anything, make sure you know exactly "
          "which medicine and which strength the customer means.",
@@ -1683,6 +1685,56 @@ SP_V2_CATEGORIES = {
 }  # fmt: skip
 
 
+#: v2 pools: a gpt-oss check of every scenario that passed the rule filters (temperature 0, 10 per request). On the
+#: first full v2 run about 1 in 6 clarify scenarios was muddled (the detail one side must find out was not the one the
+#: other side holds), which no rule catches.
+SP_POOL_CHECK_SYSTEM = """You check role-play scenarios for two voice agents, A and B, who will talk for about a minute. Each agent sees only its own instructions. You get the category the scenarios must fit and a numbered list.
+
+For each scenario decide ok: true only if all of these hold:
+- A and B are in the same situation and have a reason to talk to each other;
+- together the two instructions fit the category;
+- every fact, value or answer an agent is told to give, confirm, check or correct is stated in that agent's own instructions or is common knowledge, and the facts on both sides agree;
+- nothing contradicts itself, and nothing needs seeing, reading, writing or doing something physical during the call.
+problem: empty if ok, else one short sentence.
+
+Answer with JSON only: {"items": [{"i": 1, "ok": true, "problem": ""}, ...]}"""
+_SP_POOL_CHECK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"i": {"type": "integer"}, "ok": {"type": "boolean"},
+                               "problem": {"type": "string", "maxLength": 300}},
+                "required": ["i", "ok", "problem"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}  # fmt: skip
+
+
+def pool_check_calls(category: str, definition: str, scenarios: list, per_call: int = 10) -> list[dict]:
+    """``scenarios`` (``(category, name, prompt A, prompt B, level)``) -> one check request per ``per_call``."""
+    out = []
+    for k in range(0, len(scenarios), per_call):
+        chunk = scenarios[k : k + per_call]
+        items = "\n\n".join(f"{j + 1}.\nA: {s[2]}\nB: {s[3]}" for j, s in enumerate(chunk))
+        out.append({"user": f"Category: {category} -- {definition}.\n\n{items}", "seed": k,
+                    "scenarios": [s[1] for s in chunk]})  # fmt: skip
+    return out
+
+
+def parse_pool_check(call: dict, reply: dict) -> list:
+    got = sorted(reply["items"], key=lambda x: x["i"])
+    if [x["i"] for x in got] != list(range(1, len(call["scenarios"]) + 1)):
+        raise ValueError("verdicts do not match the items")
+    return [[s, bool(x["ok"]), x["problem"]] for s, x in zip(call["scenarios"], got)]
+
+
 class SelfPlayScenarioPool(Job):
     """One CATEGORY of self-play training scenarios (v2), generated on its own so categories can be added or reweighted
     without regenerating the others (``SelfPlayTrainScenarioMix`` combines pools).
@@ -1693,8 +1745,9 @@ class SelfPlayScenarioPool(Job):
     seeded name pairs from ``names`` (``FirstNamePool``; ``draw_name_pairs``), stated in the request
     (``SP_POOL_NAMES_RULE``); a scenario using other names is kept with the names it uses (``assign_names``). All go
     through v1's filter (``filter_train_scenarios``: word range, new snake_case name, not near spj2 or a kept
-    scenario), up to ``per_level`` per level. Generation resumes after an interruption (``generate_scenario_batches``
-    cache).
+    scenario; v2: spj2's "You ..." style, no sentence counts, Latin script only), then, with ``check``, a gpt-oss
+    check of each survivor (``SP_POOL_CHECK_SYSTEM``), up to ``per_level`` per level. Both LLM phases resume after an
+    interruption (``generate_scenario_batches`` cache). ``rejected.jsonl`` lists what the check dropped and why.
 
     Output dir ``pool/``: ``scenarios.json`` (``[category, name, prompt A, prompt B, level]``), ``names.json``
     (``{scenario name: [[name, gender, country] A, [...] B]}``), ``stats.json``."""
@@ -1715,6 +1768,7 @@ class SelfPlayScenarioPool(Job):
         llm_name: str = "openai/gpt-oss-120b",
         temperature: float = 1.0,
         seed: int = 0,
+        check: bool = True,
     ):
         import re
 
@@ -1730,13 +1784,14 @@ class SelfPlayScenarioPool(Job):
         self.levels = dict(levels or SP_TRAIN_LEVELS)
         self.domains, self.held_out = tuple(domains), held_out
         self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
+        self.check = bool(check)
         self.out_dir = self.output_path("pool", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
 
     @classmethod
     def hash(cls, parsed_args):
-        """The held-out set's content, the generator prompt and the resolved levels are part of the hash."""
-        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_POOL_STYLE_RULE])
+        """The held-out set's content, the generator and check prompts and the resolved levels are hashed."""
+        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE, SP_POOL_STYLE_RULE, SP_POOL_CHECK_SYSTEM])
         return super(SelfPlayScenarioPool, cls).hash(
             {
                 **parsed_args,
@@ -1800,14 +1855,27 @@ class SelfPlayScenarioPool(Job):
         if failed > 0.05 * len(calls):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
         cands, names, followed = assign_names(outs, calls)
-        kept, rej = filter_train_scenarios(
-            cands,
-            SPJ2_SCENARIOS[self.held_out],
-            per_cell=self.per_level,
-            require_you=True,
-            reject_sentence_counts=True,
-            latin_only=True,
-        )
+        flags = dict(require_you=True, reject_sentence_counts=True, latin_only=True)
+        held = SPJ2_SCENARIOS[self.held_out]
+        passed, rej = filter_train_scenarios(cands, held, per_cell=10**9, **flags)
+        dropped = []
+        if self.check:
+            vcalls = pool_check_calls(self.category, self.definition, passed)
+            print(f"[sp-pool:{self.category}] checking {len(passed)} scenarios in {len(vcalls)} calls", flush=True)
+            vouts = generate_scenario_batches(self.llm_name, 0.0, vcalls, tag=f"sp-pool:{self.category}:check",
+                                              system=SP_POOL_CHECK_SYSTEM, schema=_SP_POOL_CHECK_SCHEMA,
+                                              parse=parse_pool_check, cache_path=os.path.abspath("check.jsonl"))  # fmt: skip
+            if sum(o is None for o in vouts) > 0.05 * len(vcalls):
+                raise RuntimeError(f"{sum(o is None for o in vouts)}/{len(vcalls)} check calls failed")
+            verdict = {v[0]: v for o in vouts if o for v in o}
+            dropped = [(s, verdict[s[1]][2] if s[1] in verdict else "check failed") for s in passed
+                       if not verdict.get(s[1], [None, False])[1]]  # fmt: skip
+            gone = {s[1] for s, _ in dropped}
+            passed = [s for s in passed if s[1] not in gone]
+            rej["check_failed"] = len(dropped)
+        # names are already new and unique; this applies the per-level cap in generation order
+        kept, cap = filter_train_scenarios(passed, held, per_cell=self.per_level, **flags)
+        rej["cell_full"] = cap.get("cell_full", 0)
         check_scenarios([k[:4] for k in kept], categories=None)
         sides = {k[1]: names[(k[2], k[3])] for k in kept}
         first = collections.Counter(s[0] for pair in sides.values() for s in pair if s)
@@ -1833,6 +1901,12 @@ class SelfPlayScenarioPool(Job):
             indent=1,
         )
         json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
+        with open(os.path.join(d, "rejected.jsonl"), "w") as f:
+            for s, why in dropped:
+                f.write(
+                    json.dumps({"scenario": s[1], "level": s[4], "prompt_a": s[2], "prompt_b": s[3], "problem": why})
+                    + "\n"
+                )
         print(f"[sp-pool:{self.category}] {stats}", flush=True)
         if min(per_level.values()) < self.per_level // 2:
             raise RuntimeError(f"too few scenarios kept per level: {per_level}")
@@ -1888,7 +1962,8 @@ SP_IF_REJECT = (
     r"highlight(ed)?|numbered|font|layout|pdf|emoji|separated by|wrap(ped)?|graphic|logo|poster|diagram|chart|"
     r"infographic|slides?|sketch|pages?|documents?|detailed|comprehensive|in-depth|mock-?ups?|murals?|"
     r"user interface|web ?site design|(?:this|the) persona|screenshots?|images?|photos?|pictures?|illustrations?|"
-    r"instrumental|sheet music|chord progressions?)\b|"
+    r"instrumental|sheet music|chord progressions?|datasets?|spreadsheets?|in the local area|near me|kubernetes|docker|"
+    r"terraform|yaml|sql|command line|terminal commands)\b|"
     r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|single)[- ]sentences?\b|"
     r"\b(develop|build|implement|create|code) (?:an? )?(?:\w+ ){0,3}(feature|app|application|program|website|function|"
     r"algorithm|class|script for an? \w+ app)\b|"
@@ -1897,7 +1972,7 @@ SP_IF_REJECT = (
 )
 #: An answer asked for in another language: the duplex models speak English only.
 SP_IF_OTHER_LANGUAGE = (
-    r"\b(in|into) (Spanish|French|German|Italian|Portuguese|Dutch|Swedish|Norwegian|Danish|Finnish|Polish|Czech|"
+    r"\b(?i:in|into|using) (Spanish|French|German|Italian|Portuguese|Dutch|Swedish|Norwegian|Danish|Finnish|Polish|Czech|"
     r"Russian|Ukrainian|Greek|Turkish|Arabic|Hebrew|Persian|Hindi|Urdu|Bengali|Japanese|Chinese|Mandarin|Cantonese|"
     r"Korean|Vietnamese|Thai|Indonesian|Malay|Tagalog|Swahili|Latin|Hungarian|Romanian|Catalan|Basque|Welsh|Irish)\b"
 )
@@ -2100,8 +2175,10 @@ class SelfPlayPersonaIfPool(Job):
 # of every requirement (``SP_IF_VERIFY_SYSTEM``). The verbatim pool stays declared, so the rewrite can be ablated.
 SP_IF_SCENE_DEFINITION = (
     "B needs what a given written request asks for and asks A for it out loud; A answers. B's instructions say who B "
-    'is and why B needs it, then tell B what to ask for ("Ask for ...", "You want ..."); they never speak to A and '
-    "never tell B to write or answer it. Word the request the way a person would say it: no brackets, parentheses, "
+    'is and why B needs it, then tell B what to ask for, starting with "Ask"; they never speak to A ("Could you ...") '
+    'and never tell B to write or answer it. Every requirement is part of what B asks for, about the answer ("ask '
+    'that it never uses the word \u201cx\u201d"), never an order to B itself ("do not mention the word \u201cx\u201d" would '
+    "tell B to avoid the word). Word the request the way a person would say it: no brackets, parentheses, "
     'dashes or lists, options as "X, Y or Z". Keep EVERY requirement of the request: each quoted word or phrase '
     "exactly and in curly quotes \u201clike this\u201d, each number, each option, the exact ending, every word to use, avoid or repeat, "
     "and any length. If the request asks the answerer to imagine being someone, B asks A to answer as that person; B "
@@ -2110,12 +2187,12 @@ SP_IF_SCENE_DEFINITION = (
 )
 #: ``(request, name, prompt A, prompt B)``, written for this job (not a Tulu row).
 SP_IF_SCENE_EXAMPLE = (
-    "Write a short toast for my sister's wedding in exactly 4 sentences and end it with the phrase \"to love and "
-    'laughter".',
+    'Write a short toast for my sister\'s wedding that does not use the word "marriage" and ends with the phrase '
+    '"to love and laughter".',
     "wedding_toast",
     "Your name is Ines. You write speeches and toasts for people who are nervous about speaking in public.",
-    "Your name is Malik. Your sister marries on Saturday and you have to give a toast. Ask for a short toast of exactly "
-    "four sentences that ends with the phrase \u201cto love and laughter\u201d.",
+    "Your name is Malik. Your sister marries on Saturday and you have to give a toast. Ask for a short toast that ends "
+    "with the phrase \u201cto love and laughter\u201d, and ask that it never uses the word \u201cmarriage\u201d.",
 )
 #: Word range of A's instructions (B's cap is ``SP_IF_MAX_WORDS``).
 SP_IF_SCENE_A_WORDS = (8, 30)
@@ -2123,7 +2200,7 @@ SP_IF_VERIFY_SYSTEM = """You check rewritten requests. Each item has an ORIGINAL
 
 For each item decide:
 - keeps_all: true only if B, asking as instructed, states the original's question or task itself, with every fact or claim it gives, and every requirement of the original: each word or phrase to include, avoid or repeat, each count (sentences, words, how often), each option to choose from, the exact ending, repeating the request, the language. Different wording is fine; a requirement that is lost, weakened, loosened or changed is not, and neither is an added one.
-- b_asks: true if B's instructions clearly tell B to ask A for it. False if they tell B to write or answer it, speak to the answerer directly ("Provide ...", "Write ...") instead of telling B what to ask, are muddled about who asks what, or make B the person the answerer is asked to imagine being.
+- b_asks: true if B's instructions clearly tell B to ask A for it, with every requirement stated as part of what B asks of the answer. False if they tell B to write or answer it, speak to the answerer directly ("Provide ...", "Could you ...") instead of telling B what to ask, give a requirement as an order to B itself ("Ask for X, and do not mention the word Y" tells B to avoid Y instead of asking A to), are muddled about who asks what, or make B the person the answerer is asked to imagine being.
 - a_neutral: false only if A's instructions state or hint at a requirement on the answer's form: words to use or avoid, a count, the ending, options, repeating, the language. A role that fits the topic is fine.
 - problem: empty if all three are true, else one short sentence.
 
@@ -2219,7 +2296,8 @@ def persona_if_scene_grader_info(prompt_b: str, labels: list[str]) -> str:
 def persona_if_scene_reject(request: str, prompt_a: str, prompt_b: str, names: list) -> str:
     """A written scenario's first, rule-based check -> "" or the reason: ``names`` (not opening with the assigned
     pair), ``length`` (A outside ``SP_IF_SCENE_A_WORDS`` with a little slack, B outside 8-``SP_IF_MAX_WORDS``),
-    ``b_names_a`` (B's instructions use A's name, which B cannot know), ``truncated`` (B not ending a sentence), ``written_format`` (brackets, parentheses or "--" left in B), ``copied_example`` (B near the example's B: word-5-gram Jaccard > 0.2),
+    ``b_not_told_to_ask`` (no "ask" in B, or B opens as the request itself: "Could you ...", "I need ...", "Please
+    ..."), ``b_names_a`` (B's instructions use A's name, which B cannot know), ``truncated`` (B not ending a sentence), ``written_format`` (brackets, parentheses or "--" left in B), ``copied_example`` (B near the example's B: word-5-gram Jaccard > 0.2),
     ``lost_quote`` (a quoted phrase of the request missing from B), ``lost_number`` (a count of the request missing
     from B, digits or words)."""
     import re
@@ -2227,6 +2305,9 @@ def persona_if_scene_reject(request: str, prompt_a: str, prompt_b: str, names: l
     lo, hi = SP_IF_SCENE_A_WORDS
     if not follows_names(prompt_a, prompt_b, names[0][0], names[1][0]):
         return "names"
+    rest_b = prompt_b.split(".", 1)[1] if "." in prompt_b else prompt_b
+    if not re.search(r"\bask\b", rest_b, re.I) or re.match(r"\s*(Could|Can|Would|Will) you\b|\s*(Please|I)\b", rest_b):
+        return "b_not_told_to_ask"
     if re.search(rf"\b{re.escape(names[0][0])}\b", prompt_b):
         return "b_names_a"
     if not lo <= len(prompt_a.split()) <= hi + 5 or not 8 <= len(prompt_b.split()) <= SP_IF_MAX_WORDS:

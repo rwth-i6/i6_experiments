@@ -24,6 +24,8 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       truncation or a copied example dropped by rule, a lost requirement or a B told to answer by the LLM check,
       judge notes from B's instructions. CAN FAIL: a mutant
       without the rule check keeps a scenario that lost a number
+  [5e] v2 pool check: the real SelfPlayScenarioPool.run on a fake server; scenarios the gpt-oss check fails are
+      dropped before the per-level cap and listed in rejected.jsonl; check=False is another job
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
       [6b] the real mix job on tiny pools: rows per category, ``grader_info`` carried, unknown names blank
   [7] v1 untouched: the declared v1 jobs keep their hashes (``SelfPlayScenarioGen.99kKTwOy4fJc``,
@@ -73,6 +75,8 @@ csv_text = (
 pool = sb.name_pool_from_csv(csv_text)
 assert pool == {"ES": [["Jose", "m"]], "GH": [["Ama", "f"], ["Kofi", "m"]], "IT": [["Andrea", "u"]]}, pool
 assert sb.name_pool_from_csv(csv_text, min_frequency=7) == {"ES": [["Jose", "m"]], "IT": [["Andrea", "u"]]}
+qa_csv = csv_text + "\nQatar;qatar;QA;Qatar;Asia;n;m;n;1;99\nJordan;jordan;US;United States;North America;y;m;n;9;99"
+assert sb.name_pool_from_csv(qa_csv).get("QA") is None and sb.name_pool_from_csv(qa_csv)["US"] == [["Jordan", "m"]]
 print("[2] census CSV -> pool: unisex marked, non-Latin dropped, accents folded")
 
 # [3] ---------------------------------------------------------------------------------------------------------------
@@ -188,7 +192,7 @@ cases5b = {
     "written_text": prow(4, "List three tips for sleep. Format: Bullet points."),
     "time_sensitive": prow(5, "Summarize the latest news about solar power."),
     "non_english": prow(6, "Расскажи мне, почему пчёлы важны для виноградников."),
-    "other_language": prow(9, "Explain in Japanese why bees matter, using the word honey twice.", "response language"),
+    "other_language": prow(9, "In Japanese, explain why bees matter, using the word honey twice.", "response language"),
 }
 for want, r in cases5b.items():
     assert sb.persona_if_candidate(r)[1] == want, (want, sb.persona_if_candidate(r))
@@ -201,7 +205,7 @@ assert sb.persona_if_candidate(role_row)[1] == "role_play"
 for txt in ("Write exactly 150 words about tea.", "Two paragraphs separated by ^^^^ about tea.", "Write a 300-word story.",
             "Give a detailed plan for a garden.", "Use no commas in a story about tea.",
             "Repeat this question changing ? to !: why is tea hot?", "Create a one-page document about tea.",
-            "Repeat this without changing anything except changing . to ! Why is tea hot.", "Design a user interface mockup for a tea shop.", "Explain how to brew tea and include two screenshots of the timer app.", "Compose a short instrumental piece for a tea ceremony.",
+            "Repeat this without changing anything except changing . to ! Why is tea hot.", "Design a user interface mockup for a tea shop.", "Explain how to brew tea and include two screenshots of the timer app.", "Compose a short instrumental piece for a tea ceremony.", "Analyze a dataset of tea sales and report the trend.",
             "Develop a user authentication feature for a tea shop website.", "Name brands that worked with this persona."):  # fmt: skip
     assert sb.persona_if_candidate(prow(7, txt))[1] == "written_text", txt
 assert sb.persona_if_candidate(prow(8, "In a poem about tea, end with the sentence: Cheers to that."))[1] == ""
@@ -291,6 +295,10 @@ cases5d = {
     "": (pa_ok, pb_ok),
     "names": (pa_ok.replace("Kofi", "Kojo"), pb_ok),
     "b_names_a": (pa_ok, pb_ok.replace("Ask for", "Ask Kofi for")),
+    "b_not_told_to_ask": (
+        pa_ok,
+        'Your name is Ama. Could you give three tips for tomatoes that end with "Happy gardening"?',
+    ),
     "length": (pa_ok, pb_ok + " word" * 60),
     "lost_quote": (pa_ok, pb_ok.replace('"Happy gardening"', "a friendly goodbye")),
     "lost_number": (pa_ok, pb_ok.replace("three tips", "some tips")),
@@ -333,7 +341,7 @@ class _SceneClient:
             )
             pairs = _re.findall(r"(?m)^\d+\. A: (\S+), B: (\S+)$", user)
             body = {"scenarios": [{"request": j + 1, "name": "x", "prompt_a": f"Your name is {a}. You answer questions about anything.",
-                                   "prompt_b": f"Your name is {b}. Please ask the other person: {q.replace('7', 'many') if q.startswith('Two') else q}"}
+                                   "prompt_b": f"Your name is {b}. Ask the other person: {q.replace('7', 'many') if q.startswith('Two') else q}"}
                                   for j, (q, (a, b)) in enumerate(zip(reqs, pairs))][::-1]}  # fmt: skip
         return types.SimpleNamespace(
             choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(body)))]
@@ -397,6 +405,68 @@ print(
     "truncated, copied example dropped by rule (mutant keeps one), lost requirement / B not asking by the check; judge "
     "notes quote B's instructions"
 )
+
+# [5e] v2 pool check: the real SelfPlayScenarioPool.run on a fake server; the check drops a scenario before the cap ----
+seen5e = []
+
+
+class _PoolClient:
+    """Generation: one scenario per assigned pair (distinct words per scenario); check: "BADSCEN" fails."""
+
+    def __init__(self, **_):
+        self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
+
+    def create(self, *, messages, seed=0, **_):
+        import re as _re
+
+        user = messages[1]["content"]
+        seen5e.append(messages[0]["content"] == sb.SP_POOL_CHECK_SYSTEM)
+        if messages[0]["content"] == sb.SP_POOL_CHECK_SYSTEM:
+            items = _re.split(r"(?m)^\d+\.\n", user)[1:]
+            body = {"items": [{"i": j + 1, "ok": "BADSCEN" not in t, "problem": "bad" if "BADSCEN" in t else ""}
+                              for j, t in enumerate(items)]}  # fmt: skip
+        else:
+            pairs = _re.findall(r"(?m)^\d+\. A: (\S+), B: (\S+)$", user)
+            body = {"scenarios": []}
+            for j, (a, b) in enumerate(pairs):
+                import hashlib as _h
+
+                toks = [_h.sha256(f"{seed}-{j}-{t}".encode()).hexdigest()[:6] for t in range(24)]
+                tag = " BADSCEN" if j == 0 else ""
+                body["scenarios"].append({"name": f"s{seed}_{j}",
+                    "prompt_a": f"Your name is {a}. You " + " ".join(toks[:12]) + tag + ".",
+                    "prompt_b": f"Your name is {b}. You " + " ".join(toks[12:]) + "."})  # fmt: skip
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(body)))]
+        )
+
+
+sb.vllm_server = contextlib.contextmanager(lambda *_a, **_k: iter(["http://fake"]))
+openai.OpenAI = _PoolClient
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        json.dump({"countries": big}, open(os.path.join(tmp, "names.json"), "w"))
+        lv = {"general": (15, 30, "two sentences")}
+        job5e = sb.SelfPlayScenarioPool(category="topic", definition="a test category", example=("x", "Your name is A. a b c d e f", "Your name is B. a b c d e f"),
+                                        names=tk.Path(os.path.join(tmp, "names.json")), per_level=4, per_call=3, levels=lv)  # fmt: skip
+        os.makedirs(os.path.join(tmp, "pool"))
+        job5e.out_dir = tk.Path(os.path.join(tmp, "pool"))
+        os.chdir(tmp)
+        job5e.run()
+        st5e = json.load(open(os.path.join(tmp, "pool", "stats.json")))
+        sc5e = json.load(open(os.path.join(tmp, "pool", "scenarios.json")))
+        rej5e = [json.loads(x) for x in open(os.path.join(tmp, "pool", "rejected.jsonl"))]
+        assert st5e["rejected"].get("check_failed", 0) >= 1 and len(rej5e) == st5e["rejected"]["check_failed"], st5e
+        assert all("BADSCEN" not in s[2] for s in sc5e) and len(sc5e) == 4, sc5e
+        assert all("BADSCEN" in r["prompt_a"] for r in rej5e), rej5e
+        assert True in seen5e and False in seen5e
+        job5e_off = sb.SelfPlayScenarioPool(category="topic", definition="a test category", example=("x", "Your name is A. a b c d e f", "Your name is B. a b c d e f"),
+                                            names=tk.Path("/x"), per_level=4, per_call=3, levels=lv, check=False)  # fmt: skip
+        assert job5e_off._sis_hash() != job5e._sis_hash()
+finally:
+    sb.vllm_server, openai.OpenAI = orig_server, orig_client
+    os.chdir(SETUP_DIR)
+print("[5e] v2 pool check: the real pool run on a fake server drops what the check fails before the per-level cap")
 
 # [6] ---------------------------------------------------------------------------------------------------------------
 assert sb.mix_counts({"a": 10, "b": 10, "c": 10}, {"a": 2, "b": 1, "c": 1}, 8) == {"a": 4, "b": 2, "c": 2}
