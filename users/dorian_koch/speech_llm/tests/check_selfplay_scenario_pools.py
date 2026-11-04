@@ -72,6 +72,7 @@ csv_text = (
 )
 pool = sb.name_pool_from_csv(csv_text)
 assert pool == {"ES": [["Jose", "m"]], "GH": [["Ama", "f"], ["Kofi", "m"]], "IT": [["Andrea", "u"]]}, pool
+assert sb.name_pool_from_csv(csv_text, min_frequency=7) == {"ES": [["Jose", "m"]], "IT": [["Andrea", "u"]]}
 print("[2] census CSV -> pool: unisex marked, non-Latin dropped, accents folded")
 
 # [3] ---------------------------------------------------------------------------------------------------------------
@@ -146,6 +147,21 @@ fp_c = [("topic", "fp1", "Your name is Dita. My toilet won't flush; ask how to f
 fp_k, fp_r = sb.filter_train_scenarios(fp_c, [], per_cell=5, require_you=True)
 assert [k[1] for k in fp_k] == ["fp2"] and fp_r == {"not_second_person": 1}, (fp_k, fp_r)
 assert len(sb.filter_train_scenarios(fp_c, [], per_cell=5)[0]) == 2, "v1 default must keep first-person sides"
+sc_c = [
+    (
+        "instruction",
+        "sc1",
+        "Your name is Ana. You run a bakery and answer questions about bread.",
+        "Your name is Leo. You ask about rye bread and reply in two short sentences.",
+        "general",
+    )
+]
+assert sb.filter_train_scenarios(sc_c, [], per_cell=5, reject_sentence_counts=True)[1] == {"sentence_count": 1}
+assert len(sb.filter_train_scenarios(sc_c, [], per_cell=5)[0]) == 1
+import re as _re  # noqa: E402
+
+assert not _re.search(sb._SENTENCE_COUNT, sb.SP_V2_INSTRUCTION[1][2], _re.I), sb.SP_V2_INSTRUCTION[1][2]
+assert _re.search(sb._SENTENCE_COUNT, sb.SP_TRAIN_EXAMPLES["instruction"][2], _re.I), "v1 example changed"
 print("[5] style: v2 pools drop a side not going on as You/Your (here: My); v1's default keeps it")
 
 
@@ -154,11 +170,14 @@ def prow(i, prompt, *labels):
     return {"id": f"p{i}", "prompt": prompt, "constraints": list(labels) or ["include keywords"]}
 
 
-ok_p = "Explain why bees matter for vineyards in no more than 4 sentences, and include the word grapes."
-assert sb.persona_if_candidate(prow(0, ok_p, "length constraints:number of sentences", "include keywords")) == (
+ok_p = "Explain why bees matter for vineyards in no more than 40 words, and include the word grapes."
+assert sb.persona_if_candidate(prow(0, ok_p, "length constraints:number of words", "include keywords")) == (
     ok_p,
     "",
 )
+sent_p = "Explain why bees matter for vineyards in exactly 4 sentences."
+assert sb.persona_if_candidate(prow(12, sent_p, "length constraints:number of sentences"))[1] == "written_label"
+assert sb.persona_if_candidate(prow(13, sent_p, "include keywords"))[1] == "written_text"  # count in text, unlabelled
 cases5b = {
     "written_label": prow(1, ok_p, "include keywords", "punctuation:use no comma"),
     "long": prow(2, "word " * 60),

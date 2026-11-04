@@ -1170,6 +1170,12 @@ _SP_TRAIN_JSON_SCHEMA = {
 }
 
 
+_SENTENCE_COUNT = (
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|single)[- ](short |brief |concise |complete |full )?"
+    r"sentences?\b"
+)
+
+
 def word_ngrams(text: str, n: int = 5) -> set:
     import re
 
@@ -1190,6 +1196,7 @@ def filter_train_scenarios(
     levels: dict | None = None,
     max_words: int = 45,
     require_you: bool = False,
+    reject_sentence_counts: bool = False,
 ):
     """Keep generated ``(category, name, prompt_a, prompt_b, level)`` in order, up to ``per_cell`` per (category,
     level): each side within the level's word range (``levels``, default ``SP_TRAIN_LEVELS``, inside
@@ -1197,7 +1204,9 @@ def filter_train_scenarios(
     to the set AND to ``held_out`` (spj2), and the pair's word-5-gram Jaccard with every held-out pair and every kept
     pair of its category <= ``max_jaccard``. ``require_you`` (v2 pools) also drops a scenario whose side does not go on as "You ..."/"Your ..." after its
     name line, as every spj2 prompt does (v2's first full run: first person "I"/"My" in 19% of minimal topic
-    scenarios, note-style fragments in half the minimal instruction sides). -> (kept, reject counts by reason)."""
+    scenarios, note-style fragments in half the minimal instruction sides). ``reject_sentence_counts`` drops one
+    that limits an answer in sentences (``_SENTENCE_COUNT``): speech has no full stops, the recogniser's punctuation
+    decides the count the judge reads. -> (kept, reject counts by reason)."""
     import re
 
     norm = lambda x: re.sub(r"[^a-z0-9]+", "_", str(x).lower()).strip("_")  # noqa: E731
@@ -1218,6 +1227,8 @@ def filter_train_scenarios(
             reject("length")
         elif require_you and not all(re.match(r"\s*Your name is [^.]+\.\s+Your?\b", p) for p in (pa, pb)):
             reject("not_second_person")
+        elif reject_sentence_counts and any(re.search(_SENTENCE_COUNT, p, re.I) for p in (pa, pb)):
+            reject("sentence_count")
         elif not n or n in held_names:
             reject("name_in_spj2" if n in held_names else "no_name")
         elif n in names:
@@ -1510,16 +1521,17 @@ def ascii_first_name(name: str) -> str | None:
     return s if ok else None
 
 
-def name_pool_from_csv(text: str) -> dict:
+def name_pool_from_csv(text: str, min_frequency: int = 0) -> dict:
     """The census CSV (``;``-separated) -> ``{country code: sorted [[name, gender], ...]}``, one entry per name and
-    country; gender ``m`` / ``f``, or ``u`` when the country lists the name for both."""
+    country; gender ``m`` / ``f``, or ``u`` when the country lists the name for both. Rows with ``Frequency`` below
+    ``min_frequency`` are skipped."""
     import csv
     import io
 
     by: dict = {}
     for row in csv.DictReader(io.StringIO(text), delimiter=";"):
         n = ascii_first_name(row["Name"])
-        if n is None:
+        if n is None or int(row.get("Frequency") or 0) < min_frequency:
             continue
         g = row["Gender"].strip().lower()
         d = by.setdefault(row["Country code"].strip(), {})
@@ -1582,12 +1594,23 @@ def assign_names(outs: list, calls: list[dict]) -> tuple[list, dict, int]:
 
 class FirstNamePool(Job):
     """First names for self-play scenarios (``NAME_CENSUS_URL``, checked against ``NAME_CENSUS_SHA256``). Kept: names
-    that fold to plain Latin letters (``ascii_first_name``), countries with at least ``min_per_country`` of them.
+    that fold to plain Latin letters (``ascii_first_name``) and are counted at least ``min_frequency`` times, countries
+    with at least ``min_per_country`` of them.
     Output ``names.json``: ``{"source", "sha256", "countries": {code: [[name, gender], ...]}}``. Runs on the login node
     (mini task: it downloads)."""
 
-    def __init__(self, *, url: str = NAME_CENSUS_URL, sha256: str = NAME_CENSUS_SHA256, min_per_country: int = 10):
+    def __init__(
+        self,
+        *,
+        url: str = NAME_CENSUS_URL,
+        sha256: str = NAME_CENSUS_SHA256,
+        min_per_country: int = 10,
+        min_frequency: int = 50,
+    ):
+        # min_frequency: the rare, mostly non-official entries are noise (Iceland, Haiti, Tanzania, Goddess, Green,
+        # Atlanta, Muzungu all count < 35); at 50, 122 of 139 countries keep >= 10 names
         self.url, self.sha256, self.min_per_country = url, sha256, int(min_per_country)
+        self.min_frequency = int(min_frequency)
         self.out_names = self.output_path("names.json")
 
     def tasks(self):
@@ -1600,7 +1623,8 @@ class FirstNamePool(Job):
         got = hashlib.sha256(raw).hexdigest()
         if got != self.sha256:
             raise RuntimeError(f"name list changed: sha256 {got} != {self.sha256} ({self.url})")
-        pool = {cc: v for cc, v in name_pool_from_csv(raw.decode("utf-8")).items() if len(v) >= self.min_per_country}
+        pool = name_pool_from_csv(raw.decode("utf-8"), self.min_frequency)
+        pool = {cc: v for cc, v in pool.items() if len(v) >= self.min_per_country}
         if len(pool) < 100:
             raise RuntimeError(f"only {len(pool)} countries with >= {self.min_per_country} names")
         json.dump({"source": self.url, "sha256": got, "countries": pool}, open(self.out_names.get_path(), "w"))
@@ -1608,6 +1632,16 @@ class FirstNamePool(Job):
         print(f"[first-names] {len(pool)} countries, {sum(map(len, pool.values()))} entries, {len(distinct)} names")
 
 
+#: v2's instruction category: v1's text and example, lengths in words or seconds (a sentence count depends on the
+#: recogniser's punctuation; v1's example asked for "one short sentence").
+SP_V2_INSTRUCTION = (
+    SP_TRAIN_CATEGORY_TEXT["instruction"] + "; any length limit is in words or seconds, never in sentences",
+    (
+        SP_TRAIN_EXAMPLES["instruction"][0],
+        SP_TRAIN_EXAMPLES["instruction"][1],
+        SP_TRAIN_EXAMPLES["instruction"][2].replace("in one short sentence", "in ten words or fewer"),
+    ),
+)
 #: v2-only categories (2026-11-04), each a ``SelfPlayScenarioPool`` of its own: (definition, example). Kept apart from
 #: ``SP_TRAIN_CATEGORY_TEXT``, which v1's declared jobs read.
 SP_V2_CATEGORIES = {
@@ -1762,7 +1796,7 @@ class SelfPlayScenarioPool(Job):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
         cands, names, followed = assign_names(outs, calls)
         kept, rej = filter_train_scenarios(
-            cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level, require_you=True
+            cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level, require_you=True, reject_sentence_counts=True
         )
         check_scenarios([k[:4] for k in kept], categories=None)
         sides = {k[1]: names[(k[2], k[3])] for k in kept}
@@ -1801,15 +1835,15 @@ class SelfPlayScenarioPool(Job):
 # hand-tuned patterns, 2026-11-04) was replaced by this: too many unablated custom steps for a paper.
 TULU_PERSONA_IF_REPO = "allenai/tulu-3-sft-personas-instruction-following"  # ODC-BY-1.0
 TULU_PERSONA_IF_REVISION = "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e"
-#: The 9 of the dataset's 25 constraint labels a listener can check (the IFEval types for words said, avoided or
-#: repeated, length in words or sentences, the ending, a given option, the language, repeating the request). The other
-#: 16 are about how text looks (case, punctuation, JSON, bullets, sections, paragraphs, titles, placeholders,
-#: highlighting, quotation marks, a postscript, letter counts, two responses split by "******").
+#: The 8 of the dataset's 25 constraint labels a listener can check (the IFEval types for words said, avoided or
+#: repeated, length in words, the ending, a given option, the language, repeating the request). The other 17 are about
+#: how text looks (case, punctuation, JSON, bullets, sections, paragraphs, titles, placeholders, highlighting,
+#: quotation marks, a postscript, letter counts, two responses split by "******") or, for the number of sentences,
+#: decided by the transcriber: speech has no full stops, the ASR's punctuation sets the count the judge reads.
 SP_IF_SPOKEN_LABELS = (
     "include keywords",
     "keywords:exclude words",
     "keywords:frequency",
-    "length constraints:number of sentences",
     "length constraints:number of words",
     "specific ending",
     "format:choose one from options",
@@ -1822,7 +1856,6 @@ SP_IF_LABEL_CHECKS = {
     "include keywords": "words to include",
     "keywords:exclude words": "words to avoid",
     "keywords:frequency": "how often a word is said",
-    "length constraints:number of sentences": "number of sentences",
     "length constraints:number of words": "length in words",
     "specific ending": "the ending",
     "format:choose one from options": "one of given options",
@@ -1846,6 +1879,7 @@ SP_IF_REJECT = (
     r"infographic|slides?|sketch|pages?|documents?|detailed|comprehensive|in-depth|mock-?ups?|murals?|"
     r"user interface|web ?site design|(?:this|the) persona|screenshots?|images?|photos?|pictures?|illustrations?|"
     r"instrumental|sheet music|chord progressions?)\b|"
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|single)[- ]sentences?\b|"
     r"\b(develop|build|implement|create|code) (?:an? )?(?:\w+ ){0,3}(feature|app|application|program|website|function|"
     r"algorithm|class|script for an? \w+ app)\b|"
     r"\b([1-9]\d{2,}|\d{1,3},\d{3})[- ]words?\b|\^\^|\*\*|<<|>>|\[|\]|\bp\.\s?s\.?(?=\W)|\? to !|"
