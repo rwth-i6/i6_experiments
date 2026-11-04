@@ -2121,7 +2121,7 @@ SP_IF_LABEL_CHECKS = {
 SP_IF_PROMPT_WORDS = 50
 #: Word cap of B's prompt: 70 words + the Minimal line is ~110 text tokens, inside the self-play prefix budget (KV
 #: context = conversation + 256 frames; voice 50 + 12 silence + text).
-SP_IF_MAX_WORDS = 100
+SP_IF_MAX_WORDS = 70
 #: A request whose text still asks for something visual or written, an unlabelled constraint the labels miss (on a
 #: sample of 30 rows: "Format: Bullet points", "2 paragraphs separated by ^^^^"; on 40 written scenarios: a UI
 #: mockup, "changing . to !"), or an answer far longer than a one-minute call ("exactly 150 words", "a 300-word
@@ -2346,25 +2346,16 @@ class SelfPlayPersonaIfPool(Job):
 # dropped, never repaired: a quoted phrase or number missing from B (``persona_if_scene_reject``), then a gpt-oss check
 # of every requirement (``SP_IF_VERIFY_SYSTEM``). The verbatim pool stays declared, so the rewrite can be ablated.
 SP_IF_SCENE_DEFINITION = (
-    "B needs what a given written request asks for and asks A for it out loud; A answers. B's instructions come in "
-    'three parts, which are joined as: b_who, then b_ask, then "Ask that <requirement 1>, that <requirement 2> ...". '
-    'b_who says who B is and why B needs it, in full sentences addressed to B ("You ..."). b_ask is one sentence that '
-    'starts with "Ask" and says what B asks for ("Ask for a list of five tips on ...", "Ask whether ...", "Ask how '
-    '..."), with the task and every fact the request gives but none of the requirements; a claim to check becomes a '
-    "question about it. "
-    'Each requirement completes "Ask that ...", is about the answer and starts with "it" or "the answer" ("it never '
-    'uses the word \u201cx\u201d", "it ends with the phrase \u201cy\u201d", "the answer is at most 50 words"); never "you" '
-    'or "your answer". Put every requirement of the request there: each quoted word or phrase exactly and in curly '
-    "quotes \u201clike this\u201d, each number, the exact ending, every word to use, avoid or repeat, how often, any "
-    'length, the language. Options to choose from become "it picks one of \u201cX\u201d, \u201cY\u201d or \u201cZ\u201d and '
-    'says the chosen one word for word" ("include the exact phrase" in a request means the chosen option). If the '
-    "request asks for the request itself to be repeated, b_ask quotes the exact question B will ask in curly quotes "
-    "(\u201cAsk this question: \u201c...\u201d\u201d), and a requirement says \u201cit first repeats that question word for "
-    "word, then answers it\u201d. If the request says \u201cyou\u201d to the answerer (\u201cyou are a fan of ...\u201d), that "
-    "is A's side, never B's. Word everything the way a person would say it: no brackets, parentheses, dashes or "
-    "lists. If the request asks the answerer to imagine being someone, B asks A to answer as that person; B never "
-    "takes that role. A's instructions say who A is, someone suited to the topic, and nothing about the requirements. "
-    "B's parts never use A's name"
+    "B asks A out loud for what a written request asks for; A answers. Give B's instructions in three parts. b_who: "
+    'one short sentence on who B is and why B needs it ("You ..."). b_ask: one sentence starting with "Ask" with the '
+    'task and its facts but no requirements ("Ask for a short toast for your sister\'s wedding", "Ask whether ..."). '
+    'b_requirements: every requirement of the request, each completing "Ask that ..." and starting with "it" ("it '
+    'never uses the word \u201cx\u201d", "it ends with the phrase \u201cy\u201d", "it picks one of \u201cX\u201d, \u201cY\u201d or '
+    '\u201cZ\u201d and says it word for word"); quoted words exactly and in curly quotes, every number kept. If the request '
+    'wants itself repeated, b_ask quotes the question and a requirement is "it first repeats that question word for '
+    "word, then answers it\". If the request casts the answerer as someone, B asks A to answer as that person. A's "
+    "instructions say who A is, someone suited to the topic, and nothing about the requirements. B's parts never use "
+    "A's name; no brackets, dashes or lists"
 )
 #: ``(request, name, prompt A, b_who, b_ask, b_requirements)``, written for this job (not a Tulu row).
 SP_IF_SCENE_EXAMPLE = (
