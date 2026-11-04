@@ -14,8 +14,7 @@ the design turns on whether the round trip moves the codes less than the augment
 from sisyphus import Job, Task, tk
 
 from .common import (
-    add_cuda_npp_to_env,
-    add_venv_python_lib_to_env,
+    add_torchcodec_to_env,
     moshi_pythonpath,
     run_worker_script,
 )
@@ -80,10 +79,13 @@ class MimiAugmentationProbe(Job):
         # and miss the sibling packages. Same reasoning as `launch_training` in finetune.py.
 
         def env_hook(env):
-            if self.env_ffmpeg_path is not None:
-                InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
-            add_cuda_npp_to_env(self.venv_python_path.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.env_ffmpeg_path,
+                npp_venv_python=self.venv_python_path.get(),
+                venv_python=self.venv_python_path.get(),
+                who="MimiAugmentationProbe",
+            )
 
         run_worker_script(
             self.venv_python_path.get(),

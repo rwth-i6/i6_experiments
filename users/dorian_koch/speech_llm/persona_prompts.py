@@ -476,20 +476,9 @@ class PersonaPromptGen(Job):
         return self.prompt_set_for("assistant")
 
     def completed_fraction(self):
-        import glob
+        from .common import job_progress_fraction
 
-        from sisyphus import global_settings as gs
-
-        files = glob.glob(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_*.json"))
-        done, total = 0, None
-        for f in files:
-            try:
-                d = json.load(open(f))
-                done += d.get("done", 0)
-                total = total or d.get("total")
-            except (OSError, ValueError):
-                pass
-        return min(done / total, 1.0) if total else None
+        return job_progress_fraction(self, names=("progress_0.json",))
 
     def run(self):
         import numpy as np
@@ -1016,13 +1005,9 @@ class PersonaProfileGen(Job):
         return f"{self.spec}|{self.llm_name}|episode_speaker"
 
     def completed_fraction(self):
-        from sisyphus import global_settings as gs
+        from .common import job_progress_fraction
 
-        try:
-            d = json.load(open(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_0.json")))
-            return min(d["done"] / d["total"], 1.0) if d.get("total") else None
-        except (OSError, ValueError, KeyError):
-            return None
+        return job_progress_fraction(self, names=("progress_0.json",))
 
     def run(self):
         import numpy as np
@@ -1691,13 +1676,9 @@ class PersonaContentPromptGen(Job):
         return f"{self.spec}|{self.llm_name}"
 
     def completed_fraction(self):
-        from sisyphus import global_settings as gs
+        from .common import job_progress_fraction
 
-        try:
-            d = json.load(open(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress_0.json")))
-            return min(d["done"] / d["total"], 1.0) if d.get("total") else None
-        except (OSError, ValueError, KeyError):
-            return None
+        return job_progress_fraction(self, names=("progress_0.json",))
 
     def _calls(self) -> tuple:
         """``(calls, n_rows)``: ``calls`` = ``[(call key, transcript, [(row id, side), ...])]`` in a fixed order."""

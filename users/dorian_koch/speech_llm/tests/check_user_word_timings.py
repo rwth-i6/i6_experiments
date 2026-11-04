@@ -261,9 +261,13 @@ def stage_graph(mutant, tmp):
     # for torchcodec, which a datasets Audio() column needs) and that job's venv
     real_job = next(j for j in graph if type(j).__name__ == "MoshiAnnotate" and j.env_ffmpeg_path is not None)
     env = {k: os.environ.get(k, "") for k in ("PATH", "LD_LIBRARY_PATH", "PKG_CONFIG_PATH")}
-    moshi.InstallFFmpeg.add_to_env(real_job.env_ffmpeg_path, env)
-    moshi.add_cuda_npp_to_env(real_job.env_npp_venv_python.get(), env)
-    moshi.add_venv_python_lib_to_env(real_job.venv_python_path.get(), env)
+    moshi.add_torchcodec_to_env(
+        env,
+        ffmpeg_path=real_job.env_ffmpeg_path,
+        npp_venv_python=real_job.env_npp_venv_python.get(),
+        venv_python=real_job.venv_python_path.get(),
+        who="check_user_word_timings",
+    )
     with open(os.path.join(tmp, "annotate_env.json"), "w") as f:
         json.dump({"env": env, "python": real_job.venv_python_path.get()}, f)
     check(

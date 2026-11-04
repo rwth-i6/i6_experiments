@@ -22,8 +22,7 @@ from pathlib import Path
 
 from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
 from .common import (
-    add_cuda_npp_to_env,
-    add_venv_python_lib_to_env,
+    add_torchcodec_to_env,
     merge_jsonl_parts,
     run_worker_script,
     run_worker_script_per_gpu,
@@ -347,23 +346,16 @@ class ChatterboxSingleSpeakerInference(Job):
 
         # torchcodec needs our FFmpeg libs AND CUDA NPP on LD_LIBRARY_PATH; supplying both is what
         # makes this job node-independent instead of relying on c23g providing them system-wide.
+        # FFmpeg is not optional: dropping `requires: ["system_ffmpeg"]` (2026-09-16) let this job reach c25g with
+        # neither channel set, where it died on our own build's libavutil after its GPU allocation.
         def env_hook(env):
-            ffmpeg_path = self.ffmpeg_path or self.env_ffmpeg_path
-            # Not optional in practice. Dropping `requires: ["system_ffmpeg"]` (2026-09-16) let this
-            # job route to c25g, which has no system FFmpeg -- and with BOTH channels None the line
-            # below is skipped, so it arrived there carrying nothing and died on
-            # "libavutil.so.60: cannot open shared object file", our OWN build's libavutil, i.e. it
-            # was never on the loader path at all. The c25g proof that justified dropping the tag
-            # passed ffmpeg_path explicitly; no benchmark caller did. Assert rather than warn: a
-            # missing library here costs a GPU allocation and ~4 min before it fails.
-            assert ffmpeg_path is not None, (
-                "ChatterboxSingleSpeakerInference needs an FFmpeg build: torchcodec dlopens "
-                "libavutil at import and no partition is guaranteed to provide one. Pass "
-                "env_ffmpeg_path=<InstallFFmpeg>.out_path (hash-free) from the caller."
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.ffmpeg_path or self.env_ffmpeg_path,
+                npp_venv_python=self.venv_python_path.get(),
+                venv_python=self.venv_python_path.get(),
+                who="ChatterboxSingleSpeakerInference",
             )
-            InstallFFmpeg.add_to_env(ffmpeg_path, env)
-            add_cuda_npp_to_env(self.venv_python_path.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
         # Per-GPU fan-out: clips are strided by index across the workers (clip i's
         # seed is SEED + i, so each clip is bit-identical to the single-worker run). Under

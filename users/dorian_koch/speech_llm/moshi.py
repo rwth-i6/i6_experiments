@@ -1,13 +1,12 @@
 from .common import (
-    add_cuda_npp_to_env,
-    add_venv_python_lib_to_env,
+    add_torchcodec_to_env,
     job_progress_fraction,
     merge_hf_parts,
     prepend_pythonpath,
     run_worker_script,
     run_worker_script_per_gpu,
 )
-from .tts import InstallFFmpeg
+from .tts import InstallFFmpeg  # noqa: F401 -- re-exported (tests use moshi.InstallFFmpeg)
 from .finetune import (
     MOSHI_ADAPTER,
     finetune_completed_fraction,
@@ -166,15 +165,13 @@ class MoshiAnnotate(Job):
         # is `if TORCHCODEC_AVAILABLE: ... else: raise ImportError` with no soundfile fallback, so
         # the bare `row.get("speaker_audio", {})` in the worker is a decode, not a dict lookup.
         def env_hook(env):
-            assert self.env_ffmpeg_path is not None and self.env_npp_venv_python is not None, (
-                "MoshiAnnotate needs an FFmpeg build and a venv carrying CUDA NPP: torchcodec "
-                "dlopens libavutil and libnppicc.so.12 at import, and no partition reliably "
-                "provides either. Pass env_ffmpeg_path=<InstallFFmpeg>.out_path and "
-                "env_npp_venv_python=npp_venv() (both hash-free) from the caller."
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.env_ffmpeg_path,
+                npp_venv_python=self.env_npp_venv_python and self.env_npp_venv_python.get(),
+                venv_python=self.venv_python_path.get(),
+                who="MoshiAnnotate",
             )
-            InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
-            add_cuda_npp_to_env(self.env_npp_venv_python.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
 
         n = run_worker_script_per_gpu(
             self.venv_python_path.get(),
@@ -256,11 +253,13 @@ class MoshiAnnotateUserWords(Job):
             return a
 
         def env_hook(env):
-            if self.env_ffmpeg_path is not None:
-                InstallFFmpeg.add_to_env(self.env_ffmpeg_path, env)
-            if self.env_npp_venv_python is not None:
-                add_cuda_npp_to_env(self.env_npp_venv_python.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.env_ffmpeg_path,
+                npp_venv_python=self.env_npp_venv_python and self.env_npp_venv_python.get(),
+                venv_python=self.venv_python_path.get(),
+                who="MoshiAnnotateUserWords",
+            )
 
         n = run_worker_script_per_gpu(
             self.venv_python_path.get(),

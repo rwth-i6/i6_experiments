@@ -5,8 +5,7 @@ import subprocess
 from .common import (
     merge_hf_parts,
     run_worker_script_per_gpu,
-    add_cuda_npp_to_env,
-    add_venv_python_lib_to_env,
+    add_torchcodec_to_env,
     job_progress_fraction,
     run_worker_script,
 )
@@ -285,11 +284,13 @@ class ChatterboxInference(Job):
         # torchcodec needs BOTH our FFmpeg libs and CUDA NPP on LD_LIBRARY_PATH. Supplying both is
         # what makes this job node-independent; c23g merely happened to provide them system-wide.
         def env_hook(env):
-            if self.ffmpeg_path is not None:
-                print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
-                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
-            add_cuda_npp_to_env(self.venv_python_path.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.ffmpeg_path,
+                npp_venv_python=self.venv_python_path.get(),
+                venv_python=self.venv_python_path.get(),
+                who="ChatterboxInference",
+            )
 
         # Per-GPU fan-out: each worker takes a contiguous sub-shard of this job's
         # shard and writes its own out_hf part; the parts are concatenated in order, so the merged

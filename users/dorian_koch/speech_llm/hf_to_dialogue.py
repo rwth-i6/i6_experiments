@@ -827,26 +827,10 @@ class HfToDialogue(Job):
         return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
 
     def completed_fraction(self):
-        import glob
-        from sisyphus import global_settings as gs
+        from .common import job_progress_fraction
 
-        work_dir = self._sis_path(gs.JOB_WORK_DIR)
-        files = glob.glob(os.path.join(work_dir, "progress_*.json"))
-        if not files:
-            return None
-        total = None
-        done = 0
-        for f in files:
-            try:
-                d = json.load(open(f))
-                done += d.get("done", 0)
-                if total is None:
-                    total = d.get("total")
-            except (OSError, ValueError):
-                pass
-        if not total:
-            return None
-        return min(done / total, 1.0)
+        # one progress_<pid>.json per map worker, each with the whole job's total
+        return job_progress_fraction(self, names=("progress_*.json",), shared_total=True)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

@@ -97,15 +97,9 @@ class PersonaSelfPlay(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def completed_fraction(self):
-        import json
+        from .common import job_progress_fraction
 
-        from sisyphus import global_settings as gs
-
-        try:
-            d = json.load(open(os.path.join(self._sis_path(gs.JOB_WORK_DIR), "progress.json")))
-            return min(d["done"] / d["total"], 1.0)
-        except (OSError, ValueError, KeyError, ZeroDivisionError):
-            return None
+        return job_progress_fraction(self)
 
     def run(self):
         env = worker_env(offline=True)

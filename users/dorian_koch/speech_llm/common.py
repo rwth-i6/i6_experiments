@@ -397,6 +397,27 @@ def add_cuda_npp_to_env(venv_python_path, env: dict) -> None:
     env["LD_LIBRARY_PATH"] = hits[0] + ":" + env.get("LD_LIBRARY_PATH", "")
 
 
+def add_torchcodec_to_env(env: dict, *, ffmpeg_path, npp_venv_python, venv_python, who: str) -> None:
+    """Put everything torchcodec dlopens at import on a worker's library path: our FFmpeg build (an
+    ``InstallFFmpeg`` output), a venv's CUDA NPP and the job venv's libpython. The one implementation for every
+    Job whose worker decodes audio through torchcodec / ``datasets`` Audio().
+
+    Both libraries are required: no partition is guaranteed to provide libavutil or libnppicc, and a job that
+    skipped a missing FFmpeg path reached c25g and died at import after its GPU allocation (2026-09-16).
+    """
+    from .tts import InstallFFmpeg
+
+    missing = [n for n, v in (("an FFmpeg build", ffmpeg_path), ("a CUDA NPP venv", npp_venv_python)) if v is None]
+    if missing:
+        raise RuntimeError(
+            f"{who} needs {' and '.join(missing)}: torchcodec dlopens libavutil and libnppicc.so.12 at import. "
+            "Pass the InstallFFmpeg output / npp venv (both hash-free) from the caller."
+        )
+    InstallFFmpeg.add_to_env(ffmpeg_path, env)
+    add_cuda_npp_to_env(npp_venv_python, env)
+    add_venv_python_lib_to_env(venv_python, env)
+
+
 def add_venv_python_lib_to_env(venv_python_path, env: dict) -> None:
     """Put the venv's BASE INTERPRETER ``lib/`` on ``LD_LIBRARY_PATH``.
 
@@ -844,9 +865,18 @@ def write_progress(done: int, total: int, path: str = "progress.json") -> None:
         raise
 
 
-def job_progress_fraction(job) -> "float | None":
-    """Manager-side: read a worker-written progress.json from the job work dir.
+def job_progress_fraction(
+    job,
+    names: "tuple[str, ...]" = ("progress.json", "gpu*/progress.json"),
+    *,
+    root: "str | None" = None,
+    shared_total: bool = False,
+) -> "float | None":
+    """Manager-side: sum the worker-written {done, total} markers matching ``names`` (globs) under ``root`` (default:
+    the job work dir). ``shared_total``: every marker carries the job's whole total (workers of one ``datasets.map``),
+    so the total is their max, not their sum.
 
+    The one implementation for every Job's ``completed_fraction`` (per-job copies missed the per-GPU fan-out).
     :return: fraction in [0, 1], or None if no usable progress yet.
     """
     import json
@@ -855,10 +885,10 @@ def job_progress_fraction(job) -> "float | None":
 
     import glob
 
-    work = job._sis_path(gs.JOB_WORK_DIR)
+    work = root or job._sis_path(gs.JOB_WORK_DIR)
     # One progress.json for a single worker; under the per-GPU fan-out each worker writes its own
     # in gpu<k>/, and the job's progress is their sum.
-    paths = [os.path.join(work, "progress.json")] + sorted(glob.glob(os.path.join(work, "gpu*", "progress.json")))
+    paths = [p for name in names for p in sorted(glob.glob(os.path.join(work, name)))]
     done = total = 0
     for path in paths:
         try:
@@ -867,7 +897,8 @@ def job_progress_fraction(job) -> "float | None":
         except (OSError, ValueError):
             continue
         done += int(d.get("done", 0) or 0)
-        total += int(d.get("total", 0) or 0)
+        t = int(d.get("total", 0) or 0)
+        total = max(total, t) if shared_total else total + t
     if total <= 0:
         return None
     return max(0.0, min(1.0, done / total))

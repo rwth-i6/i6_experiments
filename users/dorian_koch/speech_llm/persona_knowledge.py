@@ -26,7 +26,6 @@ import subprocess
 from sisyphus import Job, Task, tk
 
 from .common import job_progress_fraction, worker_env
-from .tts import InstallFFmpeg
 
 #: PersonaPlex's QA role, verbatim from the paper (section 3.2.1) and ``personaplex.engine.DEFAULT_SYSTEM_PROMPT``.
 PERSONAPLEX_QA_ROLE = (
@@ -440,11 +439,9 @@ class KnowledgeKnownScore(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def completed_fraction(self):
-        try:
-            d = json.load(open(os.path.join(self.out_dir.get_path(), "progress.json")))
-            return min(d["done"] / d["total"], 1.0)
-        except (OSError, ValueError, KeyError, ZeroDivisionError):
-            return None
+        from .common import job_progress_fraction
+
+        return job_progress_fraction(self, root=self.out_dir.get_path())
 
     def info(self):
         f = self.completed_fraction()
@@ -597,15 +594,17 @@ class KnowledgeVoiceConvert(Job):
     def run(self):
         from pathlib import Path
 
-        from .common import add_cuda_npp_to_env, add_venv_python_lib_to_env, run_worker_script
+        from .common import add_torchcodec_to_env, run_worker_script
 
         def env_hook(env):
-            # as ChatterboxInference: the chatterbox stack imports torchaudio/torchcodec, which need our FFmpeg,
-            # CUDA NPP and libpython on the library path on nodes without them
-            if self.ffmpeg_path is not None:
-                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
-            add_cuda_npp_to_env(self.venv_python_path.get(), env)
-            add_venv_python_lib_to_env(self.venv_python_path.get(), env)
+            # the chatterbox stack imports torchaudio/torchcodec
+            add_torchcodec_to_env(
+                env,
+                ffmpeg_path=self.ffmpeg_path,
+                npp_venv_python=self.venv_python_path.get(),
+                venv_python=self.venv_python_path.get(),
+                who=type(self).__name__,
+            )
 
         args = [
             "--annotated",
