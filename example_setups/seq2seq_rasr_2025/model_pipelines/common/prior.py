@@ -1,6 +1,6 @@
 __all__ = ["compute_priors"]
 
-from typing import Protocol, Tuple
+from typing import Optional, Protocol, Tuple
 
 import numpy as np
 import torch
@@ -20,8 +20,9 @@ from ..common.serializers import recipe_imports
 def compute_priors(
     prior_data_config: DataConfig,
     model_serializers: Collection,
-    checkpoint: PtCheckpoint,
+    checkpoint: Optional[PtCheckpoint] = None,
 ) -> tk.Path:
+    # `checkpoint` is None for externally trained models that load their weights themselves.
     prior_returnn_config = ReturnnConfig(
         config={
             "extern_data": {

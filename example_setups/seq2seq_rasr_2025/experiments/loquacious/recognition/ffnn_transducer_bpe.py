@@ -48,8 +48,6 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
         default_offline_lexfree_recog_variant(),
         default_offline_tree_recog_variant(),
         default_offline_tree_4gram_recog_variant(),
-        default_streaming_lexfree_recog_variant(),
-        default_streaming_tree_4gram_recog_variant(),
     ]
 
 

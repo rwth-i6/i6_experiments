@@ -20,14 +20,15 @@ from .pytorch_modules import (
 )
 
 
-def export_model_stateless(model_config: TransformerLmConfig, checkpoint: PtCheckpoint) -> tk.Path:
+def export_model_stateless(
+    model_config: TransformerLmConfig, checkpoint: PtCheckpoint, *, last_hidden_only: bool = False
+) -> tk.Path:
     model_serializers = get_model_serializers(model_class=TransformerLm, model_config=model_config)
+    forward_step = _forward_step_last_hidden if last_hidden_only else _forward_step_stateless
 
     return _export_model(
         model_serializers=model_serializers,
-        forward_step_import=Import(
-            f"{_forward_step_stateless.__module__}.{_forward_step_stateless.__name__}", import_as="forward_step"
-        ),
+        forward_step_import=Import(f"{forward_step.__module__}.{forward_step.__name__}", import_as="forward_step"),
         checkpoint=checkpoint,
         returnn_config_dict={
             "tensor_tokens_length": CodeWrapper('Tensor(name="tokens_length", dims=[batch_dim], dtype="int32")'),
@@ -148,6 +149,19 @@ def _forward_step_stateless(*, model: TransformerLm, extern_data: TensorDict, **
     scores = -torch.nn.functional.log_softmax(last_logits, dim=-1)
 
     run_ctx.mark_as_output(name="scores", tensor=scores)
+
+
+def _forward_step_last_hidden(*, model: TransformerLm, extern_data: TensorDict, **_):
+    """Project only the last valid hidden state; avoids a [B,T,V] allocation."""
+    import returnn.frontend as rf
+
+    tokens = extern_data["tokens"].raw_tensor
+    tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor
+    logits = model(input=tokens, seq_mask=lengths_to_padding_mask(tokens_size), last_positions=tokens_size.long() - 1)[
+        :, 0
+    ]
+    scores = -torch.nn.functional.log_softmax(logits, dim=-1)
+    rf.get_run_ctx().mark_as_output(name="scores", tensor=scores)
 
 
 def _forward_step_kv_cache(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict, **_):

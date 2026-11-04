@@ -1,7 +1,6 @@
 from . import (
     aed_bpe,
     aed_byte,
-    combination_model_bpe,
     ctc_bpe,
     ctc_bpe_phoneme,
     ctc_byte,
@@ -13,7 +12,6 @@ from . import (
 __all__ = [
     "aed_bpe",
     "aed_byte",
-    "combination_model_bpe",
     "ctc_bpe",
     "ctc_bpe_phoneme",
     "ctc_byte",

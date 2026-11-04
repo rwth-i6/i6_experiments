@@ -54,16 +54,6 @@ rasr_make_job = CMakeJob(
 rasr_binary_path: tk.Path = rasr_make_job.out_install_dir
 rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
 
-# rasr_root = tk.Path(
-#     "/work/asr4/berger/rasr_dev/label_scorer/rasr/",
-#     hash_overwrite="RASR_ROOT",
-# )
-#
-# rasr_binary_path = tk.Path(
-#     "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard",
-#     hash_overwrite="RASR_BINARY_PATH",
-# )
-
 sctk_binary_path = compile_sctk(branch="v2.4.12")
 sctk_binary_path.hash_overwrite = "SCTK_BINARY_PATH"
 

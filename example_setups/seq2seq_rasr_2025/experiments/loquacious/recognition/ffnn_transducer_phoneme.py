@@ -41,7 +41,6 @@ def run(
 def default_recog_variants() -> List[TransducerRecogVariant]:
     return [
         default_offline_4gram_recog_variant(),
-        default_streaming_4gram_recog_variant(),
     ]
 
 

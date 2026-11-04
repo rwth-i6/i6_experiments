@@ -47,13 +47,7 @@ def run(
 
 
 def default_recog_variants() -> List[AEDRecogVariant]:
-    return [
-        default_lexfree_recog_variant(),
-        default_lexfree_aed_ctc_recog_variant(),
-        default_lexfree_aed_ctc_timesync_recog_variant(),
-        default_tree_aed_ctc_recog_variant(),
-        default_tree_aed_ctc_4gram_recog_variant(),
-    ]
+    return [default_lexfree_recog_variant()]
 
 
 def default_lexfree_recog_variant() -> AEDRecogVariant:

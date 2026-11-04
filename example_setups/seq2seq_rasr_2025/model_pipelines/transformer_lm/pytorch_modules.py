@@ -351,7 +351,9 @@ class TransformerLm(torch.nn.Module):
         self.num_layers = cfg.num_layers
         self.hid_dim = cfg.hid_dim
 
-    def forward(self, input: torch.Tensor, seq_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, input: torch.Tensor, seq_mask: torch.Tensor, last_positions: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """
         Training/full-sequence forward.
 
@@ -372,6 +374,10 @@ class TransformerLm(torch.nn.Module):
             x = block(x, seq_mask, causal_mask)
         x = self.output_layernorm(x)
         x = self.dropout(x)
+        if last_positions is not None:
+            # Next-token inference needs only one hidden state per sequence.
+            # Gather before the large vocabulary projection, not afterwards.
+            x = x[last_positions.long(), torch.arange(input.size(0), device=input.device)].unsqueeze(0)
         output_logit = self.output_linear(x)  # [N, B, V]
         return output_logit.transpose(0, 1)  # [B, N, V]
 

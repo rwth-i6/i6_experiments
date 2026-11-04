@@ -36,7 +36,7 @@ class LexiconfreeTimesyncRecogParams:
     acoustic_lookahead_temporal_approximation_scale: float = 0.0
     score_thresholds: Optional[List[float]] = None
     allow_blank_after_sentence_end: bool = False
-    log_stepwise_statistics: bool = True
+    log_stepwise_statistics: bool = False
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
     recombination_mode: Optional[str] = None
@@ -117,11 +117,11 @@ class LexiconfreeLabelsyncRecogParams:
     score_thresholds: Optional[List[float]] = None
     max_labels_per_time_step: int = 1
     length_norm_scale: Optional[float] = None
-    log_stepwise_statistics: bool = True
+    log_stepwise_statistics: bool = False
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
     recombination_mode: Optional[str] = None
-    pruning_mode: Optional[str] = None
+    pruning_strategy_type: Optional[str] = None
 
 
 def get_lexiconfree_labelsync_recog_config(
@@ -168,7 +168,7 @@ def get_lexiconfree_labelsync_recog_config(
         rasr_config.lib_rasr.search_algorithm.sentence_end_label_index = sentence_end_index
     if params.length_norm_scale is not None:
         rasr_config.lib_rasr.search_algorithm.length_norm_scale = params.length_norm_scale
-    rasr_config.lib_rasr.search_algorithm.max_labels_per_time_step = params.max_labels_per_time_step
+    rasr_config.lib_rasr.search_algorithm.max_labels_per_timestep = params.max_labels_per_time_step
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = params.log_stepwise_statistics
     if params.maximum_stable_delay is not None:
         rasr_config.lib_rasr.search_algorithm.maximum_stable_delay = params.maximum_stable_delay
@@ -180,8 +180,8 @@ def get_lexiconfree_labelsync_recog_config(
     if params.recombination_mode is not None:
         rasr_config.lib_rasr.search_algorithm.recombination_mode = params.recombination_mode
 
-    if params.pruning_mode is not None:
-        rasr_config.lib_rasr.search_algorithm.pruning_mode = params.pruning_mode
+    if params.pruning_strategy_type is not None:
+        rasr_config.lib_rasr.search_algorithm.pruning_strategy_type = params.pruning_strategy_type
 
     _add_label_scorers_to_rasr_config(label_scorer_configs, rasr_config.lib_rasr)
 
@@ -201,7 +201,7 @@ class TreeTimesyncRecogParams:
     allow_blank_after_sentence_end: bool = False
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
-    log_stepwise_statistics: bool = True
+    log_stepwise_statistics: bool = False
     recombination_mode: Optional[str] = None
 
 
@@ -315,7 +315,7 @@ def get_tree_labelsync_recog_config(
     length_norm_scale: Optional[float] = None,
     max_labels_per_time_step: int = 1,
     sentence_end_fallback: bool = True,
-    log_stepwise_statistics: bool = True,
+    log_stepwise_statistics: bool = False,
     logfile_suffix: str = "recog",
 ) -> tk.Path:
     crp = CommonRasrParameters()
@@ -383,7 +383,7 @@ def get_tree_labelsync_recog_config(
     if length_norm_scale is not None:
         rasr_config.lib_rasr.search_algorithm.length_norm_scale = length_norm_scale
     if max_labels_per_time_step is not None:
-        rasr_config.lib_rasr.search_algorithm.max_labels_per_time_step = max_labels_per_time_step
+        rasr_config.lib_rasr.search_algorithm.max_labels_per_timestep = max_labels_per_time_step
     rasr_config.lib_rasr.search_algorithm.sentence_end_fall_back = sentence_end_fallback
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
 

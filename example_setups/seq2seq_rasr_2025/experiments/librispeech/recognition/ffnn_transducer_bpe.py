@@ -51,11 +51,7 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
         default_offline_tree_recog_variant(),
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),
-        default_offline_tree_lstm_4gram_recog_variant(),
-        default_offline_tree_trafo_recog_variant(),
         default_offline_tree_trafo_recog_variant_gpu(),
-        default_streaming_lexfree_recog_variant(),
-        default_streaming_tree_4gram_recog_variant(),
     ]
 
 

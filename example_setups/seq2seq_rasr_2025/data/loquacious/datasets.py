@@ -1,4 +1,5 @@
 import functools
+from dataclasses import replace
 from typing import List, Literal, Optional, get_args
 
 from i6_core.corpus.convert import CorpusToTxtJob
@@ -16,7 +17,6 @@ from ...model_pipelines.common.corpus import ScorableCorpus
 from ...tools import returnn_python_exe, returnn_root, subword_nmt_repo
 from ..base import (
     HdfDataConfig,
-    HuggingFaceDataConfig,
     LmDataConfig,
     MetaOggZipDataConfig,
     MetaOggZipHdfTargetDataConfig,
@@ -137,10 +137,16 @@ def get_medium_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
 def get_medium_byte_train_data(
     peak_normalization: bool = True,
     preemphasis: Optional[float] = 0.97,
+    dataset_version: int = 1,
 ) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
         oggzip_files=[
-            get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["train.medium"]
+            get_ogg_zip_dict(
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                test_dataset_version=dataset_version,
+                train_medium_dataset_version=dataset_version,
+            )["train.medium"]
         ],
         speed_perturbation=True,
         partition_epoch=50,
@@ -242,9 +248,17 @@ def get_medium_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
 def get_medium_byte_cv_data(
     peak_normalization: bool = True,
     preemphasis: Optional[float] = 0.97,
+    dataset_version: int = 1,
 ) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
-        oggzip_files=[get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["dev.all"]],
+        oggzip_files=[
+            get_ogg_zip_dict(
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                test_dataset_version=dataset_version,
+                train_medium_dataset_version=dataset_version,
+            )["dev.all"]
+        ],
         speed_perturbation=False,
         partition_epoch=1,
         seq_ordering="sorted",
@@ -332,19 +346,35 @@ def get_medium_bpe_phoneme_cv_data(bpe_size: int) -> MetaOggZipHdfTargetDataConf
     )
 
 
-def get_prior_data(train_corpus_key: TrainSet) -> MetaOggZipDataConfig:
+def get_prior_data(
+    train_corpus_key: TrainSet,
+    *,
+    peak_normalization: bool = True,
+    preemphasis: Optional[float] = 0.97,
+    dataset_version: int = 1,
+) -> MetaOggZipDataConfig:
     # use 10% of the training corpus to estimate the prior
-    train_corpus_file = get_bliss_corpus_dict()[train_corpus_key]
+    train_corpus_file = get_bliss_corpus_dict(
+        test_dataset_version=dataset_version,
+        train_medium_dataset_version=dataset_version,
+    )[train_corpus_key]
     segment_file = SegmentCorpusJob(train_corpus_file, 10).out_single_segment_files[1]
 
     return MetaOggZipDataConfig(
         oggzip_files=[
-            get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)[train_corpus_key]
+            get_ogg_zip_dict(
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                test_dataset_version=dataset_version,
+                train_medium_dataset_version=dataset_version,
+            )[train_corpus_key]
         ],
         speed_perturbation=False,
         partition_epoch=1,
         seq_ordering="sorted",
         segment_file=segment_file,
+        peak_normalization=peak_normalization,
+        preemphasis=preemphasis,
     )
 
 
@@ -364,22 +394,15 @@ def get_default_recog_data(
     )
 
 
-def get_hf_recog_data(corpus_name: EvalSet) -> HuggingFaceDataConfig:
-    assert corpus_name == "dev.all"
-    return HuggingFaceDataConfig(
-        dataset_opts=tk.Path("/work/asr4/berger/rasr_dev/label_scorer/setup/speech_llm/robin_decoding/dev"),
-        seq_ordering="sorted_reverse",
-        seq_tag_column="id",
-        sorting_seq_len_column="duration",
-        use_file_cache=True,
-        sample_rate=16000,
-        audio_key="data",
-        text_key="raw",
-        data_format={
-            "data": {"dtype": "float32", "shape": [None]},
-            "raw": {"dtype": "string", "shape": ()},
-        },
-        rename_columns={"audio": "data", "text": "raw"},
+def get_fixed_recog_data(corpus_name: EvalSet) -> OggZipDataConfig:
+    return replace(
+        get_default_recog_data(
+            corpus_name,
+            no_conversion=True,
+            test_dataset_version=2,
+        ),
+        peak_normalization=False,
+        preemphasis=None,
     )
 
 

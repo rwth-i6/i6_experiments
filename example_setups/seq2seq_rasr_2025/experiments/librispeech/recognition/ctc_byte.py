@@ -42,7 +42,6 @@ def run(
 def default_recog_variants() -> List[CTCRecogVariant]:
     return [
         default_offline_lexfree_recog_variant(),
-        default_streaming_lexfree_recog_variant(),
     ]
 
 

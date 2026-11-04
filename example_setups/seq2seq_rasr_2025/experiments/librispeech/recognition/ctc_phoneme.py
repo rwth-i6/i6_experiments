@@ -45,7 +45,6 @@ def default_recog_variants() -> List[CTCRecogVariant]:
         default_offline_4gram_recog_variant(),
         default_offline_trafo_recog_variant(),
         default_offline_trafo_gpu_recog_variant(),
-        default_streaming_4gram_recog_variant(),
     ]
 
 

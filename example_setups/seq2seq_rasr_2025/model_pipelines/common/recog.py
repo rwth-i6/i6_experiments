@@ -1022,10 +1022,23 @@ class RasrRecogForwardStep(ABC):
         self.sample_rate = sample_rate
         self.traceback_formatter = traceback_formatter or BpeTracebackFormatter()
         self.rasr_init_hook = rasr_init_hook
-        self.search_algorithm = self.init_search_algorithm()
 
         self.align_rasr_config_file = align_rasr_config_file
-        self.aligner = self.init_aligner()
+
+        self._search_algorithm = None
+        self._aligner = None
+
+    @property
+    def search_algorithm(self):
+        if self._search_algorithm is None:
+            self._search_algorithm = self.init_search_algorithm()
+        return self._search_algorithm
+
+    @property
+    def aligner(self):
+        if self._aligner is None:
+            self._aligner = self.init_aligner()
+        return self._aligner
 
     def init_search_algorithm(self):
         if self.recog_rasr_config_file is None:
@@ -1034,10 +1047,12 @@ class RasrRecogForwardStep(ABC):
         if self.rasr_init_hook is not None:
             self.rasr_init_hook()
 
+        import librasr
         from librasr import Configuration, SearchAlgorithm
 
         config = Configuration()
         config.set_from_file(self.recog_rasr_config_file.get())
+        librasr.init_logging(config)
 
         return SearchAlgorithm(config=config)
 
@@ -1048,26 +1063,29 @@ class RasrRecogForwardStep(ABC):
         if self.rasr_init_hook is not None:
             self.rasr_init_hook()
 
+        import librasr
         from librasr import Aligner, Configuration
 
         config = Configuration()
         config.set_from_file(self.align_rasr_config_file.get())
+        librasr.init_logging(config)
 
         return Aligner(config=config)
 
     # Need to remove `search_algorithm` and `aligner` since they are non-picklable pybind objects from librasr
+    # They are rebuild on first use.
     def __getstate__(self) -> dict:
         d = dict(self.__dict__)
-        d["search_algorithm"] = None
-        d["aligner"] = None
+        d["_search_algorithm"] = None
+        d["_aligner"] = None
 
         return d
 
     # Recreate `search_algorithm` and `aligner` object from scratch since it's not picklable
     def __setstate__(self, d) -> None:
         self.__dict__ = d
-        self.search_algorithm = self.init_search_algorithm()
-        self.aligner = self.init_aligner()
+        self._search_algorithm = None
+        self._aligner = None
 
     @abstractmethod
     def __call__(self, *, model: EncoderModel, extern_data: TensorDict, **_) -> None: ...
@@ -1385,7 +1403,14 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
                 if center_end_frame > center_start_frame:
                     search_start = perf_counter()
 
-                    self.search_algorithm.put_features(encoder_states[:, center_start_frame:center_end_frame])
+                    feature_chunk = (
+                        encoder_states[:, center_start_frame:center_end_frame]
+                        .squeeze(0)
+                        .detach()
+                        .to(device="cpu", dtype=torch.float32)
+                        .numpy()
+                    )
+                    self.search_algorithm.put_features(feature_chunk)
                     full_traceback = self.search_algorithm.get_current_best_traceback()
                     stable_traceback = self.search_algorithm.get_common_prefix()
 
