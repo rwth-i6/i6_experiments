@@ -1197,6 +1197,7 @@ def filter_train_scenarios(
     max_words: int = 45,
     require_you: bool = False,
     reject_sentence_counts: bool = False,
+    latin_only: bool = False,
 ):
     """Keep generated ``(category, name, prompt_a, prompt_b, level)`` in order, up to ``per_cell`` per (category,
     level): each side within the level's word range (``levels``, default ``SP_TRAIN_LEVELS``, inside
@@ -1206,8 +1207,10 @@ def filter_train_scenarios(
     name line, as every spj2 prompt does (v2's first full run: first person "I"/"My" in 19% of minimal topic
     scenarios, note-style fragments in half the minimal instruction sides). ``reject_sentence_counts`` drops one
     that limits an answer in sentences (``_SENTENCE_COUNT``): speech has no full stops, the recogniser's punctuation
-    decides the count the judge reads. -> (kept, reject counts by reason)."""
+    decides the count the judge reads. ``latin_only`` drops one with letters outside the Latin script (a teach_check
+    side quoting an Arabic phrase): the duplex models read and speak English. -> (kept, reject counts by reason)."""
     import re
+    import unicodedata
 
     norm = lambda x: re.sub(r"[^a-z0-9]+", "_", str(x).lower()).strip("_")  # noqa: E731
     held_names = {norm(s[1]) for s in held_out}
@@ -1229,6 +1232,8 @@ def filter_train_scenarios(
             reject("not_second_person")
         elif reject_sentence_counts and any(re.search(_SENTENCE_COUNT, p, re.I) for p in (pa, pb)):
             reject("sentence_count")
+        elif latin_only and any(ch.isalpha() and "LATIN" not in unicodedata.name(ch, "") for ch in pa + pb):
+            reject("non_latin_script")
         elif not n or n in held_names:
             reject("name_in_spj2" if n in held_names else "no_name")
         elif n in names:
@@ -1293,7 +1298,7 @@ def generate_scenario_batches(
     parse=_scenario_tuples,
     cache_path: str | None = None,
 ) -> list:
-    """One guided-JSON request per call (``user``, ``seed`` and whatever ``parse`` reads) under ``system``, 3 attempts
+    """One guided-JSON request per call (``user``, ``seed`` and whatever ``parse`` reads) under ``system``, 5 attempts
     each -> per call ``parse(call, reply JSON)`` (default: ``[(category, name, prompt A, prompt B, level), ...]`` in
     answer order), or None if every attempt failed. Serves its own vLLM server for the duration.
 
@@ -1308,7 +1313,7 @@ def generate_scenario_batches(
 
     def gen(client, i, c):
         out, err = None, ""
-        for attempt in range(3):
+        for attempt in range(5):  # 3 until 2026-11-04: a reply cut at the token cap failed ~4% of v2 calls
             try:
                 resp = client.chat.completions.create(
                     model=llm_name,
@@ -1796,7 +1801,12 @@ class SelfPlayScenarioPool(Job):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
         cands, names, followed = assign_names(outs, calls)
         kept, rej = filter_train_scenarios(
-            cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level, require_you=True, reject_sentence_counts=True
+            cands,
+            SPJ2_SCENARIOS[self.held_out],
+            per_cell=self.per_level,
+            require_you=True,
+            reject_sentence_counts=True,
+            latin_only=True,
         )
         check_scenarios([k[:4] for k in kept], categories=None)
         sides = {k[1]: names[(k[2], k[3])] for k in kept}

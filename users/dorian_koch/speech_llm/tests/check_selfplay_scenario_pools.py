@@ -158,6 +158,9 @@ sc_c = [
 ]
 assert sb.filter_train_scenarios(sc_c, [], per_cell=5, reject_sentence_counts=True)[1] == {"sentence_count": 1}
 assert len(sb.filter_train_scenarios(sc_c, [], per_cell=5)[0]) == 1
+ar_c = [("teach_check", "ar1", "Your name is Carla. You teach Khalid the phrase 'هل تقبلون' and ask him to repeat it.", "Your name is Khalid. You listen and repeat the phrase when asked.", "general"),
+        ("teach_check", "fr1", "Your name is Jose. You teach Mia the French word café and ask her to repeat it.", "Your name is Mia. You listen to Jose and repeat the word when asked.", "general")]  # fmt: skip
+assert sb.filter_train_scenarios(ar_c, [], per_cell=5, latin_only=True)[1] == {"non_latin_script": 1}  # café is Latin
 import re as _re  # noqa: E402
 
 assert not _re.search(sb._SENTENCE_COUNT, sb.SP_V2_INSTRUCTION[1][2], _re.I), sb.SP_V2_INSTRUCTION[1][2]
