@@ -767,6 +767,20 @@ def parse_judge_reply(content: str) -> dict:
 JUDGE_MAX_ATTEMPTS = 4
 JUDGE_RETRY_BACKOFF_S = 2.0
 
+#: LLMGrading fails instead of publishing when more rows than this share end in a judge error. 2026-11-04, 264
+#: finished summaries: at most 1 per 1000. 10x that only fires on an outage, which would otherwise read as collapse.
+JUDGE_MAX_ERROR_FRAC = 0.01
+
+
+def check_judge_error_rate(n_errors: int, n: int, max_frac: float = JUDGE_MAX_ERROR_FRAC) -> None:
+    """Raise when the judge failed on more than ``max_frac`` of ``n`` graded rows, or there are none."""
+    if n == 0 or n_errors > max_frac * n:
+        raise RuntimeError(
+            f"LLMGrading: the judge failed on {n_errors}/{n} rows (limit {max_frac:.0%}); those rows would score as "
+            "wrong answers. The errors are in eval_results.jsonl (reasoning)."
+        )
+
+
 #: The judge server's context and memory share. They trade against each other; the arithmetic is in
 #: LLMGrading.run(). 4096 / 0.85 until 2026-10-12 (one 218-alias question overflowed it).
 JUDGE_MAX_MODEL_LEN = 5120
@@ -1025,6 +1039,7 @@ class LLMGrading(Job):
         summary["judge_errors"] = sum(
             1 for er in eval_results if "LLM request/parse error" in str(er.get("reasoning", ""))
         )
+        check_judge_error_rate(summary["judge_errors"], n)
         with open(str(self.out_summary.get()), "w") as f:
             json.dump(summary, f, indent=2)
 

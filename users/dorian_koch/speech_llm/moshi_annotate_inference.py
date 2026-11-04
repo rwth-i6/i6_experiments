@@ -141,6 +141,19 @@ ALIGNMENT_FEATURE = List(
 #: separated by COLUMN); a distinct label keeps a leak into ``alignments`` visible to the one-speaker asserts.
 USER_SPEAKER = "user"
 
+#: An annotation part fails instead of saving when more input rows than this share are dropped (missing audio or an
+#: annotate error), as HfToDialogue does. 2026-11-04, 141 finished MoshiAnnotate parts: no row dropped.
+ANNOTATE_MAX_DROP_FRAC = 0.01
+
+
+def check_annotate_drop_rate(rows_in: int, rows_out: int, max_frac: float = ANNOTATE_MAX_DROP_FRAC) -> None:
+    """Raise when no row survived or more than ``max_frac`` of ``rows_in`` rows were dropped."""
+    if rows_out == 0 or rows_in - rows_out > max_frac * rows_in:
+        raise RuntimeError(
+            f"annotation dropped {rows_in - rows_out}/{rows_in} rows (limit {max_frac:.0%}); see the log's "
+            "'Row missing' / 'Error annotating row' lines"
+        )
+
 
 # ---------------------------------------------------------------------------
 # In-memory annotation (B1)
@@ -303,7 +316,13 @@ def annotate_hf_to_hf(
     # Progress tracking and failure counters (map is single-process, so mutable
     # dicts are safe for accumulation across process_row calls).
     _progress = {"done": 0, "total": len(dataset)}
-    _counters = {"missing_audio": 0, "annotate_error": 0, "user_annotate_error": 0, "user_words": 0}
+    _counters = {
+        "missing_audio": 0,
+        "annotate_error": 0,
+        "empty_alignments": 0,
+        "user_annotate_error": 0,
+        "user_words": 0,
+    }
     _write_progress(0, _progress["total"])
 
     def _tick():
@@ -364,6 +383,8 @@ def annotate_hf_to_hf(
             _log.exception("Error annotating row; marking as failed.")
             _counters["annotate_error"] += 1
             return _FAILED_SENTINEL
+        # annotate_array returns [] on content errors; such a row is kept, so count it
+        _counters["empty_alignments"] += not aligns
 
         # Emit alignments as a struct (list of dicts) matching ALIGNMENT_FEATURE
         # so the column is stored natively rather than via the Json fallback.
@@ -439,15 +460,17 @@ def annotate_hf_to_hf(
     )
     # Drop rows that failed (audio None) — includes both missing-audio and annotate-error rows
     annotated = annotated.filter(lambda row: row["audio_assistant"] is not None)
-    annotated.save_to_disk(out_dir)
     rows_out = len(annotated)
+    check_annotate_drop_rate(rows_in, rows_out)
+    annotated.save_to_disk(out_dir)
     _log.info(
-        "Wrote annotated dataset to %s (%d/%d rows; dropped %d missing-audio, %d annotate-errors).",
+        "Wrote annotated dataset to %s (%d/%d rows; dropped %d missing-audio, %d annotate-errors; kept %d with no words).",
         out_dir,
         rows_out,
         rows_in,
         _counters["missing_audio"],
         _counters["annotate_error"],
+        _counters["empty_alignments"],
     )
     # Persist per-job stats so they survive after the job directory is inspected.
     import json as _json_stats
@@ -457,6 +480,7 @@ def annotate_hf_to_hf(
         "rows_out": rows_out,
         "dropped_missing_audio": _counters["missing_audio"],
         "dropped_annotate_error": _counters["annotate_error"],
+        "empty_alignments": _counters["empty_alignments"],
     }
     if annotate_user:
         # counted over every row the map saw (dropped rows included); other_ok among the kept rows is what trains

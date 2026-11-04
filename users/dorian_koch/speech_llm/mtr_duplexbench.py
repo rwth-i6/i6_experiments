@@ -433,6 +433,18 @@ def _dq_upstream_transcript(transcript: str) -> str:
 MTR_JUDGE_CONCURRENCY = 64
 #: Transport retries per judge request (``_create``), backoff 2, 4, 8, ... s. Run-side (not hashed).
 MTR_JUDGE_TRANSPORT_RETRIES = 5
+#: MTRJudge fails instead of publishing when more rows than this share have an unparseable verdict (upstream drops
+#: them from the mean). 2026-11-04, 34 finished jobs: at most 2 per 1000. Zero scored rows would read as 100% safe.
+MTR_MAX_UNPARSED_FRAC = 0.01
+
+
+def check_judge_parse_rate(n_scored: int, n_total: int, max_frac: float = MTR_MAX_UNPARSED_FRAC) -> None:
+    """Raise when no row was scored or more than ``max_frac`` of ``n_total`` rows were unparseable."""
+    if n_scored == 0 or n_total - n_scored > max_frac * n_total:
+        raise RuntimeError(
+            f"MTRJudge: {n_total - n_scored}/{n_total} judge replies unparseable (limit {max_frac:.0%}); the mean "
+            "over the rest would not be the benchmark's number"
+        )
 
 
 def _create(client, **kw):
@@ -508,7 +520,8 @@ class MTRJudge(Job):
     ``OPENAI_API_KEY`` + login-node internet); not used until a key is set.
 
     Aggregates the mean 0/1 rate: IF -> instruction-following rate (higher better); Safety -> harmful
-    rate (lower better; ``safe_rate = 1 - harmful``). Rows the judge couldn't parse (-1) are dropped.
+    rate (lower better; ``safe_rate = 1 - harmful``). Rows the judge couldn't parse (-1) are dropped; above
+    :data:`MTR_MAX_UNPARSED_FRAC` of them the job fails.
 
     ``code_version`` (excluded at 1): see :data:`MTR_JUDGE_CODE_VERSION`.
     """
@@ -589,6 +602,7 @@ class MTRJudge(Job):
             scores, per_round = _score_all(client, "gpt-4o")
 
         n = len(scores)
+        check_judge_parse_rate(n, len(rows))
         mean = (sum(scores) / n) if n else 0.0
         summary = {
             "dimension": self.dimension,
