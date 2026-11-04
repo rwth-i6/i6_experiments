@@ -13,8 +13,11 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
   [5] names: no scenario is dropped for its names; one that does not use its assigned pair records the names it uses
       (``prompt_name``), else None. CAN FAIL: a mutant that records the unused assignment
   [5b] IF-Chat question lists: ``if_chat_candidate`` rejects text-only rows (code, tables, JSON, NAME_ placeholders,
-      links), time-sensitive, long, non-English and single-turn chats; the rewrite request carries B's name, the chat's
-      extra system text and the turns (answers cut); A gets its name + a generic answering line; ``skip`` -> nothing
+      links), time-sensitive, long and non-English chats, any number of turns; the extraction request carries the
+      chat's extra system text and the turns (answers cut), no names; A gets its name + a generic answering line.
+      ``if_chat_rewrite`` with a scripted LLM: written-only requirements and tasks never reach the phrasing call, bad
+      asks (written-only, dangling, failed check) are dropped, B's prompt fits ``SP_IF_MAX_WORDS``. CAN FAIL: a
+      mutant without ``IF_WRITTEN_ONLY`` lets "no commas" and the JSON turn through
   [5c] generation resumes: a requeued pool job requests only the calls missing from its cache (a cut line ignored);
       an edited request is generated again
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
@@ -141,11 +144,11 @@ def conv(*users, answer="An answer.", system="You are a helpful and harmless ass
     return {"uuid": "u1", "messages": msgs, "metadata": {"seed_prompt_sha256": "abc", "seed_dataset": "synthetic"}}
 
 
-kw = dict(min_turns=2, max_turns=5, max_user_chars=600)
+kw = dict(min_turns=1, max_turns=None, max_user_chars=600)
 ok_conv, why = sb.if_chat_candidate(conv("Give me three tips for sleeping better.", "Make them shorter."), **kw)
 assert why == "" and len(ok_conv["turns"]) == 2 and ok_conv["seed_prompt_sha256"] == "abc", (ok_conv, why)
 cases5b = {
-    "turns": conv("One question only."),
+    "turns": conv(),
     "long": conv("x " * 400, "ok"),
     "text_only": conv("Fix this:\n```py\nx=1\n```", "thanks"),
     "time_sensitive": conv("What is the latest news on the election?", "and more?"),
@@ -155,24 +158,91 @@ cases5b = {
 for want, c in cases5b.items():
     got = sb.if_chat_candidate(c, **kw)[1]
     assert got == want, (want, got)
+assert sb.if_chat_candidate(conv(*[f"Question {i}?" for i in range(9)]), **kw)[1] == "", "long chats are kept"
 for txt in ("Fill in NAME_1 here", "see https://x.org", '{"a": 1}', "| a | b |"):
     assert sb.if_chat_candidate(conv(txt, "ok"), **kw)[1] == "text_only", txt
-req = sb.if_chat_request({**ok_conv, "system": "You are a helpful and harmless assistant. Always answer in French."}, "Ama",
+req = sb.if_chat_request({**ok_conv, "system": "You are a helpful and harmless assistant. Always answer in French."},
                          max_answer_chars=5)  # fmt: skip
-assert req.startswith("Name for B: Ama.") and "Always answer in French." in req and "helpful and harmless" not in req
+assert "Name" not in req and "Always answer in French." in req and "helpful and harmless" not in req
 assert "USER 2: Make them shorter." in req and "ASSISTANT 1: An an [...]" in req, req
 ifp = sb.SelfPlayIfChatPool(conversations=tk.Path("/nonexistent/c.jsonl"), names=names_path)
 icalls = ifp.calls([ok_conv, {**ok_conv, "uuid": "u2"}], big)
 for c in icalls:
     ((a, b_),) = c["names"]
     assert c["prompt_a"].startswith(f"Your name is {a[0]}. ") and c["prompt_a"].split(". ", 1)[1] in sb.SP_IF_ANSWERER
-    assert c["user"].startswith(f"Name for B: {b_[0]}.")
 assert icalls == ifp.calls([ok_conv, {**ok_conv, "uuid": "u2"}], big), "IF requests not deterministic"
-assert sb.SelfPlayIfChatPool.parse(icalls[0], {"skip": True, "name": "x", "prompt_b": "", "grader_info": ""}) == []
-got = sb.SelfPlayIfChatPool.parse(icalls[0], {"skip": False, "name": "sleep_tips", "prompt_b": " Ask for tips. ",
-                                              "grader_info": " Tips: dark room. "})  # fmt: skip
-assert got == [("ask_and_answer", "sleep_tips", icalls[0]["prompt_a"], "Ask for tips.", "if_chat", "Tips: dark room.")]
-print("[5b] IF-Chat: text-only / time-sensitive / long / non-English rows rejected, requests carry the chat and names")
+
+three = sb.if_chat_candidate(
+    conv("Three tips for sleep, as bullets, no commas, say dark.", "Now as JSON.", "Drink?"), **kw
+)[0]
+EXTRACT = {
+    "turns": [
+        {
+            "task": "three tips for sleeping better",
+            "requirements": ["exactly three tips", "in bullet points", "no commas", "include the word dark"],
+            "refers_to": 0,
+        },
+        {"task": "rewrite the tips as a JSON object", "requirements": [], "refers_to": 1},
+        {"task": "what to drink before bed", "requirements": ["one sentence"], "refers_to": 0},
+    ]
+}
+COMPOSE = {"asks": [
+    {"n": 1, "ask": "Ask for three tips for sleeping better, using the word dark.", "grader": "Three tips; says dark."},
+    {"n": 3, "ask": "Ask what to drink before bed, in one sentence.", "grader": "Warm milk or herbal tea."},
+    {"n": 3, "ask": "Ask for that list read out with bullet points.", "grader": "x"}]}  # fmt: skip
+
+
+def scripted(check_ok=(True, True), first_ask=None):
+    seen = []
+
+    def llm(system, user, schema, temperature, call):
+        seen.append((call, user))
+        if call == 0:
+            return EXTRACT
+        if call == 1:
+            return {
+                "asks": [{**COMPOSE["asks"][0], "ask": first_ask or COMPOSE["asks"][0]["ask"]}, *COMPOSE["asks"][1:]]
+            }
+        return {"asks": [{"n": j + 1, "ok": ok, "problem": "" if ok else "too long"} for j, ok in enumerate(check_ok)]}
+
+    return llm, seen
+
+
+llm, seen = scripted()
+out = sb.if_chat_rewrite(three, llm)
+compose_req = seen[1][1]
+assert "keep: exactly three tips; include the word dark" in compose_req and "bullet" not in compose_req, compose_req
+assert "no commas" not in compose_req and "JSON" not in compose_req and "Request 2" not in compose_req, compose_req
+assert [q["n"] for q in out["asks"]] == [1, 3], out
+assert {q["dropped"] for q in out["trace"]["asks"]} == {"", "written_only"}, out["trace"]["asks"]
+llm, _ = scripted(check_ok=(True, False))
+assert [q["n"] for q in sb.if_chat_rewrite(three, llm)["asks"]] == [1], "a failed check kept its ask"
+llm, _ = scripted(first_ask="Ask to retell that story as a short interview.")
+assert [q["n"] for q in sb.if_chat_rewrite(three, llm)["asks"]] == [3], "a dangling first ask was kept"
+orig_pat = sb.IF_WRITTEN_ONLY
+sb.IF_WRITTEN_ONLY = r"(?!)"
+try:
+    llm, seen_m = scripted()
+    sb.if_chat_rewrite(three, llm)
+    assert "no commas" in seen_m[1][1] and "JSON" in seen_m[1][1], "mutant should leak written-only rules"
+finally:
+    sb.IF_WRITTEN_ONLY = orig_pat
+s5 = sb.SelfPlayIfChatPool.scenario(three, icalls[0], out["asks"])
+name5, pa5, pb5, notes5, n5 = s5
+assert pb5.startswith(f"Your name is {icalls[0]['names'][0][1][0]}. ") and "First, ask for three tips" in pb5, pb5
+assert (
+    "Finally, ask what to drink" in pb5
+    and notes5.startswith("1) Three tips")
+    and n5 == 2
+    and pa5 == icalls[0]["prompt_a"]
+)
+long_asks = [{"ask": "Ask for " + "very " * 25 + f"thing {k}.", "grader": "g"} for k in range(3)]
+s_long = sb.SelfPlayIfChatPool.scenario(three, icalls[0], long_asks)
+assert s_long is None or len(s_long[2].split()) <= sb.SP_IF_MAX_WORDS, s_long
+print(
+    "[5b] IF-Chat: text-only / time-sensitive / long / non-English rows rejected, any turn count; the rewrite drops "
+    "written-only rules and tasks before phrasing (mutant leaks them), bad asks dropped, B's prompt composed"
+)
 
 # [5c] generation resumes from its cache ----------------------------------------------------------------------------
 import contextlib  # noqa: E402
@@ -274,17 +344,17 @@ assert v1.creator.scenarios.creator._sis_id().endswith("SelfPlayScenarioGen.99kK
 )
 pools = rs.selfplay_scenario_pools_v2()
 assert (
-    sorted(pools) == sorted([*sb.SPJ2_CATEGORIES, "ask_and_answer"])
-    and len({p.creator._sis_id() for p in pools.values()}) == 5
+    sorted(pools) == sorted([*sb.SPJ2_CATEGORIES, *sb.SP_V2_CATEGORIES, "ask_and_answer"])
+    and len({p.creator._sis_id() for p in pools.values()}) == 8
 )
 mix = rs.selfplay_train_scenarios_v2().creator
-mix2 = rs.selfplay_train_scenarios_v2({"topic": 2, "task": 1, "tension": 1, "instruction": 1}).creator
+mix2 = rs.selfplay_train_scenarios_v2({**{c: 1 for c in pools}, "topic": 2}).creator
 assert mix._sis_id() != mix2._sis_id(), "a reweighted mix is the same job"
 assert {p.creator._sis_id() for p in mix.pools.values()} == {p.creator._sis_id() for p in mix2.pools.values()}, (
     "reweighting moved a pool"
 )
 print(
-    f"[7] v1 hashes unchanged; v2 declared: 5 pools, mix {mix._sis_id().split('/')[-1]}; reweighting re-runs only the mix"
+    f"[7] v1 hashes unchanged; v2 declared: {len(pools)} pools, mix {mix._sis_id().split('/')[-1]}; reweighting re-runs only the mix"
 )
 
 print("\nall self-play scenario pool checks passed")
