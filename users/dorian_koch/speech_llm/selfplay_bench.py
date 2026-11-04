@@ -353,11 +353,13 @@ def scenario_digest(name: str) -> str:
     return hashlib.sha256(json.dumps(SPJ2_SCENARIOS[name]).encode()).hexdigest()[:16]
 
 
-def check_scenarios(scenarios: list) -> None:
-    """Names unique, every category used, each side's prompt short enough for the self-play prompt budget."""
+def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES) -> None:
+    """Names unique, categories among ``categories`` (None: any), each side's prompt short enough for the self-play
+    prompt budget."""
     names = [s[1] for s in scenarios]
     assert len(set(names)) == len(names), "scenario names must be unique"
-    assert {s[0] for s in scenarios} <= set(SPJ2_CATEGORIES), {s[0] for s in scenarios}
+    if categories is not None:
+        assert {s[0] for s in scenarios} <= set(categories), {s[0] for s in scenarios}
     for cat, name, pa, pb in scenarios:
         for p in (pa, pb):
             # the worker's KV context is conversation + 256 frames; voice 50 + 12 silence + the text tokens
@@ -1224,6 +1226,39 @@ def filter_train_scenarios(cands: list[tuple], held_out: list[tuple], *, per_cel
     return kept, rej
 
 
+def generate_scenario_batches(llm_name: str, temperature: float, calls: list[dict], tag: str = "sp-train-gen") -> list:
+    """One guided-JSON request per call (``user``, ``seed``, ``category``, ``level``) under ``SP_TRAIN_SYSTEM``, 3
+    attempts each -> per call ``[(category, name, prompt A, prompt B, level), ...]`` in answer order, or None if every
+    attempt failed. Serves its own vLLM server for the duration."""
+    from openai import OpenAI
+
+    def gen(client, c):
+        for attempt in range(3):
+            try:
+                resp = client.chat.completions.create(
+                    model=llm_name,
+                    messages=[{"role": "system", "content": SP_TRAIN_SYSTEM}, {"role": "user", "content": c["user"]}],
+                    seed=(c["seed"] + attempt) % (2**31),
+                    temperature=temperature,
+                    max_tokens=8192,
+                    # enforced from 2026-10-12 (run()-side; the finished v1 build was unconstrained)
+                    **json_schema_format(_SP_TRAIN_JSON_SCHEMA, "sp_train_scenarios"),
+                )
+                raw = resp.choices[0].message.content or ""
+                d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+                return [(c["category"], x["name"], x["prompt_a"], x["prompt_b"], c["level"]) for x in d["scenarios"]]
+            except Exception as e:  # retried; a final failure contributes nothing (counted)
+                err = f"{type(e).__name__}: {e}"[:200]
+        print(f"[{tag}] call failed: {err}", flush=True)
+        return None
+
+    with vllm_server(llm_name) as url:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+        return map_concurrent(
+            lambda c: gen(client, c), calls, concurrency=64, progress_path=os.path.abspath("progress.json")
+        )
+
+
 class SelfPlayScenarioGen(Job):
     """LLM-written TRAINING scenario pairs for self-play GRPO, in the spj2 format ``(category, name, prompt A,
     prompt B)``, kept disjoint from the spj2 benchmark (``filter_train_scenarios`` against ``held_out``).
@@ -1297,41 +1332,9 @@ class SelfPlayScenarioGen(Job):
         return out
 
     def run(self):
-        from openai import OpenAI
-
         calls = self.calls()
         print(f"[sp-train-gen] {len(calls)} calls x {self.per_call} scenarios ({self.llm_name})", flush=True)
-
-        def gen(client, c):
-            for attempt in range(3):
-                try:
-                    resp = client.chat.completions.create(
-                        model=self.llm_name,
-                        messages=[
-                            {"role": "system", "content": SP_TRAIN_SYSTEM},
-                            {"role": "user", "content": c["user"]},
-                        ],
-                        seed=(c["seed"] + attempt) % (2**31),
-                        temperature=self.temperature,
-                        max_tokens=8192,
-                        # enforced from 2026-10-12 (run()-side; the finished build was unconstrained)
-                        **json_schema_format(_SP_TRAIN_JSON_SCHEMA, "sp_train_scenarios"),
-                    )
-                    raw = resp.choices[0].message.content or ""
-                    d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
-                    return [
-                        (c["category"], s["name"], s["prompt_a"], s["prompt_b"], c["level"]) for s in d["scenarios"]
-                    ]
-                except Exception as e:  # retried; a final failure contributes nothing (counted)
-                    err = f"{type(e).__name__}: {e}"[:200]
-            print(f"[sp-train-gen] call failed: {err}", flush=True)
-            return None
-
-        with vllm_server(self.llm_name) as url:
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-            outs = map_concurrent(
-                lambda c: gen(client, c), calls, concurrency=64, progress_path=os.path.abspath("progress.json")
-            )
+        outs = generate_scenario_batches(self.llm_name, self.temperature, calls)
         failed = sum(o is None for o in outs)
         if failed > 0.05 * len(calls):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
@@ -1391,3 +1394,335 @@ class SelfPlayTrainScenarioSet(Job):
             )
         Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
         print(f"[sp-train-set] {len(rows)} scenarios, {len(voices)} voices", flush=True)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# training scenarios v2: category pools with assigned first names, mixed by weight
+# ---------------------------------------------------------------------------------------------------------------
+#: First names: Ninble/name-census-top-100, the top 100 male and 100 female first names of 139 countries (government
+#: statistics cross-checked against public profiles; GPL-3.0), pinned by commit and content hash.
+NAME_CENSUS_URL = (
+    "https://raw.githubusercontent.com/Ninble/name-census-top-100/27944ac7d285291793f20859ff845aea7787e74d/"
+    "first-name-database.csv"
+)
+NAME_CENSUS_SHA256 = "25fe1d3b8646eb50bff117a52e7ab29e103a9a31f52abcf484bcf04df759f0e9"
+#: Added to the generator request when names are assigned (v1 let the LLM pick: 26% of 4,080 sides used one of
+#: five names).
+SP_POOL_NAMES_RULE = (
+    "Use exactly these first names, one pair per scenario, in this order. Side A's instructions start with \"Your name "
+    'is <A>." and side B\'s with "Your name is <B>."; use no other names for A or B.'
+)
+
+
+def ascii_first_name(name: str) -> str | None:
+    """``name`` folded to plain Latin letters (NFKD, accents dropped: Jose, Omer), or None if anything else is left
+    (Cyrillic, Arabic, 'ł', digits, spaces)."""
+    import re
+    import unicodedata
+
+    s = unicodedata.normalize("NFKD", str(name).strip())
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return s if re.fullmatch(r"[A-Z](?:[a-z]+|(?='))(?:[-'][A-Z]?[a-z]+)?", s) else None
+
+
+def name_pool_from_csv(text: str) -> dict:
+    """The census CSV (``;``-separated) -> ``{country code: sorted [[name, gender], ...]}``, one entry per name and
+    country; gender ``m`` / ``f``, or ``u`` when the country lists the name for both."""
+    import csv
+    import io
+
+    by: dict = {}
+    for row in csv.DictReader(io.StringIO(text), delimiter=";"):
+        n = ascii_first_name(row["Name"])
+        if n is None:
+            continue
+        g = row["Gender"].strip().lower()
+        d = by.setdefault(row["Country code"].strip(), {})
+        d[n] = g if d.get(n, g) == g else "u"
+    return {cc: sorted([n, g] for n, g in d.items()) for cc, d in sorted(by.items()) if d}
+
+
+def draw_name_pairs(pool: dict, n: int, rng) -> list[tuple]:
+    """``n`` pairs ``((name, gender, country), (name, gender, country))``: each side a uniform country, then a uniform
+    name of that country, so every country weighs the same whatever its name count; no name twice in the ``n`` pairs."""
+    ccs = sorted(pool)
+    used: set = set()
+    out = []
+    while len(out) < n:
+        pair = []
+        while len(pair) < 2:
+            cc = ccs[int(rng.integers(len(ccs)))]
+            name, g = pool[cc][int(rng.integers(len(pool[cc])))]
+            if name not in used:
+                used.add(name)
+                pair.append((name, g, cc))
+        out.append(tuple(pair))
+    return out
+
+
+def follows_names(prompt_a: str, prompt_b: str, name_a: str, name_b: str) -> bool:
+    """Each side's instructions open with its assigned name."""
+    import re
+
+    ok = lambda p, n: re.match(rf"\s*Your name is {re.escape(n)}\b", p) is not None  # noqa: E731
+    return ok(prompt_a, name_a) and ok(prompt_b, name_b)
+
+
+def assign_names(outs: list, calls: list[dict]) -> tuple[list, dict, int]:
+    """Generated batches (``outs[i]`` answers ``calls[i]``; None = failed) -> (candidates, ``{(prompt A, prompt B):
+    (side A, side B)}``, rejected). A scenario is kept only if it uses its pair (``calls[i]["names"][k]`` for the
+    k-th scenario of the answer); extra scenarios beyond the assigned pairs are rejected too."""
+    cands, names, bad = [], {}, 0
+    for out, c in zip(outs, calls):
+        for k, s in enumerate(out or []):
+            pairs = c["names"]
+            if k < len(pairs) and follows_names(s[2], s[3], pairs[k][0][0], pairs[k][1][0]):
+                cands.append(s)
+                names[(s[2].strip(), s[3].strip())] = tuple(tuple(x) for x in pairs[k])
+            else:
+                bad += 1
+    return cands, names, bad
+
+
+class FirstNamePool(Job):
+    """First names for self-play scenarios (``NAME_CENSUS_URL``, checked against ``NAME_CENSUS_SHA256``). Kept: names
+    that fold to plain Latin letters (``ascii_first_name``), countries with at least ``min_per_country`` of them.
+    Output ``names.json``: ``{"source", "sha256", "countries": {code: [[name, gender], ...]}}``. Runs on the login node
+    (mini task: it downloads)."""
+
+    def __init__(self, *, url: str = NAME_CENSUS_URL, sha256: str = NAME_CENSUS_SHA256, min_per_country: int = 10):
+        self.url, self.sha256, self.min_per_country = url, sha256, int(min_per_country)
+        self.out_names = self.output_path("names.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import urllib.request
+
+        raw = urllib.request.urlopen(self.url, timeout=120).read()
+        got = hashlib.sha256(raw).hexdigest()
+        if got != self.sha256:
+            raise RuntimeError(f"name list changed: sha256 {got} != {self.sha256} ({self.url})")
+        pool = {cc: v for cc, v in name_pool_from_csv(raw.decode("utf-8")).items() if len(v) >= self.min_per_country}
+        if len(pool) < 100:
+            raise RuntimeError(f"only {len(pool)} countries with >= {self.min_per_country} names")
+        json.dump({"source": self.url, "sha256": got, "countries": pool}, open(self.out_names.get_path(), "w"))
+        distinct = {n for v in pool.values() for n, _ in v}
+        print(f"[first-names] {len(pool)} countries, {sum(map(len, pool.values()))} entries, {len(distinct)} names")
+
+
+class SelfPlayScenarioPool(Job):
+    """One CATEGORY of self-play training scenarios (v2), generated on its own so categories can be added or reweighted
+    without regenerating the others (``SelfPlayTrainScenarioMix`` combines pools).
+
+    The category is given by its text: ``definition`` and one ``example`` ``(name, prompt A, prompt B)``, so a new
+    category is a new pool, no shared table changes. Per level of detail (``levels``, default ``SP_TRAIN_LEVELS``)
+    ``calls_per_level`` gpt-oss calls of ``per_call`` scenarios, each call with a seeded domain and ``per_call``
+    seeded name pairs from ``names`` (``FirstNamePool``; ``draw_name_pairs``), stated in the request
+    (``SP_POOL_NAMES_RULE``). A scenario that does not open each side with its assigned name is rejected
+    (``assign_names``); the rest go through v1's filter (``filter_train_scenarios``: word range, new snake_case
+    name, not near spj2 or a kept scenario), up to ``per_level`` per level.
+
+    Output dir ``pool/``: ``scenarios.json`` (``[category, name, prompt A, prompt B, level]``), ``names.json``
+    (``{scenario name: [[name, gender, country] A, [...] B]}``), ``stats.json``."""
+
+    def __init__(
+        self,
+        *,
+        category: str,
+        definition: str,
+        example: tuple,
+        names: tk.Path,
+        per_level: int = 200,
+        per_call: int = 10,
+        calls_per_level: int | None = None,
+        levels: dict | None = None,
+        domains: tuple = SP_TRAIN_DOMAINS,
+        held_out: str = "spj2_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 1.0,
+        seed: int = 0,
+    ):
+        import re
+
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", category), category
+        assert len(example) == 3, example
+        assert held_out in SPJ2_SCENARIOS, held_out
+        self.category, self.definition, self.example = category, str(definition), tuple(example)
+        self.names = names
+        self.per_level, self.per_call = int(per_level), int(per_call)
+        # ~7% of v1's scenarios failed a filter other than "cell full"; 30% headroom
+        self.calls_per_level = int(calls_per_level or -(-self.per_level * 13 // (10 * self.per_call)))
+        self.levels = dict(levels or SP_TRAIN_LEVELS)
+        self.domains, self.held_out = tuple(domains), held_out
+        self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
+        self.out_dir = self.output_path("pool", directory=True)
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The held-out set's content, the generator prompt and the resolved levels are part of the hash."""
+        prompt = json.dumps([SP_TRAIN_SYSTEM, SP_POOL_NAMES_RULE])
+        return super(SelfPlayScenarioPool, cls).hash(
+            {
+                **parsed_args,
+                "levels": dict(parsed_args["levels"] or SP_TRAIN_LEVELS),
+                "held_out_digest": scenario_digest(parsed_args["held_out"]),
+                "prompt_digest": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+            }
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def calls(self, pool: dict) -> list[dict]:
+        """The generation requests; ``pool`` = ``FirstNamePool``'s ``countries``. Seeded per category, so two pools
+        draw different domains and names."""
+        import numpy as np
+
+        rng = np.random.default_rng([self.seed, int(hashlib.sha256(self.category.encode()).hexdigest()[:8], 16)])
+        example = json.dumps({"name": self.example[0], "prompt_a": self.example[1], "prompt_b": self.example[2]})
+        out = []
+        for level, (lo, hi, desc) in self.levels.items():
+            for _ in range(self.calls_per_level):
+                dom = self.domains[int(rng.integers(len(self.domains)))]
+                pairs = draw_name_pairs(pool, self.per_call, rng)
+                names = "\n".join(f"{k + 1}. A: {a[0]}, B: {b[0]}" for k, (a, b) in enumerate(pairs))
+                user = (
+                    f"Category: {self.category} -- {self.definition}.\n"
+                    f"Level of detail: {level} -- {desc}; {lo} to {hi} words per side.\n"
+                    f"Domain for this batch: {dom}.\n\n"
+                    f"Example of the category (its level of detail may differ; do not reuse its situation or "
+                    f"names):\n{example}\n\n"
+                    f"Write {self.per_call} new, varied scenarios of this category, at this level of detail, in "
+                    f"this domain.\n\n{SP_POOL_NAMES_RULE}\n{names}"
+                )
+                out.append(
+                    {
+                        "category": self.category,
+                        "level": level,
+                        "domain": dom,
+                        "names": [[list(a), list(b)] for a, b in pairs],
+                        "user": user,
+                        "seed": int(rng.integers(2**31)),
+                    }
+                )
+        return out
+
+    def run(self):
+        import collections
+
+        pool = json.load(open(self.names.get_path()))["countries"]
+        calls = self.calls(pool)
+        print(f"[sp-pool:{self.category}] {len(calls)} calls x {self.per_call} scenarios ({self.llm_name})", flush=True)
+        outs = generate_scenario_batches(self.llm_name, self.temperature, calls, tag=f"sp-pool:{self.category}")
+        failed = sum(o is None for o in outs)
+        if failed > 0.05 * len(calls):
+            raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
+        cands, names, mismatch = assign_names(outs, calls)
+        kept, rej = filter_train_scenarios(cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level)
+        check_scenarios([k[:4] for k in kept], categories=None)
+        rej["name_mismatch"] = mismatch
+        sides = {k[1]: names[(k[2], k[3])] for k in kept}
+        first = collections.Counter(s[0] for pair in sides.values() for s in pair)
+        per_level = {lv: sum(k[4] == lv for k in kept) for lv in self.levels}
+        stats = {
+            "category": self.category,
+            "calls": len(calls),
+            "failed_calls": failed,
+            "raw": len(cands) + mismatch,
+            "kept": len(kept),
+            "kept_per_level": per_level,
+            "rejected": rej,
+            "distinct_first_names": len(first),
+            "top_first_names": first.most_common(10),
+            "countries": len({s[2] for pair in sides.values() for s in pair}),
+        }
+        d = self.out_dir.get_path()
+        json.dump([list(k) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
+        json.dump(
+            {k: [list(s) for s in v] for k, v in sides.items()}, open(os.path.join(d, "names.json"), "w"), indent=1
+        )
+        json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
+        print(f"[sp-pool:{self.category}] {stats}", flush=True)
+        if min(per_level.values()) < self.per_level // 2:
+            raise RuntimeError(f"too few scenarios kept per level: {per_level}")
+
+
+def mix_counts(sizes: dict, weights: dict, n_rows: int) -> dict:
+    """Rows per pool: ``n_rows`` split by ``weights`` (largest remainder, ties by name); raises if a pool is too small
+    or a weight has no pool."""
+    assert set(weights) <= set(sizes), set(weights) - set(sizes)
+    w = {k: float(v) for k, v in weights.items() if float(v) > 0}
+    assert w, "all weights are zero"
+    total = sum(w.values())
+    exact = {k: n_rows * v / total for k, v in w.items()}
+    counts = {k: int(x) for k, x in exact.items()}
+    for k in sorted(w, key=lambda k: (-(exact[k] - counts[k]), k))[: n_rows - sum(counts.values())]:
+        counts[k] += 1
+    short = {k: (c, sizes[k]) for k, c in counts.items() if c > sizes[k]}
+    if short:
+        raise RuntimeError(f"pools too small for the mix (wanted, available): {short}")
+    return counts
+
+
+class SelfPlayTrainScenarioMix(Job):
+    """The self-play GRPO training input (v2): ``n_rows`` scenarios from category pools (``{category:
+    SelfPlayScenarioPool.out_dir}``) in the proportions ``weights`` (``mix_counts``), drawn without replacement
+    (seeded). The RL source shuffles the rows once and draws them in order, so the row shares are the training shares;
+    reweighting re-runs only this job. Rows as ``SelfPlayTrainScenarioSet``'s (ids ``sptr2:<category>:<name>``, Minimal
+    line prepended, a seeded voice pair per row) plus each side's assigned name, gender and country."""
+
+    def __init__(self, *, pools: dict, weights: dict, voices: tk.Path, n_rows: int, seed: int = 0):
+        assert set(weights) <= set(pools), set(weights) - set(pools)
+        self.pools, self.weights, self.voices = dict(pools), dict(weights), voices
+        self.n_rows, self.seed = int(n_rows), int(seed)
+        self.out_dir = self.output_path("dataset", directory=True)
+        self.out_stats = self.output_path("stats.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import numpy as np
+        from datasets import Dataset, load_from_disk
+
+        from .persona_prompts import PERSONA_MINIMAL
+
+        scen, sides = {}, {}
+        for cat in sorted(self.pools):
+            d = self.pools[cat].get_path()
+            scen[cat] = [tuple(s) for s in json.load(open(os.path.join(d, "scenarios.json")))]
+            sides[cat] = json.load(open(os.path.join(d, "names.json")))
+            assert all(s[0] == cat for s in scen[cat]), f"pool {cat} holds another category"
+        counts = mix_counts({k: len(v) for k, v in scen.items()}, self.weights, self.n_rows)
+        voices = list(load_from_disk(self.voices.get_path()).select_columns(["label", "codes"]))
+        rng = np.random.default_rng(self.seed)
+        rows = []
+        for cat in sorted(counts):
+            for i in sorted(int(i) for i in rng.choice(len(scen[cat]), size=counts[cat], replace=False)):
+                _, name, pa, pb, level = scen[cat][i]
+                (na, ga, ca), (nb, gb, cb) = sides[cat][name]
+                ia, ib = (int(j) for j in rng.choice(len(voices), size=2, replace=False))
+                rows.append(
+                    {
+                        "id": f"sptr2:{cat}:{name}",
+                        "scenario": name,
+                        "category": cat,
+                        "level": level,
+                        "context": [f"{PERSONA_MINIMAL} {pa}"],
+                        "context_other": [f"{PERSONA_MINIMAL} {pb}"],
+                        "voice_codes": np.asarray(voices[ia]["codes"], np.int16),
+                        "voice_codes_other": np.asarray(voices[ib]["codes"], np.int16),
+                        "voice_label": str(voices[ia]["label"]),
+                        "voice_label_other": str(voices[ib]["label"]),
+                        "name": na, "gender": ga, "country": ca,
+                        "name_other": nb, "gender_other": gb, "country_other": cb,
+                    }
+                )  # fmt: skip
+        assert len({r["id"] for r in rows}) == len(rows), "duplicate scenario ids"
+        Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
+        stats = {"rows": len(rows), "per_category": counts, "weights": self.weights, "voices": len(voices)}
+        json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
+        print(f"[sp-train-mix] {stats}", flush=True)

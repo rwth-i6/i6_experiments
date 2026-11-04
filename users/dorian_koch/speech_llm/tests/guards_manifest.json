@@ -779,5 +779,8 @@
   "env": "venv:fdb_asr_venv_v1",
   "gpu": true,
   "timeout": 1200
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_scenario_pools.py": {
+  "env": "setup"
  }
 }
