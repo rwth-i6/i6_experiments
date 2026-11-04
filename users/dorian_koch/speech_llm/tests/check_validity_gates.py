@@ -3,7 +3,8 @@
 * ``LLMGrading`` scores a judge failure as a wrong answer: above ``JUDGE_MAX_ERROR_FRAC`` the job must fail.
 * ``MTRJudge`` drops unparseable verdicts: zero scored rows used to publish ``safe_rate`` 1.0.
 * ``annotate_hf_to_hf`` dropped any number of failed rows and still saved the corpus.
-* The MFDB interruption / turn-taking scorers crashed on a model that never takes the turn.
+* The MFDB interruption / turn-taking scorers crashed on a model that never takes the turn, and a judge-parse
+  retry counted the clip's TOR again.
 * ``RLTrainer`` stepped the optimizer on a non-finite gradient norm (``run_training`` refuses it).
 * ``restore_trainer_state`` resumed a run under a different DDP world size (different effective batch).
 
@@ -183,6 +184,29 @@ def check_fdb_all_silent():
                 sys.modules[k] = v
 
 
+def check_fdb_retry_counts_once():
+    """One silent clip + one answering clip whose first judge reply is unparseable: TOR must be 1/2, not 2/3."""
+    replies = iter(["no verdict here", "Analysis: fine.\nI would rate the AI's response as 4"])
+
+    def create(**_):
+        msg = types.SimpleNamespace(content=next(replies))
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    sys.modules.setdefault("tqdm", types.SimpleNamespace(tqdm=lambda rows, **_: rows))
+    ns: dict = {}
+    exec(compile((FDB_EVAL / "eval_user_interruption.py").read_text(), "eval_user_interruption.py", "exec"), ns)
+    words = [{"text": w, "timestamp": [5.5 + 0.5 * i, 5.9 + 0.5 * i]} for i, w in enumerate("sure let us talk".split())]
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, chunks in (("0", []), ("1", words)):
+            d = Path(tmp) / name
+            d.mkdir()
+            (d / "interrupt.json").write_text(json.dumps([{"interrupt": "q", "context": "c", "timestamp": [0, 5]}]))
+            (d / "output.json").write_text(json.dumps({"text": "sure let us talk", "chunks": chunks}))
+        res = ns["eval_user_interruption"](tmp, client, "fake")
+    check(res["average_take_turn"] == 0.5, f"MFDB interruption: a judge retry counts the clip's TOR once ({res})")
+
+
 def check_rl_finite_grad():
     src = (REC / "speech_llm" / "full_duplex" / "moshi_family" / "rl" / "trainer.py").read_text()
 
@@ -233,6 +257,7 @@ def main():
         check_mtr_parse_gate,
         check_annotate_gate,
         check_fdb_all_silent,
+        check_fdb_retry_counts_once,
         check_rl_finite_grad,
         check_resume_world_size,
     ):

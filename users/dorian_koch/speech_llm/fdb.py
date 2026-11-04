@@ -224,6 +224,10 @@ class FullDuplexBenchEval_Evaluation(Job):
         if d.get("eval_venv_python") is None:
             d.pop("eval_venv_python", None)
         d["__version"] = 5
+        # 2026-11-04: user_interruption counted a clip's TOR once more per judge-parse retry (38 of 126 scores
+        # inflated); its fixed scores get new hashes, the other tasks' scorers are unchanged.
+        if FDB_TASK_MAP.get(d["fdb_task"], d["fdb_task"]) == "user_interruption":
+            d["__ui_version"] = 2
         return super().hash(d)
 
     def tasks(self):
