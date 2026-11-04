@@ -1,0 +1,17 @@
+diff --git a/src/Bliss/LexiconParser.cc b/src/Bliss/LexiconParser.cc
+--- a/src/Bliss/LexiconParser.cc
++++ b/src/Bliss/LexiconParser.cc
+@@ -244,6 +244,13 @@ void LexiconElement::addOrth(const std::string& _orth) {
+         }
+         verify(lemma_);
+         if (!specialLemmaName_.empty()) {
++            // XML spelling of a word-start piece with no lexical content.
++            // Register the SAME lemma in both groups, as the fallback tests do.
++            bool const oovSeparator = specialLemmaName_ == "unknown-word-start+nonword";
++            if (oovSeparator) {
++                specialLemmaName_ = "unknown-word-start";
++                product_->defineSpecialLemma("nonword", lemma_);
++            }
+             // OOV subword pieces are represented by one lemma per piece so
+             // that each piece keeps its own orthography. These categories are
+             // intentionally multi-valued; all other special names remain unique

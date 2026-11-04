@@ -1,15 +1,15 @@
-"""Representative Loquacious-medium examples; opt-in due to dataset size."""
+"""Standalone Loquacious-medium config; respects existing disabled experiments."""
 
 
-def py():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import run_medium
+def py() -> None:
     from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.experiment_context import (
         ExperimentContext,
     )
+    from .loquacious import run_medium
 
     with ExperimentContext("loquacious_medium"):
-        return run_medium(report_filename="loquacious-medium.csv")
+        run_medium()
 
 
-def main():
-    return py()
+def main() -> None:
+    py()

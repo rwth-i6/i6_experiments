@@ -1,15 +1,15 @@
-"""Representative Loquacious-small CTC and context-1 transducer examples."""
+"""Standalone Loquacious-small config; preserves the combined config's aliases."""
 
 
-def py():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import run_small
+def py() -> None:
     from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.experiment_context import (
         ExperimentContext,
     )
+    from .loquacious import run_small
 
     with ExperimentContext("loquacious_small"):
-        return run_small(report_filename="loquacious-small.csv")
+        run_small()
 
 
-def main():
-    return py()
+def main() -> None:
+    py()
