@@ -1728,7 +1728,7 @@ class SelfPlayScenarioPool(Job):
 IF_CHAT_REPO = "nvidia/Nemotron-SFT-Instruction-Following-Chat-v3"
 IF_CHAT_REVISION = "be3b3e04ef605ac9d3f8f35b9d5a632f4a3a3402"
 IF_CHAT_FILE = "data/instruction_following.jsonl"
-#: Word cap of a question-list prompt: 70 words + the Minimal line is ~110 text tokens, inside the self-play prefix
+#: Word cap of a question-list prompt (the request asks for 55): 70 words + the Minimal line is ~110 text tokens, inside the self-play prefix
 #: budget (KV context = conversation + 256 frames; voice 50 + 12 silence + text).
 SP_IF_MAX_WORDS = 70
 #: Side A of a question-list scenario: its name and one of these, nothing about the questions.
@@ -1741,15 +1741,13 @@ SP_IF_ANSWERER = (
 )
 SP_IF_SYSTEM = """You turn a written chat between a user and an AI assistant into instructions for a spoken role-play between two voice agents. Agent B asks; agent A answers. Only B gets your instructions; A only knows its own name and that it should answer.
 
-Write B's instructions, addressed to B ("Your name is <B>. ..."):
-- B asks the user's requests from the chat, in order, in its own spoken words, one at a time, waiting for each answer.
-- Turn written-format requirements into spoken ones a listener can check: length ("in two sentences"), number of items ("three tips"), what to mention or avoid, language, tone, audience. Drop requirements that only exist in writing: markdown, headings, bullet symbols, JSON, placeholders in brackets, capital letters, punctuation, exact word counts, titles.
-- Shrink anything too long to say in about a minute ("write a 2,000-word essay" becomes "briefly explain"). Later requests may refer to earlier answers ("make it shorter"); keep them so they make sense when spoken.
-- Never add facts, names or requirements the chat does not contain.
+Write B's instructions, addressed to B, AT MOST 55 WORDS: "Your name is <B>. Ask the other person, one at a time and waiting for each answer: ..." then each request as a short spoken question in B's own words. Summarise; never quote a request in full.
 
-Also write grader notes, shown only to the person who grades the conversation, at most 80 words: for each request, what a correct spoken answer must contain (key facts from the chat's answers, when the request has a factual answer) and which requirements to check.
+Keep only requirements a LISTENER can check: number of sentences or items, rough length, a word or phrase to say or to avoid, language, tone, audience, the topic. DROP every requirement that only exists on paper: brackets or quotes around words, titles, markdown, JSON, code, headings, bullets, paragraphs or blank lines, capital letters, punctuation, letter games (first letters, alphabet order, a word that ends every sentence), exact word or character counts. A request that is nothing but such a format rule is left out; keep the others in order. Shrink anything too long to say in about a minute ("write a 2,000-word essay" becomes "briefly explain"). Never add facts, names or requirements the chat does not contain.
 
-Set "skip" to true if the chat cannot become a short spoken exchange: it is mainly code, math notation, tables, JSON or a long document, needs a file or link, has NAME_ style placeholders, or depends on current events, today's date or recent prices.
+Also write grader notes, at most 60 words, shown only to the person who grades the conversation: for each request you kept, what a correct spoken answer must contain (key facts from the chat's answers, when the request has a factual answer) and which kept requirements to check.
+
+Set "skip" to true if fewer than two requests survive, or the chat is mainly code, math notation, tables, JSON or a long document, needs a file or link, has NAME_ style placeholders, or depends on current events, today's date or recent prices.
 
 Answer with JSON only: {"skip": false, "name": "short_snake_case_label", "prompt_b": "...", "grader_info": "..."}"""
 _SP_IF_JSON_SCHEMA = {
