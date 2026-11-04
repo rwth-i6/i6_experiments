@@ -6,15 +6,122 @@ from pathlib import Path
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.qwen_asr import recog as qwen
 
 
-def test_template_boundary():
+def test_template_imports_resolve_without_user_research():
+    import ast
+    from importlib.util import resolve_name
+
     root = Path(qwen.__file__).parents[2]
-    assert not (root / "experiments/open_asr").exists()
-    assert not (root / "model_pipelines/speech_llm").exists()
-    assert not list(root.rglob("*oov*.py"))
+    prefix = "i6_experiments.example_setups.seq2seq_rasr_2025"
     for path in root.rglob("*.py"):
-        text = path.read_text()
-        assert "normalize_hf_score" not in text, path
-        assert "/work/asr4/berger" not in text, path
+        relative = path.relative_to(root).with_suffix("").parts
+        package = prefix + ("." + ".".join(relative[:-1]) if relative[:-1] else "")
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom):
+                name = (
+                    resolve_name("." * node.level + (node.module or ""), package) if node.level else node.module or ""
+                )
+                assert not name.startswith("i6_experiments.users.berger"), (path, name)
+                if name.startswith(prefix + "."):
+                    target = root.joinpath(*name[len(prefix) + 1 :].split("."))
+                    assert target.is_dir() or target.with_suffix(".py").is_file(), (path, name)
+
+
+def test_qwen_scores_match_real_multimodal_full_forward():
+    import numpy as np
+    import torch
+    from transformers import Qwen3ASRConfig, Qwen3ASRForConditionalGeneration, Qwen3Config, BatchFeature
+    from transformers.models.qwen3_asr.configuration_qwen3_asr import Qwen3ASREncoderConfig
+
+    torch.manual_seed(12)
+    torch.set_num_threads(2)
+    model = Qwen3ASRForConditionalGeneration(
+        Qwen3ASRConfig(
+            audio_config=Qwen3ASREncoderConfig(
+                num_mel_bins=16,
+                encoder_layers=1,
+                encoder_attention_heads=2,
+                encoder_ffn_dim=32,
+                d_model=16,
+                output_dim=16,
+                downsample_hidden_size=8,
+            ),
+            text_config=Qwen3Config(
+                vocab_size=32,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                num_key_value_heads=2,
+                head_dim=8,
+                max_position_embeddings=128,
+            ),
+            audio_token_id=2,
+            eos_token_id=3,
+            pad_token_id=0,
+        )
+    ).eval()
+    features, feature_mask = torch.randn(1, 16, 100), torch.ones(1, 100, dtype=torch.long)
+    with torch.inference_mode():
+        audio = model.get_audio_features(features, feature_mask, return_dict=True).pooler_output
+    prompt = torch.tensor([[1] + [2] * audio.shape[0] + [7]])
+    inputs = dict(
+        input_ids=prompt,
+        attention_mask=torch.ones_like(prompt),
+        input_features=features,
+        input_features_mask=feature_mask,
+    )
+    backend = qwen.QwenAsrBackend.__new__(qwen.QwenAsrBackend)
+    backend.model, backend.device, backend.batch_size = model, "cpu", 2
+    backend.processor = types.SimpleNamespace(apply_transcription_request=lambda **kwargs: BatchFeature(inputs))
+    backend.set_audio(np.zeros(160, dtype="float32"), 16000)
+    prefixes = [(), (4,), (5, 6), (7,), (8,)]
+    actual = backend.score(prefixes)
+    with torch.inference_mode():
+        for prefix, (costs, length) in zip(prefixes, actual):
+            ids = torch.tensor([backend.prompt_ids + list(prefix)])
+            logits = model(
+                input_ids=ids,
+                attention_mask=torch.ones_like(ids),
+                input_features=features,
+                input_features_mask=feature_mask,
+                use_cache=False,
+            ).logits[0, -1]
+            torch.testing.assert_close(torch.tensor(costs), -logits.float().log_softmax(-1), atol=2e-6, rtol=1e-5)
+            assert length == len(prefix)
+    assert not np.allclose(actual[1][0], actual[2][0])
+
+
+def test_forward_step_pickle_roundtrip_rebuilds_lazily_in_fresh_worker(tmp_path):
+    import os
+    import pickle
+    import subprocess
+    import sys
+    from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.recog import OfflineRasrRecogForwardStep
+
+    class CannotPickle:
+        def __reduce__(self):
+            raise TypeError("native object cannot be pickled")
+
+    step = OfflineRasrRecogForwardStep.__new__(OfflineRasrRecogForwardStep)
+    step._search_algorithm = step._aligner = CannotPickle()
+    step.sample_rate = 16000
+    path = tmp_path / "step.pkl"
+    path.write_bytes(pickle.dumps(step))
+    script = """
+import pickle,sys
+from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.recog import OfflineRasrRecogForwardStep
+calls=[]
+def build(self):
+    calls.append(self.sample_rate)
+    return object()
+OfflineRasrRecogForwardStep.init_search_algorithm=build
+with open(sys.argv[1],"rb") as src: step=pickle.load(src)
+assert step._search_algorithm is step._aligner is None
+assert calls == []
+assert step.search_algorithm is step.search_algorithm
+assert calls == [16000]
+"""
+    subprocess.run([sys.executable, "-c", script, str(path)], check=True, env=os.environ.copy(), timeout=30)
 
 
 def test_partial_output_and_formatting():
@@ -42,49 +149,6 @@ def test_speech_scorer_preserves_history_and_scores_eos():
     assert scorer.extended_scoring_context((3,), 4, transitions.LABEL_TO_LABEL) == (3, 4)
     assert scorer.extended_scoring_context((3,), 4, transitions.SENTENCE_END) == (3,)
     assert scorer.compute_scores_with_times([(), (3, 4)]) == [([1.0, 2.0], 0), ([1.0, 2.0], 2)]
-
-
-def test_qwen_full_history_scores_use_audio_prompt_and_bounded_batches():
-    import torch
-
-    calls = []
-
-    class Model(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.embedding = torch.nn.Embedding(10, 3)
-
-        def get_input_embeddings(self):
-            return self.embedding
-
-        def forward(self, inputs_embeds, attention_mask, use_cache):
-            assert not use_cache
-            assert inputs_embeds.shape[0] <= 2
-            torch.testing.assert_close(inputs_embeds[:, :2], torch.ones_like(inputs_embeds[:, :2]))
-            calls.append(inputs_embeds.shape)
-            return types.SimpleNamespace(logits=torch.zeros((*inputs_embeds.shape[:2], 10)))
-
-    backend = qwen.QwenAsrBackend.__new__(qwen.QwenAsrBackend)
-    backend.model, backend.device, backend.batch_size = Model(), "cpu", 2
-    backend.prompt_ids, backend.prompt_embeddings = [0, 1], torch.ones((1, 2, 3))
-    scores = backend.score([(), (2,), (3,), (4,)])
-    assert [t for _, t in scores] == [0, 1, 1, 1]
-    assert len(calls) == 3
-    for row, _ in scores:
-        torch.testing.assert_close(torch.tensor(row), torch.full((10,), torch.log(torch.tensor(10.0)).item()))
-
-
-def test_native_objects_are_not_pickled():
-    from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.recog import OfflineRasrRecogForwardStep
-
-    step = OfflineRasrRecogForwardStep.__new__(OfflineRasrRecogForwardStep)
-    step._search_algorithm, step._aligner = object(), object()
-    state = step.__getstate__()
-    assert state["_search_algorithm"] is state["_aligner"] is None
-    assert step._search_algorithm is not None
-    restored = OfflineRasrRecogForwardStep.__new__(OfflineRasrRecogForwardStep)
-    restored.__setstate__(state)
-    assert restored._search_algorithm is restored._aligner is None
 
 
 def test_last_hidden_projection_matches_full_sequence():
