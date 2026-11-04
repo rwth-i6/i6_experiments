@@ -353,9 +353,9 @@ def scenario_digest(name: str) -> str:
     return hashlib.sha256(json.dumps(SPJ2_SCENARIOS[name]).encode()).hexdigest()[:16]
 
 
-def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES) -> None:
+def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES, max_words: int = 45) -> None:
     """Names unique, categories among ``categories`` (None: any), each side's prompt short enough for the self-play
-    prompt budget."""
+    prompt budget (``max_words``: 45 for the spj2 formats, ``SP_IF_MAX_WORDS`` for the question lists)."""
     names = [s[1] for s in scenarios]
     assert len(set(names)) == len(names), "scenario names must be unique"
     if categories is not None:
@@ -363,7 +363,7 @@ def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES)
     for cat, name, pa, pb in scenarios:
         for p in (pa, pb):
             # the worker's KV context is conversation + 256 frames; voice 50 + 12 silence + the text tokens
-            assert 8 <= len(p.split()) <= 45, (name, len(p.split()))
+            assert 8 <= len(p.split()) <= max_words, (name, len(p.split()))
 
 
 def scenario_rows(scenarios: list, voices: list[dict], *, replicates: int, seed: int, minimal: str) -> list[dict]:
@@ -1185,9 +1185,18 @@ def ngram_jaccard(a: set, b: set) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
-def filter_train_scenarios(cands: list[tuple], held_out: list[tuple], *, per_cell: int, max_jaccard: float = 0.2):
+def filter_train_scenarios(
+    cands: list[tuple],
+    held_out: list[tuple],
+    *,
+    per_cell: int,
+    max_jaccard: float = 0.2,
+    levels: dict | None = None,
+    max_words: int = 45,
+):
     """Keep generated ``(category, name, prompt_a, prompt_b, level)`` in order, up to ``per_cell`` per (category,
-    level): each side within the level's word range (``SP_TRAIN_LEVELS``, inside ``check_scenarios``' 8-45), a name new
+    level): each side within the level's word range (``levels``, default ``SP_TRAIN_LEVELS``, inside
+    ``check_scenarios``' 8-``max_words``), a name new
     to the set AND to ``held_out`` (spj2), and the pair's word-5-gram Jaccard with every held-out pair and every kept
     pair of its category <= ``max_jaccard``. -> (kept, reject counts by reason)."""
     import re
@@ -1203,10 +1212,10 @@ def filter_train_scenarios(cands: list[tuple], held_out: list[tuple], *, per_cel
 
     for cat, name, pa, pb, level in cands:
         n = norm(name)
-        lo, hi, _ = SP_TRAIN_LEVELS[level]
+        lo, hi, _ = (levels or SP_TRAIN_LEVELS)[level]
         if count.get((cat, level), 0) >= per_cell:
             reject("cell_full")
-        elif not all(max(8, lo - 3) <= len(p.split()) <= min(45, hi + 5) for p in (pa, pb)):  # a little slack
+        elif not all(max(8, lo - 3) <= len(p.split()) <= min(max_words, hi + 5) for p in (pa, pb)):  # a little slack
             reject("length")
         elif not n or n in held_names:
             reject("name_in_spj2" if n in held_names else "no_name")
@@ -1226,37 +1235,89 @@ def filter_train_scenarios(cands: list[tuple], held_out: list[tuple], *, per_cel
     return kept, rej
 
 
-def generate_scenario_batches(llm_name: str, temperature: float, calls: list[dict], tag: str = "sp-train-gen") -> list:
-    """One guided-JSON request per call (``user``, ``seed``, ``category``, ``level``) under ``SP_TRAIN_SYSTEM``, 3
-    attempts each -> per call ``[(category, name, prompt A, prompt B, level), ...]`` in answer order, or None if every
-    attempt failed. Serves its own vLLM server for the duration."""
+def _scenario_tuples(c: dict, d: dict) -> list:
+    return [(c["category"], x["name"], x["prompt_a"], x["prompt_b"], c["level"]) for x in d["scenarios"]]
+
+
+def generate_scenario_batches(
+    llm_name: str,
+    temperature: float,
+    calls: list[dict],
+    tag: str = "sp-train-gen",
+    *,
+    system: str = SP_TRAIN_SYSTEM,
+    schema: dict = _SP_TRAIN_JSON_SCHEMA,
+    parse=_scenario_tuples,
+    cache_path: str | None = None,
+) -> list:
+    """One guided-JSON request per call (``user``, ``seed`` and whatever ``parse`` reads) under ``system``, 3 attempts
+    each -> per call ``parse(call, reply JSON)`` (default: ``[(category, name, prompt A, prompt B, level), ...]`` in
+    answer order), or None if every attempt failed. Serves its own vLLM server for the duration.
+
+    ``cache_path``: a JSONL of finished calls (``{"i", "out"}``, appended as each finishes). An interrupted job that
+    runs again requests only the calls missing there, so a requeue does not repeat finished generation; an entry
+    counts only if its request text is unchanged (``key``)."""
+    import threading
+
     from openai import OpenAI
 
-    def gen(client, c):
+    key = lambda c: hashlib.sha256(c["user"].encode()).hexdigest()[:16]  # noqa: E731
+    done: dict = {}
+    if cache_path and os.path.exists(cache_path):
+        for line in open(cache_path):
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:  # a line cut by the interruption
+                continue
+            i = int(rec["i"])
+            if i < len(calls) and rec.get("key") == key(calls[i]):
+                done[i] = rec["out"]
+        with open(cache_path, "rb+") as f:  # a write cut mid-line: end it, so the next append starts a new line
+            f.seek(0, 2)
+            if f.tell() and (f.seek(-1, 2), f.read(1))[1] != b"\n":
+                f.write(b"\n")
+    lock = threading.Lock()
+
+    def gen(client, i, c):
+        out, err = None, ""
         for attempt in range(3):
             try:
                 resp = client.chat.completions.create(
                     model=llm_name,
-                    messages=[{"role": "system", "content": SP_TRAIN_SYSTEM}, {"role": "user", "content": c["user"]}],
+                    messages=[{"role": "system", "content": system}, {"role": "user", "content": c["user"]}],
                     seed=(c["seed"] + attempt) % (2**31),
                     temperature=temperature,
                     max_tokens=8192,
                     # enforced from 2026-10-12 (run()-side; the finished v1 build was unconstrained)
-                    **json_schema_format(_SP_TRAIN_JSON_SCHEMA, "sp_train_scenarios"),
+                    **json_schema_format(schema, "sp_train_scenarios"),
                 )
                 raw = resp.choices[0].message.content or ""
-                d = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
-                return [(c["category"], x["name"], x["prompt_a"], x["prompt_b"], c["level"]) for x in d["scenarios"]]
+                out = parse(c, json.loads(raw[raw.find("{") : raw.rfind("}") + 1]))
+                break
             except Exception as e:  # retried; a final failure contributes nothing (counted)
                 err = f"{type(e).__name__}: {e}"[:200]
-        print(f"[{tag}] call failed: {err}", flush=True)
-        return None
+        if out is None:
+            print(f"[{tag}] call failed: {err}", flush=True)
+        elif cache_path:
+            with lock, open(cache_path, "a") as f:
+                f.write(json.dumps({"i": i, "key": key(c), "out": out}) + "\n")
+        return out
 
-    with vllm_server(llm_name) as url:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-        return map_concurrent(
-            lambda c: gen(client, c), calls, concurrency=64, progress_path=os.path.abspath("progress.json")
-        )
+    todo = [i for i in range(len(calls)) if i not in done]
+    if done:
+        print(f"[{tag}] resuming: {len(done)} of {len(calls)} calls already done ({cache_path})", flush=True)
+    if todo:
+        with vllm_server(llm_name) as url:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
+            new = map_concurrent(
+                lambda i: gen(client, i, calls[i]), todo, concurrency=64, progress_path=os.path.abspath("progress.json")
+            )
+        done.update({i: o for i, o in zip(todo, new) if o is not None})
+    # JSON round trip turns tuples into lists: hand back tuples either way
+    return [
+        None if done.get(i) is None else [tuple(x) if isinstance(x, list) else x for x in done[i]]
+        for i in range(len(calls))
+    ]
 
 
 class SelfPlayScenarioGen(Job):
@@ -1468,20 +1529,31 @@ def follows_names(prompt_a: str, prompt_b: str, name_a: str, name_b: str) -> boo
     return ok(prompt_a, name_a) and ok(prompt_b, name_b)
 
 
+def prompt_name(prompt: str) -> str | None:
+    """The name a side's instructions give it (``Your name is X``), if any."""
+    import re
+
+    m = re.search(r"\bYour name is ([A-Z][\w'-]*)", prompt)
+    return m.group(1) if m else None
+
+
 def assign_names(outs: list, calls: list[dict]) -> tuple[list, dict, int]:
-    """Generated batches (``outs[i]`` answers ``calls[i]``; None = failed) -> (candidates, ``{(prompt A, prompt B):
-    (side A, side B)}``, rejected). A scenario is kept only if it uses its pair (``calls[i]["names"][k]`` for the
-    k-th scenario of the answer); extra scenarios beyond the assigned pairs are rejected too."""
-    cands, names, bad = [], {}, 0
+    """Generated batches (``outs[i]`` answers ``calls[i]``; None = failed) -> (every scenario, ``{(prompt A, prompt
+    B): (side A, side B)}``, how many used their assigned pair). Nothing is dropped: a scenario that uses its pair
+    (``calls[i]["names"][k]`` for the k-th of the answer) records the pair's ``(name, gender, country)``; any other
+    records the name its instructions give (``prompt_name``, gender and country unknown: ``""``), or ``None``."""
+    cands, names, followed = [], {}, 0
     for out, c in zip(outs, calls):
+        pairs = c.get("names") or []
         for k, s in enumerate(out or []):
-            pairs = c["names"]
+            cands.append(s)
             if k < len(pairs) and follows_names(s[2], s[3], pairs[k][0][0], pairs[k][1][0]):
-                cands.append(s)
-                names[(s[2].strip(), s[3].strip())] = tuple(tuple(x) for x in pairs[k])
+                followed += 1
+                sides = tuple(tuple(x) for x in pairs[k])
             else:
-                bad += 1
-    return cands, names, bad
+                sides = tuple((n, "", "") if (n := prompt_name(p)) else None for p in (s[2], s[3]))
+            names[(s[2].strip(), s[3].strip())] = sides
+    return cands, names, followed
 
 
 class FirstNamePool(Job):
@@ -1520,9 +1592,10 @@ class SelfPlayScenarioPool(Job):
     category is a new pool, no shared table changes. Per level of detail (``levels``, default ``SP_TRAIN_LEVELS``)
     ``calls_per_level`` gpt-oss calls of ``per_call`` scenarios, each call with a seeded domain and ``per_call``
     seeded name pairs from ``names`` (``FirstNamePool``; ``draw_name_pairs``), stated in the request
-    (``SP_POOL_NAMES_RULE``). A scenario that does not open each side with its assigned name is rejected
-    (``assign_names``); the rest go through v1's filter (``filter_train_scenarios``: word range, new snake_case
-    name, not near spj2 or a kept scenario), up to ``per_level`` per level.
+    (``SP_POOL_NAMES_RULE``); a scenario using other names is kept with the names it uses (``assign_names``). All go
+    through v1's filter (``filter_train_scenarios``: word range, new snake_case name, not near spj2 or a kept
+    scenario), up to ``per_level`` per level. Generation resumes after an interruption (``generate_scenario_batches``
+    cache).
 
     Output dir ``pool/``: ``scenarios.json`` (``[category, name, prompt A, prompt B, level]``), ``names.json``
     (``{scenario name: [[name, gender, country] A, [...] B]}``), ``stats.json``."""
@@ -1574,7 +1647,7 @@ class SelfPlayScenarioPool(Job):
         )
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", rqmt=self.rqmt, resumable=True)
 
     def calls(self, pool: dict) -> list[dict]:
         """The generation requests; ``pool`` = ``FirstNamePool``'s ``countries``. Seeded per category, so two pools
@@ -1616,38 +1689,338 @@ class SelfPlayScenarioPool(Job):
         pool = json.load(open(self.names.get_path()))["countries"]
         calls = self.calls(pool)
         print(f"[sp-pool:{self.category}] {len(calls)} calls x {self.per_call} scenarios ({self.llm_name})", flush=True)
-        outs = generate_scenario_batches(self.llm_name, self.temperature, calls, tag=f"sp-pool:{self.category}")
+        outs = generate_scenario_batches(self.llm_name, self.temperature, calls, tag=f"sp-pool:{self.category}",
+                                         cache_path=os.path.abspath("calls.jsonl"))  # fmt: skip
         failed = sum(o is None for o in outs)
         if failed > 0.05 * len(calls):
             raise RuntimeError(f"{failed}/{len(calls)} generation calls failed")
-        cands, names, mismatch = assign_names(outs, calls)
+        cands, names, followed = assign_names(outs, calls)
         kept, rej = filter_train_scenarios(cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.per_level)
         check_scenarios([k[:4] for k in kept], categories=None)
-        rej["name_mismatch"] = mismatch
         sides = {k[1]: names[(k[2], k[3])] for k in kept}
-        first = collections.Counter(s[0] for pair in sides.values() for s in pair)
+        first = collections.Counter(s[0] for pair in sides.values() for s in pair if s)
         per_level = {lv: sum(k[4] == lv for k in kept) for lv in self.levels}
         stats = {
             "category": self.category,
             "calls": len(calls),
             "failed_calls": failed,
-            "raw": len(cands) + mismatch,
+            "raw": len(cands),
+            "used_assigned_names": followed,
             "kept": len(kept),
             "kept_per_level": per_level,
             "rejected": rej,
             "distinct_first_names": len(first),
             "top_first_names": first.most_common(10),
-            "countries": len({s[2] for pair in sides.values() for s in pair}),
+            "countries": len({s[2] for pair in sides.values() for s in pair if s and s[2]}),
         }
         d = self.out_dir.get_path()
         json.dump([list(k) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
         json.dump(
-            {k: [list(s) for s in v] for k, v in sides.items()}, open(os.path.join(d, "names.json"), "w"), indent=1
+            {k: [list(s) if s else None for s in v] for k, v in sides.items()},
+            open(os.path.join(d, "names.json"), "w"),
+            indent=1,
         )
         json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
         print(f"[sp-pool:{self.category}] {stats}", flush=True)
         if min(per_level.values()) < self.per_level // 2:
             raise RuntimeError(f"too few scenarios kept per level: {per_level}")
+
+
+# ---- instruction-following questions from IF-Chat (one side asks the chat's requests, the other just answers) -----
+#: Nemotron-SFT-Instruction-Following-Chat-v3 (CC-BY-4.0 / ODC-By), pinned; split ``instruction_following``: tulu-3
+#: persona instruction prompts and synthetic multi-turn chats, replies by gpt-oss-120b.
+IF_CHAT_REPO = "nvidia/Nemotron-SFT-Instruction-Following-Chat-v3"
+IF_CHAT_REVISION = "be3b3e04ef605ac9d3f8f35b9d5a632f4a3a3402"
+IF_CHAT_FILE = "data/instruction_following.jsonl"
+#: Word cap of a question-list prompt: 70 words + the Minimal line is ~110 text tokens, inside the self-play prefix
+#: budget (KV context = conversation + 256 frames; voice 50 + 12 silence + text).
+SP_IF_MAX_WORDS = 70
+#: Side A of a question-list scenario: its name and one of these, nothing about the questions.
+SP_IF_ANSWERER = (
+    "Answer the other person's questions.",
+    "Help the other person with whatever they ask.",
+    "The other person will ask you some things; answer them.",
+    "Answer whatever the caller asks you.",
+    "Someone will ask you for help; do your best to answer.",
+)
+SP_IF_SYSTEM = """You turn a written chat between a user and an AI assistant into instructions for a spoken role-play between two voice agents. Agent B asks; agent A answers. Only B gets your instructions; A only knows its own name and that it should answer.
+
+Write B's instructions, addressed to B ("Your name is <B>. ..."):
+- B asks the user's requests from the chat, in order, in its own spoken words, one at a time, waiting for each answer.
+- Turn written-format requirements into spoken ones a listener can check: length ("in two sentences"), number of items ("three tips"), what to mention or avoid, language, tone, audience. Drop requirements that only exist in writing: markdown, headings, bullet symbols, JSON, placeholders in brackets, capital letters, punctuation, exact word counts, titles.
+- Shrink anything too long to say in about a minute ("write a 2,000-word essay" becomes "briefly explain"). Later requests may refer to earlier answers ("make it shorter"); keep them so they make sense when spoken.
+- Never add facts, names or requirements the chat does not contain.
+
+Also write grader notes, shown only to the person who grades the conversation, at most 80 words: for each request, what a correct spoken answer must contain (key facts from the chat's answers, when the request has a factual answer) and which requirements to check.
+
+Set "skip" to true if the chat cannot become a short spoken exchange: it is mainly code, math notation, tables, JSON or a long document, needs a file or link, has NAME_ style placeholders, or depends on current events, today's date or recent prices.
+
+Answer with JSON only: {"skip": false, "name": "short_snake_case_label", "prompt_b": "...", "grader_info": "..."}"""
+_SP_IF_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "skip": {"type": "boolean"},
+        "name": {"type": "string", "minLength": 3, "maxLength": 40},
+        "prompt_b": {"type": "string", "maxLength": 700},
+        "grader_info": {"type": "string", "maxLength": 900},
+    },
+    "required": ["skip", "name", "prompt_b", "grader_info"],
+    "additionalProperties": False,
+}
+_IF_TEXT_ONLY = (
+    r"```",  # code
+    r"^\s*\|.*\|\s*$",  # table rows
+    r"\{\s*\"",  # JSON
+    r"\bNAME_\d",  # anonymised names
+    r"https?://",  # links
+)
+_IF_TIME_SENSITIVE = (
+    r"\b(today|tonight|this (?:week|month|year)|latest|current(?:ly)?|right now|news|stock price|20[2-3]\d)\b"
+)
+
+
+def if_chat_candidate(d: dict, *, min_turns: int, max_turns: int, max_user_chars: int) -> tuple[dict | None, str]:
+    """An IF-Chat row fit for a spoken rewrite -> (``{"uuid", "seed_prompt_sha256", "seed_dataset", "system",
+    "turns": [{"user", "assistant"}]}``, "") or (None, reason). Rejects: user-turn count outside ``min..max``, an empty
+    turn, a user turn over ``max_user_chars`` (long documents), text-only content (code, tables, JSON, ``NAME_``
+    placeholders, links), time-sensitive wording, and non-English-looking text. Reasoning fields are not carried."""
+    import re
+
+    meta = d.get("metadata") or {}
+    turns, cur, system = [], None, []
+    for m in d.get("messages") or []:
+        text = (m.get("content") or "").strip()
+        if m.get("role") == "system":
+            system.append(text)
+        elif m.get("role") == "user":
+            cur = {"user": text, "assistant": ""}
+            turns.append(cur)
+        elif m.get("role") == "assistant" and cur is not None:
+            cur["assistant"] = text
+    if not min_turns <= len(turns) <= max_turns:
+        return None, "turns"
+    for t in turns:
+        u = t["user"]
+        if not u or not t["assistant"]:
+            return None, "empty"
+        if len(u) > max_user_chars:
+            return None, "long"
+        if any(re.search(p, u, re.M) for p in _IF_TEXT_ONLY):
+            return None, "text_only"
+        if re.search(_IF_TIME_SENSITIVE, u, re.I):
+            return None, "time_sensitive"
+        if sum(ch.isascii() for ch in u) < 0.97 * len(u):
+            return None, "non_english"
+    return {
+        "uuid": d.get("uuid"),
+        "seed_prompt_sha256": meta.get("seed_prompt_sha256"),
+        "seed_dataset": meta.get("seed_dataset"),
+        "system": " ".join(system),
+        "turns": turns,
+    }, ""
+
+
+class IfChatConversations(Job):
+    """Source conversations for the question-list self-play category: a seeded sample of ``n`` IF-Chat v3
+    ``instruction_following`` rows that pass ``if_chat_candidate``, deduplicated on ``seed_prompt_sha256`` (first row
+    wins), streamed from the Hub at the pinned revision (3.2 GB, not cached; a mini task: the login node has network).
+    Reservoir sample, so every kept candidate is equally likely. Output ``conversations.jsonl`` (originals and
+    provenance) and ``stats.json`` (rows read, rejects by reason)."""
+
+    def __init__(
+        self,
+        *,
+        n: int = 3000,
+        min_turns: int = 2,
+        max_turns: int = 5,
+        max_user_chars: int = 600,
+        revision: str = IF_CHAT_REVISION,
+        seed: int = 0,
+    ):
+        self.n, self.min_turns, self.max_turns = int(n), int(min_turns), int(max_turns)
+        self.max_user_chars, self.revision, self.seed = int(max_user_chars), revision, int(seed)
+        self.out_conversations = self.output_path("conversations.jsonl")
+        self.out_stats = self.output_path("stats.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import collections
+
+        import numpy as np
+        import requests
+        from huggingface_hub import hf_hub_url
+        from huggingface_hub.utils import build_hf_headers
+
+        url = hf_hub_url(IF_CHAT_REPO, IF_CHAT_FILE, repo_type="dataset", revision=self.revision)
+        rng = np.random.default_rng(self.seed)
+        res, seen_sha, why = [], set(), collections.Counter()
+        rows = cand = 0
+        with requests.get(url, headers=build_hf_headers(), stream=True, timeout=120) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                rows += 1
+                c, reason = if_chat_candidate(json.loads(line), min_turns=self.min_turns, max_turns=self.max_turns,
+                                              max_user_chars=self.max_user_chars)  # fmt: skip
+                if c is None:
+                    why[reason] += 1
+                    continue
+                if c["seed_prompt_sha256"]:
+                    if c["seed_prompt_sha256"] in seen_sha:
+                        why["duplicate_seed"] += 1
+                        continue
+                    seen_sha.add(c["seed_prompt_sha256"])
+                cand += 1
+                if len(res) < self.n:
+                    res.append(c)
+                elif (j := int(rng.integers(cand))) < self.n:
+                    res[j] = c
+                if rows % 25000 == 0:
+                    print(f"[if-chat] {rows} rows read, {cand} candidates", flush=True)
+        with open(self.out_conversations.get_path(), "w") as f:
+            for c in res:
+                f.write(json.dumps(c) + "\n")
+        stats = {"rows": rows, "candidates": cand, "kept": len(res), "rejected": dict(why), "revision": self.revision}
+        json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
+        print(f"[if-chat] {stats}", flush=True)
+        if len(res) < self.n:
+            raise RuntimeError(f"only {len(res)} candidates for n={self.n}")
+
+
+def if_chat_request(conv: dict, name_b: str, max_answer_chars: int = 1200) -> str:
+    """The rewrite request for one conversation: B's name, the chat's extra system text (if any), every turn (answers
+    cut to ``max_answer_chars``)."""
+    lines = [f"Name for B: {name_b}.", ""]
+    default = "You are a helpful and harmless assistant."
+    extra = conv.get("system", "").replace(default, "").replace("You are not allowed to use any tools.", "").strip()
+    if extra:
+        lines += [f"The chat's system message (requirements may be in it): {extra}", ""]
+    lines.append("The chat:")
+    for k, t in enumerate(conv["turns"], 1):
+        ans = t["assistant"]
+        if len(ans) > max_answer_chars:
+            ans = ans[:max_answer_chars] + " [...]"
+        lines += [f"USER {k}: {t['user']}", f"ASSISTANT {k}: {ans}"]
+    return "\n".join(lines)
+
+
+class SelfPlayIfChatPool(Job):
+    """A self-play pool of QUESTION LISTS (v2): side B gets the requests of an IF-Chat conversation to ask, side A only
+    its name and a generic "answer the questions" line (``SP_IF_ANSWERER``, seeded). gpt-oss rewrites each conversation
+    (``SP_IF_SYSTEM``): written-format requirements become spoken ones, nothing is added, and ``grader_info`` says what
+    a correct spoken answer contains (from the chat's own answers) for the RL judge; unfit chats come back ``skip``.
+    Names from ``FirstNamePool``. Then v1's filter (word range up to ``SP_IF_MAX_WORDS``, unique label, not near spj2
+    or a kept scenario) keeps up to ``n_keep``.
+
+    Output dir ``pool/`` as ``SelfPlayScenarioPool``'s (level ``if_chat``) plus ``grader_info.json`` (``{scenario:
+    notes}``) and ``provenance.jsonl`` (per kept scenario: IF-Chat uuid, seed hash and dataset, the original turns).
+    Generation resumes after an interruption."""
+
+    LEVEL = "if_chat"
+
+    def __init__(
+        self,
+        *,
+        conversations: tk.Path,
+        names: tk.Path,
+        n_keep: int = 800,
+        category: str = "ask_and_answer",
+        held_out: str = "spj2_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 0.7,
+        seed: int = 0,
+    ):
+        assert held_out in SPJ2_SCENARIOS, held_out
+        self.conversations, self.names, self.n_keep, self.category = conversations, names, int(n_keep), category
+        self.held_out, self.llm_name, self.temperature, self.seed = held_out, llm_name, float(temperature), int(seed)
+        self.out_dir = self.output_path("pool", directory=True)
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 3, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The held-out set's content, the rewrite prompt and the answerer lines are part of the hash."""
+        prompt = json.dumps([SP_IF_SYSTEM, SP_IF_ANSWERER, SP_IF_MAX_WORDS])
+        return super(SelfPlayIfChatPool, cls).hash(
+            {
+                **parsed_args,
+                "held_out_digest": scenario_digest(parsed_args["held_out"]),
+                "prompt_digest": hashlib.sha256(prompt.encode()).hexdigest()[:16],
+            }
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, resumable=True)
+
+    def calls(self, convs: list[dict], pool: dict) -> list[dict]:
+        import numpy as np
+
+        rng = np.random.default_rng([self.seed, int(hashlib.sha256(self.category.encode()).hexdigest()[:8], 16)])
+        out = []
+        for conv in convs:
+            ((a, b),) = draw_name_pairs(pool, 1, rng)
+            answerer = SP_IF_ANSWERER[int(rng.integers(len(SP_IF_ANSWERER)))]
+            out.append({"category": self.category, "level": self.LEVEL, "names": [[list(a), list(b)]],
+                        "prompt_a": f"Your name is {a[0]}. {answerer}", "uuid": conv["uuid"],
+                        "user": if_chat_request(conv, b[0]), "seed": int(rng.integers(2**31))})  # fmt: skip
+        return out
+
+    @staticmethod
+    def parse(c: dict, d: dict) -> list:
+        """-> ``[]`` for a skipped chat, else ``[(category, name, prompt A, prompt B, level, grader_info)]``."""
+        if d.get("skip"):
+            return []
+        return [(c["category"], d["name"], c["prompt_a"], d["prompt_b"].strip(), c["level"], d["grader_info"].strip())]
+
+    def run(self):
+        import collections
+
+        convs = [json.loads(line) for line in open(self.conversations.get_path())]
+        by_uuid = {c["uuid"]: c for c in convs}
+        pool = json.load(open(self.names.get_path()))["countries"]
+        calls = self.calls(convs, pool)
+        tag = f"sp-pool:{self.category}"
+        print(f"[{tag}] {len(calls)} conversations to rewrite ({self.llm_name})", flush=True)
+        outs = generate_scenario_batches(self.llm_name, self.temperature, calls, tag=tag, system=SP_IF_SYSTEM,
+                                         schema=_SP_IF_JSON_SCHEMA, parse=self.parse,
+                                         cache_path=os.path.abspath("calls.jsonl"))  # fmt: skip
+        failed = sum(o is None for o in outs)
+        if failed > 0.05 * len(calls):
+            raise RuntimeError(f"{failed}/{len(calls)} rewrite calls failed")
+        skipped = sum(o == [] for o in outs)
+        grader, uuid = {}, {}
+        for o, c in zip(outs, calls):
+            for x in o or []:
+                grader[(x[2].strip(), x[3].strip())] = x[5]
+                uuid[(x[2].strip(), x[3].strip())] = c["uuid"]
+        five = [[tuple(x[:5]) for x in o] if o else o for o in outs]
+        cands, names, followed = assign_names(five, calls)
+        levels = {self.LEVEL: (8, SP_IF_MAX_WORDS, "")}
+        kept, rej = filter_train_scenarios(cands, SPJ2_SCENARIOS[self.held_out], per_cell=self.n_keep,
+                                           levels=levels, max_words=SP_IF_MAX_WORDS)  # fmt: skip
+        check_scenarios([k[:4] for k in kept], categories=None, max_words=SP_IF_MAX_WORDS)
+        d = self.out_dir.get_path()
+        key = lambda k: (k[2], k[3])  # noqa: E731
+        json.dump([list(k) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
+        json.dump({k[1]: [list(s) if s else None for s in names[key(k)]] for k in kept},
+                  open(os.path.join(d, "names.json"), "w"), indent=1)  # fmt: skip
+        json.dump({k[1]: grader[key(k)] for k in kept}, open(os.path.join(d, "grader_info.json"), "w"), indent=1)
+        with open(os.path.join(d, "provenance.jsonl"), "w") as f:
+            for k in kept:
+                src = by_uuid[uuid[key(k)]]
+                f.write(json.dumps({"scenario": k[1], "if_chat_uuid": src["uuid"], "revision": IF_CHAT_REVISION,
+                                    "seed_prompt_sha256": src["seed_prompt_sha256"],
+                                    "seed_dataset": src["seed_dataset"], "turns": src["turns"]}) + "\n")  # fmt: skip
+        words = [len(k[3].split()) for k in kept]
+        stats = {"category": self.category, "calls": len(calls), "failed_calls": failed, "skipped": skipped,
+                 "raw": len(cands), "used_assigned_names": followed, "kept": len(kept), "rejected": rej,
+                 "prompt_b_words": dict(collections.Counter(min(w // 10 * 10, 70) for w in words))}  # fmt: skip
+        json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
+        print(f"[{tag}] {stats}", flush=True)
+        if len(kept) < self.n_keep // 2:
+            raise RuntimeError(f"too few scenarios kept: {len(kept)} < {self.n_keep // 2}")
 
 
 def mix_counts(sizes: dict, weights: dict, n_rows: int) -> dict:
@@ -1672,7 +2045,11 @@ class SelfPlayTrainScenarioMix(Job):
     SelfPlayScenarioPool.out_dir}``) in the proportions ``weights`` (``mix_counts``), drawn without replacement
     (seeded). The RL source shuffles the rows once and draws them in order, so the row shares are the training shares;
     reweighting re-runs only this job. Rows as ``SelfPlayTrainScenarioSet``'s (ids ``sptr2:<category>:<name>``, Minimal
-    line prepended, a seeded voice pair per row) plus each side's assigned name, gender and country."""
+    line prepended, a seeded voice pair per row) plus each side's name, gender and country (``""`` when unknown) and
+    ``grader_info`` (the pool's ``grader_info.json`` entry, else ``""``): facts the RL judge uses to check answers.
+
+    ``n_rows`` is fixed at declaration, so ``rl_spec`` checks a run's self-play draws against it before the run
+    exists (``rules.check_scenario_budget``)."""
 
     def __init__(self, *, pools: dict, weights: dict, voices: tk.Path, n_rows: int, seed: int = 0):
         assert set(weights) <= set(pools), set(weights) - set(pools)
@@ -1690,11 +2067,13 @@ class SelfPlayTrainScenarioMix(Job):
 
         from .persona_prompts import PERSONA_MINIMAL
 
-        scen, sides = {}, {}
+        scen, sides, grader = {}, {}, {}
         for cat in sorted(self.pools):
             d = self.pools[cat].get_path()
             scen[cat] = [tuple(s) for s in json.load(open(os.path.join(d, "scenarios.json")))]
             sides[cat] = json.load(open(os.path.join(d, "names.json")))
+            g = os.path.join(d, "grader_info.json")
+            grader[cat] = json.load(open(g)) if os.path.exists(g) else {}
             assert all(s[0] == cat for s in scen[cat]), f"pool {cat} holds another category"
         counts = mix_counts({k: len(v) for k, v in scen.items()}, self.weights, self.n_rows)
         voices = list(load_from_disk(self.voices.get_path()).select_columns(["label", "codes"]))
@@ -1703,7 +2082,7 @@ class SelfPlayTrainScenarioMix(Job):
         for cat in sorted(counts):
             for i in sorted(int(i) for i in rng.choice(len(scen[cat]), size=counts[cat], replace=False)):
                 _, name, pa, pb, level = scen[cat][i]
-                (na, ga, ca), (nb, gb, cb) = sides[cat][name]
+                (na, ga, ca), (nb, gb, cb) = (s or ("", "", "") for s in sides[cat][name])
                 ia, ib = (int(j) for j in rng.choice(len(voices), size=2, replace=False))
                 rows.append(
                     {
@@ -1719,6 +2098,7 @@ class SelfPlayTrainScenarioMix(Job):
                         "voice_label_other": str(voices[ib]["label"]),
                         "name": na, "gender": ga, "country": ca,
                         "name_other": nb, "gender_other": gb, "country_other": cb,
+                        "grader_info": str(grader[cat].get(name, "")),
                     }
                 )  # fmt: skip
         assert len({r["id"] for r in rows}) == len(rows), "duplicate scenario ids"
