@@ -39,6 +39,12 @@ is 5.16.1), Hugging Face Hub and SoundFile. It uses the pinned HF conversion
 Put Hugging Face caches on a suitable work filesystem via `HF_HOME` /
 `HF_HUB_CACHE`, not a small home directory.
 
+Loquacious's optional version-2 preparation requires the corresponding
+`PrepareLoquacious*DatasetJobV2` classes in i6_core. These are imported only
+when explicitly selecting version 2; the default examples also import with
+older i6_core checkouts. External dependency repositories are not modified by
+this setup.
+
 Standard STM/CTM scoring is used. Qwen's LibriSpeech example uppercases and
 strips punctuation from hypotheses only, retaining raw outputs; it applies no
 Hugging Face leaderboard reference normalization. AED word times are uniform

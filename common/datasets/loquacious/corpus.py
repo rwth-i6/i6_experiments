@@ -7,9 +7,7 @@ from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.datasets.loquacious import (
     PrepareLoquaciousTrainSmallDatasetJob,
     PrepareLoquaciousTrainMediumDatasetJob,
-    PrepareLoquaciousTrainMediumDatasetJobV2,
     PrepareLoquaciousTestDatasetsJob,
-    PrepareLoquaciousTestDatasetsJobV2,
 )
 
 
@@ -52,6 +50,8 @@ def get_bliss_corpus_dict(
         devtest_job = PrepareLoquaciousTestDatasetsJob(hf_home_dir=hf_home_dir)
         devtest_alias = "prepare_dev_test"
     elif test_dataset_version == 2:
+        from i6_core.datasets.loquacious import PrepareLoquaciousTestDatasetsJobV2
+
         devtest_job = PrepareLoquaciousTestDatasetsJobV2(hf_home_dir=None)
         devtest_alias = "prepare_dev_test_v2"
     else:
@@ -61,6 +61,8 @@ def get_bliss_corpus_dict(
         medium_job = PrepareLoquaciousTrainMediumDatasetJob(hf_home_dir=hf_home_dir)
         medium_alias = "prepare_medium"
     elif train_medium_dataset_version == 2:
+        from i6_core.datasets.loquacious import PrepareLoquaciousTrainMediumDatasetJobV2
+
         medium_job = PrepareLoquaciousTrainMediumDatasetJobV2(hf_home_dir=None)
         medium_alias = "prepare_medium_v2"
     else:
