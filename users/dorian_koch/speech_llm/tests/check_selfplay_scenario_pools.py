@@ -12,12 +12,10 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       names; per-level call counts; same inputs -> same requests
   [5] names: no scenario is dropped for its names; one that does not use its assigned pair records the names it uses
       (``prompt_name``), else None. CAN FAIL: a mutant that records the unused assignment
-  [5b] IF-Chat question lists: ``if_chat_candidate`` rejects text-only rows (code, tables, JSON, NAME_ placeholders,
-      links), time-sensitive, long and non-English chats, any number of turns; the extraction request carries the
-      chat's extra system text and the turns (answers cut), no names; A gets its name + a generic answering line.
-      ``if_chat_rewrite`` with a scripted LLM: written-only requirements and tasks never reach the phrasing call, bad
-      asks (written-only, dangling, failed check) are dropped, B's prompt fits ``SP_IF_MAX_WORDS``. CAN FAIL: a
-      mutant without ``IF_WRITTEN_ONLY`` lets "no commas" and the JSON turn through
+  [5b] Tulu 3 persona IF requests: ``persona_if_candidate`` keeps a row only if every constraint label is audible
+      and the text has no written-only wording, code, links, dates or non-English; ``select`` gives B the request
+      verbatim within ``SP_IF_MAX_WORDS``, the judge the request and its labels as hints, other-language answers dropped, drops near-duplicates, is
+      seeded. CAN FAIL: a mutant label set with "punctuation:use no comma" keeps a written-only row
   [5c] generation resumes: a requeued pool job requests only the calls missing from its cache (a cut line ignored);
       an edited request is generated again
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
@@ -136,112 +134,57 @@ assert mnm[(wrong[2], wrong[3])][0] == ("Jose", "m", "ES"), "mutant should recor
 print("[5] names: every scenario kept; a scenario using other names records the names it uses (mutant: the assignment)")
 
 
-# [5b] IF-Chat question lists ---------------------------------------------------------------------------------------
-def conv(*users, answer="An answer.", system="You are a helpful and harmless assistant."):
-    msgs = [{"role": "system", "content": system}]
-    for u in users:
-        msgs += [{"role": "user", "content": u}, {"role": "assistant", "content": answer}]
-    return {"uuid": "u1", "messages": msgs, "metadata": {"seed_prompt_sha256": "abc", "seed_dataset": "synthetic"}}
+# [5b] Tulu 3 persona IF requests ------------------------------------------------------------------------------------
+def prow(i, prompt, *labels):
+    return {"id": f"p{i}", "prompt": prompt, "constraints": list(labels) or ["include keywords"]}
 
 
-kw = dict(min_turns=1, max_turns=None, max_user_chars=600)
-ok_conv, why = sb.if_chat_candidate(conv("Give me three tips for sleeping better.", "Make them shorter."), **kw)
-assert why == "" and len(ok_conv["turns"]) == 2 and ok_conv["seed_prompt_sha256"] == "abc", (ok_conv, why)
-cases5b = {
-    "turns": conv(),
-    "long": conv("x " * 400, "ok"),
-    "text_only": conv("Fix this:\n```py\nx=1\n```", "thanks"),
-    "time_sensitive": conv("What is the latest news on the election?", "and more?"),
-    "non_english": conv("Расскажи мне про кошек пожалуйста", "ещё"),
-    "empty": conv("", "hi"),
-}
-for want, c in cases5b.items():
-    got = sb.if_chat_candidate(c, **kw)[1]
-    assert got == want, (want, got)
-assert sb.if_chat_candidate(conv(*[f"Question {i}?" for i in range(9)]), **kw)[1] == "", "long chats are kept"
-for txt in ("Fill in NAME_1 here", "see https://x.org", '{"a": 1}', "| a | b |"):
-    assert sb.if_chat_candidate(conv(txt, "ok"), **kw)[1] == "text_only", txt
-req = sb.if_chat_request({**ok_conv, "system": "You are a helpful and harmless assistant. Always answer in French."},
-                         max_answer_chars=5)  # fmt: skip
-assert "Name" not in req and "Always answer in French." in req and "helpful and harmless" not in req
-assert "USER 2: Make them shorter." in req and "ASSISTANT 1: An an [...]" in req, req
-ifp = sb.SelfPlayIfChatPool(conversations=tk.Path("/nonexistent/c.jsonl"), names=names_path)
-icalls = ifp.calls([ok_conv, {**ok_conv, "uuid": "u2"}], big)
-for c in icalls:
-    ((a, b_),) = c["names"]
-    assert c["prompt_a"].startswith(f"Your name is {a[0]}. ") and c["prompt_a"].split(". ", 1)[1] in sb.SP_IF_ANSWERER
-assert icalls == ifp.calls([ok_conv, {**ok_conv, "uuid": "u2"}], big), "IF requests not deterministic"
-
-three = sb.if_chat_candidate(
-    conv("Three tips for sleep, as bullets, no commas, say dark.", "Now as JSON.", "Drink?"), **kw
-)[0]
-EXTRACT = {
-    "turns": [
-        {
-            "task": "three tips for sleeping better",
-            "requirements": ["exactly three tips", "in bullet points", "no commas", "include the word dark"],
-            "refers_to": 0,
-        },
-        {"task": "rewrite the tips as a JSON object", "requirements": [], "refers_to": 1},
-        {"task": "what to drink before bed", "requirements": ["one sentence"], "refers_to": 0},
-    ]
-}
-COMPOSE = {"asks": [
-    {"n": 1, "ask": "Ask for three tips for sleeping better, using the word dark.", "grader": "Three tips; says dark."},
-    {"n": 3, "ask": "Ask what to drink before bed, in one sentence.", "grader": "Warm milk or herbal tea."},
-    {"n": 3, "ask": "Ask for that list read out with bullet points.", "grader": "x"}]}  # fmt: skip
-
-
-def scripted(check_ok=(True, True), first_ask=None):
-    seen = []
-
-    def llm(system, user, schema, temperature, call):
-        seen.append((call, user))
-        if call == 0:
-            return EXTRACT
-        if call == 1:
-            return {
-                "asks": [{**COMPOSE["asks"][0], "ask": first_ask or COMPOSE["asks"][0]["ask"]}, *COMPOSE["asks"][1:]]
-            }
-        return {"asks": [{"n": j + 1, "ok": ok, "problem": "" if ok else "too long"} for j, ok in enumerate(check_ok)]}
-
-    return llm, seen
-
-
-llm, seen = scripted()
-out = sb.if_chat_rewrite(three, llm)
-compose_req = seen[1][1]
-assert "keep: exactly three tips; include the word dark" in compose_req and "bullet" not in compose_req, compose_req
-assert "no commas" not in compose_req and "JSON" not in compose_req and "Request 2" not in compose_req, compose_req
-assert [q["n"] for q in out["asks"]] == [1, 3], out
-assert {q["dropped"] for q in out["trace"]["asks"]} == {"", "written_only"}, out["trace"]["asks"]
-llm, _ = scripted(check_ok=(True, False))
-assert [q["n"] for q in sb.if_chat_rewrite(three, llm)["asks"]] == [1], "a failed check kept its ask"
-llm, _ = scripted(first_ask="Ask to retell that story as a short interview.")
-assert [q["n"] for q in sb.if_chat_rewrite(three, llm)["asks"]] == [3], "a dangling first ask was kept"
-orig_pat = sb.IF_WRITTEN_ONLY
-sb.IF_WRITTEN_ONLY = r"(?!)"
-try:
-    llm, seen_m = scripted()
-    sb.if_chat_rewrite(three, llm)
-    assert "no commas" in seen_m[1][1] and "JSON" in seen_m[1][1], "mutant should leak written-only rules"
-finally:
-    sb.IF_WRITTEN_ONLY = orig_pat
-s5 = sb.SelfPlayIfChatPool.scenario(three, icalls[0], out["asks"])
-name5, pa5, pb5, notes5, n5 = s5
-assert pb5.startswith(f"Your name is {icalls[0]['names'][0][1][0]}. ") and "First, ask for three tips" in pb5, pb5
-assert (
-    "Finally, ask what to drink" in pb5
-    and notes5.startswith("1) Three tips")
-    and n5 == 2
-    and pa5 == icalls[0]["prompt_a"]
+ok_p = "Explain why bees matter for vineyards in no more than 4 sentences, and include the word grapes."
+assert sb.persona_if_candidate(prow(0, ok_p, "length constraints:number of sentences", "include keywords")) == (
+    ok_p,
+    "",
 )
-long_asks = [{"ask": "Ask for " + "very " * 25 + f"thing {k}.", "grader": "g"} for k in range(3)]
-s_long = sb.SelfPlayIfChatPool.scenario(three, icalls[0], long_asks)
-assert s_long is None or len(s_long[2].split()) <= sb.SP_IF_MAX_WORDS, s_long
+cases5b = {
+    "written_label": prow(1, ok_p, "include keywords", "punctuation:use no comma"),
+    "long": prow(2, "word " * 60),
+    "text_only": prow(3, "Fix this:\n```py\nx=1\n```"),
+    "written_text": prow(4, "List three tips for sleep. Format: Bullet points."),
+    "time_sensitive": prow(5, "Summarize the latest news about solar power."),
+    "non_english": prow(6, "Расскажи мне, почему пчёлы важны для виноградников."),
+    "other_language": prow(9, "Explain in Japanese why bees matter, using the word honey twice.", "response language"),
+}
+for want, r in cases5b.items():
+    assert sb.persona_if_candidate(r)[1] == want, (want, sb.persona_if_candidate(r))
+for txt in ("Write exactly 150 words about tea.", "Two paragraphs separated by ^^^^ about tea.", "Write a 300-word story.",
+            "Give a detailed plan for a garden.", "Use no commas in a story about tea.",
+            "Repeat this question changing ? to !: why is tea hot?", "Create a one-page document about tea."):  # fmt: skip
+    assert sb.persona_if_candidate(prow(7, txt))[1] == "written_text", txt
+assert sb.persona_if_candidate(prow(8, "In a poem about tea, end with the sentence: Cheers to that."))[1] == ""
+
+topics = ["bees", "tea", "trains", "maps", "owls", "chess", "bread", "rivers", "kites", "clocks", "boats", "mushrooms"]
+rows5 = [prow(i, f"Tell me three facts about {t}, and do not use the word {t[:-1]} at all.", "keywords:exclude words")
+         for i, t in enumerate(topics)]  # fmt: skip
+rows5 += [prow(100, rows5[0]["prompt"]), prow(101, "Describe tea for a child.", "punctuation:use no comma")]
+ifp = sb.SelfPlayPersonaIfPool(names=names_path, n_keep=10)
+kept5, stats5 = ifp.select(rows5, big)
+assert len(kept5) == 10 and stats5["reasons"]["written_label"] == 1, stats5
+assert kept5 == ifp.select(rows5, big)[0], "selection not seeded"
+for cat_, name_, pa_, pb_, level_, notes_, info_ in kept5:
+    a_, b_ = info_["names"]
+    assert pa_.startswith(f"Your name is {a_[0]}. ") and pa_.split(". ", 1)[1] in sb.SP_IF_ANSWERER
+    assert pb_.startswith(f"Your name is {b_[0]}. ") and pb_.endswith(info_["prompt"]) and len(pb_.split()) <= 70
+    assert info_["prompt"] in notes_ and sb.SP_IF_LABEL_CHECKS["keywords:exclude words"] in notes_
+    assert cat_ == "ask_and_answer" and level_ == "persona_if" and name_.startswith("if_")
+assert len({k[6]["prompt"] for k in kept5}) == 10, "a duplicate request was kept twice"
+orig_labels = sb.SP_IF_SPOKEN_LABELS
+sb.SP_IF_SPOKEN_LABELS = (*orig_labels, "punctuation:use no comma")
+try:
+    assert sb.persona_if_candidate(rows5[-1])[1] == "", "mutant should keep the written-only row"
+finally:
+    sb.SP_IF_SPOKEN_LABELS = orig_labels
 print(
-    "[5b] IF-Chat: text-only / time-sensitive / long / non-English rows rejected, any turn count; the rewrite drops "
-    "written-only rules and tasks before phrasing (mutant leaks them), bad asks dropped, B's prompt composed"
+    "[5b] persona IF: rows kept by audible labels only (mutant keeps a written one), written wording dropped, "
+    "B gets the request verbatim, the judge the request + label hints, seeded, no duplicates"
 )
 
 # [5c] generation resumes from its cache ----------------------------------------------------------------------------

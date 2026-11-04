@@ -1778,103 +1778,75 @@ class SelfPlayScenarioPool(Job):
             raise RuntimeError(f"too few scenarios kept per level: {per_level}")
 
 
-# ---- instruction-following questions from IF-Chat (one side asks the chat's requests, the other just answers) -----
-#: Nemotron-SFT-Instruction-Following-Chat-v3 (CC-BY-4.0 / ODC-By), pinned; split ``instruction_following``: tulu-3
-#: persona instruction prompts and synthetic multi-turn chats, replies by gpt-oss-120b.
-IF_CHAT_REPO = "nvidia/Nemotron-SFT-Instruction-Following-Chat-v3"
-IF_CHAT_REVISION = "be3b3e04ef605ac9d3f8f35b9d5a632f4a3a3402"
-IF_CHAT_FILE = "data/instruction_following.jsonl"
-#: Word cap of B's composed prompt (name + intro + asks): 70 words + the Minimal line is ~110 text tokens, inside the
-#: self-play prefix budget (KV context = conversation + 256 frames; voice 50 + 12 silence + text).
+# ---- instruction following: one side makes a Tulu 3 persona IF request, the other just answers ----------------------
+# Source: Tulu 3's persona instruction-following prompts. Every row carries the IFEval-taxonomy labels of its
+# constraints, so the rows to keep are chosen by label, with no LLM in the data path: a row is kept only if every
+# constraint can be checked by ear (``SP_IF_SPOKEN_LABELS``). An earlier IF-Chat v3 rewrite (three gpt-oss calls and
+# hand-tuned patterns, 2026-11-04) was replaced by this: too many unablated custom steps for a paper.
+TULU_PERSONA_IF_REPO = "allenai/tulu-3-sft-personas-instruction-following"  # ODC-BY-1.0
+TULU_PERSONA_IF_REVISION = "fe0c7d350c9b4542b8d829a6f1daa1c259f0ba0e"
+#: The 9 of the dataset's 25 constraint labels a listener can check (the IFEval types for words said, avoided or
+#: repeated, length in words or sentences, the ending, a given option, the language, repeating the request). The other
+#: 16 are about how text looks (case, punctuation, JSON, bullets, sections, paragraphs, titles, placeholders,
+#: highlighting, quotation marks, a postscript, letter counts, two responses split by "******").
+SP_IF_SPOKEN_LABELS = (
+    "include keywords",
+    "keywords:exclude words",
+    "keywords:frequency",
+    "length constraints:number of sentences",
+    "length constraints:number of words",
+    "specific ending",
+    "format:choose one from options",
+    "repeat the prompt",
+    "response language",
+)
+#: How ``grader_info`` names each label. The labels are hints, not the checks: on a 25-row sample some rows labelled
+#: "repeat the prompt" ask for no repetition, so the judge checks the requirements the request itself states.
+SP_IF_LABEL_CHECKS = {
+    "include keywords": "words to include",
+    "keywords:exclude words": "words to avoid",
+    "keywords:frequency": "how often a word is said",
+    "length constraints:number of sentences": "number of sentences",
+    "length constraints:number of words": "length in words",
+    "specific ending": "the ending",
+    "format:choose one from options": "one of given options",
+    "repeat the prompt": "repeating the request",
+    "response language": "the language",
+}
+#: Longest request kept, in words: B's prompt (name + opening + request) stays within ``SP_IF_MAX_WORDS``.
+SP_IF_PROMPT_WORDS = 50
+#: Word cap of B's prompt: 70 words + the Minimal line is ~110 text tokens, inside the self-play prefix budget (KV
+#: context = conversation + 256 frames; voice 50 + 12 silence + text).
 SP_IF_MAX_WORDS = 70
-#: At most this many requests per call, all asks together at most ``SP_IF_ASK_WORDS`` words: a 60 s conversation
-#: holds about three short spoken answers (my choice, from the 60 s self-play episodes).
-SP_IF_MAX_ASKS = 3
-SP_IF_ASK_WORDS = 44
-#: Side A of a question-list scenario: its name and one of these, nothing about the questions.
+#: A request whose text still asks for something visual or written, an unlabelled constraint the labels miss (on a
+#: sample of 30 rows: "Format: Bullet points", "2 paragraphs separated by ^^^^"), or an answer far longer than a
+#: one-minute call ("exactly 150 words", "a 300-word article", "detailed"): the row is dropped, never edited.
+SP_IF_REJECT = (
+    r"\b(capital(ized)? letters?|all caps|upper ?case|lower ?case|commas?|punctuation|quotation marks?|"
+    r"double quotes|brackets?|asterisks?|bold|italics?|bullets?|bullet points?|markdown|headings?|titled?|sections?|"
+    r"paragraphs?|blank lines?|line breaks?|json|tables?|columns?|code|format(ted|ting)?|placeholders?|postscript|"
+    r"highlight(ed)?|numbered|font|layout|pdf|emoji|separated by|wrap(ped)?|graphic|logo|poster|diagram|chart|"
+    r"infographic|slides?|sketch|pages?|documents?|detailed|comprehensive|in-depth)\b|"
+    r"\b([1-9]\d{2,}|\d{1,3},\d{3})[- ]words?\b|\^\^|\*\*|<<|>>|\[|\]|\bp\.\s?s\.?(?=\W)|\? to !"
+)
+#: An answer asked for in another language: the duplex models speak English only.
+SP_IF_OTHER_LANGUAGE = (
+    r"\b(in|into) (Spanish|French|German|Italian|Portuguese|Dutch|Swedish|Norwegian|Danish|Finnish|Polish|Czech|"
+    r"Russian|Ukrainian|Greek|Turkish|Arabic|Hebrew|Persian|Hindi|Urdu|Bengali|Japanese|Chinese|Mandarin|Cantonese|"
+    r"Korean|Vietnamese|Thai|Indonesian|Malay|Tagalog|Swahili|Latin|Hungarian|Romanian|Catalan|Basque|Welsh|Irish)\b"
+)
+#: Side A of a question scenario: its name and one of these, nothing about the request.
 SP_IF_ANSWERER = (
     "Answer the other person's questions.",
     "Help the other person with whatever they ask.",
-    "The other person will ask you some things; answer them.",
+    "The other person will ask you something; answer it.",
     "Answer whatever the caller asks you.",
     "Someone will ask you for help; do your best to answer.",
 )
-#: Side B's opening, before its asks (one request / several), seeded per scenario.
+#: Side B's opening before the request, seeded per scenario.
 SP_IF_INTROS = (
-    ("You have a request for the other person.", "You need help with one thing."),
-    (
-        "You have a few requests for the other person; make them one at a time and wait for each answer.",
-        "You need help with a few things. Ask about them one at a time and listen to each answer.",
-    ),
-)
-# The rewrite is three gpt-oss calls per conversation (``if_chat_rewrite``). One prompt that both wrote B's
-# instructions and dropped written-only rules kept most of those rules (2026-11-04 smoke: brackets, periods, JSON,
-# capitals), so the model now only LISTS each turn's requirements, code drops the written-only ones
-# (``IF_WRITTEN_ONLY``), a second call phrases the rest, and a third checks each request.
-SP_IF_EXTRACT_SYSTEM = """You prepare a written chat between a user and an AI assistant for a spoken role-play: a one-minute voice call in which one agent makes the user's requests out loud and the other answers out loud. Nobody can see any text; everything is heard.
-
-For EVERY user turn, in order, write:
-- "task": the core request WITHOUT any of its requirements, shrunk to an answer of about 15 seconds of speech: "a 4-paragraph essay on X" -> "briefly explain X"; "a detailed plan for X" -> "the three main steps of X"; "draft an email to my landlord about X" -> "what to tell the landlord about X"; "write a story about X" -> "a very short story about X". Judge the task on its own: a request buried under formatting rules still has a task. The task is empty ("") ONLY if its subject cannot be spoken at all: code, a form or template to fill in, a page layout, something that needs the user's own document or story, current events, recent figures, today's date, a file or a link, or a turn that only reformats, restyles, resends or repeats the previous answer.
-- "requirements": EVERY extra requirement the turn states, copied briefly and literally (one per item, e.g. "exactly four sentences", "no commas", "include the word stage", "end with the sentence: ...", "in Spanish", "title in double angle brackets"). Include requirements you would not keep; another step decides.
-- "refers_to": the number of an earlier user turn this task depends on (its story, plan or list), else 0."""
-SP_IF_COMPOSE_SYSTEM = """You write the instructions for one agent (B) in a one-minute spoken voice call. B asks the other agent for some things, one at a time; the other agent answers out loud. You get B's requests in order, each with the requirements to keep, and the original written answers (for facts only).
-
-For each request write:
-- "ask": an instruction to B, starting with "Ask for", "Ask what", "Ask how", "Ask whether" or "Ask them to", a complete sentence in plain everyday words, at most 18 words: the task and ALL its listed requirements, nothing else. Spell out any given word, phrase, sentence or option, so B can say it. If the task needs something only the chat gives (the sentence to end with, the questions to answer, the text to change, the new date), put it in the ask word for word, or leave the ask empty. A request marked "refers to request N" may say "that story" etc. if request N is also in the list; otherwise make it stand on its own, or leave the ask empty if it cannot. Never name either agent. Never add facts, names or requirements.
-- "grader": at most 30 words for the person who grades the call: what a good spoken answer contains: the listed requirements and, ONLY for a question with one well-established answer (a definition, a historical or scientific fact, a calculation), the key facts from the original answer. For creative, open or advice requests, describe what the answer must cover, never the original's particular details, numbers or wording. Every fact you name must be needed by EVERY correct answer to the ask as you wrote it: if the ask leaves a choice open ("a popular travel destination", "any example"), do not name the original's choice. Do not judge the original answer."""
-SP_IF_CHECK_SYSTEM = """You check instructions for agent B in a one-minute spoken voice call, each with the note a grader will use. Each instruction ("Ask for ...", "Ask them to ...") tells B what to request; B then makes the request out loud in its own words, one at a time, and the other agent answers out loud. Nobody sees any text. Playful or test-like requirements (use a word three times, end with a given sentence, answer with one of given options) are fine.
-
-For each instruction decide "ok": true only if ALL hold:
-- B can make the request from this instruction alone: nothing missing that it refers to (a phrase, text, document, schedule or option it was not given: "end with the sentence", "answer the three questions" or "the new date" without saying which fails), though it may build on an EARLIER instruction in this list;
-- every requirement in it can be checked by ear (no formatting, quotation marks, letters, punctuation, word counts, layout, anything visual);
-- a good answer takes at most about 20 seconds to say;
-- it is not a repeat of an earlier instruction in the list;
-- its grader note demands nothing the instruction does not ask for (no particular place, person, example or number when the instruction leaves the choice open; no requirement B never states).
-"problem": empty if ok, else a few words."""
-_S = lambda n=300: {"type": "string", "maxLength": n}  # noqa: E731
-_OBJ = lambda p: {"type": "object", "properties": p, "required": list(p), "additionalProperties": False}  # noqa: E731
-_SP_IF_EXTRACT_SCHEMA = _OBJ(
-    {
-        "turns": {
-            "type": "array",
-            "items": _OBJ(
-                {"task": _S(), "requirements": {"type": "array", "items": _S(200)}, "refers_to": {"type": "integer"}}
-            ),
-        }
-    }  # fmt: skip
-)
-_SP_IF_COMPOSE_SCHEMA = _OBJ(
-    {"asks": {"type": "array", "items": _OBJ({"n": {"type": "integer"}, "ask": _S(), "grader": _S(400)})}}
-)
-_SP_IF_CHECK_SCHEMA = _OBJ(
-    {
-        "asks": {
-            "type": "array",
-            "items": _OBJ({"n": {"type": "integer"}, "ok": {"type": "boolean"}, "problem": _S(200)}),
-        }
-    }
-)
-_NUM = r"\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten|twelve|fifteen|twenty|thirty|forty|fifty|sixty|hundred|thousand"
-#: A requirement (or a phrased ask) about how text LOOKS: dropped whatever the model said.
-IF_WRITTEN_ONLY = (
-    r"capital(ized)? letters?|capitalized|in capitals|upper[- ]?case|lower[- ]?case|all caps|\bcaps\b|comma|period|"
-    r"punctuat|exclamation|question mark|hyphen|quotation|in quotes|double quotes|quote marks|bracket|parenthes|"
-    r"asterisk|\*|bold|italic|underline|bullet|markdown|heading|title|section|paragraph|blank line|line break|"
-    r"new line|own line|json|table|column|\bcode\b|format|placeholder|p\.\s*p?\.?\s*s|postscript|\bletters?\b|"
-    r"character|word count|highlight|number(ed|ing)|label|font|layout|pdf|print|ascii|wireframe|dashboard|"
-    r"repeat (the|my|this) (request|question|prompt)|wrap|emoji|symbol|separat|indent|list format|spacing|spaces|"
-    rf"\b({_NUM})[- ](\w+[- ])?words?\b|words? long|under \d+|same (order|wording)"
-)
-#: A task with nothing to say out loud (code, resending the previous answer, long writing).
-IF_NO_TASK = (
-    r"\bresend|repeat (the|your|that|it)\b|you just gave|\bscript\b|\bprogram\b|python|numpy|\bsql\b|javascript|regex|"
-    r"\bdetailed\b|\barticle\b|\bessay\b"
-)
-#: An ask that leans on an earlier one: only kept after a kept ask.
-IF_DANGLING = (
-    r"\b(that|those|these|the same|this) (\w+[- ])?(story|plan|list|answer|scene|itinerary|outline|letter|poem|text|"
-    r"summary|explanation|checklist|tips|steps|phrases?|ones?|version|guide|draft)\b|\bprevious|\babove\b|\bagain\b|"
-    r"you just|\bearlier\b|altered|both phrases"
+    "Ask the other person for this, in your own words, keeping every requirement:",
+    "You need help with this. Ask for it in your own words and keep every requirement:",
 )
 _IF_TEXT_ONLY = (
     r"```",  # code
@@ -1888,403 +1860,163 @@ _IF_TIME_SENSITIVE = (
 )
 
 
-def if_chat_candidate(
-    d: dict, *, min_turns: int, max_turns: int | None, max_user_chars: int
-) -> tuple[dict | None, str]:
-    """An IF-Chat row fit for a spoken rewrite -> (``{"uuid", "seed_prompt_sha256", "seed_dataset", "system",
-    "turns": [{"user", "assistant"}]}``, "") or (None, reason). Rejects: user-turn count outside ``min..max``, an empty
-    turn (``max_turns`` None: no cap), a user turn over ``max_user_chars`` (long documents), text-only content (code, tables, JSON, ``NAME_``
-    placeholders, links), time-sensitive wording, and non-English-looking text. Reasoning fields are not carried."""
+def persona_if_candidate(row: dict, max_words: int = SP_IF_PROMPT_WORDS) -> tuple[str | None, str]:
+    """A Tulu 3 persona IF row -> (its prompt, whitespace-collapsed, "") or (None, reason). Reasons, in order:
+    ``written_label`` (a constraint label outside ``SP_IF_SPOKEN_LABELS``), ``long`` (over ``max_words``),
+    ``text_only`` (code, tables, JSON, placeholders, links), ``written_text`` (``SP_IF_REJECT``), ``other_language``
+    (``SP_IF_OTHER_LANGUAGE``), ``time_sensitive``, ``non_english`` (under 97% ASCII)."""
     import re
 
-    meta = d.get("metadata") or {}
-    turns, cur, system = [], None, []
-    for m in d.get("messages") or []:
-        text = (m.get("content") or "").strip()
-        if m.get("role") == "system":
-            system.append(text)
-        elif m.get("role") == "user":
-            cur = {"user": text, "assistant": ""}
-            turns.append(cur)
-        elif m.get("role") == "assistant" and cur is not None:
-            cur["assistant"] = text
-    if len(turns) < min_turns or (max_turns is not None and len(turns) > max_turns):
-        return None, "turns"
-    for t in turns:
-        u = t["user"]
-        if not u or not t["assistant"]:
-            return None, "empty"
-        if len(u) > max_user_chars:
-            return None, "long"
-        if any(re.search(p, u, re.M) for p in _IF_TEXT_ONLY):
-            return None, "text_only"
-        if re.search(_IF_TIME_SENSITIVE, u, re.I):
-            return None, "time_sensitive"
-        if sum(ch.isascii() for ch in u) < 0.97 * len(u):
-            return None, "non_english"
-    return {
-        "uuid": d.get("uuid"),
-        "seed_prompt_sha256": meta.get("seed_prompt_sha256"),
-        "seed_dataset": meta.get("seed_dataset"),
-        "system": " ".join(system),
-        "turns": turns,
-    }, ""
+    labels = {str(c).strip() for c in row.get("constraints") or []}
+    prompt = " ".join(str(row.get("prompt") or "").split())
+    if not labels or not labels <= set(SP_IF_SPOKEN_LABELS):
+        return None, "written_label"
+    if not prompt or len(prompt.split()) > max_words:
+        return None, "long"
+    if any(re.search(p, row.get("prompt") or "", re.M) for p in _IF_TEXT_ONLY):
+        return None, "text_only"
+    if re.search(SP_IF_REJECT, prompt, re.I):
+        return None, "written_text"
+    if re.search(SP_IF_OTHER_LANGUAGE, prompt):
+        return None, "other_language"
+    if re.search(_IF_TIME_SENSITIVE, prompt, re.I):
+        return None, "time_sensitive"
+    if sum(ch.isascii() for ch in prompt) < 0.97 * len(prompt):
+        return None, "non_english"
+    return prompt, ""
 
 
-class IfChatConversations(Job):
-    """Source conversations for the question-list self-play category: a seeded sample of ``n`` IF-Chat v3
-    ``instruction_following`` rows that pass ``if_chat_candidate``, deduplicated on ``seed_prompt_sha256`` (first row
-    wins), streamed from the Hub at the pinned revision (3.2 GB, not cached; a mini task: the login node has network).
-    Reservoir sample, so every kept candidate is equally likely. Output ``conversations.jsonl`` (originals and
-    provenance) and ``stats.json`` (rows read, rejects by reason)."""
+def persona_if_grader_info(prompt: str, labels: list[str]) -> str:
+    """The judge's notes for one request: its exact wording (B says it in its own words) and the source's constraint
+    labels as hints (``SP_IF_LABEL_CHECKS``)."""
+    hints = ", ".join(SP_IF_LABEL_CHECKS[lb] for lb in sorted(labels))
+    return (
+        f'B was asked to request: "{prompt}" Check that A meets every requirement this request states '
+        f"(the source data labels them as: {hints})."
+    )
+
+
+class SelfPlayPersonaIfPool(Job):
+    """A self-play pool of INSTRUCTION-FOLLOWING requests (v2): side B makes one Tulu 3 persona IF request
+    (``TULU_PERSONA_IF_REPO`` at a pinned revision), side A gets only its name and a generic answering line
+    (``SP_IF_ANSWERER``). No LLM: rows are kept by their IFEval constraint labels (``persona_if_candidate``: every
+    label audible, at most ``SP_IF_PROMPT_WORDS`` words, no written-only wording), in a seeded order, up to
+    ``n_keep``, none near spj2 or near a kept one (word-5-gram Jaccard of the requests > ``max_jaccard``). B's prompt
+    is its name, a seeded opening (``SP_IF_INTROS``) and the request verbatim; ``grader_info`` gives the judge the
+    exact request and what each label requires.
+
+    Output dir ``pool/`` as ``SelfPlayScenarioPool``'s (level ``persona_if``) plus ``grader_info.json`` and
+    ``provenance.jsonl`` (per scenario: Tulu row id, revision, prompt, constraint labels). A mini task: the login node
+    downloads the 30k-row parquet."""
+
+    LEVEL = "persona_if"
 
     def __init__(
         self,
         *,
-        n: int = 3000,
-        min_turns: int = 1,
-        max_turns: int | None = None,
-        max_user_chars: int = 600,
-        revision: str = IF_CHAT_REVISION,
-        seed: int = 0,
-    ):
-        self.n, self.min_turns = int(n), int(min_turns)
-        self.max_turns = None if max_turns is None else int(max_turns)
-        self.max_user_chars, self.revision, self.seed = int(max_user_chars), revision, int(seed)
-        self.out_conversations = self.output_path("conversations.jsonl")
-        self.out_stats = self.output_path("stats.json")
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        import collections
-
-        import numpy as np
-        import requests
-        from huggingface_hub import hf_hub_url
-        from huggingface_hub.utils import build_hf_headers
-
-        url = hf_hub_url(IF_CHAT_REPO, IF_CHAT_FILE, repo_type="dataset", revision=self.revision)
-        rng = np.random.default_rng(self.seed)
-        res, seen_sha, why = [], set(), collections.Counter()
-        rows = cand = 0
-        with requests.get(url, headers=build_hf_headers(), stream=True, timeout=120) as r:
-            r.raise_for_status()
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                rows += 1
-                c, reason = if_chat_candidate(json.loads(line), min_turns=self.min_turns, max_turns=self.max_turns,
-                                              max_user_chars=self.max_user_chars)  # fmt: skip
-                if c is None:
-                    why[reason] += 1
-                    continue
-                if c["seed_prompt_sha256"]:
-                    if c["seed_prompt_sha256"] in seen_sha:
-                        why["duplicate_seed"] += 1
-                        continue
-                    seen_sha.add(c["seed_prompt_sha256"])
-                cand += 1
-                if len(res) < self.n:
-                    res.append(c)
-                elif (j := int(rng.integers(cand))) < self.n:
-                    res[j] = c
-                if rows % 25000 == 0:
-                    print(f"[if-chat] {rows} rows read, {cand} candidates", flush=True)
-        with open(self.out_conversations.get_path(), "w") as f:
-            for c in res:
-                f.write(json.dumps(c) + "\n")
-        stats = {"rows": rows, "candidates": cand, "kept": len(res), "rejected": dict(why), "revision": self.revision}
-        json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
-        print(f"[if-chat] {stats}", flush=True)
-        if len(res) < self.n:
-            raise RuntimeError(f"only {len(res)} candidates for n={self.n}")
-
-
-def if_chat_request(conv: dict, max_answer_chars: int = 1200) -> str:
-    """The extraction request for one conversation: the chat's extra system text (if any), every turn (answers cut to
-    ``max_answer_chars``). No agent names: they are added in code (``if_prompt_b``)."""
-    lines = []
-    default = "You are a helpful and harmless assistant."
-    extra = conv.get("system", "").replace(default, "").replace("You are not allowed to use any tools.", "").strip()
-    if extra:
-        lines += [f"The chat's system message (requirements may be in it): {extra}", ""]
-    lines.append("The chat:")
-    for k, t in enumerate(conv["turns"], 1):
-        ans = t["assistant"]
-        if len(ans) > max_answer_chars:
-            ans = ans[:max_answer_chars] + " [...]"
-        lines += [f"USER {k}: {t['user']}", f"ASSISTANT {k}: {ans}"]
-    return "\n".join(lines)
-
-
-def if_chat_rewrite(conv: dict, llm) -> dict:
-    """One IF-Chat conversation -> B's requests: ``{"asks": [{"n", "ask", "grader"}], "trace": {...}}``.
-
-    ``llm(system, user, schema, temperature, call)`` returns the parsed JSON reply (``call`` 0/1/2 offsets the seed).
-    1. ``SP_IF_EXTRACT_SYSTEM``: per user turn its task and its requirements, listed literally. Tasks that are empty or
-       match ``IF_WRITTEN_ONLY`` / ``IF_NO_TASK`` are dropped; of the rest, requirements matching ``IF_WRITTEN_ONLY``.
-    2. ``SP_IF_COMPOSE_SYSTEM`` phrases one ask per task from the kept requirements, plus grader notes (facts only from
-       the chat's answers). Asks matching the patterns again, naming an agent, leaning on an ask not kept
-       (``IF_DANGLING``) or over the budget (``SP_IF_MAX_ASKS``, ``SP_IF_ASK_WORDS``) are dropped.
-    3. ``SP_IF_CHECK_SYSTEM`` (temperature 0) rejects asks that are not self-contained, not checkable by ear, too long
-       to answer, repeats, or whose grader note demands more than the ask (the original's choice of an open example). The trace keeps every dropped task, requirement and ask with its reason."""
-    import re
-
-    written, no_task, dangling = (re.compile(p, re.I) for p in (IF_WRITTEN_ONLY, IF_NO_TASK, IF_DANGLING))
-    plain = lambda x: re.sub("[\u2010\u2011\u2012\u2013]", "-", x).replace("\u202f", " ").strip()  # noqa: E731
-    a = llm(SP_IF_EXTRACT_SYSTEM, if_chat_request(conv), _SP_IF_EXTRACT_SCHEMA, 0.7, 0)
-    items, trace = [], {"turns": a["turns"], "asks": [], "checked": []}
-    for j, t in enumerate(a["turns"][: len(conv["turns"])], 1):
-        t = {**t, "task": plain(t["task"]), "requirements": [plain(r) for r in t["requirements"]]}
-        if t["task"] and not written.search(t["task"]) and not no_task.search(t["task"]):
-            keep = [r for r in t["requirements"] if not written.search(r)]
-            items.append({"n": j, "task": t["task"].strip(), "keep": keep, "refers_to": int(t["refers_to"])})
-    if not items:
-        return {"asks": [], "trace": trace}
-    lines = []
-    for it in items:
-        ref = f" (refers to request {it['refers_to']})" if it["refers_to"] else ""
-        lines.append(f"Request {it['n']}{ref}: {it['task']}\n  keep: {'; '.join(it['keep']) or '(none)'}")
-    used = {it["n"] for it in items}
-    ans = "\n".join(f"Original answer {j}: {t['assistant'][:800]}" for j, t in enumerate(conv["turns"], 1) if j in used)
-    b = llm(SP_IF_COMPOSE_SYSTEM, "\n".join(lines) + "\n\n" + ans, _SP_IF_COMPOSE_SCHEMA, 0.3, 1)
-    final, words = [], 0
-    for q in b["asks"]:
-        ask = plain(q["ask"])
-        why = (
-            "empty" if not ask
-            else "written_only" if written.search(ask)
-            else "no_task" if no_task.search(ask)
-            else "names_agent" if re.search(r"\bB\b|yourself|your name", ask)
-            else "dangling" if dangling.search(ask) and not final
-            else "budget" if len(final) == SP_IF_MAX_ASKS or words + len(ask.split()) > SP_IF_ASK_WORDS
-            else ""
-        )  # fmt: skip
-        trace["asks"].append({**q, "dropped": why})
-        if not why:
-            final.append({"n": int(q["n"]), "ask": ask, "grader": plain(q["grader"])})
-            words += len(ask.split())
-    if not final:
-        return {"asks": [], "trace": trace}
-    c = llm(SP_IF_CHECK_SYSTEM,
-            "\n".join(f"Request {j}: {q['ask']}\n  grader note: {q['grader']}" for j, q in enumerate(final, 1)),
-            _SP_IF_CHECK_SCHEMA, 0.0, 2)  # fmt: skip
-    verdict = {int(v["n"]): v for v in c["asks"]}
-    kept = []
-    for j, q in enumerate(final, 1):
-        v = verdict.get(j, {"ok": False, "problem": "no verdict"})
-        why = "" if v["ok"] else f"check: {v['problem']}"
-        if not why and dangling.search(q["ask"]) and not kept:  # what it leaned on was rejected
-            why = "dangling after check"
-        trace["checked"].append({**q, "dropped": why})
-        if not why:
-            kept.append(q)
-    return {"asks": kept, "trace": trace}
-
-
-def if_prompt_b(name: str, asks: list[str], rng) -> str:
-    """B's instructions: its name, a seeded opening (``SP_IF_INTROS``), then the asks in order ("First, ask ... Then
-    ask ... Finally, ask ...")."""
-    intro = SP_IF_INTROS[len(asks) > 1][int(rng.integers(len(SP_IF_INTROS[len(asks) > 1])))]
-    low = [a[0].lower() + a[1:] for a in asks]
-    if len(asks) == 1:
-        body = asks[0]
-    else:
-        conn = ["First, "] + ["Then "] * (len(asks) - 2) + ["Finally, "]
-        body = " ".join(c + x for c, x in zip(conn, low))
-    return f"Your name is {name}. {intro} {body}"
-
-
-def if_rewrite_digest() -> str:
-    """Content hash of the whole rewrite recipe (prompts, patterns, budgets, intros, answerer lines)."""
-    recipe = [SP_IF_EXTRACT_SYSTEM, SP_IF_COMPOSE_SYSTEM, SP_IF_CHECK_SYSTEM, IF_WRITTEN_ONLY, IF_NO_TASK, IF_DANGLING,
-              SP_IF_ANSWERER, SP_IF_INTROS, SP_IF_MAX_WORDS, SP_IF_MAX_ASKS, SP_IF_ASK_WORDS]  # fmt: skip
-    return hashlib.sha256(json.dumps(recipe).encode()).hexdigest()[:16]
-
-
-class SelfPlayIfChatPool(Job):
-    """A self-play pool of QUESTION LISTS (v2): side B gets up to three requests from an IF-Chat conversation to make,
-    side A only its name and a generic "answer the questions" line (``SP_IF_ANSWERER``, seeded). Each conversation
-    goes through ``if_chat_rewrite`` (three gpt-oss calls: extract, phrase, check; written-only requirements dropped in
-    code), B's prompt is composed in code (``if_prompt_b``, at most ``SP_IF_MAX_WORDS``), ``grader_info`` lists what
-    a correct spoken answer contains for the RL judge. Names from ``FirstNamePool``. Kept: up to ``n_keep``, none
-    near spj2 or near a kept one (word-5-gram Jaccard of the asks > 0.2, so the synthetic chats' recurring drills
-    ("the capital of France") are not kept many times).
-
-    Output dir ``pool/`` as ``SelfPlayScenarioPool``'s (level ``if_chat``) plus ``grader_info.json`` (``{scenario:
-    notes}``) and ``provenance.jsonl`` (per kept scenario: IF-Chat uuid, seed hash and dataset, the original turns,
-    the rewrite trace). Generation resumes after an interruption (``_CallCache``, keyed by the recipe digest)."""
-
-    LEVEL = "if_chat"
-
-    def __init__(
-        self,
-        *,
-        conversations: tk.Path,
         names: tk.Path,
         n_keep: int = 800,
         category: str = "ask_and_answer",
         held_out: str = "spj2_v1",
-        llm_name: str = "openai/gpt-oss-120b",
+        max_jaccard: float = 0.4,
+        revision: str = TULU_PERSONA_IF_REVISION,
         seed: int = 0,
     ):
         assert held_out in SPJ2_SCENARIOS, held_out
-        self.conversations, self.names, self.n_keep, self.category = conversations, names, int(n_keep), category
-        self.held_out, self.llm_name, self.seed = held_out, llm_name, int(seed)
+        self.names, self.n_keep, self.category, self.held_out = names, int(n_keep), category, held_out
+        self.max_jaccard, self.revision, self.seed = float(max_jaccard), revision, int(seed)
         self.out_dir = self.output_path("pool", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
 
     @classmethod
     def hash(cls, parsed_args):
-        """The held-out set's content and the whole rewrite recipe (prompts, patterns, budgets, intros) are hashed."""
-        return super(SelfPlayIfChatPool, cls).hash(
+        """The held-out set's content and the selection rules (labels, patterns, caps, prompt lines) are hashed."""
+        rules = [SP_IF_SPOKEN_LABELS, SP_IF_LABEL_CHECKS, SP_IF_PROMPT_WORDS, SP_IF_MAX_WORDS, SP_IF_REJECT,
+                 _IF_TEXT_ONLY, _IF_TIME_SENSITIVE, SP_IF_ANSWERER, SP_IF_INTROS]  # fmt: skip
+        return super(SelfPlayPersonaIfPool, cls).hash(
             {
                 **parsed_args,
                 "held_out_digest": scenario_digest(parsed_args["held_out"]),
-                "prompt_digest": if_rewrite_digest(),
+                "rules_digest": hashlib.sha256(json.dumps(rules).encode()).hexdigest()[:16],
             }
         )
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt, resumable=True)
+        yield Task("run", mini_task=True)
 
-    def completed_fraction(self):
-        from .common import job_progress_fraction
+    def select(self, rows: list[dict], pool: dict) -> tuple[list, dict]:
+        """``rows`` (``id``, ``prompt``, ``constraints``) and ``FirstNamePool`` countries -> (scenarios
+        ``[(category, name, prompt A, prompt B, level, grader_info, row)]``, stats)."""
+        import collections
 
-        return job_progress_fraction(self)
-
-    def calls(self, convs: list[dict], pool: dict) -> list[dict]:
-        """Per conversation: the name pair, A's prompt, the seed (seeded per category)."""
         import numpy as np
 
         rng = np.random.default_rng([self.seed, int(hashlib.sha256(self.category.encode()).hexdigest()[:8], 16)])
-        out = []
-        for conv in convs:
+        why = collections.Counter()
+        cands = []
+        for r in rows:
+            p, reason = persona_if_candidate(r)
+            why[reason or "candidate"] += 1
+            if p:
+                cands.append((p, r))
+        held_grams = [word_ngrams(s[2] + " " + s[3]) for s in SPJ2_SCENARIOS[self.held_out]]
+        kept, kept_grams = [], []
+        for j in rng.permutation(len(cands)):
+            if len(kept) == self.n_keep:
+                break
+            p, r = cands[int(j)]
+            g = word_ngrams(p)
+            if any(ngram_jaccard(g, h) > 0.2 for h in held_grams):
+                why["near_spj2"] += 1
+                continue
+            if any(ngram_jaccard(g, h) > self.max_jaccard for h in kept_grams):
+                why["near_duplicate"] += 1
+                continue
             ((a, b),) = draw_name_pairs(pool, 1, rng)
-            answerer = SP_IF_ANSWERER[int(rng.integers(len(SP_IF_ANSWERER)))]
-            out.append({"names": [[list(a), list(b)]], "prompt_a": f"Your name is {a[0]}. {answerer}",
-                        "uuid": conv["uuid"], "seed": int(rng.integers(2**31))})  # fmt: skip
-        return out
-
-    @staticmethod
-    def scenario(conv: dict, call: dict, asks: list[dict]) -> tuple:
-        """-> ``(name, prompt A, prompt B, grader_info, number of asks)``; B's prompt drops trailing asks until it fits
-        ``SP_IF_MAX_WORDS``. None if nothing is left."""
-        import numpy as np
-
-        rng = np.random.default_rng(call["seed"])
-        name_b = call["names"][0][1][0]
-        while asks:
-            pb = if_prompt_b(name_b, [q["ask"] for q in asks], rng)
-            if len(pb.split()) <= SP_IF_MAX_WORDS:
-                grader = " ".join(f"{k}) {q['grader']}" for k, q in enumerate(asks, 1))
-                return (
-                    f"if_{hashlib.sha256(conv['uuid'].encode()).hexdigest()[:12]}",
-                    call["prompt_a"],
-                    pb,
-                    grader,
-                    len(asks),
-                )
-            asks = asks[:-1]
-        return None
+            pa = f"Your name is {a[0]}. {SP_IF_ANSWERER[int(rng.integers(len(SP_IF_ANSWERER)))]}"
+            pb = f"Your name is {b[0]}. {SP_IF_INTROS[int(rng.integers(len(SP_IF_INTROS)))]} {p}"
+            labels = sorted({str(c).strip() for c in r["constraints"]})
+            name = "if_" + hashlib.sha256(str(r["id"]).encode()).hexdigest()[:12]
+            kept.append((self.category, name, pa, pb, self.LEVEL, persona_if_grader_info(p, labels),
+                         {"names": [list(a), list(b)], "id": r["id"], "prompt": r["prompt"], "constraints": labels}))  # fmt: skip
+            kept_grams.append(g)
+        stats = {"rows": len(rows), "candidates": len(cands), "kept": len(kept), "reasons": dict(why),
+                 "labels": dict(collections.Counter(lb for k in kept for lb in k[6]["constraints"])),
+                 "labels_per_request": dict(collections.Counter(len(k[6]["constraints"]) for k in kept))}  # fmt: skip
+        return kept, stats
 
     def run(self):
-        import collections
-        import re
+        import io
 
-        from openai import OpenAI
+        import pyarrow.parquet as pq
+        import requests
+        from huggingface_hub import HfApi, hf_hub_url
+        from huggingface_hub.utils import build_hf_headers
 
-        convs = [json.loads(line) for line in open(self.conversations.get_path())]
+        files = [f for f in HfApi().list_repo_files(TULU_PERSONA_IF_REPO, repo_type="dataset", revision=self.revision)
+                 if f.endswith(".parquet")]  # fmt: skip
+        rows = []
+        for f in sorted(files):
+            url = hf_hub_url(TULU_PERSONA_IF_REPO, f, repo_type="dataset", revision=self.revision)
+            resp = requests.get(url, headers=build_hf_headers(), timeout=300)
+            resp.raise_for_status()
+            rows += pq.read_table(io.BytesIO(resp.content), columns=["id", "prompt", "constraints"]).to_pylist()
         pool = json.load(open(self.names.get_path()))["countries"]
-        calls = self.calls(convs, pool)
-        tag = f"sp-pool:{self.category}"
-        digest = if_rewrite_digest()
-        cache = _CallCache(os.path.abspath("rewrites.jsonl"), [f"{c['uuid']}:{c['seed']}:{digest}" for c in calls])
-        todo = [i for i in range(len(calls)) if i not in cache.done]
-        print(f"[{tag}] {len(convs)} conversations, {len(todo)} to rewrite ({self.llm_name})", flush=True)
-        if todo:
-            with vllm_server(self.llm_name) as url:
-                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
-
-                def one(i):
-                    def llm(system, user, schema, temperature, call):
-                        err = ""
-                        for attempt in range(3):
-                            try:
-                                resp = client.chat.completions.create(
-                                    model=self.llm_name,
-                                    messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                                    seed=(calls[i]["seed"] + 1000 * call + attempt) % (2**31),
-                                    temperature=temperature,
-                                    max_tokens=8192,
-                                    **json_schema_format(schema, "if_rewrite"),
-                                )
-                                raw = resp.choices[0].message.content or ""
-                                return json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
-                            except Exception as e:  # retried
-                                err = f"{type(e).__name__}: {e}"[:200]
-                        raise RuntimeError(err)
-
-                    try:
-                        out = if_chat_rewrite(convs[i], llm)
-                    except Exception as e:  # counted; too many fail the job below
-                        print(f"[{tag}] rewrite failed: {e}", flush=True)
-                        return
-                    cache.add(i, out)
-
-                map_concurrent(one, todo, concurrency=64, progress_path=os.path.abspath("progress.json"))
-        failed = len(calls) - len(cache.done)
-        if failed > 0.05 * len(calls):
-            raise RuntimeError(f"{failed}/{len(calls)} rewrites failed")
-
-        held = SPJ2_SCENARIOS[self.held_out]
-        held_grams = [word_ngrams(s[2] + " " + s[3]) for s in held]
-        kept, kept_grams, rej, why = [], [], collections.Counter(), collections.Counter()
-        names, grader, prov, n_asks = {}, {}, [], collections.Counter()
-        for i, (conv, call) in enumerate(zip(convs, calls)):
-            out = cache.done.get(i)
-            if out is None:
-                continue
-            for q in [q for q in out["trace"]["asks"] if q["dropped"]] + out["trace"]["checked"]:
-                why[re.sub(r":.*", "", q["dropped"]) or "kept"] += 1
-            s = self.scenario(conv, call, out["asks"]) if out["asks"] else None
-            if s is None:
-                rej["no_ask"] += 1
-                continue
-            g = word_ngrams(" ".join(q["ask"] for q in out["asks"]))
-            if len(kept) >= self.n_keep:
-                rej["full"] += 1
-            elif any(ngram_jaccard(g, h) > 0.2 for h in held_grams):
-                rej["near_spj2"] += 1
-            elif any(ngram_jaccard(g, h) > 0.2 for h in kept_grams):
-                rej["near_duplicate"] += 1
-            else:
-                name, pa, pb, notes, n = s
-                n_asks[n] += 1
-                kept.append((self.category, name, pa, pb, self.LEVEL))
-                kept_grams.append(g)
-                names[name] = [list(x) for x in call["names"][0]]
-                grader[name] = notes
-                prov.append({"scenario": name, "if_chat_uuid": conv["uuid"], "revision": IF_CHAT_REVISION,
-                             "seed_prompt_sha256": conv["seed_prompt_sha256"], "seed_dataset": conv["seed_dataset"],
-                             "turns": conv["turns"], "rewrite": out["trace"]})  # fmt: skip
+        kept, stats = self.select(rows, pool)
+        stats.update({"files": sorted(files), "revision": self.revision})
         check_scenarios([k[:4] for k in kept], categories=None, max_words=SP_IF_MAX_WORDS)
         d = self.out_dir.get_path()
-        json.dump([list(k) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
-        json.dump(names, open(os.path.join(d, "names.json"), "w"), indent=1)
-        json.dump(grader, open(os.path.join(d, "grader_info.json"), "w"), indent=1)
+        json.dump([list(k[:5]) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
+        json.dump({k[1]: k[6]["names"] for k in kept}, open(os.path.join(d, "names.json"), "w"), indent=1)
+        json.dump({k[1]: k[5] for k in kept}, open(os.path.join(d, "grader_info.json"), "w"), indent=1)
         with open(os.path.join(d, "provenance.jsonl"), "w") as f:
-            for p in prov:
-                f.write(json.dumps(p) + "\n")
-        stats = {"category": self.category, "conversations": len(calls), "failed": failed, "kept": len(kept),
-                 "rejected": dict(rej), "asks": dict(why), "asks_per_scenario": dict(n_asks),
-                 "prompt_b_words": dict(collections.Counter(min(len(k[3].split()) // 10 * 10, 70) for k in kept))}  # fmt: skip
+            for k in kept:
+                prov = {"scenario": k[1], "tulu_id": k[6]["id"], "revision": self.revision, "prompt": k[6]["prompt"],
+                        "constraints": k[6]["constraints"]}  # fmt: skip
+                f.write(json.dumps(prov) + "\n")
         json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
-        print(f"[{tag}] {stats}", flush=True)
-        if len(kept) < self.n_keep // 2:
-            raise RuntimeError(f"too few scenarios kept: {len(kept)} < {self.n_keep // 2}")
+        print(f"[sp-pool:{self.category}] {stats}", flush=True)
+        if len(kept) < self.n_keep:
+            raise RuntimeError(f"only {len(kept)} requests for n_keep={self.n_keep}")
 
 
 def mix_counts(sizes: dict, weights: dict, n_rows: int) -> dict:
