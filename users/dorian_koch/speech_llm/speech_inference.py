@@ -16,6 +16,7 @@ feed the same per-run ``lora_weights`` / ``lora_config`` overlay seam on ``Speec
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -166,6 +167,31 @@ def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> N
 EARLY_WEIGHTS = {"lora": "lora.safetensors", "full": "model.safetensors"}
 
 
+def _named_checkpoint_complete(overlay_kind: str, step: int, run_dir) -> bool:
+    """``available`` of a run dir that serves one named checkpoint: its weights and the ``config.json`` every trainer
+    writes after them are there (also while the run still trains)."""
+    d = os.path.join(run_dir.get_path(), "checkpoints", f"checkpoint_{step:06d}", "consolidated")
+    return os.path.isfile(os.path.join(d, EARLY_WEIGHTS[overlay_kind])) and os.path.isfile(
+        os.path.join(d, "config.json")
+    )
+
+
+def checkpoint_run_dir(run_dir: tk.Path, overlay_kind: str, step) -> tk.Path:
+    """``run_dir`` for an eval of ``step``: the same path and hash, available once that checkpoint is complete instead
+    of when the run finishes (``tk.Path(available=...)``, as ``persona_heldout.checkpoint_path``). Latest
+    (``step=None``), the other layouts and creator-less dirs keep their own availability."""
+    if step is None or overlay_kind not in EARLY_WEIGHTS or run_dir.creator is None:
+        return run_dir
+    return tk.Path(
+        run_dir.path,
+        creator=run_dir.creator,
+        cached=run_dir.cached,
+        hash_overwrite=run_dir.hash_overwrite,
+        tags=run_dir._tags,
+        available=functools.partial(_named_checkpoint_complete, overlay_kind, step),
+    )
+
+
 class ResolveOverlayCheckpoint(Job):
     """Resolve a finetune ``run_dir`` to the overlay file(s) the offline driver loads on top
     of the base model.
@@ -199,23 +225,6 @@ class ResolveOverlayCheckpoint(Job):
 
     def tasks(self):
         yield Task("run", mini_task=True)
-
-    def named_checkpoint_complete(self) -> bool:
-        """A named step of a ``lora`` / ``full`` run is complete once its ``config.json`` exists: both trainers
-        (SpeechFinetune, RL V1 and V2 ``save_fn``) write it after the weights."""
-        if self.step is None or self.overlay_kind not in EARLY_WEIGHTS:
-            return False
-        d = os.path.join(self.run_dir.get_path(), "checkpoints", f"checkpoint_{self.step:06d}", "consolidated")
-        return os.path.isfile(os.path.join(d, EARLY_WEIGHTS[self.overlay_kind])) and os.path.isfile(
-            os.path.join(d, "config.json")
-        )
-
-    def _sis_all_path_available(self):
-        # The run dir is only "available" when the whole run finishes; a named checkpoint is usable as soon as it is
-        # complete, so its evals start while the run still trains. Latest (step=None) still waits for the run.
-        if self.named_checkpoint_complete():
-            return all(p.available(debug_info=self) for p in self._sis_inputs if p != self.run_dir)
-        return super()._sis_all_path_available()
 
     @staticmethod
     def _link(target: Path, link_name: str) -> None:

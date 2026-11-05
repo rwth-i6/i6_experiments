@@ -1,15 +1,15 @@
 """Guard: an eval of a named checkpoint becomes runnable as soon as that checkpoint is complete, while the run trains.
 
 Before 2026-11-05 every ``ResolveOverlayCheckpoint`` waited on the run's ``run_dir`` output, which Sisyphus marks
-available only when the whole run finishes: a 2,000-step RL run got no s250 eval for days. Now a named step of a
-``lora`` / ``full`` run is ready once its ``consolidated/config.json`` (written after the weights) exists.
+available only when the whole run finishes: a 2,000-step RL run got no s250 eval for days. ``resolve_lora`` now hands
+the resolver ``checkpoint_run_dir(...)``: the same path (same hash) with a ``tk.Path(available=...)`` that is true once
+``checkpoint_<step>/consolidated`` holds the weights and its ``config.json`` (written after them).
 
-Each acceptance is paired with a rejection on the same fixture:
+Driven through the real caller (``knowledge_benchmark.resolve_lora``); each acceptance paired with a rejection:
   * named step, checkpoint complete, run still training -> runnable;
-  * the same step with only the weights (save in progress) -> waiting;
-  * a step not yet written -> waiting;
+  * the same with only the weights (save in progress) -> waiting; a step not yet written -> waiting;
   * step=None (latest) -> waits for the run, then runnable;
-  * personaplex_heads named step -> keeps waiting for the run.
+  * the resolver's hash equals the one built on the plain run dir.
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_early_eval.py
@@ -27,6 +27,7 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 
 from sisyphus import tk  # noqa: E402
 
+from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import resolve_lora  # noqa: E402
 from i6_experiments.users.dorian_koch.speech_llm.speech_inference import ResolveOverlayCheckpoint  # noqa: E402
 
 
@@ -66,8 +67,8 @@ def _ckpt(job_dir, step, files):
         Path(d, f).touch()
 
 
-def _ready(job) -> bool:
-    return job._sis_all_path_available()
+def _resolver(run_dir, step):
+    return resolve_lora(run_dir, step, "lora")[0].creator
 
 
 def main():
@@ -78,24 +79,23 @@ def main():
         _ckpt(job_dir, 50, ["lora.safetensors", "config.json"])
         _ckpt(job_dir, 100, ["lora.safetensors"])  # save in progress: config.json not yet written
 
-        done = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="lora", step=50)
-        assert run_dir in done._sis_inputs, "the run dir must stay an input (hash and dependency unchanged)"
-        assert _ready(done), "a complete named checkpoint of a training run must be ready"
-        half = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="lora", step=100)
-        assert not _ready(half), "weights without config.json = save in progress, must wait"
-        later = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="lora", step=150)
-        assert not _ready(later), "a step not yet written must wait"
-        latest = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="lora", step=None)
-        assert not _ready(latest), "latest must wait for the run to finish"
-        heads = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="personaplex_heads", step=50)
-        assert not _ready(heads), "personaplex_heads has no early rule, must wait for the run"
-        print("PASS  while training: complete named step ready; partial, unwritten, latest and heads wait")
+        done = _resolver(run_dir, 50)
+        assert done is ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="lora", step=50), (
+            "the resolver must hash as on the plain run dir (Sisyphus returns the cached job only for the same id)"
+        )
+        assert done._sis_runnable(), "a complete named checkpoint of a training run must be runnable"
+        half = _resolver(run_dir, 100)
+        assert not half._sis_runnable(), "weights without config.json = save in progress, must wait"
+        assert not _resolver(run_dir, 150)._sis_runnable(), "a step not yet written must wait"
+        latest = _resolver(run_dir, None)
+        assert not latest._sis_runnable(), "latest must wait for the run to finish"
+        print("PASS  while training: a complete named step is runnable; partial, unwritten and latest wait; hash kept")
 
         _ckpt(job_dir, 100, ["config.json"])
-        assert _ready(half), "once config.json lands the step must be ready"
+        assert half._sis_runnable(), "once config.json lands the step must be runnable"
         run.finish()
-        assert _ready(latest) and _ready(heads), "after the run finishes everything is ready"
-        print("PASS  config.json completes a step; the finished run releases latest and the other layouts")
+        assert latest._sis_runnable(), "after the run finishes latest is runnable"
+        print("PASS  config.json completes a step; the finished run releases latest")
 
 
 if __name__ == "__main__":
