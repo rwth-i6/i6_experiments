@@ -788,5 +788,8 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_grader_budget.py": {
   "env": "module"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_early_eval.py": {
+  "env": "setup"
  }
 }

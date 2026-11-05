@@ -162,6 +162,10 @@ def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> N
         )
 
 
+#: Overlay kinds whose named checkpoints evals may use before the run finishes, with the weights file each writes.
+EARLY_WEIGHTS = {"lora": "lora.safetensors", "full": "model.safetensors"}
+
+
 class ResolveOverlayCheckpoint(Job):
     """Resolve a finetune ``run_dir`` to the overlay file(s) the offline driver loads on top
     of the base model.
@@ -195,6 +199,23 @@ class ResolveOverlayCheckpoint(Job):
 
     def tasks(self):
         yield Task("run", mini_task=True)
+
+    def named_checkpoint_complete(self) -> bool:
+        """A named step of a ``lora`` / ``full`` run is complete once its ``config.json`` exists: both trainers
+        (SpeechFinetune, RL V1 and V2 ``save_fn``) write it after the weights."""
+        if self.step is None or self.overlay_kind not in EARLY_WEIGHTS:
+            return False
+        d = os.path.join(self.run_dir.get_path(), "checkpoints", f"checkpoint_{self.step:06d}", "consolidated")
+        return os.path.isfile(os.path.join(d, EARLY_WEIGHTS[self.overlay_kind])) and os.path.isfile(
+            os.path.join(d, "config.json")
+        )
+
+    def _sis_all_path_available(self):
+        # The run dir is only "available" when the whole run finishes; a named checkpoint is usable as soon as it is
+        # complete, so its evals start while the run still trains. Latest (step=None) still waits for the run.
+        if self.named_checkpoint_complete():
+            return all(p.available(debug_info=self) for p in self._sis_inputs if p != self.run_dir)
+        return super()._sis_all_path_available()
 
     @staticmethod
     def _link(target: Path, link_name: str) -> None:
