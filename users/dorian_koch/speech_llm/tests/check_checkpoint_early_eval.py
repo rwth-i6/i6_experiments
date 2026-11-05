@@ -1,12 +1,12 @@
 """Guard: a run that exposes its checkpoints as outputs gets its evals started as each checkpoint is written.
 
 Sisyphus releases a job's outputs when the job finishes, so an eval waiting on ``run_dir`` of a 2,000-step RL run got no
-s250 result for days. ``RLFinetuneV2`` at ``RL2_POLICY_2026_11_05``+ exposes checkpoint ``step`` as its own output
+s250 result for days. ``RLFinetuneV2`` at ``RL2_POLICY_2026_11_05``+ and ``SpeechFinetune`` at ``POLICY_2026_11_05``+ expose checkpoint ``step`` as its own output
 (``checkpoint(step)``) and declares it available once written (``path_available``, as ``ReturnnTrainingJob`` does for
 its epochs); ``resolve_lora`` hands that output to ``ResolveOverlayCheckpoint(checkpoint=...)``. Older runs keep the
 run-dir route and their hashes.
 
-Drives the real ``RLFinetuneV2.path_available`` / ``checkpoint`` (on an instance built without ``__init__``) through the
+Drives the real ``CheckpointOutputs.path_available`` / ``checkpoint`` of ``RLFinetuneV2`` and ``SpeechFinetune`` (on an instance built without ``__init__``) through the
 real ``resolve_lora``; each acceptance paired with a rejection:
   * complete checkpoint, run still training -> runnable; weights without ``config.json`` -> waiting;
   * a run without checkpoint outputs -> the run-dir resolver, waiting while the run trains;
@@ -31,11 +31,12 @@ from sisyphus import tk  # noqa: E402
 
 from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import resolve_lora  # noqa: E402
 from i6_experiments.users.dorian_koch.speech_llm.speech_inference import ResolveOverlayCheckpoint  # noqa: E402
+from i6_experiments.users.dorian_koch.speech_llm.finetune import SpeechFinetune  # noqa: E402
 from speech_llm.full_duplex.rl_spec.job import RLFinetuneV2  # noqa: E402
 
 
-class _Run(RLFinetuneV2):
-    """An ``RLFinetuneV2`` whose job dir is a temp dir; built with ``object.__new__`` (no graph, no hashing)."""
+class _Stub:
+    """A training job whose job dir is a temp dir; built with ``object.__new__`` (no graph, no hashing)."""
 
     tags: set = set()
 
@@ -47,6 +48,7 @@ class _Run(RLFinetuneV2):
         self.checkpoint_outputs = outputs
         self.train = SimpleNamespace(save_every=50, max_steps=1000)
         self.hparams = {"max_steps": 1000, "save_every": 50}
+        self.out_rundir = tk.Path("run_dir", creator=self)
         os.makedirs(os.path.join(job_dir, "output", "run_dir"), exist_ok=True)
         return self
 
@@ -54,7 +56,7 @@ class _Run(RLFinetuneV2):
         return self._dir if path_type is None else os.path.join(self._dir, path_type)
 
     def _sis_id(self):
-        return "stub/" + os.path.basename(self._dir)
+        return f"stub/{type(self).__name__}/{os.path.basename(self._dir)}"  # distinct ids: Sisyphus caches jobs by id
 
     def __deepcopy__(self, memo):  # a real Job is shared, not copied, when Sisyphus deep-copies a consumer's args
         return self
@@ -69,6 +71,14 @@ class _Run(RLFinetuneV2):
         return self is other
 
 
+class _RL(_Stub, RLFinetuneV2):
+    pass
+
+
+class _SFT(_Stub, SpeechFinetune):
+    pass
+
+
 def _ckpt(job_dir, step, files):
     d = Path(job_dir, "output", "run_dir", "checkpoints", f"checkpoint_{step:06d}", "consolidated")
     d.mkdir(parents=True, exist_ok=True)
@@ -80,9 +90,10 @@ def _resolver(run, step):
     return resolve_lora(tk.Path("run_dir", creator=run), step, "lora")[0].creator
 
 
-def main():
-    with tempfile.TemporaryDirectory() as tmp:
-        new = _Run.make(os.path.join(tmp, "new"), outputs=True)
+def check(Run, tmp):
+    print(f"== {Run.__mro__[2].__name__}")
+    if True:
+        new = Run.make(os.path.join(tmp, "new"), outputs=True)
         _ckpt(new._dir, 50, ["lora.safetensors", "config.json"])
         _ckpt(new._dir, 100, ["lora.safetensors"])  # save in progress: config.json not yet written
 
@@ -98,7 +109,7 @@ def main():
         assert half._sis_runnable(), "once config.json lands the step must be runnable"
         print("PASS  config.json completes a step")
 
-        old = _Run.make(os.path.join(tmp, "old"), outputs=False)
+        old = Run.make(os.path.join(tmp, "old"), outputs=False)
         _ckpt(old._dir, 50, ["lora.safetensors", "config.json"])
         legacy = _resolver(old, 50)
         assert legacy.run_dir is not None and legacy.checkpoint is None, "a run without outputs keeps the run-dir route"
@@ -112,6 +123,25 @@ def main():
         Path(old._dir, "finished").touch()
         assert legacy._sis_runnable(), "after the run finishes the run-dir resolver is runnable"
         print("PASS  runs without checkpoint outputs keep the run-dir route (waits for the run)")
+
+
+def check_full_finetune(tmp):
+    """A full finetune writes model.safetensors (tmp + rename) and no config.json: its existence completes the step."""
+    run = _SFT.make(os.path.join(tmp, "full"), outputs=True)
+    _ckpt(run._dir, 50, ["model.safetensors.tmp"])
+    r = resolve_lora(tk.Path("run_dir", creator=run), 50, "full")[0].creator
+    assert not r._sis_runnable(), "a full checkpoint still in its tmp file must wait"
+    _ckpt(run._dir, 50, ["model.safetensors"])
+    assert r._sis_runnable(), "the renamed model.safetensors completes a full checkpoint"
+    print("PASS  full finetune: the renamed model.safetensors completes the step")
+
+
+def main():
+    for Run in (_RL, _SFT):
+        with tempfile.TemporaryDirectory() as tmp:
+            check(Run, tmp)
+    with tempfile.TemporaryDirectory() as tmp:
+        check_full_finetune(tmp)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ from sisyphus import Job, Task
 from . import common as _common
 from .common import HF_CACHE_DIR, HF_HOME_DIR, last_jsonl_value, moshi_family_lib_parent, recipe_root, worker_env
 from .moshi_arrow_config import ArrowDataConfig
+from .speech_inference import CheckpointOutputs
 from .finetune_adapters import (  # noqa: F401 -- re-exported: callers and job pickles resolve finetune.<name>
     AUDEX_STAGE0_FAST_TRAIN_PERF,
     AUDEX_STAGE1_FAST_TRAIN_PERF,
@@ -360,7 +361,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
 # --------------------------------------------------------------------------- #
 # Generic job for *new* architectures (Moshi keeps its own frozen class).
 # --------------------------------------------------------------------------- #
-class SpeechFinetune(Job):
+class SpeechFinetune(CheckpointOutputs, Job):
     """Architecture-parameterized finetune job; pass a :class:`FinetuneAdapter`.
 
     Same knobs as the legacy ``MoshiFinetune`` (so behaviour matches when given

@@ -51,7 +51,7 @@ def check(ok, what):
 NEW, OLD = runs.POLICY_2026_10_30, runs.POLICY_2026_10_29
 RN, RO = rl_policy.RL2_POLICY_2026_10_30, rl_policy.RL2_POLICY_2026_10_29
 print("[1] epochs")
-check(OLD < NEW == runs.POLICY_LATEST and NEW in runs.KNOWN_POLICIES, "10-29 < 10-30 = POLICY_LATEST, known")
+check(OLD < NEW <= runs.POLICY_LATEST and NEW in runs.KNOWN_POLICIES, "10-29 < 10-30 <= POLICY_LATEST, known")
 check(runs.RULE_STABLE_SOFTMAX == NEW, "RULE_STABLE_SOFTMAX dated 10-30")
 check(
     RO < RN <= rl_policy.RL2_POLICY_LATEST and RN in rl_policy.KNOWN_POLICIES,

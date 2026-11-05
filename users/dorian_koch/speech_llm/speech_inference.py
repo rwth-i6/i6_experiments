@@ -170,10 +170,31 @@ _CHECKPOINT_OUTPUT_RE = re.compile(r"run_dir/checkpoints/checkpoint_\d{6}/consol
 
 def checkpoint_output_available(path) -> bool:
     """For a training job's ``path_available`` (as ``ReturnnTrainingJob`` does for its epochs): a checkpoint output is
-    available once its ``config.json`` exists -- every trainer writes it after the weights -- while the run trains."""
-    return bool(_CHECKPOINT_OUTPUT_RE.fullmatch(path.path)) and os.path.isfile(
-        os.path.join(path.get_path(), "config.json")
-    )
+    available once written, while the run trains: its ``config.json`` (LoRA trainers write it after the weights) or
+    ``model.safetensors`` (full finetunes: written to a tmp file and renamed, no config)."""
+    if not _CHECKPOINT_OUTPUT_RE.fullmatch(path.path):
+        return False
+    d = path.get_path()
+    return os.path.isfile(os.path.join(d, "config.json")) or os.path.isfile(os.path.join(d, "model.safetensors"))
+
+
+class CheckpointOutputs:
+    """Training-job mixin (before ``Job`` in the bases): ``checkpoint(step)`` is that checkpoint's consolidated dir as an
+    output of its own, released by ``path_available`` once written, so an eval on it starts while the run trains.
+    ``checkpoint_outputs`` opts a run in (set from its policy; an attribute, not hashed); off, nothing changes."""
+
+    checkpoint_outputs = False
+
+    def checkpoint(self, step: int) -> tk.Path:
+        assert self.checkpoint_outputs, f"{self}: declared without checkpoint outputs (an older policy)"
+        assert_checkpoint_will_exist(self.out_rundir, "lora", step)  # the step rule; lora / full share the layout
+        # a plain Path, not output_path(directory=True): setup would pre-create the dir and resume would take it for a save
+        return tk.Path(CHECKPOINT_OUTPUT.format(step=step), creator=self)
+
+    def path_available(self, path):
+        if self.checkpoint_outputs and checkpoint_output_available(path):
+            return True
+        return super().path_available(path)
 
 
 class ResolveOverlayCheckpoint(Job):

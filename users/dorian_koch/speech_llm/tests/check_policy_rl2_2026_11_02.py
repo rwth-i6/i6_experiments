@@ -31,8 +31,8 @@ def check(ok, msg):
 
 OLD, NEW = P.RL2_POLICY_2026_10_30, P.RL2_POLICY_2026_11_02
 check(
-    OLD < NEW == P.RL2_POLICY_LATEST and {OLD, NEW} <= set(P.KNOWN_POLICIES),
-    "[1] rl2-10-30 < rl2-11-02 = LATEST, known",
+    OLD < NEW <= P.RL2_POLICY_LATEST and {OLD, NEW} <= set(P.KNOWN_POLICIES),
+    "[1] rl2-10-30 < rl2-11-02 <= LATEST, known",
 )
 
 
