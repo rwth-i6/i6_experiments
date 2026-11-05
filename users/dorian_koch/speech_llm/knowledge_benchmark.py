@@ -31,7 +31,7 @@ from .common import (
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND, offline_routing_kwargs
-from .speech_inference import SpeechInference, ResolveOverlayCheckpoint, checkpoint_run_dir
+from .speech_inference import SpeechInference, ResolveOverlayCheckpoint
 from .tts import InstallFFmpeg
 
 
@@ -412,9 +412,14 @@ def resolve_lora(moshi_checkpoint, checkpoint_step=None, overlay_kind="lora"):
         f"resolve_lora handles the moshi checkpoint layouts (lora | full); got {overlay_kind!r}. "
         f"PersonaPlex and Audex have their own resolve_* helpers."
     )
-    # a named step's evals start once it is written, while the run trains (same hash as the plain run dir)
-    run_dir = checkpoint_run_dir(moshi_checkpoint, overlay_kind, checkpoint_step)
-    ckpt = ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind=overlay_kind, step=checkpoint_step)
+    creator = moshi_checkpoint.creator
+    if checkpoint_step is not None and getattr(creator, "checkpoint_outputs", False):
+        # a run that exposes its checkpoints as outputs: the eval starts once the step is written
+        ckpt = ResolveOverlayCheckpoint(
+            checkpoint=creator.checkpoint(checkpoint_step), overlay_kind=overlay_kind, step=checkpoint_step
+        )
+    else:
+        ckpt = ResolveOverlayCheckpoint(run_dir=moshi_checkpoint, overlay_kind=overlay_kind, step=checkpoint_step)
     return ckpt.out_weights, ckpt.out_config
 
 

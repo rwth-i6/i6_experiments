@@ -16,9 +16,9 @@ feed the same per-run ``lora_weights`` / ``lora_config`` overlay seam on ``Speec
 
 from __future__ import annotations
 
-import functools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -163,32 +163,16 @@ def assert_checkpoint_will_exist(run_dir: tk.Path, overlay_kind: str, step) -> N
         )
 
 
-#: Overlay kinds whose named checkpoints evals may use before the run finishes, with the weights file each writes.
-EARLY_WEIGHTS = {"lora": "lora.safetensors", "full": "model.safetensors"}
+#: A training run's checkpoint ``step`` as its own output (``RLFinetuneV2.checkpoint``), relative to the job's output.
+CHECKPOINT_OUTPUT = "run_dir/checkpoints/checkpoint_{step:06d}/consolidated"
+_CHECKPOINT_OUTPUT_RE = re.compile(r"run_dir/checkpoints/checkpoint_\d{6}/consolidated")
 
 
-def _named_checkpoint_complete(overlay_kind: str, step: int, run_dir) -> bool:
-    """``available`` of a run dir that serves one named checkpoint: its weights and the ``config.json`` every trainer
-    writes after them are there (also while the run still trains)."""
-    d = os.path.join(run_dir.get_path(), "checkpoints", f"checkpoint_{step:06d}", "consolidated")
-    return os.path.isfile(os.path.join(d, EARLY_WEIGHTS[overlay_kind])) and os.path.isfile(
-        os.path.join(d, "config.json")
-    )
-
-
-def checkpoint_run_dir(run_dir: tk.Path, overlay_kind: str, step) -> tk.Path:
-    """``run_dir`` for an eval of ``step``: the same path and hash, available once that checkpoint is complete instead
-    of when the run finishes (``tk.Path(available=...)``, as ``persona_heldout.checkpoint_path``). Latest
-    (``step=None``), the other layouts and creator-less dirs keep their own availability."""
-    if step is None or overlay_kind not in EARLY_WEIGHTS or run_dir.creator is None:
-        return run_dir
-    return tk.Path(
-        run_dir.path,
-        creator=run_dir.creator,
-        cached=run_dir.cached,
-        hash_overwrite=run_dir.hash_overwrite,
-        tags=run_dir._tags,
-        available=functools.partial(_named_checkpoint_complete, overlay_kind, step),
+def checkpoint_output_available(path) -> bool:
+    """For a training job's ``path_available`` (as ``ReturnnTrainingJob`` does for its epochs): a checkpoint output is
+    available once its ``config.json`` exists -- every trainer writes it after the weights -- while the run trains."""
+    return bool(_CHECKPOINT_OUTPUT_RE.fullmatch(path.path)) and os.path.isfile(
+        os.path.join(path.get_path(), "config.json")
     )
 
 
@@ -202,13 +186,31 @@ class ResolveOverlayCheckpoint(Job):
       * ``"personaplex_heads"`` (PersonaPlex): ``run_dir/consolidated/trained_heads[.step<N>].safetensors``
         -> ``out_weights`` only (``out_config`` is ``None``; PersonaPlex is a partial state-dict, no config).
     ``step=None`` -> latest checkpoint (lora) / final consolidated (personaplex).
+    ``checkpoint`` (instead of ``run_dir``): the run's own output for that step (``RLFinetuneV2.checkpoint``), available
+    as soon as the checkpoint is written, so the eval starts while the run trains (new evals only: hashed when set).
     """
 
-    def __init__(self, *, run_dir: tk.Path, overlay_kind: str = "lora", step: int | None = None):
+    __sis_hash_exclude__ = {"checkpoint": None}
+
+    def __init__(
+        self,
+        *,
+        run_dir: tk.Path | None = None,
+        overlay_kind: str = "lora",
+        step: int | None = None,
+        checkpoint: tk.Path | None = None,
+    ):
         assert overlay_kind in ("lora", "personaplex_heads", "audex_stage0", "full"), overlay_kind
+        assert (run_dir is None) != (checkpoint is None), "pass run_dir or checkpoint"
+        if checkpoint is not None:
+            assert overlay_kind in ("lora", "full") and step is not None, (overlay_kind, step)
         # Every checkpoint reference in the graph is minted here, so this is the one place a
         # never-to-exist step can be refused at graph build. Not hashed (no new argument).
-        assert_checkpoint_will_exist(run_dir, overlay_kind, step)
+        if checkpoint is not None:
+            assert_checkpoint_will_exist(tk.Path("run_dir", creator=checkpoint.creator), overlay_kind, step)
+        else:
+            assert_checkpoint_will_exist(run_dir, overlay_kind, step)
+        self.checkpoint = checkpoint
         self.run_dir = run_dir
         self.overlay_kind = overlay_kind
         self.step = step  # None -> latest (lora) / final consolidated (personaplex)
@@ -247,7 +249,15 @@ class ResolveOverlayCheckpoint(Job):
         os.symlink(target, link_name)
 
     def run(self):
-        if self.overlay_kind in ("lora", "audex_stage0", "full"):
+        if getattr(self, "checkpoint", None) is not None:  # getattr: a resolver pickled before the field existed
+            chosen = Path(self.checkpoint.get()).parent
+            print(f"Resolved {self.overlay_kind} checkpoint output: {chosen.name}", flush=True)
+            consolidated = chosen / "consolidated"
+            if self.overlay_kind == "lora":
+                self._link(consolidated / "config.json", self.out_config.get())
+            self._link(consolidated / {"lora": "lora.safetensors", "full": "model.safetensors"}[self.overlay_kind],
+                       self.out_weights.get())  # fmt: skip
+        elif self.overlay_kind in ("lora", "audex_stage0", "full"):
             ckpt_root = Path(self.run_dir.get()) / "checkpoints"
             ckpts = sorted(ckpt_root.glob("checkpoint_*"), key=lambda p: int(p.name.split("_")[-1]))
             assert ckpts, f"No checkpoints found in {ckpt_root}"
