@@ -1301,10 +1301,11 @@ def generate_scenario_batches(
     calls: list[dict],
     tag: str = "sp-train-gen",
     *,
-    system: str = SP_TRAIN_SYSTEM,
-    schema: dict = _SP_TRAIN_JSON_SCHEMA,
+    system: str | None = SP_TRAIN_SYSTEM,
+    schema: dict | None = _SP_TRAIN_JSON_SCHEMA,
     parse=_scenario_tuples,
     cache_path: str | None = None,
+    concurrency: int = 64,
 ) -> list:
     """One guided-JSON request per call (``user``, ``seed`` and whatever ``parse`` reads) under ``system``, 5 attempts
     each -> per call ``parse(call, reply JSON)`` (default: ``[(category, name, prompt A, prompt B, level), ...]`` in
@@ -1312,12 +1313,16 @@ def generate_scenario_batches(
 
     ``cache_path``: a JSONL of finished calls (``{"i", "out"}``, appended as each finishes). An interrupted job that
     runs again requests only the calls missing there, so a requeue does not repeat finished generation; an entry
-    counts only if its request text is unchanged (``key``)."""
+    counts only if its request text is unchanged (``key``).
+
+    ``system`` None: the user message alone; ``schema`` None: a free-text reply (its outermost ``{...}`` is parsed); a
+    call's ``reasoning_effort`` (gpt-oss: low / medium / high) is sent with it."""
     from openai import OpenAI
 
     key = lambda c: hashlib.sha256(c["user"].encode()).hexdigest()[:16]  # noqa: E731
     cache = _CallCache(cache_path, [key(c) for c in calls])
     done = cache.done
+    msgs = [{"role": "system", "content": system}] if system is not None else []
 
     def gen(client, i, c):
         out, err = None, ""
@@ -1325,12 +1330,15 @@ def generate_scenario_batches(
             try:
                 resp = client.chat.completions.create(
                     model=llm_name,
-                    messages=[{"role": "system", "content": system}, {"role": "user", "content": c["user"]}],
+                    messages=msgs + [{"role": "user", "content": c["user"]}],
                     seed=(c["seed"] + attempt) % (2**31),
                     temperature=temperature,
                     max_tokens=8192,
                     # enforced from 2026-10-12 (run()-side; the finished v1 build was unconstrained)
-                    **json_schema_format(schema, "sp_train_scenarios"),
+                    **(json_schema_format(schema, "sp_train_scenarios") if schema is not None else {}),
+                    **(
+                        {"extra_body": {"reasoning_effort": c["reasoning_effort"]}} if c.get("reasoning_effort") else {}
+                    ),
                 )
                 raw = resp.choices[0].message.content or ""
                 out = parse(c, json.loads(raw[raw.find("{") : raw.rfind("}") + 1]))
@@ -1350,7 +1358,10 @@ def generate_scenario_batches(
         with vllm_server(llm_name) as url:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "nothing"), base_url=url)
             new = map_concurrent(
-                lambda i: gen(client, i, calls[i]), todo, concurrency=64, progress_path=os.path.abspath("progress.json")
+                lambda i: gen(client, i, calls[i]),
+                todo,
+                concurrency=concurrency,
+                progress_path=os.path.abspath("progress.json"),
             )
         done.update({i: o for i, o in zip(todo, new) if o is not None})
     # JSON round trip turns tuples into lists: hand back tuples either way
@@ -2760,6 +2771,679 @@ class SelfPlayPersonaIfScenes(Job):
             raise RuntimeError(f"only {len(kept)} scenarios for n_keep={self.n_keep}")
 
 
+# ---- listener: B knows nothing about A in advance and can only do well by listening ---------------------------------
+# A vents, asks for practical advice, or asks about a subject (``LISTENER_KINDS``). gpt-oss writes A's brief (30-60
+# words, 2-3 concrete details) from a dataset seed plus hidden judge notes (details + a check question ->
+# ``grader_info``), rates it twice; B's prompt is a gpt-oss persona written blind to A. Prompts as piloted on 360 seeds
+# (254 passed the rating; a blind check found 20/30 good, 7 of the 10 flaws were sensitive topics carried in by the seed,
+# hence the seed filter).
+LISTENER_ED = ("Estwld/empathetic_dialogues_llm", "e85c6e00b972d7340b9f61165b48e207425cd6e0")  # Apache-2.0
+LISTENER_ESCONV = ("Estwld/esconv_llm", "5c4814d67028902eaeef21b4d78625796ad1e623")  # Apache-2.0
+#: the hub's parquet conversion branch (main holds JSON); CC-BY-NC-4.0
+LISTENER_WOW = ("chujiezheng/wizard_of_wikipedia", "11e75262f08a3d0f8dae8c42d29aeb429ab5ba06")
+#: ``validation`` duplicates ``valid`` in both Estwld repos
+LISTENER_ESTWLD_FILES = tuple(f"data/{s}-00000-of-00001.parquet" for s in ("train", "valid", "test"))
+LISTENER_WOW_FILES = tuple(f"default/{s}/0000.parquet" for s in ("train", "validation", "test"))
+LISTENER_ED_NEGATIVE = ("annoyed", "disappointed", "frustrated", "embarrassed", "anxious", "lonely", "jealous",
+                        "furious", "angry", "apprehensive", "ashamed", "guilty", "nostalgic", "sad", "afraid",
+                        "terrified", "disgusted", "devastated")  # fmt: skip
+LISTENER_ED_SENSITIVE = ("devastated", "terrified", "sad", "afraid", "furious")
+#: advice from ED once ESConv is used up: nostalgic / disgusted situations rarely hold a problem to ask about
+LISTENER_ED_ADVICE = tuple(
+    e for e in LISTENER_ED_NEGATIVE if e not in (*LISTENER_ED_SENSITIVE, "nostalgic", "disgusted")
+)
+#: everyday ESConv problems (no depression, sleep, alcohol, bullying)
+LISTENER_ESCONV_PROBLEMS = ("job crisis", "breakup with partner", "problems with friends", "academic pressure",
+                            "Issues with Children", "conflict with parents", "Procrastination", "Issues with Parents",
+                            "Appearance Anxiety")  # fmt: skip
+#: seed text on sensitive topics: death and illness, alcohol and drugs, police and accidents, family law and abuse,
+#: money trouble, depression
+LISTENER_SENSITIVE_RE = (
+    r"\b(death|dead|die[ds]?|dying|funerals?|cancer|hospitals?|sick\w*|drunk\w*|alcohol\w*|beers?|wines?|drugs?|"
+    r"police|accidents?|crash\w*|custody|divorc\w*|abus\w*|suicid\w*|rent|debts?|loans?|bills?|depress\w*)\b"
+)
+LISTENER_MIN_FACTS = 5
+#: A's brief: in the check that keeps scenarios within the self-play prompt budget (the writer is asked for 30-60)
+LISTENER_MAX_WORDS = SP_IF_MAX_WORDS
+LISTENER_PERSONA_MAX_WORDS = 60
+LISTENER_LEVEL = "listener"
+
+#: what the writer and rater are told B gets: PersonaPlex's prompts for the kind
+LISTENER_B_HINT = {
+    "vent": "You enjoy having a good conversation.",
+    "advice": "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
+    "curious": "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
+}
+LISTENER_WRITE = """Write the brief for A, one side of a one-minute spoken conversation (a phone call or a chat). The \
+other side, B, only gets this generic prompt and knows nothing about A: "{b}"
+
+{seed}
+
+{kind}
+
+A's brief: "Your name is {name}. You ..."{name_rule}, 30 to 60 words, speaking to A as "you": who A is, what is on A's \
+mind with two or three concrete details A will bring up (what happened, names of things, what A already tried or \
+thinks), and what A wants from the talk. Goals and details only: no lines to say, no outcome. Everyday and safe: no \
+medical, legal or financial questions (no money, debt, rent or loans), nothing sexual, no alcohol or drugs, no injury \
+or illness, no custody, crisis, self-harm or abuse. Change names and places from the seed.
+
+Answer with JSON only: {{"skip": false, "title": "3-6 words", "A": "...", "details": ["2 or 3 short phrases copied \
+word for word from A's brief that B can only know by listening"], "check": "a question to ask B after the call about \
+what A told B, in the third person (\"What did the caller say ...?\", never \"you\"/\"your\"), answered by one of \
+the details"}} (skip true if the seed cannot become a \
+pleasant, safe everyday conversation)."""
+#: ``{name_rule}`` in ``LISTENER_WRITE``: A's assigned name and gender
+LISTENER_NAME_RULE = (" (A is {sex}; use no other name for A)", " (use no other name for A)")
+LISTENER_SEX = {"m": "a man", "f": "a woman", "u": "any gender"}
+LISTENER_KINDS = {
+    "vent": "Kind: vent. A wants to get something that happened off their chest and feel heard, not be lectured.",
+    "advice": "Kind: advice. A wants practical advice on an everyday problem or decision and will push back or ask "
+    "follow-ups if the advice doesn't fit A's situation.",
+    "curious": "Kind: curious. A wants to understand the subject itself (how it works, why it is so, what lies behind "
+    "something A noticed) and asks insightful follow-ups on B's answers; not personal advice. A's brief says what A "
+    "noticed or already knows and the specific thing A wonders about.",
+}
+LISTENER_RATE = """You review one side of a one-minute spoken conversation. The other side, B, only gets the generic prompt \
+"{b}" and knows nothing about A.
+
+Kind: {cat}. {kind}
+
+A's brief: {A}
+
+Details B should pick up by listening: {details}
+Check question for B afterwards: {check}
+
+Be strict; 5 means nothing to fix. Score 1 to 5:
+- specific: A brings concrete details that B cannot guess, so a good reply has to use what A said.
+- checkable: the details are in A's brief, and the check question asks about A in the third person and can only be
+answered by having listened to A.
+- kind: A does what its kind asks (vent / advice / curious) in a way that invites a real conversation.
+- short: A's brief is at most about 60 words with no lines to say word for word.
+- natural: a realistic, everyday thing a person would talk about.
+- voice: works by voice alone.
+- safe: nothing harmful; no medical, legal or financial questions (money, debt, rent, loans); nothing sexual; no alcohol or drugs; no injury or
+illness; no custody, crisis, self-harm or abuse.
+Answer with JSON only: {{"specific": n, "checkable": n, "kind": n, "short": n, "natural": n, "voice": n, "safe": n, \
+"flaws": ["..."]}}"""
+LISTENER_CRIT = ("specific", "checkable", "kind", "short", "natural", "voice", "safe")
+#: B personas: how B tends to be with people (PersonaPlex's prompt for the kind, reworded by the writer) and who B is
+LISTENER_STYLE = {
+    "vent": "enjoys a good conversation",
+    "advice": "answers questions and gives advice in a clear, engaging way",
+    "curious": "answers questions and explains things in a clear, engaging way",
+}
+LISTENER_ROLE = {
+    "vent": "someone a person might call or bump into for a chat: they listen well and enjoy a good conversation",
+    "advice": "someone people go to for practical, down-to-earth advice on everyday things",
+    "curious": "someone who knows a lot about the world and enjoys explaining how and why things work",
+}
+LISTENER_PERSONA_WRITE = """Write {n} different short persona prompts for B, one side of a one-minute spoken \
+conversation (a phone call or a chat). B is {role}. B will NOT know who calls or what they want, so a persona must not \
+mention any topic, problem or question the other person might bring.
+
+Each persona speaks to B as "you", in your own words each time (no fixed opening; vary how it starts): B's first name, \
+who B is (background, personality, how B talks) and, in a phrase, how B tends to be with people ({style}). 25 to 50 \
+words in all. Make the {n} clearly different from each other in wording, age, background, temperament and speaking \
+style, everyday and believable. Use exactly these names, one per persona in order: {letters}.
+
+Answer with JSON only: {{"personas": ["...", "..."]}}"""
+LISTENER_PERSONA_RATE = """Here is a persona prompt for B, one side of a one-minute spoken conversation. B does not \
+know who will talk to B or about what.
+
+Persona: {p}
+
+Answer each strictly with true or false.
+- generic: it names no specific topic, problem or question the other person might bring, so it fits any everyday chat.
+- named: it gives B one first name and says who B is in a sentence or two.
+- natural: an everyday, believable person; no bot, assistant or system.
+- voice: nothing about looks or text; it can be played by voice.
+- safe: nothing harmful or sexual; no medical, legal or financial expertise claimed.
+Answer with JSON only: {{"generic": true, "named": true, "natural": true, "voice": true, "safe": true}}"""
+LISTENER_PERSONA_QS = ("generic", "named", "natural", "voice", "safe")
+LISTENER_PERSONAS_PER_CALL = 6
+LISTENER_THIRD_PERSON = r"\b(He|She|They)('s| is| was| enjoys| loves| has| speaks| likes)\b"
+#: read by the RL judge under ``selfplay_reward.GRADER_INFO_NOTE`` (which speaks of checking answers)
+LISTENER_GRADER_INFO = (
+    "B knew nothing about A beforehand. A was told to bring up: {details}. B's answers should show that B listened: "
+    "they fit and get right what A said (count a detail only if A actually said it). Someone who listened to A could "
+    "answer: {check}"
+)
+_LISTENER_STOP = {"the", "a", "an", "to", "of", "and", "your", "you"}
+
+
+def listener_seed_text(s: dict) -> str:
+    """A seed as the writer sees it."""
+    if s["src"] == "wow":
+        return f"Subject: {s['topic']}\nBackground facts (A does not know them):\n" + "\n".join(
+            "- " + f for f in s["facts"][:5]
+        )
+    if s["src"] == "ed":
+        return f"Seed situation (feeling: {s['emotion']}): {s['situation']}"
+    return f"Seed problem ({s['problem']}): {s['situation']}"
+
+
+def listener_rating_ok(r) -> bool:
+    """Every criterion >= 4 and safe 5."""
+    try:
+        return all(int(r[c]) >= 4 for c in LISTENER_CRIT) and int(r["safe"]) == 5
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def listener_details_ok(brief: str, details) -> bool:
+    """2+ details, each with >= 80% of its content words in A's brief."""
+    import re
+
+    words = lambda t: set(re.findall(r"[a-z0-9]+", str(t).lower())) - _LISTENER_STOP  # noqa: E731
+    aw = words(brief)
+    return (
+        isinstance(details, list)
+        and len(details) >= 2
+        and all(len(words(d) & aw) >= 0.8 * max(1, len(words(d))) for d in details)
+    )
+
+
+def listener_uses_name(brief: str, name: str) -> bool:
+    import re
+
+    return re.match(rf"\s*Your name is {re.escape(name)}\b", brief) is not None
+
+
+def listener_persona_reject(p: str, name: str | None, rating) -> str:
+    """Why a B persona is dropped ("" = kept): unrated, a failed rating, its assigned name missing, too long, or it
+    slips into the third person."""
+    import re
+
+    if rating is None:
+        return "unrated"
+    if not all(rating.get(q) is True for q in LISTENER_PERSONA_QS):
+        return "rating"
+    if not name or not re.search(rf"\b{re.escape(name)}\b", p):
+        return "no_name"
+    if len(p.split()) > LISTENER_PERSONA_MAX_WORDS:
+        return "long"
+    if re.search(LISTENER_THIRD_PERSON, p):
+        return "third_person"
+    return ""
+
+
+def _ed_halves(order: list) -> tuple[list, list]:
+    """vent's and advice's shares of the ED order: disjoint by position."""
+    return order[0::2], order[1::2]
+
+
+def listener_seed_lists(ed: list[dict], esconv: list[dict], wow: list[dict], seed: int = 0) -> tuple[dict, dict]:
+    """Rows -> (``{kind: [seed, ...]}`` in a seeded order, stats). ``ed``: ``conv_id``, ``situation``, ``emotion``;
+    ``esconv``: ``id``, ``situation``, ``problem_type``; ``wow``: ``id``, ``post0`` (the first message: topic line, then
+    the opener), ``knowledge0`` (its passages). Each source is sorted by id, deduplicated (situation / topic), filtered
+    and permuted on its own seed stream. vent and advice share one ED order by position (``_ed_halves``); advice takes
+    all ESConv seeds first."""
+    import collections
+    import re
+
+    import numpy as np
+
+    bad = re.compile(LISTENER_SENSITIVE_RE, re.I)
+    stats = {}
+
+    def keep(rows, src, key, dedup, text, why_fn):
+        """Sorted by ``key``; drops by ``why_fn``, then duplicates of ``dedup``, then sensitive ``text``."""
+        why, seen, out = collections.Counter(), set(), []
+        for r in sorted(rows, key=lambda r: str(r[key])):
+            k = " ".join(dedup(r).lower().split())
+            reason = (
+                why_fn(r) or ("duplicate" if k in seen else "") or ("sensitive_text" if bad.search(text(r)) else "")
+            )
+            seen.add(k)
+            why[reason or "kept"] += 1
+            if not reason:
+                out.append(r)
+        stats[src] = {"rows": len(rows), **dict(sorted(why.items()))}
+        return out
+
+    def ed_why(r):
+        if r["emotion"] not in LISTENER_ED_NEGATIVE:
+            return "emotion_not_negative"
+        return "sensitive_emotion" if r["emotion"] in LISTENER_ED_SENSITIVE else ""
+
+    def wow_facts(r):
+        return [
+            k.split("__knowledge__", 1)[1].strip()
+            for k in r["knowledge0"]
+            if "__knowledge__" in k and "no_passages_used" not in k
+        ]
+
+    sit = lambda r: r["situation"]  # noqa: E731
+    ed_k = keep(ed, "ed", "conv_id", sit, sit, ed_why)
+    es_k = keep(esconv, "esconv", "id", sit, sit,
+                lambda r: "" if r["problem_type"] in LISTENER_ESCONV_PROBLEMS else "problem_type")  # fmt: skip
+    # one dialogue per topic line; the opener after it is checked too
+    wow_k = keep(wow, "wow", "id", lambda r: r["post0"].split("\n")[0], lambda r: r["post0"],
+                 lambda r: "few_facts" if len(wow_facts(r)) < LISTENER_MIN_FACTS else "")  # fmt: skip
+
+    def order(rows, stream):
+        return [rows[int(i)] for i in np.random.default_rng([seed, stream]).permutation(len(rows))]
+
+    def ed_seed(r):
+        return {"src": "ed", "id": "ed_" + r["conv_id"].replace(":", "_"), "emotion": r["emotion"],
+                "situation": r["situation"].strip()}  # fmt: skip
+
+    ed_o, es_o, wow_o = order(ed_k, 0), order(es_k, 1), order(wow_k, 2)
+    ed_vent, ed_advice = _ed_halves(ed_o)
+    out = {
+        "vent": [ed_seed(r) for r in ed_vent],
+        "advice": [
+            {"src": "esconv", "id": r["id"], "problem": r["problem_type"], "situation": r["situation"].strip()}
+            for r in es_o
+        ]
+        + [ed_seed(r) for r in ed_advice if r["emotion"] in LISTENER_ED_ADVICE],  # fmt: skip
+        "curious": [{"src": "wow", "id": r["id"], "topic": r["post0"], "facts": wow_facts(r)[:10]} for r in wow_o],
+    }
+    stats["available"] = {k: len(v) for k, v in out.items()}
+    stats["advice_from_esconv"] = len(es_o)
+    return out, stats
+
+
+def listener_part(seeds: list, part: int, n_seeds: int) -> list:
+    """Part ``part``'s slice of a kind's seed order; every part of a kind uses the same ``n_seeds``."""
+    return seeds[part * n_seeds : (part + 1) * n_seeds]
+
+
+def _hf_parquet_rows(repo: str, revision: str, path: str, columns: list[str], fn=None) -> list[dict]:
+    """One parquet file of a hub dataset at a pinned revision, read in batches (``fn`` maps each row, None drops it)."""
+    import io
+
+    import pyarrow.parquet as pq
+    import requests
+    from huggingface_hub import hf_hub_url
+    from huggingface_hub.utils import build_hf_headers
+
+    resp = requests.get(hf_hub_url(repo, path, repo_type="dataset", revision=revision), headers=build_hf_headers(),
+                        timeout=900)  # fmt: skip
+    resp.raise_for_status()
+    rows = []
+    for batch in pq.ParquetFile(io.BytesIO(resp.content)).iter_batches(batch_size=1000, columns=columns):
+        for r in batch.to_pylist():
+            r = fn(r) if fn else r
+            if r is not None:
+                rows.append(r)
+    return rows
+
+
+class SelfPlayListenerSeeds(Job):
+    """Seeds for the listener pools (``SelfPlayListenerPool``), per kind in a seeded order (``listener_seed_lists``):
+    vent = EmpatheticDialogues situations with a negative emotion (``LISTENER_ED_NEGATIVE`` minus
+    ``LISTENER_ED_SENSITIVE``); advice = ESConv everyday problems (``LISTENER_ESCONV_PROBLEMS``), then ED situations
+    from the positions of the ED order vent does not use (``LISTENER_ED_ADVICE`` emotions); curious = Wizard of
+    Wikipedia topics (one dialogue per topic) with >= ``LISTENER_MIN_FACTS`` facts. Seed text matching
+    ``LISTENER_SENSITIVE_RE`` is dropped. Pinned revisions, parquet files read directly.
+
+    Outputs ``seeds.json`` (``{kind: [seed, ...]}``) and ``stats.json`` (per source: rows and drops by reason; seeds
+    available per kind). A mini task: the login node downloads ~0.5 GB."""
+
+    def __init__(self, *, seed: int = 0):
+        self.seed = int(seed)
+        self.out_seeds = self.output_path("seeds.json")
+        self.out_stats = self.output_path("stats.json")
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The sources, revisions and filters are hashed."""
+        rules = [LISTENER_ED, LISTENER_ESCONV, LISTENER_WOW, LISTENER_ESTWLD_FILES, LISTENER_WOW_FILES,
+                 LISTENER_ED_NEGATIVE, LISTENER_ED_SENSITIVE, LISTENER_ED_ADVICE, LISTENER_ESCONV_PROBLEMS,
+                 LISTENER_SENSITIVE_RE, LISTENER_MIN_FACTS]  # fmt: skip
+        return super(SelfPlayListenerSeeds, cls).hash(
+            {**parsed_args, "rules_digest": hashlib.sha256(json.dumps(rules).encode()).hexdigest()[:16]}
+        )
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def download() -> tuple[list, list, list]:
+        ed, esconv, wow = [], [], []
+        for f in LISTENER_ESTWLD_FILES:
+            ed += _hf_parquet_rows(*LISTENER_ED, f, ["conv_id", "situation", "emotion"])
+            split = f.split("/")[1].split("-")[0]
+            rows = _hf_parquet_rows(*LISTENER_ESCONV, f, ["problem_type", "situation"])
+            esconv += [{**r, "id": f"esconv_{split}_{i}"} for i, r in enumerate(rows)]
+        for f in LISTENER_WOW_FILES:
+            split = f.split("/")[1]
+            rows = _hf_parquet_rows(*LISTENER_WOW, f, ["post", "knowledge"],
+                                    lambda r: {"post0": r["post"][0], "knowledge0": list(r["knowledge"][0])})  # fmt: skip
+            wow += [{**r, "id": f"wow_{split}_{i}"} for i, r in enumerate(rows)]
+        return ed, esconv, wow
+
+    def run(self):
+        ed, esconv, wow = self.download()
+        seeds, stats = listener_seed_lists(ed, esconv, wow, self.seed)
+        json.dump(seeds, open(self.out_seeds.get_path(), "w"), indent=1)
+        json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
+        print(f"[listener-seeds] {stats}", flush=True)
+
+
+def _reply_object(call: dict, reply) -> list:
+    """A free-text reply's JSON object, as a one-item list (``generate_scenario_batches`` hands back lists)."""
+    if not isinstance(reply, dict):
+        raise ValueError("reply is not a JSON object")
+    if call.get("expect") and not reply.get("skip") and not isinstance(reply.get(call["expect"]), (list, str)):
+        raise ValueError(f"reply has no {call['expect']}")
+    return [reply]
+
+
+class SelfPlayListenerPool(Job):
+    """One part of a LISTENER pool (category ``listener_<kind>``): B knows nothing about A in advance, so B can only do
+    well by listening. ``kind``: ``vent`` (A wants to get something off their chest and feel heard), ``advice``
+    (practical advice on an everyday problem, pushing back if it doesn't fit), ``curious`` (A wants to understand a
+    subject itself).
+
+    Part ``part`` takes seeds ``[part * n_seeds, (part + 1) * n_seeds)`` of the kind's order in ``seeds``
+    (``SelfPlayListenerSeeds``), so parts are disjoint and a new part re-hashes no old one; ``SelfPlayPoolMerge`` joins
+    parts. Per seed, a name pair from ``names`` (``FirstNamePool``; ``draw_name_pairs``): A's is given to the writer,
+    and the B names (1.25 per seed, for persona losses) go to the persona writer. Two gpt-oss phases, each resuming
+    from its cache: (1) A's brief + details + check question per seed (``LISTENER_WRITE``, reasoning medium) and
+    ``LISTENER_PERSONAS_PER_CALL`` B personas per call, blind to A (``LISTENER_PERSONA_WRITE``, medium); (2) two
+    ratings per brief (``LISTENER_RATE``, high) and one per persona (``LISTENER_PERSONA_RATE``, high). A scenario is kept
+    if A uses its name, both ratings pass (``listener_rating_ok``), the details are in A's brief and the check question
+    is in the third person, A's brief is within ``LISTENER_MAX_WORDS`` and not near spj2; each gets its own kept
+    persona of the kind (seeded order). B's prompt is the persona as written, A's the brief: ``pool.json`` declares
+    ``minimal_prefix: false`` so ``SelfPlayTrainScenarioMix`` prepends nothing.
+
+    Output dir ``pool/`` as ``SelfPlayScenarioPool``'s (level ``listener``) plus ``grader_info.json``
+    (``LISTENER_GRADER_INFO``: details + check question), ``pool.json``, ``provenance.jsonl`` (seed id, title,
+    details, check, ratings' flaws) and ``rejected.jsonl``."""
+
+    def __init__(
+        self,
+        *,
+        kind: str,
+        seeds: tk.Path,
+        names: tk.Path,
+        n_seeds: int,
+        part: int = 0,
+        held_out: str = "spj2_v1",
+        llm_name: str = "openai/gpt-oss-120b",
+        temperature: float = 1.0,
+        seed: int = 0,
+    ):
+        assert kind in LISTENER_KINDS, kind
+        assert held_out in SPJ2_SCENARIOS, held_out
+        self.kind, self.seeds, self.names = kind, seeds, names
+        self.n_seeds, self.part, self.held_out = int(n_seeds), int(part), held_out
+        self.llm_name, self.temperature, self.seed = llm_name, float(temperature), int(seed)
+        self.category = f"listener_{kind}"
+        self.out_dir = self.output_path("pool", directory=True)
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 4, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """The held-out set's content, every prompt and the filters are hashed."""
+        rules = [LISTENER_B_HINT, LISTENER_WRITE, LISTENER_NAME_RULE, LISTENER_SEX, LISTENER_KINDS, LISTENER_RATE,
+                 LISTENER_CRIT, LISTENER_STYLE, LISTENER_ROLE, LISTENER_PERSONA_WRITE, LISTENER_PERSONA_RATE,
+                 LISTENER_PERSONA_QS, LISTENER_PERSONAS_PER_CALL, LISTENER_THIRD_PERSON, LISTENER_GRADER_INFO,
+                 sorted(_LISTENER_STOP), LISTENER_MAX_WORDS, LISTENER_PERSONA_MAX_WORDS, LISTENER_LEVEL]  # fmt: skip
+        return super(SelfPlayListenerPool, cls).hash(
+            {
+                **parsed_args,
+                "held_out_digest": scenario_digest(parsed_args["held_out"]),
+                "rules_digest": hashlib.sha256(json.dumps(rules).encode()).hexdigest()[:16],
+            }
+        )
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, resumable=True)
+
+    def completed_fraction(self):
+        from .common import job_progress_fraction
+
+        return job_progress_fraction(self)
+
+    def _rng(self, phase: int):
+        import numpy as np
+
+        return np.random.default_rng(
+            [self.seed, int(hashlib.sha256(self.kind.encode()).hexdigest()[:8], 16), self.part, phase]
+        )
+
+    def plan(self, chunk: list[dict], pool: dict) -> tuple[list, list]:
+        """(A's ``(name, gender, country)`` per seed, the B names for personas): all distinct within the part."""
+        n_b = -(-len(chunk) * 5 // 4)
+        pairs = draw_name_pairs(pool, max(len(chunk), n_b), self._rng(0))
+        return [tuple(a) for a, _ in pairs[: len(chunk)]], [tuple(b) for _, b in pairs[:n_b]]
+
+    def write_calls(self, chunk: list[dict], a_names: list, b_names: list) -> list[dict]:
+        """Phase 1: one writer call per seed, then the persona calls."""
+        rng = self._rng(1)
+        out = []
+        for s, (name, g, _) in zip(chunk, a_names):
+            sex = LISTENER_SEX.get(g) if g in ("m", "f") else None
+            rule = LISTENER_NAME_RULE[0].format(sex=sex) if sex else LISTENER_NAME_RULE[1]
+            user = LISTENER_WRITE.format(b=LISTENER_B_HINT[self.kind], seed=listener_seed_text(s),
+                                         kind=LISTENER_KINDS[self.kind], name=name, name_rule=rule)  # fmt: skip
+            out.append({"user": user, "seed": int(rng.integers(2**31)), "reasoning_effort": "medium", "expect": "A"})
+        per = LISTENER_PERSONAS_PER_CALL
+        for k in range(0, len(b_names), per):
+            group = b_names[k : k + per]
+            letters = "; ".join(
+                f"persona {j + 1}: {n} ({LISTENER_SEX.get(g, 'any gender')})" for j, (n, g, _) in enumerate(group)
+            )
+            user = LISTENER_PERSONA_WRITE.format(n=len(group), role=LISTENER_ROLE[self.kind],
+                                                 style=LISTENER_STYLE[self.kind], letters=letters)  # fmt: skip
+            out.append({"user": user, "seed": int(rng.integers(2**31)), "reasoning_effort": "medium",
+                        "expect": "personas", "names": [list(x) for x in group]})  # fmt: skip
+        return out
+
+    def rate_calls(self, chunk: list[dict], wcalls: list[dict], wouts: list) -> list[dict]:
+        """Phase 2: two ratings per written brief, one per persona; ``ref`` = (write call index, slot)."""
+        rng = self._rng(2)
+        out = []
+        for i in range(len(chunk)):
+            w = wouts[i][0] if wouts[i] else None
+            if not w or w.get("skip") or not isinstance(w.get("A"), str):
+                continue
+            user = LISTENER_RATE.format(b=LISTENER_B_HINT[self.kind], cat=self.kind, kind=LISTENER_KINDS[self.kind],
+                                        A=w["A"], details=json.dumps(w.get("details"), ensure_ascii=False),
+                                        check=w.get("check"))  # fmt: skip
+            for k in (0, 1):
+                out.append({"user": user, "seed": int(rng.integers(2**31)), "reasoning_effort": "high", "ref": [i, k]})
+        for i in range(len(chunk), len(wcalls)):
+            for j, p in enumerate((wouts[i][0].get("personas") or []) if wouts[i] else []):
+                if isinstance(p, str):
+                    out.append({"user": LISTENER_PERSONA_RATE.format(p=p), "seed": int(rng.integers(2**31)),
+                                "reasoning_effort": "high", "ref": [i, j]})  # fmt: skip
+        return out
+
+    def assemble(self, chunk, a_names, wcalls, wouts, rcalls, routs) -> tuple[list, list, dict]:
+        """-> (kept ``(scenario tuple, names, grader_info, provenance)``, rejected rows, stats)."""
+        import collections
+        import re
+
+        rate = {tuple(c["ref"]): (o[0] if o else None) for c, o in zip(rcalls, routs)}
+        # personas first: each kept scenario takes the next one in a seeded order
+        pwhy, personas = collections.Counter(), []
+        for i in range(len(chunk), len(wcalls)):
+            names = wcalls[i]["names"]
+            for j, p in enumerate((wouts[i][0].get("personas") or []) if wouts[i] else []):
+                if not isinstance(p, str):
+                    continue
+                nm = names[j] if j < len(names) else None
+                why = listener_persona_reject(p, nm[0] if nm else None, rate.get((i, j)))
+                pwhy[why or "kept"] += 1
+                if not why:
+                    personas.append((" ".join(p.split()), tuple(nm)))
+        order = self._rng(3).permutation(len(personas))
+        personas = [personas[int(j)] for j in order]
+        held = [word_ngrams(s[2] + " " + s[3]) for s in SPJ2_SCENARIOS[self.held_out]]
+        why, kept, rejected = collections.Counter(), [], []
+        for i, s in enumerate(chunk):
+            w = wouts[i][0] if wouts[i] else None
+            rs = [rate.get((i, 0)), rate.get((i, 1))]
+            name = f"{self.kind}_{hashlib.sha256(s['id'].encode()).hexdigest()[:12]}"
+            w = w or {}
+            brief, check = (" ".join(str(w.get(k) or "").split()) for k in ("A", "check"))
+            details = w.get("details")
+            details = [" ".join(str(d).split()) for d in details] if isinstance(details, list) else details
+            if not w:
+                reason = "not_written"
+            elif w.get("skip") or not isinstance(w.get("A"), str):
+                reason = "skipped"
+            elif not listener_uses_name(brief, a_names[i][0]):
+                reason = "name_not_used"
+            elif any(r is None for r in rs):
+                reason = "not_rated"
+            elif not listener_details_ok(brief, details):
+                reason = "details_not_in_brief"
+            elif re.search(r"\b(you|your|yours)\b", check, re.I):
+                reason = "check_second_person"
+            elif not all(listener_rating_ok(r) for r in rs):
+                reason = "rating"
+            elif not 8 <= len(brief.split()) <= LISTENER_MAX_WORDS:
+                reason = "length"
+            elif any(ngram_jaccard(word_ngrams(brief), h) > 0.2 for h in held):
+                reason = "near_spj2"
+            elif len(kept) >= len(personas):
+                reason = "no_persona"
+            else:
+                reason = ""
+            why[reason or "kept"] += 1
+            flaws = [f for r in rs if isinstance(r, dict) for f in (r.get("flaws") or []) if isinstance(f, str)]
+            prov = {"scenario": name, "seed": s["id"], "src": s["src"], "part": self.part, "title": w.get("title"),
+                    "details": details, "check": check, "flaws": flaws}  # fmt: skip
+            if reason:
+                rejected.append({**prov, "reason": reason, "prompt_a": brief})
+                continue
+            persona, b = personas[len(kept)]
+            assert b[0] != a_names[i][0], (b, a_names[i])
+            info = LISTENER_GRADER_INFO.format(details="; ".join(f'"{d}"' for d in details), check=check)
+            kept.append(
+                ((self.category, name, brief, persona, LISTENER_LEVEL), [list(a_names[i]), list(b)], info, prov)
+            )
+        stats = {"category": self.category, "kind": self.kind, "part": self.part, "n_seeds": len(chunk),
+                 "kept": len(kept), "reasons": dict(why), "personas": dict(pwhy)}  # fmt: skip
+        return kept, rejected, stats
+
+    def run(self):
+        import statistics
+
+        all_seeds = json.load(open(self.seeds.get_path()))[self.kind]
+        chunk = listener_part(all_seeds, self.part, self.n_seeds)
+        if len(chunk) < self.n_seeds:
+            raise RuntimeError(f"{self.kind}: {len(all_seeds)} seeds, part {self.part} needs {self.n_seeds} from "
+                               f"{self.part * self.n_seeds}")  # fmt: skip
+        pool = json.load(open(self.names.get_path()))["countries"]
+        a_names, b_names = self.plan(chunk, pool)
+        tag = f"sp-pool:{self.category}:p{self.part}"
+        gen = dict(system=None, schema=None, parse=_reply_object, concurrency=128)
+        wcalls = self.write_calls(chunk, a_names, b_names)
+        print(f"[{tag}] {len(chunk)} seeds, {len(wcalls)} write calls ({self.llm_name})", flush=True)
+        wouts = generate_scenario_batches(self.llm_name, self.temperature, wcalls, tag=f"{tag}:write",
+                                          cache_path=os.path.abspath("write.jsonl"), **gen)  # fmt: skip
+        wfail = sum(o is None for o in wouts)
+        if wfail > 0.05 * len(wcalls):
+            raise RuntimeError(f"{wfail}/{len(wcalls)} write calls failed")
+        rcalls = self.rate_calls(chunk, wcalls, wouts)
+        print(f"[{tag}] {len(rcalls)} rate calls", flush=True)
+        routs = generate_scenario_batches(self.llm_name, self.temperature, rcalls, tag=f"{tag}:rate",
+                                          cache_path=os.path.abspath("rate.jsonl"), **gen)  # fmt: skip
+        rfail = sum(o is None for o in routs)
+        if rfail > 0.05 * max(1, len(rcalls)):
+            raise RuntimeError(f"{rfail}/{len(rcalls)} rate calls failed")
+        kept, rejected, stats = self.assemble(chunk, a_names, wcalls, wouts, rcalls, routs)
+        check_scenarios([k[0][:4] for k in kept], categories=None, max_words=LISTENER_MAX_WORDS)
+        lo = self.part * self.n_seeds
+        stats.update({"seeds_available": len(all_seeds), "seed_range": [lo, lo + self.n_seeds],
+                      "write_calls": len(wcalls), "failed_write_calls": wfail, "rate_calls": len(rcalls),
+                      "failed_rate_calls": rfail,
+                      "a_words_median": statistics.median([len(k[0][2].split()) for k in kept]) if kept else None,
+                      "b_words_median": statistics.median([len(k[0][3].split()) for k in kept]) if kept else None})  # fmt: skip
+        d = self.out_dir.get_path()
+        json.dump([list(k[0]) for k in kept], open(os.path.join(d, "scenarios.json"), "w"), indent=1)
+        json.dump({k[0][1]: k[1] for k in kept}, open(os.path.join(d, "names.json"), "w"), indent=1)
+        json.dump({k[0][1]: k[2] for k in kept}, open(os.path.join(d, "grader_info.json"), "w"), indent=1)
+        json.dump({"category": self.category, "minimal_prefix": False}, open(os.path.join(d, "pool.json"), "w"))
+        with open(os.path.join(d, "provenance.jsonl"), "w") as f:
+            for k in kept:
+                f.write(json.dumps(k[3]) + "\n")
+        with open(os.path.join(d, "rejected.jsonl"), "w") as f:
+            for x in rejected:
+                f.write(json.dumps(x) + "\n")
+        json.dump(stats, open(os.path.join(d, "stats.json"), "w"), indent=1)
+        print(f"[{tag}] {stats}", flush=True)
+        if len(kept) < len(chunk) // 4:
+            raise RuntimeError(f"only {len(kept)} of {len(chunk)} seeds kept")
+
+
+def merge_pool_dirs(dirs: list[str], out: str) -> dict:
+    """Pool dirs of ONE category (parts) -> one pool dir ``out`` with the same files: ``scenarios.json`` in part order,
+    ``names.json`` / ``grader_info.json`` joined, ``pool.json`` (must agree across parts), ``provenance.jsonl`` /
+    ``rejected.jsonl`` concatenated, ``stats.json`` = the parts' stats + totals. Raises on two categories, a scenario
+    name twice or a seed id in two parts."""
+    import collections
+
+    scen, names, grader, prov, rej, metas, part_stats = [], {}, {}, [], [], set(), []
+    for d in dirs:
+        rd = lambda f, default: json.load(open(os.path.join(d, f))) if os.path.exists(os.path.join(d, f)) else default  # noqa: E731
+        scen += rd("scenarios.json", [])
+        names.update(rd("names.json", {}))
+        grader.update(rd("grader_info.json", {}))
+        metas.add(json.dumps(rd("pool.json", None), sort_keys=True))
+        part_stats.append(rd("stats.json", {}))
+        for f, acc in (("provenance.jsonl", prov), ("rejected.jsonl", rej)):
+            if os.path.exists(os.path.join(d, f)):
+                acc += [json.loads(x) for x in open(os.path.join(d, f)) if x.strip()]
+    cats = {s[0] for s in scen}
+    if len(cats) > 1:
+        raise RuntimeError(f"parts hold several categories: {sorted(cats)}")
+    if len(metas) > 1:
+        raise RuntimeError(f"parts disagree on pool.json: {sorted(metas)}")
+    dup = [n for n, c in collections.Counter(s[1] for s in scen).items() if c > 1]
+    if dup:
+        raise RuntimeError(f"scenario names in several parts: {dup[:5]}")
+    seeds = [p["seed"] for p in prov if "seed" in p] + [r["seed"] for r in rej if "seed" in r]
+    if len(set(seeds)) != len(seeds):
+        raise RuntimeError("a seed was used by several parts")
+    if set(names) != {s[1] for s in scen}:
+        raise RuntimeError("names.json does not match the scenarios")
+    json.dump(scen, open(os.path.join(out, "scenarios.json"), "w"), indent=1)
+    json.dump(names, open(os.path.join(out, "names.json"), "w"), indent=1)
+    if grader:
+        json.dump(grader, open(os.path.join(out, "grader_info.json"), "w"), indent=1)
+    meta = json.loads(metas.pop()) if metas else None
+    if meta is not None:
+        json.dump(meta, open(os.path.join(out, "pool.json"), "w"))
+    for f, rows in (("provenance.jsonl", prov), ("rejected.jsonl", rej)):
+        with open(os.path.join(out, f), "w") as fh:
+            for x in rows:
+                fh.write(json.dumps(x) + "\n")
+    stats = {"category": cats.pop() if cats else None, "parts": len(dirs), "kept": len(scen), "part_stats": part_stats}
+    json.dump(stats, open(os.path.join(out, "stats.json"), "w"), indent=1)
+    return stats
+
+
+class SelfPlayPoolMerge(Job):
+    """Parts of one pool (``SelfPlayListenerPool`` dirs, or any pool dir) as one pool dir (``merge_pool_dirs``), for
+    ``SelfPlayTrainScenarioMix``. More scenarios = one more part; only this job and the mix re-run."""
+
+    def __init__(self, *, parts: list):
+        assert parts, "no parts"
+        self.parts = list(parts)
+        self.out_dir = self.output_path("pool", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        stats = merge_pool_dirs([p.get_path() for p in self.parts], self.out_dir.get_path())
+        print(f"[sp-pool-merge] {stats['category']}: {stats['kept']} scenarios from {stats['parts']} parts", flush=True)
+
+
+def pool_minimal_prefix(d: str) -> bool:
+    """Whether the mix prepends the Minimal line to a pool's prompts: yes unless its ``pool.json`` says
+    ``minimal_prefix: false``."""
+    meta = os.path.join(d, "pool.json")
+    return bool(json.load(open(meta)).get("minimal_prefix", True)) if os.path.exists(meta) else True
+
+
 def mix_counts(sizes: dict, weights: dict, n_rows: int) -> dict:
     """Rows per pool: ``n_rows`` split by ``weights`` (largest remainder, ties by name); raises if a pool is too small
     or a weight has no pool."""
@@ -2782,8 +3466,9 @@ class SelfPlayTrainScenarioMix(Job):
     SelfPlayScenarioPool.out_dir}``) in the proportions ``weights`` (``mix_counts``), drawn without replacement
     (seeded). The RL source shuffles the rows once and draws them in order, so the row shares are the training shares;
     reweighting re-runs only this job. Rows as ``SelfPlayTrainScenarioSet``'s (ids ``sptr2:<category>:<name>``, Minimal
-    line prepended, a seeded voice pair per row) plus each side's name, gender and country (``""`` when unknown) and
-    ``grader_info`` (the pool's ``grader_info.json`` entry, else ``""``): facts the RL judge uses to check answers.
+    line prepended unless the pool's ``pool.json`` opts out (``pool_minimal_prefix``), a seeded voice pair per row)
+    plus each side's name, gender and country (``""`` when unknown) and ``grader_info`` (the pool's
+    ``grader_info.json`` entry, else ``""``): facts the RL judge uses to check answers.
 
     ``n_rows`` is fixed at declaration, so ``rl_spec`` checks a run's self-play draws against it before the run
     exists (``rules.check_scenario_budget``)."""
@@ -2804,9 +3489,10 @@ class SelfPlayTrainScenarioMix(Job):
 
         from .persona_prompts import PERSONA_MINIMAL
 
-        scen, sides, grader = {}, {}, {}
+        scen, sides, grader, prefix = {}, {}, {}, {}
         for cat in sorted(self.pools):
             d = self.pools[cat].get_path()
+            prefix[cat] = pool_minimal_prefix(d)
             scen[cat] = [tuple(s) for s in json.load(open(os.path.join(d, "scenarios.json")))]
             sides[cat] = json.load(open(os.path.join(d, "names.json")))
             g = os.path.join(d, "grader_info.json")
@@ -2819,6 +3505,7 @@ class SelfPlayTrainScenarioMix(Job):
         for cat in sorted(counts):
             for i in sorted(int(i) for i in rng.choice(len(scen[cat]), size=counts[cat], replace=False)):
                 _, name, pa, pb, level = scen[cat][i]
+                pa, pb = (f"{PERSONA_MINIMAL} {p}" if prefix[cat] else p for p in (pa, pb))
                 (na, ga, ca), (nb, gb, cb) = (s or ("", "", "") for s in sides[cat][name])
                 ia, ib = (int(j) for j in rng.choice(len(voices), size=2, replace=False))
                 rows.append(
@@ -2827,8 +3514,8 @@ class SelfPlayTrainScenarioMix(Job):
                         "scenario": name,
                         "category": cat,
                         "level": level,
-                        "context": [f"{PERSONA_MINIMAL} {pa}"],
-                        "context_other": [f"{PERSONA_MINIMAL} {pb}"],
+                        "context": [pa],
+                        "context_other": [pb],
                         "voice_codes": np.asarray(voices[ia]["codes"], np.int16),
                         "voice_codes_other": np.asarray(voices[ib]["codes"], np.int16),
                         "voice_label": str(voices[ia]["label"]),
@@ -2840,6 +3527,7 @@ class SelfPlayTrainScenarioMix(Job):
                 )  # fmt: skip
         assert len({r["id"] for r in rows}) == len(rows), "duplicate scenario ids"
         Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
-        stats = {"rows": len(rows), "per_category": counts, "weights": self.weights, "voices": len(voices)}
+        stats = {"rows": len(rows), "per_category": counts, "weights": self.weights, "voices": len(voices),
+                 "no_minimal_prefix": sorted(c for c in counts if not prefix[c])}  # fmt: skip
         json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
         print(f"[sp-train-mix] {stats}", flush=True)

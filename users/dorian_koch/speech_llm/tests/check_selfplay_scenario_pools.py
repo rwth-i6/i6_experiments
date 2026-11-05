@@ -29,7 +29,18 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
       [6b] the real mix job on tiny pools: rows per category, ``grader_info`` carried, unknown names blank
   [7] v1 untouched: the declared v1 jobs keep their hashes (``SelfPlayScenarioGen.99kKTwOy4fJc``,
-      ``SelfPlayTrainScenarioSet.3HPo2by9EG3X``); v2 is declared (pools per category, one mix) but registers nothing
+      ``SelfPlayTrainScenarioSet.3HPo2by9EG3X``); v2 is declared (pools per category, one mix), the 8 pools before the
+      listener ones keep their hashes
+  [8] listener pools (2026-11-05: B knows nothing about A, so B can only do well by listening):
+      [8a] seeds: emotion / problem / keyword filters counted; vent and advice never share an ED row, parts of a kind
+      are disjoint slices. CAN FAIL: mutants with overlapping slices or vent and advice on the same ED positions
+      [8b] the real SelfPlayListenerPool.run on a fake server: the pool format the mix reads, A's assigned name enforced,
+      ratings / details / third-person check, one distinct blind persona per scenario, grader notes, reasoning medium
+      for writing and high for rating, no system message or schema, a rerun requests nothing. CAN FAIL: a mutant
+      without the name check keeps a brief with another name
+      [8c] merge of parts: files joined; a scenario name or seed in two parts raises
+      [8d] mix: a pool whose pool.json opts out gets A and B exactly as written, the others keep the Minimal line.
+      CAN FAIL: a mutant without the opt-out prefixes the listener prompts
 
 Run from the setup root (~1 min, no GPU):
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_scenario_pools.py
@@ -598,6 +609,242 @@ with _tf.TemporaryDirectory() as tmp:
     assert all(r["name"] == "Ana" and r["name_other"] == "" and r["gender_other"] == "" for r in rows6)
 print("[6b] mix job: weights -> rows per category, grader notes carried (blank elsewhere), unknown names blank")
 
+
+# [8a] listener seeds: filters, vent/advice disjoint, parts disjoint ------------------------------------------------
+def _disjoint(*groups) -> bool:
+    ids = [s["id"] for g in groups for s in g]
+    return len(ids) == len(set(ids))
+
+
+emos = ["annoyed", "lonely", "sad", "joyful", "guilty", "nostalgic", "terrified", "anxious"]
+ed8 = [{"conv_id": f"hit:{i}_conv:{2 * i}", "situation": f"My neighbour number {i} keeps parking in my spot.",
+        "emotion": emos[i % len(emos)]} for i in range(80)]  # fmt: skip
+ed8 += [{"conv_id": "hit:900_conv:1", "situation": "I went to a funeral last week.", "emotion": "lonely"},
+        {"conv_id": "hit:901_conv:1", "situation": ed8[0]["situation"], "emotion": "annoyed"}]  # fmt: skip
+es8 = [{"id": f"esconv_train_{i}", "situation": f"My manager {i} ignores my ideas at work.",
+        "problem_type": ("job crisis", "ongoing depression", "Procrastination")[i % 3]} for i in range(12)]  # fmt: skip
+es8.append({"id": "esconv_train_99", "situation": "I can't pay my rent this month.", "problem_type": "job crisis"})
+wow8 = [{"id": f"wow_train_{i}", "post0": f"Topic {i % 10}\nI like topic {i % 10}.",
+         "knowledge0": [f"Topic __knowledge__ fact {j}" for j in range(6)]} for i in range(20)]  # fmt: skip
+wow8 += [{"id": "wow_train_50", "post0": "Kites\nI fly kites.", "knowledge0": ["K __knowledge__ one fact"]},
+         {"id": "wow_train_51", "post0": "Brewing\nI brew beer at home.", "knowledge0": wow8[0]["knowledge0"]}]  # fmt: skip
+seeds8, st8 = sb.listener_seed_lists(ed8, es8, wow8, 0)
+assert st8["ed"] == {"rows": 82, "duplicate": 1, "emotion_not_negative": 10, "kept": 50, "sensitive_emotion": 20,
+                     "sensitive_text": 1}, st8["ed"]  # fmt: skip
+assert st8["esconv"] == {"rows": 13, "kept": 8, "problem_type": 4, "sensitive_text": 1}, st8["esconv"]
+assert st8["wow"] == {"rows": 22, "duplicate": 10, "few_facts": 1, "kept": 10, "sensitive_text": 1}, st8["wow"]
+assert _disjoint(seeds8["vent"], seeds8["advice"]), "vent and advice share a seed"
+assert [s["src"] for s in seeds8["advice"][:8]] == ["esconv"] * 8 and {s["src"] for s in seeds8["advice"][8:]} == {"ed"}
+assert {s["emotion"] for s in seeds8["advice"][8:]} <= set(sb.LISTENER_ED_ADVICE)
+assert not {s["emotion"] for s in seeds8["vent"]} & set(sb.LISTENER_ED_SENSITIVE)
+assert seeds8 == sb.listener_seed_lists(ed8, es8, wow8, 0)[0] != sb.listener_seed_lists(ed8, es8, wow8, 1)[0]
+assert all(len(s["facts"]) >= sb.LISTENER_MIN_FACTS for s in seeds8["curious"])
+parts8 = [sb.listener_part(seeds8["vent"], k, 7) for k in range(3)]
+assert _disjoint(*parts8) and [s for p in parts8 for s in p] == seeds8["vent"][:21], "parts overlap or skip seeds"
+# mutants: overlapping slices; vent and advice drawing the same ED positions
+assert not _disjoint(*[seeds8["vent"][k : k + 7] for k in range(3)]), "mutant slicer should overlap"
+orig_halves = sb._ed_halves
+sb._ed_halves = lambda o: (o[0::2], o[0::2])
+try:
+    m8 = sb.listener_seed_lists(ed8, es8, wow8, 0)[0]
+    assert not _disjoint(m8["vent"], m8["advice"]), "mutant should make vent and advice share seeds"
+finally:
+    sb._ed_halves = orig_halves
+print("[8a] listener seeds: filters counted, vent/advice disjoint, parts disjoint (mutants overlap), seeded")
+
+# [8b] listener pool: the real run on a fake server (no LLM) -> the pool format the mix reads -----------------------
+seen8: list = []
+
+
+class _ListenerClient:
+    """Writer: uses the assigned name (``WRONGNAME`` in the seed: another), copies ``BADRATE``, skips ``SKIPME``,
+    asks a second-person check for ``YOUCHECK``; rater: safe 3 for ``BADRATE``; personas: named, the 3rd of each
+    full call in the third person; persona rater: all true."""
+
+    def __init__(self, **_):
+        self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
+
+    def create(self, *, messages, **kw):
+        user = messages[-1]["content"]
+        what = ("write" if user.startswith("Write the brief") else "rate" if user.startswith("You review") else
+                "persona" if "persona prompts for B" in user else "prate")  # fmt: skip
+        seen8.append(
+            (what, len(messages), (kw.get("extra_body") or {}).get("reasoning_effort"), "response_format" in kw)
+        )
+        if what == "write":
+            name = re.search(r'"Your name is (\S+?)\. You \.\.\."', user).group(1)
+            name = "Zorro" if "WRONGNAME" in user else name
+            tag = " BADRATE" if "BADRATE" in user else ""
+            body = {"skip": "SKIPME" in user, "title": "kite", "details": ["the blue kite", "the old oak tree"],
+                    "A": f"Your name is {name}. You lost the blue kite at Pinewood Park when the string snapped near "
+                    f"the old oak tree{tag}. You want someone to hear how annoying the whole afternoon was.",
+                    "check": "What did you lose?" if "YOUCHECK" in user else "What did the caller lose at the park?"}  # fmt: skip
+        elif what == "rate":
+            body = {c: 5 for c in sb.LISTENER_CRIT} | {"safe": 3 if "BADRATE" in user else 5, "flaws": []}
+        elif what == "persona":
+            names = re.findall(r"persona \d+: (\S+) \(", user)
+            body = {"personas": [f"She is {n}, a baker who talks a lot." if len(names) == 6 and j == 2 else
+                                 f"You are {n}, a retired bus driver who talks slowly and warmly and likes a laugh."
+                                 for j, n in enumerate(names)]}  # fmt: skip
+        else:
+            body = {q: True for q in sb.LISTENER_PERSONA_QS}
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok " + json.dumps(body)))]
+        )
+
+
+def _listener_run(tmp, part, n_seeds):
+    job = sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path(os.path.join(tmp, "seeds.json")),
+                                  names=tk.Path(os.path.join(tmp, "names.json")), n_seeds=n_seeds, part=part)  # fmt: skip
+    wd = os.path.join(tmp, f"job{part}")
+    os.makedirs(os.path.join(wd, "pool"), exist_ok=True)
+    job.out_dir = tk.Path(os.path.join(wd, "pool"))
+    os.chdir(wd)
+    job.run()
+    os.chdir(SETUP_DIR)
+    return os.path.join(wd, "pool")
+
+
+def _rd(d, f):
+    return json.load(open(os.path.join(d, f)))
+
+
+marks = {1: "WRONGNAME", 3: "BADRATE", 5: "SKIPME", 7: "YOUCHECK"}
+lseeds = {"vent": [{"src": "ed", "id": f"ed_hit_{i}", "emotion": "annoyed",
+                    "situation": f"My kite {i} got stuck in a tree. {marks.get(i % 10, '')}"} for i in range(20)]}  # fmt: skip
+sb.vllm_server = contextlib.contextmanager(lambda *_a, **_k: iter(["http://fake"]))
+openai.OpenAI = _ListenerClient
+lt = tempfile.mkdtemp()
+try:
+    json.dump(lseeds, open(os.path.join(lt, "seeds.json"), "w"))
+    json.dump({"countries": big}, open(os.path.join(lt, "names.json"), "w"))
+    p0 = _listener_run(lt, 0, 10)
+    st = _rd(p0, "stats.json")
+    assert st["reasons"] == {"kept": 6, "name_not_used": 1, "rating": 1, "skipped": 1, "check_second_person": 1}, st
+    assert st["personas"] == {"kept": 11, "third_person": 2}, st["personas"]  # 13 B names = 1.25 x 10 seeds
+    scen, nm, gi = _rd(p0, "scenarios.json"), _rd(p0, "names.json"), _rd(p0, "grader_info.json")
+    assert _rd(p0, "pool.json") == {"category": "listener_vent", "minimal_prefix": False}
+    for cat_, name_, pa_, pb_, level_ in scen:
+        (an, ag, ac), (bn, bg, bc) = nm[name_]
+        assert cat_ == "listener_vent" and level_ == sb.LISTENER_LEVEL and name_.startswith("vent_")
+        assert pa_.startswith(f"Your name is {an}. You lost") and pb_.startswith(f"You are {bn}, a retired")
+        assert an != bn and ag in "mfu" and bg in "mfu" and ac and bc
+        assert '"the blue kite"' in gi[name_] and gi[name_].endswith("What did the caller lose at the park?")
+    assert len({nm[s[1]][1][0] for s in scen}) == len(scen), "two scenarios share a B persona"
+    sb.check_scenarios([s[:4] for s in scen], categories=None, max_words=sb.LISTENER_MAX_WORDS)
+    rej = {r["seed"]: r["reason"] for r in map(json.loads, open(os.path.join(p0, "rejected.jsonl")))}
+    assert rej == {
+        "ed_hit_1": "name_not_used",
+        "ed_hit_3": "rating",
+        "ed_hit_5": "skipped",
+        "ed_hit_7": "check_second_person",
+    }
+    effort = {w: {e for w2, _, e, _ in seen8 if w2 == w} for w in ("write", "rate", "persona", "prate")}
+    assert effort == {"write": {"medium"}, "rate": {"high"}, "persona": {"medium"}, "prate": {"high"}}, effort
+    assert {n for _, n, _, _ in seen8} == {1} and not any(f for *_, f in seen8), "system message or schema sent"
+    n_calls = len(seen8)
+    assert _listener_run(lt, 0, 10) and len(seen8) == n_calls, "a rerun requested calls again"
+    # mutant: no name check -> the scenario with another name is kept
+    orig_uses = sb.listener_uses_name
+    sb.listener_uses_name = lambda *a: True
+    try:
+        mut = _listener_run(lt, 0, 10)
+        assert any(s[2].startswith("Your name is Zorro") for s in _rd(mut, "scenarios.json")), (
+            "mutant should keep Zorro"
+        )
+    finally:
+        sb.listener_uses_name = orig_uses
+    p0 = _listener_run(lt, 0, 10)
+    p1 = _listener_run(lt, 1, 10)
+finally:
+    sb.vllm_server, openai.OpenAI = orig_server, orig_client
+    os.chdir(SETUP_DIR)
+assert sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_path, n_seeds=10)._sis_hash() != (
+    sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_path, n_seeds=10, part=1)._sis_hash()
+)
+print("[8b] listener pool: real run on a fake server -> pool format, assigned names (mutant keeps another), ratings, "
+      "personas blind and distinct, grader notes, efforts medium/high, no system/schema, resumes")  # fmt: skip
+
+# [8c] merge: parts as one pool; a seed or name in two parts raises -----------------------------------------------------
+import shutil  # noqa: E402
+
+out8 = os.path.join(lt, "merged")
+os.makedirs(out8)
+ms = sb.merge_pool_dirs([p0, p1], out8)
+assert ms["kept"] == len(_rd(p0, "scenarios.json")) + len(_rd(p1, "scenarios.json")) == len(_rd(out8, "scenarios.json"))
+assert set(_rd(out8, "names.json")) == {s[1] for s in _rd(out8, "scenarios.json")} == set(_rd(out8, "grader_info.json"))
+assert _rd(out8, "pool.json") == {"category": "listener_vent", "minimal_prefix": False} and ms["parts"] == 2
+for bad_parts, want in (([p0, p0], "scenario names"), ([p0, "dup_seed"], "seed")):
+    if "dup_seed" in bad_parts:
+        dd = os.path.join(lt, "dup_seed")
+        shutil.copytree(p1, dd)
+        rows = [json.loads(x) for x in open(os.path.join(dd, "provenance.jsonl"))]
+        rows[0]["seed"] = "ed_hit_0"  # part 0's seed
+        open(os.path.join(dd, "provenance.jsonl"), "w").write("".join(json.dumps(r) + "\n" for r in rows))
+        bad_parts = [p0, dd]
+    tmp_out = os.path.join(lt, f"bad_{want.replace(' ', '_')}")
+    os.makedirs(tmp_out)
+    try:
+        sb.merge_pool_dirs(bad_parts, tmp_out)
+    except RuntimeError as e:
+        assert want in str(e), e
+    else:
+        raise AssertionError(f"merge accepted overlapping parts ({want})")
+print(f"[8c] merge: {ms['kept']} scenarios from 2 parts, files joined; a shared scenario name or seed raises")
+
+# [8d] mix: a pool that opts out of the Minimal line gets its prompts as written; others keep it --------------------
+from i6_experiments.users.dorian_koch.speech_llm.persona_prompts import PERSONA_MINIMAL  # noqa: E402
+
+plain = os.path.join(lt, "plain")
+os.makedirs(plain)
+json.dump([["topic", f"t{i}", f"Your name is A{i}. a b c d e f", f"Your name is B{i}. a b c d e f", "l"] for i in range(6)],
+          open(os.path.join(plain, "scenarios.json"), "w"))  # fmt: skip
+json.dump({f"t{i}": [["Ana", "f", "ES"], None] for i in range(6)}, open(os.path.join(plain, "names.json"), "w"))
+vd8 = os.path.join(lt, "voices")
+Dataset.from_list([{"label": f"v{i}", "codes": np.zeros(16, np.int16)} for i in range(5)]).save_to_disk(vd8)
+
+
+def _mix8(tag):
+    m = sb.SelfPlayTrainScenarioMix(pools={"topic": tk.Path(plain), "listener_vent": tk.Path(out8)},
+                                    weights={"topic": 1, "listener_vent": 1}, voices=tk.Path(vd8), n_rows=8)  # fmt: skip
+    m.out_dir, m.out_stats = tk.Path(os.path.join(lt, f"mix_{tag}")), tk.Path(os.path.join(lt, f"mix_{tag}.json"))
+    m.run()
+    return list(load_from_disk(os.path.join(lt, f"mix_{tag}")))
+
+
+def _prefix_ok(rows8) -> bool:
+    src8 = {s[1]: s for s in _rd(out8, "scenarios.json")}
+    for r in rows8:
+        if r["category"] == "listener_vent":
+            s = src8[r["scenario"]]
+            if (r["context"], r["context_other"]) != ([s[2]], [s[3]]):
+                return False
+        elif not (
+            r["context"][0].startswith(PERSONA_MINIMAL + " ")
+            and r["context_other"][0].startswith(PERSONA_MINIMAL + " ")
+        ):
+            return False
+    return True
+
+
+rows8 = _mix8("ok")
+assert collections.Counter(r["category"] for r in rows8) == {"topic": 4, "listener_vent": 4}
+assert _prefix_ok(rows8), "listener prompts changed or the Minimal line missing elsewhere"
+assert all(
+    r["grader_info"] == _rd(out8, "grader_info.json")[r["scenario"]] for r in rows8 if r["category"] == "listener_vent"
+)
+assert json.load(open(os.path.join(lt, "mix_ok.json")))["no_minimal_prefix"] == ["listener_vent"]
+orig_prefix = sb.pool_minimal_prefix
+sb.pool_minimal_prefix = lambda d: True  # mutant: no opt-out
+try:
+    assert not _prefix_ok(_mix8("mut")), "mutant should prefix the listener prompts"
+finally:
+    sb.pool_minimal_prefix = orig_prefix
+shutil.rmtree(lt)
+print(
+    "[8d] mix: listener pool rows carry A and B exactly as written (mutant prefixes them), other pools keep the Minimal line"
+)
+
 # [7] ---------------------------------------------------------------------------------------------------------------
 from speech_llm.full_duplex.sis_recipe.doriank import track_persona_rl_selfplay as rs  # noqa: E402
 
@@ -607,10 +854,22 @@ assert v1.creator.scenarios.creator._sis_id().endswith("SelfPlayScenarioGen.99kK
     v1.creator.scenarios.creator._sis_id()
 )
 pools = rs.selfplay_scenario_pools_v2()
+listener_cats = [f"listener_{k}" for k in sb.LISTENER_KINDS]
 assert (
-    sorted(pools) == sorted([*sb.SPJ2_CATEGORIES, *sb.SP_V2_CATEGORIES, "ask_and_answer"])
-    and len({p.creator._sis_id() for p in pools.values()}) == 8
+    sorted(pools) == sorted([*sb.SPJ2_CATEGORIES, *sb.SP_V2_CATEGORIES, "ask_and_answer", *listener_cats])
+    and len({p.creator._sis_id() for p in pools.values()}) == 11
 )
+# the pools declared before the listener ones (none has run): their hashes as of 2026-11-05
+before = {"ask_and_answer": "SelfPlayPersonaIfScenes.osfS15B4X6U9", "clarify": "SelfPlayScenarioPool.2i5h8P2VuKno",
+          "exchange_details": "SelfPlayScenarioPool.FgLLhJEQVE4d", "instruction": "SelfPlayScenarioPool.CrLsqIYPNQ03",
+          "task": "SelfPlayScenarioPool.Cjt6V7Ia8BSB", "teach_check": "SelfPlayScenarioPool.XtHhfUU9Hth9",
+          "tension": "SelfPlayScenarioPool.oMQmBjLcrfBS", "topic": "SelfPlayScenarioPool.GEKx51Gdupr5"}  # fmt: skip
+for c, h in before.items():
+    assert pools[c].creator._sis_id().endswith(h), (c, pools[c].creator._sis_id())
+parts = rs.listener_pool_parts()
+for k in sb.LISTENER_KINDS:
+    assert [p.creator._sis_id() for p in pools[f"listener_{k}"].creator.parts] == [p._sis_id() for p in parts[k]]
+    assert [p.part for p in parts[k]] == list(range(rs.LISTENER_PARTS[k]))
 mix = rs.selfplay_train_scenarios_v2().creator
 mix2 = rs.selfplay_train_scenarios_v2({**{c: 1 for c in pools}, "topic": 2}).creator
 assert mix._sis_id() != mix2._sis_id(), "a reweighted mix is the same job"
