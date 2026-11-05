@@ -34,18 +34,27 @@ def delay_embedding(delay_frames: ReturnnTensor, *, feat_dim: ReturnnDim) -> Ret
 class AdaRmsNormDecoderLayer(TransformerDecoderLayer):
     """Decoder layer scaling its feed-forward input by an MLP of the delay, the Ada RMSNorm of Voxtral Realtime."""
 
-    def __init__(self, encoder_dim: Optional[ReturnnDim], out_dim: ReturnnDim, *, ada_rms_norm_dim: int, **kwargs):
+    def __init__(
+        self,
+        encoder_dim: Optional[ReturnnDim],
+        out_dim: ReturnnDim,
+        *,
+        ada_rms_norm_dim: int,
+        delay_dim: Optional[ReturnnDim] = None,
+        **kwargs,
+    ):
         """
         :param encoder_dim: None, the layer has no cross-attention
         :param out_dim: the model dim
         :param ada_rms_norm_dim: width of the hidden layer of the delay MLP
+        :param delay_dim: width of the delay embedding the MLP reads, None for the model dim
         :param kwargs: the options of :class:`TransformerDecoderLayer`
         """
         assert encoder_dim is None, "the delay takes the place of the cross-attention input"
         super().__init__(encoder_dim, out_dim, **kwargs)
 
         hidden_dim = ReturnnDim(ada_rms_norm_dim, name="ada_rms_norm_hidden")
-        self.ada_rms_norm_in = rf.Linear(out_dim, hidden_dim, with_bias=False)
+        self.ada_rms_norm_in = rf.Linear(out_dim if delay_dim is None else delay_dim, hidden_dim, with_bias=False)
         self.ada_rms_norm_out = rf.Linear(hidden_dim, out_dim, with_bias=False)
         # zero init, the scale starts at one
         self.ada_rms_norm_out.weight.initial = 0.0
