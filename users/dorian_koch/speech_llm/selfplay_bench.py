@@ -3473,12 +3473,21 @@ class SelfPlayTrainScenarioMix(Job):
     ``grader_info.json`` entry, else ``""``): facts the RL judge uses to check answers.
 
     ``n_rows`` is fixed at declaration, so ``rl_spec`` checks a run's self-play draws against it before the run
-    exists (``rules.check_scenario_budget``)."""
+    exists (``rules.check_scenario_budget``). ``n_rows=None``: every row of every pool with a positive weight, once
+    (the count is known only when the pools have run; the run checks its budget at start).
 
-    def __init__(self, *, pools: dict, weights: dict, voices: tk.Path, n_rows: int, seed: int = 0):
+    ``base``: a finished training input (``SelfPlayTrainScenarioSet`` / mix ``out_dir``) whose rows come first,
+    copied as they are (prompts, ids, voices); columns it lacks are ``""``, which the RL source reads as absent."""
+
+    __sis_hash_exclude__ = {"base": None}
+
+    def __init__(
+        self, *, pools: dict, weights: dict, voices: tk.Path, n_rows: int | None, seed: int = 0, base: tk.Path = None
+    ):
         assert set(weights) <= set(pools), set(weights) - set(pools)
         self.pools, self.weights, self.voices = dict(pools), dict(weights), voices
-        self.n_rows, self.seed = int(n_rows), int(seed)
+        self.n_rows, self.seed = None if n_rows is None else int(n_rows), int(seed)
+        self.base = base
         self.out_dir = self.output_path("dataset", directory=True)
         self.out_stats = self.output_path("stats.json")
 
@@ -3500,7 +3509,12 @@ class SelfPlayTrainScenarioMix(Job):
             g = os.path.join(d, "grader_info.json")
             grader[cat] = json.load(open(g)) if os.path.exists(g) else {}
             assert all(s[0] == cat for s in scen[cat]), f"pool {cat} holds another category"
-        counts = mix_counts({k: len(v) for k, v in scen.items()}, self.weights, self.n_rows)
+        sizes = {k: len(v) for k, v in scen.items()}
+        if self.n_rows is None:
+            counts = {k: sizes[k] for k, w in self.weights.items() if float(w) > 0}
+            assert counts, "all weights are zero"
+        else:
+            counts = mix_counts(sizes, self.weights, self.n_rows)
         voices = list(load_from_disk(self.voices.get_path()).select_columns(["label", "codes"]))
         rng = np.random.default_rng(self.seed)
         rows = []
@@ -3527,9 +3541,19 @@ class SelfPlayTrainScenarioMix(Job):
                         "grader_info": str(grader[cat].get(name, "")),
                     }
                 )  # fmt: skip
+        base = []
+        if self.base is not None:
+            assert rows, "no pool rows to take the columns from"
+            for r in load_from_disk(self.base.get_path()):
+                extra = set(r) - set(rows[0])
+                assert not extra, f"base columns the mix rows lack: {sorted(extra)}"
+                base.append({k: r.get(k, "") for k in rows[0]})
+                for k in ("voice_codes", "voice_codes_other"):
+                    base[-1][k] = np.asarray(r[k], np.int16)
+        rows = base + rows
         assert len({r["id"] for r in rows}) == len(rows), "duplicate scenario ids"
         Dataset.from_list(rows).save_to_disk(self.out_dir.get_path())
-        stats = {"rows": len(rows), "per_category": counts, "weights": self.weights, "voices": len(voices),
-                 "no_minimal_prefix": sorted(c for c in counts if not prefix[c])}  # fmt: skip
+        stats = {"rows": len(rows), "base_rows": len(base), "per_category": counts, "weights": self.weights,
+                 "voices": len(voices), "no_minimal_prefix": sorted(c for c in counts if not prefix[c])}  # fmt: skip
         json.dump(stats, open(self.out_stats.get_path(), "w"), indent=1)
         print(f"[sp-train-mix] {stats}", flush=True)

@@ -45,6 +45,12 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       [8c] merge of parts: files joined; a scenario name or seed in two parts raises
       [8d] mix: a pool whose pool.json opts out gets A and B exactly as written, the others keep the Minimal line.
       CAN FAIL: a mutant without the opt-out prefixes the listener prompts
+      [8e] v1 + listener input (MT v4, ``selfplay_train_scenarios_v1_plus_listener``): the real SelfPlayTrainScenarioSet
+      and the mix with ``base`` = its output and ``n_rows=None``, read through the RL source
+      (``SelfPlayScenarioSource.pair``): rows = v1 + every listener row once, v1 rows reach the source exactly as from
+      the v1 set (Minimal-prefixed prompts, voices, no grader notes), listener rows as written with their grader notes,
+      no id or prompt pair twice; the declared job takes v1's set as ``base`` and v2's listener merges. CAN FAIL:
+      mutants that prefix the listener prompts or drop the base
 
 Run from the setup root (~1 min, no GPU):
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_selfplay_scenario_pools.py
@@ -871,10 +877,81 @@ try:
     assert not _prefix_ok(_mix8("mut")), "mutant should prefix the listener prompts"
 finally:
     sb.pool_minimal_prefix = orig_prefix
-shutil.rmtree(lt)
 print(
     "[8d] mix: listener pool rows carry A and B exactly as written (mutant prefixes them), other pools keep the Minimal line"
 )
+
+# [8e] v1 set + every listener row once, read through the RL source ---------------------------------------------------
+sys.path.insert(0, os.path.join(SETUP_DIR, "recipe", "speech_llm", "full_duplex"))
+from moshi_family.rl.ppx_selfplay import SelfPlayScenarioSource  # noqa: E402
+
+v1d = os.path.join(lt, "v1")
+os.makedirs(v1d)
+v1_scen = [[c, f"{c}_s{i}", f"Your name is P{i}. {c} a b c d e", f"Your name is Q{i}. {c} a b c d e", "general"]
+           for c in sb.SPJ2_CATEGORIES for i in range(2)]  # fmt: skip
+json.dump(v1_scen, open(os.path.join(v1d, "scenarios.json"), "w"))
+vd8e = os.path.join(lt, "voices8e")
+Dataset.from_list([{"label": f"v{i}", "codes": np.full(16, i, np.int16)} for i in range(5)]).save_to_disk(vd8e)
+v1set = sb.SelfPlayTrainScenarioSet(scenarios=tk.Path(os.path.join(v1d, "scenarios.json")), voices=tk.Path(vd8e))
+v1set.out_dir = tk.Path(os.path.join(v1d, "dataset"))
+v1set.run()
+
+
+def _mix8e(tag, base=v1set.out_dir):
+    m = sb.SelfPlayTrainScenarioMix(pools={"listener_vent": tk.Path(out8)}, weights={"listener_vent": 1.0},
+                                    voices=tk.Path(vd8e), n_rows=None, base=base)  # fmt: skip
+    m.out_dir, m.out_stats = tk.Path(os.path.join(lt, f"mix8e_{tag}")), tk.Path(os.path.join(lt, f"mix8e_{tag}.json"))
+    m.run()
+    return os.path.join(lt, f"mix8e_{tag}")
+
+
+def _source(ds):
+    man = os.path.join(lt, f"manifest_{os.path.basename(ds)}.json")
+    json.dump({"scenarios": ds, "n_probe": 0, "seed": 0}, open(man, "w"))
+    src = SelfPlayScenarioSource(man, log=lambda *_: None)
+    out = {}
+    for i in range(len(src.rows)):
+        a, b = src.pair(i)
+        out[a.meta["scenario_id"]] = (a.meta["prompts"], [v.tolist() for v in a.meta["voices"]],
+                                      a.meta.get("grader_info"), b.meta.get("grader_info"), a.meta["category"])  # fmt: skip
+    return out
+
+
+def _v1_plus_listener_ok(ds) -> str:
+    """ "" if ``ds`` is the v1 set plus every listener row once, each as the RL source should see it; else why not."""
+    got, want_v1 = _source(ds), _source(v1set.out_dir.get_path())
+    lis = {s[1]: s for s in _rd(out8, "scenarios.json")}
+    notes = _rd(out8, "grader_info.json")
+    if len(load_from_disk(ds)) != len(want_v1) + len(lis) or len(got) != len(want_v1) + len(lis):
+        return f"{len(got)} rows, want {len(want_v1)} + {len(lis)}"
+    for sid, w in want_v1.items():
+        if got.get(sid) != w or w[2] is not None:
+            return f"v1 row {sid} differs from the v1 set's"
+        if not all(p.startswith(PERSONA_MINIMAL + " ") for p in w[0]):
+            return f"v1 row {sid} lost the Minimal line"
+    for name, s in lis.items():
+        g = got.get(f"sptr2:listener_vent:{name}")
+        if g is None or g[0] != (s[2], s[3]) or g[2] != notes[name] or g[3] != notes[name]:
+            return f"listener row {name} not as written or without its grader notes"
+    if len({v[0] for v in got.values()}) != len(got):
+        return "a prompt pair twice"
+    return ""
+
+
+ds8e = _mix8e("ok")
+assert _v1_plus_listener_ok(ds8e) == "", _v1_plus_listener_ok(ds8e)
+st8e = json.load(open(os.path.join(lt, "mix8e_ok.json")))
+assert st8e["base_rows"] == len(v1_scen) and st8e["rows"] == len(v1_scen) + len(_rd(out8, "scenarios.json")), st8e
+orig_prefix = sb.pool_minimal_prefix
+sb.pool_minimal_prefix = lambda d: True  # mutant: listener prompts prefixed
+try:
+    assert "listener row" in _v1_plus_listener_ok(_mix8e("mut_prefix")), "mutant should prefix the listener prompts"
+finally:
+    sb.pool_minimal_prefix = orig_prefix
+assert "rows, want" in _v1_plus_listener_ok(_mix8e("mut_nobase", base=None)), "mutant without the base should fail"
+shutil.rmtree(lt)
+print(f"[8e] v1 + listener: {st8e['rows']} rows = {len(v1_scen)} v1 (as the v1 set yields them) + "
+      f"{st8e['rows'] - len(v1_scen)} listener (as written, grader notes); mutants (prefix, no base) fail")  # fmt: skip
 
 # [7] ---------------------------------------------------------------------------------------------------------------
 from speech_llm.full_duplex.sis_recipe.doriank import track_persona_rl_selfplay as rs  # noqa: E402
@@ -910,5 +987,10 @@ assert {p.creator._sis_id() for p in mix.pools.values()} == {p.creator._sis_id()
 print(
     f"[7] v1 hashes unchanged; v2 declared: {len(pools)} pools, mix {mix._sis_id().split('/')[-1]}; reweighting re-runs only the mix"
 )
+v4in = rs.selfplay_train_scenarios_v1_plus_listener().creator
+assert v4in.base == v1 and v4in.n_rows is None and set(v4in.weights) == set(v4in.pools) == set(listener_cats)
+assert {c: p.creator._sis_id() for c, p in v4in.pools.items()} == {c: pools[c].creator._sis_id() for c in listener_cats}
+assert v4in.voices.creator._sis_id() == v1.creator.voices.creator._sis_id(), "v4 input draws other voices than v1"
+print(f"[7] v1 + listener input declared: {v4in._sis_id().split('/')[-1]} (base = v1 set, v2's listener merges)")
 
 print("\nall self-play scenario pool checks passed")
