@@ -815,5 +815,9 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_shared_reward.py": {
   "env": "module"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_ppx_batched_prompts.py": {
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1800
  }
 }
