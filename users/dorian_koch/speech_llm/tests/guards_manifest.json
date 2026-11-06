@@ -809,5 +809,11 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_probe_eval.py": {
   "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_legibility.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_shared_reward.py": {
+  "env": "module"
  }
 }
