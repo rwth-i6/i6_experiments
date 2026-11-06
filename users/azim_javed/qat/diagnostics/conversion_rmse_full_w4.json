@@ -1,0 +1,1411 @@
+{
+  "alias": "/work/smt4/azim.javed/sisyphus_work/model_pipelines/common/memrecog/MemristorModelConversionJob.jnW3fxJoeLVD",
+  "digital": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.rvKceYv76piK/output/models/epoch.2000.pt",
+  "converted": "/work/smt4/azim.javed/sisyphus_work/model_pipelines/common/memrecog/MemristorModelConversionJob.jnW3fxJoeLVD/output/memristor_converted_model.pt",
+  "bits": 4,
+  "layers": [
+    {
+      "name": "conformer.module_list.0.module_list.0.linear_ff",
+      "weight_shape": [
+        2048,
+        512
+      ],
+      "weight_scale": 0.22253354805937597,
+      "observer_scale": 0.22253353893756866,
+      "scale_relative_difference": 4.0990707976189413e-08,
+      "current_weight_absmax": 1.325971007347107,
+      "nonzero_fraction": 0.32921791076660156,
+      "weight_rms": 0.13287973403930664,
+      "programming_weight_rmse": 0.05402099457327128,
+      "relative_weight_rmse": 0.4065405079550471,
+      "best_fit_weight_gain": 0.681967987295219,
+      "gain_removed_weight_rmse": 0.033650550174022825,
+      "gain_removed_relative_weight_rmse": 0.25324064965443704,
+      "zero_bit_rmse": 0.03275129509768902,
+      "on_bit_rmse": 0.320665153394643,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03280812267264317,
+          "zero_bit_rmse": 0.03280049443942937
+        },
+        {
+          "bit": 1,
+          "rmse": 0.044375642350567464,
+          "zero_bit_rmse": 0.03271801531227142
+        },
+        {
+          "bit": 0,
+          "rmse": 0.18354142631075104,
+          "zero_bit_rmse": 0.03272734567906949
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 1.391723394393921,
+          "relative_to_reference_std": 0.3815567128963874,
+          "best_fit_signal_gain": 0.9744678289718329,
+          "gain_removed_rmse": 1.3885917663574219,
+          "gain_removed_relative_rmse": 0.37995202989631094
+        },
+        "adc_4_8": {
+          "rmse": 1.391723394393921,
+          "relative_to_reference_std": 0.3815567128963874,
+          "best_fit_signal_gain": 0.9744678289718329,
+          "gain_removed_rmse": 1.3885917663574219,
+          "gain_removed_relative_rmse": 0.37995202989631094
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 1.5739078521728516,
+          "relative_to_reference_std": 0.43150464301738084,
+          "best_fit_signal_gain": 1.429069139107045,
+          "gain_removed_rmse": 0.13512079417705536,
+          "gain_removed_relative_rmse": 0.03697229183739745
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.0.linear_out",
+      "weight_shape": [
+        512,
+        2048
+      ],
+      "weight_scale": 0.1787464985332221,
+      "observer_scale": 0.17874650657176971,
+      "scale_relative_difference": 4.49717746070206e-08,
+      "current_weight_absmax": 0.9147791862487793,
+      "nonzero_fraction": 0.4065427780151367,
+      "weight_rms": 0.12187500298023224,
+      "programming_weight_rmse": 0.04722320583545688,
+      "relative_weight_rmse": 0.38747244866214564,
+      "best_fit_weight_gain": 0.682610730865251,
+      "gain_removed_weight_rmse": 0.02708778708054935,
+      "gain_removed_relative_weight_rmse": 0.2222587603541877,
+      "zero_bit_rmse": 0.03278847298606302,
+      "on_bit_rmse": 0.3207884019917194,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03283313548672341,
+          "zero_bit_rmse": 0.03277709017813481
+        },
+        {
+          "bit": 1,
+          "rmse": 0.05458834089655894,
+          "zero_bit_rmse": 0.03287758251956665
+        },
+        {
+          "bit": 0,
+          "rmse": 0.20150387769407532,
+          "zero_bit_rmse": 0.032663696505891064
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 6.25720739364624,
+          "relative_to_reference_std": 0.3269565871275782,
+          "best_fit_signal_gain": 0.9778855748087548,
+          "gain_removed_rmse": 6.24287748336792,
+          "gain_removed_relative_rmse": 0.3261939275132523
+        },
+        "adc_4_8": {
+          "rmse": 6.25720739364624,
+          "relative_to_reference_std": 0.3269565871275782,
+          "best_fit_signal_gain": 0.9778855748087548,
+          "gain_removed_rmse": 6.24287748336792,
+          "gain_removed_relative_rmse": 0.3261939275132523
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 8.262803077697754,
+          "relative_to_reference_std": 0.43175457107823717,
+          "best_fit_signal_gain": 1.4298073250732022,
+          "gain_removed_rmse": 0.7801815867424011,
+          "gain_removed_relative_rmse": 0.04076493518109728
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.1.pointwise_conv1",
+      "weight_shape": [
+        1024,
+        512
+      ],
+      "weight_scale": 0.13877554622612642,
+      "observer_scale": 0.1387755423784256,
+      "scale_relative_difference": 2.772607304340104e-08,
+      "current_weight_absmax": 0.7413768768310547,
+      "nonzero_fraction": 0.5241546630859375,
+      "weight_rms": 0.120169997215271,
+      "programming_weight_rmse": 0.04362723743375338,
+      "relative_weight_rmse": 0.36304600519878605,
+      "best_fit_weight_gain": 0.6823086510823392,
+      "gain_removed_weight_rmse": 0.02111526667555868,
+      "gain_removed_relative_weight_rmse": 0.17571163489113725,
+      "zero_bit_rmse": 0.0327660188279268,
+      "on_bit_rmse": 0.3207749683239029,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03296971753426561,
+          "zero_bit_rmse": 0.03269809629672283
+        },
+        {
+          "bit": 1,
+          "rmse": 0.089166042925059,
+          "zero_bit_rmse": 0.03291422944171033
+        },
+        {
+          "bit": 0,
+          "rmse": 0.21903261114710001,
+          "zero_bit_rmse": 0.032634684170021425
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.9107575416564941,
+          "relative_to_reference_std": 0.25596529051603556,
+          "best_fit_signal_gain": 0.9730078259140776,
+          "gain_removed_rmse": 0.9056781530380249,
+          "gain_removed_relative_rmse": 0.2545023599837866
+        },
+        "adc_4_8": {
+          "rmse": 0.9107575416564941,
+          "relative_to_reference_std": 0.25596529051603556,
+          "best_fit_signal_gain": 0.9730078259140776,
+          "gain_removed_rmse": 0.9056781530380249,
+          "gain_removed_relative_rmse": 0.2545023599837866
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 1.5302081108093262,
+          "relative_to_reference_std": 0.43005975324773227,
+          "best_fit_signal_gain": 1.4287838806653532,
+          "gain_removed_rmse": 0.11500206589698792,
+          "gain_removed_relative_rmse": 0.03231644384444541
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.1.pointwise_conv2",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.16463120946579402,
+      "observer_scale": 0.1646312028169632,
+      "scale_relative_difference": 4.038621297468673e-08,
+      "current_weight_absmax": 0.7768863439559937,
+      "nonzero_fraction": 0.4936370849609375,
+      "weight_rms": 0.1356056034564972,
+      "programming_weight_rmse": 0.04984962856503078,
+      "relative_weight_rmse": 0.36760743873701895,
+      "best_fit_weight_gain": 0.6819276687170029,
+      "gain_removed_weight_rmse": 0.024991636893529023,
+      "gain_removed_relative_weight_rmse": 0.18429649112211235,
+      "zero_bit_rmse": 0.03271578998149968,
+      "on_bit_rmse": 0.3204983037236411,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03317301352058449,
+          "zero_bit_rmse": 0.03275966285131921
+        },
+        {
+          "bit": 1,
+          "rmse": 0.08181749053596526,
+          "zero_bit_rmse": 0.03273663440695997
+        },
+        {
+          "bit": 0,
+          "rmse": 0.21425370557564521,
+          "zero_bit_rmse": 0.03260178337591684
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 3.2147274017333984,
+          "relative_to_reference_std": 0.27718323302951786,
+          "best_fit_signal_gain": 0.970069383625655,
+          "gain_removed_rmse": 3.1959340572357178,
+          "gain_removed_relative_rmse": 0.2755861565967437
+        },
+        "adc_4_8": {
+          "rmse": 3.2147274017333984,
+          "relative_to_reference_std": 0.27718323302951786,
+          "best_fit_signal_gain": 0.970069383625655,
+          "gain_removed_rmse": 3.1959340572357178,
+          "gain_removed_relative_rmse": 0.2755861565967437
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 5.014403820037842,
+          "relative_to_reference_std": 0.43235661655299523,
+          "best_fit_signal_gain": 1.4306218771099841,
+          "gain_removed_rmse": 0.4534331262111664,
+          "gain_removed_relative_rmse": 0.03909964670368199
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.2.mhsa.qkv_proj",
+      "weight_shape": [
+        1536,
+        512
+      ],
+      "weight_scale": 0.254336735245035,
+      "observer_scale": 0.25433674454689026,
+      "scale_relative_difference": 3.6572990279471264e-08,
+      "current_weight_absmax": 1.4225331544876099,
+      "nonzero_fraction": 0.22478103637695312,
+      "weight_rms": 0.12542785704135895,
+      "programming_weight_rmse": 0.05524469696325025,
+      "relative_weight_rmse": 0.4404499787079493,
+      "best_fit_weight_gain": 0.6828164131327021,
+      "gain_removed_weight_rmse": 0.03833063498310959,
+      "gain_removed_relative_weight_rmse": 0.3055990581938296,
+      "zero_bit_rmse": 0.03271896179907602,
+      "on_bit_rmse": 0.3205386168012412,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03281513508028664,
+          "zero_bit_rmse": 0.03276412935959217
+        },
+        {
+          "bit": 1,
+          "rmse": 0.04047963066107797,
+          "zero_bit_rmse": 0.0326843536480017
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1528760235564911,
+          "zero_bit_rmse": 0.03270512245057857
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 1.3632696866989136,
+          "relative_to_reference_std": 0.4467395251564691,
+          "best_fit_signal_gain": 0.9718867374515476,
+          "gain_removed_rmse": 1.3605687618255615,
+          "gain_removed_relative_rmse": 0.44594182118938264
+        },
+        "adc_4_8": {
+          "rmse": 1.3632696866989136,
+          "relative_to_reference_std": 0.4467395251564691,
+          "best_fit_signal_gain": 0.9718867374515476,
+          "gain_removed_rmse": 1.3605687618255615,
+          "gain_removed_relative_rmse": 0.44594182118938264
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 1.313187599182129,
+          "relative_to_reference_std": 0.4303277702305089,
+          "best_fit_signal_gain": 1.4289107262480698,
+          "gain_removed_rmse": 0.10959196835756302,
+          "gain_removed_relative_rmse": 0.03592000884360057
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.2.mhsa.out_proj",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.1341373797413814,
+      "observer_scale": 0.13413739204406738,
+      "scale_relative_difference": 9.171705065674444e-08,
+      "current_weight_absmax": 0.6802146434783936,
+      "nonzero_fraction": 0.541748046875,
+      "weight_rms": 0.12122642993927002,
+      "programming_weight_rmse": 0.04361239618503948,
+      "relative_weight_rmse": 0.35975979996183743,
+      "best_fit_weight_gain": 0.6823310498391006,
+      "gain_removed_weight_rmse": 0.020470248326112644,
+      "gain_removed_relative_weight_rmse": 0.16885961531959232,
+      "zero_bit_rmse": 0.03279802339601969,
+      "on_bit_rmse": 0.32075647860327844,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03316225609360607,
+          "zero_bit_rmse": 0.03280034207095634
+        },
+        {
+          "bit": 1,
+          "rmse": 0.09628189285824618,
+          "zero_bit_rmse": 0.032771488652671016
+        },
+        {
+          "bit": 0,
+          "rmse": 0.2205060816672406,
+          "zero_bit_rmse": 0.032839408744316366
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.9364510178565979,
+          "relative_to_reference_std": 0.25248440405447337,
+          "best_fit_signal_gain": 0.9727302173442607,
+          "gain_removed_rmse": 0.930975615978241,
+          "gain_removed_relative_rmse": 0.2510675432267161
+        },
+        "adc_4_8": {
+          "rmse": 0.9364510178565979,
+          "relative_to_reference_std": 0.25248440405447337,
+          "best_fit_signal_gain": 0.9727302173442607,
+          "gain_removed_rmse": 0.930975615978241,
+          "gain_removed_relative_rmse": 0.2510675432267161
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 1.597078800201416,
+          "relative_to_reference_std": 0.4306017948699983,
+          "best_fit_signal_gain": 1.4293801776707487,
+          "gain_removed_rmse": 0.125107541680336,
+          "gain_removed_relative_rmse": 0.03373927586257004
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.2.mhsa.linear_pos",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.08934037387371063,
+      "observer_scale": 0.08934037387371063,
+      "scale_relative_difference": 0.0,
+      "current_weight_absmax": 0.3556642234325409,
+      "nonzero_fraction": 0.2129974365234375,
+      "weight_rms": 0.048100896179676056,
+      "programming_weight_rmse": 0.020408270814024077,
+      "relative_weight_rmse": 0.42428046949044435,
+      "best_fit_weight_gain": 0.6821540370974747,
+      "gain_removed_weight_rmse": 0.013518648161894298,
+      "gain_removed_relative_weight_rmse": 0.2810477399713458,
+      "zero_bit_rmse": 0.032853688332005776,
+      "on_bit_rmse": 0.3207653177748019,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.033536753447732624,
+          "zero_bit_rmse": 0.032849393575132106
+        },
+        {
+          "bit": 1,
+          "rmse": 0.05500931632254862,
+          "zero_bit_rmse": 0.03284635060462876
+        },
+        {
+          "bit": 0,
+          "rmse": 0.14505187851490003,
+          "zero_bit_rmse": 0.03286797808347592
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.07548645883798599,
+          "relative_to_reference_std": 0.46649160145577345,
+          "best_fit_signal_gain": 0.9566219527492431,
+          "gain_removed_rmse": 0.0751594603061676,
+          "gain_removed_relative_rmse": 0.4645226589747628
+        },
+        "adc_4_8": {
+          "rmse": 0.07548645883798599,
+          "relative_to_reference_std": 0.46649160145577345,
+          "best_fit_signal_gain": 0.9566219527492431,
+          "gain_removed_rmse": 0.0751594603061676,
+          "gain_removed_relative_rmse": 0.4645226589747628
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.06724649667739868,
+          "relative_to_reference_std": 0.4155702414741465,
+          "best_fit_signal_gain": 1.4073103636995838,
+          "gain_removed_rmse": 0.013377198949456215,
+          "gain_removed_relative_rmse": 0.08267770950353513
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.3.linear_ff",
+      "weight_shape": [
+        2048,
+        512
+      ],
+      "weight_scale": 0.1623804835559426,
+      "observer_scale": 0.16238048672676086,
+      "scale_relative_difference": 1.9527089359863078e-08,
+      "current_weight_absmax": 0.8473759889602661,
+      "nonzero_fraction": 0.47356510162353516,
+      "weight_rms": 0.12705278396606445,
+      "programming_weight_rmse": 0.0472890653680604,
+      "relative_weight_rmse": 0.3722001509285402,
+      "best_fit_weight_gain": 0.6822866769790124,
+      "gain_removed_weight_rmse": 0.024633562954197257,
+      "gain_removed_relative_weight_rmse": 0.1938844800187679,
+      "zero_bit_rmse": 0.03275370667404186,
+      "on_bit_rmse": 0.32066705055470385,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.032865409088198516,
+          "zero_bit_rmse": 0.03270745871356552
+        },
+        {
+          "bit": 1,
+          "rmse": 0.07358713430033383,
+          "zero_bit_rmse": 0.03282890763485536
+        },
+        {
+          "bit": 0,
+          "rmse": 0.21236222329446738,
+          "zero_bit_rmse": 0.03270807507831926
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 1.2865630388259888,
+          "relative_to_reference_std": 0.29153084370277216,
+          "best_fit_signal_gain": 0.9737603987461437,
+          "gain_removed_rmse": 1.2813270092010498,
+          "gain_removed_relative_rmse": 0.28995254171887413
+        },
+        "adc_4_8": {
+          "rmse": 1.2865630388259888,
+          "relative_to_reference_std": 0.29153084370277216,
+          "best_fit_signal_gain": 0.9737603987461437,
+          "gain_removed_rmse": 1.2813270092010498,
+          "gain_removed_relative_rmse": 0.28995254171887413
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 1.9000380039215088,
+          "relative_to_reference_std": 0.4305422009138627,
+          "best_fit_signal_gain": 1.428500617375954,
+          "gain_removed_rmse": 0.15647543966770172,
+          "gain_removed_relative_rmse": 0.0354089558109904
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.0.module_list.3.linear_out",
+      "weight_shape": [
+        512,
+        2048
+      ],
+      "weight_scale": 0.18340075642293474,
+      "observer_scale": 0.18340076506137848,
+      "scale_relative_difference": 4.710145966520944e-08,
+      "current_weight_absmax": 0.802069365978241,
+      "nonzero_fraction": 0.4299478530883789,
+      "weight_rms": 0.1305852234363556,
+      "programming_weight_rmse": 0.0499502041443584,
+      "relative_weight_rmse": 0.3825103854013241,
+      "best_fit_weight_gain": 0.6820960410157242,
+      "gain_removed_weight_rmse": 0.027778527514572673,
+      "gain_removed_relative_weight_rmse": 0.2127233601442764,
+      "zero_bit_rmse": 0.03276500538193661,
+      "on_bit_rmse": 0.32067947422437526,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03274943082818078,
+          "zero_bit_rmse": 0.032722737119370196
+        },
+        {
+          "bit": 1,
+          "rmse": 0.05982289054051489,
+          "zero_bit_rmse": 0.03279788816107488
+        },
+        {
+          "bit": 0,
+          "rmse": 0.20587231870305128,
+          "zero_bit_rmse": 0.03278208639497436
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 6.256406784057617,
+          "relative_to_reference_std": 0.31831098018726645,
+          "best_fit_signal_gain": 0.9745540908898743,
+          "gain_removed_rmse": 6.236391544342041,
+          "gain_removed_relative_rmse": 0.3173447280489735
+        },
+        "adc_4_8": {
+          "rmse": 6.256406784057617,
+          "relative_to_reference_std": 0.31831098018726645,
+          "best_fit_signal_gain": 0.9745540908898743,
+          "gain_removed_rmse": 6.236391544342041,
+          "gain_removed_relative_rmse": 0.3173447280489735
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 8.513558387756348,
+          "relative_to_reference_std": 0.4331494432545021,
+          "best_fit_signal_gain": 1.430617162784137,
+          "gain_removed_rmse": 0.9319297075271606,
+          "gain_removed_relative_rmse": 0.047422131451043785
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.0.linear_ff",
+      "weight_shape": [
+        2048,
+        512
+      ],
+      "weight_scale": 0.15738682168321816,
+      "observer_scale": 0.15738680958747864,
+      "scale_relative_difference": 7.68535784720747e-08,
+      "current_weight_absmax": 0.9631546139717102,
+      "nonzero_fraction": 0.5654153823852539,
+      "weight_rms": 0.14889489114284515,
+      "programming_weight_rmse": 0.053039299882083134,
+      "relative_weight_rmse": 0.3562197431690176,
+      "best_fit_weight_gain": 0.6824834172460641,
+      "gain_removed_weight_rmse": 0.02404352472077153,
+      "gain_removed_relative_weight_rmse": 0.16147985022336941,
+      "zero_bit_rmse": 0.03276597353242341,
+      "on_bit_rmse": 0.32066712803168007,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.033271812840457736,
+          "zero_bit_rmse": 0.032814805765880126
+        },
+        {
+          "bit": 1,
+          "rmse": 0.10423077552191581,
+          "zero_bit_rmse": 0.03276691372467027
+        },
+        {
+          "bit": 0,
+          "rmse": 0.22253032820670152,
+          "zero_bit_rmse": 0.032670966895983464
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 2.2110047340393066,
+          "relative_to_reference_std": 0.23966799088098104,
+          "best_fit_signal_gain": 0.9743611221402166,
+          "gain_removed_rmse": 2.1983087062835693,
+          "gain_removed_relative_rmse": 0.23821284490628644
+        },
+        "adc_4_8": {
+          "rmse": 2.2110047340393066,
+          "relative_to_reference_std": 0.23966799088098104,
+          "best_fit_signal_gain": 0.9743611221402166,
+          "gain_removed_rmse": 2.1983087062835693,
+          "gain_removed_relative_rmse": 0.23821284490628644
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 3.9708213806152344,
+          "relative_to_reference_std": 0.4304281975464906,
+          "best_fit_signal_gain": 1.429087818516188,
+          "gain_removed_rmse": 0.29606807231903076,
+          "gain_removed_relative_rmse": 0.032082490321511226
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.0.linear_out",
+      "weight_shape": [
+        512,
+        2048
+      ],
+      "weight_scale": 0.615759254265555,
+      "observer_scale": 0.6157592535018921,
+      "scale_relative_difference": 1.2401972139963605e-09,
+      "current_weight_absmax": 2.5360989570617676,
+      "nonzero_fraction": 0.12801551818847656,
+      "weight_rms": 0.2205650508403778,
+      "programming_weight_rmse": 0.1162138139654052,
+      "relative_weight_rmse": 0.5268913344277228,
+      "best_fit_weight_gain": 0.6815167073918538,
+      "gain_removed_weight_rmse": 0.09258030581119793,
+      "gain_removed_relative_weight_rmse": 0.41974150237517904,
+      "zero_bit_rmse": 0.03272135398733014,
+      "on_bit_rmse": 0.32073330378618825,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.0327272862998971,
+          "zero_bit_rmse": 0.03272078767923611
+        },
+        {
+          "bit": 1,
+          "rmse": 0.032778710309816814,
+          "zero_bit_rmse": 0.032683852138061784
+        },
+        {
+          "bit": 0,
+          "rmse": 0.11874042438263165,
+          "zero_bit_rmse": 0.03276495190011776
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 23.900482177734375,
+          "relative_to_reference_std": 0.6159482795063187,
+          "best_fit_signal_gain": 0.9678790755403284,
+          "gain_removed_rmse": 23.867963790893555,
+          "gain_removed_relative_rmse": 0.6151299503125375
+        },
+        "adc_4_8": {
+          "rmse": 23.900482177734375,
+          "relative_to_reference_std": 0.6159482795063187,
+          "best_fit_signal_gain": 0.9678790755403284,
+          "gain_removed_rmse": 23.867963790893555,
+          "gain_removed_relative_rmse": 0.6151299503125375
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 16.730005264282227,
+          "relative_to_reference_std": 0.43115523285409835,
+          "best_fit_signal_gain": 1.4291602768974756,
+          "gain_removed_rmse": 1.6130774021148682,
+          "gain_removed_relative_rmse": 0.04157255436225247
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.1.pointwise_conv1",
+      "weight_shape": [
+        1024,
+        512
+      ],
+      "weight_scale": 0.3293249544869141,
+      "observer_scale": 0.3293249309062958,
+      "scale_relative_difference": 7.160289469111196e-08,
+      "current_weight_absmax": 2.1353278160095215,
+      "nonzero_fraction": 0.3646106719970703,
+      "weight_rms": 0.2069971263408661,
+      "programming_weight_rmse": 0.08232321514660927,
+      "relative_weight_rmse": 0.39770221259519356,
+      "best_fit_weight_gain": 0.682775755794586,
+      "gain_removed_weight_rmse": 0.049651629368288486,
+      "gain_removed_relative_weight_rmse": 0.23986627373041985,
+      "zero_bit_rmse": 0.03269963896331268,
+      "on_bit_rmse": 0.3205608535186267,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.032739167636459836,
+          "zero_bit_rmse": 0.03267533635702636
+        },
+        {
+          "bit": 1,
+          "rmse": 0.045251439879574924,
+          "zero_bit_rmse": 0.03267895559452394
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1928384092257176,
+          "zero_bit_rmse": 0.03276899725289301
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 3.971147298812866,
+          "relative_to_reference_std": 0.3514926187009903,
+          "best_fit_signal_gain": 0.9809450679084871,
+          "gain_removed_rmse": 3.9652788639068604,
+          "gain_removed_relative_rmse": 0.35012742750126735
+        },
+        "adc_4_8": {
+          "rmse": 3.971147298812866,
+          "relative_to_reference_std": 0.3514926187009903,
+          "best_fit_signal_gain": 0.9809450679084871,
+          "gain_removed_rmse": 3.9652788639068604,
+          "gain_removed_relative_rmse": 0.35012742750126735
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 4.862845420837402,
+          "relative_to_reference_std": 0.4304182501160866,
+          "best_fit_signal_gain": 1.4278533294692997,
+          "gain_removed_rmse": 0.4098549783229828,
+          "gain_removed_relative_rmse": 0.036189502462237
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.1.pointwise_conv2",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.684156966571777,
+      "observer_scale": 0.6841569542884827,
+      "scale_relative_difference": 1.795391292105848e-08,
+      "current_weight_absmax": 3.6604015827178955,
+      "nonzero_fraction": 0.19103622436523438,
+      "weight_rms": 0.3035010099411011,
+      "programming_weight_rmse": 0.14130949309771407,
+      "relative_weight_rmse": 0.46559809842193706,
+      "best_fit_weight_gain": 0.6811361017823913,
+      "gain_removed_weight_rmse": 0.10297022096751257,
+      "gain_removed_relative_weight_rmse": 0.3392747226359988,
+      "zero_bit_rmse": 0.032758685954322915,
+      "on_bit_rmse": 0.32091975523490496,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03290711467190528,
+          "zero_bit_rmse": 0.032728389625500585
+        },
+        {
+          "bit": 1,
+          "rmse": 0.034073473138867806,
+          "zero_bit_rmse": 0.03273580055904659
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1430792383714555,
+          "zero_bit_rmse": 0.03282424560871274
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 10.728270530700684,
+          "relative_to_reference_std": 0.5010032618145024,
+          "best_fit_signal_gain": 0.9725728413916945,
+          "gain_removed_rmse": 10.712179183959961,
+          "gain_removed_relative_rmse": 0.5002081875093016
+        },
+        "adc_4_8": {
+          "rmse": 10.728270530700684,
+          "relative_to_reference_std": 0.5010032618145024,
+          "best_fit_signal_gain": 0.9725728413916945,
+          "gain_removed_rmse": 10.712179183959961,
+          "gain_removed_relative_rmse": 0.5002081875093016
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 9.224756240844727,
+          "relative_to_reference_std": 0.43079012156538593,
+          "best_fit_signal_gain": 1.4294764001057485,
+          "gain_removed_rmse": 0.7095520496368408,
+          "gain_removed_relative_rmse": 0.03313273038074312
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.2.mhsa.qkv_proj",
+      "weight_shape": [
+        1536,
+        512
+      ],
+      "weight_scale": 0.18445800838951598,
+      "observer_scale": 0.18445800244808197,
+      "scale_relative_difference": 3.221022635284957e-08,
+      "current_weight_absmax": 1.0024209022521973,
+      "nonzero_fraction": 0.45907720923423767,
+      "weight_rms": 0.14226968586444855,
+      "programming_weight_rmse": 0.05318671051941557,
+      "relative_weight_rmse": 0.373844295755954,
+      "best_fit_weight_gain": 0.6820176083132229,
+      "gain_removed_weight_rmse": 0.027968493612239846,
+      "gain_removed_relative_weight_rmse": 0.19658786369211229,
+      "zero_bit_rmse": 0.03271574605769444,
+      "on_bit_rmse": 0.3207198292628212,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03284710513384451,
+          "zero_bit_rmse": 0.03272464637812952
+        },
+        {
+          "bit": 1,
+          "rmse": 0.07293124541894457,
+          "zero_bit_rmse": 0.03268603314542041
+        },
+        {
+          "bit": 0,
+          "rmse": 0.2091372323072728,
+          "zero_bit_rmse": 0.032749410788191186
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 2.0927212238311768,
+          "relative_to_reference_std": 0.2933473729971772,
+          "best_fit_signal_gain": 0.9722183616769516,
+          "gain_removed_rmse": 2.083312511444092,
+          "gain_removed_relative_rmse": 0.291989355309744
+        },
+        "adc_4_8": {
+          "rmse": 2.0927212238311768,
+          "relative_to_reference_std": 0.2933473729971772,
+          "best_fit_signal_gain": 0.9722183616769516,
+          "gain_removed_rmse": 2.083312511444092,
+          "gain_removed_relative_rmse": 0.291989355309744
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 3.066767454147339,
+          "relative_to_reference_std": 0.42988438499247406,
+          "best_fit_signal_gain": 1.4284795938237893,
+          "gain_removed_rmse": 0.24261364340782166,
+          "gain_removed_relative_rmse": 0.03400382848893531
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.2.mhsa.out_proj",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.469250303275885,
+      "observer_scale": 0.46925026178359985,
+      "scale_relative_difference": 8.842250829130671e-08,
+      "current_weight_absmax": 2.9741549491882324,
+      "nonzero_fraction": 0.26056671142578125,
+      "weight_rms": 0.24566420912742615,
+      "programming_weight_rmse": 0.10533534468552574,
+      "relative_weight_rmse": 0.4287777412088883,
+      "best_fit_weight_gain": 0.6824740902669525,
+      "gain_removed_weight_rmse": 0.07078694572222166,
+      "gain_removed_relative_weight_rmse": 0.28814513100483613,
+      "zero_bit_rmse": 0.03278927113553112,
+      "on_bit_rmse": 0.32059886846244273,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03286527827619494,
+          "zero_bit_rmse": 0.03273048240102437
+        },
+        {
+          "bit": 1,
+          "rmse": 0.03758272783813355,
+          "zero_bit_rmse": 0.032808851715808114
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1651644283481848,
+          "zero_bit_rmse": 0.032842045497652794
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 2.6069693565368652,
+          "relative_to_reference_std": 0.42244634203558273,
+          "best_fit_signal_gain": 0.9608184708809148,
+          "gain_removed_rmse": 2.595555067062378,
+          "gain_removed_relative_rmse": 0.41733194531240475
+        },
+        "adc_4_8": {
+          "rmse": 2.6069693565368652,
+          "relative_to_reference_std": 0.42244634203558273,
+          "best_fit_signal_gain": 0.9608184708809148,
+          "gain_removed_rmse": 2.595555067062378,
+          "gain_removed_relative_rmse": 0.41733194531240475
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 2.678924560546875,
+          "relative_to_reference_std": 0.43410632286667034,
+          "best_fit_signal_gain": 1.4294424783002573,
+          "gain_removed_rmse": 0.20750954747200012,
+          "gain_removed_relative_rmse": 0.03336487220646796
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.2.mhsa.linear_pos",
+      "weight_shape": [
+        512,
+        512
+      ],
+      "weight_scale": 0.1622585505247116,
+      "observer_scale": 0.1622585505247116,
+      "scale_relative_difference": 0.0,
+      "current_weight_absmax": 0.74607253074646,
+      "nonzero_fraction": 0.16098403930664062,
+      "weight_rms": 0.07241404801607132,
+      "programming_weight_rmse": 0.033542047993892155,
+      "relative_weight_rmse": 0.4631980798318021,
+      "best_fit_weight_gain": 0.6831393974325826,
+      "gain_removed_weight_rmse": 0.024466070775625015,
+      "gain_removed_relative_weight_rmse": 0.3378635975466404,
+      "zero_bit_rmse": 0.0326933395042659,
+      "on_bit_rmse": 0.32083433905187375,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03295446459809325,
+          "zero_bit_rmse": 0.03271460262487496
+        },
+        {
+          "bit": 1,
+          "rmse": 0.0462131773802048,
+          "zero_bit_rmse": 0.03263434630686096
+        },
+        {
+          "bit": 0,
+          "rmse": 0.12833226119165753,
+          "zero_bit_rmse": 0.032736956240417114
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.13685497641563416,
+          "relative_to_reference_std": 0.6024669430367773,
+          "best_fit_signal_gain": 0.9417977371334887,
+          "gain_removed_rmse": 0.1362150013446808,
+          "gain_removed_relative_rmse": 0.5997179213250061
+        },
+        "adc_4_8": {
+          "rmse": 0.13685497641563416,
+          "relative_to_reference_std": 0.6024669430367773,
+          "best_fit_signal_gain": 0.9417977371334887,
+          "gain_removed_rmse": 0.1362150013446808,
+          "gain_removed_relative_rmse": 0.5997179213250061
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.0935511589050293,
+          "relative_to_reference_std": 0.41183362270940493,
+          "best_fit_signal_gain": 1.3989176703295052,
+          "gain_removed_rmse": 0.02328546531498432,
+          "gain_removed_relative_rmse": 0.10251962498940466
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.3.linear_ff",
+      "weight_shape": [
+        2048,
+        512
+      ],
+      "weight_scale": 0.22749982010132896,
+      "observer_scale": 0.2274998277425766,
+      "scale_relative_difference": 3.3587927122670226e-08,
+      "current_weight_absmax": 1.3332644701004028,
+      "nonzero_fraction": 0.45516014099121094,
+      "weight_rms": 0.16876477003097534,
+      "programming_weight_rmse": 0.06376627208438101,
+      "relative_weight_rmse": 0.37784113398002,
+      "best_fit_weight_gain": 0.6822284302138175,
+      "gain_removed_weight_rmse": 0.0344979061453065,
+      "gain_removed_relative_weight_rmse": 0.2044141448418097,
+      "zero_bit_rmse": 0.0327460727785988,
+      "on_bit_rmse": 0.32073078357055046,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03281136464048571,
+          "zero_bit_rmse": 0.0327345143081081
+        },
+        {
+          "bit": 1,
+          "rmse": 0.06455898199680857,
+          "zero_bit_rmse": 0.032748146325580325
+        },
+        {
+          "bit": 0,
+          "rmse": 0.2106372450765258,
+          "zero_bit_rmse": 0.032762677671666365
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 3.3728227615356445,
+          "relative_to_reference_std": 0.3060184464523248,
+          "best_fit_signal_gain": 0.9748707542692013,
+          "gain_removed_rmse": 3.3614113330841064,
+          "gain_removed_relative_rmse": 0.3047089030585737
+        },
+        "adc_4_8": {
+          "rmse": 3.3728227615356445,
+          "relative_to_reference_std": 0.3060184464523248,
+          "best_fit_signal_gain": 0.9748707542692013,
+          "gain_removed_rmse": 3.3614113330841064,
+          "gain_removed_relative_rmse": 0.3047089030585737
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 4.747106075286865,
+          "relative_to_reference_std": 0.43070808311382025,
+          "best_fit_signal_gain": 1.4287861242468018,
+          "gain_removed_rmse": 0.4005686342716217,
+          "gain_removed_relative_rmse": 0.03631118511062711
+        }
+      }
+    },
+    {
+      "name": "conformer.module_list.11.module_list.3.linear_out",
+      "weight_shape": [
+        512,
+        2048
+      ],
+      "weight_scale": 0.502322218730189,
+      "observer_scale": 0.502322256565094,
+      "scale_relative_difference": 7.531998531278234e-08,
+      "current_weight_absmax": 2.9430489540100098,
+      "nonzero_fraction": 0.1922435760498047,
+      "weight_rms": 0.2231372743844986,
+      "programming_weight_rmse": 0.10363814843818706,
+      "relative_weight_rmse": 0.4644591484056723,
+      "best_fit_weight_gain": 0.6822945111135813,
+      "gain_removed_weight_rmse": 0.07559894726090981,
+      "gain_removed_relative_weight_rmse": 0.33880017343333513,
+      "zero_bit_rmse": 0.032748025929656255,
+      "on_bit_rmse": 0.3206010044520337,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.032748396802551046,
+          "zero_bit_rmse": 0.032729671962084164
+        },
+        {
+          "bit": 1,
+          "rmse": 0.03489432030700657,
+          "zero_bit_rmse": 0.03273558039055356
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1431532211308507,
+          "zero_bit_rmse": 0.032786040517713624
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 21.553089141845703,
+          "relative_to_reference_std": 0.50598027003881,
+          "best_fit_signal_gain": 0.9847995053633745,
+          "gain_removed_rmse": 21.54336166381836,
+          "gain_removed_relative_rmse": 0.5057925832901873
+        },
+        "adc_4_8": {
+          "rmse": 21.553089141845703,
+          "relative_to_reference_std": 0.50598027003881,
+          "best_fit_signal_gain": 0.9847995053633745,
+          "gain_removed_rmse": 21.54336166381836,
+          "gain_removed_relative_rmse": 0.5057925832901873
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 18.497909545898438,
+          "relative_to_reference_std": 0.4342568810247895,
+          "best_fit_signal_gain": 1.4312900729042657,
+          "gain_removed_rmse": 2.171069860458374,
+          "gain_removed_relative_rmse": 0.05097213008631623
+        }
+      }
+    },
+    {
+      "name": "token_embedding",
+      "weight_shape": [
+        185,
+        256
+      ],
+      "weight_scale": 0.29168087244033813,
+      "observer_scale": 0.6297410726547241,
+      "scale_relative_difference": 0.5368241248570084,
+      "current_weight_absmax": 2.0417661666870117,
+      "nonzero_fraction": 0.6897170543670654,
+      "weight_rms": 0.253359317779541,
+      "programming_weight_rmse": 0.09233766989266456,
+      "relative_weight_rmse": 0.36445342015410537,
+      "best_fit_weight_gain": 0.6813303266588308,
+      "gain_removed_weight_rmse": 0.04480658702151086,
+      "gain_removed_relative_weight_rmse": 0.17684996713047285,
+      "zero_bit_rmse": 0.032808059416074294,
+      "on_bit_rmse": 0.32069040128620274,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03392658386007576,
+          "zero_bit_rmse": 0.03309421629677971
+        },
+        {
+          "bit": 1,
+          "rmse": 0.04875974909266697,
+          "zero_bit_rmse": 0.03249999599230157
+        },
+        {
+          "bit": 0,
+          "rmse": 0.26489552944609307,
+          "zero_bit_rmse": 0.03285572814068665
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.07020595669746399,
+          "relative_to_reference_std": 0.3111631304102946,
+          "best_fit_signal_gain": 1.0070407394244147,
+          "gain_removed_rmse": 0.0701879933476448,
+          "gain_removed_relative_rmse": 0.3111370848724818
+        },
+        "adc_4_8": {
+          "rmse": 0.07020595669746399,
+          "relative_to_reference_std": 0.3111631304102946,
+          "best_fit_signal_gain": 1.0070407394244147,
+          "gain_removed_rmse": 0.0701879933476448,
+          "gain_removed_relative_rmse": 0.3111370848724818
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.1127927154302597,
+          "relative_to_reference_std": 0.49991391146479364,
+          "best_fit_signal_gain": 1.4999999633977301,
+          "gain_removed_rmse": 0.0,
+          "gain_removed_relative_rmse": 0.0
+        }
+      }
+    },
+    {
+      "name": "prediction_net.2",
+      "weight_shape": [
+        640,
+        256
+      ],
+      "weight_scale": 0.040700906988294205,
+      "observer_scale": 0.04070090875029564,
+      "scale_relative_difference": 4.32914519048532e-08,
+      "current_weight_absmax": 0.05925837531685829,
+      "nonzero_fraction": 0.13356932997703552,
+      "weight_rms": 0.014875018037855625,
+      "programming_weight_rmse": 0.007709175816703323,
+      "relative_weight_rmse": 0.5182632919895722,
+      "best_fit_weight_gain": 0.6825434678303783,
+      "gain_removed_weight_rmse": 0.0060936426841488546,
+      "gain_removed_relative_weight_rmse": 0.4096561542743051,
+      "zero_bit_rmse": 0.03258733907416333,
+      "on_bit_rmse": 0.32003388604738137,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.032623819680564936,
+          "zero_bit_rmse": 0.032623819680564936
+        },
+        {
+          "bit": 1,
+          "rmse": 0.03252981942477731,
+          "zero_bit_rmse": 0.03252981942477731
+        },
+        {
+          "bit": 0,
+          "rmse": 0.12083814161972217,
+          "zero_bit_rmse": 0.032611530369243094
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.11732888221740723,
+          "relative_to_reference_std": 0.6125552618216362,
+          "best_fit_signal_gain": 0.9620596247843618,
+          "gain_removed_rmse": 0.11710390448570251,
+          "gain_removed_relative_rmse": 0.6117783392115732
+        },
+        "adc_4_8": {
+          "rmse": 0.11732888221740723,
+          "relative_to_reference_std": 0.6125552618216362,
+          "best_fit_signal_gain": 0.9620596247843618,
+          "gain_removed_rmse": 0.11710390448570251,
+          "gain_removed_relative_rmse": 0.6117783392115732
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.08221657574176788,
+          "relative_to_reference_std": 0.42923954552176874,
+          "best_fit_signal_gain": 1.4280017344599134,
+          "gain_removed_rmse": 0.006904050707817078,
+          "gain_removed_relative_rmse": 0.03606838469144729
+        }
+      }
+    },
+    {
+      "name": "prediction_net.7",
+      "weight_shape": [
+        640,
+        640
+      ],
+      "weight_scale": 0.7714263515808959,
+      "observer_scale": 0.7714263796806335,
+      "scale_relative_difference": 3.6425689330806264e-08,
+      "current_weight_absmax": 2.1923887729644775,
+      "nonzero_fraction": 0.006025390699505806,
+      "weight_rms": 0.060074519366025925,
+      "programming_weight_rmse": 0.1174819916273195,
+      "relative_weight_rmse": 1.9556043538445578,
+      "best_fit_weight_gain": 0.6804309789685236,
+      "gain_removed_weight_rmse": 0.11590278813819199,
+      "gain_removed_relative_weight_rmse": 1.929316944377232,
+      "zero_bit_rmse": 0.032765424466711254,
+      "on_bit_rmse": 0.32179275713605016,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03277751897192918,
+          "zero_bit_rmse": 0.03277751897192918
+        },
+        {
+          "bit": 1,
+          "rmse": 0.03275636095380943,
+          "zero_bit_rmse": 0.03274646010036535
+        },
+        {
+          "bit": 0,
+          "rmse": 0.04112588718636395,
+          "zero_bit_rmse": 0.032772327384885454
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.7792355418205261,
+          "relative_to_reference_std": 2.7804703131255826,
+          "best_fit_signal_gain": 0.9575847488666546,
+          "gain_removed_rmse": 0.7791444063186646,
+          "gain_removed_relative_rmse": 2.7733513416205824
+        },
+        "adc_4_8": {
+          "rmse": 0.7792355418205261,
+          "relative_to_reference_std": 2.7804703131255826,
+          "best_fit_signal_gain": 0.9575847488666546,
+          "gain_removed_rmse": 0.7791444063186646,
+          "gain_removed_relative_rmse": 2.7733513416205824
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.12389669567346573,
+          "relative_to_reference_std": 0.4420885158928872,
+          "best_fit_signal_gain": 1.4309633832939253,
+          "gain_removed_rmse": 0.026292709633708,
+          "gain_removed_relative_rmse": 0.09358845542126779
+        }
+      }
+    },
+    {
+      "name": "joint_net.2",
+      "weight_shape": [
+        1024,
+        1152
+      ],
+      "weight_scale": 0.19982623249154585,
+      "observer_scale": 0.19982624053955078,
+      "scale_relative_difference": 4.027501547054333e-08,
+      "current_weight_absmax": 1.2081787586212158,
+      "nonzero_fraction": 0.13322025537490845,
+      "weight_rms": 0.07818364351987839,
+      "programming_weight_rmse": 0.038980484011223636,
+      "relative_weight_rmse": 0.4985759457643177,
+      "best_fit_weight_gain": 0.6820493250371018,
+      "gain_removed_weight_rmse": 0.030025505862193463,
+      "gain_removed_relative_weight_rmse": 0.38403820173153486,
+      "zero_bit_rmse": 0.03275298123657544,
+      "on_bit_rmse": 0.3209001050428875,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.03276377020524391,
+          "zero_bit_rmse": 0.032681912109937525
+        },
+        {
+          "bit": 1,
+          "rmse": 0.040578476236389154,
+          "zero_bit_rmse": 0.0327922705168082
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1188193198277021,
+          "zero_bit_rmse": 0.032789538455131946
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 3.174262762069702,
+          "relative_to_reference_std": 0.5703324730397163,
+          "best_fit_signal_gain": 0.9699137350849192,
+          "gain_removed_rmse": 3.169849157333374,
+          "gain_removed_relative_rmse": 0.569933319147134
+        },
+        "adc_4_8": {
+          "rmse": 3.174262762069702,
+          "relative_to_reference_std": 0.5703324730397163,
+          "best_fit_signal_gain": 0.9699137350849192,
+          "gain_removed_rmse": 3.169849157333374,
+          "gain_removed_relative_rmse": 0.569933319147134
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 2.401266098022461,
+          "relative_to_reference_std": 0.4314450739480109,
+          "best_fit_signal_gain": 1.430162846184178,
+          "gain_removed_rmse": 0.2052856981754303,
+          "gain_removed_relative_rmse": 0.03691000849800213
+        }
+      }
+    },
+    {
+      "name": "joint_net.7",
+      "weight_shape": [
+        185,
+        1024
+      ],
+      "weight_scale": 0.1996217108535312,
+      "observer_scale": 0.19962170720100403,
+      "scale_relative_difference": 1.829724442707316e-08,
+      "current_weight_absmax": 1.2590134143829346,
+      "nonzero_fraction": 0.2572424113750458,
+      "weight_rms": 0.10704602301120758,
+      "programming_weight_rmse": 0.04541429450483993,
+      "relative_weight_rmse": 0.42425017975758994,
+      "best_fit_weight_gain": 0.6813942748967416,
+      "gain_removed_weight_rmse": 0.029987912442379593,
+      "gain_removed_relative_weight_rmse": 0.280140369523489,
+      "zero_bit_rmse": 0.03267814566423615,
+      "on_bit_rmse": 0.3209434109093448,
+      "ideal_integer_reconstruction_max_error": 0.0,
+      "planes": [
+        {
+          "bit": 2,
+          "rmse": 0.032840795027957684,
+          "zero_bit_rmse": 0.0326055743468163
+        },
+        {
+          "bit": 1,
+          "rmse": 0.04405705173145254,
+          "zero_bit_rmse": 0.032787784093031826
+        },
+        {
+          "bit": 0,
+          "rmse": 0.1626480959324535,
+          "zero_bit_rmse": 0.03262960690073698
+        }
+      ],
+      "synthetic_no_read_noise_forward": {
+        "adc_4_4": {
+          "rmse": 0.8825615644454956,
+          "relative_to_reference_std": 0.3639037077517407,
+          "best_fit_signal_gain": 0.9294721243941817,
+          "gain_removed_rmse": 0.8704521656036377,
+          "gain_removed_relative_rmse": 0.42135764990580177
+        },
+        "adc_4_8": {
+          "rmse": 0.8760204315185547,
+          "relative_to_reference_std": 0.3612066239211001,
+          "best_fit_signal_gain": 0.937658576513622,
+          "gain_removed_rmse": 0.8665021061897278,
+          "gain_removed_relative_rmse": 0.41944555431065883
+        },
+        "ideal_programming_adc_4_8": {
+          "rmse": 0.8437359929084778,
+          "relative_to_reference_std": 0.34789488750951975,
+          "best_fit_signal_gain": 1.4011043805694081,
+          "gain_removed_rmse": 0.15903258323669434,
+          "gain_removed_relative_rmse": 0.07698251343265117
+        }
+      }
+    }
+  ]
+}

@@ -5,7 +5,7 @@ __all__ = [
     "get_pruned_train_step_import",
 ]
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple
 
 import torch
@@ -22,6 +22,9 @@ from .pytorch_modules import QATFFNNTransducerModel
 class QATFFNNTransducerTrainOptions(TrainOptions):
     enc_loss_scale: float
     pred_loss_scale: float
+    joiner_l1_scale: float = field(default=0.0, kw_only=True)
+    joiner_outlier_scale: float = field(default=0.0, kw_only=True)
+    joiner_outlier_thresholds: Tuple[float, float] = field(default=(1.0, 1.0), kw_only=True)
 
 
 @dataclass
@@ -40,6 +43,7 @@ def get_train_step_import(
         hashed_arguments={
             "enc_loss_scale": options.enc_loss_scale,
             "pred_loss_scale": options.pred_loss_scale,
+            **_joiner_penalty_arguments(options),
         },
         unhashed_arguments={},
         unhashed_package_root="",
@@ -59,11 +63,54 @@ def get_pruned_train_step_import(
             "skip_epochs_before_pruned_loss": options.skip_epochs_before_pruned_loss,
             "prune_range": options.prune_range,
             "smoothed_loss_scale": options.smoothed_loss_scale,
+            **_joiner_penalty_arguments(options),
         },
         unhashed_arguments={},
         unhashed_package_root="",
         import_as="train_step",
     )
+
+
+def _joiner_penalty_arguments(options: QATFFNNTransducerTrainOptions) -> dict:
+    arguments = {}
+    if options.joiner_l1_scale != 0:
+        arguments["joiner_l1_scale"] = options.joiner_l1_scale
+    if options.joiner_outlier_scale != 0:
+        arguments.update(
+            joiner_outlier_scale=options.joiner_outlier_scale,
+            joiner_outlier_thresholds=options.joiner_outlier_thresholds,
+        )
+    return arguments
+
+
+def _mark_joiner_penalties(
+    *,
+    model: QATFFNNTransducerModel,
+    run_ctx: RunCtx,
+    joiner_l1_scale: float,
+    joiner_outlier_scale: float,
+    joiner_outlier_thresholds: Tuple[float, float],
+):
+    if joiner_l1_scale == 0 and joiner_outlier_scale == 0:
+        return
+    weights = (model.joint_net[2].weight.float(), model.joint_net[7].weight.float())
+    if joiner_l1_scale != 0:
+        run_ctx.mark_as_loss(
+            name="joiner_l1",
+            loss=sum(weight.abs().mean() for weight in weights),
+            scale=joiner_l1_scale,
+            inv_norm_factor=weights[0].new_tensor(1.0),
+        )
+    if joiner_outlier_scale != 0:
+        run_ctx.mark_as_loss(
+            name="joiner_outliers",
+            loss=sum(
+                (weight.abs() - tau).clamp_min(0).square().mean()
+                for weight, tau in zip(weights, joiner_outlier_thresholds)
+            ),
+            scale=joiner_outlier_scale,
+            inv_norm_factor=weights[0].new_tensor(1.0),
+        )
 
 
 # Adapted from fast_rnnt but doesn't require same dimension of am and lm
@@ -111,6 +158,9 @@ def _train_step(
     run_ctx: RunCtx,
     enc_loss_scale: float,
     pred_loss_scale: float,
+    joiner_l1_scale: float = 0.0,
+    joiner_outlier_scale: float = 0.0,
+    joiner_outlier_thresholds: Tuple[float, float] = (1.0, 1.0),
     **_,
 ):
     from i6_native_ops.monotonic_rnnt import monotonic_rnnt_loss
@@ -184,6 +234,14 @@ def _train_step(
         ce_loss = (ce_loss * seq_mask).sum()
         run_ctx.mark_as_loss(name="pred_ce", loss=ce_loss, inv_norm_factor=loss_norm_factor, scale=pred_loss_scale)
 
+    _mark_joiner_penalties(
+        model=model,
+        run_ctx=run_ctx,
+        joiner_l1_scale=joiner_l1_scale,
+        joiner_outlier_scale=joiner_outlier_scale,
+        joiner_outlier_thresholds=joiner_outlier_thresholds,
+    )
+
 
 def _train_step_pruned(
     *,
@@ -196,6 +254,9 @@ def _train_step_pruned(
     skip_epochs_before_pruned_loss: int,
     prune_range: int,
     smoothed_loss_scale: float,
+    joiner_l1_scale: float = 0.0,
+    joiner_outlier_scale: float = 0.0,
+    joiner_outlier_thresholds: Tuple[float, float] = (1.0, 1.0),
     **_,
 ):
     import fast_rnnt
@@ -279,3 +340,11 @@ def _train_step_pruned(
         name="smoothed_rnnt", loss=smoothed_loss, inv_norm_factor=loss_norm_factor, scale=smoothed_loss_scale
     )
     run_ctx.mark_as_loss(name="pruned_rnnt", loss=pruned_loss, inv_norm_factor=loss_norm_factor)
+
+    _mark_joiner_penalties(
+        model=model,
+        run_ctx=run_ctx,
+        joiner_l1_scale=joiner_l1_scale,
+        joiner_outlier_scale=joiner_outlier_scale,
+        joiner_outlier_thresholds=joiner_outlier_thresholds,
+    )

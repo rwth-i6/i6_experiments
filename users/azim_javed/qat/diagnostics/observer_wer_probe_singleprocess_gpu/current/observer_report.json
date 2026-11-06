@@ -1,0 +1,9148 @@
+{
+  "mode": "current",
+  "visited_quantizers": 260,
+  "changed_ranges": 0,
+  "changed_qparams": 0,
+  "quantizers": [
+    {
+      "name": "encoder.conformer.module_list.0.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.988773345947266
+      ],
+      "max_before": [
+        9.92734146118164
+      ],
+      "min_after": [
+        -7.988773345947266
+      ],
+      "max_after": [
+        9.92734146118164
+      ],
+      "scale_before": [
+        0.07816804200410843
+      ],
+      "scale_after": [
+        0.07816804200410843
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.125
+      ],
+      "max_before": [
+        21.75
+      ],
+      "min_after": [
+        -23.125
+      ],
+      "max_after": [
+        21.75
+      ],
+      "scale_before": [
+        0.18208661675453186
+      ],
+      "scale_after": [
+        0.18208661675453186
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        24.166667938232422
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        24.166667938232422
+      ],
+      "scale_before": [
+        0.1902887225151062
+      ],
+      "scale_after": [
+        0.1902887225151062
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -153.0
+      ],
+      "max_before": [
+        159.0
+      ],
+      "min_after": [
+        -153.0
+      ],
+      "max_after": [
+        159.0
+      ],
+      "scale_before": [
+        1.251968502998352
+      ],
+      "scale_after": [
+        1.251968502998352
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.120643615722656
+      ],
+      "max_before": [
+        9.466926574707031
+      ],
+      "min_after": [
+        -9.120643615722656
+      ],
+      "max_after": [
+        9.466926574707031
+      ],
+      "scale_before": [
+        0.07454273104667664
+      ],
+      "scale_after": [
+        0.07454273104667664
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.625
+      ],
+      "max_before": [
+        26.375
+      ],
+      "min_after": [
+        -27.625
+      ],
+      "max_after": [
+        26.375
+      ],
+      "scale_before": [
+        0.21751968562602997
+      ],
+      "scale_after": [
+        0.21751968562602997
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.62260627746582
+      ],
+      "max_before": [
+        26.288005828857422
+      ],
+      "min_after": [
+        -27.62260627746582
+      ],
+      "max_after": [
+        26.288005828857422
+      ],
+      "scale_before": [
+        0.21750083565711975
+      ],
+      "scale_after": [
+        0.21750083565711975
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -32.0
+      ],
+      "max_before": [
+        31.875
+      ],
+      "min_after": [
+        -32.0
+      ],
+      "max_after": [
+        31.875
+      ],
+      "scale_before": [
+        0.25196850299835205
+      ],
+      "scale_after": [
+        0.25196850299835205
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        22.942758560180664
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        22.942758560180664
+      ],
+      "scale_before": [
+        0.18065163493156433
+      ],
+      "scale_after": [
+        0.18065163493156433
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -40.25
+      ],
+      "max_before": [
+        35.0
+      ],
+      "min_after": [
+        -40.25
+      ],
+      "max_after": [
+        35.0
+      ],
+      "scale_before": [
+        0.3169291317462921
+      ],
+      "scale_after": [
+        0.3169291317462921
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.391969203948975
+      ],
+      "max_before": [
+        6.473464012145996
+      ],
+      "min_after": [
+        -6.391969203948975
+      ],
+      "max_after": [
+        6.473464012145996
+      ],
+      "scale_before": [
+        0.05097215622663498
+      ],
+      "scale_after": [
+        0.05097215622663498
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.59375
+      ],
+      "max_before": [
+        7.28125
+      ],
+      "min_after": [
+        -7.59375
+      ],
+      "max_after": [
+        7.28125
+      ],
+      "scale_before": [
+        0.05979330837726593
+      ],
+      "scale_after": [
+        0.05979330837726593
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -14.25
+      ],
+      "max_before": [
+        12.3125
+      ],
+      "min_after": [
+        -14.25
+      ],
+      "max_after": [
+        12.3125
+      ],
+      "scale_before": [
+        0.11220472306013107
+      ],
+      "scale_after": [
+        0.11220472306013107
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -37.25
+      ],
+      "max_before": [
+        39.0
+      ],
+      "min_after": [
+        -37.25
+      ],
+      "max_after": [
+        39.0
+      ],
+      "scale_before": [
+        0.30708661675453186
+      ],
+      "scale_after": [
+        0.30708661675453186
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.875
+      ],
+      "max_before": [
+        9.625
+      ],
+      "min_after": [
+        -8.875
+      ],
+      "max_after": [
+        9.625
+      ],
+      "scale_before": [
+        0.07578740268945694
+      ],
+      "scale_after": [
+        0.07578740268945694
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -60.5
+      ],
+      "max_before": [
+        60.0
+      ],
+      "min_after": [
+        -60.5
+      ],
+      "max_after": [
+        60.0
+      ],
+      "scale_before": [
+        0.4763779640197754
+      ],
+      "scale_after": [
+        0.4763779640197754
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.210659980773926
+      ],
+      "max_before": [
+        10.454011917114258
+      ],
+      "min_after": [
+        -9.210659980773926
+      ],
+      "max_after": [
+        10.454011917114258
+      ],
+      "scale_before": [
+        0.08231505751609802
+      ],
+      "scale_after": [
+        0.08231505751609802
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -21.875
+      ],
+      "max_before": [
+        19.875
+      ],
+      "min_after": [
+        -21.875
+      ],
+      "max_after": [
+        19.875
+      ],
+      "scale_before": [
+        0.1722440868616104
+      ],
+      "scale_after": [
+        0.1722440868616104
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094049394130707
+      ],
+      "max_before": [
+        22.00896644592285
+      ],
+      "min_after": [
+        -0.3094049394130707
+      ],
+      "max_after": [
+        22.00896644592285
+      ],
+      "scale_before": [
+        0.17329895496368408
+      ],
+      "scale_after": [
+        0.17329895496368408
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.0.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -121.5
+      ],
+      "max_before": [
+        142.0
+      ],
+      "min_after": [
+        -121.5
+      ],
+      "max_after": [
+        142.0
+      ],
+      "scale_before": [
+        1.118110179901123
+      ],
+      "scale_after": [
+        1.118110179901123
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.841219902038574
+      ],
+      "max_before": [
+        10.811081886291504
+      ],
+      "min_after": [
+        -9.841219902038574
+      ],
+      "max_after": [
+        10.811081886291504
+      ],
+      "scale_before": [
+        0.08512663096189499
+      ],
+      "scale_after": [
+        0.08512663096189499
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -18.375
+      ],
+      "max_before": [
+        13.1875
+      ],
+      "min_after": [
+        -18.375
+      ],
+      "max_after": [
+        13.1875
+      ],
+      "scale_before": [
+        0.1446850448846817
+      ],
+      "scale_after": [
+        0.1446850448846817
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        14.629239082336426
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        14.629239082336426
+      ],
+      "scale_before": [
+        0.11519085615873337
+      ],
+      "scale_after": [
+        0.11519085615873337
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -41.0
+      ],
+      "max_before": [
+        36.0
+      ],
+      "min_after": [
+        -41.0
+      ],
+      "max_after": [
+        36.0
+      ],
+      "scale_before": [
+        0.32283464074134827
+      ],
+      "scale_after": [
+        0.32283464074134827
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.51749038696289
+      ],
+      "max_before": [
+        10.83519458770752
+      ],
+      "min_after": [
+        -9.51749038696289
+      ],
+      "max_after": [
+        10.83519458770752
+      ],
+      "scale_before": [
+        0.0853164941072464
+      ],
+      "scale_after": [
+        0.0853164941072464
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.5
+      ],
+      "max_before": [
+        20.5
+      ],
+      "min_after": [
+        -20.5
+      ],
+      "max_after": [
+        20.5
+      ],
+      "scale_before": [
+        0.16141732037067413
+      ],
+      "scale_after": [
+        0.16141732037067413
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.499746322631836
+      ],
+      "max_before": [
+        19.692026138305664
+      ],
+      "min_after": [
+        -20.499746322631836
+      ],
+      "max_after": [
+        19.692026138305664
+      ],
+      "scale_before": [
+        0.16141532361507416
+      ],
+      "scale_after": [
+        0.16141532361507416
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -30.375
+      ],
+      "max_before": [
+        30.75
+      ],
+      "min_after": [
+        -30.375
+      ],
+      "max_after": [
+        30.75
+      ],
+      "scale_before": [
+        0.2421259880065918
+      ],
+      "scale_after": [
+        0.2421259880065918
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        20.183181762695312
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        20.183181762695312
+      ],
+      "scale_before": [
+        0.1589226871728897
+      ],
+      "scale_after": [
+        0.1589226871728897
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.375
+      ],
+      "max_before": [
+        10.25
+      ],
+      "min_after": [
+        -9.375
+      ],
+      "max_after": [
+        10.25
+      ],
+      "scale_before": [
+        0.08070866018533707
+      ],
+      "scale_after": [
+        0.08070866018533707
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.630677223205566
+      ],
+      "max_before": [
+        8.09344482421875
+      ],
+      "min_after": [
+        -6.630677223205566
+      ],
+      "max_after": [
+        8.09344482421875
+      ],
+      "scale_before": [
+        0.06372791528701782
+      ],
+      "scale_after": [
+        0.06372791528701782
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.03125
+      ],
+      "max_before": [
+        5.8125
+      ],
+      "min_after": [
+        -6.03125
+      ],
+      "max_after": [
+        5.8125
+      ],
+      "scale_before": [
+        0.047490157186985016
+      ],
+      "scale_after": [
+        0.047490157186985016
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.3125
+      ],
+      "max_before": [
+        10.375
+      ],
+      "min_after": [
+        -12.3125
+      ],
+      "max_after": [
+        10.375
+      ],
+      "scale_before": [
+        0.09694881737232208
+      ],
+      "scale_after": [
+        0.09694881737232208
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -33.25
+      ],
+      "max_before": [
+        34.75
+      ],
+      "min_after": [
+        -33.25
+      ],
+      "max_after": [
+        34.75
+      ],
+      "scale_before": [
+        0.2736220359802246
+      ],
+      "scale_after": [
+        0.2736220359802246
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -5.84375
+      ],
+      "max_before": [
+        5.6875
+      ],
+      "min_after": [
+        -5.84375
+      ],
+      "max_after": [
+        5.6875
+      ],
+      "scale_before": [
+        0.04601377993822098
+      ],
+      "scale_after": [
+        0.04601377993822098
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.375
+      ],
+      "max_before": [
+        11.875
+      ],
+      "min_after": [
+        -12.375
+      ],
+      "max_after": [
+        11.875
+      ],
+      "scale_before": [
+        0.0974409431219101
+      ],
+      "scale_after": [
+        0.0974409431219101
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.12498950958252
+      ],
+      "max_before": [
+        11.776772499084473
+      ],
+      "min_after": [
+        -10.12498950958252
+      ],
+      "max_after": [
+        11.776772499084473
+      ],
+      "scale_before": [
+        0.09273049235343933
+      ],
+      "scale_after": [
+        0.09273049235343933
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -30.5
+      ],
+      "max_before": [
+        13.0625
+      ],
+      "min_after": [
+        -30.5
+      ],
+      "max_after": [
+        13.0625
+      ],
+      "scale_before": [
+        0.24015748500823975
+      ],
+      "scale_after": [
+        0.24015748500823975
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094050884246826
+      ],
+      "max_before": [
+        14.409415245056152
+      ],
+      "min_after": [
+        -0.3094050884246826
+      ],
+      "max_after": [
+        14.409415245056152
+      ],
+      "scale_before": [
+        0.11345995962619781
+      ],
+      "scale_after": [
+        0.11345995962619781
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.1.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -32.25
+      ],
+      "max_before": [
+        31.25
+      ],
+      "min_after": [
+        -32.25
+      ],
+      "max_after": [
+        31.25
+      ],
+      "scale_before": [
+        0.2539370059967041
+      ],
+      "scale_after": [
+        0.2539370059967041
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.070490837097168
+      ],
+      "max_before": [
+        14.029816627502441
+      ],
+      "min_after": [
+        -11.070490837097168
+      ],
+      "max_after": [
+        14.029816627502441
+      ],
+      "scale_before": [
+        0.11047099530696869
+      ],
+      "scale_after": [
+        0.11047099530696869
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -26.625
+      ],
+      "max_before": [
+        15.1875
+      ],
+      "min_after": [
+        -26.625
+      ],
+      "max_after": [
+        15.1875
+      ],
+      "scale_before": [
+        0.20964567363262177
+      ],
+      "scale_after": [
+        0.20964567363262177
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940499901771545
+      ],
+      "max_before": [
+        16.81102180480957
+      ],
+      "min_after": [
+        -0.30940499901771545
+      ],
+      "max_after": [
+        16.81102180480957
+      ],
+      "scale_before": [
+        0.1323702484369278
+      ],
+      "scale_after": [
+        0.1323702484369278
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -28.375
+      ],
+      "max_before": [
+        22.625
+      ],
+      "min_after": [
+        -28.375
+      ],
+      "max_after": [
+        22.625
+      ],
+      "scale_before": [
+        0.22342519462108612
+      ],
+      "scale_after": [
+        0.22342519462108612
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.063776969909668
+      ],
+      "max_before": [
+        13.299134254455566
+      ],
+      "min_after": [
+        -11.063776969909668
+      ],
+      "max_after": [
+        13.299134254455566
+      ],
+      "scale_before": [
+        0.10471758991479874
+      ],
+      "scale_after": [
+        0.10471758991479874
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -24.0
+      ],
+      "max_before": [
+        30.125
+      ],
+      "min_after": [
+        -24.0
+      ],
+      "max_after": [
+        30.125
+      ],
+      "scale_before": [
+        0.23720473051071167
+      ],
+      "scale_after": [
+        0.23720473051071167
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.992128372192383
+      ],
+      "max_before": [
+        30.125
+      ],
+      "min_after": [
+        -23.992128372192383
+      ],
+      "max_after": [
+        30.125
+      ],
+      "scale_before": [
+        0.23720473051071167
+      ],
+      "scale_after": [
+        0.23720473051071167
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -28.375
+      ],
+      "max_before": [
+        73.0
+      ],
+      "min_after": [
+        -28.375
+      ],
+      "max_after": [
+        73.0
+      ],
+      "scale_before": [
+        0.5748031735420227
+      ],
+      "scale_after": [
+        0.5748031735420227
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        20.4335994720459
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        20.4335994720459
+      ],
+      "scale_before": [
+        0.1608944833278656
+      ],
+      "scale_after": [
+        0.1608944833278656
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.4375
+      ],
+      "max_before": [
+        10.0
+      ],
+      "min_after": [
+        -8.4375
+      ],
+      "max_after": [
+        10.0
+      ],
+      "scale_before": [
+        0.07874015718698502
+      ],
+      "scale_after": [
+        0.07874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.7067999839782715
+      ],
+      "max_before": [
+        8.84187126159668
+      ],
+      "min_after": [
+        -6.7067999839782715
+      ],
+      "max_after": [
+        8.84187126159668
+      ],
+      "scale_before": [
+        0.06962103396654129
+      ],
+      "scale_after": [
+        0.06962103396654129
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -5.9375
+      ],
+      "max_before": [
+        5.5
+      ],
+      "min_after": [
+        -5.9375
+      ],
+      "max_after": [
+        5.5
+      ],
+      "scale_before": [
+        0.046751968562603
+      ],
+      "scale_after": [
+        0.046751968562603
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.5625
+      ],
+      "max_before": [
+        9.6875
+      ],
+      "min_after": [
+        -9.5625
+      ],
+      "max_after": [
+        9.6875
+      ],
+      "scale_before": [
+        0.07627952843904495
+      ],
+      "scale_after": [
+        0.07627952843904495
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -54.25
+      ],
+      "max_before": [
+        52.0
+      ],
+      "min_after": [
+        -54.25
+      ],
+      "max_after": [
+        52.0
+      ],
+      "scale_before": [
+        0.42716535925865173
+      ],
+      "scale_after": [
+        0.42716535925865173
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -5.84375
+      ],
+      "max_before": [
+        5.59375
+      ],
+      "min_after": [
+        -5.84375
+      ],
+      "max_after": [
+        5.59375
+      ],
+      "scale_before": [
+        0.04601377993822098
+      ],
+      "scale_after": [
+        0.04601377993822098
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.25
+      ],
+      "max_before": [
+        12.3125
+      ],
+      "min_after": [
+        -11.25
+      ],
+      "max_after": [
+        12.3125
+      ],
+      "scale_before": [
+        0.09694881737232208
+      ],
+      "scale_after": [
+        0.09694881737232208
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.925759315490723
+      ],
+      "max_before": [
+        13.549128532409668
+      ],
+      "min_after": [
+        -10.925759315490723
+      ],
+      "max_after": [
+        13.549128532409668
+      ],
+      "scale_before": [
+        0.1066860482096672
+      ],
+      "scale_after": [
+        0.1066860482096672
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -31.625
+      ],
+      "max_before": [
+        13.1875
+      ],
+      "min_after": [
+        -31.625
+      ],
+      "max_after": [
+        13.1875
+      ],
+      "scale_before": [
+        0.24901574850082397
+      ],
+      "scale_after": [
+        0.24901574850082397
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094050884246826
+      ],
+      "max_before": [
+        14.664234161376953
+      ],
+      "min_after": [
+        -0.3094050884246826
+      ],
+      "max_after": [
+        14.664234161376953
+      ],
+      "scale_before": [
+        0.11546640843153
+      ],
+      "scale_after": [
+        0.11546640843153
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.2.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -34.0
+      ],
+      "max_before": [
+        27.75
+      ],
+      "min_after": [
+        -34.0
+      ],
+      "max_after": [
+        27.75
+      ],
+      "scale_before": [
+        0.26771652698516846
+      ],
+      "scale_after": [
+        0.26771652698516846
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.257561683654785
+      ],
+      "max_before": [
+        14.935602188110352
+      ],
+      "min_after": [
+        -11.257561683654785
+      ],
+      "max_after": [
+        14.935602188110352
+      ],
+      "scale_before": [
+        0.11760316789150238
+      ],
+      "scale_after": [
+        0.11760316789150238
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -30.125
+      ],
+      "max_before": [
+        18.75
+      ],
+      "min_after": [
+        -30.125
+      ],
+      "max_after": [
+        18.75
+      ],
+      "scale_before": [
+        0.23720473051071167
+      ],
+      "scale_after": [
+        0.23720473051071167
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        20.89238929748535
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        20.89238929748535
+      ],
+      "scale_before": [
+        0.16450700163841248
+      ],
+      "scale_after": [
+        0.16450700163841248
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -50.0
+      ],
+      "max_before": [
+        42.0
+      ],
+      "min_after": [
+        -50.0
+      ],
+      "max_after": [
+        42.0
+      ],
+      "scale_before": [
+        0.3937007784843445
+      ],
+      "scale_after": [
+        0.3937007784843445
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.913432121276855
+      ],
+      "max_before": [
+        13.882207870483398
+      ],
+      "min_after": [
+        -10.913432121276855
+      ],
+      "max_after": [
+        13.882207870483398
+      ],
+      "scale_before": [
+        0.10930871963500977
+      ],
+      "scale_after": [
+        0.10930871963500977
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.0
+      ],
+      "max_before": [
+        24.125
+      ],
+      "min_after": [
+        -20.0
+      ],
+      "max_after": [
+        24.125
+      ],
+      "scale_before": [
+        0.18996062874794006
+      ],
+      "scale_after": [
+        0.18996062874794006
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.029382705688477
+      ],
+      "max_before": [
+        24.079376220703125
+      ],
+      "min_after": [
+        -20.029382705688477
+      ],
+      "max_after": [
+        24.079376220703125
+      ],
+      "scale_before": [
+        0.18960139155387878
+      ],
+      "scale_after": [
+        0.18960139155387878
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -34.75
+      ],
+      "max_before": [
+        46.25
+      ],
+      "min_after": [
+        -34.75
+      ],
+      "max_after": [
+        46.25
+      ],
+      "scale_before": [
+        0.3641732335090637
+      ],
+      "scale_after": [
+        0.3641732335090637
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        18.563838958740234
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        18.563838958740234
+      ],
+      "scale_before": [
+        0.1461719572544098
+      ],
+      "scale_after": [
+        0.1461719572544098
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -19.0
+      ],
+      "max_before": [
+        15.8125
+      ],
+      "min_after": [
+        -19.0
+      ],
+      "max_after": [
+        15.8125
+      ],
+      "scale_before": [
+        0.14960630238056183
+      ],
+      "scale_after": [
+        0.14960630238056183
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.539429187774658
+      ],
+      "max_before": [
+        9.65492057800293
+      ],
+      "min_after": [
+        -7.539429187774658
+      ],
+      "max_after": [
+        9.65492057800293
+      ],
+      "scale_before": [
+        0.07602299749851227
+      ],
+      "scale_after": [
+        0.07602299749851227
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.46875
+      ],
+      "max_before": [
+        6.0625
+      ],
+      "min_after": [
+        -6.46875
+      ],
+      "max_after": [
+        6.0625
+      ],
+      "scale_before": [
+        0.050935037434101105
+      ],
+      "scale_after": [
+        0.050935037434101105
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.75
+      ],
+      "max_before": [
+        11.25
+      ],
+      "min_after": [
+        -12.75
+      ],
+      "max_after": [
+        11.25
+      ],
+      "scale_before": [
+        0.10039369761943817
+      ],
+      "scale_after": [
+        0.10039369761943817
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -62.75
+      ],
+      "max_before": [
+        51.25
+      ],
+      "min_after": [
+        -62.75
+      ],
+      "max_after": [
+        51.25
+      ],
+      "scale_before": [
+        0.49409449100494385
+      ],
+      "scale_after": [
+        0.49409449100494385
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.0625
+      ],
+      "max_before": [
+        7.4375
+      ],
+      "min_after": [
+        -6.0625
+      ],
+      "max_after": [
+        7.4375
+      ],
+      "scale_before": [
+        0.0585629902780056
+      ],
+      "scale_after": [
+        0.0585629902780056
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.8125
+      ],
+      "max_before": [
+        8.875
+      ],
+      "min_after": [
+        -9.8125
+      ],
+      "max_after": [
+        8.875
+      ],
+      "scale_before": [
+        0.07726377993822098
+      ],
+      "scale_after": [
+        0.07726377993822098
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.559837341308594
+      ],
+      "max_before": [
+        14.566913604736328
+      ],
+      "min_after": [
+        -10.559837341308594
+      ],
+      "max_after": [
+        14.566913604736328
+      ],
+      "scale_before": [
+        0.11470010876655579
+      ],
+      "scale_after": [
+        0.11470010876655579
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -31.75
+      ],
+      "max_before": [
+        13.8125
+      ],
+      "min_after": [
+        -31.75
+      ],
+      "max_after": [
+        13.8125
+      ],
+      "scale_before": [
+        0.25
+      ],
+      "scale_after": [
+        0.25
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        15.337912559509277
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        15.337912559509277
+      ],
+      "scale_before": [
+        0.12077096104621887
+      ],
+      "scale_after": [
+        0.12077096104621887
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.3.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -29.625
+      ],
+      "max_before": [
+        28.125
+      ],
+      "min_after": [
+        -29.625
+      ],
+      "max_after": [
+        28.125
+      ],
+      "scale_before": [
+        0.23326770961284637
+      ],
+      "scale_after": [
+        0.23326770961284637
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.651893615722656
+      ],
+      "max_before": [
+        16.098039627075195
+      ],
+      "min_after": [
+        -11.651893615722656
+      ],
+      "max_after": [
+        16.098039627075195
+      ],
+      "scale_before": [
+        0.1267562210559845
+      ],
+      "scale_after": [
+        0.1267562210559845
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -31.375
+      ],
+      "max_before": [
+        14.5625
+      ],
+      "min_after": [
+        -31.375
+      ],
+      "max_after": [
+        14.5625
+      ],
+      "scale_before": [
+        0.24704724550247192
+      ],
+      "scale_after": [
+        0.24704724550247192
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        16.06517219543457
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        16.06517219543457
+      ],
+      "scale_before": [
+        0.12649741768836975
+      ],
+      "scale_after": [
+        0.12649741768836975
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -22.375
+      ],
+      "max_before": [
+        20.625
+      ],
+      "min_after": [
+        -22.375
+      ],
+      "max_after": [
+        20.625
+      ],
+      "scale_before": [
+        0.1761811077594757
+      ],
+      "scale_after": [
+        0.1761811077594757
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.418075561523438
+      ],
+      "max_before": [
+        14.817893981933594
+      ],
+      "min_after": [
+        -11.418075561523438
+      ],
+      "max_after": [
+        14.817893981933594
+      ],
+      "scale_before": [
+        0.11667633056640625
+      ],
+      "scale_after": [
+        0.11667633056640625
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.125
+      ],
+      "max_before": [
+        22.625
+      ],
+      "min_after": [
+        -20.125
+      ],
+      "max_after": [
+        22.625
+      ],
+      "scale_before": [
+        0.17814961075782776
+      ],
+      "scale_after": [
+        0.17814961075782776
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -20.122949600219727
+      ],
+      "max_before": [
+        22.517492294311523
+      ],
+      "min_after": [
+        -20.122949600219727
+      ],
+      "max_after": [
+        22.517492294311523
+      ],
+      "scale_before": [
+        0.17730309069156647
+      ],
+      "scale_after": [
+        0.17730309069156647
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.625
+      ],
+      "max_before": [
+        36.0
+      ],
+      "min_after": [
+        -23.625
+      ],
+      "max_after": [
+        36.0
+      ],
+      "scale_before": [
+        0.28346455097198486
+      ],
+      "scale_after": [
+        0.28346455097198486
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        18.656631469726562
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        18.656631469726562
+      ],
+      "scale_before": [
+        0.14690260589122772
+      ],
+      "scale_after": [
+        0.14690260589122772
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.375
+      ],
+      "max_before": [
+        9.1875
+      ],
+      "min_after": [
+        -8.375
+      ],
+      "max_after": [
+        9.1875
+      ],
+      "scale_before": [
+        0.07234252244234085
+      ],
+      "scale_after": [
+        0.07234252244234085
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.882480144500732
+      ],
+      "max_before": [
+        7.614328384399414
+      ],
+      "min_after": [
+        -6.882480144500732
+      ],
+      "max_after": [
+        7.614328384399414
+      ],
+      "scale_before": [
+        0.05995533987879753
+      ],
+      "scale_after": [
+        0.05995533987879753
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.125
+      ],
+      "max_before": [
+        5.59375
+      ],
+      "min_after": [
+        -6.125
+      ],
+      "max_after": [
+        5.59375
+      ],
+      "scale_before": [
+        0.048228345811367035
+      ],
+      "scale_after": [
+        0.048228345811367035
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.875
+      ],
+      "max_before": [
+        9.8125
+      ],
+      "min_after": [
+        -8.875
+      ],
+      "max_after": [
+        9.8125
+      ],
+      "scale_before": [
+        0.07726377993822098
+      ],
+      "scale_after": [
+        0.07726377993822098
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -64.5
+      ],
+      "max_before": [
+        57.5
+      ],
+      "min_after": [
+        -64.5
+      ],
+      "max_after": [
+        57.5
+      ],
+      "scale_before": [
+        0.5078740119934082
+      ],
+      "scale_after": [
+        0.5078740119934082
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.375
+      ],
+      "max_before": [
+        5.71875
+      ],
+      "min_after": [
+        -6.375
+      ],
+      "max_after": [
+        5.71875
+      ],
+      "scale_before": [
+        0.050196848809719086
+      ],
+      "scale_after": [
+        0.050196848809719086
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.0625
+      ],
+      "max_before": [
+        8.375
+      ],
+      "min_after": [
+        -8.0625
+      ],
+      "max_after": [
+        8.375
+      ],
+      "scale_before": [
+        0.06594488024711609
+      ],
+      "scale_after": [
+        0.06594488024711609
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.611359596252441
+      ],
+      "max_before": [
+        13.395811080932617
+      ],
+      "min_after": [
+        -10.611359596252441
+      ],
+      "max_after": [
+        13.395811080932617
+      ],
+      "scale_before": [
+        0.10547883063554764
+      ],
+      "scale_after": [
+        0.10547883063554764
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -35.0
+      ],
+      "max_before": [
+        13.4375
+      ],
+      "min_after": [
+        -35.0
+      ],
+      "max_after": [
+        13.4375
+      ],
+      "scale_before": [
+        0.27559053897857666
+      ],
+      "scale_after": [
+        0.27559053897857666
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        15.004354476928711
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        15.004354476928711
+      ],
+      "scale_before": [
+        0.11814451962709427
+      ],
+      "scale_after": [
+        0.11814451962709427
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.4.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -30.75
+      ],
+      "max_before": [
+        25.25
+      ],
+      "min_after": [
+        -30.75
+      ],
+      "max_after": [
+        25.25
+      ],
+      "scale_before": [
+        0.2421259880065918
+      ],
+      "scale_after": [
+        0.2421259880065918
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.336579322814941
+      ],
+      "max_before": [
+        14.438002586364746
+      ],
+      "min_after": [
+        -12.336579322814941
+      ],
+      "max_after": [
+        14.438002586364746
+      ],
+      "scale_before": [
+        0.11368505656719208
+      ],
+      "scale_after": [
+        0.11368505656719208
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -33.0
+      ],
+      "max_before": [
+        18.75
+      ],
+      "min_after": [
+        -33.0
+      ],
+      "max_after": [
+        18.75
+      ],
+      "scale_before": [
+        0.25984251499176025
+      ],
+      "scale_after": [
+        0.25984251499176025
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        20.728347778320312
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        20.728347778320312
+      ],
+      "scale_before": [
+        0.16321533918380737
+      ],
+      "scale_after": [
+        0.16321533918380737
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -45.25
+      ],
+      "max_before": [
+        46.75
+      ],
+      "min_after": [
+        -45.25
+      ],
+      "max_after": [
+        46.75
+      ],
+      "scale_before": [
+        0.3681102395057678
+      ],
+      "scale_after": [
+        0.3681102395057678
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.34733772277832
+      ],
+      "max_before": [
+        13.931074142456055
+      ],
+      "min_after": [
+        -11.34733772277832
+      ],
+      "max_after": [
+        13.931074142456055
+      ],
+      "scale_before": [
+        0.1096934974193573
+      ],
+      "scale_after": [
+        0.1096934974193573
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.875
+      ],
+      "max_before": [
+        23.625
+      ],
+      "min_after": [
+        -23.875
+      ],
+      "max_after": [
+        23.625
+      ],
+      "scale_before": [
+        0.187992125749588
+      ],
+      "scale_after": [
+        0.187992125749588
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.874635696411133
+      ],
+      "max_before": [
+        23.4041690826416
+      ],
+      "min_after": [
+        -23.874635696411133
+      ],
+      "max_after": [
+        23.4041690826416
+      ],
+      "scale_before": [
+        0.1879892498254776
+      ],
+      "scale_after": [
+        0.1879892498254776
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -46.25
+      ],
+      "max_before": [
+        34.0
+      ],
+      "min_after": [
+        -46.25
+      ],
+      "max_after": [
+        34.0
+      ],
+      "scale_before": [
+        0.3641732335090637
+      ],
+      "scale_after": [
+        0.3641732335090637
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        17.571744918823242
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        17.571744918823242
+      ],
+      "scale_before": [
+        0.13836020231246948
+      ],
+      "scale_after": [
+        0.13836020231246948
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.4375
+      ],
+      "max_before": [
+        7.84375
+      ],
+      "min_after": [
+        -8.4375
+      ],
+      "max_after": [
+        7.84375
+      ],
+      "scale_before": [
+        0.0664370059967041
+      ],
+      "scale_after": [
+        0.0664370059967041
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.115386486053467
+      ],
+      "max_before": [
+        7.742635250091553
+      ],
+      "min_after": [
+        -7.115386486053467
+      ],
+      "max_after": [
+        7.742635250091553
+      ],
+      "scale_before": [
+        0.060965631157159805
+      ],
+      "scale_after": [
+        0.060965631157159805
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -5.84375
+      ],
+      "max_before": [
+        6.375
+      ],
+      "min_after": [
+        -5.84375
+      ],
+      "max_after": [
+        6.375
+      ],
+      "scale_before": [
+        0.050196848809719086
+      ],
+      "scale_after": [
+        0.050196848809719086
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.75
+      ],
+      "max_before": [
+        11.125
+      ],
+      "min_after": [
+        -9.75
+      ],
+      "max_after": [
+        11.125
+      ],
+      "scale_before": [
+        0.08759842813014984
+      ],
+      "scale_after": [
+        0.08759842813014984
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -34.75
+      ],
+      "max_before": [
+        71.0
+      ],
+      "min_after": [
+        -34.75
+      ],
+      "max_after": [
+        71.0
+      ],
+      "scale_before": [
+        0.5590550899505615
+      ],
+      "scale_after": [
+        0.5590550899505615
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -4.90625
+      ],
+      "max_before": [
+        5.6875
+      ],
+      "min_after": [
+        -4.90625
+      ],
+      "max_after": [
+        5.6875
+      ],
+      "scale_before": [
+        0.044783465564250946
+      ],
+      "scale_after": [
+        0.044783465564250946
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.25
+      ],
+      "max_before": [
+        12.25
+      ],
+      "min_after": [
+        -12.25
+      ],
+      "max_after": [
+        12.25
+      ],
+      "scale_before": [
+        0.09645669162273407
+      ],
+      "scale_after": [
+        0.09645669162273407
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.839069366455078
+      ],
+      "max_before": [
+        11.038881301879883
+      ],
+      "min_after": [
+        -10.839069366455078
+      ],
+      "max_after": [
+        11.038881301879883
+      ],
+      "scale_before": [
+        0.08692032843828201
+      ],
+      "scale_after": [
+        0.08692032843828201
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -33.25
+      ],
+      "max_before": [
+        16.125
+      ],
+      "min_after": [
+        -33.25
+      ],
+      "max_after": [
+        16.125
+      ],
+      "scale_before": [
+        0.2618110179901123
+      ],
+      "scale_after": [
+        0.2618110179901123
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        18.03586769104004
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        18.03586769104004
+      ],
+      "scale_before": [
+        0.14201471209526062
+      ],
+      "scale_after": [
+        0.14201471209526062
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.5.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -37.25
+      ],
+      "max_before": [
+        36.75
+      ],
+      "min_after": [
+        -37.25
+      ],
+      "max_after": [
+        36.75
+      ],
+      "scale_before": [
+        0.2933070957660675
+      ],
+      "scale_after": [
+        0.2933070957660675
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -13.538161277770996
+      ],
+      "max_before": [
+        11.973671913146973
+      ],
+      "min_after": [
+        -13.538161277770996
+      ],
+      "max_after": [
+        11.973671913146973
+      ],
+      "scale_before": [
+        0.10659969598054886
+      ],
+      "scale_after": [
+        0.10659969598054886
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -32.25
+      ],
+      "max_before": [
+        16.75
+      ],
+      "min_after": [
+        -32.25
+      ],
+      "max_after": [
+        16.75
+      ],
+      "scale_before": [
+        0.2539370059967041
+      ],
+      "scale_after": [
+        0.2539370059967041
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094050884246826
+      ],
+      "max_before": [
+        18.60236358642578
+      ],
+      "min_after": [
+        -0.3094050884246826
+      ],
+      "max_after": [
+        18.60236358642578
+      ],
+      "scale_before": [
+        0.14647530019283295
+      ],
+      "scale_after": [
+        0.14647530019283295
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -26.75
+      ],
+      "max_before": [
+        30.0
+      ],
+      "min_after": [
+        -26.75
+      ],
+      "max_after": [
+        30.0
+      ],
+      "scale_before": [
+        0.23622047901153564
+      ],
+      "scale_after": [
+        0.23622047901153564
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.237239837646484
+      ],
+      "max_before": [
+        13.056610107421875
+      ],
+      "min_after": [
+        -11.237239837646484
+      ],
+      "max_after": [
+        13.056610107421875
+      ],
+      "scale_before": [
+        0.10280795395374298
+      ],
+      "scale_after": [
+        0.10280795395374298
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -22.75
+      ],
+      "max_before": [
+        22.0
+      ],
+      "min_after": [
+        -22.75
+      ],
+      "max_after": [
+        22.0
+      ],
+      "scale_before": [
+        0.17913386225700378
+      ],
+      "scale_after": [
+        0.17913386225700378
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -22.749589920043945
+      ],
+      "max_before": [
+        22.03180503845215
+      ],
+      "min_after": [
+        -22.749589920043945
+      ],
+      "max_after": [
+        22.03180503845215
+      ],
+      "scale_before": [
+        0.17913062870502472
+      ],
+      "scale_after": [
+        0.17913062870502472
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -35.5
+      ],
+      "max_before": [
+        34.0
+      ],
+      "min_after": [
+        -35.5
+      ],
+      "max_after": [
+        34.0
+      ],
+      "scale_before": [
+        0.27952754497528076
+      ],
+      "scale_after": [
+        0.27952754497528076
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        19.485502243041992
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        19.485502243041992
+      ],
+      "scale_before": [
+        0.15342915058135986
+      ],
+      "scale_after": [
+        0.15342915058135986
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.5625
+      ],
+      "max_before": [
+        8.8125
+      ],
+      "min_after": [
+        -8.5625
+      ],
+      "max_after": [
+        8.8125
+      ],
+      "scale_before": [
+        0.06938976049423218
+      ],
+      "scale_after": [
+        0.06938976049423218
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.223042964935303
+      ],
+      "max_before": [
+        7.2530670166015625
+      ],
+      "min_after": [
+        -7.223042964935303
+      ],
+      "max_after": [
+        7.2530670166015625
+      ],
+      "scale_before": [
+        0.05711076408624649
+      ],
+      "scale_after": [
+        0.05711076408624649
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -5.9375
+      ],
+      "max_before": [
+        6.1875
+      ],
+      "min_after": [
+        -5.9375
+      ],
+      "max_after": [
+        6.1875
+      ],
+      "scale_before": [
+        0.04872047156095505
+      ],
+      "scale_after": [
+        0.04872047156095505
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.75
+      ],
+      "max_before": [
+        9.6875
+      ],
+      "min_after": [
+        -8.75
+      ],
+      "max_after": [
+        9.6875
+      ],
+      "scale_before": [
+        0.07627952843904495
+      ],
+      "scale_after": [
+        0.07627952843904495
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -75.0
+      ],
+      "max_before": [
+        92.5
+      ],
+      "min_after": [
+        -75.0
+      ],
+      "max_after": [
+        92.5
+      ],
+      "scale_before": [
+        0.7283464670181274
+      ],
+      "scale_after": [
+        0.7283464670181274
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.03125
+      ],
+      "max_before": [
+        6.03125
+      ],
+      "min_after": [
+        -6.03125
+      ],
+      "max_after": [
+        6.03125
+      ],
+      "scale_before": [
+        0.047490157186985016
+      ],
+      "scale_after": [
+        0.047490157186985016
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.25
+      ],
+      "max_before": [
+        8.5625
+      ],
+      "min_after": [
+        -9.25
+      ],
+      "max_after": [
+        8.5625
+      ],
+      "scale_before": [
+        0.07283464819192886
+      ],
+      "scale_after": [
+        0.07283464819192886
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.873175621032715
+      ],
+      "max_before": [
+        13.07892894744873
+      ],
+      "min_after": [
+        -11.873175621032715
+      ],
+      "max_after": [
+        13.07892894744873
+      ],
+      "scale_before": [
+        0.10298369079828262
+      ],
+      "scale_after": [
+        0.10298369079828262
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -34.5
+      ],
+      "max_before": [
+        17.25
+      ],
+      "min_after": [
+        -34.5
+      ],
+      "max_after": [
+        17.25
+      ],
+      "scale_before": [
+        0.27165353298187256
+      ],
+      "scale_after": [
+        0.27165353298187256
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094050884246826
+      ],
+      "max_before": [
+        19.177602767944336
+      ],
+      "min_after": [
+        -0.3094050884246826
+      ],
+      "max_after": [
+        19.177602767944336
+      ],
+      "scale_before": [
+        0.15100474655628204
+      ],
+      "scale_after": [
+        0.15100474655628204
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.6.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -33.25
+      ],
+      "max_before": [
+        30.5
+      ],
+      "min_after": [
+        -33.25
+      ],
+      "max_after": [
+        30.5
+      ],
+      "scale_before": [
+        0.2618110179901123
+      ],
+      "scale_after": [
+        0.2618110179901123
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -13.252008438110352
+      ],
+      "max_before": [
+        13.045665740966797
+      ],
+      "min_after": [
+        -13.252008438110352
+      ],
+      "max_after": [
+        13.045665740966797
+      ],
+      "scale_before": [
+        0.10434652119874954
+      ],
+      "scale_after": [
+        0.10434652119874954
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -32.25
+      ],
+      "max_before": [
+        17.875
+      ],
+      "min_after": [
+        -32.25
+      ],
+      "max_after": [
+        17.875
+      ],
+      "scale_before": [
+        0.2539370059967041
+      ],
+      "scale_after": [
+        0.2539370059967041
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094049096107483
+      ],
+      "max_before": [
+        19.958444595336914
+      ],
+      "min_after": [
+        -0.3094049096107483
+      ],
+      "max_after": [
+        19.958444595336914
+      ],
+      "scale_before": [
+        0.15715309977531433
+      ],
+      "scale_after": [
+        0.15715309977531433
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -67.0
+      ],
+      "max_before": [
+        88.5
+      ],
+      "min_after": [
+        -67.0
+      ],
+      "max_after": [
+        88.5
+      ],
+      "scale_before": [
+        0.6968504190444946
+      ],
+      "scale_after": [
+        0.6968504190444946
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.395380973815918
+      ],
+      "max_before": [
+        10.618753433227539
+      ],
+      "min_after": [
+        -11.395380973815918
+      ],
+      "max_after": [
+        10.618753433227539
+      ],
+      "scale_before": [
+        0.08972740918397903
+      ],
+      "scale_after": [
+        0.08972740918397903
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -24.625
+      ],
+      "max_before": [
+        25.5
+      ],
+      "min_after": [
+        -24.625
+      ],
+      "max_after": [
+        25.5
+      ],
+      "scale_before": [
+        0.20078739523887634
+      ],
+      "scale_after": [
+        0.20078739523887634
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -24.575748443603516
+      ],
+      "max_before": [
+        25.499502182006836
+      ],
+      "min_after": [
+        -24.575748443603516
+      ],
+      "max_after": [
+        25.499502182006836
+      ],
+      "scale_before": [
+        0.20078347623348236
+      ],
+      "scale_after": [
+        0.20078347623348236
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -35.75
+      ],
+      "max_before": [
+        61.5
+      ],
+      "min_after": [
+        -35.75
+      ],
+      "max_after": [
+        61.5
+      ],
+      "scale_before": [
+        0.4842519760131836
+      ],
+      "scale_after": [
+        0.4842519760131836
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        20.296276092529297
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        20.296276092529297
+      ],
+      "scale_before": [
+        0.15981319546699524
+      ],
+      "scale_after": [
+        0.15981319546699524
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.4375
+      ],
+      "max_before": [
+        9.5625
+      ],
+      "min_after": [
+        -10.4375
+      ],
+      "max_after": [
+        9.5625
+      ],
+      "scale_before": [
+        0.0821850374341011
+      ],
+      "scale_after": [
+        0.0821850374341011
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.781986236572266
+      ],
+      "max_before": [
+        7.119416236877441
+      ],
+      "min_after": [
+        -6.781986236572266
+      ],
+      "max_after": [
+        7.119416236877441
+      ],
+      "scale_before": [
+        0.05605839565396309
+      ],
+      "scale_after": [
+        0.05605839565396309
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.15625
+      ],
+      "max_before": [
+        6.28125
+      ],
+      "min_after": [
+        -7.15625
+      ],
+      "max_after": [
+        6.28125
+      ],
+      "scale_before": [
+        0.05634842440485954
+      ],
+      "scale_after": [
+        0.05634842440485954
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.25
+      ],
+      "max_before": [
+        8.6875
+      ],
+      "min_after": [
+        -8.25
+      ],
+      "max_after": [
+        8.6875
+      ],
+      "scale_before": [
+        0.06840550899505615
+      ],
+      "scale_after": [
+        0.06840550899505615
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -75.5
+      ],
+      "max_before": [
+        81.5
+      ],
+      "min_after": [
+        -75.5
+      ],
+      "max_after": [
+        81.5
+      ],
+      "scale_before": [
+        0.6417322754859924
+      ],
+      "scale_after": [
+        0.6417322754859924
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.125
+      ],
+      "max_before": [
+        6.1875
+      ],
+      "min_after": [
+        -6.125
+      ],
+      "max_after": [
+        6.1875
+      ],
+      "scale_before": [
+        0.04872047156095505
+      ],
+      "scale_after": [
+        0.04872047156095505
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.625
+      ],
+      "max_before": [
+        11.0625
+      ],
+      "min_after": [
+        -10.625
+      ],
+      "max_after": [
+        11.0625
+      ],
+      "scale_before": [
+        0.08710630238056183
+      ],
+      "scale_after": [
+        0.08710630238056183
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -11.508037567138672
+      ],
+      "max_before": [
+        11.904398918151855
+      ],
+      "min_after": [
+        -11.508037567138672
+      ],
+      "max_after": [
+        11.904398918151855
+      ],
+      "scale_before": [
+        0.09373542666435242
+      ],
+      "scale_after": [
+        0.09373542666435242
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -39.75
+      ],
+      "max_before": [
+        18.5
+      ],
+      "min_after": [
+        -39.75
+      ],
+      "max_after": [
+        18.5
+      ],
+      "scale_before": [
+        0.312992125749588
+      ],
+      "scale_after": [
+        0.312992125749588
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094050884246826
+      ],
+      "max_before": [
+        20.518373489379883
+      ],
+      "min_after": [
+        -0.3094050884246826
+      ],
+      "max_after": [
+        20.518373489379883
+      ],
+      "scale_before": [
+        0.1615619957447052
+      ],
+      "scale_after": [
+        0.1615619957447052
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.7.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -58.0
+      ],
+      "max_before": [
+        55.75
+      ],
+      "min_after": [
+        -58.0
+      ],
+      "max_after": [
+        55.75
+      ],
+      "scale_before": [
+        0.4566929042339325
+      ],
+      "scale_after": [
+        0.4566929042339325
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.985008239746094
+      ],
+      "max_before": [
+        12.13259506225586
+      ],
+      "min_after": [
+        -12.985008239746094
+      ],
+      "max_after": [
+        12.13259506225586
+      ],
+      "scale_before": [
+        0.10224416106939316
+      ],
+      "scale_after": [
+        0.10224416106939316
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.625
+      ],
+      "max_before": [
+        68.5
+      ],
+      "min_after": [
+        -27.625
+      ],
+      "max_after": [
+        68.5
+      ],
+      "scale_before": [
+        0.539370059967041
+      ],
+      "scale_after": [
+        0.539370059967041
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        76.11111450195312
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        76.11111450195312
+      ],
+      "scale_before": [
+        0.5993000864982605
+      ],
+      "scale_after": [
+        0.5993000864982605
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -828.0
+      ],
+      "max_before": [
+        510.0
+      ],
+      "min_after": [
+        -828.0
+      ],
+      "max_after": [
+        510.0
+      ],
+      "scale_before": [
+        6.519684791564941
+      ],
+      "scale_after": [
+        6.519684791564941
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.53426456451416
+      ],
+      "max_before": [
+        12.01506233215332
+      ],
+      "min_after": [
+        -10.53426456451416
+      ],
+      "max_after": [
+        12.01506233215332
+      ],
+      "scale_before": [
+        0.09460678696632385
+      ],
+      "scale_after": [
+        0.09460678696632385
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -25.5
+      ],
+      "max_before": [
+        26.5
+      ],
+      "min_after": [
+        -25.5
+      ],
+      "max_after": [
+        26.5
+      ],
+      "scale_before": [
+        0.20866142213344574
+      ],
+      "scale_after": [
+        0.20866142213344574
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -25.45667266845703
+      ],
+      "max_before": [
+        26.499774932861328
+      ],
+      "min_after": [
+        -25.45667266845703
+      ],
+      "max_after": [
+        26.499774932861328
+      ],
+      "scale_before": [
+        0.20865964889526367
+      ],
+      "scale_after": [
+        0.20865964889526367
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -45.75
+      ],
+      "max_before": [
+        39.25
+      ],
+      "min_after": [
+        -45.75
+      ],
+      "max_after": [
+        39.25
+      ],
+      "scale_before": [
+        0.3602362275123596
+      ],
+      "scale_after": [
+        0.3602362275123596
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        20.261859893798828
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        20.261859893798828
+      ],
+      "scale_before": [
+        0.15954220294952393
+      ],
+      "scale_after": [
+        0.15954220294952393
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.8125
+      ],
+      "max_before": [
+        11.25
+      ],
+      "min_after": [
+        -10.8125
+      ],
+      "max_after": [
+        11.25
+      ],
+      "scale_before": [
+        0.08858267962932587
+      ],
+      "scale_after": [
+        0.08858267962932587
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.100535869598389
+      ],
+      "max_before": [
+        6.977448463439941
+      ],
+      "min_after": [
+        -7.100535869598389
+      ],
+      "max_after": [
+        6.977448463439941
+      ],
+      "scale_before": [
+        0.05590973049402237
+      ],
+      "scale_after": [
+        0.05590973049402237
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.96875
+      ],
+      "max_before": [
+        7.375
+      ],
+      "min_after": [
+        -6.96875
+      ],
+      "max_after": [
+        7.375
+      ],
+      "scale_before": [
+        0.05807086452841759
+      ],
+      "scale_after": [
+        0.05807086452841759
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.0
+      ],
+      "max_before": [
+        11.875
+      ],
+      "min_after": [
+        -12.0
+      ],
+      "max_after": [
+        11.875
+      ],
+      "scale_before": [
+        0.09448818862438202
+      ],
+      "scale_after": [
+        0.09448818862438202
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -102.0
+      ],
+      "max_before": [
+        67.5
+      ],
+      "min_after": [
+        -102.0
+      ],
+      "max_after": [
+        67.5
+      ],
+      "scale_before": [
+        0.8031495809555054
+      ],
+      "scale_after": [
+        0.8031495809555054
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.6875
+      ],
+      "max_before": [
+        10.0
+      ],
+      "min_after": [
+        -9.6875
+      ],
+      "max_after": [
+        10.0
+      ],
+      "scale_before": [
+        0.07874015718698502
+      ],
+      "scale_after": [
+        0.07874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -16.25
+      ],
+      "max_before": [
+        17.625
+      ],
+      "min_after": [
+        -16.25
+      ],
+      "max_after": [
+        17.625
+      ],
+      "scale_before": [
+        0.13877952098846436
+      ],
+      "scale_after": [
+        0.13877952098846436
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -14.028226852416992
+      ],
+      "max_before": [
+        14.316393852233887
+      ],
+      "min_after": [
+        -14.028226852416992
+      ],
+      "max_after": [
+        14.316393852233887
+      ],
+      "scale_before": [
+        0.11272750794887543
+      ],
+      "scale_after": [
+        0.11272750794887543
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -21.0
+      ],
+      "max_before": [
+        23.125
+      ],
+      "min_after": [
+        -21.0
+      ],
+      "max_after": [
+        23.125
+      ],
+      "scale_before": [
+        0.18208661675453186
+      ],
+      "scale_after": [
+        0.18208661675453186
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.3094049394130707
+      ],
+      "max_before": [
+        25.694446563720703
+      ],
+      "min_after": [
+        -0.3094049394130707
+      ],
+      "max_after": [
+        25.694446563720703
+      ],
+      "scale_before": [
+        0.202318474650383
+      ],
+      "scale_after": [
+        0.202318474650383
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.8.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -55.5
+      ],
+      "max_before": [
+        58.0
+      ],
+      "min_after": [
+        -55.5
+      ],
+      "max_after": [
+        58.0
+      ],
+      "scale_before": [
+        0.4566929042339325
+      ],
+      "scale_after": [
+        0.4566929042339325
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -14.265820503234863
+      ],
+      "max_before": [
+        13.864194869995117
+      ],
+      "min_after": [
+        -14.265820503234863
+      ],
+      "max_after": [
+        13.864194869995117
+      ],
+      "scale_before": [
+        0.11232929676771164
+      ],
+      "scale_after": [
+        0.11232929676771164
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -46.75
+      ],
+      "max_before": [
+        62.25
+      ],
+      "min_after": [
+        -46.75
+      ],
+      "max_after": [
+        62.25
+      ],
+      "scale_before": [
+        0.49015748500823975
+      ],
+      "scale_after": [
+        0.49015748500823975
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        69.16667175292969
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        69.16667175292969
+      ],
+      "scale_before": [
+        0.5446194410324097
+      ],
+      "scale_after": [
+        0.5446194410324097
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -266.0
+      ],
+      "max_before": [
+        816.0
+      ],
+      "min_after": [
+        -266.0
+      ],
+      "max_after": [
+        816.0
+      ],
+      "scale_before": [
+        6.425196647644043
+      ],
+      "scale_after": [
+        6.425196647644043
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -12.817421913146973
+      ],
+      "max_before": [
+        12.578267097473145
+      ],
+      "min_after": [
+        -12.817421913146973
+      ],
+      "max_after": [
+        12.578267097473145
+      ],
+      "scale_before": [
+        0.10092458128929138
+      ],
+      "scale_after": [
+        0.10092458128929138
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -26.0
+      ],
+      "max_before": [
+        23.25
+      ],
+      "min_after": [
+        -26.0
+      ],
+      "max_after": [
+        23.25
+      ],
+      "scale_before": [
+        0.20472440123558044
+      ],
+      "scale_after": [
+        0.20472440123558044
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -25.999492645263672
+      ],
+      "max_before": [
+        23.223955154418945
+      ],
+      "min_after": [
+        -25.999492645263672
+      ],
+      "max_after": [
+        23.223955154418945
+      ],
+      "scale_before": [
+        0.2047204077243805
+      ],
+      "scale_after": [
+        0.2047204077243805
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -37.5
+      ],
+      "max_before": [
+        61.0
+      ],
+      "min_after": [
+        -37.5
+      ],
+      "max_after": [
+        61.0
+      ],
+      "scale_before": [
+        0.4803149700164795
+      ],
+      "scale_after": [
+        0.4803149700164795
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        19.114728927612305
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        19.114728927612305
+      ],
+      "scale_before": [
+        0.15050967037677765
+      ],
+      "scale_after": [
+        0.15050967037677765
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.9375
+      ],
+      "max_before": [
+        11.0625
+      ],
+      "min_after": [
+        -9.9375
+      ],
+      "max_after": [
+        11.0625
+      ],
+      "scale_before": [
+        0.08710630238056183
+      ],
+      "scale_after": [
+        0.08710630238056183
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.6993408203125
+      ],
+      "max_before": [
+        7.961252689361572
+      ],
+      "min_after": [
+        -7.6993408203125
+      ],
+      "max_after": [
+        7.961252689361572
+      ],
+      "scale_before": [
+        0.06268703192472458
+      ],
+      "scale_after": [
+        0.06268703192472458
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.53125
+      ],
+      "max_before": [
+        6.34375
+      ],
+      "min_after": [
+        -6.53125
+      ],
+      "max_after": [
+        6.34375
+      ],
+      "scale_before": [
+        0.051427166908979416
+      ],
+      "scale_after": [
+        0.051427166908979416
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.1875
+      ],
+      "max_before": [
+        9.75
+      ],
+      "min_after": [
+        -9.1875
+      ],
+      "max_after": [
+        9.75
+      ],
+      "scale_before": [
+        0.07677165418863297
+      ],
+      "scale_after": [
+        0.07677165418863297
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -82.0
+      ],
+      "max_before": [
+        71.5
+      ],
+      "min_after": [
+        -82.0
+      ],
+      "max_after": [
+        71.5
+      ],
+      "scale_before": [
+        0.6456692814826965
+      ],
+      "scale_after": [
+        0.6456692814826965
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.25
+      ],
+      "max_before": [
+        6.71875
+      ],
+      "min_after": [
+        -6.25
+      ],
+      "max_after": [
+        6.71875
+      ],
+      "scale_before": [
+        0.052903544157743454
+      ],
+      "scale_after": [
+        0.052903544157743454
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -16.875
+      ],
+      "max_before": [
+        17.875
+      ],
+      "min_after": [
+        -16.875
+      ],
+      "max_after": [
+        17.875
+      ],
+      "scale_before": [
+        0.1407480239868164
+      ],
+      "scale_after": [
+        0.1407480239868164
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -18.406633377075195
+      ],
+      "max_before": [
+        18.339435577392578
+      ],
+      "min_after": [
+        -18.406633377075195
+      ],
+      "max_after": [
+        18.339435577392578
+      ],
+      "scale_before": [
+        0.14493411779403687
+      ],
+      "scale_after": [
+        0.14493411779403687
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -22.0
+      ],
+      "max_before": [
+        19.25
+      ],
+      "min_after": [
+        -22.0
+      ],
+      "max_after": [
+        19.25
+      ],
+      "scale_before": [
+        0.17322835326194763
+      ],
+      "scale_after": [
+        0.17322835326194763
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        21.42169761657715
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        21.42169761657715
+      ],
+      "scale_before": [
+        0.1686747819185257
+      ],
+      "scale_after": [
+        0.1686747819185257
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.9.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -40.75
+      ],
+      "max_before": [
+        41.5
+      ],
+      "min_after": [
+        -40.75
+      ],
+      "max_after": [
+        41.5
+      ],
+      "scale_before": [
+        0.32677164673805237
+      ],
+      "scale_after": [
+        0.32677164673805237
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -18.74336814880371
+      ],
+      "max_before": [
+        17.288894653320312
+      ],
+      "min_after": [
+        -18.74336814880371
+      ],
+      "max_after": [
+        17.288894653320312
+      ],
+      "scale_before": [
+        0.14758557081222534
+      ],
+      "scale_after": [
+        0.14758557081222534
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.0
+      ],
+      "max_before": [
+        33.5
+      ],
+      "min_after": [
+        -27.0
+      ],
+      "max_after": [
+        33.5
+      ],
+      "scale_before": [
+        0.26377952098846436
+      ],
+      "scale_after": [
+        0.26377952098846436
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940499901771545
+      ],
+      "max_before": [
+        37.222225189208984
+      ],
+      "min_after": [
+        -0.30940499901771545
+      ],
+      "max_after": [
+        37.222225189208984
+      ],
+      "scale_before": [
+        0.2930883765220642
+      ],
+      "scale_after": [
+        0.2930883765220642
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -85.0
+      ],
+      "max_before": [
+        302.0
+      ],
+      "min_after": [
+        -85.0
+      ],
+      "max_after": [
+        302.0
+      ],
+      "scale_before": [
+        2.377952814102173
+      ],
+      "scale_after": [
+        2.377952814102173
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -13.764108657836914
+      ],
+      "max_before": [
+        13.403132438659668
+      ],
+      "min_after": [
+        -13.764108657836914
+      ],
+      "max_after": [
+        13.403132438659668
+      ],
+      "scale_before": [
+        0.1083788052201271
+      ],
+      "scale_after": [
+        0.1083788052201271
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.25
+      ],
+      "max_before": [
+        23.5
+      ],
+      "min_after": [
+        -27.25
+      ],
+      "max_after": [
+        23.5
+      ],
+      "scale_before": [
+        0.2145669311285019
+      ],
+      "scale_after": [
+        0.2145669311285019
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -27.24783706665039
+      ],
+      "max_before": [
+        23.602142333984375
+      ],
+      "min_after": [
+        -27.24783706665039
+      ],
+      "max_after": [
+        23.602142333984375
+      ],
+      "scale_before": [
+        0.21454989910125732
+      ],
+      "scale_after": [
+        0.21454989910125732
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -42.5
+      ],
+      "max_before": [
+        59.75
+      ],
+      "min_after": [
+        -42.5
+      ],
+      "max_after": [
+        59.75
+      ],
+      "scale_before": [
+        0.47047242522239685
+      ],
+      "scale_after": [
+        0.47047242522239685
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        20.095130920410156
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        20.095130920410156
+      ],
+      "scale_before": [
+        0.15822938084602356
+      ],
+      "scale_after": [
+        0.15822938084602356
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -9.625
+      ],
+      "max_before": [
+        11.75
+      ],
+      "min_after": [
+        -9.625
+      ],
+      "max_after": [
+        11.75
+      ],
+      "scale_before": [
+        0.09251968562602997
+      ],
+      "scale_after": [
+        0.09251968562602997
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.09347915649414
+      ],
+      "max_before": [
+        7.844914436340332
+      ],
+      "min_after": [
+        -8.09347915649414
+      ],
+      "max_after": [
+        7.844914436340332
+      ],
+      "scale_before": [
+        0.06372818350791931
+      ],
+      "scale_after": [
+        0.06372818350791931
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.25
+      ],
+      "max_before": [
+        6.34375
+      ],
+      "min_after": [
+        -6.25
+      ],
+      "max_after": [
+        6.34375
+      ],
+      "scale_before": [
+        0.04995078593492508
+      ],
+      "scale_after": [
+        0.04995078593492508
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -8.75
+      ],
+      "max_before": [
+        8.5625
+      ],
+      "min_after": [
+        -8.75
+      ],
+      "max_after": [
+        8.5625
+      ],
+      "scale_before": [
+        0.06889763474464417
+      ],
+      "scale_after": [
+        0.06889763474464417
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -79.5
+      ],
+      "max_before": [
+        63.75
+      ],
+      "min_after": [
+        -79.5
+      ],
+      "max_after": [
+        63.75
+      ],
+      "scale_before": [
+        0.625984251499176
+      ],
+      "scale_after": [
+        0.625984251499176
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.53125
+      ],
+      "max_before": [
+        6.75
+      ],
+      "min_after": [
+        -6.53125
+      ],
+      "max_after": [
+        6.75
+      ],
+      "scale_before": [
+        0.05314960703253746
+      ],
+      "scale_after": [
+        0.05314960703253746
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.125
+      ],
+      "max_before": [
+        11.3125
+      ],
+      "min_after": [
+        -10.125
+      ],
+      "max_after": [
+        11.3125
+      ],
+      "scale_before": [
+        0.08907480537891388
+      ],
+      "scale_after": [
+        0.08907480537891388
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -18.464378356933594
+      ],
+      "max_before": [
+        18.50832176208496
+      ],
+      "min_after": [
+        -18.464378356933594
+      ],
+      "max_after": [
+        18.50832176208496
+      ],
+      "scale_before": [
+        0.14573481678962708
+      ],
+      "scale_after": [
+        0.14573481678962708
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -23.25
+      ],
+      "max_before": [
+        18.875
+      ],
+      "min_after": [
+        -23.25
+      ],
+      "max_after": [
+        18.875
+      ],
+      "scale_before": [
+        0.18307086825370789
+      ],
+      "scale_after": [
+        0.18307086825370789
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        20.951446533203125
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        20.951446533203125
+      ],
+      "scale_before": [
+        0.16497202217578888
+      ],
+      "scale_after": [
+        0.16497202217578888
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.10.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -28.75
+      ],
+      "max_before": [
+        30.125
+      ],
+      "min_after": [
+        -28.75
+      ],
+      "max_after": [
+        30.125
+      ],
+      "scale_before": [
+        0.23720473051071167
+      ],
+      "scale_after": [
+        0.23720473051071167
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.0.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -18.157590866088867
+      ],
+      "max_before": [
+        16.65148162841797
+      ],
+      "min_after": [
+        -18.157590866088867
+      ],
+      "max_after": [
+        16.65148162841797
+      ],
+      "scale_before": [
+        0.1429731547832489
+      ],
+      "scale_after": [
+        0.1429731547832489
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.0.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -21.75
+      ],
+      "max_before": [
+        18.0
+      ],
+      "min_after": [
+        -21.75
+      ],
+      "max_after": [
+        18.0
+      ],
+      "scale_before": [
+        0.1712598353624344
+      ],
+      "scale_after": [
+        0.1712598353624344
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.0.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940502882003784
+      ],
+      "max_before": [
+        19.40945053100586
+      ],
+      "min_after": [
+        -0.30940502882003784
+      ],
+      "max_after": [
+        19.40945053100586
+      ],
+      "scale_before": [
+        0.1528303176164627
+      ],
+      "scale_after": [
+        0.1528303176164627
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.0.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -31.375
+      ],
+      "max_before": [
+        140.0
+      ],
+      "min_after": [
+        -31.375
+      ],
+      "max_after": [
+        140.0
+      ],
+      "scale_before": [
+        1.1023621559143066
+      ],
+      "scale_after": [
+        1.1023621559143066
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.pconv_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -14.220174789428711
+      ],
+      "max_before": [
+        12.112273216247559
+      ],
+      "min_after": [
+        -14.220174789428711
+      ],
+      "max_after": [
+        12.112273216247559
+      ],
+      "scale_before": [
+        0.11196988075971603
+      ],
+      "scale_after": [
+        0.11196988075971603
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.pconv_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -53.5
+      ],
+      "max_before": [
+        45.5
+      ],
+      "min_after": [
+        -53.5
+      ],
+      "max_after": [
+        45.5
+      ],
+      "scale_before": [
+        0.4212598502635956
+      ],
+      "scale_after": [
+        0.4212598502635956
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.dconv_1_in_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -32.24408721923828
+      ],
+      "max_before": [
+        33.57686996459961
+      ],
+      "min_after": [
+        -32.24408721923828
+      ],
+      "max_after": [
+        33.57686996459961
+      ],
+      "scale_before": [
+        0.26438480615615845
+      ],
+      "scale_after": [
+        0.26438480615615845
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.dconv_1_out_quant",
+      "input_shape": [
+        1,
+        512,
+        878
+      ],
+      "cached_before": false,
+      "min_before": [
+        -33.5
+      ],
+      "max_before": [
+        69.5
+      ],
+      "min_after": [
+        -33.5
+      ],
+      "max_after": [
+        69.5
+      ],
+      "scale_before": [
+        0.5472440719604492
+      ],
+      "scale_after": [
+        0.5472440719604492
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.pconv_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.27846458554267883
+      ],
+      "max_before": [
+        21.035429000854492
+      ],
+      "min_after": [
+        -0.27846458554267883
+      ],
+      "max_after": [
+        21.035429000854492
+      ],
+      "scale_before": [
+        0.16563330590724945
+      ],
+      "scale_after": [
+        0.16563330590724945
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.1.pconv_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -15.875
+      ],
+      "max_before": [
+        32.5
+      ],
+      "min_after": [
+        -15.875
+      ],
+      "max_after": [
+        32.5
+      ],
+      "scale_before": [
+        0.25590550899505615
+      ],
+      "scale_after": [
+        0.25590550899505615
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.in_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.084983825683594
+      ],
+      "max_before": [
+        11.005175590515137
+      ],
+      "min_after": [
+        -10.084983825683594
+      ],
+      "max_after": [
+        11.005175590515137
+      ],
+      "scale_before": [
+        0.08665492385625839
+      ],
+      "scale_after": [
+        0.08665492385625839
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.q_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.78125
+      ],
+      "max_before": [
+        6.75
+      ],
+      "min_after": [
+        -6.78125
+      ],
+      "max_after": [
+        6.75
+      ],
+      "scale_before": [
+        0.05339566990733147
+      ],
+      "scale_after": [
+        0.05339566990733147
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.k_quantizer",
+      "input_shape": [
+        1,
+        878,
+        8,
+        64
+      ],
+      "cached_before": false,
+      "min_before": [
+        -10.1875
+      ],
+      "max_before": [
+        10.5625
+      ],
+      "min_after": [
+        -10.1875
+      ],
+      "max_after": [
+        10.5625
+      ],
+      "scale_before": [
+        0.08316928893327713
+      ],
+      "scale_after": [
+        0.08316928893327713
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.learn_emb_in_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.0
+      ],
+      "max_before": [
+        1.0
+      ],
+      "min_after": [
+        -1.0
+      ],
+      "max_after": [
+        1.0
+      ],
+      "scale_before": [
+        0.007874015718698502
+      ],
+      "scale_after": [
+        0.007874015718698502
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.learn_emb_out_quant",
+      "input_shape": [
+        1,
+        1755,
+        1,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -92.0
+      ],
+      "max_before": [
+        58.0
+      ],
+      "min_after": [
+        -92.0
+      ],
+      "max_after": [
+        58.0
+      ],
+      "scale_before": [
+        0.7244094610214233
+      ],
+      "scale_after": [
+        0.7244094610214233
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.out_proj_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -6.09375
+      ],
+      "max_before": [
+        6.40625
+      ],
+      "min_after": [
+        -6.09375
+      ],
+      "max_after": [
+        6.40625
+      ],
+      "scale_before": [
+        0.05044291168451309
+      ],
+      "scale_after": [
+        0.05044291168451309
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.2.mhsa.out_proj_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -30.625
+      ],
+      "max_before": [
+        42.0
+      ],
+      "min_after": [
+        -30.625
+      ],
+      "max_after": [
+        42.0
+      ],
+      "scale_before": [
+        0.33070865273475647
+      ],
+      "scale_after": [
+        0.33070865273475647
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.3.lin_1_in_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -16.75051498413086
+      ],
+      "max_before": [
+        15.618610382080078
+      ],
+      "min_after": [
+        -16.75051498413086
+      ],
+      "max_after": [
+        15.618610382080078
+      ],
+      "scale_before": [
+        0.1318938136100769
+      ],
+      "scale_after": [
+        0.1318938136100769
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.3.lin_1_out_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -22.125
+      ],
+      "max_before": [
+        17.875
+      ],
+      "min_after": [
+        -22.125
+      ],
+      "max_after": [
+        17.875
+      ],
+      "scale_before": [
+        0.17421260476112366
+      ],
+      "scale_after": [
+        0.17421260476112366
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.3.lin_2_in_quant",
+      "input_shape": [
+        1,
+        878,
+        2048
+      ],
+      "cached_before": false,
+      "min_before": [
+        -0.30940499901771545
+      ],
+      "max_before": [
+        19.903762817382812
+      ],
+      "min_after": [
+        -0.30940499901771545
+      ],
+      "max_after": [
+        19.903762817382812
+      ],
+      "scale_before": [
+        0.1567225456237793
+      ],
+      "scale_after": [
+        0.1567225456237793
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "encoder.conformer.module_list.11.module_list.3.lin_2_out_quant",
+      "input_shape": [
+        1,
+        878,
+        512
+      ],
+      "cached_before": false,
+      "min_before": [
+        -163.0
+      ],
+      "max_before": [
+        111.5
+      ],
+      "min_after": [
+        -163.0
+      ],
+      "max_after": [
+        111.5
+      ],
+      "scale_before": [
+        1.2834645509719849
+      ],
+      "scale_after": [
+        1.2834645509719849
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.prediction_net.1",
+      "input_shape": [
+        1,
+        256
+      ],
+      "cached_before": false,
+      "min_before": [
+        -4.853532314300537
+      ],
+      "max_before": [
+        4.892414569854736
+      ],
+      "min_after": [
+        -4.853532314300537
+      ],
+      "max_after": [
+        4.892414569854736
+      ],
+      "scale_before": [
+        0.03852294757962227
+      ],
+      "scale_after": [
+        0.03852294757962227
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.prediction_net.3",
+      "input_shape": [
+        1,
+        640
+      ],
+      "cached_before": false,
+      "min_before": [
+        -7.78125
+      ],
+      "max_before": [
+        7.6875
+      ],
+      "min_after": [
+        -7.78125
+      ],
+      "max_after": [
+        7.6875
+      ],
+      "scale_before": [
+        0.06126968562602997
+      ],
+      "scale_after": [
+        0.06126968562602997
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.prediction_net.6",
+      "input_shape": [
+        1,
+        640
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.111110806465149
+      ],
+      "max_before": [
+        1.1111106872558594
+      ],
+      "min_after": [
+        -1.111110806465149
+      ],
+      "max_after": [
+        1.1111106872558594
+      ],
+      "scale_before": [
+        0.00874890387058258
+      ],
+      "scale_after": [
+        0.00874890387058258
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.prediction_net.8",
+      "input_shape": [
+        1,
+        640
+      ],
+      "cached_before": false,
+      "min_before": [
+        -28.375
+      ],
+      "max_before": [
+        27.875
+      ],
+      "min_after": [
+        -28.375
+      ],
+      "max_after": [
+        27.875
+      ],
+      "scale_before": [
+        0.22342519462108612
+      ],
+      "scale_after": [
+        0.22342519462108612
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.joint_net_q1_in",
+      "input_shape": [
+        1,
+        1152
+      ],
+      "cached_before": false,
+      "min_before": [
+        -15.125360488891602
+      ],
+      "max_before": [
+        13.260756492614746
+      ],
+      "min_after": [
+        -15.125360488891602
+      ],
+      "max_after": [
+        13.260756492614746
+      ],
+      "scale_before": [
+        0.11909732967615128
+      ],
+      "scale_after": [
+        0.11909732967615128
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.joint_net_q1_out",
+      "input_shape": [
+        1,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -54.75
+      ],
+      "max_before": [
+        52.75
+      ],
+      "min_after": [
+        -54.75
+      ],
+      "max_after": [
+        52.75
+      ],
+      "scale_before": [
+        0.43110236525535583
+      ],
+      "scale_after": [
+        0.43110236525535583
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.joint_net_q2_in",
+      "input_shape": [
+        1,
+        1024
+      ],
+      "cached_before": false,
+      "min_before": [
+        -1.1111111640930176
+      ],
+      "max_before": [
+        1.1111111640930176
+      ],
+      "min_after": [
+        -1.1111111640930176
+      ],
+      "max_after": [
+        1.1111111640930176
+      ],
+      "scale_before": [
+        0.008748906664550304
+      ],
+      "scale_after": [
+        0.008748906664550304
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    },
+    {
+      "name": "scorer.joint_net_q2_out",
+      "input_shape": [
+        1,
+        185
+      ],
+      "cached_before": false,
+      "min_before": [
+        -61.25
+      ],
+      "max_before": [
+        34.0
+      ],
+      "min_after": [
+        -61.25
+      ],
+      "max_after": [
+        34.0
+      ],
+      "scale_before": [
+        0.48228347301483154
+      ],
+      "scale_after": [
+        0.48228347301483154
+      ],
+      "zero_point_before": [
+        0
+      ],
+      "zero_point_after": [
+        0
+      ],
+      "range_changed": false,
+      "qparams_changed": false
+    }
+  ]
+}

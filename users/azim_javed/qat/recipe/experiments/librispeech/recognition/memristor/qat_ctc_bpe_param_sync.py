@@ -417,6 +417,7 @@ def _convert_model_for_memristor(
         pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
         correction_settings=correction_settings,
         num_cycles=num_cycles,
+        alias=f"{model.descriptor}_memristor_num_cycles_{num_cycles}",
     )
     epoch = variant.epoch if variant.epoch is not None else 0
     return TrainedModel(

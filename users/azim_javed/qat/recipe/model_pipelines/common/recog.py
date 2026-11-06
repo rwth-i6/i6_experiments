@@ -6,9 +6,11 @@ __all__ = [
     "recog_rasr_streaming",
 ]
 
+import json
+import os
 import pprint
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Iterator, List, Optional, Protocol, Tuple, Union
 
@@ -16,12 +18,15 @@ import numpy as np
 import torch
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.util import DelayedFormat
 from i6_experiments.common.setups.serialization import Call, Collection, ExternalImport, Import
+from i6_experiments.users.azim_javed.common.jobs.returnn import ResumableReturnnForwardJobV2
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import Tensor, TensorDict
 from sisyphus import Job, Task, tk
+from sisyphus.hash import sis_hash_helper
 
 from ...data.base import DataConfig
 from ...tools import rasr_binary_path, returnn_python_exe, returnn_root
@@ -78,7 +83,14 @@ class OfflineRecogParameters:
     gpu_mem_rqmt: int = 0
     batched_decoder: bool = False
     dataloader_num_workers: int = 1
+    use_legacy_dataloader_num_workers_0_hash: bool = False
     batch_size_seconds: int = 360
+    num_shards: int = 1
+    debug_joint: bool = False
+    resumable: bool = False
+    gpu_name: Optional[str] = None
+    hash_salt: Optional[str] = None
+    nbest_size: int = 0
 
 
 @dataclass
@@ -90,6 +102,64 @@ class StreamingRecogParameters:
     mem_rqmt: int = 16
     gpu_mem_rqmt: int = 0
     batched_decoder: bool = False
+
+
+class _RecogReturnnConfig(ReturnnConfig):
+    def __init__(self, *args, hash_dataloader_num_workers_as_zero: bool, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hash_dataloader_num_workers_as_zero = hash_dataloader_num_workers_as_zero
+
+    def _sis_hash(self):
+        # Keep compatibility with recognition jobs that were hashed with zero workers.
+        config = dict(self.config)
+        if self._hash_dataloader_num_workers_as_zero:
+            config["torch_dataloader_opts"] = {"num_workers": 0}
+        hash_data = {
+            "returnn_config": config,
+            "python_epilog_hash": self.python_epilog_hash,
+            "python_prolog_hash": self.python_prolog_hash,
+        }
+        if self.staged_network_dict:
+            hash_data["returnn_networks"] = self.staged_network_dict
+        return sis_hash_helper(hash_data)
+
+
+def get_returrn_recog_job(
+    checkpoint: PtCheckpoint,
+    recog_returnn_config: _RecogReturnnConfig,
+    returnn_python_exe: str,
+    returnn_root: str,
+    output_files: List[str],
+    params: OfflineRecogParameters,
+    descriptor: str,
+    recog_corpus: ScorableCorpus,
+    shard_num: Optional[int] = None,
+):
+    job_cls = ResumableReturnnForwardJobV2 if params.resumable else ReturnnForwardJobV2
+    recog_job = job_cls(
+        model_checkpoint=checkpoint,
+        returnn_config=recog_returnn_config,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
+        mem_rqmt=params.mem_rqmt,
+        time_rqmt=168,
+    )
+    recog_job.add_alias(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/shard_{shard_num}_{params.num_shards}"
+        if shard_num is not None
+        else f"recognition/{descriptor}/{recog_corpus.corpus_name}"
+    )
+    if params.gpu_mem_rqmt > 0:
+        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
+        if params.gpu_name is not None:
+            recog_job.rqmt["gpu_name"] = params.gpu_name
+
+    if shard_num is not None:
+        recog_job.set_keep_value(0)
+
+    return recog_job
 
 
 def recog_rasr_offline(
@@ -104,6 +174,16 @@ def recog_rasr_offline(
     align_rasr_config_file: Optional[tk.Path] = None,
 ) -> RecogResult:
     compute_search_errors = align_rasr_config_file is not None
+    output_files = ["search_out.ctm", "rtf.py", "rasr.recog.log"]
+
+    if compute_search_errors:
+        output_files += ["search_errors.py", "rasr.align.log"]
+
+    if params.debug_joint:
+        if params.num_shards > 1:
+            raise ValueError("debug_joint is not supported with sharded recognition.")
+        output_files += ["joint_activations_debug.npy"]
+
     model_outputs = {
         "ctm_string": {
             "dtype": "string",
@@ -126,11 +206,22 @@ def recog_rasr_offline(
             "time_dim_axis": None,
         },
     }
+
     forward_step_kwargs = [
         ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
         ("sample_rate", sample_rate),
     ]
 
+    if params.nbest_size > 0:
+        if params.resumable:
+            raise ValueError("nbest decoding is not supported with resumable recognition.")
+        output_files.append("nbest.json")
+        model_outputs["nbest_json"] = {
+            "dtype": "string",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        }
+        forward_step_kwargs.append(("nbest_size", params.nbest_size))
     if compute_search_errors:
         model_outputs.update(
             {
@@ -157,6 +248,14 @@ def recog_rasr_offline(
             }
         )
         forward_step_kwargs.append(("align_rasr_config_file", DelayedFormat('tk.Path("{}")', align_rasr_config_file)))
+
+    if params.resumable:
+        model_outputs["resume_batch_end"] = {
+            "dtype": "bool",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        }
+        forward_step_kwargs.append(("resumable", True))
 
     if params.batched_decoder:
         decoder_epilog = [
@@ -189,6 +288,17 @@ def recog_rasr_offline(
                 return_assign_variables="forward_step",
             ),
         ]
+    if params.resumable:
+        decoder_epilog.insert(
+            1,
+            Call("forward_callback", kwargs=[("resumable", True)], return_assign_variables="forward_callback"),
+        )
+    elif params.nbest_size:
+        decoder_epilog.insert(
+            1,
+            Call("forward_callback", kwargs=[("nbest_size", params.nbest_size)], return_assign_variables="forward_callback"),
+        )
+
     recog_config = {
         "extern_data": {
             "data": {"dim": 1, "dtype": "float32"},
@@ -198,45 +308,85 @@ def recog_rasr_offline(
         "backend": "torch",
         "batch_size": params.batch_size_seconds * sample_rate,
     }
+    if params.hash_salt is not None:
+        recog_config["recognition_hash_salt"] = params.hash_salt
+    recog_post_config = {}
     if params.dataloader_num_workers != 1:
-        recog_config["torch_dataloader_opts"] = {"num_workers": params.dataloader_num_workers}
+        recog_post_config["torch_dataloader_opts"] = {"num_workers": params.dataloader_num_workers}
 
-    recog_returnn_config = ReturnnConfig(
-        config=recog_config,
-        python_prolog=recipe_imports + ["import torch"] + [ExternalImport(rasr_binary_path)],
-        python_epilog=[
-            encoder_serializers,
-            Import("sisyphus.tk"),
-        ]
-        + decoder_epilog,  # type: ignore
-        sort_config=False,
-    )
+    if params.num_shards != 1:
+        shard_segment_job = SegmentCorpusJob(
+            bliss_corpus=recog_corpus.bliss_corpus_file, num_segments=params.num_shards
+        )
+        shard_recog_jobs = []
+        for shard_num, segment_file in shard_segment_job.out_single_segment_files.items():
+            shared_recog_data_config = replace(recog_data_config, segment_file=segment_file)
+            shard_recog_returnn_config = _RecogReturnnConfig(
+                config=recog_config,
+                post_config=recog_post_config,
+                hash_dataloader_num_workers_as_zero=(
+                    params.dataloader_num_workers != 1 or params.use_legacy_dataloader_num_workers_0_hash
+                ),
+                python_prolog=recipe_imports + ["import torch"] + [ExternalImport(rasr_binary_path)],
+                python_epilog=[
+                    encoder_serializers,
+                    Import("sisyphus.tk"),
+                ]
+                + decoder_epilog,  # type: ignore
+                sort_config=False,
+            )
 
-    recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
+            shard_recog_returnn_config.update(shared_recog_data_config.get_returnn_data("forward_data"))
+            shard_recog_job = get_returrn_recog_job(
+                checkpoint=checkpoint,
+                recog_returnn_config=shard_recog_returnn_config,
+                returnn_python_exe=returnn_python_exe,
+                returnn_root=returnn_root,
+                output_files=output_files,
+                params=params,
+                descriptor=descriptor,
+                recog_corpus=recog_corpus,
+                shard_num=shard_num,
+            )
+            shard_recog_jobs.append(shard_recog_job)
 
-    output_files = ["search_out.ctm", "rtf.py", "rasr.recog.log"]
-    if compute_search_errors:
-        output_files += ["search_errors.py", "rasr.align.log"]
+        recog_job = MergeShardedReturnnForwardJob(shard_recog_jobs)
 
-    recog_job = ReturnnForwardJobV2(
-        model_checkpoint=checkpoint,
-        returnn_config=recog_returnn_config,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_files=output_files,
-        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
-        mem_rqmt=params.mem_rqmt,
-        time_rqmt=168,
-    )
-    recog_job.add_alias(f"recognition/{descriptor}/{recog_corpus.corpus_name}")
-    if params.gpu_mem_rqmt > 0:
-        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
+    else:
+        recog_returnn_config = _RecogReturnnConfig(
+            config=recog_config,
+            post_config=recog_post_config,
+            hash_dataloader_num_workers_as_zero=(
+                params.dataloader_num_workers != 1 or params.use_legacy_dataloader_num_workers_0_hash
+            ),
+            python_prolog=recipe_imports + ["import torch"] + [ExternalImport(rasr_binary_path)],
+            python_epilog=[
+                encoder_serializers,
+                Import("sisyphus.tk"),
+            ]
+            + decoder_epilog,  # type: ignore
+            sort_config=False,
+        )
+
+        recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
+
+        recog_job = get_returrn_recog_job(
+            checkpoint=checkpoint,
+            recog_returnn_config=recog_returnn_config,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+            output_files=output_files,
+            params=params,
+            descriptor=descriptor,
+            recog_corpus=recog_corpus
+        )
 
     for output_file in output_files:
         tk.register_output(
             f"recognition/{descriptor}/{recog_corpus.corpus_name}/{output_file}",
             recog_job.out_files[output_file],
         )
+
     if compute_search_errors:
         search_error_job = ExtractSearchErrorDataJob(recog_job.out_files["search_errors.py"])
         tk.register_output(
@@ -448,7 +598,14 @@ def recog_rasr_streaming(
 def post_recog_memristor_offline(
     descriptor: str, recog_corpus: ScorableCorpus, recog_results: List[RecogResult]
 ) -> MemristorRecogResult:
-    extract_stats_job = ExtractMemristorRecogStatsJob(recog_results=recog_results)
+    extract_stats_job = ExtractMemristorRecogStatsJob(
+        wer=[result.wer for result in recog_results],
+        num_errors=[result.num_errors for result in recog_results],
+        ref_words=[result.ref_words for result in recog_results],
+        total_rtf=[result.total_rtf for result in recog_results],
+        enc_rtf=[result.enc_rtf for result in recog_results],
+        search_rtf=[result.search_rtf for result in recog_results],
+    )
 
     output_dir = f"recognition/{descriptor}/{recog_corpus.corpus_name}/memristor_stats"
     extract_stats_job.add_alias(f"recognition/memristor/{descriptor}/{recog_corpus.corpus_name}")
@@ -479,8 +636,21 @@ def post_recog_memristor_offline(
 
 
 class ExtractMemristorRecogStatsJob(Job):
-    def __init__(self, recog_results: List[RecogResult]) -> None:
-        self.recog_results = recog_results
+    def __init__(
+        self,
+        wer: List[tk.Variable],
+        num_errors: List[tk.Variable],
+        ref_words: List[tk.Variable],
+        total_rtf: List[tk.Variable],
+        enc_rtf: List[tk.Variable],
+        search_rtf: List[tk.Variable],
+    ) -> None:
+        self.wer = wer
+        self.num_errors = num_errors
+        self.ref_words = ref_words
+        self.total_rtf = total_rtf
+        self.enc_rtf = enc_rtf
+        self.search_rtf = search_rtf
         self.out_average_wer = self.output_var("average_wer")
         self.out_stddev_wer = self.output_var("stddev_wer")
         self.out_min_wer = self.output_var("min_wer")
@@ -494,14 +664,14 @@ class ExtractMemristorRecogStatsJob(Job):
 
     def run(self) -> None:
         wer_values = [
-            100 * float(result.num_errors.get()) / float(result.ref_words.get())
-            for result in self.recog_results
-            if result.wer.get() is not None
+            100 * float(num_errors.get()) / float(ref_words.get())
+            for wer, num_errors, ref_words in zip(self.wer, self.num_errors, self.ref_words)
+            if wer.get() is not None
         ]
 
-        total_rtf_values = [float(result.total_rtf.get()) for result in self.recog_results]
-        enc_rtf_values = [float(result.enc_rtf.get()) for result in self.recog_results]
-        search_rtf_values = [float(result.search_rtf.get()) for result in self.recog_results]
+        total_rtf_values = [float(value.get()) for value in self.total_rtf]
+        enc_rtf_values = [float(value.get()) for value in self.enc_rtf]
+        search_rtf_values = [float(value.get()) for value in self.search_rtf]
 
         average_wer = float(np.mean(wer_values))
         stddev_wer = float(np.std(wer_values))
@@ -587,6 +757,14 @@ class ExtractStatisticsJob(Job):
         self.out_stats.set(d)
 
 
+def _open_rasr_log(path, mode="rt"):
+    import gzip
+
+    with open(path, "rb") as f:
+        compressed = f.read(2) == b"\x1f\x8b"
+    return gzip.open(path, mode) if compressed else open(path, mode)
+
+
 class ExtractRasrStatisticsJob(Job):
     def __init__(self, rasr_log_file: tk.Path) -> None:
         self.rasr_log_file = rasr_log_file
@@ -611,7 +789,7 @@ class ExtractRasrStatisticsJob(Job):
         step_word_end_hyps_counts = []
         step_trees_counts = []
 
-        with open(self.rasr_log_file.get(), "r") as f:
+        with _open_rasr_log(self.rasr_log_file.get(), "rt") as f:
             for line in f:
                 for log_str, counter in [
                     ("<num-hyps-after-beam-pruning-1>", step_hyps_counts),
@@ -625,6 +803,106 @@ class ExtractRasrStatisticsJob(Job):
         self.out_step_hyps.set(statistics_from_data(step_hyps_counts))
         self.out_step_word_end_hyps.set(statistics_from_data(step_word_end_hyps_counts))
         self.out_step_trees.set(statistics_from_data(step_trees_counts))
+
+
+class MergeShardedReturnnForwardJob(Job):
+    def __init__(self, sharded_forward_jobs: List[ReturnnForwardJobV2]) -> None:
+        assert sharded_forward_jobs
+        self.shard_files = [job.out_files for job in sharded_forward_jobs]
+        self.out_files = {
+            name: self.output_path(name)
+            for name in self.shard_files[0]
+            if name in {"search_out.ctm", "rtf.py", "rasr.recog.log", "search_errors.py", "rasr.align.log", "nbest.json"}
+        }
+        assert all(set(files) == set(self.shard_files[0]) for files in self.shard_files)
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        import ast
+        import gzip
+        import shutil
+
+        for name in ("search_out.ctm", "rasr.recog.log", "rasr.align.log"):
+            if name not in self.out_files:
+                continue
+            output_opener = gzip.open if name in ("rasr.recog.log", "rasr.align.log") else open
+            output_kwargs = {"compresslevel": 6} if output_opener is gzip.open else {}
+            with output_opener(self.out_files[name].get_path(), "wb", **output_kwargs) as merged_file:
+                for files in self.shard_files:
+                    opener = _open_rasr_log if name in ("rasr.recog.log", "rasr.align.log") else open
+                    with opener(files[name].get_path(), "rb") as shard_file:
+                        shutil.copyfileobj(shard_file, merged_file)
+
+        if "nbest.json" in self.out_files:
+            seen = set()
+            with open(self.out_files["nbest.json"].get_path(), "w") as merged_file:
+                merged_file.write("{\n")
+                for files in self.shard_files:
+                    with open(files["nbest.json"].get_path()) as shard_file:
+                        records = json.load(shard_file)
+                    for seq_tag, record in records.items():
+                        if seq_tag in seen:
+                            raise ValueError(f"Duplicate N-best utterance across shards: {seq_tag}")
+                        if seen:
+                            merged_file.write(",\n")
+                        merged_file.write(json.dumps(seq_tag) + ": ")
+                        json.dump(record, merged_file, allow_nan=False)
+                        seen.add(seq_tag)
+                merged_file.write("\n}\n")
+
+        totals = {"audio_seconds": 0.0, "enc_seconds": 0.0, "search_seconds": 0.0}
+        for files in self.shard_files:
+            with open(files["rtf.py"].get_path(), "rt") as shard_file:
+                data = ast.literal_eval(shard_file.read())
+            for key in totals:
+                totals[key] += data[key]
+
+        audio = totals["audio_seconds"]
+        enc = totals["enc_seconds"]
+        search = totals["search_seconds"]
+        if audio <= 0:
+            raise ValueError("Cannot compute RTF for shards with zero total audio duration")
+        rtf_data = {
+            **totals,
+            "enc_rtf": enc / audio,
+            "enc_rtfx": audio / enc if enc else 0.0,
+            "search_rtf": search / audio,
+            "search_rtfx": audio / search if search else 0.0,
+            "total_seconds": enc + search,
+            "total_rtf": (enc + search) / audio,
+            "total_rtfx": audio / (enc + search) if enc + search else 0.0,
+        }
+        with open(self.out_files["rtf.py"].get_path(), "wt") as merged_file:
+            merged_file.write(pprint.pformat(rtf_data))
+
+        if "search_errors.py" in self.out_files:
+            counts = {
+                "total_skipped": 0,
+                "total_correct": 0,
+                "total_search_errors": 0,
+                "total_model_errors": 0,
+                "total_seqs": 0,
+            }
+            for files in self.shard_files:
+                with open(files["search_errors.py"].get_path(), "rt") as shard_file:
+                    data = ast.literal_eval(shard_file.read())
+                for key in counts:
+                    counts[key] += data[key]
+            total_seqs = counts["total_seqs"]
+            if total_seqs <= 0:
+                raise ValueError("Cannot compute search-error rates for zero sequences")
+            search_error_data = {
+                **counts,
+                "skipped_rate": counts["total_skipped"] / total_seqs,
+                "correct_rate": counts["total_correct"] / total_seqs,
+                "search_error_rate": counts["total_search_errors"] / total_seqs,
+                "model_error_rate": counts["total_model_errors"] / total_seqs,
+            }
+            with open(self.out_files["search_errors.py"].get_path(), "wt") as merged_file:
+                merged_file.write(pprint.pformat(search_error_data))
+
 
 
 class TracebackItem(Protocol):
@@ -748,6 +1026,13 @@ def statistics_from_data(data: list[float]) -> dict[str, float]:
 # =======================================================
 
 
+def _load_forward_cache():
+    if os.path.exists("forward_cache.json"):
+        with open("forward_cache.json") as f:
+            return json.load(f)
+    return {}
+
+
 class SearchCallback(ForwardCallbackIface):
     def init(self, **_):
         self.ctm_file = open("search_out.ctm", "w")
@@ -789,6 +1074,7 @@ class SearchCallback(ForwardCallbackIface):
                 "search_error_rate": float(self.total_search_errors) / float(self.total_seqs),
                 "total_model_errors": int(self.total_model_errors),
                 "model_error_rate": float(self.total_model_errors) / float(self.total_seqs),
+                "total_seqs": int(self.total_seqs),
             }
             print()
             print(
@@ -808,12 +1094,26 @@ class SearchCallback(ForwardCallbackIface):
 
 
 class OfflineSearchCallback(SearchCallback):
+    def __init__(self, *, resumable: bool = False, nbest_size: int = 0):
+        self.resumable = resumable
+        self.nbest_size = nbest_size
+
+    def __getstate__(self):
+        return {"resumable": self.resumable, "nbest_size": self.nbest_size}
+
     def init(self, *, model):
         super().init(model=model)
 
         self.total_audio_time = 0
         self.total_enc_time = 0
         self.total_search_time = 0
+        if self.resumable:
+            self._output_cache = _load_forward_cache()
+            self._cache_dirty = False
+        if self.nbest_size:
+            self.nbest_file = open("nbest.json", "w")
+            self.nbest_file.write("{\n")
+            self._nbest_first = True
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
         super().process_seq(seq_tag=seq_tag, outputs=outputs)
@@ -823,8 +1123,41 @@ class OfflineSearchCallback(SearchCallback):
         self.total_enc_time += raw_outputs.get("enc_time", 0)
         self.total_search_time += raw_outputs.get("search_time", 0)
 
+        if self.nbest_size:
+            if not self._nbest_first:
+                self.nbest_file.write(",\n")
+            self.nbest_file.write(json.dumps(seq_tag) + ": " + raw_outputs["nbest_json"].item())
+            self._nbest_first = False
+
+        if self.resumable:
+            if seq_tag not in self._output_cache:
+                self._output_cache[seq_tag] = {
+                    name: value.item()
+                    for name, value in raw_outputs.items()
+                    if name != "resume_batch_end"
+                }
+                self._cache_dirty = True
+            if bool(raw_outputs["resume_batch_end"].item()):
+                self.ctm_file.flush()
+                self._save_cache()
+
+    def _save_cache(self):
+        if not self._cache_dirty:
+            return
+
+        with open("forward_cache.json.tmp", "w") as f:
+            json.dump(self._output_cache, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace("forward_cache.json.tmp", "forward_cache.json")
+        self._cache_dirty = False
+
     def finish(self):
         super().finish()
+
+        if self.nbest_size:
+            self.nbest_file.write("\n}\n")
+            self.nbest_file.close()
 
         rtf_data = {
             "audio_seconds": float(self.total_audio_time),
@@ -902,7 +1235,13 @@ class RasrRecogForwardStep(ABC):
         recog_rasr_config_file: tk.Path,
         align_rasr_config_file: Optional[tk.Path] = None,
         sample_rate: int = 16000,
+        *,
+        resumable: bool = False,
+        nbest_size: int = 0,
     ) -> None:
+        self.resumable = resumable
+        self.nbest_size = nbest_size
+        self._output_cache = _load_forward_cache() if resumable else {}
         self.recog_rasr_config_file = recog_rasr_config_file
         self.sample_rate = sample_rate
         self.search_algorithm = self.init_search_algorithm()
@@ -951,18 +1290,130 @@ class RasrRecogForwardStep(ABC):
     @abstractmethod
     def __call__(self, *, model: EncoderModel, extern_data: TensorDict, **_) -> None: ...
 
+    def _get_nbest_json(self, features, reference):
+        candidates = self.search_algorithm.get_current_n_best_list(self.nbest_size)
+        record = {
+            "reference": str(reference),
+            "encoder_frames": int(features.shape[-2]),
+            "rasr_config": self.recog_rasr_config_file.get(),
+            "requested_nbest": self.nbest_size,
+            "score_source": "last traceback item's cumulative am_score + lm_score; not certified complete",
+            "candidates": [
+                {
+                    "rank": rank,
+                    "transcription": _traceback_to_transcription(candidate),
+                    "traceback_terminal_cost": _traceback_to_score(candidate) if candidate else None,
+                    "traceback": [
+                        {
+                            "lemma": item.lemma,
+                            "am_score": float(item.am_score),
+                            "lm_score": float(item.lm_score),
+                            "confidence_score": (
+                                float(item.confidence_score) if item.confidence_score is not None else None
+                            ),
+                            "start_time": int(item.start_time),
+                            "end_time": int(item.end_time),
+                        }
+                        for item in candidate
+                    ],
+                }
+                for rank, candidate in enumerate(candidates, 1)
+            ],
+        }
+        return json.dumps(record, allow_nan=False)
+
+    def _mark_nbest_output(self, records):
+        if not self.nbest_size:
+            return
+        import returnn.frontend as rf
+
+        rf.get_run_ctx().mark_as_output(
+            Tensor(
+                name="nbest_json",
+                dtype="string",
+                raw_tensor=np.array(records, dtype="U"),
+                feature_dim_axis=None,
+                time_dim_axis=None,
+            ),
+            name="nbest_json",
+        )
+    
+    
+    def _prepare_resume_batch(self, raw_data):
+        seq_tags = raw_data["seq_tag"]
+        pending = [i for i, tag in enumerate(seq_tags) if tag not in self._output_cache]
+        if pending and len(pending) != len(seq_tags):
+            raw_data = {
+                "data": raw_data["data"][pending],
+                "data:size1": raw_data["data:size1"][pending],
+                "raw": [raw_data["raw"][i] for i in pending],
+                "seq_tag": [seq_tags[i] for i in pending],
+            }
+        return raw_data, seq_tags, pending
+
+    def _emit_resume_outputs(self, seq_tags, pending, computed_outputs):
+        import returnn.frontend as rf
+
+        computed = {
+            seq_tags[index]: {name: values[i] for name, values in computed_outputs.items()}
+            for i, index in enumerate(pending)
+        }
+        rows = [computed[tag] if tag in computed else self._output_cache[tag] for tag in seq_tags]
+        dtypes = {
+            "ctm_string": "string",
+            "enc_time": "float32",
+            "audio_time": "float32",
+            "search_time": "float32",
+        }
+        if self.aligner is not None:
+            dtypes.update({name: "int32" for name in ("search_errors", "model_errors", "skipped", "correct")})
+
+        run_ctx = rf.get_run_ctx()
+        for name, dtype in dtypes.items():
+            run_ctx.mark_as_output(
+                Tensor(
+                    name=name,
+                    dtype=dtype,
+                    raw_tensor=np.array([row[name] for row in rows], dtype="U" if dtype == "string" else dtype),
+                    feature_dim_axis=None,
+                    time_dim_axis=None,
+                ),
+                name=name,
+            )
+        self._mark_resume_batch_end(run_ctx, len(seq_tags))
+
+    def _mark_resume_batch_end(self, run_ctx, batch_size: int):
+        if self.resumable:
+            run_ctx.mark_as_output(
+                Tensor(
+                    name="resume_batch_end",
+                    dtype="bool",
+                    raw_tensor=np.arange(batch_size) == batch_size - 1,
+                    feature_dim_axis=None,
+                    time_dim_axis=None,
+                ),
+                name="resume_batch_end",
+            )
+
 
 class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
     def __call__(self, *, model: EncoderModel, extern_data: TensorDict, **_) -> None:
         assert self.search_algorithm is not None
 
         raw_data = extern_data.as_raw_tensor_dict()
+        if self.resumable:
+            raw_data, original_seq_tags, pending = self._prepare_resume_batch(raw_data)
+            if not pending:
+                self._emit_resume_outputs(original_seq_tags, pending, {})
+                return
         audio_samples = raw_data["data"]
         audio_samples_size = raw_data["data:size1"].to(device=audio_samples.device)
         orths = raw_data["raw"]
         seq_tags = raw_data["seq_tag"]
 
         ctm_strs = []
+
+        nbest_records = []
 
         search_errors = []
         model_errors = []
@@ -994,6 +1445,10 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
             search_start = perf_counter()
 
             traceback = self.search_algorithm.recognize_segment(features=encoder_states)
+
+            if self.nbest_size:
+                nbest_records.append(self._get_nbest_json(encoder_states, orths[b]))
+
             search_time = perf_counter() - search_start
             search_times.append(search_time)
 
@@ -1054,6 +1509,20 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
                     model_errors.append(1)
                     correct.append(0)
 
+        if self.resumable:
+            computed_outputs = {
+                "ctm_string": ctm_strs,
+                "enc_time": encoder_times,
+                "audio_time": (audio_samples_size / self.sample_rate).cpu().numpy(),
+                "search_time": search_times,
+            }
+            if self.aligner is not None:
+                computed_outputs.update(
+                    search_errors=search_errors, model_errors=model_errors, skipped=skipped, correct=correct,
+                )
+            self._emit_resume_outputs(original_seq_tags, pending, computed_outputs)
+            return
+
         import returnn.frontend as rf
 
         run_ctx = rf.get_run_ctx()
@@ -1066,6 +1535,7 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
             time_dim_axis=None,
         )
         run_ctx.mark_as_output(ctm_string_tensor, name="ctm_string")
+        self._mark_nbest_output(nbest_records)
 
         if len(search_errors) > 0:
             search_errors_tensor = Tensor(
@@ -1137,6 +1607,11 @@ class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
         assert self.search_algorithm is not None
 
         raw_data = extern_data.as_raw_tensor_dict()
+        if self.resumable:
+            raw_data, original_seq_tags, pending = self._prepare_resume_batch(raw_data)
+            if not pending:
+                self._emit_resume_outputs(original_seq_tags, pending, {})
+                return
         audio_samples = raw_data["data"]
         audio_samples_size = raw_data["data:size1"].to(device=audio_samples.device)
         orths = raw_data["raw"]
@@ -1145,6 +1620,7 @@ class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
         B = audio_samples.size(0)
 
         ctm_strs = []
+        nbest_records = []
 
         search_errors = []
         model_errors = []
@@ -1171,6 +1647,10 @@ class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
             search_start = perf_counter()
 
             traceback = self.search_algorithm.recognize_segment(features=es)
+
+            if self.nbest_size:
+                nbest_records.append(self._get_nbest_json(es, orths[b]))
+            
             search_time = perf_counter() - search_start
             search_times.append(search_time)
 
@@ -1229,6 +1709,20 @@ class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
                     model_errors.append(1)
                     correct.append(0)
 
+        if self.resumable:
+            computed_outputs = {
+                "ctm_string": ctm_strs,
+                "enc_time": encoder_times,
+                "audio_time": (audio_samples_size / self.sample_rate).cpu().numpy(),
+                "search_time": search_times,
+            }
+            if self.aligner is not None:
+                computed_outputs.update(
+                    search_errors=search_errors, model_errors=model_errors, skipped=skipped, correct=correct,
+                )
+            self._emit_resume_outputs(original_seq_tags, pending, computed_outputs)
+            return
+
         import returnn.frontend as rf
 
         run_ctx = rf.get_run_ctx()
@@ -1241,6 +1735,7 @@ class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
             time_dim_axis=None,
         )
         run_ctx.mark_as_output(ctm_string_tensor, name="ctm_string")
+        self._mark_nbest_output(nbest_records)
 
         if len(search_errors) > 0:
             search_errors_tensor = Tensor(

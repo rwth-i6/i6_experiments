@@ -1,0 +1,42 @@
+{
+  "labels": [
+    "Memristor, ADC 4/4"
+  ],
+  "normalization": "density",
+  "bins": 100,
+  "inputs": [
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.WzUWPLE5LRPZ/output/joint_activations_debug.npy",
+      "records": 2864,
+      "empty_records": 1,
+      "layers": {
+        "linear1": {
+          "count": 471567360,
+          "nonfinite": 0,
+          "min": -28.415851593017578,
+          "max": 30.28968048095703,
+          "mean": 0.07173663660024451,
+          "batches": 460515,
+          "rows": 460515,
+          "widths": [
+            1024
+          ],
+          "std": 4.642951287763267
+        },
+        "linear2": {
+          "count": 85195275,
+          "nonfinite": 0,
+          "min": -23.920072555541992,
+          "max": 15.850061416625977,
+          "mean": 0.14767590589897106,
+          "batches": 460515,
+          "rows": 460515,
+          "widths": [
+            185
+          ],
+          "std": 3.3382951489978425
+        }
+      }
+    }
+  ]
+}

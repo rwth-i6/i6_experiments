@@ -1,0 +1,445 @@
+{
+  "description": "Small device-level test of the unchanged SynaptogenML correction routine.\n\nUses one signed magnitude bitplane with 10% active entries, three fixed seeds,\nand the real TiledMemristorLinear initialization method. No decoding, altered\ncorrection algorithm, or ideal resistance assignments are used.\n",
+  "cells_per_polarity": 4096,
+  "active_target_fraction": 0.096923828125,
+  "rows": [
+    {
+      "verify_gain": 5476.0,
+      "recognition_gain": 5476.0,
+      "rounds": 0,
+      "tolerance": null,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.10316507518291473,
+        "zero_bit_rmse": 0.03321714326739311,
+        "active_bit_rmse": 0.31547712286313373,
+        "active_bit_gain": 0.6877710223197937,
+        "individual_devices_within_10pct": 0.8964029947916666
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10295538604259491,
+          "zero_bit_rmse": 0.03309457376599312,
+          "active_bit_rmse": 0.3148927092552185,
+          "active_bit_gain": 0.688751220703125,
+          "individual_devices_within_10pct": 0.8941650390625,
+          "individual_devices_within_requested_tolerance": null
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10241775959730148,
+          "zero_bit_rmse": 0.03249315172433853,
+          "active_bit_rmse": 0.3136650323867798,
+          "active_bit_gain": 0.6893953084945679,
+          "individual_devices_within_10pct": 0.9022216796875,
+          "individual_devices_within_requested_tolerance": null
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.10412207990884781,
+          "zero_bit_rmse": 0.03406370431184769,
+          "active_bit_rmse": 0.31787362694740295,
+          "active_bit_gain": 0.6851665377616882,
+          "individual_devices_within_10pct": 0.892822265625,
+          "individual_devices_within_requested_tolerance": null
+        }
+      ]
+    },
+    {
+      "verify_gain": 5476.0,
+      "recognition_gain": 5476.0,
+      "rounds": 5,
+      "tolerance": 0.15,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.101971834897995,
+        "zero_bit_rmse": 0.02987392929693063,
+        "active_bit_rmse": 0.31459062298138935,
+        "active_bit_gain": 0.6885930101076762,
+        "individual_devices_within_10pct": 0.9024658203125,
+        "individual_devices_within_requested_tolerance": 0.9520263671875
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10212617367506027,
+          "zero_bit_rmse": 0.030091281980276108,
+          "active_bit_rmse": 0.3149142861366272,
+          "active_bit_gain": 0.6884630918502808,
+          "individual_devices_within_10pct": 0.8997802734375,
+          "individual_devices_within_requested_tolerance": 0.9521484375
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10190805792808533,
+          "zero_bit_rmse": 0.029830094426870346,
+          "active_bit_rmse": 0.31441637873649597,
+          "active_bit_gain": 0.6888852119445801,
+          "individual_devices_within_10pct": 0.906982421875,
+          "individual_devices_within_requested_tolerance": 0.9521484375
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.10188127309083939,
+          "zero_bit_rmse": 0.02970041148364544,
+          "active_bit_rmse": 0.3144412040710449,
+          "active_bit_gain": 0.6884307265281677,
+          "individual_devices_within_10pct": 0.900634765625,
+          "individual_devices_within_requested_tolerance": 0.9517822265625
+        }
+      ]
+    },
+    {
+      "verify_gain": 5476.0,
+      "recognition_gain": 5476.0,
+      "rounds": 10,
+      "tolerance": 0.15,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.10139822711547215,
+        "zero_bit_rmse": 0.02987392929693063,
+        "active_bit_rmse": 0.3126702308654785,
+        "active_bit_gain": 0.6906643112500509,
+        "individual_devices_within_10pct": 0.9024658203125,
+        "individual_devices_within_requested_tolerance": 0.9525146484375
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10063640773296356,
+          "zero_bit_rmse": 0.030091281980276108,
+          "active_bit_rmse": 0.30992650985717773,
+          "active_bit_gain": 0.6933644413948059,
+          "individual_devices_within_10pct": 0.8997802734375,
+          "individual_devices_within_requested_tolerance": 0.95263671875
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10140140354633331,
+          "zero_bit_rmse": 0.029830094426870346,
+          "active_bit_rmse": 0.31272175908088684,
+          "active_bit_gain": 0.6907550692558289,
+          "individual_devices_within_10pct": 0.906982421875,
+          "individual_devices_within_requested_tolerance": 0.95263671875
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.1021568700671196,
+          "zero_bit_rmse": 0.02970041148364544,
+          "active_bit_rmse": 0.31536242365837097,
+          "active_bit_gain": 0.6878734230995178,
+          "individual_devices_within_10pct": 0.900634765625,
+          "individual_devices_within_requested_tolerance": 0.9522705078125
+        }
+      ]
+    },
+    {
+      "verify_gain": 5476.0,
+      "recognition_gain": 5476.0,
+      "rounds": 10,
+      "tolerance": 0.1,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.09956259032090505,
+        "zero_bit_rmse": 0.023652649795015652,
+        "active_bit_rmse": 0.3115452329317729,
+        "active_bit_gain": 0.6913878321647644,
+        "individual_devices_within_10pct": 0.9515787760416666,
+        "individual_devices_within_requested_tolerance": 0.9515787760416666
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.09905537962913513,
+          "zero_bit_rmse": 0.023616056889295578,
+          "active_bit_rmse": 0.30989888310432434,
+          "active_bit_gain": 0.6928437352180481,
+          "individual_devices_within_10pct": 0.9515380859375,
+          "individual_devices_within_requested_tolerance": 0.9515380859375
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.09991541504859924,
+          "zero_bit_rmse": 0.023836765438318253,
+          "active_bit_rmse": 0.3125784397125244,
+          "active_bit_gain": 0.6906947493553162,
+          "individual_devices_within_10pct": 0.9515380859375,
+          "individual_devices_within_requested_tolerance": 0.9515380859375
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.09971697628498077,
+          "zero_bit_rmse": 0.02350512705743313,
+          "active_bit_rmse": 0.31215837597846985,
+          "active_bit_gain": 0.690625011920929,
+          "individual_devices_within_10pct": 0.95166015625,
+          "individual_devices_within_requested_tolerance": 0.95166015625
+        }
+      ]
+    },
+    {
+      "verify_gain": 5476.0,
+      "recognition_gain": 5476.0,
+      "rounds": 20,
+      "tolerance": 0.1,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.09972095241149266,
+        "zero_bit_rmse": 0.023652649795015652,
+        "active_bit_rmse": 0.3120671510696411,
+        "active_bit_gain": 0.6909366846084595,
+        "individual_devices_within_10pct": 0.95166015625,
+        "individual_devices_within_requested_tolerance": 0.95166015625
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.09963473677635193,
+          "zero_bit_rmse": 0.023616056889295578,
+          "active_bit_rmse": 0.311809241771698,
+          "active_bit_gain": 0.6910783052444458,
+          "individual_devices_within_10pct": 0.9515380859375,
+          "individual_devices_within_requested_tolerance": 0.9515380859375
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.09955157339572906,
+          "zero_bit_rmse": 0.023836765438318253,
+          "active_bit_rmse": 0.3113783895969391,
+          "active_bit_gain": 0.6918401718139648,
+          "individual_devices_within_10pct": 0.9517822265625,
+          "individual_devices_within_requested_tolerance": 0.9517822265625
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.099976547062397,
+          "zero_bit_rmse": 0.02350512705743313,
+          "active_bit_rmse": 0.31301382184028625,
+          "active_bit_gain": 0.6898915767669678,
+          "individual_devices_within_10pct": 0.95166015625,
+          "individual_devices_within_requested_tolerance": 0.95166015625
+        }
+      ]
+    },
+    {
+      "verify_gain": 8020.0,
+      "recognition_gain": 5476.0,
+      "rounds": 0,
+      "tolerance": null,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.10316507518291473,
+        "zero_bit_rmse": 0.03321714326739311,
+        "active_bit_rmse": 0.31547712286313373,
+        "active_bit_gain": 0.6877710223197937,
+        "individual_devices_within_10pct": 0.7129313151041666
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10295538604259491,
+          "zero_bit_rmse": 0.03309457376599312,
+          "active_bit_rmse": 0.3148927092552185,
+          "active_bit_gain": 0.688751220703125,
+          "individual_devices_within_10pct": 0.7135009765625,
+          "individual_devices_within_requested_tolerance": null
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10241775959730148,
+          "zero_bit_rmse": 0.03249315172433853,
+          "active_bit_rmse": 0.3136650323867798,
+          "active_bit_gain": 0.6893953084945679,
+          "individual_devices_within_10pct": 0.7169189453125,
+          "individual_devices_within_requested_tolerance": null
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.10412207990884781,
+          "zero_bit_rmse": 0.03406370431184769,
+          "active_bit_rmse": 0.31787362694740295,
+          "active_bit_gain": 0.6851665377616882,
+          "individual_devices_within_10pct": 0.7083740234375,
+          "individual_devices_within_requested_tolerance": null
+        }
+      ]
+    },
+    {
+      "verify_gain": 8020.0,
+      "recognition_gain": 5476.0,
+      "rounds": 5,
+      "tolerance": 0.15,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.10061690459648769,
+        "zero_bit_rmse": 0.02423106941084067,
+        "active_bit_rmse": 0.31460986534754437,
+        "active_bit_gain": 0.6877185304959615,
+        "individual_devices_within_10pct": 0.7449951171875,
+        "individual_devices_within_requested_tolerance": 0.9984537760416666
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10041718184947968,
+          "zero_bit_rmse": 0.02434929646551609,
+          "active_bit_rmse": 0.31386664509773254,
+          "active_bit_gain": 0.6884681582450867,
+          "individual_devices_within_10pct": 0.74755859375,
+          "individual_devices_within_requested_tolerance": 0.9979248046875
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10042280703783035,
+          "zero_bit_rmse": 0.024387197569012642,
+          "active_bit_rmse": 0.313857764005661,
+          "active_bit_gain": 0.688541829586029,
+          "individual_devices_within_10pct": 0.745361328125,
+          "individual_devices_within_requested_tolerance": 0.99853515625
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.10101072490215302,
+          "zero_bit_rmse": 0.02395671419799328,
+          "active_bit_rmse": 0.3161051869392395,
+          "active_bit_gain": 0.6861456036567688,
+          "individual_devices_within_10pct": 0.7420654296875,
+          "individual_devices_within_requested_tolerance": 0.9989013671875
+        }
+      ]
+    },
+    {
+      "verify_gain": 8020.0,
+      "recognition_gain": 5476.0,
+      "rounds": 10,
+      "tolerance": 0.15,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.1007099375128746,
+        "zero_bit_rmse": 0.024133195479710896,
+        "active_bit_rmse": 0.31498703360557556,
+        "active_bit_gain": 0.6872638066609701,
+        "individual_devices_within_10pct": 0.7450358072916666,
+        "individual_devices_within_requested_tolerance": 0.9988606770833334
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.10056964308023453,
+          "zero_bit_rmse": 0.02405567467212677,
+          "active_bit_rmse": 0.31458044052124023,
+          "active_bit_gain": 0.687614381313324,
+          "individual_devices_within_10pct": 0.7476806640625,
+          "individual_devices_within_requested_tolerance": 0.99853515625
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.10046795010566711,
+          "zero_bit_rmse": 0.024387197569012642,
+          "active_bit_rmse": 0.31400683522224426,
+          "active_bit_gain": 0.688370406627655,
+          "individual_devices_within_10pct": 0.745361328125,
+          "individual_devices_within_requested_tolerance": 0.9989013671875
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.10109221935272217,
+          "zero_bit_rmse": 0.02395671419799328,
+          "active_bit_rmse": 0.3163738250732422,
+          "active_bit_gain": 0.6858066320419312,
+          "individual_devices_within_10pct": 0.7420654296875,
+          "individual_devices_within_requested_tolerance": 0.9991455078125
+        }
+      ]
+    },
+    {
+      "verify_gain": 8020.0,
+      "recognition_gain": 5476.0,
+      "rounds": 10,
+      "tolerance": 0.1,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.09903942545255025,
+        "zero_bit_rmse": 0.015688768588006496,
+        "active_bit_rmse": 0.31449530522028607,
+        "active_bit_gain": 0.6875049273173014,
+        "individual_devices_within_10pct": 0.9904378255208334,
+        "individual_devices_within_requested_tolerance": 0.9904378255208334
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.09878041595220566,
+          "zero_bit_rmse": 0.015348345972597599,
+          "active_bit_rmse": 0.3138115108013153,
+          "active_bit_gain": 0.6882608532905579,
+          "individual_devices_within_10pct": 0.9901123046875,
+          "individual_devices_within_requested_tolerance": 0.9901123046875
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.09885233640670776,
+          "zero_bit_rmse": 0.015946893021464348,
+          "active_bit_rmse": 0.31376707553863525,
+          "active_bit_gain": 0.6883662343025208,
+          "individual_devices_within_10pct": 0.9898681640625,
+          "individual_devices_within_requested_tolerance": 0.9898681640625
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.09948552399873734,
+          "zero_bit_rmse": 0.015771066769957542,
+          "active_bit_rmse": 0.3159073293209076,
+          "active_bit_gain": 0.6858876943588257,
+          "individual_devices_within_10pct": 0.9913330078125,
+          "individual_devices_within_requested_tolerance": 0.9913330078125
+        }
+      ]
+    },
+    {
+      "verify_gain": 8020.0,
+      "recognition_gain": 5476.0,
+      "rounds": 20,
+      "tolerance": 0.1,
+      "test_voltage": 0.6,
+      "mean": {
+        "differential_rmse": 0.09946735948324203,
+        "zero_bit_rmse": 0.015239870796600977,
+        "active_bit_rmse": 0.31609095136324566,
+        "active_bit_gain": 0.6857749223709106,
+        "individual_devices_within_10pct": 0.9937337239583334,
+        "individual_devices_within_requested_tolerance": 0.9937337239583334
+      },
+      "samples": [
+        {
+          "seed": 17,
+          "differential_rmse": 0.09925130754709244,
+          "zero_bit_rmse": 0.01527930237352848,
+          "active_bit_rmse": 0.31537193059921265,
+          "active_bit_gain": 0.6865984797477722,
+          "individual_devices_within_10pct": 0.992919921875,
+          "individual_devices_within_requested_tolerance": 0.992919921875
+        },
+        {
+          "seed": 18,
+          "differential_rmse": 0.09931612759828568,
+          "zero_bit_rmse": 0.01531906146556139,
+          "active_bit_rmse": 0.31556445360183716,
+          "active_bit_gain": 0.686346173286438,
+          "individual_devices_within_10pct": 0.9935302734375,
+          "individual_devices_within_requested_tolerance": 0.9935302734375
+        },
+        {
+          "seed": 19,
+          "differential_rmse": 0.09983464330434799,
+          "zero_bit_rmse": 0.015121248550713062,
+          "active_bit_rmse": 0.31733646988868713,
+          "active_bit_gain": 0.6843801140785217,
+          "individual_devices_within_10pct": 0.9947509765625,
+          "individual_devices_within_requested_tolerance": 0.9947509765625
+        }
+      ]
+    }
+  ]
+}

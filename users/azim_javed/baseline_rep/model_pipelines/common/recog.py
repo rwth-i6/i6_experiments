@@ -492,7 +492,13 @@ class ExtractRasrStatisticsJob(Job):
         step_word_end_hyps_counts = []
         step_trees_counts = []
 
-        with open(self.rasr_log_file.get(), "r") as f:
+        import gzip
+
+        path = self.rasr_log_file.get()
+        with open(path, "rb") as f:
+            compressed = f.read(2) == b"\x1f\x8b"
+        opener = gzip.open if compressed else open
+        with opener(path, "rt") as f:
             for line in f:
                 for log_str, counter in [
                     ("<num-hyps-after-beam-pruning-1>", step_hyps_counts),

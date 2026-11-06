@@ -2,82 +2,52 @@ import getpass
 import os
 import sys
 
+# Paths and resources shared by the settings hooks below.
+SETUP_ROOT = "/u/azim.javed/experiments/training/qat"
+TMP_PREFIX = "/var/tmp/"
+NUMBA_CACHE_DIR = os.path.join(TMP_PREFIX, f"numba_cache_{getpass.getuser()}")
+
 sys.path.append("/u/beck/dev/cachemanager/")
 
+# Compatibility path for the baseline configuration.
 if "/u/azim.javed/experiments/training/baselines_clean" not in sys.path:
     sys.path.append("/u/azim.javed/experiments/training/baselines_clean")
 
 
 def file_caching(path, is_output=False):
-    if is_output:
-        return "`cf -d %s`" % path
-    else:
-        return "`cf %s`" % path
+    return f"`cf{' -d' if is_output else ''} {path}`"
 
 
-CPU_SLOW_JOBLIST = [
+CPU_SLOW_JOBLIST = {
     "ScliteJob",
     "Hub5ScoreJob",
     "PipelineJob",
-]
+}
+EXCLUDED_NODES = ["cn-281", "cn-230", "cn-236"]
 
-# FAST_TRACK_JOBS = ["ReturnnForwardJobV2"]
-FAST_TRACK_JOBS = []
-gpu_job_hashes = []
 
-SOLO_GPU_JOBS = ["ReturnnForwardJobV2"]
+def _gpu_partition(gpu_mem):
+    """Select the smallest GPU partition satisfying the memory requirement (GB)."""
+    if gpu_mem > 32:
+        return "gpu_48gb"
+    if gpu_mem > 24:
+        return "gpu_32gb"
+    if gpu_mem > 11:
+        return "gpu_24gb"
+    return "gpu_11gb"
+
 
 def check_engine_limits(current_rqmt, task):
-    """
-    i6 support for gpu_mem
-    """
+    """Apply runtime limits, partition selection and node exclusions."""
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    bad_nodes = [
-        # "cn-236",
-        # "cn-265",
-        # "cn-280",
-        # "cn-262",
-        # "cn-253"
-        # "cn-230"
-        "cn-275"
-    ]
-    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
-        "sbatch_args", []
-    ):
-        if current_rqmt.get("gpu_mem", 0) > 24:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_48gb"]
-        elif current_rqmt.get("gpu_mem", 0) > 11:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
-        else:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb"]
-
-    job_hash = task._job._sis_id().rsplit(".", 1)[-1]
-
-    if current_rqmt.get("engine", "long") == "long" and job_hash in gpu_job_hashes:
-        current_rqmt["gpu"] = 1
-        current_rqmt["sbatch_args"].append("-p")
-        current_rqmt["sbatch_args"].append("gpu_11gb")
-
-    if (
-        task._job.__class__.__name__ in FAST_TRACK_JOBS
-        and current_rqmt.get("gpu", 0) > 0
-    ):
-        if current_rqmt.get("gpu_mem", 0) > 24:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_48gb"]
-        elif current_rqmt.get("gpu_mem", 0) > 11:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_24gb,gpu_48gb"]
-        else:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb,gpu_24gb"]
+    sbatch_args = list(current_rqmt.get("sbatch_args", []))
+    if current_rqmt.get("gpu", 0) > 0 and "-p" not in sbatch_args:
+        sbatch_args = ["-p", _gpu_partition(current_rqmt.get("gpu_mem", 0))]
 
     if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
-        current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
+        sbatch_args = ["-p", "cpu_slow"]
 
-    # if task._job.__class__.__name__ in SOLO_GPU_JOBS and current_rqmt.get("gpu", 0) == 11:
-    #     current_rqmt["sbatch_args"].append("--exclusive")
-
-    current_rqmt["sbatch_args"] = current_rqmt.get("sbatch_args", []) + [
-        "--exclude=%s" % ",".join(bad_nodes)
-    ]
+    current_rqmt["sbatch_args"] = sbatch_args + [f"--exclude={','.join(EXCLUDED_NODES)}"]
 
     return current_rqmt
 
@@ -111,65 +81,47 @@ def engine():
         default_engine="long",
     )
 
-BERGER_JOBS = [
-    "ReturnnTrainingJob",
-]
+
+DEFAULT_CONTAINER_IMAGE = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
+CONTAINER_IMAGES_BY_JOB = {
+    "ReturnnTrainingJob": "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif",
+}
+CONTAINER_BINDS = ("/u", "/work/smt4", "/work/asr4", "/work/common", "/var/tmp", "/run")
+
 # Jobs that run memristor inference (recognition / prior): import synaptogen_ml,
 # so enable the fast-inference path via env (SYN_FAST is read at import time in
 # synaptogen_ml/__init__.py). Scoping to ReturnnForwardJobV2 keeps training jobs
-# on the bit-exact eager path. SYN_NO_COMPILE=1 (commented below) is a fallback
-# for nodes/environments where torch.compile/Triton is problematic.
-RECOGNITION_JOBS = [
+# on the bit-exact eager path.
+RECOGNITION_JOBS = {
     "ReturnnForwardJobV2",
-]
+}
+
+
 def worker_wrapper(job, task_name, call):
-    task = next(task for task in job._sis_tasks() if task.name() == task_name)
-    rqmt = task.rqmt()
-    image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
-    # if rqmt.get("gpu", 0) > 0 and rqmt.get("gpu_mem", 0) <= 11:
-    #      image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
-    # else:
-    #     image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
-    if job.__class__.__name__ in BERGER_JOBS:
-        image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
-
-    binds = [
-        "/u",
-        "/work/smt4",
-        "/work/asr4",
-        "/work/common",
-        # "/work/tools/",
-        # "/u/corpora",
-        "/var/tmp",
-        "/run",
-    ]
-
+    """Run workers in the job's container with shared mounts and cache settings."""
+    job_name = job.__class__.__name__
+    image = CONTAINER_IMAGES_BY_JOB.get(job_name, DEFAULT_CONTAINER_IMAGE)
     app_call = [
         "apptainer",
         "exec",
         "--env",
-        f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}",
+        f"NUMBA_CACHE_DIR={NUMBA_CACHE_DIR}",
     ]
-    if job.__class__.__name__ in RECOGNITION_JOBS:
+    if job_name in RECOGNITION_JOBS:
         app_call += ["--env", "SYN_FAST=1"]
-        # app_call += ["--env", "SYN_NO_COMPILE=1"]
     app_call += [
         "--pwd",
         os.environ.get("PWD", os.getcwd()),
         "--nv",
     ]
 
-    for path in binds:
+    for path in CONTAINER_BINDS:
         app_call += ["-B", path]
 
-    app_call += [image, "python3"]
-
-    app_call += call[1:]
-
-    return app_call
+    return app_call + [image, "python3"] + call[1:]
 
 
-# need to run bob for ivector
+# Manager and job lifecycle settings.
 SIS_COMMAND = ["python3", sys.argv[0]]
 
 WAIT_PERIOD_CACHE = 1  # stopping to wait for actionable jobs to appear
@@ -188,15 +140,9 @@ MAIL_ADDRESS = None
 
 WORK_DIR = "/work/smt4/azim.javed/sisyphus_work"
 
+# DEFAULT_ENVIRONMENT_SET is injected by Sisyphus when loading this module.
 DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
     [
-        # "/usr/local/lib/tensorflow/",
-        # "/usr/local/lib/python3.8/dist-packages/tensorflow/",
-        # "/usr/local/lib/python3.8/dist-packages/scipy/.libs",
-        # "/usr/local/lib/python3.8/dist-packages/numpy.libs",
-        # "/usr/local/lib/python3.10/dist-packages/tensorflow/",
-        # "/usr/local/lib/python3.10/dist-packages/scipy/.libs",
-        # "/usr/local/lib/python3.10/dist-packages/numpy.libs",
         "/.singularity.d/libs",
         "/usr/local/cuda/extras/CUPTI/lib64",
         "/usr/local/cuda/compat/lib",
@@ -205,19 +151,17 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
     ]
 )
 
-TMP_PREFIX = "/var/tmp/"
 DEFAULT_ENVIRONMENT_SET.update(
     {
         "TMPDIR": TMP_PREFIX,
         "TMP": TMP_PREFIX,
         "PYTHONPATH": os.environ.get("PWD", os.getcwd())
-        + ":/u/azim.javed/experiments/training/qat"
+        + ":"
+        + SETUP_ROOT
         + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
-        "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
-        "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}",
-        # "OMP_NUM_THREADS": 2,
-        # "MKL_NUM_THREADS": 2,
+        "NUMBA_CACHE_DIR": NUMBA_CACHE_DIR,  # used for librosa
+        "PYTORCH_KERNEL_CACHE_PATH": os.path.join(TMP_PREFIX, f"pt_kernel_cache_{getpass.getuser()}"),
         "CXXFLAGS": "-include cstdint",
-        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     }
 )

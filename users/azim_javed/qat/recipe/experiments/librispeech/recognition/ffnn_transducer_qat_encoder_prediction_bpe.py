@@ -50,10 +50,10 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
     return (
         [
             default_offline_lexfree_recog_variant(),
-            default_offline_lexfree_lstm_recog_variant(),
-            default_offline_tree_recog_variant(),
-            default_offline_tree_4gram_recog_variant(),
-            default_offline_tree_lstm_recog_variant(),
+            # default_offline_lexfree_lstm_recog_variant(),
+            # default_offline_tree_recog_variant(),
+            # # default_offline_tree_4gram_recog_variant(),
+            # # default_offline_tree_lstm_recog_variant(),
             mbs1024_offline_tree_recog_variant(),
             mbs2048_offline_tree_recog_variant(),
             # default_offline_tree_lstm_4gram_recog_variant(),

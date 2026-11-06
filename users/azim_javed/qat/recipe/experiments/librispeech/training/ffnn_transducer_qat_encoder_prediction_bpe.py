@@ -37,6 +37,7 @@ from ....model_pipelines.common.assemblies.conformer import (
     WeightPruningConfig,
 )
 
+
 def run(
     descriptor: str,
     qat_args: Optional[dict] = None,
@@ -258,11 +259,51 @@ def get_model_config(
         correction_settings=qat_args["correction_settings"],
         num_cycles=qat_args["num_cycles"],
         moving_average=qat_args["moving_average"],
-        version_control="v2-qact-fix-12bs"
+        version_control="v2-qact-fix-12bs",
     )
 
 
-def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPredictionTrainOptions:
+def get_train_options(bpe_size: int = 128, num_epochs=100) -> FFNNTransducerQATEncoderPredictionTrainOptions:
+    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
+
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    return FFNNTransducerQATEncoderPredictionTrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
+        batch_size=12_000 * 160,
+        accum_grad_multiple_step=2,
+        optimizer_config=RAdamConfig(
+            epsilon=1e-12,
+            weight_decay=0.01,
+            decoupled_weight_decay=True,
+        ),
+        lr_config=OCLRConfig(
+            init_lr=7e-06,
+            peak_lr=5e-04,
+            decayed_lr=5e-05,
+            final_lr=1e-07,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4 - (num_epochs - 4) // 2) * partition_epoch,
+            final_epochs=4 * partition_epoch,
+        ),
+        gradient_clip=1.0,
+        num_workers_per_gpu=2,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=48,
+        enc_loss_scale=0.5,
+        pred_loss_scale=0.0,
+        max_seqs=None,
+        max_seq_length={"audio_features": 35 * 16000},
+    )
+
+
+def get_train_options2(bpe_size: int = 128) -> FFNNTransducerQATEncoderPredictionTrainOptions:
     return FFNNTransducerQATEncoderPredictionTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
@@ -292,4 +333,3 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPrediction
         max_seqs=None,
         max_seq_length={"audio_features": 35 * 16000},
     )
-

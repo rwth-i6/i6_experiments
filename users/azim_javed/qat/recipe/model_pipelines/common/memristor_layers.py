@@ -22,6 +22,7 @@ import math
 if TYPE_CHECKING:
     from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config, WeightPruningConfig, WeightNoiseConfig
 from torch.ao.quantization.utils import check_min_max_valid
+from .quantization import observer_qparams
 
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
@@ -61,46 +62,81 @@ class WeightQuantizer(nn.Module):
         dtype: torch.dtype,
         method: str,
         reduce_range: bool = False,
+        moving_avrg: Optional[float] = None,  # default if enabled should be 0.01, if set enables moving average
     ):
         super().__init__()
 
         self.quant_min, self.quant_max = get_quantization_range_from_bit_precision(bit_precision, dtype)
         self.dtype = dtype
         self.reduce_range = reduce_range
+        self.moving_avrg = moving_avrg
         self.quant_fn, self.observer = None, None
         self.quant_fn, self.observer = self.__get_quant_fn_and_observer_for_method(method)
+        self._quant_min_int, self._quant_max_int = int(self.quant_min), int(self.quant_max)
+        self._observer_quant_min_int = int(self.observer.quant_min)
+        self._observer_quant_max_int = int(self.observer.quant_max)
         self.scale = None
         self.zero_point = None
+       
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if self.quant_fn is not None and self.observer is not None:
             return self.quant_fn, self.observer
         if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
-            observer = torch_quant.observer.MinMaxObserver(
-                quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
-            )
+            if self.moving_avrg:
+                observer = torch_quant.observer.MovingAverageMinMaxObserver(
+                    averaging_constant=self.moving_avrg,
+                    quant_min=self.quant_min,
+                    quant_max=self.quant_max,
+                    dtype=self.dtype,
+                    reduce_range=self.reduce_range,
+                )
+            else:
+                observer = torch_quant.observer.MinMaxObserver(
+                    quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
+                )
         elif method == "per_tensor_symmetric":
             quant_fn = torch.fake_quantize_per_tensor_affine
-            observer = torch_quant.observer.MinMaxObserver(
-                quant_min=self.quant_min,
-                quant_max=self.quant_max,
-                dtype=self.dtype,
-                reduce_range=self.reduce_range,
-                qscheme=torch.per_tensor_symmetric,
-            )
+            if self.moving_avrg:
+                observer = torch_quant.observer.MovingAverageMinMaxObserver(
+                    averaging_constant=self.moving_avrg,
+                    quant_min=self.quant_min,
+                    quant_max=self.quant_max,
+                    dtype=self.dtype,
+                    reduce_range=self.reduce_range,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+            else:
+                observer = torch_quant.observer.MinMaxObserver(
+                    quant_min=self.quant_min,
+                    quant_max=self.quant_max,
+                    dtype=self.dtype,
+                    reduce_range=self.reduce_range,
+                    qscheme=torch.per_tensor_symmetric,
+                )
         else:
             raise ValueError(f"Unknown quantization method: {method}!")
 
+        # CPU tensor bounds otherwise break CUDA calculate_qparams (notably
+        # per-channel torch.clamp). Preserve any reduce_range adjustment.
+        observer.quant_min = int(observer.quant_min)
+        observer.quant_max = int(observer.quant_max)
         return quant_fn, observer
 
     def forward(self, tensor: torch.Tensor):
         if self.training or self.scale is None:
             tensor = self.observer(tensor)
         if self.scale is None or self.training:
-            self.set_scale_and_zp()
+            if tensor.numel() == 0:
+                # Preserve original initialization errors for empty weights.
+                self.set_scale_and_zp()
+            else:
+                self.scale, self.zero_point = observer_qparams(
+                    self.observer, self._observer_quant_min_int, self._observer_quant_max_int
+                )
         assert self.scale is not None and self.zero_point is not None
-        tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
+        tensor = self.quant_fn(tensor, self.scale, self.zero_point, self._quant_min_int, self._quant_max_int)
         return tensor
 
     def set_scale_and_zp(self):
@@ -129,6 +165,9 @@ class ActivationQuantizer(nn.Module):
         self.reduce_range = reduce_range
         self.quant_fn, self.observer, self.base_observer_args = None, None, None
         self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
+        self._quant_min_int, self._quant_max_int = int(self.quant_min), int(self.quant_max)
+        self._observer_quant_min_int = int(self.observer.quant_min)
+        self._observer_quant_max_int = int(self.observer.quant_max)
         self.zero_point = None
         self.scale = None
         if self.moving_avrg is not None:
@@ -197,18 +236,26 @@ class ActivationQuantizer(nn.Module):
         else:
             raise ValueError(f"Unknown quantization method: {method}!")
 
+        observer.quant_min = int(observer.quant_min)
+        observer.quant_max = int(observer.quant_max)
         return quant_fn, observer, base_observer_args
 
     def forward(self, tensor: torch.Tensor):
-        if self.training or self.scale is None:
+        if self.training:
             tensor = self.observer(tensor)
-        if self.scale is None or self.training:
-            self.set_scale_and_zp()
+        # Observer buffers are restored from checkpoints; scale/zero_point are
+        # derived attributes. Initialize from those buffers, never from eval inputs.
+        self.scale, self.zero_point = observer_qparams(
+            self.observer, self._observer_quant_min_int, self._observer_quant_max_int
+        )
         assert (
             self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
         with torch.autocast(device_type=tensor.device.type, enabled=False, dtype=torch.bfloat16):
-            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, self.quant_min, self.quant_max)
+            args = [self._quant_min_int, self._quant_max_int]
+            if self.observer.qscheme == torch.per_channel_affine:
+                args.insert(0, self.channel_axis)
+            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, *args)
         return tensor
 
     def set_scale_and_zp(self):
@@ -216,6 +263,7 @@ class ActivationQuantizer(nn.Module):
         scale, zero_point = self.observer.calculate_qparams()
         self.scale = scale.to(dtype=torch.float32)
         self.zero_point = zero_point.to(dtype=torch.int32)
+
 
 # Added
 class EmbeddingQuant(nn.Module):
@@ -235,9 +283,9 @@ class EmbeddingQuant(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
-        
+
         self.weight = nn.Parameter(torch.empty((num_embeddings, embedding_dim)), requires_grad=True)
-        
+
         init.normal_(self.weight)
         if self.padding_idx is not None:
             with torch.no_grad():
@@ -246,7 +294,7 @@ class EmbeddingQuant(nn.Module):
         self.weight_bit_prec = weight_bit_prec
         self.weight_quant_dtype = weight_quant_dtype
         self.weight_quant_method = weight_quant_method
-        
+
         self.weight_quantizer = WeightQuantizer(
             bit_precision=self.weight_bit_prec,
             dtype=self.weight_quant_dtype,
@@ -258,21 +306,22 @@ class EmbeddingQuant(nn.Module):
 
     def forward(self, indices: torch.Tensor):
         weight = self.weight_quantizer(self.weight)
-        
+
         if self.pruning_config is not None:
             weight = self.pruning_config.apply(weight, self.training)
-            
+
         if self.weight_dropout > 0.0 and self.training:
             weight = F.dropout(weight, p=self.weight_dropout, training=True)
-            
+
         if self.noise_config is not None:
             weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
 
         return F.embedding(
-            indices, 
-            weight, 
-            self.padding_idx, 
+            indices,
+            weight,
+            self.padding_idx,
         )
+
 
 class LinearQuant(nn.Module):
     def __init__(
@@ -286,6 +335,7 @@ class LinearQuant(nn.Module):
         noise_config: Optional[WeightNoiseConfig] = None,
         weight_dropout: float = 0.0,
         pruning_config: Optional[WeightPruningConfig] = None,
+        weight_moving_average: Optional[float] = None,
     ):
         super().__init__()
         self.in_features = in_features
@@ -304,15 +354,17 @@ class LinearQuant(nn.Module):
         self.weight_bit_prec = weight_bit_prec
         self.weight_quant_dtype = weight_quant_dtype
         self.weight_quant_method = weight_quant_method
+        self.weight_moving_average = weight_moving_average
         self.weight_quantizer = WeightQuantizer(
             bit_precision=self.weight_bit_prec,
             dtype=self.weight_quant_dtype,
             method=self.weight_quant_method,
+            moving_avrg=self.weight_moving_average,
         )
         self.noise_config = noise_config
         self.weight_dropout = weight_dropout
         self.pruning_config = pruning_config
-
+        
     def forward(self, tensor: torch.Tensor):
         weight = self.weight_quantizer(self.weight)
         if self.pruning_config is not None:
@@ -380,9 +432,7 @@ class Conv1dQuant(nn.Module):
             weight = F.dropout(weight, p=self.weight_dropout, training=True)
         if self.noise_config is not None:
             weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
-        result = F.conv1d(
-            tensor, weight, self.bias, self.stride, self.padding, self.dilation, self.groups
-        )
+        result = F.conv1d(tensor, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return result
 
 
@@ -452,24 +502,25 @@ class Conv2dQuant(nn.Module):
         )
         return result
 
+
 class QuantizedMultiheadAttention(nn.Module):
     """
-        Conformer multi-headed self-attention module supporting
-            - self-attention with relative positional encoding proposed by Shaw et al. (cf. https://arxiv.org/abs/1803.02155)
-                * learnable_pos_emb = True
-                * with_pos_bias = False
-                * with_linear_pos = False
-                * separate_pos_emb_per_head = False (RETURNN default)
-                * with_bias = False (RETURNN default)
-            - and self-attention with Transformer-XL style relative PE by Dai et al.
-                (cf. https://arxiv.org/abs/1901.02860, https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py,
-                     https://github.com/espnet/espnet/blob/master/espnet2/asr_transducer/encoder/modules/attention.py#L9)
-                * learnable_pos_emb = False
-                * with_pos_bias = True
-                * with_linear_pos = False (paper implementation) / with_linear_pos = True (ESPnet default)
-                * separate_pos_emb_per_head = False (paper implementation) / separate_pos_emb_per_head = True (ESPnet default)
-                * with_bias = False (paper implementation) / with_bias = True (ESPnet default)
-        """
+    Conformer multi-headed self-attention module supporting
+        - self-attention with relative positional encoding proposed by Shaw et al. (cf. https://arxiv.org/abs/1803.02155)
+            * learnable_pos_emb = True
+            * with_pos_bias = False
+            * with_linear_pos = False
+            * separate_pos_emb_per_head = False (RETURNN default)
+            * with_bias = False (RETURNN default)
+        - and self-attention with Transformer-XL style relative PE by Dai et al.
+            (cf. https://arxiv.org/abs/1901.02860, https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py,
+                 https://github.com/espnet/espnet/blob/master/espnet2/asr_transducer/encoder/modules/attention.py#L9)
+            * learnable_pos_emb = False
+            * with_pos_bias = True
+            * with_linear_pos = False (paper implementation) / with_linear_pos = True (ESPnet default)
+            * separate_pos_emb_per_head = False (paper implementation) / separate_pos_emb_per_head = True (ESPnet default)
+            * with_bias = False (paper implementation) / with_bias = True (ESPnet default)
+    """
 
     def __init__(self, cfg: QuantizedConformerMHSARelPosV1Config):
 
@@ -497,7 +548,6 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_method = cfg.Av_quant_method
         self.converter_hardware_settings = cfg.converter_hardware_settings
         self.pos_enc_converter_hardware_settings = cfg.pos_enc_converter_hardware_settings
-
 
         assert not self.learnable_pos_emb or self.rel_pos_clip
 
@@ -660,7 +710,6 @@ class QuantizedMultiheadAttention(nn.Module):
         q = self.q_quantizer(q)
         k = self.k_quantizer(k)
 
-
         if self.learnable_pos_emb:
             kv_pos_vec = torch.arange(time_dim_size, device=input_tensor.device)  # [kv_len]
 
@@ -675,8 +724,11 @@ class QuantizedMultiheadAttention(nn.Module):
             indices = indices + self.rel_pos_clip
             rel_pos_embeddings = self.rel_pos_embeddings[indices]  # [out_spatial_dim,n_out]
             rel_pos_embeddings = rel_pos_embeddings.unsqueeze(0)
-            assert rel_pos_embeddings.shape == (1, 2 * time_dim_size - 1,
-                                                self.pos_emb_dim), "Something went wrong in reshaping"
+            assert rel_pos_embeddings.shape == (
+                1,
+                2 * time_dim_size - 1,
+                self.pos_emb_dim,
+            ), "Something went wrong in reshaping"
         else:
             rel_pos_embeddings = self._sinusoidal_pe(
                 torch.arange(time_dim_size - 1, -time_dim_size, -1, device=input_tensor.device, dtype=torch.float32),
@@ -813,7 +865,8 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.qkv_proj,
+            activation_quant=self.in_proj_in_quant,
+            linear_quant=self.qkv_proj,
             correction_settings=self.cfg.correction_settings,
             num_cycles_init=self.cfg.num_cycles,
         )
@@ -832,7 +885,11 @@ class QuantizedMultiheadAttention(nn.Module):
                 in_features=self.linear_pos.in_features,
                 out_features=self.linear_pos.out_features,
                 weight_precision=self.linear_pos.weight_bit_prec if not self.linear_pos.weight_bit_prec == 1.5 else 2,
-                converter_hardware_settings=self.pos_enc_converter_hardware_settings if self.pos_enc_converter_hardware_settings is not None else self.converter_hardware_settings,
+                converter_hardware_settings=(
+                    self.pos_enc_converter_hardware_settings
+                    if self.pos_enc_converter_hardware_settings is not None
+                    else self.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
             )
@@ -890,7 +947,8 @@ class LSTMQuant(nn.Module):
         )
 
         _lq = lambda in_f, out_f: LinearQuant(
-            in_features=in_f, out_features=out_f,
+            in_features=in_f,
+            out_features=out_f,
             weight_bit_prec=weight_bit_prec,
             weight_quant_dtype=weight_quant_dtype,
             weight_quant_method=weight_quant_method,
@@ -954,14 +1012,13 @@ class LSTMQuant(nn.Module):
             for l in range(self.num_layers):
 
                 # state transformation/linear projections, based on a fused matrix
-                ih = self.x_in_q[l](x) #aq
-                ih = self.w_ih[l](ih) #lq
-                ih = self.ih_out_q[l](ih) #aq
+                ih = self.x_in_q[l](x)  # aq
+                ih = self.w_ih[l](ih)  # lq
+                ih = self.ih_out_q[l](ih)  # aq
 
-
-                hh = self.h_in_q[l](h_lst[l]) # aq
-                hh = self.w_hh[l](hh) # lq
-                hh = self.hh_out_q[l](hh) # aq
+                hh = self.h_in_q[l](h_lst[l])  # aq
+                hh = self.w_hh[l](hh)  # lq
+                hh = self.hh_out_q[l](hh)  # aq
 
                 gates = ih + hh
 
@@ -981,9 +1038,9 @@ class LSTMQuant(nn.Module):
                 # o = self.go_q[l](o)
 
                 # cell state update
-                c = f * c_lst[l] + i * g # c_lst[l] is unq; f, i, g are q
+                c = f * c_lst[l] + i * g  # c_lst[l] is unq; f, i, g are q
 
-                h = o * torch.tanh(c) # o is q; c is unq
+                h = o * torch.tanh(c)  # o is q; c is unq
 
                 # update state for next time step
                 h_lst[l], c_lst[l] = h, c
@@ -1001,44 +1058,55 @@ class LSTMQuant(nn.Module):
         return output, (h_n, c_n)
 
     def prep_quant(self):
-        # TODO: this implementation might be outdated.
         for l in range(self.num_layers):
-            for gate_name, lin_attr, in_act_attr, out_act_attr in [
-                ("w_ih", "w_ih", "x_in_q", "ih_out_q"),
-                ("w_hh", "w_hh", "h_in_q", "hh_out_q"),
-            ]:
-                lin: LinearQuant = getattr(self, lin_attr)[l]
-                in_act: ActivationQuantizer = getattr(self, in_act_attr)[l]
+            w_ih = self.w_ih[l]
+            x_in_q = self.x_in_q[l]
+            ih_out_q = self.ih_out_q[l]  # leave as is
+            w_hh = self.w_hh[l]
+            h_in_q = self.h_in_q[l]
+            hh_out_q = self.hh_out_q[l]  # leave as is
 
-                lin.weight_quantizer.set_scale_and_zp()
-                in_act.set_scale_and_zp()
+            if w_ih.pruning_config is not None or w_hh.pruning_config is not None:
+                raise NotImplementedError("Pruning is not supported for LSTMQuant prep_quant yet.")
 
-                if lin.pruning_config is not None:
-                    with torch.no_grad():
-                        lin.weight.data = lin.pruning_config.apply(
-                            lin.weight.data, training=False,
-                        )
+            weight_prec = w_ih.weight_bit_prec if not w_ih.weight_bit_prec == 1.5 else 2
+            w_ih.weight_quantizer.set_scale_and_zp()
+            x_in_q.set_scale_and_zp()
+            mem_w_ih = TiledMemristorLinear(
+                in_features=w_ih.in_features,
+                out_features=w_ih.out_features,
+                weight_precision=weight_prec,
+                converter_hardware_settings=self.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
+            )
+            mem_w_ih.init_from_linear_quant(
+                activation_quant=x_in_q,
+                linear_quant=w_ih,
+                num_cycles_init=self.num_cycles,
+                correction_settings=self.correction_settings,
+            )
+            self.w_ih[l] = mem_w_ih
+            self.x_in_q[l] = nn.Identity()
 
-                weight_prec = lin.weight_bit_prec
-                if weight_prec == 1.5:
-                    weight_prec = 2
-
-                mem = TiledMemristorLinear(
-                    in_features=lin.in_features,
-                    out_features=lin.out_features,
-                    weight_precision=weight_prec,
-                    converter_hardware_settings=self.converter_hardware_settings,
-                    memristor_inputs=128,
-                    memristor_outputs=128,
-                )
-                mem.init_from_linear_quant(
-                    activation_quant=in_act,
-                    linear_quant=lin,
-                    num_cycles_init=self.num_cycles,
-                    correction_settings=self.correction_settings,
-                )
-                getattr(self, lin_attr)[l] = mem
-                getattr(self, in_act_attr)[l] = nn.Identity()
-                getattr(self, out_act_attr)[l] = nn.Identity()
+            weight_prec = w_hh.weight_bit_prec if not w_hh.weight_bit_prec == 1.5 else 2
+            w_hh.weight_quantizer.set_scale_and_zp()
+            h_in_q.set_scale_and_zp()
+            mem_w_hh = TiledMemristorLinear(
+                in_features=w_hh.in_features,
+                out_features=w_hh.out_features,
+                weight_precision=weight_prec,
+                converter_hardware_settings=self.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
+            )
+            mem_w_hh.init_from_linear_quant(
+                activation_quant=h_in_q,
+                linear_quant=w_hh,
+                num_cycles_init=self.num_cycles,
+                correction_settings=self.correction_settings,
+            )
+            self.w_hh[l] = mem_w_hh
+            self.h_in_q[l] = nn.Identity()
 
         print("Finished LSTM prep_quant", flush=True)

@@ -1,0 +1,955 @@
+/work/smt4/azim.javed/repositories/i6_models/config.py:86: TypeHintWarning: Skipping type check against 'GenericFrontendV1Config'; this looks like a string-form forward reference imported from another module
+  typeguard.check_type(self.cfg, cfg_parameter.annotation)
+<?xml version="1.0" encoding="utf-8"?>
+<sprint>
+  configuration: "lib-rasr.label-scorer.history-length" is matched by "lib-rasr.label-scorer.history-length"
+  configuration: "lib-rasr.label-scorer.start-label-index" is matched by "lib-rasr.label-scorer.start-label-index"
+  configuration: "lib-rasr.label-scorer.blank-updates-history" is not matched.
+  configuration: "lib-rasr.label-scorer.silence-updates-history" is not matched.
+  configuration: "lib-rasr.label-scorer.loop-updates-history" is not matched.
+  configuration: "lib-rasr.label-scorer.vertical-label-transition" is not matched.
+  configuration: "lib-rasr.label-scorer.max-batch-size" is matched by "lib-rasr.label-scorer.max-batch-size"
+  configuration: "lib-rasr.label-scorer.debug-joint" is not matched.
+  configuration: "lib-rasr.label-scorer.device" is not matched.
+  configuration: "lib-rasr.label-scorer.recognition.device" is matched by "lib-rasr.label-scorer.recognition.device"
+  configuration: "lib-rasr.label-scorer.recognition.qat.weight-bit-prec" is matched by "lib-rasr.label-scorer.recognition.qat.weight-bit-prec"
+  configuration: "lib-rasr.label-scorer.recognition.qat.activation-bit-prec" is matched by "lib-rasr.label-scorer.recognition.qat.activation-bit-prec"
+  configuration: "lib-rasr.label-scorer.recognition.qat.weight-dropout" is matched by "lib-rasr.label-scorer.recognition.qat.weight-dropout"
+  configuration: "lib-rasr.label-scorer.recognition.qat.weight-pruning-config" is not matched.
+  configuration: "lib-rasr.label-scorer.recognition.memristor.converter-hardware-settings" is not matched.
+  configuration: "lib-rasr.label-scorer.recognition.memristor.pos-enc-converter-hardware-settings" is not matched.
+  configuration: "lib-rasr.label-scorer.recognition.memristor.joint-l1-converter-hardware-settings" is not matched.
+  configuration: "lib-rasr.label-scorer.recognition.ilm-scale" is matched by "lib-rasr.label-scorer.recognition.ilm-scale"
+  configuration: "lib-rasr.label-scorer.recognition.blank-penalty" is matched by "lib-rasr.label-scorer.recognition.blank-penalty"
+  configuration: "lib-rasr.label-scorer.recognition.model-path" is matched by "lib-rasr.label-scorer.recognition.model-path"
+  configuration: "lib-rasr.label-scorer.recognition.imports" is matched by "lib-rasr.label-scorer.recognition.imports"
+  configuration: "lib-rasr.label-scorer.on-warning" is not matched.
+  configuration: "lib-rasr.label-scorer.on-error" is not matched.
+  configuration: "lib-rasr.label-scorer.on-critical-error" is not matched.
+  configuration: "lib-rasr.label-scorer.log-timing" is not matched.
+  configuration: "lib-rasr.label-scorer.transition-preset" is not matched.
+  configuration: "lib-rasr.label-scorer.extra-transition-types" is not matched.
+  configuration: "lib-rasr.label-scorer.scale" is not matched.
+  configuration: "lib-rasr.search-algorithm.search-network.cache-archive" is not matched.
+  configuration: "lib-rasr.search-algorithm.log.channel" is matched by "*.log.channel"
+  configuration: "lib-rasr.search-algorithm.tree-builder-type" is matched by "lib-rasr.search-algorithm.tree-builder-type"
+  configuration: "lib-rasr.search-algorithm.on-warning" is not matched.
+  configuration: "lib-rasr.search-algorithm.on-error" is not matched.
+  configuration: "lib-rasr.search-algorithm.on-critical-error" is not matched.
+  configuration: "lib-rasr.search-algorithm.log-timing" is not matched.
+  configuration: "lib-rasr.search-algorithm.allow-label-loop" is not matched.
+  configuration: "lib-rasr.search-algorithm.allow-blank-loop" is not matched.
+  configuration: "lib-rasr.search-algorithm.force-blank-between-repeated-labels" is matched by "lib-rasr.search-algorithm.force-blank-between-repeated-labels"
+  configuration: "lib-rasr.acoustic-model.on-warning" is not matched.
+  configuration: "lib-rasr.acoustic-model.on-error" is not matched.
+  configuration: "lib-rasr.acoustic-model.on-critical-error" is not matched.
+  configuration: "lib-rasr.acoustic-model.log-timing" is not matched.
+  configuration: "lib-rasr.search-algorithm.allow-label-loop" is not matched.
+  configuration: "lib-rasr.search-algorithm.force-blank-between-repeated-labels" is matched by "lib-rasr.search-algorithm.force-blank-between-repeated-labels"
+  configuration: "lib-rasr.acoustic-model.on-warning" is not matched.
+  configuration: "lib-rasr.acoustic-model.on-error" is not matched.
+  configuration: "lib-rasr.acoustic-model.on-critical-error" is not matched.
+  configuration: "lib-rasr.acoustic-model.log-timing" is not matched.
+config[history-length] = 1 <class 'int'>
+config[start-label-index] = 184 <class 'int'>
+config[max-batch-size] = 2048 <class 'int'>
+config[device] = cuda None
+config[weight-bit-prec] = 8 <class 'int'>
+config[activation-bit-prec] = 8 <class 'int'>
+config[weight-dropout] = 0.0 <class 'float'>
+config[ilm-scale] = 0.0 <class 'float'>
+config[blank-penalty] = 0.0 <class 'float'>
+config[model-path] = /work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.s9sXAl53j9fG/output/models/epoch.2000.pt None
+config[imports] = from recipe.model_pipelines.qat_ffnn_transducer.pytorch_modules import QATFFNNTransducerScorer as ScorerModel from recipe.model_pipelines.qat_ffnn_transducer.pytorch_modules import QATFFNNTransducerRecogConfig as RecogConfig from recipe.experiments.librispeech.training.qat_ffnn_transducer_bpe import get_model_config as get_model_config None
+RETURNN starting up, version 1.20260608.172901+git.28b6f6fe, date/time 2026-10-08-20-40-31 (UTC+0200), pid 601431, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_singleprocess_gpu/current, Python /work/smt4/azim.javed/envs/base_env/bin/python
+RETURNN command line options: ['/work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_singleprocess_gpu/current/returnn.config']
+Hostname: cn-233
+Installed native_signal_handler.so.
+PyTorch: 2.11.0+cu130 (70d99e998b4955e0049d13a98d77ae1b14db1f45) (<site-package> in /work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch)
+CUBLAS_VERSION=12.5.2.13
+CUDA_CACHE_DISABLE=1
+CUDA_DRIVER_VERSION=555.42.02
+CUDA_HOME=/usr/local/cuda
+CUDA_MODULE_LOADING=LAZY
+CUDA_VERSION=12.5.0.023
+CUDA_VISIBLE_DEVICES=0
+CUDNN_VERSION=9.1.0.70+cuda12.4
+NCCL_VERSION=2.21.5
+NVIDIA_BUILD_ID=96418707
+NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+NVIDIA_PRODUCT_NAME=PyTorch
+NVIDIA_PYTORCH_VERSION=24.06
+NVIDIA_REQUIRE_CUDA=cuda>=9.0
+NVIDIA_REQUIRE_JETPACK_HOST_MOUNTS=
+NVIDIA_VISIBLE_DEVICES=all
+PYTORCH_BUILD_NUMBER=0
+PYTORCH_BUILD_VERSION=2.4.0a0+f70bd71
+PYTORCH_HOME=/opt/pytorch/pytorch
+PYTORCH_VERSION=2.4.0a0+f70bd71
+TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+TORCH_CUDA_ARCH_LIST=5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 9.0+PTX
+TORCH_CUDNN_V8_API_ENABLED=1
+CUDA_VISIBLE_DEVICES is set to '0'.
+Num NVML devices: 1
+Available CUDA devices:
+  1/1: cuda:0
+       name: NVIDIA GeForce RTX 3090
+       total_memory: 23.6GB
+       free_memory: 23.0GB (98%)
+       capability: 8.6
+       device_index: 0
+       uuid: f2b0478d-9e37-67fe-b4b2-18241e9b1e41
+       nvml_device_index: 0
+main (parent) pid is 601431
+Using device: cuda ('gpu' in config)
+Using gpu device 0: NVIDIA GeForce RTX 3090
+Total GPU 0 memory 23.6GB, free 23.0GB
+Tracked changes to sys.path and sys.modules during RETURNN init:
+New sys.path entry: /work/smt4/azim.javed/sisyphus_work/i6_core/tools/compile/CMakeJob.qMRpN7b4MOKN/output/install
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/recipe/
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat
+New module: i6_models (20260119.153410--git-c401d3e in /work/smt4/azim.javed/repositories/i6_models)
+New module: synaptogen_ml (20260819.184537--git-562c3b5-dirty in /work/smt4/azim.javed/repositories/synaptogen_ml)
+Load model /work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.s9sXAl53j9fG/output/models/epoch.2000.pt
+  epoch 2000, global train step 1061730
+Model: QATFFNNTransducerEncoder(
+  (feature_extraction): LogMelFeatureExtractionV1()
+  (conformer): ConformerEncoderQuant(
+    (frontend): GenericFrontendV1(
+      (frontend_layers): ModuleList(
+        (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (2): ReLU()
+        (3): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+        (4): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (5): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (6): ReLU()
+        (7): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+      )
+      (linear): Linear(in_features=2560, out_features=512, bias=True)
+    )
+    (module_list): ModuleList(
+      (0-11): 12 x ConformerBlockQuant(
+        (final_layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+        (module_list): ModuleList(
+          (0): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+          (1): ConformerConvolutionQuant(
+            (pointwise_conv1): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (depthwise_conv): Conv1dQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (dconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (dconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pointwise_conv2): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (pconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (norm): LayerNormNC((512,), eps=1e-05, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            (activation): SiLU()
+          )
+          (2): ConformerMHSAQuant(
+            (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (mhsa): QuantizedMultiheadAttention(
+              (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+              (pos_emb_dropout): Dropout(p=0.0, inplace=False)
+              (att_weights_dropout): Dropout(p=0.1, inplace=False)
+              (qkv_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (in_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (in_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (q_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (k_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (out_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (linear_pos): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (learn_emb_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (learn_emb_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (dropout): BroadcastDropout()
+            )
+          )
+          (3): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+        )
+      )
+    )
+  )
+  (enc_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (enc_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (encoder_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (token_embedding): EmbeddingQuant(
+    (weight_quantizer): WeightQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (prediction_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (9): Tanh()
+  )
+  (prediction_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (joint_net_q1_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q1_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+)
+net params #: 79488139
+LOG: connected to ('10.6.100.3', 10321)
+LOG: destination: /var/tmp/azim.javed/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_core/returnn/oggzip/BlissToOggZipJob.EGcVDMRB666l/output/out.ogg.zip
+LOG: using existing file
+Dataset supports sorting, i.e. it will be sorted for optimal performance.
+NativeCodeCompiler call: /usr/bin/c++ -shared -O2 -std=c++11 -fPIC -v -D_GLIBCXX_USE_CXX11_ABI=0 -DLIB=1 -g /var/tmp/azim.javed/returnn_native/pytopickle/e177197e96/pytopickle.cc -o /var/tmp/azim.javed/returnn_native/pytopickle/e177197e96/pytopickle.so
+Recognized sequence 'dev-other/7601-291468-0006/7601-291468-0006'
+    Ground truth: "HIS ABODE WHICH HE HAD FIXED AT A BOWERY OR COUNTRY SEAT AT A SHORT DISTANCE FROM THE CITY JUST AT WHAT IS NOW CALLED DUTCH STREET SOON ABOUNDED WITH PROOFS OF HIS INGENUITY PATENT SMOKE JACKS THAT REQUIRED A HORSE TO WORK THEM DUTCH OVENS THAT ROASTED MEAT WITHOUT FIRE CARTS THAT WENT BEFORE THE HORSES WEATHERCOCKS THAT TURNED AGAINST THE WIND AND OTHER WRONG HEADED CONTRIVANCES THAT ASTONISHED AND CONFOUNDED ALL BEHOLDERS"
+    Recognized: "HIS ABODE WHICH HE HAD FIXED AT A BOWERY OR A COUNTRY SEAT AT A SHORT DISTANCE FROM THE CITY JUST AT WHAT IS NOW CALLED DUTCH STREET SOON ABOUNDED WITH PROOFS OF HIS INGENUITY PATENT SMOKE JACKS THAT REQUIRED A HORSE TO WORK THEM DUTCH OVENS THAT ROASTED MEAT WITHOUT FIRE CARTS THAT WENT BEFORE THE HORSES WEATHERCOCKS THAT TURNED AGAINST THE WIND AND OTHER WRONG HEADED CONTRIVANCES THAT ASTONISHED AND CONFOUNDED ALL BEHOLDERS"
+    Traceback:
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=0, end_time=1)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=1, end_time=2)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=2, end_time=3)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=3, end_time=4)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=4, end_time=5)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=5, end_time=6)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=6, end_time=7)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=7, end_time=8)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=8, end_time=9)>
+        <TracebackItem(lemma='[BLANK]', am_score=0, lm_score=0, confidence_score=None, start_time=9, end_time=10)>
+        <TracebackItem(lemma='HIS', am_score=0.000210025, lm_score=0, confidence_score=None, start_time=10, end_time=11)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.000215866, lm_score=0, confidence_score=None, start_time=11, end_time=12)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.00021682, lm_score=0, confidence_score=None, start_time=12, end_time=13)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.000217654, lm_score=0, confidence_score=None, start_time=13, end_time=14)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.000217773, lm_score=0, confidence_score=None, start_time=14, end_time=15)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.000218012, lm_score=0, confidence_score=None, start_time=15, end_time=16)>
+        <TracebackItem(lemma='ABODE', am_score=0.185993, lm_score=0, confidence_score=None, start_time=16, end_time=28)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185993, lm_score=0, confidence_score=None, start_time=28, end_time=29)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185994, lm_score=0, confidence_score=None, start_time=29, end_time=30)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185994, lm_score=0, confidence_score=None, start_time=30, end_time=31)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185994, lm_score=0, confidence_score=None, start_time=31, end_time=32)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185995, lm_score=0, confidence_score=None, start_time=32, end_time=33)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185995, lm_score=0, confidence_score=None, start_time=33, end_time=34)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185996, lm_score=0, confidence_score=None, start_time=34, end_time=35)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185997, lm_score=0, confidence_score=None, start_time=35, end_time=36)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.185999, lm_score=0, confidence_score=None, start_time=36, end_time=37)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.186, lm_score=0, confidence_score=None, start_time=37, end_time=38)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.186041, lm_score=0, confidence_score=None, start_time=38, end_time=39)>
+        <TracebackItem(lemma='WHICH', am_score=0.509727, lm_score=0, confidence_score=None, start_time=39, end_time=43)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509727, lm_score=0, confidence_score=None, start_time=43, end_time=44)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509728, lm_score=0, confidence_score=None, start_time=44, end_time=45)>
+        <TracebackItem(lemma='HE', am_score=0.509856, lm_score=0, confidence_score=None, start_time=45, end_time=46)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.50986, lm_score=0, confidence_score=None, start_time=46, end_time=47)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.50986, lm_score=0, confidence_score=None, start_time=47, end_time=48)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.50986, lm_score=0, confidence_score=None, start_time=48, end_time=49)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.50986, lm_score=0, confidence_score=None, start_time=49, end_time=50)>
+        <TracebackItem(lemma='HAD', am_score=0.509926, lm_score=0, confidence_score=None, start_time=50, end_time=51)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509926, lm_score=0, confidence_score=None, start_time=51, end_time=52)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509927, lm_score=0, confidence_score=None, start_time=52, end_time=53)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509929, lm_score=0, confidence_score=None, start_time=53, end_time=54)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509929, lm_score=0, confidence_score=None, start_time=54, end_time=55)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.509944, lm_score=0, confidence_score=None, start_time=55, end_time=56)>
+        <TracebackItem(lemma='FIXED', am_score=0.626949, lm_score=0, confidence_score=None, start_time=56, end_time=65)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.626949, lm_score=0, confidence_score=None, start_time=65, end_time=66)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.62695, lm_score=0, confidence_score=None, start_time=66, end_time=67)>
+        <TracebackItem(lemma='AT', am_score=0.629227, lm_score=0, confidence_score=None, start_time=67, end_time=68)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.629232, lm_score=0, confidence_score=None, start_time=68, end_time=69)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.629239, lm_score=0, confidence_score=None, start_time=69, end_time=70)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.629304, lm_score=0, confidence_score=None, start_time=70, end_time=71)>
+        <TracebackItem(lemma='A', am_score=0.630318, lm_score=0, confidence_score=None, start_time=71, end_time=72)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.630319, lm_score=0, confidence_score=None, start_time=72, end_time=73)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.630319, lm_score=0, confidence_score=None, start_time=73, end_time=74)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.630765, lm_score=0, confidence_score=None, start_time=74, end_time=75)>
+        <TracebackItem(lemma='BOWERY', am_score=0.908887, lm_score=0, confidence_score=None, start_time=75, end_time=86)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=86, end_time=87)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=87, end_time=88)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=88, end_time=89)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=89, end_time=90)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=90, end_time=91)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=91, end_time=92)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=92, end_time=93)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=93, end_time=94)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908891, lm_score=0, confidence_score=None, start_time=94, end_time=95)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908892, lm_score=0, confidence_score=None, start_time=95, end_time=96)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908894, lm_score=0, confidence_score=None, start_time=96, end_time=97)>
+        <TracebackItem(lemma='OR', am_score=0.908929, lm_score=0, confidence_score=None, start_time=97, end_time=98)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.908933, lm_score=0, confidence_score=None, start_time=98, end_time=99)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.90895, lm_score=0, confidence_score=None, start_time=99, end_time=100)>
+        <TracebackItem(lemma='[BLANK]', am_score=0.962854, lm_score=0, confidence_score=None, start_time=100, end_time=101)>
+        <TracebackItem(lemma='A', am_score=1.65606, lm_score=0, confidence_score=None, start_time=101, end_time=102)>
+        <TracebackItem(lemma='[BLANK]', am_score=1.65613, lm_score=0, confidence_score=None, start_time=102, end_time=103)>
+        <TracebackItem(lemma='[BLANK]', am_score=1.65615, lm_score=0, confidence_score=None, start_time=103, end_time=104)>
+        <TracebackItem(lemma='COUNTRY', am_score=1.71406, lm_score=0, confidence_score=None, start_time=104, end_time=114)>
+        <TracebackItem(lemma='[BLANK]', am_score=1.71406, lm_score=0, confidence_score=None, start_time=114, end_time=115)>
+        <TracebackItem(lemma='[BLANK]', am_score=1.71406, lm_score=0, confidence_score=None, start_time=115, end_time=116)>
+        <TracebackItem(lemma='[BLANK]', am_score=1.71417, lm_score=0, confidence_score=None, start_time=116, end_time=117)>
+        <TracebackItem(lemma='SEAT', am_score=2.29131, lm_score=0, confidence_score=None, start_time=117, end_time=124)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29131, lm_score=0, confidence_score=None, start_time=124, end_time=125)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29131, lm_score=0, confidence_score=None, start_time=125, end_time=126)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29131, lm_score=0, confidence_score=None, start_time=126, end_time=127)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29131, lm_score=0, confidence_score=None, start_time=127, end_time=128)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29131, lm_score=0, confidence_score=None, start_time=128, end_time=129)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=129, end_time=130)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=130, end_time=131)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=131, end_time=132)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=132, end_time=133)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=133, end_time=134)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=134, end_time=135)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=135, end_time=136)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=136, end_time=137)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=137, end_time=138)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=138, end_time=139)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29132, lm_score=0, confidence_score=None, start_time=139, end_time=140)>
+        <TracebackItem(lemma='AT', am_score=2.29702, lm_score=0, confidence_score=None, start_time=140, end_time=141)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29703, lm_score=0, confidence_score=None, start_time=141, end_time=142)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29703, lm_score=0, confidence_score=None, start_time=142, end_time=143)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29703, lm_score=0, confidence_score=None, start_time=143, end_time=144)>
+        <TracebackItem(lemma='A', am_score=2.29781, lm_score=0, confidence_score=None, start_time=144, end_time=145)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29781, lm_score=0, confidence_score=None, start_time=145, end_time=146)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.29781, lm_score=0, confidence_score=None, start_time=146, end_time=147)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.2997, lm_score=0, confidence_score=None, start_time=147, end_time=148)>
+        <TracebackItem(lemma='SHORT', am_score=2.52475, lm_score=0, confidence_score=None, start_time=148, end_time=154)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.52476, lm_score=0, confidence_score=None, start_time=154, end_time=155)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.52548, lm_score=0, confidence_score=None, start_time=155, end_time=156)>
+        <TracebackItem(lemma='DISTANCE', am_score=2.95823, lm_score=0, confidence_score=None, start_time=156, end_time=167)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.95824, lm_score=0, confidence_score=None, start_time=167, end_time=168)>
+        <TracebackItem(lemma='[BLANK]', am_score=2.95824, lm_score=0, confidence_score=None, start_time=168, end_time=169)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.0939, lm_score=0, confidence_score=None, start_time=169, end_time=170)>
+        <TracebackItem(lemma='FROM', am_score=3.09438, lm_score=0, confidence_score=None, start_time=170, end_time=173)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.09439, lm_score=0, confidence_score=None, start_time=173, end_time=174)>
+        <TracebackItem(lemma='THE', am_score=3.09585, lm_score=0, confidence_score=None, start_time=174, end_time=175)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.09585, lm_score=0, confidence_score=None, start_time=175, end_time=176)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.09585, lm_score=0, confidence_score=None, start_time=176, end_time=177)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.11674, lm_score=0, confidence_score=None, start_time=177, end_time=178)>
+        <TracebackItem(lemma='CITY', am_score=3.17266, lm_score=0, confidence_score=None, start_time=178, end_time=185)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=185, end_time=186)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=186, end_time=187)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=187, end_time=188)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=188, end_time=189)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=189, end_time=190)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=190, end_time=191)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=191, end_time=192)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=192, end_time=193)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=193, end_time=194)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=194, end_time=195)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=195, end_time=196)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=196, end_time=197)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=197, end_time=198)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=198, end_time=199)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=199, end_time=200)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=200, end_time=201)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=201, end_time=202)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17266, lm_score=0, confidence_score=None, start_time=202, end_time=203)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.17276, lm_score=0, confidence_score=None, start_time=203, end_time=204)>
+        <TracebackItem(lemma='JUST', am_score=3.50686, lm_score=0, confidence_score=None, start_time=204, end_time=209)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50686, lm_score=0, confidence_score=None, start_time=209, end_time=210)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50687, lm_score=0, confidence_score=None, start_time=210, end_time=211)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50687, lm_score=0, confidence_score=None, start_time=211, end_time=212)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50687, lm_score=0, confidence_score=None, start_time=212, end_time=213)>
+        <TracebackItem(lemma='AT', am_score=3.50721, lm_score=0, confidence_score=None, start_time=213, end_time=214)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50721, lm_score=0, confidence_score=None, start_time=214, end_time=215)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50721, lm_score=0, confidence_score=None, start_time=215, end_time=216)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50721, lm_score=0, confidence_score=None, start_time=216, end_time=217)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.50724, lm_score=0, confidence_score=None, start_time=217, end_time=218)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.59314, lm_score=0, confidence_score=None, start_time=218, end_time=219)>
+        <TracebackItem(lemma='WHAT', am_score=3.61427, lm_score=0, confidence_score=None, start_time=219, end_time=221)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.61428, lm_score=0, confidence_score=None, start_time=221, end_time=222)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.61428, lm_score=0, confidence_score=None, start_time=222, end_time=223)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.6143, lm_score=0, confidence_score=None, start_time=223, end_time=224)>
+        <TracebackItem(lemma='IS', am_score=3.61511, lm_score=0, confidence_score=None, start_time=224, end_time=225)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.61512, lm_score=0, confidence_score=None, start_time=225, end_time=226)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.61512, lm_score=0, confidence_score=None, start_time=226, end_time=227)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.61512, lm_score=0, confidence_score=None, start_time=227, end_time=228)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.66902, lm_score=0, confidence_score=None, start_time=228, end_time=229)>
+        <TracebackItem(lemma='NOW', am_score=3.68201, lm_score=0, confidence_score=None, start_time=229, end_time=231)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.68201, lm_score=0, confidence_score=None, start_time=231, end_time=232)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.68201, lm_score=0, confidence_score=None, start_time=232, end_time=233)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.68201, lm_score=0, confidence_score=None, start_time=233, end_time=234)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.68201, lm_score=0, confidence_score=None, start_time=234, end_time=235)>
+        <TracebackItem(lemma='CALLED', am_score=3.76215, lm_score=0, confidence_score=None, start_time=235, end_time=243)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76215, lm_score=0, confidence_score=None, start_time=243, end_time=244)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76215, lm_score=0, confidence_score=None, start_time=244, end_time=245)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76215, lm_score=0, confidence_score=None, start_time=245, end_time=246)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76216, lm_score=0, confidence_score=None, start_time=246, end_time=247)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76216, lm_score=0, confidence_score=None, start_time=247, end_time=248)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76216, lm_score=0, confidence_score=None, start_time=248, end_time=249)>
+        <TracebackItem(lemma='[BLANK]', am_score=3.76406, lm_score=0, confidence_score=None, start_time=249, end_time=250)>
+        <TracebackItem(lemma='DUTCH', am_score=4.30011, lm_score=0, confidence_score=None, start_time=250, end_time=257)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=257, end_time=258)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=258, end_time=259)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=259, end_time=260)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=260, end_time=261)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=261, end_time=262)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.30013, lm_score=0, confidence_score=None, start_time=262, end_time=263)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.31308, lm_score=0, confidence_score=None, start_time=263, end_time=264)>
+        <TracebackItem(lemma='STREET', am_score=4.90594, lm_score=0, confidence_score=None, start_time=264, end_time=273)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=273, end_time=274)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=274, end_time=275)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=275, end_time=276)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=276, end_time=277)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=277, end_time=278)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=278, end_time=279)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=279, end_time=280)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=280, end_time=281)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=281, end_time=282)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=282, end_time=283)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=283, end_time=284)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=284, end_time=285)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=285, end_time=286)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=286, end_time=287)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=287, end_time=288)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=288, end_time=289)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=289, end_time=290)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=290, end_time=291)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=291, end_time=292)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90595, lm_score=0, confidence_score=None, start_time=292, end_time=293)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90605, lm_score=0, confidence_score=None, start_time=293, end_time=294)>
+        <TracebackItem(lemma='SOON', am_score=4.90801, lm_score=0, confidence_score=None, start_time=294, end_time=296)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90802, lm_score=0, confidence_score=None, start_time=296, end_time=297)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90802, lm_score=0, confidence_score=None, start_time=297, end_time=298)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90802, lm_score=0, confidence_score=None, start_time=298, end_time=299)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.90802, lm_score=0, confidence_score=None, start_time=299, end_time=300)>
+        <TracebackItem(lemma='ABOUNDED', am_score=4.93007, lm_score=0, confidence_score=None, start_time=300, end_time=312)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93007, lm_score=0, confidence_score=None, start_time=312, end_time=313)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93007, lm_score=0, confidence_score=None, start_time=313, end_time=314)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93007, lm_score=0, confidence_score=None, start_time=314, end_time=315)>
+        <TracebackItem(lemma='WITH', am_score=4.9301, lm_score=0, confidence_score=None, start_time=315, end_time=316)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.9301, lm_score=0, confidence_score=None, start_time=316, end_time=317)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.9301, lm_score=0, confidence_score=None, start_time=317, end_time=318)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93011, lm_score=0, confidence_score=None, start_time=318, end_time=319)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93011, lm_score=0, confidence_score=None, start_time=319, end_time=320)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93011, lm_score=0, confidence_score=None, start_time=320, end_time=321)>
+        <TracebackItem(lemma='[BLANK]', am_score=4.93011, lm_score=0, confidence_score=None, start_time=321, end_time=322)>
+        <TracebackItem(lemma='PROOFS', am_score=5.80166, lm_score=0, confidence_score=None, start_time=322, end_time=332)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.80166, lm_score=0, confidence_score=None, start_time=332, end_time=333)>
+        <TracebackItem(lemma='OF', am_score=5.82263, lm_score=0, confidence_score=None, start_time=333, end_time=334)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.8257, lm_score=0, confidence_score=None, start_time=334, end_time=335)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.8257, lm_score=0, confidence_score=None, start_time=335, end_time=336)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.8257, lm_score=0, confidence_score=None, start_time=336, end_time=337)>
+        <TracebackItem(lemma='HIS', am_score=5.82578, lm_score=0, confidence_score=None, start_time=337, end_time=338)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82578, lm_score=0, confidence_score=None, start_time=338, end_time=339)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82578, lm_score=0, confidence_score=None, start_time=339, end_time=340)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82578, lm_score=0, confidence_score=None, start_time=340, end_time=341)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82578, lm_score=0, confidence_score=None, start_time=341, end_time=342)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82578, lm_score=0, confidence_score=None, start_time=342, end_time=343)>
+        <TracebackItem(lemma='[BLANK]', am_score=5.82579, lm_score=0, confidence_score=None, start_time=343, end_time=344)>
+        <TracebackItem(lemma='INGENUITY', am_score=6.36848, lm_score=0, confidence_score=None, start_time=344, end_time=362)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=362, end_time=363)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=363, end_time=364)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=364, end_time=365)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=365, end_time=366)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=366, end_time=367)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=367, end_time=368)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=368, end_time=369)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=369, end_time=370)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=370, end_time=371)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=371, end_time=372)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=372, end_time=373)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=373, end_time=374)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=374, end_time=375)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=375, end_time=376)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36848, lm_score=0, confidence_score=None, start_time=376, end_time=377)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36849, lm_score=0, confidence_score=None, start_time=377, end_time=378)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36849, lm_score=0, confidence_score=None, start_time=378, end_time=379)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36849, lm_score=0, confidence_score=None, start_time=379, end_time=380)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.36849, lm_score=0, confidence_score=None, start_time=380, end_time=381)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.38938, lm_score=0, confidence_score=None, start_time=381, end_time=382)>
+        <TracebackItem(lemma='PATENT', am_score=6.39528, lm_score=0, confidence_score=None, start_time=382, end_time=390)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39528, lm_score=0, confidence_score=None, start_time=390, end_time=391)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39528, lm_score=0, confidence_score=None, start_time=391, end_time=392)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39528, lm_score=0, confidence_score=None, start_time=392, end_time=393)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39528, lm_score=0, confidence_score=None, start_time=393, end_time=394)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39529, lm_score=0, confidence_score=None, start_time=394, end_time=395)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39529, lm_score=0, confidence_score=None, start_time=395, end_time=396)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39529, lm_score=0, confidence_score=None, start_time=396, end_time=397)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39529, lm_score=0, confidence_score=None, start_time=397, end_time=398)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39529, lm_score=0, confidence_score=None, start_time=398, end_time=399)>
+        <TracebackItem(lemma='[BLANK]', am_score=6.39533, lm_score=0, confidence_score=None, start_time=399, end_time=400)>
+        <TracebackItem(lemma='SMOKE', am_score=7.39382, lm_score=0, confidence_score=None, start_time=400, end_time=408)>
+        <TracebackItem(lemma='[BLANK]', am_score=7.39385, lm_score=0, confidence_score=None, start_time=408, end_time=409)>
+        <TracebackItem(lemma='[BLANK]', am_score=7.39401, lm_score=0, confidence_score=None, start_time=409, end_time=410)>
+        <TracebackItem(lemma='[BLANK]', am_score=7.39404, lm_score=0, confidence_score=None, start_time=410, end_time=411)>
+        <TracebackItem(lemma='[BLANK]', am_score=7.39477, lm_score=0, confidence_score=None, start_time=411, end_time=412)>
+        <TracebackItem(lemma='JACKS', am_score=8.08548, lm_score=0, confidence_score=None, start_time=412, end_time=422)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=422, end_time=423)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=423, end_time=424)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=424, end_time=425)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=425, end_time=426)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=426, end_time=427)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=427, end_time=428)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=428, end_time=429)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=429, end_time=430)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=430, end_time=431)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08549, lm_score=0, confidence_score=None, start_time=431, end_time=432)>
+        <TracebackItem(lemma='THAT', am_score=8.08561, lm_score=0, confidence_score=None, start_time=432, end_time=433)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08562, lm_score=0, confidence_score=None, start_time=433, end_time=434)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08562, lm_score=0, confidence_score=None, start_time=434, end_time=435)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08562, lm_score=0, confidence_score=None, start_time=435, end_time=436)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08562, lm_score=0, confidence_score=None, start_time=436, end_time=437)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.08869, lm_score=0, confidence_score=None, start_time=437, end_time=438)>
+        <TracebackItem(lemma='REQUIRED', am_score=8.5467, lm_score=0, confidence_score=None, start_time=438, end_time=449)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.5467, lm_score=0, confidence_score=None, start_time=449, end_time=450)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.54715, lm_score=0, confidence_score=None, start_time=450, end_time=451)>
+        <TracebackItem(lemma='A', am_score=8.54808, lm_score=0, confidence_score=None, start_time=451, end_time=452)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.54812, lm_score=0, confidence_score=None, start_time=452, end_time=453)>
+        <TracebackItem(lemma='HORSE', am_score=8.95734, lm_score=0, confidence_score=None, start_time=453, end_time=459)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95734, lm_score=0, confidence_score=None, start_time=459, end_time=460)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95734, lm_score=0, confidence_score=None, start_time=460, end_time=461)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95734, lm_score=0, confidence_score=None, start_time=461, end_time=462)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95734, lm_score=0, confidence_score=None, start_time=462, end_time=463)>
+        <TracebackItem(lemma='TO', am_score=8.95736, lm_score=0, confidence_score=None, start_time=463, end_time=464)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95736, lm_score=0, confidence_score=None, start_time=464, end_time=465)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.95736, lm_score=0, confidence_score=None, start_time=465, end_time=466)>
+        <TracebackItem(lemma='[BLANK]', am_score=8.99097, lm_score=0, confidence_score=None, start_time=466, end_time=467)>
+        <TracebackItem(lemma='WORK', am_score=9.23688, lm_score=0, confidence_score=None, start_time=467, end_time=472)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.23689, lm_score=0, confidence_score=None, start_time=472, end_time=473)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.23689, lm_score=0, confidence_score=None, start_time=473, end_time=474)>
+        <TracebackItem(lemma='THEM', am_score=9.71834, lm_score=0, confidence_score=None, start_time=474, end_time=476)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=476, end_time=477)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=477, end_time=478)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=478, end_time=479)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=479, end_time=480)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=480, end_time=481)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=481, end_time=482)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=482, end_time=483)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=483, end_time=484)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=484, end_time=485)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=485, end_time=486)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=486, end_time=487)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=487, end_time=488)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=488, end_time=489)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=489, end_time=490)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=490, end_time=491)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=491, end_time=492)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=492, end_time=493)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.71836, lm_score=0, confidence_score=None, start_time=493, end_time=494)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.73925, lm_score=0, confidence_score=None, start_time=494, end_time=495)>
+        <TracebackItem(lemma='DUTCH', am_score=9.77566, lm_score=0, confidence_score=None, start_time=495, end_time=502)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.77566, lm_score=0, confidence_score=None, start_time=502, end_time=503)>
+        <TracebackItem(lemma='[BLANK]', am_score=9.77568, lm_score=0, confidence_score=None, start_time=503, end_time=504)>
+        <TracebackItem(lemma='OVENS', am_score=10.5633, lm_score=0, confidence_score=None, start_time=504, end_time=513)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5633, lm_score=0, confidence_score=None, start_time=513, end_time=514)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5633, lm_score=0, confidence_score=None, start_time=514, end_time=515)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5633, lm_score=0, confidence_score=None, start_time=515, end_time=516)>
+        <TracebackItem(lemma='THAT', am_score=10.5634, lm_score=0, confidence_score=None, start_time=516, end_time=517)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5634, lm_score=0, confidence_score=None, start_time=517, end_time=518)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5634, lm_score=0, confidence_score=None, start_time=518, end_time=519)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5634, lm_score=0, confidence_score=None, start_time=519, end_time=520)>
+        <TracebackItem(lemma='[BLANK]', am_score=10.5635, lm_score=0, confidence_score=None, start_time=520, end_time=521)>
+        <TracebackItem(lemma='ROASTED', am_score=11.2076, lm_score=0, confidence_score=None, start_time=521, end_time=531)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2076, lm_score=0, confidence_score=None, start_time=531, end_time=532)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2076, lm_score=0, confidence_score=None, start_time=532, end_time=533)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2076, lm_score=0, confidence_score=None, start_time=533, end_time=534)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2088, lm_score=0, confidence_score=None, start_time=534, end_time=535)>
+        <TracebackItem(lemma='MEAT', am_score=11.2138, lm_score=0, confidence_score=None, start_time=535, end_time=541)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2138, lm_score=0, confidence_score=None, start_time=541, end_time=542)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2138, lm_score=0, confidence_score=None, start_time=542, end_time=543)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.2138, lm_score=0, confidence_score=None, start_time=543, end_time=544)>
+        <TracebackItem(lemma='[BLANK]', am_score=11.6946, lm_score=0, confidence_score=None, start_time=544, end_time=545)>
+        <TracebackItem(lemma='WITHOUT', am_score=12.176, lm_score=0, confidence_score=None, start_time=545, end_time=550)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.176, lm_score=0, confidence_score=None, start_time=550, end_time=551)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.176, lm_score=0, confidence_score=None, start_time=551, end_time=552)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.176, lm_score=0, confidence_score=None, start_time=552, end_time=553)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.176, lm_score=0, confidence_score=None, start_time=553, end_time=554)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.176, lm_score=0, confidence_score=None, start_time=554, end_time=555)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.1768, lm_score=0, confidence_score=None, start_time=555, end_time=556)>
+        <TracebackItem(lemma='FIRE', am_score=12.2502, lm_score=0, confidence_score=None, start_time=556, end_time=564)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=564, end_time=565)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=565, end_time=566)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=566, end_time=567)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=567, end_time=568)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=568, end_time=569)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=569, end_time=570)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=570, end_time=571)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=571, end_time=572)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=572, end_time=573)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=573, end_time=574)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=574, end_time=575)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=575, end_time=576)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=576, end_time=577)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=577, end_time=578)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=578, end_time=579)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=579, end_time=580)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=580, end_time=581)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2502, lm_score=0, confidence_score=None, start_time=581, end_time=582)>
+        <TracebackItem(lemma='[BLANK]', am_score=12.2711, lm_score=0, confidence_score=None, start_time=582, end_time=583)>
+        <TracebackItem(lemma='CARTS', am_score=13.0433, lm_score=0, confidence_score=None, start_time=583, end_time=593)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0433, lm_score=0, confidence_score=None, start_time=593, end_time=594)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0433, lm_score=0, confidence_score=None, start_time=594, end_time=595)>
+        <TracebackItem(lemma='THAT', am_score=13.0434, lm_score=0, confidence_score=None, start_time=595, end_time=596)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0434, lm_score=0, confidence_score=None, start_time=596, end_time=597)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0434, lm_score=0, confidence_score=None, start_time=597, end_time=598)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0434, lm_score=0, confidence_score=None, start_time=598, end_time=599)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0643, lm_score=0, confidence_score=None, start_time=599, end_time=600)>
+        <TracebackItem(lemma='WENT', am_score=13.0979, lm_score=0, confidence_score=None, start_time=600, end_time=602)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0979, lm_score=0, confidence_score=None, start_time=602, end_time=603)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0979, lm_score=0, confidence_score=None, start_time=603, end_time=604)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0979, lm_score=0, confidence_score=None, start_time=604, end_time=605)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.0979, lm_score=0, confidence_score=None, start_time=605, end_time=606)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.098, lm_score=0, confidence_score=None, start_time=606, end_time=607)>
+        <TracebackItem(lemma='BEFORE', am_score=13.27, lm_score=0, confidence_score=None, start_time=607, end_time=614)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.27, lm_score=0, confidence_score=None, start_time=614, end_time=615)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.27, lm_score=0, confidence_score=None, start_time=615, end_time=616)>
+        <TracebackItem(lemma='THE', am_score=13.2706, lm_score=0, confidence_score=None, start_time=616, end_time=617)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2706, lm_score=0, confidence_score=None, start_time=617, end_time=618)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2706, lm_score=0, confidence_score=None, start_time=618, end_time=619)>
+        <TracebackItem(lemma='HORSES', am_score=13.2921, lm_score=0, confidence_score=None, start_time=619, end_time=628)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=628, end_time=629)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=629, end_time=630)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=630, end_time=631)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=631, end_time=632)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=632, end_time=633)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=633, end_time=634)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=634, end_time=635)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=635, end_time=636)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=636, end_time=637)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=637, end_time=638)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=638, end_time=639)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=639, end_time=640)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=640, end_time=641)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=641, end_time=642)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=642, end_time=643)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=643, end_time=644)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=644, end_time=645)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=645, end_time=646)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.2921, lm_score=0, confidence_score=None, start_time=646, end_time=647)>
+        <TracebackItem(lemma='[BLANK]', am_score=13.313, lm_score=0, confidence_score=None, start_time=647, end_time=648)>
+        <TracebackItem(lemma='WEATHERCOCKS', am_score=14.6196, lm_score=0, confidence_score=None, start_time=648, end_time=667)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6196, lm_score=0, confidence_score=None, start_time=667, end_time=668)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6196, lm_score=0, confidence_score=None, start_time=668, end_time=669)>
+        <TracebackItem(lemma='THAT', am_score=14.6201, lm_score=0, confidence_score=None, start_time=669, end_time=670)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6201, lm_score=0, confidence_score=None, start_time=670, end_time=671)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6201, lm_score=0, confidence_score=None, start_time=671, end_time=672)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6201, lm_score=0, confidence_score=None, start_time=672, end_time=673)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6201, lm_score=0, confidence_score=None, start_time=673, end_time=674)>
+        <TracebackItem(lemma='[BLANK]', am_score=14.6213, lm_score=0, confidence_score=None, start_time=674, end_time=675)>
+        <TracebackItem(lemma='TURNED', am_score=15.4795, lm_score=0, confidence_score=None, start_time=675, end_time=682)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.4795, lm_score=0, confidence_score=None, start_time=682, end_time=683)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.4796, lm_score=0, confidence_score=None, start_time=683, end_time=684)>
+        <TracebackItem(lemma='AGAINST', am_score=15.5371, lm_score=0, confidence_score=None, start_time=684, end_time=692)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.5371, lm_score=0, confidence_score=None, start_time=692, end_time=693)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.5371, lm_score=0, confidence_score=None, start_time=693, end_time=694)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.5371, lm_score=0, confidence_score=None, start_time=694, end_time=695)>
+        <TracebackItem(lemma='THE', am_score=15.5374, lm_score=0, confidence_score=None, start_time=695, end_time=696)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.5374, lm_score=0, confidence_score=None, start_time=696, end_time=697)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.5913, lm_score=0, confidence_score=None, start_time=697, end_time=698)>
+        <TracebackItem(lemma='WIND', am_score=15.8518, lm_score=0, confidence_score=None, start_time=698, end_time=705)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=705, end_time=706)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=706, end_time=707)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=707, end_time=708)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=708, end_time=709)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=709, end_time=710)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=710, end_time=711)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=711, end_time=712)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=712, end_time=713)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=713, end_time=714)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8518, lm_score=0, confidence_score=None, start_time=714, end_time=715)>
+        <TracebackItem(lemma='AND', am_score=15.8568, lm_score=0, confidence_score=None, start_time=715, end_time=716)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8571, lm_score=0, confidence_score=None, start_time=716, end_time=717)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8571, lm_score=0, confidence_score=None, start_time=717, end_time=718)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8571, lm_score=0, confidence_score=None, start_time=718, end_time=719)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8571, lm_score=0, confidence_score=None, start_time=719, end_time=720)>
+        <TracebackItem(lemma='OTHER', am_score=15.8602, lm_score=0, confidence_score=None, start_time=720, end_time=725)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8602, lm_score=0, confidence_score=None, start_time=725, end_time=726)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8602, lm_score=0, confidence_score=None, start_time=726, end_time=727)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8602, lm_score=0, confidence_score=None, start_time=727, end_time=728)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8602, lm_score=0, confidence_score=None, start_time=728, end_time=729)>
+        <TracebackItem(lemma='[BLANK]', am_score=15.8602, lm_score=0, confidence_score=None, start_time=729, end_time=730)>
+        <TracebackItem(lemma='[BLANK]', am_score=16.3412, lm_score=0, confidence_score=None, start_time=730, end_time=731)>
+        <TracebackItem(lemma='WRONG', am_score=17.0556, lm_score=0, confidence_score=None, start_time=731, end_time=739)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.0557, lm_score=0, confidence_score=None, start_time=739, end_time=740)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.1096, lm_score=0, confidence_score=None, start_time=740, end_time=741)>
+        <TracebackItem(lemma='HEADED', am_score=17.4546, lm_score=0, confidence_score=None, start_time=741, end_time=748)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=748, end_time=749)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=749, end_time=750)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=750, end_time=751)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=751, end_time=752)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=752, end_time=753)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4546, lm_score=0, confidence_score=None, start_time=753, end_time=754)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.4549, lm_score=0, confidence_score=None, start_time=754, end_time=755)>
+        <TracebackItem(lemma='CONTRIVANCES', am_score=17.5702, lm_score=0, confidence_score=None, start_time=755, end_time=775)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=775, end_time=776)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=776, end_time=777)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=777, end_time=778)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=778, end_time=779)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=779, end_time=780)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=780, end_time=781)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=781, end_time=782)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=782, end_time=783)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=783, end_time=784)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=784, end_time=785)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=785, end_time=786)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=786, end_time=787)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=787, end_time=788)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=788, end_time=789)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=789, end_time=790)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5702, lm_score=0, confidence_score=None, start_time=790, end_time=791)>
+        <TracebackItem(lemma='THAT', am_score=17.5704, lm_score=0, confidence_score=None, start_time=791, end_time=792)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5704, lm_score=0, confidence_score=None, start_time=792, end_time=793)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5704, lm_score=0, confidence_score=None, start_time=793, end_time=794)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5704, lm_score=0, confidence_score=None, start_time=794, end_time=795)>
+        <TracebackItem(lemma='[BLANK]', am_score=17.5709, lm_score=0, confidence_score=None, start_time=795, end_time=796)>
+        <TracebackItem(lemma='ASTONISHED', am_score=18.6859, lm_score=0, confidence_score=None, start_time=796, end_time=812)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.6859, lm_score=0, confidence_score=None, start_time=812, end_time=813)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.6859, lm_score=0, confidence_score=None, start_time=813, end_time=814)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.6859, lm_score=0, confidence_score=None, start_time=814, end_time=815)>
+        <TracebackItem(lemma='AND', am_score=18.686, lm_score=0, confidence_score=None, start_time=815, end_time=816)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.686, lm_score=0, confidence_score=None, start_time=816, end_time=817)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.686, lm_score=0, confidence_score=None, start_time=817, end_time=818)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.686, lm_score=0, confidence_score=None, start_time=818, end_time=819)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.686, lm_score=0, confidence_score=None, start_time=819, end_time=820)>
+        <TracebackItem(lemma='CONFOUNDED', am_score=18.7425, lm_score=0, confidence_score=None, start_time=820, end_time=835)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=835, end_time=836)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=836, end_time=837)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=837, end_time=838)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=838, end_time=839)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=839, end_time=840)>
+        <TracebackItem(lemma='ALL', am_score=18.7425, lm_score=0, confidence_score=None, start_time=840, end_time=841)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=841, end_time=842)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=842, end_time=843)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=843, end_time=844)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=844, end_time=845)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7425, lm_score=0, confidence_score=None, start_time=845, end_time=846)>
+        <TracebackItem(lemma='[BLANK]', am_score=18.7444, lm_score=0, confidence_score=None, start_time=846, end_time=847)>
+        <TracebackItem(lemma='BEHOLDERS', am_score=19.2898, lm_score=0, confidence_score=None, start_time=847, end_time=862)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=862, end_time=863)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=863, end_time=864)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=864, end_time=865)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=865, end_time=866)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=866, end_time=867)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=867, end_time=868)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=868, end_time=869)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=869, end_time=870)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=870, end_time=871)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=871, end_time=872)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=872, end_time=873)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=873, end_time=874)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=874, end_time=875)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=875, end_time=876)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=876, end_time=877)>
+        <TracebackItem(lemma='[BLANK]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=877, end_time=878)>
+        <TracebackItem(lemma='[SENTENCE-END]', am_score=19.2898, lm_score=0, confidence_score=None, start_time=878, end_time=878)>
+    Encoder time: 11.948 seconds, RTF 0.340, XRTF 2.942
+    Search time: 4.190 seconds, RTF 0.119, XRTF 8.389
+
+Total encoder time: 11.95 seconds, AM-RTF: 0.3398740927548102, XRTF: 2.9422660370921934
+Total search time: 4.19 seconds, search-RTF: 0.1191979549404585, RTFX: 8.38940567813867
+Total time: 16.14 seconds, RTF: 0.4590720476952687, RTFX: 2.1783073158568746
+
+<?xml version="1.0" encoding="utf-8"?>
+<sprint>
+  <information component="lib-rasr">
+    Load classic acoustic model.
+  </information>
+  <information component="lib-rasr">
+    requesting reader for item state-network-image in archive global-cache
+  </information>
+  <information component="lib-rasr">
+    opening cache archive global-cache file "" read-only 0
+  </information>
+  <information component="lib-rasr">
+    writing state network into global-cache
+  </information>
+  <information component="lib-rasr">
+    requesting writer for item state-network-image in archive global-cache
+  </information>
+Bounded observer comparison completed after 1 sequences.
+  <information component="lib-rasr">
+    writing state network into global-cache
+  </information>
+  <information component="lib-rasr">
+    requesting writer for item state-network-image in archive global-cache
+  </information>
+</sprint>
+</sprint>

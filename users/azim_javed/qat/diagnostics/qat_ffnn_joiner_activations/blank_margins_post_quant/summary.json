@@ -1,0 +1,99 @@
+{
+  "measurement": "post-output-quantization",
+  "blank_channel": "last",
+  "comparison": "separate search calls, not matched inputs",
+  "inputs": [
+    {
+      "label": "Digital QAT",
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.9wPnV9PmMegQ/output/joint_activations_post_quant.npy",
+      "records": 2864,
+      "nonempty_records": 2863,
+      "margins": {
+        "all_nonblank": {
+          "calls": 458516,
+          "mean": 6.505738034031542,
+          "std": 9.84323549816722,
+          "min": -19.291337966918945,
+          "max": 21.22047233581543,
+          "blank_strict_win_fraction": 0.7153381779479887,
+          "top_score_tie_fraction": 0.007709654624920396,
+          "nonblank_strict_win_fraction": 0.2769521674270909,
+          "percentiles": {
+            "p1": -13.986220359802246,
+            "p5": -11.574803352355957,
+            "p25": -1.9291343688964844,
+            "p50": 11.09251880645752,
+            "p75": 14.468503952026367,
+            "p95": 17.362205505371094,
+            "p99": 18.326772689819336
+          }
+        },
+        "ordinary_tokens": {
+          "calls": 458516,
+          "mean": 6.505738034031542,
+          "std": 9.84323549816722,
+          "min": -19.291337966918945,
+          "max": 21.22047233581543,
+          "blank_strict_win_fraction": 0.7153381779479887,
+          "top_score_tie_fraction": 0.007709654624920396,
+          "nonblank_strict_win_fraction": 0.2769521674270909,
+          "percentiles": {
+            "p1": -13.986220359802246,
+            "p5": -11.574803352355957,
+            "p25": -1.9291343688964844,
+            "p50": 11.09251880645752,
+            "p75": 14.468503952026367,
+            "p95": 17.362205505371094,
+            "p99": 18.326772689819336
+          }
+        }
+      }
+    },
+    {
+      "label": "Memristor, ADC 4/4",
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.WzUWPLE5LRPZ/output/joint_activations_post_quant.npy",
+      "records": 2864,
+      "nonempty_records": 2863,
+      "margins": {
+        "all_nonblank": {
+          "calls": 460515,
+          "mean": 3.618421988063074,
+          "std": 3.4738775560370168,
+          "min": -9.645668983459473,
+          "max": 11.092519760131836,
+          "blank_strict_win_fraction": 0.7884976602282228,
+          "top_score_tie_fraction": 0.0370433102070508,
+          "nonblank_strict_win_fraction": 0.17445902956472645,
+          "percentiles": {
+            "p1": -3.8582677841186523,
+            "p5": -2.411417007446289,
+            "p25": 0.9645662307739258,
+            "p50": 3.8582677841186523,
+            "p75": 6.751968860626221,
+            "p95": 8.19881820678711,
+            "p99": 8.681102752685547
+          }
+        },
+        "ordinary_tokens": {
+          "calls": 460515,
+          "mean": 3.618421988063074,
+          "std": 3.4738775560370168,
+          "min": -9.645668983459473,
+          "max": 11.092519760131836,
+          "blank_strict_win_fraction": 0.7884976602282228,
+          "top_score_tie_fraction": 0.0370433102070508,
+          "nonblank_strict_win_fraction": 0.17445902956472645,
+          "percentiles": {
+            "p1": -3.8582677841186523,
+            "p5": -2.411417007446289,
+            "p25": 0.9645662307739258,
+            "p50": 3.8582677841186523,
+            "p75": 6.751968860626221,
+            "p95": 8.19881820678711,
+            "p99": 8.681102752685547
+          }
+        }
+      }
+    }
+  ]
+}

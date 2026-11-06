@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sprint>
+  <information component="lib-rasr.lexicon">
+    md5 dependency computed in 0.07 seconds
+  </information>
+  <information component="lib-rasr.lexicon">
+    reading lexicon from file "/work/smt4/azim.javed/sisyphus_work/data/base/RemovePhonemeVariationsFromLexiconJob.ErKAJLvOCASq/output/lexicon.xml.gz" (/work/smt4/azim.javed/sisyphus_work/data/base/RemovePhonemeVariationsFromLexiconJob.ErKAJLvOCASq/output/lexicon.xml.gz) ...
+  </information>
+  <information component="lib-rasr.lexicon">
+    parsed XML lexicon in 1.26 seconds
+  </information>
+  <information component="lib-rasr.lexicon">
+    dependency value: 2edf2114bc6cc904fce8807c4d649fbe
+  </information>
+  <information component="lib-rasr">
+    Set lexicon in ModelCombination
+  </information>
+  <warning component="lib-rasr.acoustic-model">
+    No special lemma "silence" defined in lexicon.
+  </warning>
+  <information component="lib-rasr.acoustic-model.allophones">
+    362 allophones after adding allophones from lexicon
+  </information>
+  <warning component="lib-rasr.acoustic-model">
+    No special lemma "silence" defined in lexicon.
+  </warning>
+  <warning component="lib-rasr.acoustic-model">
+    Could not determine silence allophone state index.
+  </warning>
+  <information component="lib-rasr.lm">
+    Zerogram LM probability is 1/200003
+  </information>
+  <information component="lib-rasr.lm">
+    Sentence boundary: &lt;s&gt; ... &lt;/s&gt;
+  </information>
+  <information component="lib-rasr.search-algorithm">
+    Persistent search tree image could not be loaded; building it
+  </information>
+  <information component="lib-rasr.search-algorithm">
+    Writing search tree image failed
+  </information>
+  <information component="lib-rasr.search-algorithm">
+    Use blank label with index 184
+  </information>
+  <information component="lib-rasr.search-algorithm">
+    writing network image failed
+  </information>
+</sprint>

@@ -22,6 +22,8 @@ from ..common.memristor_layers import LSTMQuant, LinearQuant, EmbeddingQuant, Ac
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
+from synaptogen_ml.memristor_modules.embedding import TiledMemristorEmbedding
+from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
 
 
 @dataclass
@@ -50,6 +52,66 @@ class LstmTransducerQATEncoderPredictionConfig(ModelConfiguration):
     correction_settings: Union[CycleCorrectionSettings, None]
     num_cycles: int
 
+    def __sis_state__(self):
+        import dataclasses, torch
+        from sisyphus import tk
+
+        def _sanitize(v):
+            if isinstance(v, torch.dtype):
+                return str(v)
+                # return (str(v) + self.hash_control) if self.hash_control is not None else str(v)
+            if isinstance(v, tk.Path):
+                return v  # keep for path extraction
+            if dataclasses.is_dataclass(v):
+                return {f.name: _sanitize(getattr(v, f.name)) for f in dataclasses.fields(v)}
+            if isinstance(v, dict):
+                return {k: _sanitize(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return type(v)(_sanitize(x) for x in v)
+            return v
+
+        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self) if f.name != "hash_control"}
+
+    def __sis_hash__(self):
+        return str(type(self))
+
+    def with_replaced(self, **kwargs):
+        import dataclasses
+
+        consumed = set()
+
+        def _recurse(obj):
+            # 1. Handle lists and tuples
+            if isinstance(obj, (list, tuple)):
+                new_seq = type(obj)(_recurse(v) for v in obj)
+                if any(old is not new for old, new in zip(obj, new_seq)):
+                    return new_seq
+                return obj
+
+            # 2. Base case: not a dataclass
+            if not dataclasses.is_dataclass(obj):
+                return obj
+
+            # 3. Handle dataclasses
+            changes = {}
+            for f in dataclasses.fields(obj):
+                val = getattr(obj, f.name)
+                if f.name in kwargs:
+                    changes[f.name] = kwargs[f.name]
+                    consumed.add(f.name)
+                else:
+                    new_val = _recurse(val)
+                    if new_val is not val:
+                        changes[f.name] = new_val
+            if changes:
+                return dataclasses.replace(obj, **changes)
+            return obj
+
+        result = _recurse(self)
+        unconsumed = set(kwargs) - consumed
+        assert not unconsumed, f"with_replaced: keys not found in config tree: {unconsumed}"
+        return result
+
 
 @dataclass
 class LstmTransducerQATEncoderPredictionRecogConfig(LstmTransducerQATEncoderPredictionConfig):
@@ -61,6 +123,9 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
     def __init__(self, cfg: LstmTransducerQATEncoderPredictionConfig, **_):
         super().__init__()
         self.target_size = cfg.target_size
+        self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.correction_settings = cfg.correction_settings
+        self.num_cycles = cfg.num_cycles
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
         self.specaug_config = cfg.specaug_cfg
@@ -119,6 +184,9 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
             activation_quant_dtype=cfg.activation_quant_dtype,
             activation_quant_method=cfg.activation_quant_method,
             moving_average=cfg.moving_average,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            correction_settings=cfg.correction_settings,
+            num_cycles=cfg.num_cycles,
         )
         self.pred_act = cfg.pred_activation
 
@@ -151,7 +219,7 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
             ),
             self.pred_output_q_out,
         )
-        
+
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
             torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
@@ -241,6 +309,34 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
 
         return joint_output
 
+    def _convert_embedding(self, emb: EmbeddingQuant) -> torch.nn.Module:
+        emb.weight_quantizer.set_scale_and_zp()
+        if emb.pruning_config is not None:
+            with torch.no_grad():
+                emb.weight.data = emb.pruning_config.apply(emb.weight.data, training=False)
+        weight_prec = emb.weight_bit_prec if emb.weight_bit_prec != 1.5 else 2
+        mem_emb = TiledMemristorEmbedding(
+            num_embeddings=emb.num_embeddings,
+            embedding_dim=emb.embedding_dim,
+            weight_precision=weight_prec,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+            padding_idx=emb.padding_idx,
+        )
+        mem_emb.init_from_embedding_quant(
+            embedding_quant=emb,
+            num_cycles_init=self.num_cycles,
+            correction_settings=self.correction_settings,
+        )
+        return mem_emb
+
+    def prep_quant(self):
+        self.pred_lstm.prep_quant()
+        self.token_embedding = self._convert_embedding(self.token_embedding)
+        self.conformer.prep_quant()
+
+
 
 class LstmTransducerQATEncoderPredictionEncoder(LstmTransducerQATEncoderPredictionModel):
     def __init__(self, cfg: LstmTransducerQATEncoderPredictionConfig, **_):
@@ -252,7 +348,9 @@ class LstmTransducerQATEncoderPredictionEncoder(LstmTransducerQATEncoderPredicti
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
     ) -> torch.Tensor:  # [B, T, E], [B]
-        encoder_states, _, encoder_states_len = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+        encoder_states, _, encoder_states_len = self.forward_encoder(
+            audio_samples=audio_samples, audio_samples_size=audio_samples_size
+        )
 
         return encoder_states, encoder_states_len  # [B, T, E]
 

@@ -1,0 +1,6 @@
+                  Experiments |   2 corpus | 3 WER | 4 Del | 5 Ins | 6 Sub | 7 Enc RTF | 8 Search RTF | 9 Total RTF | 10 Step Hyps | 11 Step Word End Hyps | 12 Step Trees
+------------------------------+------------+-------+-------+-------+-------+-----------+--------------+-------------+--------------+-----------------------+--------------
+1__qat_ctc_bpe__recog_lexfree |  dev-clean |       |       |       |       |           |              |             |      Not set |               Not set |       Not set
+2__qat_ctc_bpe__recog_lexfree |  dev-other |       |       |       |       |           |              |             |      Not set |               Not set |       Not set
+3__qat_ctc_bpe__recog_lexfree | test-clean |       |       |       |       |           |              |             |      Not set |               Not set |       Not set
+4__qat_ctc_bpe__recog_lexfree | test-other |       |       |       |       |           |              |             |      Not set |               Not set |       Not set

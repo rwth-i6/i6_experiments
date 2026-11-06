@@ -21,6 +21,10 @@ from sisyphus import tk
 from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
 from ..common.memristor_layers import LinearQuant, ActivationQuantizer
 
+from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
+from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+
 
 @dataclass
 class QATConformerCTCOutputConfig(ModelConfiguration):
@@ -38,6 +42,11 @@ class QATConformerCTCOutputConfig(ModelConfiguration):
     activation_quant_dtype: Union[str, torch.dtype]
     activation_quant_method: str
     moving_average: Union[float, None]
+    # converter_hardware_settings: DacAdcHardwareSettings
+    # pos_enc_converter_hardware_settings: DacAdcHardwareSettings
+    # correction_settings: Union[CycleCorrectionSettings, None]
+    # num_cycles: int
+    # version_control: Union[str, None]
 
     def __sis_state__(self):
         import dataclasses, torch
@@ -145,6 +154,9 @@ class QATConformerCTCOutputModel(torch.nn.Module):
             self.final_linear_q_out,
         )
         self.specaug_config = cfg.specaug_cfg
+        self.converter_hardware_settings = cfg.conformer_cfg.block_cfg.ff_cfg.converter_hardware_settings
+        self.correction_settings = cfg.conformer_cfg.block_cfg.ff_cfg.correction_settings
+        self.num_cycles = cfg.conformer_cfg.block_cfg.ff_cfg.num_cycles
 
     def __sis_state__(self):
         return str(type(self))
@@ -152,8 +164,36 @@ class QATConformerCTCOutputModel(torch.nn.Module):
     def __sis_hash__(self):
         return str(type(self))
 
+    def _convert_linear(self, lin: LinearQuant, in_quant: ActivationQuantizer) -> torch.nn.Module:
+
+        lin.weight_quantizer.set_scale_and_zp()
+        in_quant.set_scale_and_zp()
+        if lin.pruning_config is not None:
+            with torch.no_grad():
+                lin.weight.data = lin.pruning_config.apply(lin.weight.data, training=False)
+        weight_prec = lin.weight_bit_prec if lin.weight_bit_prec != 1.5 else 2
+        mem_lin = TiledMemristorLinear(
+            in_features=lin.in_features,
+            out_features=lin.out_features,
+            weight_precision=weight_prec,
+            converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+        mem_lin.init_from_linear_quant(
+            activation_quant=in_quant,
+            linear_quant=lin,
+            num_cycles_init=self.num_cycles,
+            correction_settings=self.correction_settings,
+        )
+        return mem_lin
+
     def prep_quant(self):
+        print("Preparing quantization for ConformerEncoderQuant...", flush=True)
         self.conformer.prep_quant()
+        print("Preparing quantization for final linear layer...", flush=True)
+        self.final_linear[1] = self._convert_linear(self.final_linear[1], self.final_linear[0])
+        self.final_linear[0] = torch.nn.Identity()
 
     def forward(
         self,
@@ -179,7 +219,7 @@ class QATConformerCTCOutputModel(torch.nn.Module):
                         freq_max_num_masks=self.specaug_config.freq_max_num_masks,
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
-                    
+
         features = features * sequence_mask.unsqueeze(-1)  # [B, T, F]
         encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, F], [B, T]
         encoder_states = encoder_states[-1]
@@ -192,6 +232,7 @@ class QATConformerCTCOutputModel(torch.nn.Module):
 
 
 class QATConformerCTCOutputRecogModel(QATConformerCTCOutputModel):
+
     def __init__(self, cfg: QATConformerCTCOutputRecogConfig, epoch: int, **_):
         super().__init__(
             cfg=cfg,
@@ -208,11 +249,11 @@ class QATConformerCTCOutputRecogModel(QATConformerCTCOutputModel):
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:
-        log_probs, _ = super().forward(audio_samples=audio_samples, audio_samples_size=audio_samples_size)  # [B, T, V]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        log_probs, enc_len = super().forward(audio_samples=audio_samples, audio_samples_size=audio_samples_size)  # [B, T, V]
         scores = -log_probs  # [B, T, V]
         scores[:, :, -1] += self.blank_penalty  # [B, T, V]
-        return scores + self.scaled_priors.to(device=log_probs.device)  # [B, T, V]
+        return scores + self.scaled_priors.to(device=log_probs.device), enc_len  # [B, T, V], [B]
 
 
 class QATConformerCTCOutputRecogExportModel(QATConformerCTCOutputModel):

@@ -1,0 +1,327 @@
+RETURNN starting up, version 1.20260608.172901+git.28b6f6fe, date/time 2026-10-08-20-40-31 (UTC+0200), pid 601431, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_singleprocess_gpu/current, Python /work/smt4/azim.javed/envs/base_env/bin/python
+RETURNN command line options: ['/work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_singleprocess_gpu/current/returnn.config']
+Hostname: cn-233
+PyTorch: 2.11.0+cu130 (70d99e998b4955e0049d13a98d77ae1b14db1f45) (<site-package> in /work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch)
+CUBLAS_VERSION=12.5.2.13
+CUDA_CACHE_DISABLE=1
+CUDA_DRIVER_VERSION=555.42.02
+CUDA_HOME=/usr/local/cuda
+CUDA_MODULE_LOADING=LAZY
+CUDA_VERSION=12.5.0.023
+CUDA_VISIBLE_DEVICES=0
+CUDNN_VERSION=9.1.0.70+cuda12.4
+NCCL_VERSION=2.21.5
+NVIDIA_BUILD_ID=96418707
+NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+NVIDIA_PRODUCT_NAME=PyTorch
+NVIDIA_PYTORCH_VERSION=24.06
+NVIDIA_REQUIRE_CUDA=cuda>=9.0
+NVIDIA_REQUIRE_JETPACK_HOST_MOUNTS=
+NVIDIA_VISIBLE_DEVICES=all
+PYTORCH_BUILD_NUMBER=0
+PYTORCH_BUILD_VERSION=2.4.0a0+f70bd71
+PYTORCH_HOME=/opt/pytorch/pytorch
+PYTORCH_VERSION=2.4.0a0+f70bd71
+TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+TORCH_CUDA_ARCH_LIST=5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 9.0+PTX
+TORCH_CUDNN_V8_API_ENABLED=1
+CUDA_VISIBLE_DEVICES is set to '0'.
+Num NVML devices: 1
+Available CUDA devices:
+  1/1: cuda:0
+       name: NVIDIA GeForce RTX 3090
+       total_memory: 23.6GB
+       free_memory: 23.0GB (98%)
+       capability: 8.6
+       device_index: 0
+       uuid: f2b0478d-9e37-67fe-b4b2-18241e9b1e41
+       nvml_device_index: 0
+Using device: cuda ('gpu' in config)
+Using gpu device 0: NVIDIA GeForce RTX 3090
+Total GPU 0 memory 23.6GB, free 23.0GB
+Tracked changes to sys.path and sys.modules during RETURNN init:
+New sys.path entry: /work/smt4/azim.javed/sisyphus_work/i6_core/tools/compile/CMakeJob.qMRpN7b4MOKN/output/install
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/recipe/
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat
+New module: i6_models (20260119.153410--git-c401d3e in /work/smt4/azim.javed/repositories/i6_models)
+New module: synaptogen_ml (20260819.184537--git-562c3b5-dirty in /work/smt4/azim.javed/repositories/synaptogen_ml)
+Load model /work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.s9sXAl53j9fG/output/models/epoch.2000.pt
+  epoch 2000, global train step 1061730
+Model: QATFFNNTransducerEncoder(
+  (feature_extraction): LogMelFeatureExtractionV1()
+  (conformer): ConformerEncoderQuant(
+    (frontend): GenericFrontendV1(
+      (frontend_layers): ModuleList(
+        (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (2): ReLU()
+        (3): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+        (4): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (5): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (6): ReLU()
+        (7): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+      )
+      (linear): Linear(in_features=2560, out_features=512, bias=True)
+    )
+    (module_list): ModuleList(
+      (0-11): 12 x ConformerBlockQuant(
+        (final_layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+        (module_list): ModuleList(
+          (0): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+          (1): ConformerConvolutionQuant(
+            (pointwise_conv1): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (depthwise_conv): Conv1dQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (dconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (dconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pointwise_conv2): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (pconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (norm): LayerNormNC((512,), eps=1e-05, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            (activation): SiLU()
+          )
+          (2): ConformerMHSAQuant(
+            (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (mhsa): QuantizedMultiheadAttention(
+              (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+              (pos_emb_dropout): Dropout(p=0.0, inplace=False)
+              (att_weights_dropout): Dropout(p=0.1, inplace=False)
+              (qkv_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (in_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (in_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (q_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (k_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (out_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (linear_pos): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (learn_emb_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (learn_emb_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (dropout): BroadcastDropout()
+            )
+          )
+          (3): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+        )
+      )
+    )
+  )
+  (enc_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (enc_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (encoder_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (token_embedding): EmbeddingQuant(
+    (weight_quantizer): WeightQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (prediction_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (9): Tanh()
+  )
+  (prediction_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (joint_net_q1_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q1_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+)
+net params #: 79488139
+Dataset supports sorting, i.e. it will be sorted for optimal performance.

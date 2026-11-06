@@ -1,5 +1,6 @@
 __all__ = ["register_memristor_report", "register_recog_report"]
 
+import os
 from typing import List, Optional
 
 from i6_core.summary.wer import TableReport
@@ -8,15 +9,34 @@ from sisyphus import gs, tk
 from .recog import MemristorRecogResult, RecogResult
 
 
-def register_recog_report(recog_results: List[RecogResult], filename: str = "report.txt") -> None:
-    tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{filename}", _create_recog_report(recog_results), required=True)
+def register_recog_report(recog_results: List[RecogResult], filename: str = "report.txt", live: bool = False):
+    if live:
+        # Capture the current dependencies, but render from the list again when
+        # late (e.g. lazy-sweep) results are appended to it.
+        return tk.register_report(
+            os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, filename),
+            lambda: _create_recog_report(recog_results)(),
+            required=list(recog_results),
+        )
+    report_results = list(recog_results)
+    return tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, filename),
+        lambda: _create_recog_report(report_results)(),
+        required=report_results,
+    )
 
 
 def register_memristor_report(
-    memristor_results: List[MemristorRecogResult], filename: str = "memristor_report.txt"
-) -> None:
-    tk.register_report(
-        f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{filename}", _create_memristor_report(memristor_results), required=True
+    memristor_results: List[MemristorRecogResult], filename: str = "memristor_report.txt", live: bool = False
+):
+    if live:
+        return tk.register_report(
+            os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, filename),
+            lambda: _create_memristor_report(memristor_results)(),
+            required=list(memristor_results),
+        )
+    return tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, filename), _create_memristor_report(memristor_results), required=True
     )
 
 
@@ -26,12 +46,24 @@ def _recog_result_to_dict(recog_result: RecogResult) -> dict[str, float]:
             return None
         if not stats.is_set():
             return "Not set"
-        return "/".join(f"{val:.2f}" for val in stats.get().values())  # type: ignore
+        return "/".join(f"{val:.6f}" for val in stats.get().values())  # type: ignore
+
+    wer = recog_result.wer
+    num_errors = getattr(recog_result, "num_errors", None)
+    ref_words = getattr(recog_result, "ref_words", None)
+    if (
+        num_errors is not None
+        and ref_words is not None
+        and num_errors.is_set()
+        and ref_words.is_set()
+        and ref_words.get() > 0
+    ):
+        wer = 100 * float(num_errors.get()) / float(ref_words.get())
 
     result = {}
     for name, value in [
         ("corpus", recog_result.corpus_name),
-        ("WER", recog_result.wer),
+        ("WER", wer),
         ("Del", recog_result.deletion),
         ("Ins", recog_result.insertion),
         ("Sub", recog_result.substitution),
@@ -53,7 +85,7 @@ def _recog_result_to_dict(recog_result: RecogResult) -> dict[str, float]:
 
 
 def _create_recog_report(recog_results: List[RecogResult]) -> TableReport:
-    report = TableReport("Experiments", precision=5)
+    report = TableReport("Experiments", precision=6)
 
     recog_result_dicts = [
         (recog_result.descriptor, _recog_result_to_dict(recog_result)) for recog_result in recog_results

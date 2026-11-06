@@ -1,0 +1,442 @@
+RETURNN starting up, version 1.20260608.172901+git.28b6f6fe, date/time 2026-10-08-20-38-00 (UTC+0200), pid 600953, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_nosis_gpu/current, Python /work/smt4/azim.javed/envs/base_env/bin/python
+RETURNN command line options: ['/work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/observer_wer_probe_nosis_gpu/current/returnn.config']
+Hostname: cn-233
+PyTorch: 2.11.0+cu130 (70d99e998b4955e0049d13a98d77ae1b14db1f45) (<site-package> in /work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch)
+CUBLAS_VERSION=12.5.2.13
+CUDA_CACHE_DISABLE=1
+CUDA_DRIVER_VERSION=555.42.02
+CUDA_HOME=/usr/local/cuda
+CUDA_MODULE_LOADING=LAZY
+CUDA_VERSION=12.5.0.023
+CUDA_VISIBLE_DEVICES=0
+CUDNN_VERSION=9.1.0.70+cuda12.4
+NCCL_VERSION=2.21.5
+NVIDIA_BUILD_ID=96418707
+NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+NVIDIA_PRODUCT_NAME=PyTorch
+NVIDIA_PYTORCH_VERSION=24.06
+NVIDIA_REQUIRE_CUDA=cuda>=9.0
+NVIDIA_REQUIRE_JETPACK_HOST_MOUNTS=
+NVIDIA_VISIBLE_DEVICES=all
+PYTORCH_BUILD_NUMBER=0
+PYTORCH_BUILD_VERSION=2.4.0a0+f70bd71
+PYTORCH_HOME=/opt/pytorch/pytorch
+PYTORCH_VERSION=2.4.0a0+f70bd71
+TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+TORCH_CUDA_ARCH_LIST=5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 9.0+PTX
+TORCH_CUDNN_V8_API_ENABLED=1
+CUDA_VISIBLE_DEVICES is set to '0'.
+Num NVML devices: 1
+Available CUDA devices:
+  1/1: cuda:0
+       name: NVIDIA GeForce RTX 3090
+       total_memory: 23.6GB
+       free_memory: 23.0GB (98%)
+       capability: 8.6
+       device_index: 0
+       uuid: f2b0478d-9e37-67fe-b4b2-18241e9b1e41
+       nvml_device_index: 0
+Using device: cuda ('gpu' in config)
+Using gpu device 0: NVIDIA GeForce RTX 3090
+Total GPU 0 memory 23.6GB, free 23.0GB
+Tracked changes to sys.path and sys.modules during RETURNN init:
+New sys.path entry: /work/smt4/azim.javed/sisyphus_work/i6_core/tools/compile/CMakeJob.qMRpN7b4MOKN/output/install
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/recipe/
+New sys.path entry: /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat
+New module: i6_models (20260119.153410--git-c401d3e in /work/smt4/azim.javed/repositories/i6_models)
+New module: synaptogen_ml (20260819.184537--git-562c3b5-dirty in /work/smt4/azim.javed/repositories/synaptogen_ml)
+Load model /work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.s9sXAl53j9fG/output/models/epoch.2000.pt
+  epoch 2000, global train step 1061730
+Model: QATFFNNTransducerEncoder(
+  (feature_extraction): LogMelFeatureExtractionV1()
+  (conformer): ConformerEncoderQuant(
+    (frontend): GenericFrontendV1(
+      (frontend_layers): ModuleList(
+        (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (2): ReLU()
+        (3): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+        (4): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (5): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (6): ReLU()
+        (7): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+      )
+      (linear): Linear(in_features=2560, out_features=512, bias=True)
+    )
+    (module_list): ModuleList(
+      (0-11): 12 x ConformerBlockQuant(
+        (final_layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+        (module_list): ModuleList(
+          (0): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+          (1): ConformerConvolutionQuant(
+            (pointwise_conv1): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (depthwise_conv): Conv1dQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (dconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (dconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pointwise_conv2): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (pconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (norm): LayerNormNC((512,), eps=1e-05, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            (activation): SiLU()
+          )
+          (2): ConformerMHSAQuant(
+            (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (mhsa): QuantizedMultiheadAttention(
+              (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+              (pos_emb_dropout): Dropout(p=0.0, inplace=False)
+              (att_weights_dropout): Dropout(p=0.1, inplace=False)
+              (qkv_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (in_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (in_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (q_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (k_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (out_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (linear_pos): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (learn_emb_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (learn_emb_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (dropout): BroadcastDropout()
+            )
+          )
+          (3): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+        )
+      )
+    )
+  )
+  (enc_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (enc_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (encoder_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (token_embedding): EmbeddingQuant(
+    (weight_quantizer): WeightQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (prediction_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (9): Tanh()
+  )
+  (prediction_output_in_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output_out_q): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (prediction_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+  (joint_net_q1_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q1_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_in): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net_q2_out): ActivationQuantizer(
+    (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+  )
+  (joint_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (2): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (3): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (4): Tanh()
+    (5): Dropout(p=0.1, inplace=False)
+    (6): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+    (7): LinearQuant(
+      (weight_quantizer): WeightQuantizer(
+        (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+      )
+    )
+    (8): ActivationQuantizer(
+      (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+    )
+  )
+)
+net params #: 79488139
+Dataset supports sorting, i.e. it will be sorted for optimal performance.
+Unhandled exception <class 'RuntimeError'> in thread <_MainThread(MainThread, started 126270725595776)>, proc 600953.
+
+Thread <Thread(QueueFeederThread, started daemon 126261664937536)>:
+  [34;1mFile[0m [36m"/usr/lib/python3.10/[0m[36;1mthreading.py[0m[36m"[0m, [34mline[0m [35m320[0m, [34min[0m Condition.wait
+    [34mline:[0m waiter[34m.[0macquire[34m([0m[34m)[0m
+    [34mlocals:[0m
+      waiter [34;1m=[0m [34m<local>[0m [34m<[0mlocked _thread[34m.[0mlock object at 0x72d595e3b180[34m>[0m
+  [34;1mFile[0m [36m"/usr/lib/python3.10/multiprocessing/[0m[36;1mqueues.py[0m[36m"[0m, [34mline[0m [35m231[0m, [34min[0m Queue._feed
+    [34mline:[0m nwait[34m([0m[34m)[0m
+    [34mlocals:[0m
+      nwait [34;1m=[0m [34m<local>[0m [34m<[0mbound method Condition[34m.[0mwait of [34m<[0mCondition[34m([0m[34m<[0munlocked _thread[34m.[0mlock object at 0x72d595f38a00[34m>[0m[34m,[0m 1[34m)[0m[34m>[0m[34m>[0m
+  [34;1mFile[0m [36m"/usr/lib/python3.10/[0m[36;1mthreading.py[0m[36m"[0m, [34mline[0m [35m953[0m, [34min[0m Thread.run
+    [34mline:[0m self[34m.[0m_target[34m([0m[34m*[0mself[34m.[0m_args[34m,[0m [34m*[0m[34m*[0mself[34m.[0m_kwargs[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mThread[34m([0mQueueFeederThread[34m,[0m started daemon 126261664937536[34m)[0m[34m>[0m
+      self[34;1m.[0m_target [34;1m=[0m [34m<local>[0m [34m<[0mfunction multiprocessing[34m.[0mqueues[34m.[0mQueue[34m.[0m_feed[34m>[0m
+      self[34;1m.[0m_args [34;1m=[0m [34m<local>[0m [34m([0mdeque[34m([0m[34m[[0m[34m][0m[34m)[0m[34m,[0m [34m<[0mCondition[34m([0m[34m<[0munlocked _thread[34m.[0mlock object at 0x72d595f38a00[34m>[0m[34m,[0m 1[34m)[0m[34m>[0m[34m,[0m [34m<[0mbound method _ConnectionBase[34m.[0msend_bytes of [34m<[0mmultiprocessing[34m.[0mconnection[34m.[0mConnection object at 0x72d595e540a0[34m>[0m[34m>[0m[34m,[0m [34m<[0mLock[34m([0mowner[34m=[0m[34mNone[0m[34m)[0m[34m>[0m[34m,[0m [34m<[0mbound method _ConnectionBase[34m.[0mclose of [34m<[0mmultiprocessing[34m.[0mconnection[34m.[0mConnection object at ..., len [34m=[0m 9[34m,[0m _[34m[[0m0[34m][0m[34m:[0m [34m{[0mlen [34m=[0m 0[34m}[0m
+      self[34;1m.[0m_kwargs [34;1m=[0m [34m<local>[0m [34m{[0m[34m}[0m
+  [34;1mFile[0m [36m"/usr/lib/python3.10/[0m[36;1mthreading.py[0m[36m"[0m, [34mline[0m [35m1016[0m, [34min[0m Thread._bootstrap_inner
+    [34mline:[0m self[34m.[0mrun[34m([0m[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mThread[34m([0mQueueFeederThread[34m,[0m started daemon 126261664937536[34m)[0m[34m>[0m
+  [34;1mFile[0m [36m"/usr/lib/python3.10/[0m[36;1mthreading.py[0m[36m"[0m, [34mline[0m [35m973[0m, [34min[0m Thread._bootstrap
+    [34mline:[0m self[34m.[0m_bootstrap_inner[34m([0m[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mThread[34m([0mQueueFeederThread[34m,[0m started daemon 126261664937536[34m)[0m[34m>[0m
+
+
+Thread current, main, <_MainThread(MainThread, started 126270725595776)>:
+(Excluded thread.)
+
+That were all threads.
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/[0m[36;1mdataloader.py[0m[36m"[0m, [34mline[0m [35m1310[0m, [34min[0m _MultiProcessingDataLoaderIter._try_get_data
+    [34mline:[0m data [34m=[0m self[34m.[0m_data_queue[34m.[0mget[34m([0mtimeout[34m=[0mtimeout[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mtorch[34m.[0mutils[34m.[0mdata[34m.[0mdataloader[34m.[0m_MultiProcessingDataLoaderIter object at 0x72d6bb4d64a0[34m>[0m
+      self[34;1m.[0m_data_queue [34;1m=[0m [34m<local>[0m [34m<[0mmultiprocessing[34m.[0mqueues[34m.[0mQueue object at 0x72d595f0ba30[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 5[34m.[0m0
+  [34;1mFile[0m [36m"/usr/lib/python3.10/multiprocessing/[0m[36;1mqueues.py[0m[36m"[0m, [34mline[0m [35m113[0m, [34min[0m Queue.get
+    [34mline:[0m [34mif[0m [34mnot[0m self[34m.[0m_poll[34m([0mtimeout[34m)[0m[34m:[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mmultiprocessing[34m.[0mqueues[34m.[0mQueue object at 0x72d595f0ba30[34m>[0m
+      self[34;1m.[0m_poll [34;1m=[0m [34m<local>[0m [34m<[0mbound method _ConnectionBase[34m.[0mpoll of [34m<[0mmultiprocessing[34m.[0mconnection[34m.[0mConnection object at 0x72d595f0ba90[34m>[0m[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 4[34m.[0m999989636940882
+  [34;1mFile[0m [36m"/usr/lib/python3.10/multiprocessing/[0m[36;1mconnection.py[0m[36m"[0m, [34mline[0m [35m257[0m, [34min[0m _ConnectionBase.poll
+    [34mline:[0m [34mreturn[0m self[34m.[0m_poll[34m([0mtimeout[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mmultiprocessing[34m.[0mconnection[34m.[0mConnection object at 0x72d595f0ba90[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 4[34m.[0m999989636940882
+  [34;1mFile[0m [36m"/usr/lib/python3.10/multiprocessing/[0m[36;1mconnection.py[0m[36m"[0m, [34mline[0m [35m424[0m, [34min[0m Connection._poll
+    [34mline:[0m r [34m=[0m wait[34m([0m[34m[[0mself[34m][0m[34m,[0m timeout[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mmultiprocessing[34m.[0mconnection[34m.[0mConnection object at 0x72d595f0ba90[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 4[34m.[0m999989636940882
+  [34;1mFile[0m [36m"/usr/lib/python3.10/multiprocessing/[0m[36;1mconnection.py[0m[36m"[0m, [34mline[0m [35m931[0m, [34min[0m wait
+    [34mline:[0m ready [34m=[0m selector[34m.[0mselect[34m([0mtimeout[34m)[0m
+    [34mlocals:[0m
+      selector [34;1m=[0m [34m<local>[0m [34m<[0mselectors[34m.[0mPollSelector object at 0x72d595e55090[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 4[34m.[0m999989636940882
+  [34;1mFile[0m [36m"/usr/lib/python3.10/[0m[36;1mselectors.py[0m[36m"[0m, [34mline[0m [35m416[0m, [34min[0m _PollLikeSelector.select
+    [34mline:[0m fd_event_list [34m=[0m self[34m.[0m_selector[34m.[0mpoll[34m([0mtimeout[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mselectors[34m.[0mPollSelector object at 0x72d595e55090[34m>[0m
+      self[34;1m.[0m_selector [34;1m=[0m [34m<local>[0m [34m<[0mselect[34m.[0mpoll object at 0x72d595e54ff0[34m>[0m
+      timeout [34;1m=[0m [34m<local>[0m 5000
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/_utils/[0m[36;1msignal_handling.py[0m[36m"[0m, [34mline[0m [35m73[0m, [34min[0m _set_SIGCHLD_handler.<locals>.handler
+    [34mline:[0m _error_if_any_worker_fails[34m([0m[34m)[0m
+    [34mlocals:[0m
+      _error_if_any_worker_fails [34;1m=[0m [34m<global>[0m [34m<[0mbuilt[34m-[0m[34min[0m function _error_if_any_worker_fails[34m>[0m
+[31mRuntimeError[0m: DataLoader worker (pid 601190) exited unexpectedly with exit code 1. Details are lost due to multiprocessing. Rerunning with num_workers=0 may give better error trace.
+
+
+The above exception was the direct cause of the following exception:
+
+[31;1mEXCEPTION[0m
+[34mTraceback (most recent call last):[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/sisyphus_work/i6_core/tools/git/CloneGitRepositoryJob.jTcfXGpNepaQ/output/returnn/[0m[36;1mrnn.py[0m[36m"[0m, [34mline[0m [35m11[0m, [34min[0m <module>
+    [34mline:[0m main[34m([0m[34m)[0m
+    [34mlocals:[0m
+      main [34;1m=[0m [34m<local>[0m [34m<[0mfunction returnn[34m.[0m__main__[34m.[0mmain[34m>[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/sisyphus_work/i6_core/tools/git/CloneGitRepositoryJob.jTcfXGpNepaQ/output/returnn/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m757[0m, [34min[0m main
+    [34mline:[0m execute_main_task[34m([0m[34m)[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/sisyphus_work/i6_core/tools/git/CloneGitRepositoryJob.jTcfXGpNepaQ/output/returnn/returnn/[0m[36;1m__main__.py[0m[36m"[0m, [34mline[0m [35m602[0m, [34min[0m execute_main_task
+    [34mline:[0m engine[34m.[0mforward_with_callback[34m([0m
+              dataset[34m=[0mdata[34m,[0m callback[34m=[0mforward_callback[34m,[0m allow_skipping_seqs[34m=[0mallow_skipping_seqs
+          [34m)[0m
+    [34mlocals:[0m
+      engine [34;1m=[0m [34m<global>[0m [34m<[0mreturnn[34m.[0mtorch[34m.[0mengine[34m.[0mEngine object at 0x72d6c63e5fc0[34m>[0m
+      data [34;1m=[0m [34m<local>[0m [34m<[0mOggZipDataset [36m'out.ogg'[0m epoch[34m=[0m[34mNone[0m[34m>[0m
+      forward_callback [34;1m=[0m [34m<local>[0m [34m<[0m__returnn_config__[34m.[0mforward_callback object at 0x72d6bb4d6380[34m>[0m
+      allow_skipping_seqs [34;1m=[0m [34m<local>[0m [34mFalse[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/sisyphus_work/i6_core/tools/git/CloneGitRepositoryJob.jTcfXGpNepaQ/output/returnn/returnn/torch/[0m[36;1mengine.py[0m[36m"[0m, [34mline[0m [35m1488[0m, [34min[0m Engine.forward_with_callback
+    [34mline:[0m [34mfor[0m extern_data_raw [34min[0m data_loader[34m:[0m
+    [34mlocals:[0m
+      data_loader [34;1m=[0m [34m<local>[0m [34m<[0mtorch[34m.[0mutils[34m.[0mdata[34m.[0mdataloader[34m.[0mDataLoader object at 0x72d595f0b820[34m>[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/[0m[36;1mdataloader.py[0m[36m"[0m, [34mline[0m [35m741[0m, [34min[0m _BaseDataLoaderIter.__next__
+    [34mline:[0m data [34m=[0m self[34m.[0m_next_data[34m([0m[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mtorch[34m.[0mutils[34m.[0mdata[34m.[0mdataloader[34m.[0m_MultiProcessingDataLoaderIter object at 0x72d6bb4d64a0[34m>[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/[0m[36;1mdataloader.py[0m[36m"[0m, [34mline[0m [35m1524[0m, [34min[0m _MultiProcessingDataLoaderIter._next_data
+    [34mline:[0m idx[34m,[0m data [34m=[0m self[34m.[0m_get_data[34m([0m[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mtorch[34m.[0mutils[34m.[0mdata[34m.[0mdataloader[34m.[0m_MultiProcessingDataLoaderIter object at 0x72d6bb4d64a0[34m>[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/[0m[36;1mdataloader.py[0m[36m"[0m, [34mline[0m [35m1483[0m, [34min[0m _MultiProcessingDataLoaderIter._get_data
+    [34mline:[0m success[34m,[0m data [34m=[0m self[34m.[0m_try_get_data[34m([0m[34m)[0m
+    [34mlocals:[0m
+      self [34;1m=[0m [34m<local>[0m [34m<[0mtorch[34m.[0mutils[34m.[0mdata[34m.[0mdataloader[34m.[0m_MultiProcessingDataLoaderIter object at 0x72d6bb4d64a0[34m>[0m
+  [34;1mFile[0m [36m"/work/smt4/azim.javed/envs/base_env/lib/python3.10/site-packages/torch/utils/data/[0m[36;1mdataloader.py[0m[36m"[0m, [34mline[0m [35m1323[0m, [34min[0m _MultiProcessingDataLoaderIter._try_get_data
+    [34mline:[0m [34mraise[0m RuntimeError[34m([0m
+              f[36m"[0mDataLoader worker (pid(s) {pids_str}) exited unexpectedly"
+          [34m)[0m [34mfrom[0m e
+[31mRuntimeError[0m: DataLoader worker (pid(s) 601190) exited unexpectedly
+

@@ -1,0 +1,495 @@
+{
+  "bits": 4,
+  "digital": "output/training/qat_ffnn_transducer_full_quant_v2_lowbs_w4_a8/final_checkpoint",
+  "converted": "/work/smt4/azim.javed/sisyphus_work/model_pipelines/common/memrecog/MemristorModelConversionJob.UJjbTmp4u6eI/output/memristor_converted_model.pt",
+  "histories": 185,
+  "seed": 17,
+  "modes": [
+    {
+      "read_noise": false,
+      "adc_range": 4,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.214577317237854,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.44999995827674866,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.34134578704834,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7600390315055847,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.5756913423538208,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.1602742671966553,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.37462887167930603,
+      "prediction_relative_rmse": 2.4025247950809097,
+      "max_output_change_vs_range4": 0.0
+    },
+    {
+      "read_noise": false,
+      "adc_range": 8,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.214577317237854,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.44999995827674866,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.34134578704834,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7600390315055847,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.5756913423538208,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.1602742671966553,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.37462887167930603,
+      "prediction_relative_rmse": 2.4025247950809097,
+      "max_output_change_vs_range4": 0.0
+    },
+    {
+      "read_noise": false,
+      "adc_range": 16,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.214577317237854,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.44999995827674866,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.34134578704834,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7600390315055847,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.5756913423538208,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.1602742671966553,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.37462887167930603,
+      "prediction_relative_rmse": 2.4025247950809097,
+      "max_output_change_vs_range4": 0.0
+    },
+    {
+      "read_noise": true,
+      "adc_range": 4,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.2978441715240479,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.46607139706611633,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.3873531818389893,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7475795149803162,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.3633198738098145,
+          "lower_limit": -8.0,
+          "upper_limit": 8.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.4213707447052,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.40898293256759644,
+      "prediction_relative_rmse": 2.622840124024619,
+      "max_output_change_vs_range4": 0.0
+    },
+    {
+      "read_noise": true,
+      "adc_range": 8,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.2978441715240479,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.46607139706611633,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.3873531818389893,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7475795149803162,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.3633198738098145,
+          "lower_limit": -128.0,
+          "upper_limit": 128.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.4213707447052,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.40898293256759644,
+      "prediction_relative_rmse": 2.622840124024619,
+      "max_output_change_vs_range4": 0.0
+    },
+    {
+      "read_noise": true,
+      "adc_range": 16,
+      "saturation": {
+        "embedding.dac": {
+          "values": 23680,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.0,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "embedding.adc": {
+          "values": 142080,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.2978441715240479,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.dac": {
+          "values": 47360,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.46607139706611633,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear1.adc": {
+          "values": 710400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 2.3873531818389893,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.3": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.7475795149803162,
+          "lower_limit": -8.062499940395355,
+          "upper_limit": 8.062499940395355,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.dac": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 0.5779283046722412,
+          "lower_limit": -1.0,
+          "upper_limit": 1.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_linear2.adc": {
+          "values": 1776000,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 1.3633198738098145,
+          "lower_limit": -32768.0,
+          "upper_limit": 32768.0,
+          "clipped_fraction": 0.0
+        },
+        "prediction_net.8": {
+          "values": 118400,
+          "clipped_values": 0,
+          "range_exceedances_before_rounding": 0,
+          "max_abs_input": 3.4213707447052,
+          "lower_limit": -29.12499935925007,
+          "upper_limit": 29.12499935925007,
+          "clipped_fraction": 0.0
+        }
+      },
+      "prediction_rmse": 0.40898293256759644,
+      "prediction_relative_rmse": 2.622840124024619,
+      "max_output_change_vs_range4": 0.0
+    }
+  ]
+}

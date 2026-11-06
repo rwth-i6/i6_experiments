@@ -1,0 +1,209 @@
+{
+  "bits": 4,
+  "digital": "output/training/qat_ffnn_transducer_w4_a8_bpe___qat_ffnn_transducer_w8_a8_bpe_25ep/final_checkpoint",
+  "converted": "/work/smt4/azim.javed/sisyphus_work/model_pipelines/common/memrecog/MemristorModelConversionJob.OeIbbB3fpLE9/output/memristor_converted_model.pt",
+  "synaptogen_file": "/work/smt4/azim.javed/sisyphus_work/i6_core/tools/git/CloneGitRepositoryJob.pxBD5qpvkBp6/output/synaptogen_ml/synaptogen_ml/__init__.py",
+  "state_schema": {
+    "encoder": {
+      "required_keys": 84144,
+      "missing": [],
+      "shape_mismatches": [],
+      "legacy_scalar_shapes": 240
+    },
+    "scorer": {
+      "required_keys": 2318,
+      "missing": [],
+      "shape_mismatches": [],
+      "legacy_scalar_shapes": 9
+    }
+  },
+  "layers": [
+    {
+      "name": "token_embedding",
+      "digital_scale": 0.6290246844291687,
+      "conversion_scale": 0.6290246844291687,
+      "current_weight_absmax": 1.7144970893859863,
+      "observed_weight_absmax": 4.403172969818115,
+      "max_quantized_integer": 3,
+      "regridding_weight_rmse": 0.0,
+      "digital_nonzero_fraction": 0.12157939374446869,
+      "converted_grid_nonzero_fraction": 0.12157939374446869,
+      "quantized_weight_rms": 0.22090493142604828,
+      "programmed_weight_rmse": 0.11867089449188661,
+      "zero_bit_weight_leakage_rms": 0.09446771262357512,
+      "bias_unchanged": null,
+      "planes": [
+        {
+          "bit": 2,
+          "active_fraction": 0.0,
+          "signed_plane_rmse": 0.033004229918678414,
+          "zero_bit_leakage_rmse": 0.033004229918678414
+        },
+        {
+          "bit": 1,
+          "active_fraction": 0.0005489864864864865,
+          "signed_plane_rmse": 0.03338045697682657,
+          "zero_bit_leakage_rmse": 0.03254443812200435
+        },
+        {
+          "bit": 0,
+          "active_fraction": 0.12105152027027027,
+          "signed_plane_rmse": 0.11574090201946091,
+          "zero_bit_leakage_rmse": 0.03251597525984609
+        }
+      ]
+    },
+    {
+      "name": "prediction_net.2",
+      "digital_scale": 0.13546165823936462,
+      "conversion_scale": 0.13546165399041943,
+      "current_weight_absmax": 0.27480509877204895,
+      "observed_weight_absmax": 0.94823157787323,
+      "max_quantized_integer": 2,
+      "regridding_weight_rmse": 0.0,
+      "digital_nonzero_fraction": 0.093505859375,
+      "converted_grid_nonzero_fraction": 0.093505859375,
+      "quantized_weight_rms": 0.04143056273460388,
+      "programmed_weight_rmse": 0.024171539972195427,
+      "zero_bit_weight_leakage_rms": 0.02023525358837142,
+      "bias_unchanged": true,
+      "planes": [
+        {
+          "bit": 2,
+          "active_fraction": 0.0,
+          "signed_plane_rmse": 0.032704962476478604,
+          "zero_bit_leakage_rmse": 0.032704962476478604
+        },
+        {
+          "bit": 1,
+          "active_fraction": 1.220703125e-05,
+          "signed_plane_rmse": 0.032805619341494716,
+          "zero_bit_leakage_rmse": 0.03278731145451278
+        },
+        {
+          "bit": 0,
+          "active_fraction": 0.09349365234375,
+          "signed_plane_rmse": 0.10296005971745553,
+          "zero_bit_leakage_rmse": 0.03276176260883678
+        }
+      ],
+      "expected_input_factor": 0.20439805043538892,
+      "saved_input_factor": 0.204398050904274
+    },
+    {
+      "name": "prediction_net.7",
+      "digital_scale": 0.17568039894104004,
+      "conversion_scale": 0.17568039881716757,
+      "current_weight_absmax": 1.1402313709259033,
+      "observed_weight_absmax": 1.2297627925872803,
+      "max_quantized_integer": 6,
+      "regridding_weight_rmse": 0.0,
+      "digital_nonzero_fraction": 0.06318359076976776,
+      "converted_grid_nonzero_fraction": 0.06318359076976776,
+      "quantized_weight_rms": 0.04830898717045784,
+      "programmed_weight_rmse": 0.030555362133091988,
+      "zero_bit_weight_leakage_rms": 0.026310280112327583,
+      "bias_unchanged": true,
+      "planes": [
+        {
+          "bit": 2,
+          "active_fraction": 0.00011474609375,
+          "signed_plane_rmse": 0.03285319304133539,
+          "zero_bit_leakage_rmse": 0.032680557747878196
+        },
+        {
+          "bit": 1,
+          "active_fraction": 0.0027685546875,
+          "signed_plane_rmse": 0.0368545196448395,
+          "zero_bit_leakage_rmse": 0.03279493621223033
+        },
+        {
+          "bit": 0,
+          "active_fraction": 0.0607421875,
+          "signed_plane_rmse": 0.08518644287589755,
+          "zero_bit_leakage_rmse": 0.03262837196770035
+        }
+      ],
+      "expected_input_factor": 0.900000246763297,
+      "saved_input_factor": 0.900000274181366
+    },
+    {
+      "name": "joint_net.2",
+      "digital_scale": 0.35353049635887146,
+      "conversion_scale": 0.3535305019045438,
+      "current_weight_absmax": 2.3376173973083496,
+      "observed_weight_absmax": 2.4747135639190674,
+      "max_quantized_integer": 7,
+      "regridding_weight_rmse": 0.0,
+      "digital_nonzero_fraction": 0.27001699805259705,
+      "converted_grid_nonzero_fraction": 0.27001699805259705,
+      "quantized_weight_rms": 0.216700941324234,
+      "programmed_weight_rmse": 0.08713995868678663,
+      "zero_bit_weight_leakage_rms": 0.0525847620106854,
+      "bias_unchanged": true,
+      "planes": [
+        {
+          "bit": 2,
+          "active_fraction": 0.00010087754991319444,
+          "signed_plane_rmse": 0.032882431296743404,
+          "zero_bit_leakage_rmse": 0.032726110346683185
+        },
+        {
+          "bit": 1,
+          "active_fraction": 0.031455145941840276,
+          "signed_plane_rmse": 0.06533085063426464,
+          "zero_bit_leakage_rmse": 0.03274235537012206
+        },
+        {
+          "bit": 0,
+          "active_fraction": 0.2404081556532118,
+          "signed_plane_rmse": 0.15975768790518152,
+          "zero_bit_leakage_rmse": 0.032832704183849454
+        }
+      ],
+      "expected_input_factor": 0.0661141267168093,
+      "saved_input_factor": 0.06611412763595581
+    },
+    {
+      "name": "joint_net.7",
+      "digital_scale": 0.07788371294736862,
+      "conversion_scale": 0.07788371013909678,
+      "current_weight_absmax": 0.5181159973144531,
+      "observed_weight_absmax": 0.5451859831809998,
+      "max_quantized_integer": 7,
+      "regridding_weight_rmse": 0.0,
+      "digital_nonzero_fraction": 0.4296663999557495,
+      "converted_grid_nonzero_fraction": 0.4296663999557495,
+      "quantized_weight_rms": 0.06103816628456116,
+      "programmed_weight_rmse": 0.02269526558694727,
+      "zero_bit_weight_leakage_rms": 0.011543089282303281,
+      "bias_unchanged": true,
+      "planes": [
+        {
+          "bit": 2,
+          "active_fraction": 0.0007548564189189189,
+          "signed_plane_rmse": 0.033996174996968644,
+          "zero_bit_leakage_rmse": 0.032840802723547516
+        },
+        {
+          "bit": 1,
+          "active_fraction": 0.04864864864864865,
+          "signed_plane_rmse": 0.07747724755546595,
+          "zero_bit_leakage_rmse": 0.03265132927050631
+        },
+        {
+          "bit": 0,
+          "active_fraction": 0.3855046452702703,
+          "signed_plane_rmse": 0.20080196992996463,
+          "zero_bit_leakage_rmse": 0.032937437804125475
+        }
+      ],
+      "expected_input_factor": 0.8999999570846579,
+      "saved_input_factor": 0.8999999761581421
+    }
+  ],
+  "preserved_state": {
+    "common_keys": 806,
+    "changed": []
+  }
+}

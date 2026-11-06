@@ -1,0 +1,56 @@
+{
+  "labels": [
+    "Digital QAT w4_a8",
+    "Memristor w4_a8, ADC 4/4"
+  ],
+  "normalization": "count",
+  "bins": 100,
+  "hide_ticks": false,
+  "hide_y_ticks": true,
+  "shared_x_axis": false,
+  "shared_y_axis": false,
+  "excluded_linear2_tokens": [],
+  "linear2_measurement": "pre-output-quantization",
+  "inputs": [
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.eCdr1HYwOY9D/output/joint_activations_debug.npy",
+      "records": 2864,
+      "empty_records": 1,
+      "layers": {
+        "predictor_linear1": {
+          "count": 293450240,
+          "nonfinite": 0,
+          "min": -0.6413333415985107,
+          "max": 0.6338890790939331,
+          "mean": 7.347039630780851e-05,
+          "batches": 458516,
+          "rows": 458516,
+          "widths": [
+            640
+          ],
+          "std": 0.06714741536821103
+        }
+      }
+    },
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.mMT28g0Bm8jm/output/joint_activations_debug.npy",
+      "records": 2864,
+      "empty_records": 2843,
+      "layers": {
+        "predictor_linear1": {
+          "count": 116480,
+          "nonfinite": 0,
+          "min": -0.7174556851387024,
+          "max": 0.6977413892745972,
+          "mean": -0.00020543663930203612,
+          "batches": 182,
+          "rows": 182,
+          "widths": [
+            640
+          ],
+          "std": 0.09709723443735528
+        }
+      }
+    }
+  ]
+}

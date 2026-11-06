@@ -1,0 +1,177 @@
+{
+  "comparison": "/work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat/diagnostics/qat_ffnn_joiner_activations/plots_comparison_w4_a8",
+  "inputs": [
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.vHPgbrpoKPsl/output/joint_activations_debug.npy",
+      "records": 2864,
+      "layers": {
+        "linear1": {
+          "all_archived_counts_and_moments_verified": true,
+          "rows": 458516,
+          "mean": -0.0028405426197922845,
+          "std": 0.6696567265559041,
+          "fraction_abs_below": {
+            "0.1": 0.25889347117248906,
+            "0.25": 0.5646609221549793,
+            "0.5": 0.8168814689843157,
+            "1.0": 0.9317453978739292,
+            "2.0": 0.9772203521626017,
+            "3.0": 0.9900162076882268
+          },
+          "channel_std_quantiles": {
+            "min": 0.0810375771712074,
+            "p10": 0.2099233884500933,
+            "median": 0.28801298032306366,
+            "p90": 0.9906337514928393,
+            "max": 4.03934412515362
+          },
+          "channels_std_below_1e-6": 0,
+          "mean_within_channel_variance": 0.3571904837208255,
+          "variance_of_channel_means": 0.09124964770074358
+        },
+        "linear2": {
+          "all_archived_counts_and_moments_verified": true,
+          "rows": 458516,
+          "mean": -2.749920335199652,
+          "std": 3.9421184161072205,
+          "fraction_abs_below": {
+            "0.1": 0.017238350372635762,
+            "0.25": 0.04306334442512896,
+            "0.5": 0.08604599373820077,
+            "1.0": 0.17179452961410407,
+            "2.0": 0.3443424061596601,
+            "3.0": 0.5193165825449104
+          },
+          "channel_std_quantiles": {
+            "min": 1.7485025510082008,
+            "p10": 1.944990334730722,
+            "median": 2.231227284221166,
+            "p90": 2.5683167699197913,
+            "max": 6.003797608622743
+          },
+          "channels_std_below_1e-6": 0,
+          "mean_within_channel_variance": 5.375625288410305,
+          "variance_of_channel_means": 10.164672318201397,
+          "ordinary_tokens": {
+            "mean": -2.584203233725941,
+            "std": 2.792595449014952,
+            "mean_within_channel_variance": 5.099383875205879,
+            "variance_of_channel_means": 2.6992054666531424
+          },
+          "special_tokens": {
+            "</s>": {
+              "mean": -26.12518983516068,
+              "std": 3.874954569898214
+            },
+            "<unk>": {
+              "mean": -26.326543974081254,
+              "std": 3.9168807008073583
+            },
+            "blank": {
+              "mean": 14.041460335427562,
+              "std": 6.003797608622743
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.DByLm046ialY/output/joint_activations_debug.npy",
+      "records": 2864,
+      "layers": {
+        "linear1": {
+          "all_archived_counts_and_moments_verified": true,
+          "rows": 460515,
+          "mean": -0.0018174596868753604,
+          "std": 1.0501986324107608,
+          "fraction_abs_below": {
+            "0.1": 0.09758492402866899,
+            "0.25": 0.2528693143647601,
+            "0.5": 0.4668897567465229,
+            "1.0": 0.7514886378056361,
+            "2.0": 0.947729238512182,
+            "3.0": 0.9827921550804534
+          },
+          "channel_std_quantiles": {
+            "min": 0.628559561466506,
+            "p10": 0.6889222820223224,
+            "median": 0.7640108326967936,
+            "p90": 1.4566894134743789,
+            "max": 5.632995610657708
+          },
+          "channels_std_below_1e-6": 0,
+          "mean_within_channel_variance": 1.0138147422629866,
+          "variance_of_channel_means": 0.08910242525444567
+        },
+        "linear2": {
+          "all_archived_counts_and_moments_verified": true,
+          "rows": 460515,
+          "mean": -1.940523445618897,
+          "std": 3.5117101484734383,
+          "fraction_abs_below": {
+            "0.1": 0.023367234861323003,
+            "0.25": 0.05825772614737144,
+            "0.5": 0.11630497113836419,
+            "1.0": 0.2301870614303434,
+            "2.0": 0.4424327170726311,
+            "3.0": 0.6218648041220596
+          },
+          "channel_std_quantiles": {
+            "min": 1.95225467342377,
+            "p10": 2.1238411451266215,
+            "median": 2.4470353742524082,
+            "p90": 2.805198724660816,
+            "max": 5.0923767974687815
+          },
+          "channels_std_below_1e-6": 0,
+          "mean_within_channel_variance": 6.262120323603928,
+          "variance_of_channel_means": 6.0699878432874135,
+          "ordinary_tokens": {
+            "mean": -1.801086996367028,
+            "std": 2.7834309039107943,
+            "mean_within_channel_variance": 6.029076934986918,
+            "variance_of_channel_means": 1.7184106618587425
+          },
+          "special_tokens": {
+            "</s>": {
+              "mean": -20.1033632863064,
+              "std": 4.803457092518246
+            },
+            "<unk>": {
+              "mean": -20.56022423666678,
+              "std": 5.0923767974687815
+            },
+            "blank": {
+              "mean": 9.464583422276357,
+              "std": 3.4920991125747447
+            }
+          }
+        }
+      }
+    }
+  ],
+  "digital_weights": {
+    "linear1": {
+      "scale": 0.19982624053955078,
+      "nonzero_fraction": 0.13322025537490845,
+      "zero_weight_rows": 0,
+      "total_rows": 1024
+    },
+    "linear2": {
+      "scale": 0.19962170720100403,
+      "nonzero_fraction": 0.2572424113750458,
+      "zero_weight_rows": 0,
+      "total_rows": 185
+    }
+  },
+  "channel_comparison": {
+    "linear1": {
+      "fraction_channels_with_higher_memristor_std": 0.9970703125,
+      "median_memristor_to_digital_std_ratio": 2.6056191506442907
+    },
+    "linear2": {
+      "fraction_channels_with_higher_memristor_std": 0.8378378378378378,
+      "median_memristor_to_digital_std_ratio": 1.0979057170156916
+    }
+  }
+}

@@ -11,12 +11,18 @@ from torch import nn
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, Dict, Callable
-from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config
+from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config, WeightPruningConfig, WeightNoiseConfig
 import math
 from torch.ao.quantization.utils import check_min_max_valid
+from .quantization import observer_qparams
 import numpy
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
+
+
+from synaptogen_ml.memristor_modules import TiledMemristorLinear, DacAdcHardwareSettings
+
+from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -60,6 +66,9 @@ class ActivationQuantizer(nn.Module):
         self.reduce_range = reduce_range
         self.quant_fn, self.observer, self.base_observer_args = None, None, None
         self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
+        self._quant_min_int, self._quant_max_int = int(self.quant_min), int(self.quant_max)
+        self._observer_quant_min_int = int(self.observer.quant_min)
+        self._observer_quant_max_int = int(self.observer.quant_max)
         self.zero_point = None
         self.scale = None
 
@@ -125,17 +134,31 @@ class ActivationQuantizer(nn.Module):
         else:
             raise ValueError(f"Unknown quantization method: {method}!")
 
+        # Bounds are metadata, not device tensors. This also keeps the original
+        # calculate_qparams export/conversion path usable on CUDA.
+        observer.quant_min = int(observer.quant_min)
+        observer.quant_max = int(observer.quant_max)
         return quant_fn, observer, base_observer_args
 
     def forward(self, tensor: torch.Tensor):
         if self.training:
             tensor = self.observer(tensor)
-        self.set_scale_and_zp()
+        if tensor.numel() == 0 or (not self.training and self.scale is None):
+            # Retain the original uncalibrated-observer assertion on cold eval
+            # or empty inputs. Ordinary nonempty training forwards never sync.
+            self.set_scale_and_zp()
+        else:
+            self.scale, self.zero_point = observer_qparams(
+                self.observer, self._observer_quant_min_int, self._observer_quant_max_int
+            )
         assert (
             self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
         with torch.autocast(device_type=tensor.device.type, enabled=False, dtype=torch.bfloat16):
-            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, self.quant_min, self.quant_max)
+            args = [self._quant_min_int, self._quant_max_int]
+            if self.observer.qscheme == torch.per_channel_affine:
+                args.insert(0, self.channel_axis)
+            tensor = self.quant_fn(tensor.float(), self.scale, self.zero_point, *args)
         return tensor
 
     def set_scale_and_zp(self):
@@ -148,22 +171,22 @@ class ActivationQuantizer(nn.Module):
 
 class QuantizedMultiheadAttention(nn.Module):
     """
-        Conformer multi-headed self-attention module supporting
-            - self-attention with relative positional encoding proposed by Shaw et al. (cf. https://arxiv.org/abs/1803.02155)
-                * learnable_pos_emb = True
-                * with_pos_bias = False
-                * with_linear_pos = False
-                * separate_pos_emb_per_head = False (RETURNN default)
-                * with_bias = False (RETURNN default)
-            - and self-attention with Transformer-XL style relative PE by Dai et al.
-                (cf. https://arxiv.org/abs/1901.02860, https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py,
-                     https://github.com/espnet/espnet/blob/master/espnet2/asr_transducer/encoder/modules/attention.py#L9)
-                * learnable_pos_emb = False
-                * with_pos_bias = True
-                * with_linear_pos = False (paper implementation) / with_linear_pos = True (ESPnet default)
-                * separate_pos_emb_per_head = False (paper implementation) / separate_pos_emb_per_head = True (ESPnet default)
-                * with_bias = False (paper implementation) / with_bias = True (ESPnet default)
-        """
+    Conformer multi-headed self-attention module supporting
+        - self-attention with relative positional encoding proposed by Shaw et al. (cf. https://arxiv.org/abs/1803.02155)
+            * learnable_pos_emb = True
+            * with_pos_bias = False
+            * with_linear_pos = False
+            * separate_pos_emb_per_head = False (RETURNN default)
+            * with_bias = False (RETURNN default)
+        - and self-attention with Transformer-XL style relative PE by Dai et al.
+            (cf. https://arxiv.org/abs/1901.02860, https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/mem_transformer.py,
+                 https://github.com/espnet/espnet/blob/master/espnet2/asr_transducer/encoder/modules/attention.py#L9)
+            * learnable_pos_emb = False
+            * with_pos_bias = True
+            * with_linear_pos = False (paper implementation) / with_linear_pos = True (ESPnet default)
+            * separate_pos_emb_per_head = False (paper implementation) / separate_pos_emb_per_head = True (ESPnet default)
+            * with_bias = False (paper implementation) / with_bias = True (ESPnet default)
+    """
 
     def __init__(self, cfg: QuantizedConformerMHSARelPosV1Config):
 
@@ -271,7 +294,11 @@ class QuantizedMultiheadAttention(nn.Module):
                 in_features=self.pos_emb_dim,
                 out_features=self.embed_dim if cfg.separate_pos_emb_per_head else self.embed_dim_per_head,
                 weight_precision=cfg.bit_prec_learn_emb if not cfg.bit_prec_learn_emb == 1.5 else 2,
-                converter_hardware_settings=self.pos_enc_converter_hardware_settings if self.pos_enc_converter_hardware_settings is not None else self.converter_hardware_settings,
+                converter_hardware_settings=(
+                    self.pos_enc_converter_hardware_settings
+                    if self.pos_enc_converter_hardware_settings is not None
+                    else self.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
                 bias=False,
@@ -334,7 +361,6 @@ class QuantizedMultiheadAttention(nn.Module):
         q = self.q_quantizer(q)
         k = self.k_quantizer(k)
 
-
         if self.learnable_pos_emb:
             kv_pos_vec = torch.arange(time_dim_size, device=input_tensor.device)  # [kv_len]
 
@@ -349,8 +375,11 @@ class QuantizedMultiheadAttention(nn.Module):
             indices = indices + self.rel_pos_clip
             rel_pos_embeddings = self.rel_pos_embeddings[indices]  # [out_spatial_dim,n_out]
             rel_pos_embeddings = rel_pos_embeddings.unsqueeze(0)
-            assert rel_pos_embeddings.shape == (1, 2 * time_dim_size - 1,
-                                                self.pos_emb_dim), "Something went wrong in reshaping"
+            assert rel_pos_embeddings.shape == (
+                1,
+                2 * time_dim_size - 1,
+                self.pos_emb_dim,
+            ), "Something went wrong in reshaping"
         else:
             rel_pos_embeddings = self._sinusoidal_pe(
                 torch.arange(time_dim_size - 1, -time_dim_size, -1, device=input_tensor.device, dtype=torch.float32),
@@ -452,3 +481,175 @@ class QuantizedMultiheadAttention(nn.Module):
         self.out_proj.initialized = True
         if self.cfg.with_linear_pos:
             self.linear_pos.initialized = True
+
+
+class LSTMQuant(nn.Module):
+
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        num_layers: int,
+        weight_bit_prec: Union[int, float],
+        weight_quant_dtype: torch.dtype,
+        weight_quant_method: str,
+        activation_bit_prec: Union[int, float],
+        activation_quant_dtype: torch.dtype,
+        activation_quant_method: str,
+        bias: bool = True,
+        batch_first: bool = True,
+        dropout: float = 0.0,
+        moving_average: Optional[float] = None,
+        weight_noise: Optional[WeightNoiseConfig] = None,
+        weight_dropout: float = 0.0,
+        weight_pruning: Optional[WeightPruningConfig] = None,
+        converter_hardware_settings: Optional[DacAdcHardwareSettings] = None,
+        correction_settings: Optional["CycleCorrectionSettings"] = None,
+        num_cycles: int = 0,
+    ):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.batch_first = batch_first
+        self.dropout = dropout
+        self.converter_hardware_settings = converter_hardware_settings
+        self.correction_settings = correction_settings
+        self.num_cycles = num_cycles
+
+        _aq = lambda: ActivationQuantizer(
+            bit_precision=activation_bit_prec,
+            dtype=activation_quant_dtype,
+            method=activation_quant_method,
+            channel_axis=None,
+            moving_avrg=moving_average,
+        )
+
+        _lq = lambda in_f, out_f: TiledMemristorLinear(
+            in_features=in_f,
+            out_features=out_f,
+            weight_precision=weight_bit_prec,
+            converter_hardware_settings=converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+
+        self.w_ih = nn.ModuleList()
+        self.w_hh = nn.ModuleList()
+        self.x_in_q = nn.ModuleList()
+        self.h_in_q = nn.ModuleList()
+        self.ih_out_q = nn.ModuleList()
+        self.hh_out_q = nn.ModuleList()
+        self.ih_lstm_cache = [dict() for _ in range(num_layers)]
+        self.gi_q = nn.ModuleList()
+        self.gf_q = nn.ModuleList()
+        self.gg_q = nn.ModuleList()
+        self.go_q = nn.ModuleList()
+        self.c_out_q = nn.ModuleList()
+        self.h_out_q = nn.ModuleList()
+
+        for l in range(num_layers):
+            in_size = input_size if l == 0 else hidden_size
+            # linear layers
+            self.w_ih.append(_lq(in_size, 4 * hidden_size))
+            self.w_hh.append(_lq(hidden_size, 4 * hidden_size))
+
+            # activation quantizers
+            self.x_in_q.append(nn.Identity())
+            self.h_in_q.append(nn.Identity())
+            self.ih_out_q.append(_aq())
+            self.hh_out_q.append(_aq())
+
+    def forward_ih_lstm(self, input: torch.Tensor, layer: int, use_cache: bool = False) -> torch.Tensor:
+        if not use_cache:
+            return self.w_ih[layer](input)
+
+        cache = self.ih_lstm_cache[layer]
+        keys = [tuple(row) for row in input.tolist()]
+        first_positions = {}
+        for position, key in enumerate(keys):
+            first_positions.setdefault(key, position)
+        misses = [key for key in first_positions if key not in cache]
+
+        if misses:
+            positions = torch.tensor(
+                [first_positions[key] for key in misses], dtype=torch.long, device=input.device
+            )
+            miss_outputs = self.w_ih[layer](input.index_select(0, positions))
+            for key, output in zip(misses, miss_outputs):
+                cache[key] = output.detach()
+
+        return torch.stack([cache[key] for key in keys], dim=0)
+
+    def forward(self, input: torch.Tensor, state=None, use_cache: bool = False):
+        if not self.batch_first:
+            input = input.transpose(0, 1)
+        B, T, _D = input.shape
+        dtype, device = input.dtype, input.device
+
+        if state is None:
+            h_0 = torch.zeros(self.num_layers, B, self.hidden_size, device=device, dtype=dtype)
+            c_0 = torch.zeros(self.num_layers, B, self.hidden_size, device=device, dtype=dtype)
+        else:
+            h_0, c_0 = state
+
+        h_lst = [h_0[l] for l in range(self.num_layers)]
+        c_lst = [c_0[l] for l in range(self.num_layers)]
+        outputs = []
+
+        for t in range(T):
+            x = input[:, t, :]
+            for l in range(self.num_layers):
+
+                # state transformation/linear projections, based on a fused matrix
+                ih = self.x_in_q[l](x)  # aq
+                ih = self.forward_ih_lstm(ih, layer=l, use_cache=use_cache)  # lq
+                ih = self.ih_out_q[l](ih)  # aq
+
+                hh = self.h_in_q[l](h_lst[l])  # aq
+                hh = self.w_hh[l](hh)  # lq
+                hh = self.hh_out_q[l](hh)  # aq
+
+                gates = ih + hh
+
+                # split fused matrix
+                i, f, g, o = gates.chunk(4, dim=-1)
+
+                # gate activations
+                i = torch.sigmoid(i)
+                f = torch.sigmoid(f)
+                g = torch.tanh(g)
+                o = torch.sigmoid(o)
+
+                # gate quantization
+                # i = self.gi_q[l](i)
+                # f = self.gf_q[l](f)
+                # g = self.gg_q[l](g)
+                # o = self.go_q[l](o)
+
+                # cell state update
+                c = f * c_lst[l] + i * g  # c_lst[l] is unq; f, i, g are q
+
+                h = o * torch.tanh(c)  # o is q; c is unq
+
+                # update state for next time step
+                h_lst[l], c_lst[l] = h, c
+
+                # input to next layer, with dropout
+                x = h
+                if self.training and self.dropout > 0 and l < self.num_layers - 1:
+                    x = F.dropout(x, p=self.dropout, training=True)
+
+            outputs.append(h_lst[-1])
+
+        output = torch.stack(outputs, dim=1)
+        h_n = torch.stack(h_lst, dim=0)
+        c_n = torch.stack(c_lst, dim=0)
+        return output, (h_n, c_n)
+
+    def prep_quant(self):
+        for l in range(self.num_layers):
+            self.w_ih[l].initialized = True
+            self.w_hh[l].initialized = True
+
+        print("Finished LSTM prep_quant", flush=True)

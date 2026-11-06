@@ -1,7 +1,7 @@
 from dataclasses import fields
-import numpy as np
-import torch
 
+import torch
+import numpy as np
 import synaptogen_ml
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
@@ -31,20 +31,43 @@ def get_config_value(config, key, default=None, dtype=None):
         return val.lower() in ("true", "yes", "1", "on")
     if tobetype is not None:
         return tobetype(val)
-    else:
-        return val
+    return val
 
 
 def _get_device(config, base_selection):
     device_val = get_config_value(config, "device", None)
     if device_val is None:
-        config.set_selection(f"{base_selection}.recognition")
-        device_val = get_config_value(config, "device", None)
-        config.set_selection(base_selection)
+        try:
+            config.set_selection(f"{base_selection}.recognition")
+            device_val = get_config_value(config, "device", None)
+        finally:
+            config.set_selection(base_selection)
     return torch.device(device_val if device_val is not None else "cpu")
 
 
-_MODEL_CACHE = {}
+def _get_qat_params(config, base_selection):
+    qat_params = {}
+    try:
+        config.set_selection(f"{base_selection}.qat")
+        weight_bit_prec = get_config_value(config, "weight-bit-prec", dtype=int)
+        if weight_bit_prec is not None:
+            qat_params = dict(
+                weight_bit_prec=weight_bit_prec,
+                activation_bit_prec=get_config_value(config, "activation-bit-prec", dtype=int),
+                weight_dropout=get_config_value(config, "weight-dropout", dtype=float),
+                weight_pruning_config=get_config_value(config, "weight-pruning-config"),
+            )
+            assert (
+                qat_params["weight_pruning_config"] is None
+            ), "weight_pruning_config non None configuration is not supported"
+            version_control = get_config_value(config, "version-control", dtype=str)
+            if version_control is not None:
+                qat_params["version_control"] = version_control
+    except Exception:
+        pass
+    finally:
+        config.set_selection(base_selection)
+    return qat_params
 
 
 def _parse_dac_adc_settings(value):
@@ -90,6 +113,18 @@ def _get_memristor_params(config, base_selection):
         pos_enc = get_config_value(config, "pos-enc-converter-hardware-settings", None)
         if pos_enc is not None:
             memristor_params["pos_enc_converter_hardware_settings"] = _parse_dac_adc_settings(pos_enc)
+        
+        joint_l1 = get_config_value(config, "joint-l1-converter-hardware-settings", None)
+        if joint_l1 is not None:
+            memristor_params["joint_l1_converter_hardware_settings"] = _parse_dac_adc_settings(joint_l1)
+        else:
+            memristor_params["joint_l1_converter_hardware_settings"] = _parse_dac_adc_settings(converter)
+        joint_l2 = get_config_value(config, "joint-l2-converter-hardware-settings", None)
+        if joint_l2 is not None:
+            memristor_params["joint_l2_converter_hardware_settings"] = _parse_dac_adc_settings(joint_l2)
+        else:
+            memristor_params["joint_l2_converter_hardware_settings"] = _parse_dac_adc_settings(converter)
+
         num_cycles = get_config_value(config, "num-cycles", None, dtype=int)
         if num_cycles is not None:
             memristor_params["num_cycles"] = num_cycles
@@ -103,45 +138,69 @@ def _get_memristor_params(config, base_selection):
     return memristor_params
 
 
-def _get_eval_scorer(
-    scorer_cls,
+def _exec_model_imports(import_value):
+    if isinstance(import_value, (list, tuple)):
+        code = "\n".join(item.get().strip() if hasattr(item, "get") else str(item).strip() for item in import_value)
+    else:
+        code = str(import_value)
+
+    lines = [line.strip() for line in code.replace(";", "\n").replace(" from ", "\nfrom ").splitlines() if line.strip()]
+    namespace = {}
+    exec("\n".join(lines), globals(), namespace)
+    return namespace
+
+
+def _get_recog_model_config(
     recog_cfg_cls,
     get_model_config,
     qat_params,
     ilm_scale,
     blank_penalty,
-    checkpoint,
-    device,
     memristor_params=None,
 ):
-    memristor_params = memristor_params or {}
-    cache_key = (checkpoint, ilm_scale, blank_penalty, str(device), repr(memristor_params))
-    if SHOULD_LOG:
-        print(f"get_eval_scorer: cache_key={cache_key}")
-    cached = _MODEL_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
     model_config = get_model_config(**qat_params) if qat_params else get_model_config()
+    memristor_params = dict(memristor_params or {})
+    joint_settings = {
+        name: memristor_params.pop(name)
+        for name in (
+            "joint_l1_converter_hardware_settings",
+            "joint_l2_converter_hardware_settings",
+        )
+        if name in memristor_params
+    }
     if memristor_params:
         model_config = model_config.with_replaced(**memristor_params)
-    recog_model_config = recog_cfg_cls(
+    recog_field_names = {f.name for f in fields(recog_cfg_cls)}
+    recog_joint_settings = {
+        name: joint_settings.get(name, model_config.converter_hardware_settings)
+        for name in (
+            "joint_l1_converter_hardware_settings",
+            "joint_l2_converter_hardware_settings",
+        )
+        if name in recog_field_names
+    }
+    return recog_cfg_cls(
         **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
+        **recog_joint_settings,
         ilm_scale=ilm_scale,
         blank_penalty=blank_penalty,
     )
-    scorer = scorer_cls(cfg=recog_model_config).to(device)
-    ckpt = torch.load(checkpoint, map_location=device)
-    state_dict = ckpt.get("model", ckpt)
-    missing, unexpected = scorer.load_state_dict(state_dict, strict=False)
-    if missing:
-        print(f"missing keys in state_dict: {missing}")
-    scorer.eval()
-    _MODEL_CACHE[cache_key] = scorer
-    return scorer
 
+
+def _load_eval_model(model_cls, model_config, state_dict, device, name, adapter_checkpoint=None):
+    if adapter_checkpoint is not None:
+        adapter_state = torch.load(adapter_checkpoint, map_location="cpu")["model"]
+        if not adapter_state or any(not key.startswith("adapters.") for key in adapter_state):
+            raise ValueError("Adapter checkpoint must contain only adapter weights")
+        state_dict = {**state_dict, **adapter_state}
+    model = model_cls(cfg=model_config).to(device)
+    missing, _ = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        print(f"{name} missing keys in state_dict: {missing}")
+    model.eval()
+    return model
 
 class FixedContextTransducerPy:
-
     def __init__(self, config):
         if SHOULD_LOG:
             config.enable_logging()
@@ -153,7 +212,8 @@ class FixedContextTransducerPy:
         self._loop_updates_history = get_config_value(config, "loop-updates-history", False)
         self._vertical_label_transition = get_config_value(config, "vertical-label-transition", False)
         self._max_batch_size = get_config_value(config, "max-batch-size", 2147483647, dtype=int)
-
+        self._debug_joint = get_config_value(config, "debug-joint", False)
+        self._presoftmax_blank_penalty = get_config_value(config, "presoftmax-blank-penalty", default=False)
         self._device = _get_device(config, base_selection)
 
         config.set_selection(f"{base_selection}.recognition")
@@ -166,68 +226,55 @@ class FixedContextTransducerPy:
         self._expect_more_features = True
         synaptogen_ml.set_fast_inference(True)
 
+        def hook_factory(name):
+            def hook(module, input, output):
+                self.saved_joint_activations[name].append(output.detach().cpu().numpy())
+            return hook
+        
+        if self._debug_joint:
+            self.saved_joint_activations = {
+                "linear1": [],
+                "linear2": [],
+                "predictor_linear1": [],
+            }
+            self.hook_handles = [
+                self._model.joint_net[2].register_forward_hook(hook_factory("linear1")),
+                self._model.joint_net[7].register_forward_hook(hook_factory("linear2")),
+                self._model.prediction_net[2].register_forward_hook(hook_factory("predictor_linear1")),
+            ]
+
+
     def get_scorer(self, config):
         base_selection = config.get_selection()
-        qat_params = {}
-
-        try:
-            config.set_selection(f"{base_selection}.qat")
-            w_prec = get_config_value(config, "weight-bit-prec", None, dtype=int)
-            if w_prec is not None:
-                qat_params = dict(
-                    weight_bit_prec=w_prec,
-                    activation_bit_prec=get_config_value(config, "activation-bit-prec", dtype=int),
-                    weight_dropout=get_config_value(config, "weight-dropout", dtype=float),
-                    weight_pruning_config=get_config_value(config, "weight-pruning-config"),
-                )
-                assert (
-                    qat_params["weight_pruning_config"] is None
-                ), "weight_pruning_config non None configuration is not supported"
-        except Exception:
-            pass
-        finally:
-            config.set_selection(base_selection)
-
+        qat_params = _get_qat_params(config, base_selection)
         memristor_params = _get_memristor_params(config, base_selection)
 
         ilm_scale = get_config_value(config, "ilm-scale", dtype=float)
         blank_penalty = get_config_value(config, "blank-penalty", dtype=float)
         checkpoint = get_config_value(config, "model-path", None)
 
-        import_val = get_config_value(config, "imports", None)
-
-        if isinstance(import_val, (list, tuple)):
-            code_str = "\n".join(
-                item.get().strip() if hasattr(item, "get") else str(item).strip() for item in import_val
-            )
-        else:
-            code_str = str(import_val)
-
-        lines = [
-            line.strip()
-            for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n")
-            if line.strip()
-        ]
-        ns = {}
-        exec("\n".join(lines), globals(), ns)
+        ns = _exec_model_imports(get_config_value(config, "imports", None))
 
         scorer_cls = ns.get("ScorerModel")
         recog_cfg_cls = ns.get("RecogConfig")
         get_model_config = ns.get("get_model_config")
 
-        scorer = _get_eval_scorer(
-            scorer_cls,
+        recog_model_config = _get_recog_model_config(
             recog_cfg_cls,
             get_model_config,
             qat_params,
             ilm_scale,
             blank_penalty,
-            checkpoint,
-            self._device,
             memristor_params=memristor_params,
         )
-        config.set_selection(base_selection)
-        return scorer
+        # Keep the full checkpoint off the GPU; only matching model parameters
+        # are copied there by load_state_dict.
+        ckpt = torch.load(checkpoint, map_location="cpu")
+        state_dict = ckpt.get("model", ckpt)
+        return _load_eval_model(
+            scorer_cls, recog_model_config, state_dict, self._device, "scorer",
+            adapter_checkpoint=get_config_value(config, "adapter-model-path", None),
+        )
 
     def allowed_transition_types(self):
         TT = _get_transition_types()
@@ -251,12 +298,20 @@ class FixedContextTransducerPy:
         self._enc_dev_cache.clear()
         self._inputs.clear()
         self._expect_more_features = True
+        if self._debug_joint:
+            with open("joint_activations_debug.npy", "ab") as f:
+                np.save(f, self.saved_joint_activations, allow_pickle=True)
+            self.saved_joint_activations = {
+                "linear1": [],
+                "linear2": [],
+                "predictor_linear1": [],
+            }
 
     def signal_no_more_features(self):
         self._expect_more_features = False
 
     def get_initial_scoring_context(self):
-        return (0, tuple([self._start_label_index] * self._history_length))
+        return (0, (self._start_label_index,) * self._history_length)
 
     def extended_scoring_context(self, context, next_token, transition_type):
         TT = _get_transition_types()
@@ -361,7 +416,7 @@ class FixedContextTransducerPy:
                     hist_flat = [tok for (_, h) in chunk for tok in h]
                     hist_tensor = torch.tensor(hist_flat, dtype=torch.long, device=device).view(B, -1)
 
-                    scores_tensor = self.model_forward(enc_tensor, hist_tensor)
+                    scores_tensor = self.model_forward(enc_tensor, hist_tensor, presoftmax_blank_penalty=self._presoftmax_blank_penalty)
                     scores_np = scores_tensor.detach().cpu().numpy()
 
                     for b, (ctx, _) in enumerate(chunk):
@@ -372,14 +427,19 @@ class FixedContextTransducerPy:
 
         return results
 
-    def model_forward(self, enc_tensor, history_tensor):
-        return self._model(enc_tensor, history_tensor)
-
+    def model_forward(self, enc_tensor, history_tensor, presoftmax_blank_penalty=False):
+        return self._model(enc_tensor, history_tensor, pre_softmax_blank_penalty=presoftmax_blank_penalty)
+    
+    def __del__(self):
+        self.reset()
+        if self._debug_joint:
+            for handle in self.hook_handles:
+                handle.remove()
 
 class FixedContextTransducerPy_Cached(FixedContextTransducerPy):
-    def model_forward(self, enc_tensor, history_tensor):
-        scores_tensor = self._model(enc_tensor, history_tensor, use_cache=True)
-        return scores_tensor
+    def model_forward(self, enc_tensor, history_tensor, presoftmax_blank_penalty=False):
+        return self._model(enc_tensor, history_tensor, use_cache=True, pre_softmax_blank_penalty=presoftmax_blank_penalty)
+
     def reset(self):
         super().reset()
         if SHOULD_LOG:
@@ -387,13 +447,6 @@ class FixedContextTransducerPy_Cached(FixedContextTransducerPy):
 
 
 class StatefulTransducerPy:
-    """Stateful Transducer Scorer in Python.
-    Features:
-    - Score and state cache eviction for stale timesteps
-    - Configurable PyTorch device parameter
-    - Dynamic code execution of imports via config 'import' parameter
-    - Batched state updater & scorer execution
-    """
 
     def __init__(self, config):
         if SHOULD_LOG:
@@ -406,6 +459,7 @@ class StatefulTransducerPy:
         self._loop_updates_history = get_config_value(config, "loop-updates-history", False)
         self._vertical_label_transition = get_config_value(config, "vertical-label-transition", False)
         self._max_batch_size = get_config_value(config, "max-batch-size", 2147483647, dtype=int)
+        self._use_cache = get_config_value(config, "use-cache", False)
 
         self._device = _get_device(config, base_selection)
 
@@ -424,24 +478,8 @@ class StatefulTransducerPy:
 
     def get_scorer(self, config):
         rec_selection = config.get_selection()
-        qat_params = {}
-        try:
-            config.set_selection(f"{rec_selection}.qat")
-            w_prec = get_config_value(config, "weight-bit-prec", None, dtype=int)
-            if w_prec is not None:
-                qat_params = dict(
-                    weight_bit_prec=w_prec,
-                    activation_bit_prec=get_config_value(config, "activation-bit-prec", dtype=int),
-                    weight_dropout=get_config_value(config, "weight-dropout", dtype=float),
-                    weight_pruning_config=get_config_value(config, "weight-pruning-config"),
-                )
-                assert (
-                    qat_params["weight_pruning_config"] is None
-                ), "weight_pruning_config non None configuration is not supported"
-        except Exception:
-            pass
-        finally:
-            config.set_selection(rec_selection)
+        qat_params = _get_qat_params(config, rec_selection)
+        memristor_params = _get_memristor_params(config, rec_selection)
 
         ilm_scale = get_config_value(config, "ilm-scale", dtype=float)
         if ilm_scale is None:
@@ -462,20 +500,7 @@ class StatefulTransducerPy:
         if import_val is None:
             raise ValueError("Config must specify an 'imports' (or 'import') parameter.")
 
-        if isinstance(import_val, (list, tuple)):
-            code_str = "\n".join(
-                item.get().strip() if hasattr(item, "get") else str(item).strip() for item in import_val
-            )
-        else:
-            code_str = str(import_val)
-
-        lines = [
-            line.strip()
-            for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n")
-            if line.strip()
-        ]
-        ns = {}
-        exec("\n".join(lines), globals(), ns)
+        ns = _exec_model_imports(import_val)
 
         scorer_cls = ns.get("ScorerModel") or ns.get("Scorer")
         state_init_cls = ns.get("StateInitializerModel") or ns.get("StateInitializer")
@@ -486,35 +511,28 @@ class StatefulTransducerPy:
         if not (scorer_cls and state_init_cls and state_upd_cls and recog_cfg_cls and get_model_config):
             raise ValueError("Could not resolve required model components from imports.")
 
-        model_config = get_model_config(**qat_params) if qat_params else get_model_config()
-        recog_model_config = recog_cfg_cls(
-            **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-            ilm_scale=ilm_scale,
-            blank_penalty=blank_penalty,
+        recog_model_config = _get_recog_model_config(
+            recog_cfg_cls,
+            get_model_config,
+            qat_params,
+            ilm_scale,
+            blank_penalty,
+            memristor_params=memristor_params,
         )
 
-        ckpt = torch.load(checkpoint, map_location=self._device)
+        # The converted checkpoint also contains the encoder; only load the
+        # scorer and prediction-network weights onto the GPU.
+        ckpt = torch.load(checkpoint, map_location="cpu")
         state_dict = ckpt.get("model", ckpt)
 
-        scorer = scorer_cls(cfg=recog_model_config).to(self._device)
-        missing, unexpected = scorer.load_state_dict(state_dict, strict=False)
-        if missing:
-            print(f"scorer missing keys in state_dict: {missing}")
-        scorer.eval()
-
-        state_initializer = state_init_cls(cfg=recog_model_config).to(self._device)
-        missing, unexpected = state_initializer.load_state_dict(state_dict, strict=False)
-        if missing:
-            print(f"state_initializer missing keys in state_dict: {missing}")
-        state_initializer.eval()
-
-        state_updater = state_upd_cls(cfg=recog_model_config).to(self._device)
-        missing, unexpected = state_updater.load_state_dict(state_dict, strict=False)
-        if missing:
-            print(f"state_updater missing keys in state_dict: {missing}")
-        state_updater.eval()
-
-        config.set_selection(rec_selection)
+        scorer = _load_eval_model(
+            scorer_cls, recog_model_config, state_dict, self._device, "scorer",
+            adapter_checkpoint=get_config_value(config, "adapter-model-path", None),
+        )
+        state_initializer = _load_eval_model(
+            state_init_cls, recog_model_config, state_dict, self._device, "state_initializer"
+        )
+        state_updater = _load_eval_model(state_upd_cls, recog_model_config, state_dict, self._device, "state_updater")
         return scorer, state_initializer, state_updater
 
     def allowed_transition_types(self):
@@ -600,7 +618,10 @@ class StatefulTransducerPy:
     def _get_initial_hidden_state(self):
         if self._initial_hidden_state is None:
             with torch.no_grad():
-                lstm_out, lstm_h, lstm_c = self._state_initializer()
+                if self._use_cache:
+                    lstm_out, lstm_h, lstm_c = self._state_initializer(use_cache=True)
+                else:
+                    lstm_out, lstm_h, lstm_c = self._state_initializer()
                 self._initial_hidden_state = (lstm_out, lstm_h, lstm_c)
         return self._initial_hidden_state
 
@@ -622,7 +643,7 @@ class StatefulTransducerPy:
 
         device = self._device
 
-        for length in sorted(missing_by_len.keys()):
+        for length in sorted(missing_by_len):
             seqs_at_length = list(missing_by_len[length])
             parent_states = [self._get_state(seq[:-1]) for seq in seqs_at_length]
             tokens = [seq[-1] for seq in seqs_at_length]
@@ -635,7 +656,10 @@ class StatefulTransducerPy:
             h_batch = torch.cat(h_list, dim=0)  # [B, L, P]
             c_batch = torch.cat(c_list, dim=0)  # [B, L, P]
 
-            lstm_out_b, lstm_h_b, lstm_c_b = self._state_updater(tokens_tensor, h_batch, c_batch)
+            if self._use_cache:
+                lstm_out_b, lstm_h_b, lstm_c_b = self._state_updater(tokens_tensor, h_batch, c_batch, use_cache=True)
+            else:
+                lstm_out_b, lstm_h_b, lstm_c_b = self._state_updater(tokens_tensor, h_batch, c_batch)
 
             for i, seq in enumerate(seqs_at_length):
                 new_state = (
@@ -685,11 +709,7 @@ class StatefulTransducerPy:
 
         with torch.no_grad():
             max_bs = self._max_batch_size
-            all_seqs_to_ensure = set()
-            for step, items in to_score.items():
-                for _, _, label_seq in items:
-                    all_seqs_to_ensure.add(label_seq)
-
+            all_seqs_to_ensure = {label_seq for items in to_score.values() for _, _, label_seq in items}
             self._ensure_states_cached(all_seqs_to_ensure)
 
             for step, items in to_score.items():
@@ -707,7 +727,6 @@ class StatefulTransducerPy:
 
                 for offset in range(0, len(to_forward), max_bs):
                     chunk = to_forward[offset : offset + max_bs]
-                    B = len(chunk)
 
                     lstm_outs = []
                     for _, label_seq in chunk:
@@ -732,7 +751,6 @@ class StatefulTransducerPy:
 
 
 def register_pyscorers():
-
     from librasr import LabelScorer, register_label_scorer_type
 
     class PyFixedContextTransducerPy(FixedContextTransducerPy, LabelScorer):

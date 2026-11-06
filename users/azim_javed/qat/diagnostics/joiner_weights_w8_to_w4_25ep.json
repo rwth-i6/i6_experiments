@@ -1,0 +1,77 @@
+{
+  "near_zero_definition": "strict absolute threshold, including exact zeros",
+  "rows": [
+    {
+      "model": "W4_finetuned_from_W8_25ep",
+      "bits": 4,
+      "layer": 1,
+      "name": "joint_net.2",
+      "checkpoint": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.H2C74Y7GMY21/output/models/epoch.500.pt",
+      "num_weights": 1179648,
+      "exact_zero_count": 0,
+      "exact_zero_percent": 0.0,
+      "near_zero_counts": {
+        "1e-06": 3,
+        "1e-05": 52,
+        "0.0001": 491,
+        "0.001": 4680,
+        "0.01": 47828,
+        "0.05": 237102
+      },
+      "near_zero_percent": {
+        "1e-06": 0.0002543131510416667,
+        "1e-05": 0.004408094618055556,
+        "0.0001": 0.04162258572048611,
+        "0.001": 0.396728515625,
+        "0.01": 4.054429796006945,
+        "0.05": 20.099385579427082
+      },
+      "p10_abs": 0.02478143386542797,
+      "median_abs": 0.12929388880729675,
+      "p90_abs": 0.3636494278907776,
+      "max_abs": 2.3376173973083496,
+      "rms": 0.21764640510082245,
+      "quantization_scale": 0.35353049635887146,
+      "zero_bin_half_width": 0.17676524817943573,
+      "post_quant_zero_count": 861123,
+      "post_quant_zero_percent": 72.99830118815105,
+      "zero_bin_boundary_roundoff_count": 7
+    },
+    {
+      "model": "W4_finetuned_from_W8_25ep",
+      "bits": 4,
+      "layer": 2,
+      "name": "joint_net.7",
+      "checkpoint": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.H2C74Y7GMY21/output/models/epoch.500.pt",
+      "num_weights": 189440,
+      "exact_zero_count": 0,
+      "exact_zero_percent": 0.0,
+      "near_zero_counts": {
+        "1e-06": 1,
+        "1e-05": 9,
+        "0.0001": 115,
+        "0.001": 1089,
+        "0.01": 11284,
+        "0.05": 149861
+      },
+      "near_zero_percent": {
+        "1e-06": 0.0005278716216216217,
+        "1e-05": 0.004750844594594595,
+        "0.0001": 0.060705236486486486,
+        "0.001": 0.5748521959459459,
+        "0.01": 5.956503378378378,
+        "0.05": 79.10736908783784
+      },
+      "p10_abs": 0.016272448003292084,
+      "median_abs": 0.03883542865514755,
+      "p90_abs": 0.10566607117652893,
+      "max_abs": 0.5181159973144531,
+      "rms": 0.05844620615243912,
+      "quantization_scale": 0.07788371294736862,
+      "zero_bin_half_width": 0.03894185647368431,
+      "post_quant_zero_count": 108044,
+      "post_quant_zero_percent": 57.033361486486484,
+      "zero_bin_boundary_roundoff_count": 0
+    }
+  ]
+}

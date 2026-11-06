@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional
 
 from i6_core.rasr import RasrConfig
@@ -22,6 +22,7 @@ class TransducerRecogVariant(BaseRecogVariant):
     bpe_lstm_lm_scale: float = 0.0
     ilm_scale: float = 0.0
     blank_penalty: float = 0.0
+    use_cache: bool = False
 
 
 def run(
@@ -138,6 +139,33 @@ def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
         ),
     )
 
+def blank_penalty_offline_lexfree_recog_variant(blank_penalty: float) -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor=f"lexfree_bp{blank_penalty}",
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            max_beam_sizes=[1],
+            score_thresholds=[0.0],
+        ),
+        blank_penalty=blank_penalty
+    )
+
+def joint_debug_offline_lexfree_recog_variant(
+    num_shards: int = 1, hash_salt: Optional[str] = None, use_cache: bool = False
+) -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="lexfree_joint_debug" + ("_cache" if use_cache else "")
+        + (f"_{hash_salt}" if hash_salt is not None else ""),
+        use_cache=use_cache,
+        search_mode_params=OfflineRecogParameters(
+            gpu_mem_rqmt=48, mem_rqmt=32, debug_joint=True, num_shards=num_shards, hash_salt=hash_salt
+        ),
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            max_beam_sizes=[1],
+            score_thresholds=[0.0],
+        ),
+    )
 
 def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
@@ -175,6 +203,22 @@ def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
             max_word_end_beam_size=4,
         ),
         ilm_scale=0.2,
+    )
+
+
+def blank_penalty_offline_tree_recog_variant(blank_penalty: float) -> TransducerRecogVariant:
+    return replace(
+        default_offline_tree_recog_variant(),
+        descriptor=f"tree_bp{blank_penalty}",
+        blank_penalty=blank_penalty,
+    )
+
+
+def blank_penalty_offline_tree_4gram_recog_variant(blank_penalty: float) -> TransducerRecogVariant:
+    return replace(
+        default_offline_tree_4gram_recog_variant(),
+        descriptor=f"tree_4gram_bp{blank_penalty}",
+        blank_penalty=blank_penalty,
     )
 
 
@@ -280,6 +324,8 @@ def _get_label_scorer_configs(
             ilm_scale=variant.ilm_scale,
             blank_penalty=variant.blank_penalty,
             use_gpu=use_gpu,
+            debug_joint=getattr(variant.search_mode_params, "debug_joint", False),
+            use_cache=variant.use_cache,
         )
     ]
     if variant.bpe_lstm_lm_scale != 0.0:

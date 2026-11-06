@@ -1,12 +1,13 @@
 __all__ = ["TrainOptions", "TrainedModel", "train"]
 
 from dataclasses import dataclass
+import os
 from typing import Generic, List, Optional, Type, TypeVar, Union
 
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
-from i6_experiments.common.setups.serialization import ExternalImport, Import
+from i6_experiments.common.setups.serialization import ExternalImport, Import, SerializerObject
 from i6_models.config import ModelConfiguration, ModuleType
 from sisyphus import tk
 
@@ -14,6 +15,7 @@ from ...data.base import DataConfig
 from ...tools import minireturnn_root, returnn_python_exe
 from ..common.learning_rates import LRConfig
 from ..common.optimizer import OptimizerConfig
+from ..common.plot import PlotTrainingJob
 from ..common.serializers import get_model_serializers, recipe_imports
 
 
@@ -68,6 +70,9 @@ def train(
     best_n_epochs: int = 0,
     finetune_options: Optional[FinetuneOptions] = None,
     seed: Optional[int] = None,
+    extra_python_prolog: Optional[List[SerializerObject]] = None,
+    plot: bool = False,
+    move_to_hpc: bool = False,
 ) -> TrainedModel[ModelConfigType]:
     model_serializers = get_model_serializers(model_class=model_class, model_config=model_config)
 
@@ -118,7 +123,7 @@ def train(
             "import torch",
             recipe_imports,
             ExternalImport(minireturnn_root),
-        ],
+        ] + (extra_python_prolog or []),
         python_epilog=[
             model_serializers,
             train_step_import,
@@ -143,8 +148,20 @@ def train(
     )
     train_job.rqmt["gpu_mem"] = options.gpu_mem_rqmt
 
+    if move_to_hpc:
+        if not os.path.exists(os.path.join(train_job._sis_path(), "finished.run.1")):
+            train_job.hold()
+            train_job.move_to_hpc = True
+            train_job.use_new_partition = True
+
     train_job.add_alias(f"training/{descriptor}")
     tk.register_output(f"training/{descriptor}/learning_rates", train_job.out_learning_rates)
     tk.register_output(f"training/{descriptor}/final_checkpoint", train_job.out_checkpoints[num_epochs].path)  # type: ignore
+
+    if plot:
+        plot_job = PlotTrainingJob(learning_rates=train_job.out_learning_rates, title=descriptor)
+        plot_job.add_alias(f"training/{descriptor}/plots")
+        tk.register_output(f"training/{descriptor}/score_and_error.png", plot_job.out_plot_se)
+        tk.register_output(f"training/{descriptor}/learning_rate.png", plot_job.out_plot_lr)
 
     return TrainedModel(descriptor=descriptor, model_config=model_config, checkpoints=train_job.out_checkpoints)  # type: ignore

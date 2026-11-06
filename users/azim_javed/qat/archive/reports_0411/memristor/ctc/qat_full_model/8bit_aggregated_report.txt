@@ -1,0 +1,10 @@
+                                                     Experiments |  2 corpus | 3 Average WER | 4 Stddev WER | 5 Min WER | 6 Max WER | 7 Average Total RTF | 8 Average Enc RTF | 9 Average Search RTF
+-----------------------------------------------------------------+-----------+---------------+--------------+-----------+-----------+---------------------+-------------------+---------------------
+              1__qat_ctc_bpe_output_param_sync_memristor_lexfree | dev-other |               |              |           |           |                     |                   |                     
+    2__qat_ctc_bpe_output_param_sync_memristor_tree_memristor_eq | dev-other |               |              |           |           |                     |                   |                     
+3__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.7_p0.3 | dev-other |               |              |           |           |                     |                   |                     
+4__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.8_p0.2 | dev-other |               |              |           |           |                     |                   |                     
+5__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.8_p0.3 | dev-other |               |              |           |           |                     |                   |                     
+6__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.8_p0.4 | dev-other |               |              |           |           |                     |                   |                     
+7__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.8_p0.5 | dev-other |               |              |           |           |                     |                   |                     
+8__qat_ctc_bpe_output_param_sync_memristor_tree_4gram_lm0.9_p0.3 | dev-other |               |              |           |           |                     |                   |                     

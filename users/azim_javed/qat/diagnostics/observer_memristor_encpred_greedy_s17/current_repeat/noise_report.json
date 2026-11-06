@@ -1,0 +1,12 @@
+{
+  "seed": 17,
+  "inference_started": true,
+  "cpu_rng_start_sha256": "039e9b2162faeb72c8b87b72c8a45e61a013bc378ec5b11c3ed9e07c32e9266a",
+  "cuda_rng_start_sha256": "7fbf7990e2c13be9e52b171f20e0bfe99888dfdb17ce4e27be95716eb86ca5e0",
+  "encoder_first_input_sha256": "5eab6924f2a5ac9d8d06aab32c82a77889723aff38b38f5ae7835c60f8763d10",
+  "encoder_first_output_sha256": "9f73e05d07f5e5a2e19f132dd0f4614067a317bf98b2dcd4c1524fabe94c4c15",
+  "scorer_first_input_sha256": "9b9817960edad2b6a51769c2ff87338305c5aa59806320250ab9f06558639a01",
+  "scorer_first_output_sha256": "a5f7175f1f6f6797184aa02b93825847e39994c5a26f8193fb440a00c1d9c82d",
+  "cpu_rng_end_sha256": "039e9b2162faeb72c8b87b72c8a45e61a013bc378ec5b11c3ed9e07c32e9266a",
+  "cuda_rng_end_sha256": "8d1d637754d69b4b715c8178672f8d30233aa241e29f34dec21a7966044d380c"
+}

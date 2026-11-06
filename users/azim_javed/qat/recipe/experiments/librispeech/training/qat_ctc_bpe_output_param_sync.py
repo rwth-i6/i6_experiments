@@ -232,7 +232,8 @@ def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int
         activation_quant_dtype=qat_args["activation_quant_dtype"],
         activation_quant_method=qat_args["activation_quant_method"],
         moving_average=qat_args["moving_average"],
-                
+        # converter_hardware_settings=qat_args["converter_hardware_settings"],
+        # pos_enc_converter_hardware_settings=qat_args["pos_enc_converter_hardware_settings"],
     )
 
 def get_train_options(bpe_size: int = 128, num_epochs: int = 100) -> TrainOptions:

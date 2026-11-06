@@ -1,0 +1,81 @@
+{
+  "labels": [
+    "Digital QAT",
+    "Memristor, ADC 4/4"
+  ],
+  "normalization": "density",
+  "bins": 100,
+  "excluded_linear2_tokens": [
+    "</s> (0)",
+    "<unk> (1)",
+    "blank (last)"
+  ],
+  "inputs": [
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.9wPnV9PmMegQ/output/joint_activations_debug.npy",
+      "records": 2864,
+      "empty_records": 1,
+      "layers": {
+        "linear1": {
+          "count": 469520384,
+          "nonfinite": 0,
+          "min": -28.857872009277344,
+          "max": 31.299991607666016,
+          "mean": 0.07585410606783585,
+          "batches": 458516,
+          "rows": 458516,
+          "widths": [
+            1024
+          ],
+          "std": 4.627385904184921
+        },
+        "linear2": {
+          "count": 83449912,
+          "nonfinite": 0,
+          "min": -18.487607955932617,
+          "max": 26.071414947509766,
+          "mean": 0.515146546811883,
+          "batches": 458516,
+          "rows": 458516,
+          "widths": [
+            182
+          ],
+          "std": 3.0661795721749994
+        }
+      }
+    },
+    {
+      "path": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.WzUWPLE5LRPZ/output/joint_activations_debug.npy",
+      "records": 2864,
+      "empty_records": 1,
+      "layers": {
+        "linear1": {
+          "count": 471567360,
+          "nonfinite": 0,
+          "min": -28.415851593017578,
+          "max": 30.28968048095703,
+          "mean": 0.07173663660024451,
+          "batches": 460515,
+          "rows": 460515,
+          "widths": [
+            1024
+          ],
+          "std": 4.642951287763267
+        },
+        "linear2": {
+          "count": 83813730,
+          "nonfinite": 0,
+          "min": -13.247906684875488,
+          "max": 14.62363052368164,
+          "mean": 0.29522824772415124,
+          "batches": 460515,
+          "rows": 460515,
+          "widths": [
+            182
+          ],
+          "std": 2.5618098355509242
+        }
+      }
+    }
+  ]
+}

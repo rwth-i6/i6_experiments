@@ -76,7 +76,7 @@ def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
             variants.append(
                 TransducerRecogVariant(
                     descriptor=f"tree_4gram_ilm{ilm_scale}_elm{ext_lm_scale}",
-                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
+                    # search_mode_params=OfflineRecogParameters(),
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         word_lm_params=librispeech_lm.ArpaLmParams(scale=ext_lm_scale),
@@ -103,7 +103,7 @@ def param_sweep_lexfree_lstm_recog_variants() -> List[TransducerRecogVariant]:
                         max_beam_sizes=[2048, 512],
                         score_thresholds=[18.0, 12.0],
                     ),
-                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
+                    # search_mode_params=OfflineRecogParameters(mem_rqmt=24),
                     ilm_scale=ilm_scale,
                     bpe_lstm_lm_scale=ext_lm_scale,
                 )
@@ -123,7 +123,7 @@ def param_sweep_tree_lstm_recog_variants() -> List[TransducerRecogVariant]:
                         max_beam_sizes=[2048, 512],
                         score_thresholds=[18.0, 14.0],
                     ),
-                    search_mode_params=OfflineRecogParameters(mem_rqmt=24),
+                    # search_mode_params=OfflineRecogParameters(mem_rqmt=24),
                     ilm_scale=ilm_scale,
                     bpe_lstm_lm_scale=ext_lm_scale,
                 )
@@ -131,9 +131,10 @@ def param_sweep_tree_lstm_recog_variants() -> List[TransducerRecogVariant]:
     return variants
 
 
-def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
+def default_offline_lexfree_recog_variant(num_shards: int = 1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="lexfree",
+        descriptor="lexfree" if num_shards == 1 else f"lexfree_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1],
@@ -142,9 +143,10 @@ def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
     )
 
 
-def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
+def default_offline_lexfree_lstm_recog_variant(num_shards: int = 1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="lexfree_bpe-LSTM",
+        descriptor="lexfree_bpe-LSTM" if num_shards == 1 else f"lexfree_bpe-LSTM_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[512, 256],
@@ -155,9 +157,10 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
     )
 
 
-def default_offline_tree_recog_variant() -> TransducerRecogVariant:
+def default_offline_tree_recog_variant(num_shards: int = 1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree",
+        descriptor="tree" if num_shards == 1 else f"tree_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[8],
@@ -165,15 +168,18 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
         ),
     )
 
-def mbs1024_offline_tree_recog_variant() -> TransducerRecogVariant:
+
+def mbs1024_offline_tree_recog_variant(num_shards: int=1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_mbs1024",
+        descriptor="tree_mbs1024" if num_shards == 1 else f"tree_mbs1024_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[18.0],
             max_beam_sizes=[1024],
         ),
     )
+
 
 def mbs2048_offline_tree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
@@ -185,9 +191,11 @@ def mbs2048_offline_tree_recog_variant() -> TransducerRecogVariant:
         ),
     )
 
-def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
+
+def default_offline_tree_4gram_recog_variant(num_shards: int = 1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_4gram",
+        descriptor="tree_4gram" if num_shards == 1 else f"tree_4gram_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
@@ -200,9 +208,10 @@ def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
     )
 
 
-def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
+def default_offline_tree_lstm_recog_variant(num_shards: int =1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_bpe-LSTM",
+        descriptor="tree_bpe-LSTM" if num_shards == 1 else f"tree_bpe-LSTM_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[40, 20],
@@ -213,9 +222,10 @@ def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
     )
 
 
-def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
+def default_offline_tree_lstm_4gram_recog_variant(num_shards: int = 1) -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="tree_4gram_bpe-LSTM",
+        descriptor="tree_4gram_bpe-LSTM" if num_shards == 1 else f"tree_4gram_bpe-LSTM_sharded",
+        search_mode_params=OfflineRecogParameters(num_shards=num_shards),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[16, 16],

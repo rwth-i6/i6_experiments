@@ -1,9 +1,15 @@
 __all__ = [
     "QATFFNNTransducerConfig",
+    "QATFFNNTransducerJointADCConfig",
     "QATFFNNTransducerRecogConfig",
     "QATFFNNTransducerModel",
+    "QATFFNNTransducerModelNoJointNet7Offload",
     "QATFFNNTransducerEncoder",
     "QATFFNNTransducerScorer",
+    "QATFFNNTransducerScorerNoPredictionOffload",
+    "QATFFNNTransducerScorerNoJointOffload",
+    "QATFFNNTransducerScorerNoJointNet7Offload",
+    "QATFFNNTransducerScorerNoPredictionJointOffload",
 ]
 
 from dataclasses import dataclass
@@ -120,9 +126,21 @@ class QATFFNNTransducerConfig(ModelConfiguration):
 
 
 @dataclass
+class QATFFNNTransducerJointADCConfig(QATFFNNTransducerConfig):
+    joint_l1_converter_hardware_settings: DacAdcHardwareSettings
+    joint_l2_converter_hardware_settings: DacAdcHardwareSettings
+
+
+@dataclass
 class QATFFNNTransducerRecogConfig(QATFFNNTransducerConfig):
     ilm_scale: float
     blank_penalty: float
+
+
+@dataclass
+class QATFFNNTransducerJointADCRecogConfig(QATFFNNTransducerRecogConfig):
+    joint_l1_converter_hardware_settings: DacAdcHardwareSettings
+    joint_l2_converter_hardware_settings: DacAdcHardwareSettings
 
 
 class QATFFNNTransducerModelBase(torch.nn.Module):
@@ -366,18 +384,12 @@ class QATFFNNTransducerModel(QATFFNNTransducerModelBase):
                 in_features=cfg.enc_dim + cfg.pred_dim,
                 out_features=cfg.joiner_dim,
                 weight_precision=cfg.weight_bit_prec,
-                converter_hardware_settings=cfg.converter_hardware_settings,
+                converter_hardware_settings=getattr(
+                    cfg, "joint_l1_converter_hardware_settings", cfg.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
             ),
-            # LinearQuant(
-            #     cfg.enc_dim + cfg.pred_dim,
-            #     cfg.joiner_dim,
-            #     weight_bit_prec=cfg.weight_bit_prec,
-            #     weight_quant_dtype=cfg.weight_quant_dtype,
-            #     weight_quant_method=cfg.weight_quant_method,
-            #     bias=True,
-            # ),
             self.joint_net_q1_out,
             cfg.joiner_activation,
             torch.nn.Dropout(cfg.dropout),
@@ -385,19 +397,14 @@ class QATFFNNTransducerModel(QATFFNNTransducerModelBase):
             TiledMemristorLinear(
                 in_features=cfg.joiner_dim,
                 out_features=self.target_size,
+                bias=not (cfg.version_control or "").endswith("-no-joiner-output-bias"),
                 weight_precision=cfg.weight_bit_prec,
-                converter_hardware_settings=cfg.converter_hardware_settings,
+                converter_hardware_settings=getattr(
+                    cfg, "joint_l2_converter_hardware_settings", cfg.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
             ),
-            # LinearQuant(
-            #     cfg.joiner_dim,
-            #     self.target_size,
-            #     weight_bit_prec=cfg.weight_bit_prec,
-            #     weight_quant_dtype=cfg.weight_quant_dtype,
-            #     weight_quant_method=cfg.weight_quant_method,
-            #     bias=True,
-            # ),
             self.joint_net_q2_out,
         )
         self.converter_hardware_settings = cfg.converter_hardware_settings
@@ -430,6 +437,9 @@ class QATFFNNTransducerModel(QATFFNNTransducerModelBase):
         return mem_lin
 
     def _convert_embedding(self, emb: EmbeddingQuant) -> torch.nn.Module:
+        w_absmax = emb.weight.data.abs().max().item()
+        emb.weight_quantizer.observer.min_val = torch.full_like(emb.weight_quantizer.observer.min_val, -w_absmax)
+        emb.weight_quantizer.observer.max_val = torch.full_like(emb.weight_quantizer.observer.max_val, w_absmax)
         emb.weight_quantizer.set_scale_and_zp()
         if emb.pruning_config is not None:
             with torch.no_grad():
@@ -463,6 +473,34 @@ class QATFFNNTransducerModel(QATFFNNTransducerModelBase):
         self.joint_net[7].initialized = True
 
 
+class QATFFNNTransducerModelNoJointNet7Offload(QATFFNNTransducerModel):
+    def __init__(self, cfg: QATFFNNTransducerConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self.joint_net[6] = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+        self.joint_net[7] = LinearQuant(
+            cfg.joiner_dim,
+            cfg.target_size,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
+            bias=not (cfg.version_control or "").endswith("-no-joiner-output-bias"),
+        )
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.conformer.prep_quant()
+        self.token_embedding.initialized = True
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 2].initialized = True
+        self.joint_net[2].initialized = True
+
+
 class QATFFNNTransducerEncoder(QATFFNNTransducerModelBase):
     def __init__(self, cfg: QATFFNNTransducerConfig, **_):
         super().__init__()
@@ -481,7 +519,9 @@ class QATFFNNTransducerEncoder(QATFFNNTransducerModelBase):
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
     ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T', E], [B]
-        encoder_states, encoder_states_len = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+        encoder_states, encoder_states_len = self.forward_encoder(
+            audio_samples=audio_samples, audio_samples_size=audio_samples_size
+        )
         return encoder_states, encoder_states_len
 
 
@@ -528,30 +568,6 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
             prev_size = cfg.pred_dim
         self.prediction_net = torch.nn.Sequential(*prediction_layers)
 
-        self.prediction_output_in_q = torch.nn.Identity()
-
-        self.prediction_output_out_q = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.prediction_output = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout),
-            self.prediction_output_in_q,
-            LinearQuant(
-                cfg.pred_dim,
-                self.target_size,
-                weight_bit_prec=cfg.weight_bit_prec,
-                weight_quant_dtype=cfg.weight_quant_dtype,
-                weight_quant_method=cfg.weight_quant_method,
-                bias=True,
-            ),
-            self.prediction_output_out_q,
-        )  # only for loss, but quantized just for consistency
-
         self.joint_net_q1_in = torch.nn.Identity()
 
         self.joint_net_q1_out = ActivationQuantizer(
@@ -587,7 +603,9 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
                 in_features=cfg.enc_dim + cfg.pred_dim,
                 out_features=cfg.joiner_dim,
                 weight_precision=cfg.weight_bit_prec,
-                converter_hardware_settings=cfg.converter_hardware_settings,
+                converter_hardware_settings=getattr(
+                    cfg, "joint_l1_converter_hardware_settings", cfg.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
             ),
@@ -598,8 +616,11 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
             TiledMemristorLinear(
                 in_features=cfg.joiner_dim,
                 out_features=self.target_size,
+                bias=not (cfg.version_control or "").endswith("-no-joiner-output-bias"),
                 weight_precision=cfg.weight_bit_prec,
-                converter_hardware_settings=cfg.converter_hardware_settings,
+                converter_hardware_settings=getattr(
+                    cfg, "joint_l2_converter_hardware_settings", cfg.converter_hardware_settings
+                ),
                 memristor_inputs=128,
                 memristor_outputs=128,
             ),
@@ -608,6 +629,8 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
         self.converter_hardware_settings = cfg.converter_hardware_settings
         self.correction_settings = cfg.correction_settings
         self.num_cycles = cfg.num_cycles
+
+        self.prediction_net_cache = {}
         self.prep_quant()
 
         self.ilm_scale = cfg.ilm_scale
@@ -621,27 +644,78 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
         self.joint_net[2].initialized = True
         self.joint_net[7].initialized = True
 
+    def cached_prediction_net_forward(
+        self, history: torch.Tensor, use_cache: bool = False
+    ) -> torch.Tensor:  # [B, H] -> [B, P]
+        if not use_cache:
+            embedding = self.token_embedding(history)  # [B, H, A]
+            embedding = torch.reshape(
+                embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
+            )  # [B, H*A]
+            pred_state = self.prediction_net(embedding)  # [B, P]
+            return pred_state
+        else:
+            assert (
+                self.context_history_size == 1
+            ), "Attempting to cache for context history > 1, might work but untested."
+
+        last_label_ids = history[:, -self.context_history_size].tolist()  # [B]
+        uniq = set(last_label_ids)
+        misses = [x for x in uniq if x not in self.prediction_net_cache]
+
+        if misses:
+            miss_hist = torch.tensor(misses, dtype=torch.long, device=history.device).view(-1, 1)  # [M, H]
+            miss_emb = self.token_embedding(miss_hist)  # [M, H, A]
+            miss_emb = miss_emb.reshape(miss_emb.size(0), -1)  # [M, H*A]
+            pred_miss = self.prediction_net(miss_emb)  # [M, P]
+            for i, p in zip(misses, pred_miss):
+                self.prediction_net_cache[i] = p
+
+        pred_state = torch.stack([self.prediction_net_cache[i] for i in last_label_ids], dim=0)  # [B, P]
+
+        return pred_state
+
+    def _transform_joint_output(self, logits: torch.Tensor) -> torch.Tensor:
+        return logits
+
     def forward(
         self,
         encoder_state: torch.Tensor,  # [1, E]
         history: torch.Tensor,  # [B, H]
+        use_cache: bool = False,
+        pre_softmax_blank_penalty: bool = False,
     ) -> torch.Tensor:  # [B, V]
-        embedding = self.token_embedding(history)  # [B, H, A]
-        embedding = torch.reshape(
-            embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
-        )  # [B, H*A]
-        pred_state = self.prediction_net(embedding)  # [B, P]
+        # embedding = self.token_embedding(history)  # [B, H, A]
+        # embedding = torch.reshape(
+        #     embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
+        # )  # [B, H*A]
+        pred_state = self.cached_prediction_net_forward(history, use_cache=use_cache)  # [B, P]
 
         joint_input = torch.concat([encoder_state.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
-        joint_output = self.joint_net(joint_input)  # [B, V]
-        scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
-
-        scores[:, -1] += self.blank_penalty
 
         if self.ilm_scale != 0:
             zero_enc = torch.zeros_like(encoder_state)  # [B, E]
             ilm_joint_input = torch.concat([zero_enc.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
-            ilm_joint_output = self.joint_net(ilm_joint_input)  # [B, V]
+            joint_output, ilm_joint_output = self.joint_net(torch.cat([joint_input, ilm_joint_input], dim=0)).chunk(
+                2, dim=0
+            )  # each [B, V]
+        else:
+            joint_output = self.joint_net(joint_input)  # [B, V]
+        
+        joint_output = self._transform_joint_output(joint_output)
+
+        if pre_softmax_blank_penalty:
+            joint_output = joint_output.clone()
+            joint_output[:, -1] -= self.blank_penalty
+
+        scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
+
+        if not pre_softmax_blank_penalty:
+            scores[:, -1] += self.blank_penalty
+
+        if self.ilm_scale != 0:
+            zero_enc = torch.zeros_like(encoder_state)  # [B, E]
+            ilm_joint_output = self._transform_joint_output(ilm_joint_output)
             ilm_log_probs = torch.nn.functional.log_softmax(ilm_joint_output, dim=1)  # [B, V]
 
             # Set blank scores to zero and re-normalize the other scores
@@ -660,3 +734,298 @@ class QATFFNNTransducerScorer(QATFFNNTransducerModelBase):
             scores -= self.ilm_scale * ilm_scores
 
         return scores
+
+    def forward_separate(
+        self,
+        encoder_state: torch.Tensor,  # [1, E]
+        history: torch.Tensor,  # [B, H]
+        use_cache: bool = False,
+    ) -> torch.Tensor:  # [B, V]
+        embedding = self.token_embedding(history)  # [B, H, A]
+        embedding = torch.reshape(
+            embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
+        )  # [B, H*A]
+        pred_state = self.cached_prediction_net_forward(history, use_cache=use_cache)  # [B, P]
+
+        joint_input = torch.concat([encoder_state.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
+        joint_output = self.joint_net(joint_input)  # [B, V]
+        joint_output = self._transform_joint_output(joint_output)
+        scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
+
+        scores[:, -1] += self.blank_penalty
+
+        if self.ilm_scale != 0:
+            zero_enc = torch.zeros_like(encoder_state)  # [B, E]
+            ilm_joint_input = torch.concat([zero_enc.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
+            ilm_joint_output = self.joint_net(ilm_joint_input)  # [B, V]
+            ilm_joint_output = self._transform_joint_output(ilm_joint_output)
+            ilm_log_probs = torch.nn.functional.log_softmax(ilm_joint_output, dim=1)  # [B, V]
+
+            # Set blank scores to zero and re-normalize the other scores
+            blank_log_probs = ilm_log_probs[:, -1:]  # [B, 1]
+            non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
+            ilm_log_probs = torch.concat(
+                [
+                    non_blank_log_probs - torch.log1p(-torch.exp(blank_log_probs)),
+                    torch.zeros_like(blank_log_probs),
+                ],
+                dim=-1,
+            )  # [B, V]
+
+            ilm_scores = -ilm_log_probs
+
+            scores -= self.ilm_scale * ilm_scores
+
+        return scores
+
+
+class QATFFNNTransducerScorerNoOutQuant(QATFFNNTransducerScorer):
+    def __init__(self, cfg: QATFFNNTransducerRecogConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self.target_size = cfg.target_size
+        self.context_history_size = cfg.context_history_size
+        self.token_embedding = TiledMemristorEmbedding(
+            num_embeddings=self.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_precision=cfg.weight_bit_prec,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+
+        prediction_layers = []
+        prev_size = self.context_history_size * cfg.context_embedding_dim
+        for _ in range(cfg.pred_num_layers):
+            prediction_layers.append(torch.nn.Dropout(cfg.dropout))
+            prediction_layers.append(torch.nn.Identity())
+            prediction_layers.append(
+                TiledMemristorLinear(
+                    in_features=prev_size,
+                    out_features=cfg.pred_dim,
+                    weight_precision=cfg.weight_bit_prec,
+                    converter_hardware_settings=cfg.converter_hardware_settings,
+                    memristor_inputs=128,
+                    memristor_outputs=128,
+                )
+            )
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(cfg.pred_activation)
+            prev_size = cfg.pred_dim
+        self.prediction_net = torch.nn.Sequential(*prediction_layers)
+
+        self.joint_net_q1_in = torch.nn.Identity()
+
+        self.joint_net_q1_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joint_net_q2_in = torch.nn.Identity()
+
+        self.joint_net_q2_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        # self.joint_net_q2_out = ActivationQuantizer(
+        #     bit_precision=cfg.activation_bit_prec,
+        #     dtype=cfg.activation_quant_dtype,
+        #     method=cfg.activation_quant_method,
+        #     channel_axis=1,
+        #     moving_avrg=cfg.moving_average,
+        # )
+
+        self.joint_net_q2_out = torch.nn.Identity()
+
+        self.joint_net = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            self.joint_net_q1_in,
+            TiledMemristorLinear(
+                in_features=cfg.enc_dim + cfg.pred_dim,
+                out_features=cfg.joiner_dim,
+                weight_precision=cfg.weight_bit_prec,
+                converter_hardware_settings=cfg.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
+            ),
+            self.joint_net_q1_out,
+            cfg.joiner_activation,
+            torch.nn.Dropout(cfg.dropout),
+            self.joint_net_q2_in,
+            TiledMemristorLinear(
+                in_features=cfg.joiner_dim,
+                out_features=self.target_size,
+                bias=not (cfg.version_control or "").endswith("-no-joiner-output-bias"),
+                weight_precision=cfg.weight_bit_prec,
+                converter_hardware_settings=cfg.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
+            ),
+            self.joint_net_q2_out,
+        )
+        self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.correction_settings = cfg.correction_settings
+        self.num_cycles = cfg.num_cycles
+
+        self.prediction_net_cache = {}
+        self.prep_quant()
+
+        self.ilm_scale = cfg.ilm_scale
+        self.blank_penalty = cfg.blank_penalty
+
+
+class QATFFNNTransducerScorerNoPredictionJointOffload(QATFFNNTransducerScorer):
+    def __init__(self, cfg: QATFFNNTransducerRecogConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self.token_embedding = EmbeddingQuant(
+            num_embeddings=cfg.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
+        )
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 1] = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=cfg.moving_average,
+            )
+            self.prediction_net[base + 2] = LinearQuant(
+                self.prediction_net[base + 2].in_features,
+                cfg.pred_dim,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            )
+        for index, in_features, out_features in [
+            (2, cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
+            (7, cfg.joiner_dim, cfg.target_size),
+        ]:
+            self.joint_net[index - 1] = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=cfg.moving_average,
+            )
+            self.joint_net[index] = LinearQuant(
+                in_features,
+                out_features,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=not (index == 7 and (cfg.version_control or "").endswith("-no-joiner-output-bias")),
+            )
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+
+
+class QATFFNNTransducerScorerNoPredictionOffload(QATFFNNTransducerScorer):
+    def __init__(self, cfg: QATFFNNTransducerRecogConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self.token_embedding = EmbeddingQuant(
+            num_embeddings=cfg.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
+        )
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 1] = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=cfg.moving_average,
+            )
+            self.prediction_net[base + 2] = LinearQuant(
+                self.prediction_net[base + 2].in_features,
+                cfg.pred_dim,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            )
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.joint_net[2].initialized = True
+        self.joint_net[7].initialized = True
+
+
+class QATFFNNTransducerScorerNoJointOffload(QATFFNNTransducerScorer):
+    def __init__(self, cfg: QATFFNNTransducerRecogConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        for index, in_features, out_features in [
+            (2, cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
+            (7, cfg.joiner_dim, cfg.target_size),
+        ]:
+            self.joint_net[index - 1] = ActivationQuantizer(
+                bit_precision=cfg.activation_bit_prec,
+                dtype=cfg.activation_quant_dtype,
+                method=cfg.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=cfg.moving_average,
+            )
+            self.joint_net[index] = LinearQuant(
+                in_features,
+                out_features,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=not (index == 7 and (cfg.version_control or "").endswith("-no-joiner-output-bias")),
+            )
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.token_embedding.initialized = True
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 2].initialized = True
+
+
+class QATFFNNTransducerScorerNoJointNet7Offload(QATFFNNTransducerScorer):
+    def __init__(self, cfg: QATFFNNTransducerRecogConfig, **kwargs):
+        super().__init__(cfg, **kwargs)
+        self.joint_net[6] = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+        self.joint_net[7] = LinearQuant(
+            cfg.joiner_dim,
+            cfg.target_size,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
+            bias=not (cfg.version_control or "").endswith("-no-joiner-output-bias"),
+        )
+
+    def prep_quant(self):
+        synaptogen_ml.set_fast_inference(True)
+        self.token_embedding.initialized = True
+        for base in range(0, len(self.prediction_net), 5):
+            self.prediction_net[base + 2].initialized = True
+        self.joint_net[2].initialized = True

@@ -19,6 +19,7 @@ from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ....model_pipelines.common.train import TrainedModel, train
 from ....model_pipelines.qat_ffnn_transducer.pytorch_modules import (
     QATFFNNTransducerConfig,
+    QATFFNNTransducerJoinerWeightMovingAverageConfig,
     QATFFNNTransducerModel,
 )
 from ....model_pipelines.qat_ffnn_transducer.train import QATFFNNTransducerTrainOptions, get_train_step_import
@@ -61,6 +62,8 @@ def get_model_config(
     weight_dropout: float,
     weight_pruning_config: WeightPruningConfig,
     bpe_size: int = 128,
+    version_control: str = "v2-qact-fix-12bs",
+    joiner_weight_moving_average: Optional[float] = None,
 ) -> QATFFNNTransducerConfig:
 
     if isinstance(weight_bit_prec, dict):
@@ -106,7 +109,7 @@ def get_model_config(
         weight_noise_start_epoch=None,
     )
 
-    return QATFFNNTransducerConfig(
+    config = QATFFNNTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -254,11 +257,60 @@ def get_model_config(
         correction_settings=qat_args["correction_settings"],
         num_cycles=qat_args["num_cycles"],
         moving_average=qat_args["moving_average"],
-        version_control="v2-qact-fix-12bs"
+        version_control=version_control,
+    )
+
+    if joiner_weight_moving_average is None:
+        return config
+    else:
+        return QATFFNNTransducerJoinerWeightMovingAverageConfig(
+            **vars(config),
+            joint_net_2_weight_moving_average=joiner_weight_moving_average,
+            joint_net_7_weight_moving_average=joiner_weight_moving_average,
+        )
+
+
+def get_train_options(bpe_size: int = 128, num_epochs=100) -> QATFFNNTransducerTrainOptions:
+    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
+
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    return QATFFNNTransducerTrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
+        batch_size=12_000 * 160,
+        accum_grad_multiple_step=2,
+        optimizer_config=RAdamConfig(
+            epsilon=1e-12,
+            weight_decay=0.01,
+            decoupled_weight_decay=True,
+        ),
+        lr_config=OCLRConfig(
+            init_lr=7e-06,
+            peak_lr=5e-04,
+            decayed_lr=5e-05,
+            final_lr=1e-07,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4 - (num_epochs - 4) // 2) * partition_epoch,
+            final_epochs=4 * partition_epoch,
+        ),
+        gradient_clip=1.0,
+        num_workers_per_gpu=2,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=48,
+        enc_loss_scale=0.5,
+        pred_loss_scale=0.0,
+        max_seqs=None,
+        max_seq_length=None,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> QATFFNNTransducerTrainOptions:
+def get_train_options2(bpe_size: int = 128) -> QATFFNNTransducerTrainOptions:
     return QATFFNNTransducerTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),

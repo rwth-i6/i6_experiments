@@ -1,0 +1,359 @@
+{
+  "bits": 4,
+  "read_noise": false,
+  "audio": {
+    "zip": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/oggzip/BlissToOggZipJob.EGcVDMRB666l/output/out.ogg.zip",
+    "member": "out.ogg/116-288048-0019/0.0000_2.8950.ogg",
+    "seconds": 2.895,
+    "encoder_frames": [
+      0,
+      4,
+      9,
+      14,
+      18,
+      23,
+      28,
+      33,
+      37,
+      42,
+      47,
+      52,
+      56,
+      61,
+      66,
+      71
+    ],
+    "history_ids": [
+      0,
+      12,
+      24,
+      36,
+      49,
+      61,
+      73,
+      85,
+      98,
+      110,
+      122,
+      134,
+      147,
+      159,
+      171,
+      184
+    ]
+  },
+  "layers": {
+    "2": {
+      "analytic_small_signal_gain": 1.4341286420822144,
+      "controls": [
+        {
+          "mode": "saved",
+          "adc_precision": 4,
+          "rmse": 0.16018474102020264,
+          "relative_rmse": 0.24415053012233173,
+          "bias_removed_signal_gain": 0.9521584510803223,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "saved",
+          "adc_precision": 8,
+          "rmse": 0.20110341906547546,
+          "relative_rmse": 0.3065179995393993,
+          "bias_removed_signal_gain": 0.9732130765914917,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "saved",
+          "adc_precision": null,
+          "rmse": 0.19700266420841217,
+          "relative_rmse": 0.30026770712155,
+          "bias_removed_signal_gain": 0.9728315472602844,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": 4,
+          "rmse": 0.30428802967071533,
+          "relative_rmse": 0.4637900169568285,
+          "bias_removed_signal_gain": 1.4210057258605957,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": 8,
+          "rmse": 0.26605355739593506,
+          "relative_rmse": 0.40551376283061386,
+          "bias_removed_signal_gain": 1.427687644958496,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": null,
+          "rmse": 0.2665131688117981,
+          "relative_rmse": 0.40621429379329205,
+          "bias_removed_signal_gain": 1.428722620010376,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": 4,
+          "rmse": 0.1558474898338318,
+          "relative_rmse": 0.23753977450552424,
+          "bias_removed_signal_gain": 0.9636608958244324,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": 8,
+          "rmse": 0.02214147336781025,
+          "relative_rmse": 0.033747611826263596,
+          "bias_removed_signal_gain": 0.9962441921234131,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": null,
+          "rmse": 0.022158820182085037,
+          "relative_rmse": 0.03377405151005713,
+          "bias_removed_signal_gain": 0.99623042345047,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": 4,
+          "rmse": 0.15969666838645935,
+          "relative_rmse": 0.24340661911365707,
+          "bias_removed_signal_gain": 0.9341983795166016,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": 8,
+          "rmse": 0.02214147336781025,
+          "relative_rmse": 0.033747611826263596,
+          "bias_removed_signal_gain": 0.9962441921234131,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": null,
+          "rmse": 0.02214147336781025,
+          "relative_rmse": 0.033747611826263596,
+          "bias_removed_signal_gain": 0.9962441921234131,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 7077888
+        }
+      ]
+    },
+    "7": {
+      "analytic_small_signal_gain": 1.4341286420822144,
+      "controls": [
+        {
+          "mode": "saved",
+          "adc_precision": 4,
+          "rmse": 0.5200570225715637,
+          "relative_rmse": 0.13477992636180244,
+          "bias_removed_signal_gain": 0.974711000919342,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "saved",
+          "adc_precision": 8,
+          "rmse": 0.5178194046020508,
+          "relative_rmse": 0.13420001690559413,
+          "bias_removed_signal_gain": 0.9746925234794617,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "saved",
+          "adc_precision": null,
+          "rmse": 0.5178046822547913,
+          "relative_rmse": 0.13419620140692112,
+          "bias_removed_signal_gain": 0.9746979475021362,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": 4,
+          "rmse": 1.5973628759384155,
+          "relative_rmse": 0.4139785474436715,
+          "bias_removed_signal_gain": 1.4235438108444214,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": 8,
+          "rmse": 1.5974489450454712,
+          "relative_rmse": 0.4140008534359137,
+          "bias_removed_signal_gain": 1.4235893487930298,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal",
+          "adc_precision": null,
+          "rmse": 1.5973420143127441,
+          "relative_rmse": 0.41397314086660447,
+          "bias_removed_signal_gain": 1.4235608577728271,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": 4,
+          "rmse": 0.08436008542776108,
+          "relative_rmse": 0.02186307579427869,
+          "bias_removed_signal_gain": 0.9930881857872009,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": 8,
+          "rmse": 0.08226136863231659,
+          "relative_rmse": 0.021319164486734793,
+          "bias_removed_signal_gain": 0.9926366806030273,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_slope_calibrated",
+          "adc_precision": null,
+          "rmse": 0.08227723091840744,
+          "relative_rmse": 0.02132327541622611,
+          "bias_removed_signal_gain": 0.992631196975708,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": 4,
+          "rmse": 0.040467992424964905,
+          "relative_rmse": 0.010487836530072433,
+          "bias_removed_signal_gain": 1.0067977905273438,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": 8,
+          "rmse": 0.035404376685619354,
+          "relative_rmse": 0.009175530904241672,
+          "bias_removed_signal_gain": 1.007375955581665,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        },
+        {
+          "mode": "ideal_linear_iv",
+          "adc_precision": null,
+          "rmse": 0.035404376685619354,
+          "relative_rmse": 0.009175530904241672,
+          "bias_removed_signal_gain": 1.007375955581665,
+          "clipped_partial_fraction": 0.0,
+          "partial_values": 1572864
+        }
+      ]
+    }
+  },
+  "cascade": [
+    {
+      "mode": "saved",
+      "adc_precision": 4,
+      "rmse": 0.9839730858802795,
+      "relative_rmse": 0.25475166898522894,
+      "argmax_agreement": 0.9921875
+    },
+    {
+      "mode": "saved",
+      "adc_precision": 8,
+      "rmse": 0.8513367176055908,
+      "relative_rmse": 0.22041197344783742,
+      "argmax_agreement": 0.96875
+    },
+    {
+      "mode": "saved",
+      "adc_precision": null,
+      "rmse": 0.8433052897453308,
+      "relative_rmse": 0.21833262831015482,
+      "argmax_agreement": 0.9765625
+    },
+    {
+      "mode": "ideal",
+      "adc_precision": 4,
+      "rmse": 2.061271905899048,
+      "relative_rmse": 0.5336654688988485,
+      "argmax_agreement": 0.85546875
+    },
+    {
+      "mode": "ideal",
+      "adc_precision": 8,
+      "rmse": 2.2235801219940186,
+      "relative_rmse": 0.5756872371093256,
+      "argmax_agreement": 0.8828125
+    },
+    {
+      "mode": "ideal",
+      "adc_precision": null,
+      "rmse": 2.2288730144500732,
+      "relative_rmse": 0.5770575725446012,
+      "argmax_agreement": 0.89453125
+    },
+    {
+      "mode": "ideal_slope_calibrated",
+      "adc_precision": 4,
+      "rmse": 0.8111778497695923,
+      "relative_rmse": 0.21001480023996918,
+      "argmax_agreement": 0.98046875
+    },
+    {
+      "mode": "ideal_slope_calibrated",
+      "adc_precision": 8,
+      "rmse": 0.27530214190483093,
+      "relative_rmse": 0.07127601469172422,
+      "argmax_agreement": 0.9921875
+    },
+    {
+      "mode": "ideal_slope_calibrated",
+      "adc_precision": null,
+      "rmse": 0.2762185037136078,
+      "relative_rmse": 0.07151326172980899,
+      "argmax_agreement": 0.9921875
+    },
+    {
+      "mode": "ideal_linear_iv",
+      "adc_precision": 4,
+      "rmse": 0.8238011002540588,
+      "relative_rmse": 0.2132829730945748,
+      "argmax_agreement": 0.97265625
+    },
+    {
+      "mode": "ideal_linear_iv",
+      "adc_precision": 8,
+      "rmse": 0.26043882966041565,
+      "relative_rmse": 0.06742788748657211,
+      "argmax_agreement": 0.9921875
+    },
+    {
+      "mode": "ideal_linear_iv",
+      "adc_precision": null,
+      "rmse": 0.26043882966041565,
+      "relative_rmse": 0.06742788748657211,
+      "argmax_agreement": 0.9921875
+    }
+  ]
+}

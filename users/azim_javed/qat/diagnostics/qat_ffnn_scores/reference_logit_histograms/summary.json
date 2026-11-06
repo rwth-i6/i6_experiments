@@ -1,0 +1,62 @@
+{
+  "measurement": "complete joint_net output, before softmax",
+  "states_per_model": 72351,
+  "shared_utterances": 10,
+  "segments": [
+    "dev-other/116-288045-0000/116-288045-0000",
+    "dev-other/116-288045-0001/116-288045-0001",
+    "dev-other/116-288045-0002/116-288045-0002",
+    "dev-other/116-288045-0003/116-288045-0003",
+    "dev-other/116-288045-0004/116-288045-0004",
+    "dev-other/116-288045-0005/116-288045-0005",
+    "dev-other/116-288045-0006/116-288045-0006",
+    "dev-other/116-288045-0007/116-288045-0007",
+    "dev-other/116-288045-0008/116-288045-0008",
+    "dev-other/116-288045-0009/116-288045-0009"
+  ],
+  "bins": 60,
+  "inputs": [
+    {
+      "label": "Digital QAT",
+      "directory": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.qpab8rHRESK2/output/scores",
+      "manifest_utterances": 573,
+      "statistics": {
+        "all_tokens": {
+          "count": 13384935,
+          "mean": 0.07205177213469405,
+          "min": -39.06496047973633,
+          "max": 27.00787353515625,
+          "std": 3.982794775491276
+        },
+        "ordinary_tokens": {
+          "count": 13167882,
+          "mean": 0.2543223903979809,
+          "min": -16.39763832092285,
+          "max": 25.561023712158203,
+          "std": 2.96844822328374
+        }
+      }
+    },
+    {
+      "label": "Memristor, ADC 4/4",
+      "directory": "/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/forward/ReturnnForwardJobV2.Z6hx7q7RphNU/output/scores",
+      "manifest_utterances": 10,
+      "statistics": {
+        "all_tokens": {
+          "count": 13384935,
+          "mean": -0.028504406514175035,
+          "min": -23.63188934326172,
+          "max": 14.950787544250488,
+          "std": 3.1836447034882593
+        },
+        "ordinary_tokens": {
+          "count": 13167882,
+          "mean": 0.11142899187609587,
+          "min": -13.503936767578125,
+          "max": 13.986220359802246,
+          "std": 2.4961041434253115
+        }
+      }
+    }
+  ]
+}
