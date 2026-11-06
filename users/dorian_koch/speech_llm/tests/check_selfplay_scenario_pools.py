@@ -38,6 +38,8 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       ratings / details / third-person check, one distinct blind persona per scenario, grader notes, reasoning medium
       for writing and high for rating, no system message or schema, a rerun requests nothing. CAN FAIL: a mutant
       without the name check keeps a brief with another name
+      [8b2] A's opening: "Your name is X." kept, "You are X, a ..." rewritten to it word for word, any other opening or
+      name dropped; the writer prompt asks for the exact opening. CAN FAIL: the old exact-match check drops the rewrite
       [8c] merge of parts: files joined; a scenario name or seed in two parts raises
       [8d] mix: a pool whose pool.json opts out gets A and B exactly as written, the others keep the Minimal line.
       CAN FAIL: a mutant without the opt-out prefixes the listener prompts
@@ -672,7 +674,7 @@ class _ListenerClient:
             (what, len(messages), (kw.get("extra_body") or {}).get("reasoning_effort"), "response_format" in kw)
         )
         if what == "write":
-            name = re.search(r'"Your name is (\S+?)\. You \.\.\."', user).group(1)
+            name = re.search(r'starts with exactly "Your name is (\S+?)\."', user).group(1)
             name = "Zorro" if "WRONGNAME" in user else name
             tag = " BADRATE" if "BADRATE" in user else ""
             body = {"skip": "SKIPME" in user, "title": "kite", "details": ["the blue kite", "the old oak tree"],
@@ -745,15 +747,15 @@ try:
     n_calls = len(seen8)
     assert _listener_run(lt, 0, 10) and len(seen8) == n_calls, "a rerun requested calls again"
     # mutant: no name check -> the scenario with another name is kept
-    orig_uses = sb.listener_uses_name
-    sb.listener_uses_name = lambda *a: True
+    orig_uses = sb.listener_name_opening
+    sb.listener_name_opening = lambda b, n: b
     try:
         mut = _listener_run(lt, 0, 10)
         assert any(s[2].startswith("Your name is Zorro") for s in _rd(mut, "scenarios.json")), (
             "mutant should keep Zorro"
         )
     finally:
-        sb.listener_uses_name = orig_uses
+        sb.listener_name_opening = orig_uses
     p0 = _listener_run(lt, 0, 10)
     p1 = _listener_run(lt, 1, 10)
 finally:
@@ -764,6 +766,21 @@ assert sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_pat
 )
 print("[8b] listener pool: real run on a fake server -> pool format, assigned names (mutant keeps another), ratings, "
       "personas blind and distinct, grader notes, efforts medium/high, no system/schema, resumes")  # fmt: skip
+
+# [8b2] A's name opening ------------------------------------------------------------------------------------------------
+_op = sb.listener_name_opening
+assert _op("Your name is Ana. You lost your keys.", "Ana") == "Your name is Ana. You lost your keys."
+assert _op("You are Marco, a 38‑year‑old teacher. Your sister called.", "Marco") == (
+    "Your name is Marco. You are a 38‑year‑old teacher. Your sister called."
+)
+assert _op("You’re Lea, an artist who paints.", "Lea") == "Your name is Lea. You are an artist who paints."
+assert _op("You are Omar. Your bike was stolen.", "Omar") == "Your name is Omar. Your bike was stolen."
+assert _op("You are Marcos, a baker.", "Marco") is None and _op("Your name is Zorro. Hi.", "Ana") is None
+assert _op("Luca, you're a baker.", "Luca") is None
+assert '"Your name is {name}." (not "You are {name}")' in sb.LISTENER_WRITE
+_old = lambda b, n: b if re.match(rf"\s*Your name is {re.escape(n)}\b", b) else None  # noqa: E731
+assert _old("You are Marco, a teacher.", "Marco") is None, "the old check should drop the rewrite (CAN FAIL)"
+print('[8b2] A opening: "You are X, a ..." -> "Your name is X. You are a ...", other names and openings dropped')
 
 # [8c] merge: parts as one pool; a seed or name in two parts raises -----------------------------------------------------
 import shutil  # noqa: E402

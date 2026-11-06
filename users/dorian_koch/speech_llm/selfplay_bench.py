@@ -2821,8 +2821,9 @@ other side, B, only gets this generic prompt and knows nothing about A: "{b}"
 
 {kind}
 
-A's brief: "Your name is {name}. You ..."{name_rule}, 30 to 60 words, speaking to A as "you": who A is, what is on A's \
-mind with two or three concrete details A will bring up (what happened, names of things, what A already tried or \
+A's brief starts with exactly "Your name is {name}." (not "You are {name}"){name_rule}, 30 to 60 words, speaking to A \
+as "you": who A is (a job, age or home town only where the situation needs one, and not the usual graphic designer or \
+software developer), what is on A's mind with two or three concrete details A will bring up (what happened, names of things, what A already tried or \
 thinks), and what A wants from the talk. Goals and details only: no lines to say, no outcome. Everyday and safe: no \
 medical, legal or financial questions (no money, debt, rent or loans), nothing sexual, no alcohol or drugs, no injury \
 or illness, no custody, crisis, self-harm or abuse. Change names and places from the seed.
@@ -2943,10 +2944,18 @@ def listener_details_ok(brief: str, details) -> bool:
     )
 
 
-def listener_uses_name(brief: str, name: str) -> bool:
+def listener_name_opening(brief: str, name: str) -> str | None:
+    """A's brief opening "Your name is <name>." (None = A's assigned name is not its opening). "You are <name>, a ..."
+    (the writer's most common slip) becomes "Your name is <name>. You are a ..."; the rest is kept word for word."""
     import re
 
-    return re.match(rf"\s*Your name is {re.escape(name)}\b", brief) is not None
+    n = re.escape(name)
+    if re.match(rf"\s*Your name is {n}\b", brief):
+        return brief
+    m = re.match(rf"\s*(?:You are|You're|You’re) {n}(?:, (an?|the) |\. )(.*)$", brief, re.S)
+    if not m:
+        return None
+    return f"Your name is {name}. " + (f"You are {m.group(1)} {m.group(2)}" if m.group(1) else m.group(2))
 
 
 def listener_persona_reject(p: str, name: str | None, rating) -> str:
@@ -3144,7 +3153,7 @@ class SelfPlayListenerPool(Job):
     from its cache: (1) A's brief + details + check question per seed (``LISTENER_WRITE``, reasoning medium) and
     ``LISTENER_PERSONAS_PER_CALL`` B personas per call, blind to A (``LISTENER_PERSONA_WRITE``, medium); (2) two
     ratings per brief (``LISTENER_RATE``, high) and one per persona (``LISTENER_PERSONA_RATE``, high). A scenario is kept
-    if A uses its name, both ratings pass (``listener_rating_ok``), the details are in A's brief and the check question
+    if A's brief opens with its name (``listener_name_opening``), both ratings pass (``listener_rating_ok``), the details are in A's brief and the check question
     is in the third person, A's brief is within ``LISTENER_MAX_WORDS`` and not near spj2; each gets its own kept
     persona of the kind (seeded order). B's prompt is the persona as written, A's the brief: ``pool.json`` declares
     ``minimal_prefix: false`` so ``SelfPlayTrainScenarioMix`` prepends nothing.
@@ -3283,15 +3292,16 @@ class SelfPlayListenerPool(Job):
             brief, check = (" ".join(str(w.get(k) or "").split()) for k in ("A", "check"))
             details = w.get("details")
             details = [" ".join(str(d).split()) for d in details] if isinstance(details, list) else details
+            opened = None
             if not w:
                 reason = "not_written"
             elif w.get("skip") or not isinstance(w.get("A"), str):
                 reason = "skipped"
-            elif not listener_uses_name(brief, a_names[i][0]):
+            elif (opened := listener_name_opening(brief, a_names[i][0])) is None:
                 reason = "name_not_used"
             elif any(r is None for r in rs):
                 reason = "not_rated"
-            elif not listener_details_ok(brief, details):
+            elif not listener_details_ok(brief := opened, details):
                 reason = "details_not_in_brief"
             elif re.search(r"\b(you|your|yours)\b", check, re.I):
                 reason = "check_second_person"
