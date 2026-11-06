@@ -36,8 +36,11 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       are disjoint slices. CAN FAIL: mutants with overlapping slices or vent and advice on the same ED positions
       [8b] the real SelfPlayListenerPool.run on a fake server: the pool format the mix reads, A's assigned name enforced,
       ratings / details / third-person check, one distinct blind persona per scenario, grader notes, reasoning medium
-      for writing and high for rating, no system message or schema, a rerun requests nothing. CAN FAIL: a mutant
-      without the name check keeps a brief with another name
+      for writing and high for rating, no system message or schema, a rerun requests nothing; detail levels
+      (``LISTENER_LEVELS``): a third of the seeds each, every writer / rater / persona prompt carries its level's
+      length, the row's level is its seed's, personas are matched within a level, a detailed-length brief at a shorter
+      level is dropped for length. CAN FAIL: a mutant without the name check keeps a brief with another name; a mutant
+      without the per-level length check keeps the over-long brief
       [8b2] A's name: kept if it occurs in the brief as a whole word in any wording ("You are X, a ...", "X, you're
       ...", "... says X"), dropped for another name or a longer one ("Marcos" for "Marco"); the job keeps the brief
       exactly as written; the writer prompt demands no fixed opening. CAN FAIL: the old opening-only check drops
@@ -664,13 +667,31 @@ print("[8a] listener seeds: filters counted, vent/advice disjoint, parts disjoin
 
 # [8b] listener pool: the real run on a fake server (no LLM) -> the pool format the mix reads -----------------------
 seen8: list = []
+wusers8, rusers8, pusers8 = [], [], []
+
+
+def _fake_brief(name: str, lo: int, tag: str = "", openvary: bool = False) -> str:
+    """The fake writer's brief for a level (by its lower word bound), sized to fit that level."""
+    if lo <= 8:
+        return (f"The blue kite string snapped near the old oak tree{tag}, and everyone calls you {name}." if openvary
+                else f"Your name is {name}, and your blue kite string snapped near the old oak tree{tag}.")  # fmt: skip
+    if lo <= 15:
+        return (f"The blue kite string snapped near the old oak tree{tag}. Everyone calls you {name}, and you want "
+                f"someone to hear how annoying it was." if openvary else
+                f"Your name is {name}. Your blue kite string snapped near the old oak tree{tag}, and you want someone "
+                f"to hear how annoying it was.")  # fmt: skip
+    return (f"You lost the blue kite at Pinewood Park when the string snapped near the old oak tree{tag}. Everyone "
+            f"calls you {name}, and you want someone to hear how annoying the whole afternoon was." if openvary else
+            f"Your name is {name}. You lost the blue kite at Pinewood Park when the string snapped near "
+            f"the old oak tree{tag}. You want someone to hear how annoying the whole afternoon was.")  # fmt: skip
 
 
 class _ListenerClient:
-    """Writer: uses the assigned name (``WRONGNAME`` in the seed: another; ``OPENVARY``: mid-brief, no "Your name
-    is" opening), copies ``BADRATE``, skips ``SKIPME``,
-    asks a second-person check for ``YOUCHECK``; rater: safe 3 for ``BADRATE``; personas: named, the 3rd of each
-    full call in the third person; persona rater: all true."""
+    """Writer: a brief sized to the level the prompt asks for (``_fake_brief``; ``LONGBRIEF`` in the seed: the
+    detailed one at any level), using the assigned name (``WRONGNAME``: another; ``OPENVARY``: mid-brief, no "Your
+    name is" opening), copies ``BADRATE``, skips ``SKIPME``, one detail below the detailed level, asks a second-person
+    check for ``YOUCHECK``; rater: safe 3 for ``BADRATE``; personas: named, the 3rd of each call in the third person;
+    persona rater: all true."""
 
     def __init__(self, **_):
         self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
@@ -682,23 +703,23 @@ class _ListenerClient:
         seen8.append(
             (what, len(messages), (kw.get("extra_body") or {}).get("reasoning_effort"), "response_format" in kw)
         )
+        {"write": wusers8, "rate": rusers8, "persona": pusers8}.get(what, []).append(user)
         if what == "write":
             name = re.search(r"A is called (\S+?) \(", user).group(1)
             name = "Zorro" if "WRONGNAME" in user else name
             tag = " BADRATE" if "BADRATE" in user else ""
-            brief = (f"You lost the blue kite at Pinewood Park when the string snapped near the old oak tree. Everyone "
-                     f"calls you {name}, and you want someone to hear how annoying the whole afternoon was."
-                     if "OPENVARY" in user else
-                     f"Your name is {name}. You lost the blue kite at Pinewood Park when the string snapped near "
-                     f"the old oak tree{tag}. You want someone to hear how annoying the whole afternoon was.")  # fmt: skip
-            body = {"skip": "SKIPME" in user, "title": "kite", "details": ["the blue kite", "the old oak tree"],
-                    "A": brief,
+            lo = int(re.search(r"open\), (\d+) to (\d+) words", user).group(1))
+            brief = _fake_brief(name, lo, tag, "OPENVARY" in user)
+            if "LONGBRIEF" in user:  # the detailed brief and more, at any level
+                brief = _fake_brief(name, 30, tag) + " You also called the park office twice about it."
+            details = ["the blue kite", "the old oak tree"] if lo >= 30 else ["the old oak tree"]
+            body = {"skip": "SKIPME" in user, "title": "kite", "details": details, "A": brief,
                     "check": "What did you lose?" if "YOUCHECK" in user else "What did the caller lose at the park?"}  # fmt: skip
         elif what == "rate":
             body = {c: 5 for c in sb.LISTENER_CRIT} | {"safe": 3 if "BADRATE" in user else 5, "flaws": []}
         elif what == "persona":
             names = re.findall(r"persona \d+: (\S+) \(", user)
-            body = {"personas": [f"She is {n}, a baker who talks a lot." if len(names) == 6 and j == 2 else
+            body = {"personas": [f"She is {n}, a baker who talks a lot." if j == 2 else
                                  f"You are {n}, a retired bus driver who talks slowly and warmly and likes a laugh."
                                  for j, n in enumerate(names)]}  # fmt: skip
         else:
@@ -725,6 +746,11 @@ def _rd(d, f):
 
 
 marks = {1: "WRONGNAME", 3: "BADRATE", 5: "SKIPME", 7: "YOUCHECK", 9: "OPENVARY"}
+names_path_l = tk.Path("/x")
+lv8 = sb.SelfPlayListenerPool(kind="vent", seeds=names_path_l, names=names_path_l, n_seeds=10).levels(10)
+assert sorted(collections.Counter(lv8).values()) == [3, 3, 4] and set(lv8) == set(sb.LISTENER_LEVELS), lv8
+long8 = next(i for i in (0, 2, 4, 6, 8) if lv8[i] != "detailed")  # an unmarked seed at a shorter level
+marks[long8] = "LONGBRIEF"
 lseeds = {"vent": [{"src": "ed", "id": f"ed_hit_{i}", "emotion": "annoyed",
                     "situation": f"My kite {i} got stuck in a tree. {marks.get(i % 10, '')}"} for i in range(20)]}  # fmt: skip
 sb.vllm_server = contextlib.contextmanager(lambda *_a, **_k: iter(["http://fake"]))
@@ -735,23 +761,27 @@ try:
     json.dump({"countries": big}, open(os.path.join(lt, "names.json"), "w"))
     p0 = _listener_run(lt, 0, 10)
     st = _rd(p0, "stats.json")
-    assert st["reasons"] == {"kept": 6, "name_not_used": 1, "rating": 1, "skipped": 1, "check_second_person": 1}, st
-    assert st["personas"] == {"kept": 11, "third_person": 2}, st["personas"]  # 13 B names = 1.25 x 10 seeds
+    assert st["reasons"] == {"kept": 5, "name_not_used": 1, "rating": 1, "skipped": 1, "check_second_person": 1,
+                             "length": 1}, st  # fmt: skip
+    # 13 B names = 1.25 x (4, 3, 3) seeds per level, one call per level, its 3rd persona in the third person
+    assert st["personas"] == {"kept": 10, "third_person": 3}, st["personas"]
+    assert sum(sum(c.values()) for c in st["levels"].values()) == 10 and set(st["levels"]) == set(sb.LISTENER_LEVELS)
+    assert st["levels"][lv8[long8]]["length"] == 1, st["levels"]
     scen, nm, gi = _rd(p0, "scenarios.json"), _rd(p0, "names.json"), _rd(p0, "grader_info.json")
     assert _rd(p0, "pool.json") == {"category": "listener_vent", "minimal_prefix": False}
     seed_of = {r["scenario"]: r["seed"] for r in map(json.loads, open(os.path.join(p0, "provenance.jsonl")))}
+    lo_of = {lv: v[0] for lv, v in sb.LISTENER_LEVELS.items()}
     for cat_, name_, pa_, pb_, level_ in scen:
         (an, ag, ac), (bn, bg, bc) = nm[name_]
-        assert cat_ == "listener_vent" and level_ == sb.LISTENER_LEVEL and name_.startswith("vent_")
-        if seed_of[name_] == "ed_hit_9":  # OPENVARY: the brief kept exactly as the writer wrote it
-            assert pa_ == (f"You lost the blue kite at Pinewood Park when the string snapped near the old oak tree. "
-                           f"Everyone calls you {an}, and you want someone to hear how annoying the whole afternoon "
-                           f"was."), pa_  # fmt: skip
-        else:
-            assert pa_.startswith(f"Your name is {an}. You lost"), pa_
+        k_ = int(seed_of[name_].rsplit("_", 1)[1])
+        assert cat_ == "listener_vent" and level_ == lv8[k_] and name_.startswith("vent_"), (level_, k_)
+        # kept exactly as the writer wrote it at the row's level (OPENVARY: the name mid-brief)
+        assert pa_ == _fake_brief(an, lo_of[level_], "", k_ == 9), (pa_, level_)
         assert pb_.startswith(f"You are {bn}, a retired")
         assert an != bn and ag in "mfu" and bg in "mfu" and ac and bc
-        assert '"the blue kite"' in gi[name_] and gi[name_].endswith("What did the caller lose at the park?")
+        assert '"the old oak tree"' in gi[name_] and gi[name_].endswith("What did the caller lose at the park?")
+        assert ('"the blue kite"' in gi[name_]) == (level_ == "detailed"), gi[name_]
+    assert {s_[4] for s_ in scen} == set(sb.LISTENER_LEVELS), "a level without a kept row"
     assert len({nm[s[1]][1][0] for s in scen}) == len(scen), "two scenarios share a B persona"
     sb.check_scenarios([s[:4] for s in scen], categories=None, max_words=sb.LISTENER_MAX_WORDS)
     rej = {r["seed"]: r["reason"] for r in map(json.loads, open(os.path.join(p0, "rejected.jsonl")))}
@@ -760,20 +790,34 @@ try:
         "ed_hit_3": "rating",
         "ed_hit_5": "skipped",
         "ed_hit_7": "check_second_person",
-    }
+        f"ed_hit_{long8}": "length",
+    }, rej
+    # every prompt carries its level's length: writers and raters per seed, personas per level
+    for lv, (lo, hi, _h, _d, blo, bhi, _b) in sb.LISTENER_LEVELS.items():
+        assert any(f"{lo} to {hi} words, speaking" in u for u in wusers8), lv
+        assert any(f"Level: {lv}: A's brief is {lo} to {hi} words" in u for u in rusers8), lv
+        assert any(f"{blo} to {bhi} words in all" in u for u in pusers8), lv
     effort = {w: {e for w2, _, e, _ in seen8 if w2 == w} for w in ("write", "rate", "persona", "prate")}
+    assert len(wusers8) == 10 and len(pusers8) == 3, (len(wusers8), len(pusers8))
     assert effort == {"write": {"medium"}, "rate": {"high"}, "persona": {"medium"}, "prate": {"high"}}, effort
     assert {n for _, n, _, _ in seen8} == {1} and not any(f for *_, f in seen8), "system message or schema sent"
     n_calls = len(seen8)
     assert _listener_run(lt, 0, 10) and len(seen8) == n_calls, "a rerun requested calls again"
+    # mutant: no per-level length check -> the detailed-length brief at a shorter level is kept
+    orig_len = sb.listener_length_ok
+    sb.listener_length_ok = lambda *a: True
+    try:
+        mut = _listener_run(lt, 0, 10)
+        assert any(s[4] == lv8[long8] and len(s[2].split()) > sb.LISTENER_LEVELS[s[4]][1] + 5
+                   for s in _rd(mut, "scenarios.json")), "mutant should keep the over-long brief"  # fmt: skip
+    finally:
+        sb.listener_length_ok = orig_len
     # mutant: no name check -> the scenario with another name is kept
     orig_uses = sb.listener_uses_name
     sb.listener_uses_name = lambda *a: True
     try:
         mut = _listener_run(lt, 0, 10)
-        assert any(s[2].startswith("Your name is Zorro") for s in _rd(mut, "scenarios.json")), (
-            "mutant should keep Zorro"
-        )
+        assert any("Zorro" in s[2] for s in _rd(mut, "scenarios.json")), "mutant should keep Zorro"
     finally:
         sb.listener_uses_name = orig_uses
     p0 = _listener_run(lt, 0, 10)
@@ -785,7 +829,8 @@ assert sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_pat
     sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_path, n_seeds=10, part=1)._sis_hash()
 )
 print("[8b] listener pool: real run on a fake server -> pool format, assigned names (mutant keeps another), ratings, "
-      "personas blind and distinct, grader notes, efforts medium/high, no system/schema, resumes")  # fmt: skip
+      "personas blind and distinct, grader notes, efforts medium/high, no system/schema, resumes; three detail levels "
+      "(a third each, prompts sized per level, personas per level; mutant without the length check keeps a long brief)")  # fmt: skip
 
 # [8b2] A's name: anywhere in the brief, as a whole word; the brief is kept as written ----------------------------
 _un = sb.listener_uses_name
