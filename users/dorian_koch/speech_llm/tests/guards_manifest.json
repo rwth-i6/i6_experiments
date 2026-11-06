@@ -645,6 +645,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_grpo_overlap.py": {
   "env": "module"
  },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_grpo_pad_weight.py": {
+  "env": "module"
+ },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_init_lora.py": {
   "env": "module"
  },
