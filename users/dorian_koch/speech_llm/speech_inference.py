@@ -530,9 +530,9 @@ class SpeechInference(BackendInferenceMixin, Job):
         # AFTER construction (see sharded_knowledge_inference / fdb.py), so a resource
         # change never re-hashes the job.
         if mode == "knowledge":
-            self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
+            self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4}
         else:
-            self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 4}
+            self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 2}
 
     def tasks(self):
         if self.cloud_api:

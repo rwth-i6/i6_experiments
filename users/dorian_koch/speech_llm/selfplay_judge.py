@@ -160,7 +160,7 @@ class SelfPlayCoherenceJudge(Job):
         self.judge_version = int(judge_version)
         self.out_rows = self.output_path("rows.jsonl")
         self.out_summary = self.output_path("summary.json")
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 1, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name, 80)}
 
     __sis_hash_exclude__ = {"judge_version": 1}  # v1 jobs keep their pre-2026-10-12 hash
 

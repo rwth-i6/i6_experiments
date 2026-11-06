@@ -209,7 +209,7 @@ class FullDuplexBenchEval_Evaluation(Job):
                 "gpu": 1,
                 "cpu": 2,
                 "mem": 16,
-                "time": 2,
+                "time": 1,
                 "gpu_mem_gb": vllm_gpu_mem_gb(hf_model),
             }
             self.hf_model = hf_model

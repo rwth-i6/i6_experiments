@@ -183,7 +183,7 @@ class PersonaHeldoutLoss(Job):
         self.out_dir = self.output_path("eval", directory=True)
         # One 7B in bf16 (~16 GB) + a B=1 forward of <= ~900 frames. A full-finetune overlay is read onto the GPU
         # beside it (~15 GB transient). Measured 2026-09-25: minutes per checkpoint.
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 2, "gpu_mem_gb": 80}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 64, "time": 1, "gpu_mem_gb": 80}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

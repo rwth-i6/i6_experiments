@@ -547,7 +547,7 @@ class WhisperTranscription(Job):
         self.model_size = model_size
         self.asr = asr
         self.out_json = self.output_path("transcriptions.jsonl")
-        self.rqmt = {"gpu": 1, "cpu": 2, "mem": 8, "time": 2}
+        self.rqmt = {"gpu": 1, "cpu": 2, "mem": 8, "time": 1}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -875,7 +875,7 @@ class LLMGrading(Job):
         # Grading prompts are short (worst ~4.1k tokens), so we serve the judge with a small
         # max_model_len (JUDGE_MAX_MODEL_LEN, see run()) -> its KV cache fits c25g's 80 GiB H100 at TP=1, so we keep the default (fast) c25g GPU
         # routing instead of pinning the judge to the scarce c23g big-GPU queue.
-        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
+        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 1, "gpu_mem_gb": vllm_gpu_mem_gb(llm_name)}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

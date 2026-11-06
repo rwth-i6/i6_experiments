@@ -77,7 +77,7 @@ class PersonaSelfPlay(Job):
             overlay_b is not None and lora_rank_b is None
         )
         big = self.batch_size > 32 or self.duration_sec > 60.0 or full_overlay
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 6, "gpu_mem_gb": 94 if big else 80}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 32, "time": 1, "gpu_mem_gb": 94 if big else 80}
 
     #: Added 2026-09-23 (text-temperature grid); every earlier self-play keeps its hash.
     __sis_hash_exclude__ = {"temp_text": None, "text_sampler": None}
@@ -174,7 +174,7 @@ class SelfPlayTranscribe(Job):
         self.out_dir = self.output_path("dataset", directory=True)
 
     def tasks(self):
-        yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 32, "time": 2})
+        yield Task("run", rqmt={"gpu": 1, "cpu": 4, "mem": 32, "time": 1})
 
     def run(self):
         import json
