@@ -806,5 +806,8 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_metric_names.py": {
   "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_probe_eval.py": {
+  "env": "module"
  }
 }
