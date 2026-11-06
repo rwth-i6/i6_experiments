@@ -195,7 +195,7 @@ def summarize_metrics_jsonl(path: str, keys=DIGEST_KEYS) -> dict:
     steps = [r["step"] for r in rows if isinstance(r.get("step"), (int, float))]
     if steps:
         out["last_step"] = max(steps)
-    for key in keys:
+    for key in _with_structured(keys, rows):
         pairs = [
             (r.get("step", i), r[key])
             for i, r in enumerate(rows)
@@ -207,6 +207,14 @@ def summarize_metrics_jsonl(path: str, keys=DIGEST_KEYS) -> dict:
         vals = [v for _, v in pairs]
         out[key] = {"first": vals[0], "last": vals[-1], "min": min(vals), "max": max(vals), "n": len(vals)}
     return out
+
+
+def _with_structured(keys, rows) -> list:
+    """``keys`` plus the structured RL names (``rl_metric_names``: ``<group>.[<task>.]<leaf>``) whose last segment is
+    one of them (``rl_task.knowledge.correct_rate``, ``opt.kl``, ...), so a run that logs them digests the same way."""
+    seen = {k for r in rows[-50:] for k in r if "." in k}
+    want = set(keys)
+    return list(keys) + sorted(k for k in seen if k.rsplit(".", 1)[-1] in want and k.count(".") <= 3)
 
 
 def notify_result(tag: str, results: dict, note: str = "") -> ResultNotify:

@@ -800,5 +800,11 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_probe_base.py": {
   "env": "module"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_metric_registry.py": {
+  "env": "login"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_metric_names.py": {
+  "env": "module"
  }
 }
