@@ -76,8 +76,8 @@ def expect_any(name, rqmt, allowed):
 # --- automatic routing by walltime ---------------------------------------------------------------
 # A job that fits both may land on either; spreading is asserted separately below.
 expect_any("gpu 8h (fits both)", {"gpu": 1, "time": 8}, {"c23g", "c25g"})
-expect_any("gpu 24h (exactly c25g's cap)", {"gpu": 1, "time": 24}, {"c23g", "c25g"})
-expect("gpu 25h (over c25g's 24h cap)", {"gpu": 1, "time": 25}, "c23g")
+expect_any("gpu 48h (exactly c25g's cap)", {"gpu": 1, "time": 48}, {"c23g", "c25g"})
+expect("gpu 49h (over c25g's 48h cap)", {"gpu": 1, "time": 49}, "c23g")
 expect("cpu job", {"cpu": 4, "time": 2}, "c23ms")
 
 # --- capability-driven routing -------------------------------------------------------------------
@@ -120,9 +120,9 @@ print(f"[ok] {'long jobs are NOT spread':38s} -> 24h always {sorted(_long)[0]}")
 
 # (3) Spreading must never override a real requirement.
 assert select_gpu_partition(time_h=8, features=["system_ffmpeg"], spread_key="x") == "c23g"
-assert select_gpu_partition(time_h=25, spread_key="x") == "c23g"
+assert select_gpu_partition(time_h=49, spread_key="x") == "c23g"
 assert select_gpu_partition(time_h=8, gpu_mem_gb=90, spread_key="x") == "c23g"
-print(f"[ok] {'requirements beat spreading':38s} -> ffmpeg / >24h / 90GB all pinned to c23g")
+print(f"[ok] {'requirements beat spreading':38s} -> ffmpeg / >48h / 90GB all pinned to c23g")
 
 # (4) The task-derived key must survive a task object that cannot supply one.
 assert ns["_spread_key"](None) is None, "_spread_key must tolerate a missing task, not raise"
@@ -189,9 +189,9 @@ assert _seen == {"c23g", "c25g"}, f"a failed probe must fall back to spreading, 
 print(f"[ok] {'failed probe falls back to spread':38s} -> {sorted(_seen)}")
 
 _fake({"c23g": _now + 3 * 86400, "c25g": _now})
-assert select_gpu_partition(time_h=25, spread_key="x", rqmt=dict(_r8, time=25)) == "c23g"
+assert select_gpu_partition(time_h=49, spread_key="x", rqmt=dict(_r8, time=49)) == "c23g"
 assert select_gpu_partition(time_h=8, gpu_mem_gb=90, spread_key="x", rqmt=_r8) == "c23g"
-print(f"[ok] {'requirements beat the estimate':38s} -> >24h / 90GB stay on c23g though c25g is sooner")
+print(f"[ok] {'requirements beat the estimate':38s} -> >48h / 90GB stay on c23g though c25g is sooner")
 
 # A resubmission carries our OWN earlier "-p" back in (update_engine_rqmt copies the last run's requested
 # resources); it must be routed afresh, else a job on a stalled partition never leaves it.
