@@ -38,8 +38,10 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       ratings / details / third-person check, one distinct blind persona per scenario, grader notes, reasoning medium
       for writing and high for rating, no system message or schema, a rerun requests nothing. CAN FAIL: a mutant
       without the name check keeps a brief with another name
-      [8b2] A's opening: "Your name is X." kept, "You are X, a ..." rewritten to it word for word, any other opening or
-      name dropped; the writer prompt asks for the exact opening. CAN FAIL: the old exact-match check drops the rewrite
+      [8b2] A's name: kept if it occurs in the brief as a whole word in any wording ("You are X, a ...", "X, you're
+      ...", "... says X"), dropped for another name or a longer one ("Marcos" for "Marco"); the job keeps the brief
+      exactly as written; the writer prompt demands no fixed opening. CAN FAIL: the old opening-only check drops
+      "You are X, a ..."
       [8c] merge of parts: files joined; a scenario name or seed in two parts raises
       [8d] mix: a pool whose pool.json opts out gets A and B exactly as written, the others keep the Minimal line.
       CAN FAIL: a mutant without the opt-out prefixes the listener prompts
@@ -659,7 +661,8 @@ seen8: list = []
 
 
 class _ListenerClient:
-    """Writer: uses the assigned name (``WRONGNAME`` in the seed: another), copies ``BADRATE``, skips ``SKIPME``,
+    """Writer: uses the assigned name (``WRONGNAME`` in the seed: another; ``OPENVARY``: mid-brief, no "Your name
+    is" opening), copies ``BADRATE``, skips ``SKIPME``,
     asks a second-person check for ``YOUCHECK``; rater: safe 3 for ``BADRATE``; personas: named, the 3rd of each
     full call in the third person; persona rater: all true."""
 
@@ -674,12 +677,16 @@ class _ListenerClient:
             (what, len(messages), (kw.get("extra_body") or {}).get("reasoning_effort"), "response_format" in kw)
         )
         if what == "write":
-            name = re.search(r'starts with exactly "Your name is (\S+?)\."', user).group(1)
+            name = re.search(r"A is called (\S+?) \(", user).group(1)
             name = "Zorro" if "WRONGNAME" in user else name
             tag = " BADRATE" if "BADRATE" in user else ""
+            brief = (f"You lost the blue kite at Pinewood Park when the string snapped near the old oak tree. Everyone "
+                     f"calls you {name}, and you want someone to hear how annoying the whole afternoon was."
+                     if "OPENVARY" in user else
+                     f"Your name is {name}. You lost the blue kite at Pinewood Park when the string snapped near "
+                     f"the old oak tree{tag}. You want someone to hear how annoying the whole afternoon was.")  # fmt: skip
             body = {"skip": "SKIPME" in user, "title": "kite", "details": ["the blue kite", "the old oak tree"],
-                    "A": f"Your name is {name}. You lost the blue kite at Pinewood Park when the string snapped near "
-                    f"the old oak tree{tag}. You want someone to hear how annoying the whole afternoon was.",
+                    "A": brief,
                     "check": "What did you lose?" if "YOUCHECK" in user else "What did the caller lose at the park?"}  # fmt: skip
         elif what == "rate":
             body = {c: 5 for c in sb.LISTENER_CRIT} | {"safe": 3 if "BADRATE" in user else 5, "flaws": []}
@@ -711,7 +718,7 @@ def _rd(d, f):
     return json.load(open(os.path.join(d, f)))
 
 
-marks = {1: "WRONGNAME", 3: "BADRATE", 5: "SKIPME", 7: "YOUCHECK"}
+marks = {1: "WRONGNAME", 3: "BADRATE", 5: "SKIPME", 7: "YOUCHECK", 9: "OPENVARY"}
 lseeds = {"vent": [{"src": "ed", "id": f"ed_hit_{i}", "emotion": "annoyed",
                     "situation": f"My kite {i} got stuck in a tree. {marks.get(i % 10, '')}"} for i in range(20)]}  # fmt: skip
 sb.vllm_server = contextlib.contextmanager(lambda *_a, **_k: iter(["http://fake"]))
@@ -726,10 +733,17 @@ try:
     assert st["personas"] == {"kept": 11, "third_person": 2}, st["personas"]  # 13 B names = 1.25 x 10 seeds
     scen, nm, gi = _rd(p0, "scenarios.json"), _rd(p0, "names.json"), _rd(p0, "grader_info.json")
     assert _rd(p0, "pool.json") == {"category": "listener_vent", "minimal_prefix": False}
+    seed_of = {r["scenario"]: r["seed"] for r in map(json.loads, open(os.path.join(p0, "provenance.jsonl")))}
     for cat_, name_, pa_, pb_, level_ in scen:
         (an, ag, ac), (bn, bg, bc) = nm[name_]
         assert cat_ == "listener_vent" and level_ == sb.LISTENER_LEVEL and name_.startswith("vent_")
-        assert pa_.startswith(f"Your name is {an}. You lost") and pb_.startswith(f"You are {bn}, a retired")
+        if seed_of[name_] == "ed_hit_9":  # OPENVARY: the brief kept exactly as the writer wrote it
+            assert pa_ == (f"You lost the blue kite at Pinewood Park when the string snapped near the old oak tree. "
+                           f"Everyone calls you {an}, and you want someone to hear how annoying the whole afternoon "
+                           f"was."), pa_  # fmt: skip
+        else:
+            assert pa_.startswith(f"Your name is {an}. You lost"), pa_
+        assert pb_.startswith(f"You are {bn}, a retired")
         assert an != bn and ag in "mfu" and bg in "mfu" and ac and bc
         assert '"the blue kite"' in gi[name_] and gi[name_].endswith("What did the caller lose at the park?")
     assert len({nm[s[1]][1][0] for s in scen}) == len(scen), "two scenarios share a B persona"
@@ -747,15 +761,15 @@ try:
     n_calls = len(seen8)
     assert _listener_run(lt, 0, 10) and len(seen8) == n_calls, "a rerun requested calls again"
     # mutant: no name check -> the scenario with another name is kept
-    orig_uses = sb.listener_name_opening
-    sb.listener_name_opening = lambda b, n: b
+    orig_uses = sb.listener_uses_name
+    sb.listener_uses_name = lambda *a: True
     try:
         mut = _listener_run(lt, 0, 10)
         assert any(s[2].startswith("Your name is Zorro") for s in _rd(mut, "scenarios.json")), (
             "mutant should keep Zorro"
         )
     finally:
-        sb.listener_name_opening = orig_uses
+        sb.listener_uses_name = orig_uses
     p0 = _listener_run(lt, 0, 10)
     p1 = _listener_run(lt, 1, 10)
 finally:
@@ -767,20 +781,20 @@ assert sb.SelfPlayListenerPool(kind="vent", seeds=tk.Path("/x"), names=names_pat
 print("[8b] listener pool: real run on a fake server -> pool format, assigned names (mutant keeps another), ratings, "
       "personas blind and distinct, grader notes, efforts medium/high, no system/schema, resumes")  # fmt: skip
 
-# [8b2] A's name opening ------------------------------------------------------------------------------------------------
-_op = sb.listener_name_opening
-assert _op("Your name is Ana. You lost your keys.", "Ana") == "Your name is Ana. You lost your keys."
-assert _op("You are Marco, a 38‑year‑old teacher. Your sister called.", "Marco") == (
-    "Your name is Marco. You are a 38‑year‑old teacher. Your sister called."
-)
-assert _op("You’re Lea, an artist who paints.", "Lea") == "Your name is Lea. You are an artist who paints."
-assert _op("You are Omar. Your bike was stolen.", "Omar") == "Your name is Omar. Your bike was stolen."
-assert _op("You are Marcos, a baker.", "Marco") is None and _op("Your name is Zorro. Hi.", "Ana") is None
-assert _op("Luca, you're a baker.", "Luca") is None
-assert '"Your name is {name}." (not "You are {name}")' in sb.LISTENER_WRITE
-_old = lambda b, n: b if re.match(rf"\s*Your name is {re.escape(n)}\b", b) else None  # noqa: E731
-assert _old("You are Marco, a teacher.", "Marco") is None, "the old check should drop the rewrite (CAN FAIL)"
-print('[8b2] A opening: "You are X, a ..." -> "Your name is X. You are a ...", other names and openings dropped')
+# [8b2] A's name: anywhere in the brief, as a whole word; the brief is kept as written ----------------------------
+_un = sb.listener_uses_name
+for _b in ("Your name is Marco. You lost your keys.", "You are Marco, a teacher.", "Marco, you're a baker who sings.",
+           "You want your bike back, says Marco.", "You are Marco's age.", "Lena calls you Marco."):  # fmt: skip
+    assert _un(_b, "Marco"), _b
+for _b in ("You are Marcos, a baker.", "Your name is Zorro. Hi.", "You are marco, a baker.", "AMarco is here.",
+           "You are a teacher."):  # fmt: skip
+    assert not _un(_b, "Marco"), _b
+assert "starts with exactly" not in sb.LISTENER_WRITE and "A is called {name}" in sb.LISTENER_WRITE
+assert "not the usual graphic designer or software developer" in " ".join(sb.LISTENER_WRITE.split())
+# p0 above kept the OPENVARY brief verbatim; the old opening-only check would have dropped "You are X, a ..."
+_old = lambda b, n: re.match(rf"\s*Your name is {re.escape(n)}\b", b) is not None  # noqa: E731
+assert not _old("You are Marco, a teacher.", "Marco"), "the old check should drop it (CAN FAIL)"
+print("[8b2] A's name: kept in any wording or position, another or a longer name dropped, brief kept as written")
 
 # [8c] merge: parts as one pool; a seed or name in two parts raises -----------------------------------------------------
 import shutil  # noqa: E402
