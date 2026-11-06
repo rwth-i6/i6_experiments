@@ -530,7 +530,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         # AFTER construction (see sharded_knowledge_inference / fdb.py), so a resource
         # change never re-hashes the job.
         if mode == "knowledge":
-            self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4}
+            # one clip at a time (per-clip context, MoshiRAG) took up to 140 min per 500 clips; batched <= 55 min
+            self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4 if batch_size == 1 else 2}
         else:
             self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 2}
 
