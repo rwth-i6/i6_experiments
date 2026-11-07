@@ -3,7 +3,8 @@
 An awaited item that never turns READY is a result nobody reads; one that turns READY early is a read-out of numbers that
 are not all there. Both are checked on a temporary log, plus closing an item and the pattern count (``--expect``).
 ``add`` against a sink manifest: a pattern no sink produces is refused (a Mimi probe item waited on a kind with no sink),
-and the same arm's sinked results no pattern covers are listed (a staleness item left out the arm's MFDB).
+and the same arm's sinked results no pattern covers are listed (a staleness item left out the arm's MFDB); a refused
+bare arm name (patterns match whole tags) is answered with the sinked tags containing it (MT v4's item, 2026-11-07).
 
     python3 recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_awaited.py
 """
@@ -35,6 +36,8 @@ def check_sinks(d):
     out = run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", rc=2)
     assert "refused" in out, out
     run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", "--unsinked")
+    out = run(*base, "add", "--tag", arm, "--why", "w", rc=2)  # the bare arm name: no tag equals it
+    assert "refused" in out and f"benchmark/llm_judge/n1000/{arm}" in out and "*...*" in out, out
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--why", "w")
     assert f"fdb_{arm}" in out and "not awaited" in out, f"the arm's MFDB was not listed:\n{out}"
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--tag", f"fdb_{arm}", "--why", "w")
@@ -52,7 +55,8 @@ def land(log, tag, acc, produced_at=None):
 def main():
     with tempfile.TemporaryDirectory() as d:
         aw, log = os.path.join(d, "AWAITED.jsonl"), os.path.join(d, "RESULTS.jsonl")
-        base = ["--file", aw, "--log", log]
+        # no manifest here (the default RESULTS_SINKED.json of a setup root would refuse these made-up tags)
+        base = ["--file", aw, "--log", log, "--sinked", os.path.join(d, "no_manifest.json")]
         run(*base, "add", "--tag", "benchmark/x/n1000/*", "--expect", "2", "--why", "decides X", "--next", "read it")
         run(*base, "add", "--tag", "benchmark/y/n1000/arm", "--why", "decides Y")
         out = run(*base)

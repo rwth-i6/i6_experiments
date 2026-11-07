@@ -109,6 +109,13 @@ def sink_check(tags: list[str], sinked: list[str], records: dict) -> tuple[list[
     return dead, missed
 
 
+def near_tags(pattern: str, known, n: int = 3) -> list[str]:
+    """Up to ``n`` known tags containing the pattern's longest literal piece: a pattern matches WHOLE tags, so a bare
+    arm name (no ``benchmark/<grader>/n1000/`` prefix, no ``*``) matches nothing although the arm is sinked."""
+    piece = max(re.split(r"[*?\[\]]", pattern), key=len)
+    return sorted(k for k in known if piece and piece in k)[:n]
+
+
 def show(item: dict, records: dict) -> bool:
     got = landed(item, records)
     ready = len(got) >= item["expect"]
@@ -167,6 +174,11 @@ def main(argv=None) -> int:
                       "never turn READY. Read the result by hand, add its class to result_notify.SINK_KINDS or call "
                       "notify_result; --unsinked if it is declared but the manager has not been restarted yet",
                       file=sys.stderr)  # fmt: skip
+                for p in dead:
+                    near = near_tags(p, set(man["tags"]) | set(recs))
+                    if near:
+                        print(f"  {p!r} matches whole tags (fnmatch); known tags containing it -- wrap it in '*...*' or "
+                              f"give the full tag: {', '.join(near)}", file=sys.stderr)  # fmt: skip
                 return 2
             if missed:
                 print(f"note: {len(missed)} sinked result(s) of the same arm are not awaited (add a --tag if the "
