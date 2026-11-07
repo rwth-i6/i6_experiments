@@ -765,8 +765,8 @@ try:
     json.dump({"countries": big}, open(os.path.join(lt, "names.json"), "w"))
     p0 = _listener_run(lt, 0, 10)
     st = _rd(p0, "stats.json")
-    assert st["reasons"] == {"kept": 5, "name_not_used": 1, "rating": 1, "skipped": 1, "check_second_person": 1,
-                             "length": 1}, st  # fmt: skip
+    # WRONGNAME (A called Zorro, not its assigned name) is kept: the name filter is off (LISTENER_NAME_FILTER)
+    assert st["reasons"] == {"kept": 6, "rating": 1, "skipped": 1, "check_second_person": 1, "length": 1}, st
     # 13 B names = 1.25 x (4, 3, 3) seeds per level, one call per level, its 3rd persona in the third person
     assert st["personas"] == {"kept": 10, "third_person": 3}, st["personas"]
     assert sum(sum(c.values()) for c in st["levels"].values()) == 10 and set(st["levels"]) == set(sb.LISTENER_LEVELS)
@@ -780,7 +780,7 @@ try:
         k_ = int(seed_of[name_].rsplit("_", 1)[1])
         assert cat_ == "listener_vent" and level_ == lv8[k_] and name_.startswith("vent_"), (level_, k_)
         # kept exactly as the writer wrote it at the row's level (OPENVARY: the name mid-brief)
-        assert pa_ == _fake_brief(an, lo_of[level_], "", k_ == 9), (pa_, level_)
+        assert pa_ == _fake_brief("Zorro" if k_ == 1 else an, lo_of[level_], "", k_ == 9), (pa_, level_)
         assert pb_.startswith(f"You are {bn}, a retired")
         assert an != bn and ag in "mfu" and bg in "mfu" and ac and bc
         assert '"the old oak tree"' in gi[name_] and gi[name_].endswith("What did the caller lose at the park?")
@@ -790,7 +790,6 @@ try:
     sb.check_scenarios([s[:4] for s in scen], categories=None, max_words=sb.LISTENER_MAX_WORDS)
     rej = {r["seed"]: r["reason"] for r in map(json.loads, open(os.path.join(p0, "rejected.jsonl")))}
     assert rej == {
-        "ed_hit_1": "name_not_used",
         "ed_hit_3": "rating",
         "ed_hit_5": "skipped",
         "ed_hit_7": "check_second_person",
@@ -803,6 +802,20 @@ try:
         assert any(f"{blo} to {bhi} words in all" in u for u in pusers8), lv
     effort = {w: {e for w2, _, e, _ in seen8 if w2 == w} for w in ("write", "rate", "persona", "prate")}
     assert len(wusers8) == 10 and len(pusers8) == 3, (len(wusers8), len(pusers8))
+    # names for other people (a third person was "Maya" in 12% of vent briefs): LISTENER_OTHER_NAMES per writer
+    # prompt, distinct, never an A or B name of the part, recorded in provenance; across seeds they vary
+    a8 = {re.search(r"A is called (\S+?) \(", u).group(1) for u in wusers8}
+    b8 = {n for u in pusers8 for n in re.findall(r"persona \d+: (\S+) \(", u)}
+    oth8 = []
+    for u in wusers8:
+        m = re.search(r"takes one of these names: (.*?)\.\n", u)
+        assert m, "writer prompt without names for other people"
+        o = re.findall(r"(\S+) \((?:a man|a woman|any gender)\)", m.group(1))
+        assert len(o) == len(set(o)) == sb.LISTENER_OTHER_NAMES and not set(o) & (a8 | b8), (o, a8, b8)
+        oth8 += o
+    assert len(set(oth8)) >= 0.8 * len(oth8), oth8
+    prov_o = [r["other_names"] for r in map(json.loads, open(os.path.join(p0, "provenance.jsonl")))]
+    assert prov_o and all(len(x) == sb.LISTENER_OTHER_NAMES and set(x) <= set(oth8) for x in prov_o), prov_o
     assert effort == {"write": {"medium"}, "rate": {"high"}, "persona": {"medium"}, "prate": {"high"}}, effort
     assert {n for _, n, _, _ in seen8} == {1} and not any(f for *_, f in seen8), "system message or schema sent"
     n_calls = len(seen8)
@@ -816,14 +829,10 @@ try:
                    for s in _rd(mut, "scenarios.json")), "mutant should keep the over-long brief"  # fmt: skip
     finally:
         sb.listener_length_ok = orig_len
-    # mutant: no name check -> the scenario with another name is kept
-    orig_uses = sb.listener_uses_name
-    sb.listener_uses_name = lambda *a: True
-    try:
-        mut = _listener_run(lt, 0, 10)
-        assert any("Zorro" in s[2] for s in _rd(mut, "scenarios.json")), "mutant should keep Zorro"
-    finally:
-        sb.listener_uses_name = orig_uses
+    # the name is recorded, not filtered: provenance says whether A's brief uses its assigned name
+    prov8 = {r["seed"]: r for r in map(json.loads, open(os.path.join(p0, "provenance.jsonl")))}
+    assert prov8["ed_hit_1"]["uses_name"] is False, prov8["ed_hit_1"]
+    assert all(r["uses_name"] for k, r in prov8.items() if k != "ed_hit_1"), prov8
     # B personas of 6 words (the minimal level asks for 6 to 14) are kept: a real pool job had asserted on a 7-word
     # one against check_scenarios' default floor of 8 after its LLM calls. CAN FAIL: with that floor the run raises
     lt_s = tempfile.mkdtemp()
@@ -834,7 +843,7 @@ try:
         st_s = _rd(_listener_run(lt_s, 0, 10), "stats.json")
     finally:
         _ListenerClient.short = False
-    assert st_s["kept"] == 5 and st_s["b_words_median"] == 6 == sb.LISTENER_MIN_WORDS, st_s
+    assert st_s["kept"] == 6 and st_s["b_words_median"] == 6 == sb.LISTENER_MIN_WORDS, st_s
     p0 = _listener_run(lt, 0, 10)
     p1 = _listener_run(lt, 1, 10)
 finally:

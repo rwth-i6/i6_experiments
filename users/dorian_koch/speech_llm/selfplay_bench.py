@@ -2835,6 +2835,9 @@ LISTENER_B_HINT = {
 #: The floor of a listener scenario's prompts: the minimal level asks for B personas of 6 to 14 words, under
 #: check_scenarios' default 8.
 LISTENER_MIN_WORDS = min(v[4] for v in LISTENER_LEVELS.values())
+#: Drop a scenario whose A brief lacks A's assigned name. Off: it dropped 19% of the seeds, mostly at the general
+#: level, whose briefs often name nobody; provenance.jsonl records ``uses_name`` instead.
+LISTENER_NAME_FILTER = False
 LISTENER_WRITE = """Write the brief for A, one side of a one-minute spoken conversation (a phone call or a chat). The \
 other side, B, only gets this generic prompt and knows nothing about A: "{b}"
 
@@ -2846,7 +2849,7 @@ A is called {name}{name_rule}; A's brief uses that name, worded and placed as yo
 open), {lo} to {hi} words, speaking to A as "you": {holds}. A job, age or home town only where the situation needs \
 one, and not the usual graphic designer or software developer. No lines to say, no outcome. Everyday and safe: no \
 medical, legal or financial questions (no money, debt, rent or loans), nothing sexual, no alcohol or drugs, no injury \
-or illness, no custody, crisis, self-harm or abuse. Change names and places from the seed.
+or illness, no custody, crisis, self-harm or abuse. Change names and places from the seed{others_rule}.
 
 Answer with JSON only: {{"skip": false, "title": "3-6 words", "A": "...", "details": ["{details} copied \
 word for word from A's brief that B can only know by listening"], "check": "a question to ask B after the call about \
@@ -2855,6 +2858,10 @@ the details"}} (skip true if the seed cannot become a \
 pleasant, safe everyday conversation)."""
 #: ``{name_rule}`` in ``LISTENER_WRITE``: A's assigned name and gender
 LISTENER_NAME_RULE = (" (A is {sex}; use no other name for A)", " (use no other name for A)")
+#: ``{others_rule}`` in ``LISTENER_WRITE``: names for anyone else the brief mentions, drawn per seed from the name pool
+#: (without them the writer named a third person "Maya" in 12% of vent briefs)
+LISTENER_OTHERS_RULE = "; anyone else A mentions by name takes one of these names: {names}"
+LISTENER_OTHER_NAMES = 3
 LISTENER_SEX = {"m": "a man", "f": "a woman", "u": "any gender"}
 LISTENER_KINDS = {
     "vent": "Kind: vent. A wants to get something that happened off their chest and feel heard, not be lectured.",
@@ -3184,7 +3191,7 @@ class SelfPlayListenerPool(Job):
     from its cache: (1) A's brief + details + check question per seed (``LISTENER_WRITE``, reasoning medium) and
     ``LISTENER_PERSONAS_PER_CALL`` B personas per call, blind to A (``LISTENER_PERSONA_WRITE``, medium); (2) two
     ratings per brief (``LISTENER_RATE``, high) and one per persona (``LISTENER_PERSONA_RATE``, high). A scenario is kept
-    if A's brief uses its name (``listener_uses_name``), both ratings pass (``listener_rating_ok``), the level's number
+    if both ratings pass (``listener_rating_ok``), the level's number
     of details are in A's brief and the check question is in the third person, A's brief fits its level
     (``listener_length_ok``) and is not near spj2; each gets its own kept persona of the kind and level (seeded order). B's prompt is the persona as written, A's the brief: ``pool.json`` declares
     ``minimal_prefix: false`` so ``SelfPlayTrainScenarioMix`` prepends nothing.
@@ -3221,7 +3228,8 @@ class SelfPlayListenerPool(Job):
         rules = [LISTENER_B_HINT, LISTENER_WRITE, LISTENER_NAME_RULE, LISTENER_SEX, LISTENER_KINDS, LISTENER_RATE,
                  LISTENER_CRIT, LISTENER_STYLE, LISTENER_ROLE, LISTENER_PERSONA_WRITE, LISTENER_PERSONA_RATE,
                  LISTENER_PERSONA_QS, LISTENER_PERSONAS_PER_CALL, LISTENER_THIRD_PERSON, LISTENER_GRADER_INFO,
-                 sorted(_LISTENER_STOP), LISTENER_MAX_WORDS, LISTENER_PERSONA_MAX_WORDS, LISTENER_LEVELS]  # fmt: skip
+                 sorted(_LISTENER_STOP), LISTENER_MAX_WORDS, LISTENER_PERSONA_MAX_WORDS, LISTENER_LEVELS,
+                 LISTENER_NAME_FILTER, LISTENER_OTHERS_RULE, LISTENER_OTHER_NAMES]  # fmt: skip
         return super(SelfPlayListenerPool, cls).hash(
             {
                 **parsed_args,
@@ -3262,19 +3270,39 @@ class SelfPlayListenerPool(Job):
             b_names[lv], k = bs[k : k + n_b[lv]], k + n_b[lv]
         return [tuple(a) for a, _ in pairs[: len(chunk)]], b_names
 
-    def write_calls(self, chunk: list[dict], a_names: list, b_names: dict) -> list[dict]:
-        """Phase 1: one writer call per seed at its level, then the persona calls per level."""
+    def other_names(self, chunk: list[dict], pool: dict, a_names: list, b_names: dict) -> list[list]:
+        """Per seed ``LISTENER_OTHER_NAMES`` names ``(name, gender, country)`` for other people in A's brief: uniform
+        country then name (as ``draw_name_pairs``), distinct within a seed, never one of the part's A or B names."""
+        rng, ccs = self._rng(5), sorted(pool)
+        taken = {a[0] for a in a_names} | {b[0] for bs in b_names.values() for b in bs}
+        out = []
+        for _ in chunk:
+            got: list = []
+            while len(got) < LISTENER_OTHER_NAMES:
+                cc = ccs[int(rng.integers(len(ccs)))]
+                name, g = pool[cc][int(rng.integers(len(pool[cc])))]
+                if name not in taken and name not in {x[0] for x in got}:
+                    got.append((name, g, cc))
+            out.append(got)
+        return out
+
+    def write_calls(self, chunk: list[dict], a_names: list, b_names: dict, others: list) -> list[dict]:
+        """Phase 1: one writer call per seed at its level (``others``: names for other people), then the persona calls
+        per level."""
         rng = self._rng(1)
         out = []
-        for s, (name, g, _), lv in zip(chunk, a_names, self.levels(len(chunk))):
+        for s, (name, g, _), lv, oth in zip(chunk, a_names, self.levels(len(chunk)), others):
+            others_rule = LISTENER_OTHERS_RULE.format(
+                names=", ".join(f"{n} ({LISTENER_SEX.get(og, 'any gender')})" for n, og, _ in oth)
+            )
             lo, hi, holds, (_, details) = LISTENER_LEVELS[lv][:4]
             sex = LISTENER_SEX.get(g) if g in ("m", "f") else None
             rule = LISTENER_NAME_RULE[0].format(sex=sex) if sex else LISTENER_NAME_RULE[1]
             user = LISTENER_WRITE.format(b=LISTENER_B_HINT[self.kind], seed=listener_seed_text(s),
                                          kind=LISTENER_KINDS[self.kind], name=name, name_rule=rule, lo=lo, hi=hi,
-                                         holds=holds, details=details)  # fmt: skip
+                                         holds=holds, details=details, others_rule=others_rule)  # fmt: skip
             out.append({"user": user, "seed": int(rng.integers(2**31)), "reasoning_effort": "medium", "expect": "A",
-                        "level": lv})  # fmt: skip
+                        "level": lv, "others": [list(x) for x in oth]})  # fmt: skip
         per = LISTENER_PERSONAS_PER_CALL
         for lv, names in b_names.items():
             blo, bhi, bholds = LISTENER_LEVELS[lv][4:]
@@ -3350,7 +3378,7 @@ class SelfPlayListenerPool(Job):
                 reason = "not_written"
             elif w.get("skip") or not isinstance(w.get("A"), str):
                 reason = "skipped"
-            elif not listener_uses_name(brief, a_names[i][0]):
+            elif LISTENER_NAME_FILTER and not listener_uses_name(brief, a_names[i][0]):
                 reason = "name_not_used"
             elif any(r is None for r in rs):
                 reason = "not_rated"
@@ -3372,7 +3400,9 @@ class SelfPlayListenerPool(Job):
             by_level[lv][reason or "kept"] += 1
             flaws = [f for r in rs if isinstance(r, dict) for f in (r.get("flaws") or []) if isinstance(f, str)]
             prov = {"scenario": name, "seed": s["id"], "src": s["src"], "part": self.part, "level": lv,
-                    "title": w.get("title"), "details": details, "check": check, "flaws": flaws}  # fmt: skip
+                    "title": w.get("title"), "details": details, "check": check, "flaws": flaws,
+                    "uses_name": listener_uses_name(brief, a_names[i][0]),
+                    "other_names": [o[0] for o in wcalls[i]["others"]]}  # fmt: skip
             if reason:
                 rejected.append({**prov, "reason": reason, "prompt_a": brief})
                 continue
@@ -3399,7 +3429,7 @@ class SelfPlayListenerPool(Job):
         a_names, b_names = self.plan(chunk, pool)
         tag = f"sp-pool:{self.category}:p{self.part}"
         gen = dict(system=None, schema=None, parse=_reply_object, concurrency=128)
-        wcalls = self.write_calls(chunk, a_names, b_names)
+        wcalls = self.write_calls(chunk, a_names, b_names, self.other_names(chunk, pool, a_names, b_names))
         print(f"[{tag}] {len(chunk)} seeds, {len(wcalls)} write calls ({self.llm_name})", flush=True)
         wouts = generate_scenario_batches(self.llm_name, self.temperature, wcalls, tag=f"{tag}:write",
                                           cache_path=os.path.abspath("write.jsonl"), **gen)  # fmt: skip
