@@ -353,9 +353,12 @@ def scenario_digest(name: str) -> str:
     return hashlib.sha256(json.dumps(SPJ2_SCENARIOS[name]).encode()).hexdigest()[:16]
 
 
-def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES, max_words: int = 45) -> None:
+def check_scenarios(
+    scenarios: list, categories: tuple | None = SPJ2_CATEGORIES, max_words: int = 45, min_words: int = 8
+) -> None:
     """Names unique, categories among ``categories`` (None: any), each side's prompt short enough for the self-play
-    prompt budget (``max_words``: 45 for the spj2 formats, ``SP_IF_MAX_WORDS`` for the question lists)."""
+    prompt budget (``max_words``: 45 for the spj2 formats, ``SP_IF_MAX_WORDS`` for the question lists) and at least
+    ``min_words`` (``LISTENER_MIN_WORDS`` for the listener pools)."""
     names = [s[1] for s in scenarios]
     assert len(set(names)) == len(names), "scenario names must be unique"
     if categories is not None:
@@ -363,7 +366,7 @@ def check_scenarios(scenarios: list, categories: tuple | None = SPJ2_CATEGORIES,
     for cat, name, pa, pb in scenarios:
         for p in (pa, pb):
             # the worker's KV context is conversation + 256 frames; voice 50 + 12 silence + the text tokens
-            assert 8 <= len(p.split()) <= max_words, (name, len(p.split()))
+            assert min_words <= len(p.split()) <= max_words, (name, len(p.split()))
 
 
 def scenario_rows(scenarios: list, voices: list[dict], *, replicates: int, seed: int, minimal: str) -> list[dict]:
@@ -2829,6 +2832,9 @@ LISTENER_B_HINT = {
     "advice": "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
     "curious": "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
 }
+#: The floor of a listener scenario's prompts: the minimal level asks for B personas of 6 to 14 words, under
+#: check_scenarios' default 8.
+LISTENER_MIN_WORDS = min(v[4] for v in LISTENER_LEVELS.values())
 LISTENER_WRITE = """Write the brief for A, one side of a one-minute spoken conversation (a phone call or a chat). The \
 other side, B, only gets this generic prompt and knows nothing about A: "{b}"
 
@@ -3408,7 +3414,8 @@ class SelfPlayListenerPool(Job):
         if rfail > 0.05 * max(1, len(rcalls)):
             raise RuntimeError(f"{rfail}/{len(rcalls)} rate calls failed")
         kept, rejected, stats = self.assemble(chunk, a_names, wcalls, wouts, rcalls, routs)
-        check_scenarios([k[0][:4] for k in kept], categories=None, max_words=LISTENER_MAX_WORDS)
+        check_scenarios([k[0][:4] for k in kept], categories=None, max_words=LISTENER_MAX_WORDS,
+                        min_words=LISTENER_MIN_WORDS)  # fmt: skip
         lo = self.part * self.n_seeds
         stats.update({"seeds_available": len(all_seeds), "seed_range": [lo, lo + self.n_seeds],
                       "write_calls": len(wcalls), "failed_write_calls": wfail, "rate_calls": len(rcalls),

@@ -62,6 +62,7 @@ Run from the setup root (~1 min, no GPU):
 import collections
 import json
 import re
+import shutil
 import os
 import sys
 
@@ -691,7 +692,9 @@ class _ListenerClient:
     detailed one at any level), using the assigned name (``WRONGNAME``: another; ``OPENVARY``: mid-brief, no "Your
     name is" opening), copies ``BADRATE``, skips ``SKIPME``, one detail below the detailed level, asks a second-person
     check for ``YOUCHECK``; rater: safe 3 for ``BADRATE``; personas: named, the 3rd of each call in the third person;
-    persona rater: all true."""
+    persona rater: all true. ``short``: every persona 6 words, the minimal level's floor."""
+
+    short = False
 
     def __init__(self, **_):
         self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=self.create))
@@ -719,7 +722,8 @@ class _ListenerClient:
             body = {c: 5 for c in sb.LISTENER_CRIT} | {"safe": 3 if "BADRATE" in user else 5, "flaws": []}
         elif what == "persona":
             names = re.findall(r"persona \d+: (\S+) \(", user)
-            body = {"personas": [f"She is {n}, a baker who talks a lot." if j == 2 else
+            body = {"personas": [f"You are {n}, a quiet baker." if self.short else
+                                 f"She is {n}, a baker who talks a lot." if j == 2 else
                                  f"You are {n}, a retired bus driver who talks slowly and warmly and likes a laugh."
                                  for j, n in enumerate(names)]}  # fmt: skip
         else:
@@ -820,6 +824,17 @@ try:
         assert any("Zorro" in s[2] for s in _rd(mut, "scenarios.json")), "mutant should keep Zorro"
     finally:
         sb.listener_uses_name = orig_uses
+    # B personas of 6 words (the minimal level asks for 6 to 14) are kept: a real pool job had asserted on a 7-word
+    # one against check_scenarios' default floor of 8 after its LLM calls. CAN FAIL: with that floor the run raises
+    lt_s = tempfile.mkdtemp()
+    for f_ in ("seeds.json", "names.json"):
+        shutil.copy(os.path.join(lt, f_), lt_s)
+    _ListenerClient.short = True
+    try:
+        st_s = _rd(_listener_run(lt_s, 0, 10), "stats.json")
+    finally:
+        _ListenerClient.short = False
+    assert st_s["kept"] == 5 and st_s["b_words_median"] == 6 == sb.LISTENER_MIN_WORDS, st_s
     p0 = _listener_run(lt, 0, 10)
     p1 = _listener_run(lt, 1, 10)
 finally:
