@@ -37,7 +37,10 @@ def check_sinks(d):
     assert "refused" in out, out
     run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", "--unsinked")
     out = run(*base, "add", "--tag", arm, "--why", "w", rc=2)  # the bare arm name: no tag equals it
-    assert "refused" in out and f"benchmark/llm_judge/n1000/{arm}" in out and "*...*" in out, out
+    assert "refused" in out and f"benchmark/llm_judge/n1000/{arm}" in out and f"--tag '*{arm}*'" in out, out
+    assert "matches 2 tag(s)" in out and "restart" not in out, out  # the typo case, not the no-sink causes
+    out = run(*base, "add", "--tag", "mimi_aug_probe/*", "--why", "w", rc=2)
+    assert "no known tag contains it" in out and "--unsinked" in out and "SINK_KINDS" in out, out
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--why", "w")
     assert f"fdb_{arm}" in out and "not awaited" in out, f"the arm's MFDB was not listed:\n{out}"
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--tag", f"fdb_{arm}", "--why", "w")

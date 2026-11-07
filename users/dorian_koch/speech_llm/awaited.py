@@ -116,6 +116,31 @@ def near_tags(pattern: str, known, n: int = 3) -> list[str]:
     return sorted(k for k in known if piece and piece in k)[:n]
 
 
+def refusal(dead: list[str], known: set, written: str) -> str:
+    """The refusal for patterns that match no known tag: per pattern, either the likely typo (a piece of a tag given as
+    if it were the whole tag) with the corrected ``--tag``, or the causes when nothing known even contains it."""
+    out = ["refused: nothing was added, because these --tag patterns match no result tag, so the item could never "
+           "turn READY. A --tag must match a WHOLE tag as read_results.py prints it (fnmatch: * = anything)."]  # fmt: skip
+    for p in dead:
+        near = near_tags(p, known, n=10**9)
+        if near:
+            fix = "*" + p.strip("*") + "*"
+            n_fix = sum(fnmatch.fnmatchcase(k, fix) for k in known)
+            out.append(f"\n  --tag {p!r}: {len(near)} known tag(s) contain this text, but none IS it, e.g.")
+            out += [f"      {k}" for k in near[:3]]
+            out.append(f"    did you mean  --tag '{fix}'  (matches {n_fix} tag(s); narrow it if that is too many)")
+        else:
+            out.append(f"\n  --tag {p!r}: no known tag contains it (sink manifest of {written}). Either")
+            out.append(
+                "    - the eval is declared but the manager has not restarted since: restart it, or add --unsinked;"
+            )
+            out.append(
+                "    - its job kind writes no result: add the class to result_notify.SINK_KINDS or call notify_result;"
+            )
+            out.append("    - or the name is wrong: look it up with read_results.py <substring>.")
+    return "\n".join(out)
+
+
 def show(item: dict, records: dict) -> bool:
     got = landed(item, records)
     ready = len(got) >= item["expect"]
@@ -170,15 +195,7 @@ def main(argv=None) -> int:
             recs = read_results.load(args.log) if os.path.exists(args.log) else {}
             dead, missed = sink_check(args.tag, man["tags"], recs)
             if dead and not args.unsinked:
-                print(f"refused: no result sink produces {dead} (manifest of {man['written']}), so the item could "
-                      "never turn READY. Read the result by hand, add its class to result_notify.SINK_KINDS or call "
-                      "notify_result; --unsinked if it is declared but the manager has not been restarted yet",
-                      file=sys.stderr)  # fmt: skip
-                for p in dead:
-                    near = near_tags(p, set(man["tags"]) | set(recs))
-                    if near:
-                        print(f"  {p!r} matches whole tags (fnmatch); known tags containing it -- wrap it in '*...*' or "
-                              f"give the full tag: {', '.join(near)}", file=sys.stderr)  # fmt: skip
+                print(refusal(dead, set(man["tags"]) | set(recs), man["written"]), file=sys.stderr)
                 return 2
             if missed:
                 print(f"note: {len(missed)} sinked result(s) of the same arm are not awaited (add a --tag if the "
