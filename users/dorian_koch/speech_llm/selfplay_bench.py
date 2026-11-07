@@ -644,6 +644,31 @@ SP_REWARD_RUBRICS["sp_reward_v3_timing"] = {
 }
 
 
+#: ``sp_reward_v2_uptake`` (2026-11-07): ``sp_reward_v2`` with understanding scored on uptake. v2 counted only
+#: mistakes and gave 5 to an agent that took up nothing (MT v3's probe: understanding_a 5 on 72% of 2,304
+#: conversations, 1,250 of them with responsiveness <= 2), so it paid for ignoring the partner and its only signal
+#: punished repeating a detail back. Now 3 = nothing wrong but nothing taken up, 5 = proves it understood (several
+#: of the partner's specific details or questions taken up correctly); 4, 2 and 1 are my choice in between.
+#: ``moshi_family.rl.selfplay_reward.UPTAKE_MARKER`` is a phrase of this text: the start-up selftest then also
+#: requires the ``parallel`` conversation's understanding <= 3.
+_UPTAKE_UNDERSTANDING = """understanding_a: does A show that it understood what B said? Look at what A takes up from B -- repeats back, answers or builds on -- of the specific things B said (a name, number, date, place, item, request or question), and at every mistake in it: a misheard or misremembered detail (calling B by a wrong name, repeating a wrong number, date, place or item, confirming something B never said), or answering a question B did not ask. A mistake counts even when B corrects it afterwards.
+understanding_b: the same for B: does B show that it understood what A said?
+  5 = proves it understood: correctly takes up several specific details or questions of the other, and gets nothing wrong. 4 = correctly takes up at least one specific detail or question of the other and gets nothing wrong (or one small slip it corrects itself before being corrected). 3 = gets nothing wrong but shows no understanding: takes up no specific detail or question of the other (generic replies, or only its own topic). 2 = one clear misunderstanding (wrong name, number or item, or a question answered as if it were a different one). 1 = several misunderstandings, or one that derails the conversation, or misunderstands or garbles most of what the other says, or (almost) no speech."""
+
+
+def _uptake_text(v2: str) -> str:
+    a = v2.index("understanding_a: does A get WRONG what B said?")
+    b = v2.index("\n\ncoherence: does the conversation make sense")
+    assert a < b and v2[a:b].count("understanding_b:") == 1, "sp_reward_v2's understanding block changed"
+    return v2[:a] + _UPTAKE_UNDERSTANDING + v2[b:]
+
+
+SP_REWARD_RUBRICS["sp_reward_v2_uptake"] = {
+    "metrics": SP_REWARD_RUBRICS["sp_reward_v2"]["metrics"],
+    "text": _uptake_text(SP_REWARD_RUBRICS["sp_reward_v2"]["text"]),
+}
+
+
 def rubric_text_metrics(name: str) -> tuple[str, tuple]:
     """``(text, metrics)`` of a benchmark (``SPJ2_RUBRICS``) or reward (``SP_REWARD_RUBRICS``) rubric."""
     if name in SPJ2_RUBRICS:
