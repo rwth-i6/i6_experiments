@@ -133,8 +133,9 @@ print(f"[ok] {'spread key is fail-safe':38s} -> None task -> falls back to prefe
 # A raw pin is a "-p" the job DECLARES in its own Task rqmt (discouraged, not portable).
 _raw = {"gpu": 1, "time": 8, "sbatch_args": ["-p", "c23g"]}
 expect("raw -p pin (legacy, declared)", _raw, "c23g", task=_FakeTask("job/raw", _raw))
-out = check_engine_limits({"gpu": 1, "time": 8, "sbatch_args": ["-x", "n23g0001"]}, None)
-assert out["sbatch_args"].count("-x") == 1, out["sbatch_args"]
+_own_x = {"gpu": 1, "time": 8, "sbatch_args": ["-x", "n23g0001"]}
+out = check_engine_limits(dict(_own_x), _FakeTask("job/own_x", _own_x))
+assert out["sbatch_args"].count("-x") == 1 and "n23g0001" in out["sbatch_args"], out["sbatch_args"]
 print(f"[ok] {'job-supplied -x preserved':38s} -> {' '.join(out['sbatch_args'])}")
 
 # --- unsatisfiable requirements must fail loudly, not silently mis-route -------------------------
@@ -200,7 +201,12 @@ _hist = {"gpu": 1, "cpu": 4, "mem": 48, "time": 8, "sbatch_args": ["-p", "c25g",
 _job = _FakeTask("work/.../SpeechInference.abc", {"gpu": 1, "cpu": 4, "mem": 48, "time": 8})
 _out = check_engine_limits(dict(_hist), _job)["sbatch_args"]
 assert _out.count("-p") == 1 and _out[_out.index("-p") + 1] == "c23g", f"history -p kept: {_out}"
-print(f"[ok] {'resubmission is routed afresh':38s} -> {' '.join(_out)}")
+# ... and so are its old account and node exclusion: a node added to BROKEN_NODES since must apply to the retry
+assert _out.count("-A") == 1 and _out[_out.index("-A") + 1] == ns["GPU_ACCOUNT"], f"history -A kept: {_out}"
+assert _out.count("-x") == 1 and _out[_out.index("-x") + 1] == ",".join(BROKEN_NODES), f"history -x kept: {_out}"
+_cpu = check_engine_limits({"cpu": 4, "time": 8, "sbatch_args": ["-x", "n0"]}, _FakeTask("w/Cpu.abc", {"cpu": 4}))
+assert _cpu["sbatch_args"].count("-x") == 1 and "n0" not in _cpu["sbatch_args"], _cpu["sbatch_args"]
+print(f"[ok] {'resubmission is routed afresh':38s} -> {' '.join(_out)} (old -p/-A/-x dropped)")
 _decl = dict(_hist, sbatch_args=["-p", "c25g"])
 _out = check_engine_limits(dict(_hist), _FakeTask("work/.../X.abc", _decl))["sbatch_args"]
 assert _out.count("-p") == 1 and _out[_out.index("-p") + 1] == "c25g", f"declared -p lost: {_out}"
