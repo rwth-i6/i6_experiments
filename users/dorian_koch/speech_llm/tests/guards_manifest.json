@@ -434,6 +434,9 @@
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_rqmt_not_hashed.py": {
   "env": "setup"
  },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_run_dir_redo.py": {
+  "env": "setup"
+ },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_save_schedule.py": {
   "env": "setup"
  },

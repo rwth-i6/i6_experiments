@@ -109,7 +109,14 @@ def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: i
 
 
 def prepare_run_dir(run_dir: str) -> None:
-    """Move aside a pre-existing, non-empty run_dir so a re-run starts clean."""
+    """Move aside a pre-existing, non-empty run_dir so a re-run starts clean. Refuses one holding checkpoints: ``run``
+    resumes from them, and moving them restarts the run from step 0 under the same hash."""
+    ckpt = os.path.join(run_dir, "checkpoints")
+    if os.path.isdir(ckpt) and os.listdir(ckpt):
+        raise RuntimeError(
+            f"{run_dir} holds checkpoints ({sorted(os.listdir(ckpt))[-1]}, ...): refusing to move it aside. To restart "
+            f"the run from scratch, move the run_dir away by hand first."
+        )
     if os.path.exists(run_dir) and os.listdir(run_dir):
         print(f"Warning: run_dir {run_dir} already exists and is not empty.")
         new_dir = os.path.join(os.getcwd(), "moshi_finetune_old_runs")
