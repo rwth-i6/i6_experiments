@@ -73,6 +73,34 @@ def check_duration_column_and_offset_fallback():
     print("[ok] durations from the duration column, and from arrow offsets, agree")
 
 
+def check_mixed_wav_layouts_are_refused():
+    """WAV rows are measured through row 0's header: a row at another sample rate must raise, not be mis-sized."""
+    from datasets import Dataset
+
+    def wav(seconds, sr):
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sr)
+            w.writeframes(np.zeros(int(seconds * sr), dtype="<i2").tobytes())
+        return buf.getvalue()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "work", "SomeJob.mixed", "output", "dataset")
+        rows = [wav(3.0, SR), wav(4.0, SR), wav(5.0, 16000)]
+        Dataset.from_dict(
+            {"id": ["0", "1", "2"], "audio_assistant": [{"bytes": b, "path": f"{i}.wav"} for i, b in enumerate(rows)]}
+        ).save_to_disk(path)
+        try:
+            got = _durations(_table(path))
+        except ValueError as e:
+            assert "row 2" in str(e), e
+        else:
+            raise AssertionError(f"a 16 kHz row among 24 kHz rows was sized through row 0's header: {got}")
+    print("[ok] WAV rows with another layout than row 0 are refused (seeded sample)")
+
+
 def check_flac_rows_fall_back_to_headers():
     """FLAC rows (no ``duration`` column): the WAV byte-length arithmetic would be wrong, read headers."""
     import soundfile as sf
@@ -223,6 +251,7 @@ def check_provenance_is_not_hashed():
 
 if __name__ == "__main__":
     check_duration_column_and_offset_fallback()
+    check_mixed_wav_layouts_are_refused()
     check_flac_rows_fall_back_to_headers()
     check_epoch_arithmetic_is_per_corpus()
     check_no_slack_rows_are_counted()

@@ -67,9 +67,23 @@ def _durations(table) -> "np.ndarray | None":
                 info = sf.info(io.BytesIO(field[j].as_py()))
                 out.append(info.frames / info.samplerate)
         return np.asarray(out, dtype="float64")
-    with wave.open(io.BytesIO(raw)) as w:
-        sr, ch, sw, frames = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()
-    header = len(raw) - frames * ch * sw  # WAV headers are not a fixed 44 bytes
+
+    def layout(b: bytes) -> tuple:
+        """(sample rate, channels, sample width, header bytes): WAV headers are not a fixed 44 bytes."""
+        with wave.open(io.BytesIO(b)) as w:
+            sr, ch, sw, frames = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()
+        return sr, ch, sw, len(b) - frames * ch * sw
+
+    # every row's length is read through row 0's layout: check a seeded sample against it
+    sr, ch, sw, header = layout(raw)
+    sample = np.random.default_rng(0).choice(len(col), size=min(len(col), 64), replace=False)
+    for i in sorted(int(i) for i in sample):
+        got = layout(col[i].as_py()["bytes"])
+        if got != (sr, ch, sw, header):
+            raise ValueError(
+                f"WAV row {i} has (rate, channels, width, header) {got}, row 0 {(sr, ch, sw, header)}: durations "
+                f"from byte lengths would be wrong; add a duration column"
+            )
     lens = []
     for chunk in col.chunks if col.num_chunks else [col]:
         lens.append(np.asarray(pc.binary_length(chunk.field("bytes")), dtype="float64"))
