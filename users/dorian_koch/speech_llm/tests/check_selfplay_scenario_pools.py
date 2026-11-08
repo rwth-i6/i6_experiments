@@ -25,7 +25,8 @@ name-census list, uniform country then uniform name) and mixes pools by weight (
       judge notes from B's instructions. CAN FAIL: a mutant
       without the rule check keeps a scenario that lost a number
   [5e] v2 pool check: the real SelfPlayScenarioPool.run on a fake server; scenarios the gpt-oss check fails are
-      dropped before the per-level cap and listed in rejected.jsonl; check=False is another job
+      dropped before the per-level cap and listed in rejected.jsonl; check=False is another job; the v2 scene rules
+      judge each scenario, not each name (a name repeats across calls). CAN FAIL: verdicts keyed by name
   [6] mix: rows split by weight (largest remainder), a pool too small raises, a weight without a pool raises;
       [6b] the real mix job on tiny pools: rows per category, ``grader_info`` carried, unknown names blank
   [7] v1 untouched: the declared v1 jobs keep their hashes (``SelfPlayScenarioGen.99kKTwOy4fJc``,
@@ -535,6 +536,15 @@ assert sb.v2_scene_reject("task", _ok_a, _ok_b + " Answer briefly, in ten words 
 _ta = "Your name is Rosa. Teach that the knight moves two squares then one to the side, then check it."
 _tb = "Your name is Kwame. You know the knight moves two squares then one to the side."
 assert sb.v2_scene_reject("teach_check", _ta, _tb) == "taught_in_learner"
+# rules judge each scenario, not each name: an LLM name repeats across calls, and the first copy (kept by the later
+# name dedup) must not inherit the verdict of a later passing copy. CAN FAIL: verdicts keyed by name
+_bad, _good = (
+    ("topic", "Ana", _ok_a + " Never reveal your salary.", _ok_b, "general"),
+    ("topic", "Ana", _ok_a, _ok_b, "general"),
+)
+for _order, _want in (((_bad, _good), [_good]), ((_good, _bad), [_good])):
+    _kept, _dr, _n = sb.split_v2_scene_rules("topic", list(_order))
+    assert _kept == _want and [d[0] for d in _dr] == [_bad] and _n == {"secret": 1}, (_order, _kept, _dr, _n)
 # held values: the rule and its parse
 _pa = "Your name is Priya. You work at a pharmacy. Find out which medicine and strength the customer means."
 _pb = "Your name is Leon. You want a refill of your allergy pills. They are cetirizine, 10 milligrams, but only say so if asked."

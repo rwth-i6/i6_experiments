@@ -1760,6 +1760,16 @@ def v2_scene_reject(category: str, prompt_a: str, prompt_b: str) -> str:
     return ""
 
 
+def split_v2_scene_rules(category: str, cands: list[tuple]) -> tuple[list, list, dict]:
+    """``cands`` -> (passing, ``(scenario, "rule: <why>")`` dropped, counts by reason), judged per scenario, not per
+    name: LLM names repeat across calls and dedup comes later."""
+    import collections
+
+    why = [v2_scene_reject(category, s[2], s[3]) for s in cands]
+    dropped = [(s, f"rule: {w}") for s, w in zip(cands, why) if w]
+    return [s for s, w in zip(cands, why) if not w], dropped, dict(collections.Counter(w for w in why if w))
+
+
 #: v2-only categories (2026-11-04), each a ``SelfPlayScenarioPool`` of its own: (definition, example). Kept apart from
 #: ``SP_TRAIN_CATEGORY_TEXT``, which v1's declared jobs read.
 SP_V2_CATEGORIES = {
@@ -2059,10 +2069,8 @@ class SelfPlayScenarioPool(Job):
         bad_values = collections.Counter(s[5] for s in cands if len(s) > 5 and s[5])
         dropped = [(s[:5], f"values: {s[5]}") for s in cands if len(s) > 5 and s[5]]
         cands = [tuple(s[:5]) for s in cands if not (len(s) > 5 and s[5])]
-        scene_why = {s[1]: v2_scene_reject(self.category, s[2], s[3]) for s in cands}
-        bad_scene = collections.Counter(w for w in scene_why.values() if w)
-        dropped += [(s, f"rule: {scene_why[s[1]]}") for s in cands if scene_why[s[1]]]
-        cands = [s for s in cands if not scene_why[s[1]]]
+        cands, rule_dropped, bad_scene = split_v2_scene_rules(self.category, cands)
+        dropped += rule_dropped
         flags = dict(require_you=True, reject_sentence_counts=True, latin_only=True)
         held = SPJ2_SCENARIOS[self.held_out]
         passed, rej = filter_train_scenarios(cands, held, per_cell=10**9, **flags)
