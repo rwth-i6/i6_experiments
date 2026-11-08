@@ -62,7 +62,20 @@ check(
 print("[2] the real sizing call, at JRE scale")
 #: 7,386 episode-hours, summed from the staged feed's own itunes:duration over all 2,753 items
 #: (2026-09-19). Was 5,500 from a ~2 h/episode guess.
-JRE_H = 7386.0
+TRACK = (SETUP / "recipe/speech_llm/full_duplex/sis_recipe/doriank/track_podcast.py").read_text()
+
+
+def _recipe_const(name):
+    """A module-level literal of the JRE recipe (read, not imported: the recipe needs the whole graph)."""
+    import ast
+
+    for n in ast.parse(TRACK).body:
+        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in n.targets):
+            return ast.literal_eval(n.value)
+    raise KeyError(f"track_podcast.py has no {name}")
+
+
+JRE_H = _recipe_const("JRE_EST_HOURS")
 n_sep = shards_for_hours(JRE_H, channel_mode="dialogue_sidon")
 n_gate = shards_for_hours(JRE_H, channel_mode="diarize_mask")
 check("JRE separating == 36 shards (matches the docstring)", n_sep == 36, f"got {n_sep}")
@@ -137,8 +150,10 @@ n_whole = shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole")
 # shards' own summary.json does not force a num_shards change (which would re-pack every episode).
 check("JRE whole-episode == 67 shards", n_whole == 67, f"got {n_whole}")
 check(
-    "...and the recipe's 6 h target gives 45",
-    shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole", target_runtime_hours=6.0) == 45,
+    "...and the recipe's 6 h target gives its pinned JRE_NUM_SHARDS (45)",
+    shards_for_hours(JRE_H, channel_mode="dialogue_sidon_whole", target_runtime_hours=6.0)
+    == _recipe_const("JRE_NUM_SHARDS")
+    == 45,
     f"got {shards_for_hours(JRE_H, channel_mode='dialogue_sidon_whole', target_runtime_hours=6.0)}",
 )
 whole_h = (JRE_H / n_whole) * EPISODE_SEC_PER_EPISODE_HOUR / 3600.0

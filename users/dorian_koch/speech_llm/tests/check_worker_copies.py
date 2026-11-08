@@ -33,12 +33,15 @@ SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_d
 MF = SETUP / "recipe" / "speech_llm" / "full_duplex" / "moshi_family"
 A, B = "podcast_duplex_main.py", "podcast_episode_main.py"
 OY, OC = "openyap_ingest_main.py", "openyap_common.py"
-FILES = (A, B, OY, OC)
+PI = "podcast_ingest_main.py"
+FILES = (A, B, OY, OC, PI)
 #: (file a, function in a, file b, function in b)
 AST_PAIRS = [
     (A, "ffmpeg_to_wav", B, "ffmpeg_to_wav"),
     (A, "download", B, "download"),
     (B, "_exclusive_spans", OC, "exclusive_spans"),
+    (PI, "next_part_index", A, "next_part_index"),
+    (PI, "next_part_index", B, "next_part_index"),
 ]
 NUMERIC_PAIRS = [(A, "xcorr", B, "xcorr"), (B, "xcorr", OY, "zero_lag_xcorr")]
 CONST_PAIRS = [(B, OY, "SPEAKER_REF_SEC"), (B, OY, "SPEAKER_REF_MIN_EXCLUSIVE_SEC")]
@@ -115,6 +118,7 @@ MUTATIONS = [
         "exclusive_spans",
     ),
     (OY, "SPEAKER_REF_SEC = 30.0\n", "SPEAKER_REF_SEC = 20.0\n", "the Open Yap clip length changes", "SPEAKER_REF_SEC"),
+    (A, "max(taken, default=-1) + 1", "len(taken)", "one part numbering counts parts", "next_part_index"),
 ]
 
 
