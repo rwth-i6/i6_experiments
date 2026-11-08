@@ -38,7 +38,7 @@ class FastButInaccurateWer(Job):
         total = 0
         num_lines = 0
         with uopen(self.ref, "rt") as ref_file, uopen(self.hyp, "rt") as hyp_file:
-            for ref_line, hyp_line in zip(ref_file, hyp_file):
+            for ref_line, hyp_line in zip(ref_file, hyp_file, strict=True):
                 assert isinstance(ref_line, str) and isinstance(hyp_line, str), (
                     "Both reference and hypothesis lines must be strings."
                 )

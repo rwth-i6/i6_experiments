@@ -273,16 +273,18 @@ def py():
     import unittest.mock
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext import ctc_lm_batched as _ctc_lm
 
-    ctc_lm_kwargs: Dict[str, Any] = {}
+    ctc_lm_calls: List[Dict[str, Any]] = []
     _orig_ctc_lm = _ctc_lm.ctc_recog_recomb_labelwise_prior_auto_scale_batched
 
     def _record_ctc_lm(**kwargs):
-        ctc_lm_kwargs.update(kwargs)
+        ctc_lm_calls.append(kwargs)
         return _orig_ctc_lm(**kwargs)
 
     with unittest.mock.patch.object(_ctc_lm, "ctc_recog_recomb_labelwise_prior_auto_scale_batched", _record_ctc_lm):
         winner_model = _train_winner(prefix)
-    assert ctc_lm_kwargs, "builder did not call ctc_recog_recomb_labelwise_prior_auto_scale_batched"
+    # every row below reuses this one call's task and model: a second call would make that choice ambiguous
+    assert len(ctc_lm_calls) == 1, f"expected one CTC+LM recog call from the builder, got {len(ctc_lm_calls)}"
+    ctc_lm_kwargs = ctc_lm_calls[0]
 
     # Plain CTC (no LM, no prior) for the result table, 2026-09-16.
     _ctc_only_recog_batched(
