@@ -325,6 +325,10 @@ class ResolveOverlayCheckpoint(Job):
 _MIN_SCRATCH_BYTES = 20 * 1024**3
 
 
+#: storage="hf" reply scratch, in the task's cwd (the job's work/ dir); packed into output/ at the end
+CLIP_SCRATCH = "clip_scratch"
+
+
 def _usable_scratch(path: str) -> bool:
     """True if ``path`` is disk-backed (not tmpfs/ramfs) and has room to stage a corpus."""
     try:
@@ -560,14 +564,11 @@ class SpeechInference(BackendInferenceMixin, Job):
             return 0
 
     def _progress_dir(self) -> str:
-        """Where clips are accumulating right now.
+        """Where clips are accumulating right now: under storage="hf" the scratch ``run`` packs at the end."""
+        from sisyphus import global_settings as gs
 
-        Under storage="hf" the worker writes into the scratch dir and only packs at the very end,
-        so counting output/ would report 0% for the whole run and then jump to 100% -- exactly the
-        "is it working or hung?" ambiguity the progress hooks exist to remove.
-        """
         if self.storage == "hf":
-            return os.path.join(self._sis_path(), "clip_scratch")
+            return os.path.join(self._sis_path(gs.JOB_WORK_DIR), CLIP_SCRATCH)
         return self.out_dir.get_path()
 
     def _shard_total(self) -> "int | None":
@@ -646,7 +647,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         # the job's durable output costs ~3 inodes instead of one per clip. The scratch lives beside
         # output/, so a crashed run leaves it behind for inspection rather than half-written output.
         final_dir = Path(self.out_dir.get())
-        out_dir = Path("clip_scratch").absolute() if self.storage == "hf" else final_dir
+        out_dir = Path(CLIP_SCRATCH).absolute() if self.storage == "hf" else final_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         final_dir.mkdir(parents=True, exist_ok=True)
 

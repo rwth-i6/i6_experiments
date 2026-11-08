@@ -151,6 +151,9 @@
   "env": "setup",
   "graph": true
  },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_inference_progress.py": {
+  "env": "setup"
+ },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_instruct_prompts.py": {
   "env": "setup"
  },
