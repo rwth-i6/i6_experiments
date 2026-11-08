@@ -6,7 +6,7 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 
-_WORD_MARK = "▁"  # word-start marker used by SentencePiece
+_WORD_MARK = chr(0x2581)  # word-start marker used by SentencePiece
 
 
 def path_to_token_onsets(path: List[int], blank: int) -> List[Tuple[int, int]]:
