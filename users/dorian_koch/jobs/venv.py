@@ -78,13 +78,15 @@ class CreateVenv(Job):
 
     def pack(self):
         env = self.out_env_path.get_path()
-        if sqsh_venv.is_packed(env):
-            return  # a resubmission after a successful pack
-        tree = os.path.realpath(env)
         packed = env + ".packed"
+        if not os.path.lexists(env) and sqsh_venv.is_packed(packed):
+            os.rename(packed, env)  # crashed mid-swap below: env is removed only after verify passed
+        if sqsh_venv.is_packed(env):
+            shutil.rmtree(env + ".tree", ignore_errors=True)  # left if the crash came after the swap
+            return
+        tree = os.path.realpath(env)
         if os.path.lexists(packed):
-            # env is not packed yet, so this is an earlier attempt that failed after packing (e.g. in verify);
-            # sqsh_venv.pack refuses a packed root, which made every rerun die with FileExistsError
+            # an earlier attempt failed after packing (e.g. in verify); sqsh_venv.pack refuses a packed root
             shutil.rmtree(packed)
         sqsh_venv.pack(tree, packed)
         # verify under a throwaway mount base, unmounted after: its squashfuse daemon would otherwise stay mounted on

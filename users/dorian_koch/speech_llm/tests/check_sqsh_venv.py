@@ -254,6 +254,28 @@ try:
     finally:
         Job._sis_setup_directory = real_setup
     check(not os.path.lexists(dangling), "job setup removes a dangling output/venv symlink")
+    # a crash between removing output/venv and renaming venv.packed onto it: the rerun finishes the swap
+    env3 = os.path.join(tmp2, "output3", "venv")
+    os.makedirs(env3)
+    sv.create_venv(env3, os.path.join(tmp2, "staging3"))
+    job.out_env_path = _P(env3)
+    real_rename = os.rename
+
+    def crash_on_swap(src, dst):
+        if src.endswith(".packed"):
+            raise OSError("killed mid-swap (test)")
+        real_rename(src, dst)
+
+    os.rename = crash_on_swap
+    try:
+        job.pack()
+        check(False, "CreateVenv.pack raises at the simulated mid-swap crash")
+    except OSError:
+        pass
+    finally:
+        os.rename = real_rename
+    job.pack()
+    check(sv.is_packed(env3) and not os.path.lexists(env3 + ".packed"), "the rerun finishes a crashed swap")
 finally:
     unmount_under(tmp2)
     shutil.rmtree(tmp2, ignore_errors=True)
