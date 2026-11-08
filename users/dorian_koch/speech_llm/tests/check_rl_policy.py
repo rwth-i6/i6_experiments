@@ -216,13 +216,15 @@ try:
 finally:
     runs.rl_policy_hparams = real
 check(len(sink) == 5, f"rl_policy_hparams -> {{}}: all 5 POLICY_LATEST builder checks fail ({len(sink)})")
-real_rule = runs.RULE_RL_ECHO_CER
+policies = mod(".doriank.policies")
+real_rule, real_known = runs.RULE_RL_ECHO_CER, policies.KNOWN_POLICIES
 runs.RULE_RL_ECHO_CER = "2099-01-01"
+policies.KNOWN_POLICIES = real_known | {"2099-01-01"}  # _policy_applies refuses unknown dates
 sink = []
 try:
     echo_checks(sink)
 finally:
-    runs.RULE_RL_ECHO_CER = real_rule
+    runs.RULE_RL_ECHO_CER, policies.KNOWN_POLICIES = real_rule, real_known
 check(
     sink == [sink[0]] and "POLICY_LATEST" in sink[0] if sink else False,
     f"RULE_RL_ECHO_CER moved past 10-16: the LATEST echo check fails ({len(sink)})",
