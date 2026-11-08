@@ -384,6 +384,9 @@
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_probe_rank_parallel.py": {
   "env": "setup"
  },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_probe_teardown.py": {
+  "env": "setup"
+ },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_pythonpath_prepend.py": {
   "env": "setup"
  },
@@ -613,6 +616,12 @@
   "env": "setup"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_answer_only_credit.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_worker_protocol.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_checkpoint_commit.py": {
   "env": "module"
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_asr_device.py": {

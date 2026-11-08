@@ -255,13 +255,14 @@ MF = Path(os.getcwd()) / "recipe" / "speech_llm" / "full_duplex" / "moshi_family
 bad = unpruned_launchers(MF)
 assert not bad, f"save_trainer_state without a following prune_optimizer_state: {bad}"
 # ...and the scan can fail: a copy of the RL launcher with its prune removed is reported.
+# (the RL launchers save through train_loop.commit_checkpoint, which prunes; the MoshiRAG launcher calls both itself)
 fake = Path(tempfile.mkdtemp(prefix="unpruned-")) / "moshi_family"
-(fake / "rl").mkdir(parents=True)
-rl_src = (MF / "rl" / "launcher.py").read_text()
+fake.mkdir(parents=True)
+rl_src = (MF / "moshirag_finetune_launcher.py").read_text()
 assert "prune_optimizer_state(out_dir" in rl_src
-(fake / "rl" / "launcher.py").write_text(rl_src.replace("prune_optimizer_state(out_dir", "pass  # (out_dir"))
+(fake / "moshirag_finetune_launcher.py").write_text(rl_src.replace("prune_optimizer_state(out_dir", "pass  # (out_dir"))
 assert unpruned_launchers(fake) == [
-    next(x for x in [f"rl/launcher.py:{rl_src.count(chr(10), 0, rl_src.index('save_trainer_state(ckpt_dir')) + 1}"])
+    f"moshirag_finetune_launcher.py:{rl_src.count(chr(10), 0, rl_src.index('save_trainer_state(ckpt_dir')) + 1}"
 ], unpruned_launchers(fake)
 print("[ok] every launcher prunes after saving its sidecar (and the scan reports one that does not)")
 
