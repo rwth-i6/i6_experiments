@@ -162,6 +162,16 @@ def show(item: dict, records: dict) -> bool:
     return ready
 
 
+def since_arg(text: str) -> str:
+    """``--since`` as the sink's ``YYYY-MM-DD HH:MM:SS`` (compared as text: "2026-11-7" would sort after "2026-11-10")."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.strptime(text.strip(), fmt))
+        except ValueError:
+            pass
+    raise argparse.ArgumentTypeError(f"not YYYY-MM-DD[ HH:MM[:SS]]: {text!r}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", default=DEFAULT_FILE)
@@ -173,7 +183,9 @@ def main(argv=None) -> int:
     a.add_argument("--expect", type=int, help="tags that must land (default: one per --tag)")
     a.add_argument("--why", required=True, help="what the result decides or answers")
     a.add_argument("--next", default="", help="what to do once it has landed")
-    a.add_argument("--since", help="count results produced from this time on (YYYY-MM-DD[ HH:MM]; default: now)")
+    a.add_argument(
+        "--since", type=since_arg, help="count results produced from this time on (YYYY-MM-DD[ HH:MM]; default: now)"
+    )
     a.add_argument(
         "--unsinked", action="store_true", help="accept patterns no sink produces yet (manager not restarted)"
     )
@@ -197,6 +209,11 @@ def main(argv=None) -> int:
             if dead and not args.unsinked:
                 print(refusal(dead, set(man["tags"]) | set(recs), man["written"]), file=sys.stderr)
                 return 2
+            over = sorted({k for k in set(man["tags"]) | set(recs) for p in args.tag if fnmatch.fnmatchcase(k, p)})
+            expect = args.expect or len(args.tag)
+            if len(over) > expect:
+                print(f"warning: the patterns match {len(over)} known tags but --expect is {expect}, so any {expect} "
+                      f"of them make the item READY; narrow the patterns or raise --expect: {', '.join(over[:8])}")  # fmt: skip
             if missed:
                 print(f"note: {len(missed)} sinked result(s) of the same arm are not awaited (add a --tag if the "
                       f"decision needs them): {', '.join(missed[:8])}")  # fmt: skip

@@ -2,7 +2,8 @@
 
 An awaited item that never turns READY is a result nobody reads; one that turns READY early is a read-out of numbers that
 are not all there. Both are checked on a temporary log, plus closing an item and the pattern count (``--expect``).
-``add`` against a sink manifest: a pattern no sink produces is refused (a Mimi probe item waited on a kind with no sink),
+``--since`` is parsed (a one-digit day compared as text sorted wrong); ``add`` warns when the patterns match more known
+tags than ``--expect`` (any of them would turn it READY). ``add`` against a sink manifest: a pattern no sink produces is refused (a Mimi probe item waited on a kind with no sink),
 and the same arm's sinked results no pattern covers are listed (a staleness item left out the arm's MFDB); a refused
 bare arm name (patterns match whole tags) is answered with the sinked tags containing it (MT v4's item, 2026-11-07).
 
@@ -44,7 +45,9 @@ def check_sinks(d):
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--why", "w")
     assert f"fdb_{arm}" in out and "not awaited" in out, f"the arm's MFDB was not listed:\n{out}"
     out = run(*base, "add", "--tag", f"benchmark/llm_judge/n1000/{arm}*", "--tag", f"fdb_{arm}", "--why", "w")
-    assert "not awaited" not in out, out
+    assert "not awaited" not in out and "warning" not in out, out
+    out = run(*base, "add", "--tag", f"*{arm}*", "--why", "w")  # 2 tags match, 1 expected
+    assert "match 2 known tags but --expect is 1" in out, f"an over-broad pattern was not flagged:\n{out}"
 
 
 def land(log, tag, acc, produced_at=None):
@@ -82,6 +85,19 @@ def main():
         assert "[3] waiting 0/1" in out, f"an old result made a fresh item READY:\n{out}"
         land(log, "benchmark/z/n1000/arm", 0.5, produced_at="2099-01-01 00:00:00")
         assert "[3] READY" in run(*base), "the new result does not make it READY"
+        # --since is parsed, not compared as typed: "2026-11-7" sorts after "2026-11-10" as text
+        run(*base, "add", "--tag", "benchmark/w/n1000/arm", "--why", "decides W", "--since", "2026-11-7")
+        assert awaited.items(aw)[4]["since"] == "2026-11-07 00:00:00", awaited.items(aw)[4]
+        land(log, "benchmark/w/n1000/arm", 0.5, produced_at="2026-11-10 08:00:00")
+        assert "[4] READY" in run(*base), "a result after a one-digit --since day did not count"
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                awaited.main([*base, "add", "--tag", "t", "--why", "w", "--since", "yesterday"])
+            except SystemExit as e:
+                assert e.code == 2
+            else:
+                raise AssertionError("an unparsable --since was accepted")
+        run(*base, "done", "4")
         # a torn line does not break every call; two adds with one id are both listed
         with open(aw, "a") as f:
             f.write(
