@@ -15,8 +15,9 @@ Two things are asserted here, and the second is the one that rots quietly:
      the step-ordered answer differs from the naive last-line one -- so a regression to reading the
      tail cannot pass.
 
-Since 2026-10-28 also: the line carries ``produced_at`` (the result's own mtime, so a sink attached after the fact
-sorts by when the result was made); ``read_results.py`` renders every record of the live ``RESULTS.jsonl`` (an
+Since 2026-10-28 also: the line carries ``produced_at`` (when the result was last written: for a run_dir the newest
+mtime in its tree, not the dir's own, so a sink attached after the fact sorts by when the result was made, and an
+awaited item added mid-run turns READY); a failed RESULTS.jsonl append fails the task; ``read_results.py`` renders every record of the live ``RESULTS.jsonl`` (an
 unknown shape is shown flagged, never as an empty cell); and with ``--graph`` (one config load, ~2 min) every result
 output of a ``SINK_KINDS`` class in the real graph has a sink -- ``attach_result_sinks`` exists because, by
 2026-10, only MFDB and MRQA still fed the log.
@@ -92,7 +93,16 @@ def check_run_dir_is_digested():
         os.makedirs(run_dir)
         _write(os.path.join(run_dir, "metrics.train.jsonl"), TRAIN_ROWS)
         _write(os.path.join(run_dir, "metrics.eval.jsonl"), EVAL_ROWS)
-        os.utime(run_dir, (1700000000, 1700000000))  # the run finished long before its sink fired
+        ckpt = os.path.join(run_dir, "checkpoints", "checkpoint_600")
+        os.makedirs(ckpt)
+        _write(os.path.join(ckpt, "model.safetensors"), [])
+        # the run finished (last checkpoint 1700050000) long before its sink fired; writing files into existing
+        # subdirectories never moved the run_dir's own mtime (1700000000)
+        for f in ("metrics.train.jsonl", "metrics.eval.jsonl"):
+            os.utime(os.path.join(run_dir, f), (1699990000, 1699990000))
+        os.utime(os.path.join(ckpt, "model.safetensors"), (1700050000, 1700050000))
+        for d in (ckpt, os.path.dirname(ckpt), run_dir):
+            os.utime(d, (1700000000, 1700000000))
         digest_path = os.path.join(tmp, "work", "SomeJob", "output", "result.json")
 
         # Job.__new__ intercepts construction (sisyphus), so drive the real run() unbound.
@@ -120,11 +130,23 @@ def check_run_dir_is_digested():
             "RESULTS.jsonl line does not carry the eval loss -- scanning it at session start would "
             "show that the arm finished and not how it went."
         )
-        want = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1700000000))
+        want = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1700050000))
         assert line["produced_at"] == want and line["at"] != want, (line["at"], line["produced_at"], want)
         text, ok = read_results.render(line)
         assert ok and "step 3" in text and "loss 1.5" in text, text
-    print("[ok] a run_dir digest carries both metrics files; RESULTS.jsonl gets the numbers and the result's own time")
+        # a failed central append must fail the task (retried), not finish a sink that never reaches the log
+        os.remove(os.path.join(tmp, "RESULTS.jsonl"))
+        os.makedirs(os.path.join(tmp, "RESULTS.jsonl"))
+        try:
+            ResultNotify.run(job)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("a failed RESULTS.jsonl append passed silently")
+    print(
+        "[ok] a run_dir digest carries both metrics files; RESULTS.jsonl gets the numbers and the newest file time "
+        "in the run_dir; a failed append raises"
+    )
 
 
 def check_reader_renders_the_live_log():

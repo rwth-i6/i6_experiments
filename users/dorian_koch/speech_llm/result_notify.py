@@ -68,7 +68,7 @@ class ResultNotify(Job):
             path = p.get()
             entry = {"path": path}
             try:
-                produced.append(os.path.getmtime(path))
+                produced.append(produced_time(path))
             except OSError:
                 pass
             try:
@@ -82,10 +82,7 @@ class ResultNotify(Job):
                 else:
                     entry["is_dir"] = os.path.isdir(path)
                     if os.path.isdir(path):
-                        # A training arm's only declared output is its run_dir, so the numbers that
-                        # say how the run WENT live in files inside it. Summarise them here or the
-                        # digest records a directory path and nothing else -- which is how a 600-step
-                        # arm could finish, fire its notify, and still tell you nothing.
+                        # a training arm's only output is its run_dir: summarise the metrics inside it
                         found = sorted(f for f in os.listdir(path) if f.startswith("metrics") and f.endswith(".jsonl"))
                         if found:
                             entry["metrics"] = {f: summarize_metrics_jsonl(os.path.join(path, f)) for f in found}
@@ -100,37 +97,39 @@ class ResultNotify(Job):
         with open(self.out_digest.get(), "w") as f:
             json.dump(digest, f, indent=2, default=str)
 
-        # Central append-only log at the setup root (cwd of the mini_task is the setup dir). One line per
-        # firing -> a single time-ordered place to scan. Best-effort; never fail the job on a log hiccup.
-        # Robust central-log path: derive the setup root from this job's own output path (mini_task
-        # cwd is not guaranteed to be the setup root).
-        _root = self.out_digest.get().split("/work/")[0]
-        try:
-            with open(os.path.join(_root, "RESULTS.jsonl"), "a") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "at": digest["finished_at"],
-                            "produced_at": digest.get("produced_at", digest["finished_at"]),
-                            "tag": self.tag,
-                            "note": self.note,
-                            "digest": self.out_digest.get(),
-                            # "metrics" before "preview"/"path": the central log is the thing that
-                            # gets SCANNED at session start, so a line saying only where a run_dir
-                            # lives reports that an arm finished and not how it went.
-                            "summary": {
-                                k: compact(v.get("content", v.get("metrics", v.get("preview", v.get("path")))))
-                                for k, v in digest["results"].items()
-                            },
-                        },
-                        default=str,
-                    )
-                    + "\n"
-                )
-        except Exception as e:
-            print(f"[result-notify] central-log append failed: {e}", flush=True)
+        # central append-only log at the setup root (derived from our own path: the mini_task's cwd may differ). A
+        # failed append raises, so the task is retried: a sink finished without its line would never turn READY.
+        root = self.out_digest.get().split("/work/")[0]
+        line = {
+            "at": digest["finished_at"],
+            "produced_at": digest.get("produced_at", digest["finished_at"]),
+            "tag": self.tag,
+            "note": self.note,
+            "digest": self.out_digest.get(),
+            # metrics before preview/path: the central log is what gets scanned
+            "summary": {
+                k: compact(v.get("content", v.get("metrics", v.get("preview", v.get("path")))))
+                for k, v in digest["results"].items()
+            },
+        }
+        with open(os.path.join(root, "RESULTS.jsonl"), "a") as f:
+            f.write(json.dumps(line, default=str) + "\n")
 
         print(f"[result-notify] {self.tag} -> {self.out_digest.get()} (+ RESULTS.jsonl)", flush=True)
+
+
+def produced_time(path: str) -> float:
+    """When ``path`` was last written: a file's mtime, or the newest mtime in a directory tree (a run_dir's own mtime
+    stops moving once its subdirectories exist, days before the run ends)."""
+    newest = os.path.getmtime(path)
+    if os.path.isdir(path):
+        for root, dirs, files in os.walk(path):
+            for name in dirs + files:
+                try:
+                    newest = max(newest, os.lstat(os.path.join(root, name)).st_mtime)
+                except OSError:  # pruned while we walk
+                    pass
+    return newest
 
 
 #: Scalars worth carrying into a digest, in the order a reader wants them. Anything else in the file
