@@ -177,8 +177,9 @@ class PodcastWindowContext(Job):
     Recomputes each window EXACTLY as ``PodcastCodesTrainData`` did -- the same ``select_windows``
     rule, the same seeded channel choice, the same frame-aligned bounds and onset-based word
     selection -- and keeps the ids present in the training corpus. Every training id must be
-    reproduced; one that is not means this job and the converter disagree, and a prompt would be
-    attached to the wrong audio, so that is an error, not a count.
+    reproduced with the training row's ``n_frames`` and assistant word count; anything else means this job and the
+    converter disagree (another ``window_select``, a jitter), and a prompt would be attached to the wrong audio, so
+    that is an error, not a count.
 
     ``assistant_label``: the words' own ``speaker`` field is the channel's EPISODE-level anchor and is
     wrong for about a quarter of dialogue rows, so the label is
@@ -229,7 +230,13 @@ class PodcastWindowContext(Job):
         import numpy as np
         from datasets import Dataset, load_from_disk
 
-        want_ids = set(load_from_disk(self.train_data.get_path()).select_columns(["id"])["id"])
+        import pyarrow.compute as pc
+
+        train = load_from_disk(self.train_data.get_path())
+        n_words = pc.list_value_length(train.data.column("alignments")).to_pylist()
+        want = {i: (int(f), int(w or 0)) for i, f, w in zip(train["id"], train["n_frames"], n_words)}
+        want_ids = set(want)
+        mismatched = []
         print(f"[context] {len(want_ids)} training ids to reproduce", flush=True)
         cols = [
             "item_id",
@@ -273,6 +280,8 @@ class PodcastWindowContext(Job):
                             return [w for w in ws if (w["start"] >= t0 or f0 == 0) and w["start"] < t1]
 
                         wa, wu = sel(words[ch]), sel(words[other])
+                        if (f1 - f0, len(wa)) != want[rid]:
+                            mismatched.append((rid, (f1 - f0, len(wa)), want[rid]))
                         if getattr(self, "label_rule", "per_channel") == "joint":
                             label_a, label_u = _joint_labels(wa, wu, turns)
                         else:
@@ -316,6 +325,11 @@ class PodcastWindowContext(Job):
                 f"{len(missing)} of {len(want_ids)} training ids were not reproduced (e.g. "
                 f"{sorted(missing)[:3]}): this job's window/channel rule differs from the converter's, "
                 "so prompts would be attached to the wrong windows."
+            )
+        if mismatched:
+            raise RuntimeError(
+                f"{len(mismatched)} of {len(want_ids)} windows differ from the training row in (n_frames, assistant "
+                f"words), e.g. {mismatched[:3]} (here, training): the window rule differs from the converter's"
             )
         n_nolabel = sum(r["assistant_label"] is None for r in rows)
         msg = f"[context] {len(rows)} windows ({getattr(self, 'label_rule', 'per_channel')} labels); {n_nolabel} without an assistant label"

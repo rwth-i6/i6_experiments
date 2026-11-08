@@ -6,7 +6,8 @@
   3. ``PodcastWindowContext`` reproduces EXACTLY the ids the real ``PodcastCodesTrainData`` wrote for a
      synthetic dialogue (window_select + seeded random channel), and each window's assistant text is
      the training row's alignment words. A context built with a different ``selection_seed`` must
-     FAIL (it would pick other channels) -- the join is not vacuous.
+     FAIL (it would pick other channels) -- the join is not vacuous. One built with another window rule that keeps
+     every id but moves the bounds (max_sec 50: same window count) must FAIL on (n_frames, assistant words).
   4. ``AttachPersonaPrompts`` (minimal level) writes ``context`` = the paper's Minimal prompt and the
      speaker's ``voice_codes``; with the voice missing it raises instead of shrinking the corpus.
   8. JOINT VOICE LABELS (2026-09-22). A dialogue whose quiet channel backchannels inside the other
@@ -132,7 +133,22 @@ try:
     raise AssertionError("a context built with another channel seed was accepted -- the join check is vacuous")
 except RuntimeError as e:
     assert "not reproduced" in str(e), e
-print(f"[3] window context reproduces all {len(train)} training ids and their assistant words; a wrong seed is refused")
+try:
+    run(
+        PodcastWindowContext(
+            train_data=tk.Path(os.path.join(tmp, "train")),
+            dialogue_shard_dirs=dlg,
+            window_select={**RULE, "max_sec": 50.0},
+        ),
+        "ctx_bounds",
+    )
+    raise AssertionError("a context with other window bounds but the same ids was accepted")
+except RuntimeError as e:
+    assert "differ from the training row" in str(e), e
+print(
+    f"[3] window context reproduces all {len(train)} training ids and their assistant words; a wrong seed or other "
+    "window bounds under the same ids are refused"
+)
 
 # ---- 4 ----
 vrows = [
