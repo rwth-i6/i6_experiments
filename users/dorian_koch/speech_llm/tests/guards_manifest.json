@@ -38,6 +38,9 @@
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_resume.py": {
   "env": "setup"
  },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_clarified_rubric.py": {
+  "env": "setup"
+ },
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_clip_codec.py": {
   "env": "setup"
  },

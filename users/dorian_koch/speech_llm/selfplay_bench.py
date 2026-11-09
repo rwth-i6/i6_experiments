@@ -669,6 +669,35 @@ SP_REWARD_RUBRICS["sp_reward_v2_uptake"] = {
 }
 
 
+#: ``*_clarified`` (2026-11-09): ``sp_reward_v2`` / ``sp_reward_v2_uptake`` with the cases a thinking judge kept
+#: re-deciding settled in the text (read from Qwen3.8-27B's reasoning on 16 training conversations): a misrecognised
+#: word vs. "calling B by a wrong name", whether an agent must say its own name, whether recognition garble counts as
+#: incoherence (and coherence 2 vs 3), self-contradiction as understanding or coherence, and the silent agent's 1 vs.
+#: "nothing wrong = 5". The 30-word cap on reasons is gone (the judge counted words one by one; the schema caps a reason
+#: at ``SPJ2_REASON_CHARS``). The rules are my choice; the scales themselves are unchanged.
+_SILENT = "An agent that says (almost) nothing gets 1 for its own adherence and its own understanding."
+_CLARIFIED_RULES = """An agent that says (almost) nothing gets 1 for its own adherence and its own understanding; this overrides every other rule below.
+
+Rules for unclear cases:
+- Recognition errors: a word that sounds like the right one ("Carolosa" for Carlos, "Dictor" for Victor) is a recognition error and nobody's mistake. A clearly different name, number, date or item ("Sarah" for Zoe, Tuesday for Thursday, three for six) is the speaking agent's own.
+- Names: not saying its own name is not a lapse; calling itself by a different name is.
+- Garbled speech: judge coherence on what the agents evidently meant; garbled words and fragments from recognition are not incoherence. Coherence 2 when most of the content makes no sense even allowing for recognition errors, 3 when the sensible content is the larger part.
+- Contradictions: an agent contradicting its own earlier statement lowers coherence, not understanding; a wrong account of what the other agent said lowers understanding."""
+_REASON_CAP = "Each reason is one sentence of at most 30 words:"
+_REASON_SHORT = "Each reason is one short sentence:"
+
+
+def _clarified_text(base: str) -> str:
+    assert base.count(_SILENT) == 1 and base.count(_REASON_CAP) == 1, "the base rubric's wording changed"
+    return base.replace(_SILENT, _CLARIFIED_RULES).replace(_REASON_CAP, _REASON_SHORT)
+
+
+for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
+    SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
+        "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
+        "text": _clarified_text(SP_REWARD_RUBRICS[_base]["text"]),
+    }
+
 def rubric_text_metrics(name: str) -> tuple[str, tuple]:
     """``(text, metrics)`` of a benchmark (``SPJ2_RUBRICS``) or reward (``SP_REWARD_RUBRICS``) rubric."""
     if name in SPJ2_RUBRICS:
