@@ -87,11 +87,13 @@ class FakeCore:
     def __init__(self, vi):
         self.voice_index = vi
         self.voices = []
+        self.steps = 0
 
     def begin_sync(self, voice, text_prompt):
         self.voices.append(voice)
 
     def step_pcm(self, chunk):
+        self.steps += 1
         return [(np.zeros(1920, np.float32), None)]
 
 
@@ -121,11 +123,16 @@ async def chat(td, vi, voice):
         msg = await ws.receive()
         assert msg.data == b"\x00", msg
         w = sphn.OpusStreamWriter(24000)
-        for _ in range(25):
+        # The server writes the recording + manifest line only for a session that fed frames to the core. Keep
+        # sending until it has stepped at least once: a fixed 0.5 s of audio closed before the first step on a
+        # loaded node (2026-11-09 full guard run: 3d failed, no manifest line, while 3a-3c passed).
+        for i in range(500):
             pkt = w.append_pcm(np.zeros(480, np.float32))
             if pkt:
                 await ws.send_bytes(b"\x01" + pkt)
             await asyncio.sleep(0.02)
+            if i >= 25 and core.steps:
+                break
         await ws.close()
         for _ in range(50):
             if server.sessions:
@@ -176,7 +183,7 @@ def main() -> int:
         )
         check(
             bool(lines) and lines[-1].get("voice") == want and lines[-1]["record"].get("voice_draw"),
-            "3d manifest line: voice + voice_draw",
+            f"3d manifest line: voice + voice_draw (core stepped {fc.steps}x)",
         )
         check(preview.get("voice") == want, "3e /api/voice_draw previews the same clip")
 
