@@ -140,8 +140,10 @@ def check_step_timing_present():
     print("PASS  step_seconds logged")
 
 
-def _run_slow(*, slow_data=0.0, slow_fwd=0.0, max_steps=2, grad_accum=2, log_every=1):
-    """Same toy, with a known sleep injected into exactly one phase."""
+def _run_slow(*, slow_data=0.0, slow_fwd=0.0, max_steps=2, grad_accum=2, log_every=1, data_delays=None):
+    """Same toy, with a known sleep injected into exactly one phase. ``data_delays``: ``{n: seconds}`` extra sleep
+    on the n-th batch fetch (1-based)."""
+    fetches = [0]
     torch.manual_seed(0)
     lin = torch.nn.Linear(4, 4)
     params = list(lin.parameters())
@@ -149,8 +151,11 @@ def _run_slow(*, slow_data=0.0, slow_fwd=0.0, max_steps=2, grad_accum=2, log_eve
 
     def batches():
         while True:
+            fetches[0] += 1
             if slow_data:
                 time.sleep(slow_data)
+            if data_delays and fetches[0] in data_delays:
+                time.sleep(data_delays[fetches[0]])
             yield torch.randn(2, 4)
 
     def loss_step(batch):
@@ -190,7 +195,7 @@ def check_phase_timing_attributes_the_right_phase():
     the attribution being correct. Asserted BOTH ways -- a breakdown that dumped
     everything into one bucket would pass a one-sided test.
     """
-    accum, nap = 2, 0.05
+    accum, nap = 2, 0.25  # large against scheduler noise: the bounds below hold under a loaded CPU (was 0.05)
     for phase, other, kw in (
         ("data_seconds", "fwd_bwd_seconds", {"slow_data": nap}),
         ("fwd_bwd_seconds", "data_seconds", {"slow_fwd": nap}),
@@ -222,23 +227,29 @@ def check_avg_step_time_is_not_the_sampled_step():
     """`step_seconds` is sampled on metrics steps, which are the expensive ones.
 
     Quoting it as throughput overstates the cost by whatever the diagnostics take, which is
-    exactly the mistake `step_seconds_avg` exists to prevent. With log_every=4 the three
-    non-metrics steps in each window are cheap, so the average must come out BELOW the
-    sampled step -- and must cover every step, not just the sampled one.
+    exactly the mistake `step_seconds_avg` exists to prevent. log_every=4: the record at step 8
+    covers steps 5-8. A DELAY s sleep on the 6th batch fetch lands in a non-metrics step of
+    that window (5, 6 or 7, whatever the prefetch), so the window average must carry DELAY / 4
+    while the sampled step 8 carries none of it. Lower bounds on injected sleeps plus one
+    generous upper bound (the sampled toy step under DELAY / 4), so CPU load cannot fail it;
+    the old version asserted |avg - step| < step, which load broke and a single-step tracker
+    passed.
     """
-    rows = _run_slow(slow_data=0.02, max_steps=8, grad_accum=1, log_every=4)
-    assert len(rows) >= 2, rows
+    delay, window = 1.0, 4
+
+    def tracks_window(r) -> str:
+        if r["step_seconds_avg"] < 0.9 * delay / window:
+            return f"step_seconds_avg {r['step_seconds_avg']} lacks the {delay}s / {window} injected in its window"
+        if r["step_seconds"] >= delay / window:
+            return f"the sampled step took {r['step_seconds']}s: the delay leaked into it, the test cannot tell"
+        return ""
+
+    rows = _run_slow(max_steps=8, grad_accum=1, log_every=window, data_delays={6: delay})
     later = rows[-1]
-    # The window covers log_every steps of work, so the average is a real average and the
-    # record's own step_seconds is one sample from it.
-    assert later["step_seconds_avg"] > 0
-    assert abs(later["step_seconds_avg"] - later["step_seconds"]) < later["step_seconds"], (
-        "step_seconds_avg looks like it is tracking a single step rather than the window"
-    )
-    # Non-vacuous: with a real per-step cost the average cannot be zero while steps take time.
-    assert later["step_seconds_avg"] >= 0.5 * 0.02, (
-        f"step_seconds_avg {later['step_seconds_avg']} ignores the injected per-step delay"
-    )
+    assert later["step"] == 8, rows
+    assert tracks_window(later) == "", tracks_window(later)
+    # CAN FAIL: a single-step tracker (avg = the sampled step) is caught by the same predicate
+    assert "lacks" in tracks_window({**later, "step_seconds_avg": later["step_seconds"]})
     print("PASS  step_seconds_avg averages the window, not just the sampled step")
 
 
@@ -319,7 +330,7 @@ def _run_named(*, max_steps=4, aux=False, track_weight_delta=True):
         log=lambda msg: None,
     )
     path = Path(out_dir) / "metrics.train.jsonl"
-    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def check_per_module_norms():
