@@ -26,7 +26,8 @@ out of ``finetune_launcher.main``) and the real ``duplex_ce_loss``. Weights: ``c
      ``loss_step`` that drops ``sample_frame_weight`` gives ratio 1 on the weighted row.
   6. OFF == BEFORE. Weight None: loss + every component bit-identical to the pre-change ``duplex_ce_loss`` (full_duplex
      ``fc1b4cff``, from git); an all-ones weight gives the same loss bit for bit.
-  7. HELD-OUT. ``heldout_loss.loss_settings`` ignores the key; ``make_loss_step`` passes no sample weight.
+  7. HELD-OUT. ``heldout_loss.loss_settings`` ignores the key; ``make_loss_step``'s loss_step passes no sample weight
+     unless built with ``row_weights=True`` (the RL SFT anchor, 2026-10-30), shown by the keywords it really passes.
 
 moshi_family venv, CPU, ~4 min:
     ./hpc-venv.py --cluster i6-rz moshi_family --sh 'cd /home/tt201262/setups/2026-01-speech-llm && HF_HUB_OFFLINE=1 \\
@@ -350,7 +351,26 @@ ck(torch.equal(l_one, l_old), "all-ones weight: the same loss bit for bit")
 print("\n7. the held-out loss stays unweighted", flush=True)
 base_cfg = {"loss_norm": "weight", "emit_epad": True, "text_epad_weight": 1.0, "onset_floor": True, "duration_sec": 60}
 ck(HL.loss_settings({**base_cfg, "train_row_weights": "/w.npy"}) == HL.loss_settings(base_cfg), "same settings")
-ck("sample_frame_weight" not in inspect.getsource(HL.make_loss_step), "make_loss_step passes no sample weight")
+
+
+def heldout_loss_kwargs(row_weights: bool) -> dict:
+    """The keywords ``make_loss_step``'s loss_step passes to ``personaplex_loss`` on one batch (the loss recorded)."""
+    seen = {}
+    real = td.personaplex_loss
+    td.personaplex_loss = lambda *a, **kw: seen.update(kw) or (torch.zeros(()), {})
+    try:
+        step = HL.make_loss_step(lambda c, **kw: None, device="cpu", dep_q=16, settings=HL.loss_settings(base_cfg),
+                                 row_weights=row_weights)  # fmt: skip
+        extra = torch.ones(*codes.shape[:1], codes.shape[-1], 1)
+        step((codes, mask, extra) if row_weights else (codes, mask))
+    finally:
+        td.personaplex_loss = real
+    return seen
+
+
+# the RL SFT anchor opts in (``row_weights=True``, 2026-10-30); a held-out loss, built without it, must stay unweighted
+ck("sample_frame_weight" not in heldout_loss_kwargs(False), "make_loss_step passes no sample weight by default")
+ck("sample_frame_weight" in heldout_loss_kwargs(True), "CAN FAIL: with row_weights=True it does (the anchor's path)")
 
 print()
 if fails:
