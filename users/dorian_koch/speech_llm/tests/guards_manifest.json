@@ -844,5 +844,8 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_selfplay_uptake.py": {
   "env": "module"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_sink_manifest_concurrent.py": {
+  "env": "setup"
  }
 }

@@ -283,7 +283,7 @@ def write_sink_manifest(path: str = SINKED_MANIFEST) -> int:
     """Write every ``ResultNotify`` tag in the graph to ``path`` (setup root): what can ever reach RESULTS.jsonl.
     ``awaited.py add`` refuses a pattern that matches none of them (it could never turn READY)."""
     tags = sorted({j.tag for j in tk.sis_graph.jobs() if isinstance(j, ResultNotify)})
-    tmp = f"{path}.tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"  # every config load writes it (manager, guards, hash_snapshot) at once
     with open(tmp, "w") as f:
         json.dump({"written": time.strftime("%Y-%m-%d %H:%M:%S"), "tags": tags}, f)
     os.replace(tmp, path)
