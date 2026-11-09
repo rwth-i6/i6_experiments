@@ -84,6 +84,7 @@ class PrepareWmt14TestSetJob(Job):
     and extracted sequence IDs.
     """
     __sis_version__ = 2
+    __sis_hash_exclude__ = {"remove_punctuation": False}
 
     def __init__(
         self,
@@ -92,6 +93,7 @@ class PrepareWmt14TestSetJob(Job):
         src_lang: str = "de",
         trg_lang: str = "en",
         lowercase: bool = False,
+        remove_punctuation: bool = False,
     ):
         super().__init__()
         self.src_sgm_or_txt = src_sgm_or_txt
@@ -99,6 +101,7 @@ class PrepareWmt14TestSetJob(Job):
         self.src_lang = src_lang
         self.trg_lang = trg_lang
         self.lowercase = lowercase
+        self.remove_punctuation = remove_punctuation
 
         self.out_src_raw = self.output_path(f"test.raw.{src_lang}")
         self.out_trg_raw = self.output_path(f"test.raw.{trg_lang}")
@@ -148,6 +151,9 @@ class PrepareWmt14TestSetJob(Job):
                 if self.lowercase:
                     s_tok = s_tok.lower()
                     t_tok = t_tok.lower()
+                if self.remove_punctuation:
+                    s_tok = " ".join(re.sub(r"[^\w\s]|_", " ", s_tok).split())
+                    t_tok = " ".join(re.sub(r"[^\w\s]|_", " ", t_tok).split())
                 f_s_tok.write(s_tok + "\n")
                 f_t_tok.write(t_tok + "\n")
 
@@ -160,6 +166,7 @@ class PrepareWmt14MonolingualNewsCrawlJob(Job):
       - Filters sentences to length in [min_tokens, max_tokens] (default [3, 50] as in UNdreaMT).
       - Optionally caps at max_sentences for fast iteration / training.
     """
+    __sis_hash_exclude__ = {"remove_punctuation": False}
     _version = 1
 
     def __init__(
@@ -170,6 +177,7 @@ class PrepareWmt14MonolingualNewsCrawlJob(Job):
         max_tokens: int = 50,
         max_sentences: Optional[int] = 2000000,
         lowercase: bool = False,
+        remove_punctuation: bool = False,
     ):
         super().__init__()
         self.input_files = input_files
@@ -178,6 +186,7 @@ class PrepareWmt14MonolingualNewsCrawlJob(Job):
         self.max_tokens = max_tokens
         self.max_sentences = max_sentences
         self.lowercase = lowercase
+        self.remove_punctuation = remove_punctuation
 
         self.out_tokenized_txt = self.output_path(f"news_crawl.{lang}.tok.txt")
 
@@ -206,6 +215,8 @@ class PrepareWmt14MonolingualNewsCrawlJob(Job):
                         tok_line = simple_moses_tokenize(line, lang=self.lang, tokenizer=tokenizer)
                         if self.lowercase:
                             tok_line = tok_line.lower()
+                        if self.remove_punctuation:
+                            tok_line = " ".join(re.sub(r"[^\w\s]|_", " ", tok_line).split())
                         tokens = tok_line.split()
                         if self.min_tokens <= len(tokens) <= self.max_tokens:
                             f_out.write(" ".join(tokens) + "\n")

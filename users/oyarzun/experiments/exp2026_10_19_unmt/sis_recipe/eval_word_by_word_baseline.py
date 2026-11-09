@@ -48,6 +48,7 @@ class WordByWordCrossLingualEvalJob(Job):
     source sentences into target sentences word-by-word via nearest neighbor retrieval
     (supporting cosine similarity or CSLS) and evaluates the output with BLEU-4.
     """
+    __sis_version__ = 2
     __sis_hash_exclude__ = {"num_sample_sentences": 500}
 
     def __init__(
@@ -85,6 +86,7 @@ class WordByWordCrossLingualEvalJob(Job):
 
         # Outputs
         self.out_hypotheses_txt = self.output_path("hypotheses.txt")
+        self.out_raw_hypotheses_txt = self.output_path("hypotheses.raw.txt")
         self.out_search_dict = self.output_path("search_out.py")
         self.out_word_translation_table = self.output_path("word_translation_table.json")
         self.out_bleu = self.output_var("bleu", pickle=False)
@@ -196,11 +198,12 @@ class WordByWordCrossLingualEvalJob(Job):
         oov_tokens = 0
 
         with (
+            open(self.out_raw_hypotheses_txt.get_path(), "w", encoding="utf-8") as f_raw,
             open(self.out_hypotheses_txt.get_path(), "w", encoding="utf-8") as f_hyp,
             open(self.out_search_dict.get_path(), "w", encoding="utf-8") as f_dict,
         ):
             f_dict.write("{\n")
-            for idx, s_line in enumerate(src_lines):
+            for idx, (s_line, r_line) in enumerate(zip(src_lines, ref_lines)):
                 tokens = s_line.split()
                 trans_tokens = []
                 for tok in tokens:
@@ -219,7 +222,11 @@ class WordByWordCrossLingualEvalJob(Job):
                             trans_tokens.append("<unk>")
                 hyp_str = " ".join(trans_tokens)
                 hyp_lines.append(hyp_str)
-                f_hyp.write(hyp_str + "\n")
+                f_raw.write(hyp_str + "\n")
+                if idx > 0:
+                    f_hyp.write("\n")
+                f_hyp.write(f"reference: {r_line}\n")
+                f_hyp.write(f"hypothesis: {hyp_str}\n")
                 f_dict.write(f"  'line-{idx}': {hyp_str!r},\n")
             f_dict.write("}\n")
 

@@ -141,7 +141,23 @@ def _load_text_or_dict(filepath: str) -> Tuple[Optional[Dict[str, str]], List[st
         except Exception as e:
             logging.warning(f"Failed to parse dict from {filepath}: {e}")
 
-    lines = [line.strip() for line in content.splitlines()]
+    raw_lines = [line.strip() for line in content.splitlines()]
+    if any(line.startswith("hypothesis:") for line in raw_lines):
+        hyp_lines = [
+            line[len("hypothesis:"):].strip()
+            for line in raw_lines
+            if line.startswith("hypothesis:")
+        ]
+        return None, hyp_lines
+    elif any(line.startswith("reference:") for line in raw_lines):
+        ref_lines = [
+            line[len("reference:"):].strip()
+            for line in raw_lines
+            if line.startswith("reference:")
+        ]
+        return None, ref_lines
+
+    lines = raw_lines
     return None, lines
 
 
@@ -150,7 +166,7 @@ class ComputeBleuJob(Job):
     Computes corpus-level BLEU-4 score between system hypotheses and reference translations.
     Supports both RETURNN search output dicts (search_out.py.gz) and plain text files.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -216,8 +232,11 @@ class ComputeBleuJob(Job):
             clean_refs.append(rc)
 
         with open(self.out_hyp_txt.get_path(), "w", encoding="utf-8") as fh:
-            for h in clean_hyps:
-                fh.write(h + "\n")
+            for idx, (h, r) in enumerate(zip(clean_hyps, clean_refs)):
+                if idx > 0:
+                    fh.write("\n")
+                fh.write(f"reference: {r}\n")
+                fh.write(f"hypothesis: {h}\n")
         with open(self.out_ref_txt.get_path(), "w", encoding="utf-8") as fr:
             for r in clean_refs:
                 fr.write(r + "\n")

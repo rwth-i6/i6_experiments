@@ -13,15 +13,26 @@ Ablation 2: K = 10,000
   8. UNdreaMT training, beam search decoding, and word-level BLEU evaluation (clusters mapped back to words).
 """
 
-from typing import Optional
+from typing import Dict, Any, Optional
 from i6_experiments.users.oyarzun.experiments.exp2026_10_19_unmt.sis_recipe.unmt_wmt14_de_en_exp import (
     run_wmt14_de_en_unmt_pipeline,
 )
 
 
-def py(run_undreamt_training: bool = True):
+def run_cluster_10k_setup(
+    clean_tok: bool = False,
+    en_w2v_window: int = 10,
+    run_undreamt_training: bool = True,
+) -> Dict[str, Any]:
+    """
+    Sets up the 10k cluster pipeline ablation.
+    """
+    prefix = "exp2026_10_19_unmt/wmt14_de_en_avg_monophone_cluster_10k"
+    if clean_tok:
+        prefix += f"_clean_tok_win{en_w2v_window}"
+
     return run_wmt14_de_en_unmt_pipeline(
-        prefix_name="exp2026_10_19_unmt/wmt14_de_en_avg_monophone_cluster_10k",
+        prefix_name=prefix,
         train_name="undreamt_rnn_aed",
         de_code_type="word",
         en_code_type="cluster_avg_monophone",
@@ -32,5 +43,23 @@ def py(run_undreamt_training: bool = True):
         batch_max_seqs=50,
         learning_rate=0.0003,
         run_undreamt_training=run_undreamt_training,
+        lowercase=clean_tok,
+        remove_punctuation=clean_tok,
+        en_w2v_window=en_w2v_window,
     )
+
+
+def py(run_undreamt_training: bool = True):
+    return {
+        "base": run_cluster_10k_setup(
+            clean_tok=False,
+            en_w2v_window=10,
+            run_undreamt_training=run_undreamt_training,
+        ),
+        "clean_tok_win10": run_cluster_10k_setup(
+            clean_tok=True,
+            en_w2v_window=10,
+            run_undreamt_training=run_undreamt_training,
+        ),
+    }
 

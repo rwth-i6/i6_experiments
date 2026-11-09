@@ -69,7 +69,7 @@ class ComputePerJob(Job):
     If `collapse_blank_token` is provided (e.g. 'BLK' for EN+Blank outputs), also reports
     collapsed phoneme error rate (`collapsed_per`) alongside exact frame-level token error rate.
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,

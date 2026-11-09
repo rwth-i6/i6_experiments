@@ -649,8 +649,11 @@ class MapClustersToWordsJob(Job):
     """
     Maps cluster tokens back to English words using cluster_to_word.json for BLEU evaluation.
     Exposes both out_word_text and out_debpe_text for seamless integration with BLEU scoring.
+    Supports:
+      - Plain text files (whitespace-delimited cluster IDs per line)
+      - RETURNN search result dictionaries (gzipped or uncompressed, e.g. best_search_results.py.gz)
     """
-    _version = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -670,14 +673,51 @@ class MapClustersToWordsJob(Job):
 
     def run(self):
         import json
+        import gzip
+        import ast
+
         with open(self.cluster_to_word_json.get_path(), "r", encoding="utf-8") as f:
             c2w = json.load(f)
 
-        with open(self.hyp_file.get_path(), "r", encoding="utf-8", errors="replace") as f_in, \
-             open(self.out_word_text.get_path(), "w", encoding="utf-8") as f_out:
-            for line in f_in:
+        in_path = self.hyp_file.get_path()
+        open_fn = gzip.open if in_path.endswith(".gz") else open
+        with open_fn(in_path, "rt", encoding="utf-8", errors="replace") as f_in:
+            content = f_in.read().strip()
+
+        # Handle RETURNN search_out dictionary format ({seq_tag: text} or {seq_tag: [(score, text)]})
+        if content.startswith("{") and content.endswith("}"):
+            try:
+                d = ast.literal_eval(content)
+                if isinstance(d, dict):
+                    def _tag_sort_key(item):
+                        k = str(item[0])
+                        parts = k.replace("/", "-").split("-")
+                        for p in reversed(parts):
+                            if p.isdigit():
+                                return (0, int(p), k)
+                        return (1, 0, k)
+
+                    sorted_items = sorted(d.items(), key=_tag_sort_key)
+                    lines = []
+                    for k, v in sorted_items:
+                        if isinstance(v, list):
+                            v_str = v[0][1] if (len(v) > 0 and isinstance(v[0], tuple)) else str(v[0])
+                        else:
+                            v_str = str(v)
+                        lines.append(v_str)
+                else:
+                    lines = content.splitlines()
+            except Exception:
+                lines = content.splitlines()
+        else:
+            lines = [line.strip() for line in content.splitlines()]
+
+        special_tokens = {"<pad>", "<unk>", "<s>", "</s>", "<BOS>", "<EOS>", "<MASK>", "<SIL>"}
+
+        with open(self.out_word_text.get_path(), "w", encoding="utf-8") as f_out:
+            for line in lines:
                 tokens = line.strip().split()
-                w_seq = [c2w.get(t, self.fallback_word) for t in tokens]
+                w_seq = [t if t in special_tokens else c2w.get(t, self.fallback_word) for t in tokens]
                 f_out.write(" ".join(w_seq) + "\n")
 
 

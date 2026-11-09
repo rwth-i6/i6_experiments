@@ -113,6 +113,7 @@ def run_wmt14_de_en_unmt_pipeline(
     enable_comet: bool = False,
     align_init_method: Optional[str] = None,
     gpu_mem: Optional[int] = None,
+    en_w2v_window: Optional[int] = None,
 ):
     assert de_code_type in ("word", "bpe", "diphone", "triphone"), f"Unsupported de_code_type: {de_code_type}"
     assert en_code_type in (
@@ -189,7 +190,8 @@ def run_wmt14_de_en_unmt_pipeline(
         trg_sgm_or_txt=newstest2014_en_sgm,
         src_lang="de",
         trg_lang="en",
-        lowercase=False,
+        lowercase=lowercase,
+        remove_punctuation=remove_punctuation,
     )
     test2014_job.add_alias(f"{prefix_name}/data/prepare_newstest2014")
 
@@ -200,7 +202,8 @@ def run_wmt14_de_en_unmt_pipeline(
         trg_sgm_or_txt=newstest2013_en_txt,
         src_lang="de",
         trg_lang="en",
-        lowercase=False,
+        lowercase=lowercase,
+        remove_punctuation=remove_punctuation,
     )
     dev2013_job.add_alias(f"{prefix_name}/data/prepare_newstest2013")
 
@@ -212,7 +215,8 @@ def run_wmt14_de_en_unmt_pipeline(
         min_tokens=3,
         max_tokens=50,
         max_sentences=max_mono_sentences,
-        lowercase=False,
+        lowercase=lowercase,
+        remove_punctuation=remove_punctuation,
     )
     mono_de_job.add_alias(f"{prefix_name}/data/prepare_mono_de")
 
@@ -222,7 +226,8 @@ def run_wmt14_de_en_unmt_pipeline(
         min_tokens=3,
         max_tokens=50,
         max_sentences=max_mono_sentences,
-        lowercase=False,
+        lowercase=lowercase,
+        remove_punctuation=remove_punctuation,
     )
     mono_en_job.add_alias(f"{prefix_name}/data/prepare_mono_en")
 
@@ -484,7 +489,8 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/news_crawl.en.monophone.counts.txt", mono_en_ngram_job.out_vocab_counts)
 
         # Train Word2Vec on monophones
-        w2v_alias_suffix_local = f"sg_neg{w2v_negative}_win{w2v_window}_d{w2v_dim}"
+        effective_en_w2v_win = en_w2v_window if en_w2v_window is not None else w2v_window
+        w2v_alias_suffix_local = f"sg_neg{w2v_negative}_win{effective_en_w2v_win}_d{w2v_dim}"
         if w2v_epochs != 5:
             w2v_alias_suffix_local += f"_ep{w2v_epochs}"
         if w2v_sample is not None:
@@ -493,7 +499,7 @@ def run_wmt14_de_en_unmt_pipeline(
         w2v_en_monophone_job = TrainWord2VecJob(
             token_text_file=mono_en_ngram_job.out_ngram_text,
             vector_size=w2v_dim,
-            window=w2v_window,
+            window=effective_en_w2v_win,
             min_count=5,
             max_vocab_size=100,
             sg=w2v_sg,
@@ -631,11 +637,18 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/news_crawl.en.{ngram_name}.vocab.txt", mono_en_ngram_job.out_vocab_list)
         tk.register_output(f"{prefix_name}/data/news_crawl.en.{ngram_name}.counts.txt", mono_en_ngram_job.out_vocab_counts)
 
+        effective_en_w2v_win = en_w2v_window if en_w2v_window is not None else w2v_window
+        en_ngram_w2v_alias_suffix = f"sg_neg{w2v_negative}_win{effective_en_w2v_win}_d{w2v_dim}"
+        if w2v_epochs != 5:
+            en_ngram_w2v_alias_suffix += f"_ep{w2v_epochs}"
+        if w2v_sample is not None:
+            en_ngram_w2v_alias_suffix += f"_s{w2v_sample}"
+
         # 2. Train Word2Vec on N-grams (e.g. 2k diphones or 20k triphones)
         w2v_en_ngram_job = TrainWord2VecJob(
             token_text_file=mono_en_ngram_job.out_ngram_text,
             vector_size=w2v_dim,
-            window=w2v_window,
+            window=effective_en_w2v_win,
             min_count=5,
             max_vocab_size=ngram_vocab_size,
             sg=w2v_sg,
@@ -644,7 +657,7 @@ def run_wmt14_de_en_unmt_pipeline(
             sample=w2v_sample,
             workers=8,
         )
-        w2v_en_ngram_job.add_alias(f"{prefix_name}/word2vec/en_{ngram_name}_{w2v_alias_suffix}")
+        w2v_en_ngram_job.add_alias(f"{prefix_name}/word2vec/en_{ngram_name}_{en_ngram_w2v_alias_suffix}")
         tk.register_output(f"{prefix_name}/word2vec/en_{ngram_name}_embeddings.vec", w2v_en_ngram_job.out_embeddings_vec)
         tk.register_output(f"{prefix_name}/word2vec/en_{ngram_name}_vocab.txt", w2v_en_ngram_job.out_vocab_txt)
 
@@ -661,11 +674,18 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
         tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
     elif is_cluster_en:
+        effective_en_w2v_win = en_w2v_window if en_w2v_window is not None else w2v_window
+        en_cluster_w2v_alias_suffix = f"sg_neg{w2v_negative}_win{effective_en_w2v_win}_d{w2v_dim}"
+        if w2v_epochs != 5:
+            en_cluster_w2v_alias_suffix += f"_ep{w2v_epochs}"
+        if w2v_sample is not None:
+            en_cluster_w2v_alias_suffix += f"_s{w2v_sample}"
+
         # Train Skip-gram Word2Vec directly on the quantized cluster index corpus
         w2v_en_job = TrainWord2VecJob(
             token_text_file=en_train_txt,
             vector_size=w2v_dim,
-            window=w2v_window,
+            window=effective_en_w2v_win,
             min_count=1,
             max_vocab_size=effective_en_vocab_size,
             fixed_vocab_file=cluster_en_job.out_cluster_vocab_txt,
@@ -675,14 +695,21 @@ def run_wmt14_de_en_unmt_pipeline(
             sample=w2v_sample,
             workers=8,
         )
-        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_cluster_{effective_en_vocab_size}_{w2v_alias_suffix}")
+        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_cluster_{effective_en_vocab_size}_{en_cluster_w2v_alias_suffix}")
         tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
         tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
     else:
+        effective_en_w2v_win = en_w2v_window if en_w2v_window is not None else w2v_window
+        en_std_w2v_alias_suffix = f"sg_neg{w2v_negative}_win{effective_en_w2v_win}_d{w2v_dim}"
+        if w2v_epochs != 5:
+            en_std_w2v_alias_suffix += f"_ep{w2v_epochs}"
+        if w2v_sample is not None:
+            en_std_w2v_alias_suffix += f"_s{w2v_sample}"
+
         w2v_en_job = TrainWord2VecJob(
             token_text_file=en_train_txt,
             vector_size=w2v_dim,
-            window=w2v_window,
+            window=effective_en_w2v_win,
             min_count=5,
             max_vocab_size=effective_en_vocab_size,
             sg=w2v_sg,
@@ -691,7 +718,7 @@ def run_wmt14_de_en_unmt_pipeline(
             sample=w2v_sample,
             workers=8,
         )
-        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{w2v_alias_suffix}")
+        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{en_std_w2v_alias_suffix}")
         if not w2v_all_but_the_top:
             tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
             tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
@@ -717,6 +744,13 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.json", w2v_de_job.out_isotropy_report_json)
         tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.txt", w2v_de_job.out_isotropy_report_txt)
 
+        if is_averaged_ngram_en:
+            en_abtt_suffix = f"word_{ngram_name}_avg_{effective_en_vocab_size}"
+        elif is_cluster_en:
+            en_abtt_suffix = f"cluster_{effective_en_vocab_size}_{en_cluster_w2v_alias_suffix}"
+        else:
+            en_abtt_suffix = en_std_w2v_alias_suffix
+
         w2v_en_job = PostprocessWord2VecAllButTheTopJob(
             embeddings_npy=raw_w2v_en_job.out_embeddings_npy,
             vocab_txt=raw_w2v_en_job.out_vocab_txt,
@@ -724,7 +758,7 @@ def run_wmt14_de_en_unmt_pipeline(
             counts_txt=raw_w2v_en_job.out_counts_txt,
             num_components_to_remove=effective_abtt_d,
         )
-        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{w2v_alias_suffix}_abtt_d{effective_abtt_d}")
+        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{en_abtt_suffix}_abtt_d{effective_abtt_d}")
         tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
         tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
         tk.register_output(f"{prefix_name}/word2vec/en_isotropy_report.json", w2v_en_job.out_isotropy_report_json)
@@ -879,6 +913,7 @@ def run_wmt14_de_en_unmt_pipeline(
             retrieval_metric=metric,
             csls_k=10,
             copy_oov=(is_word_level_en and de_code_type == "word"),
+            lowercase_eval=lowercase,
         )
         wbw_de2en_job.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}")
         tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu", wbw_de2en_job.out_bleu)
@@ -890,7 +925,7 @@ def run_wmt14_de_en_unmt_pipeline(
         # Standalone sequence difference evaluation job (de -> en)
         seq_diff_de2en = SequenceDifferenceEvalJob(
             input_txt=de_test_txt,
-            hypothesis_txt=wbw_de2en_job.out_hypotheses_txt,
+            hypothesis_txt=wbw_de2en_job.out_raw_hypotheses_txt,
             reference_txt=en_test_txt,
             name=f"de2en_{metric}",
             input_lang="de",
@@ -905,7 +940,7 @@ def run_wmt14_de_en_unmt_pipeline(
         if enable_comet:
             comet_de2en = CometEvalJob(
                 src_file=de_test_txt,
-                hyp_file=wbw_de2en_job.out_hypotheses_txt,
+                hyp_file=wbw_de2en_job.out_raw_hypotheses_txt,
                 ref_file=en_test_txt,
                 name=f"de2en_{metric}",
                 gpus=1 if device == "gpu" else 0,
@@ -918,32 +953,32 @@ def run_wmt14_de_en_unmt_pipeline(
 
         # Word-level BLEU if target is BPE or cluster
         if en_code_type == "bpe":
-            debpe_wbw_de2en = DeBpeTextJob(input_file=wbw_de2en_job.out_hypotheses_txt)
+            debpe_wbw_de2en = DeBpeTextJob(input_file=wbw_de2en_job.out_raw_hypotheses_txt)
             debpe_wbw_de2en.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/debpe")
             bleu_wbw_de2en_word = ComputeBleuJob(
                 hyp_file=debpe_wbw_de2en.out_debpe_text,
                 ref_file=test2014_job.out_trg_tok,
-                lowercase=False,
+                lowercase=lowercase,
                 remove_unk=True,
             )
             bleu_wbw_de2en_word.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level", bleu_wbw_de2en_word.out_bleu)
-            tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", debpe_wbw_de2en.out_debpe_text)
+            tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", bleu_wbw_de2en_word.out_hyp_txt)
         elif is_cluster_en:
             decluster_wbw_de2en = MapClustersToWordsJob(
-                hyp_file=wbw_de2en_job.out_hypotheses_txt,
+                hyp_file=wbw_de2en_job.out_raw_hypotheses_txt,
                 cluster_to_word_json=cluster_en_job.out_cluster_to_word_json,
             )
             decluster_wbw_de2en.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/decluster")
             bleu_wbw_de2en_word = ComputeBleuJob(
                 hyp_file=decluster_wbw_de2en.out_word_text,
                 ref_file=test2014_job.out_trg_tok,
-                lowercase=False,
+                lowercase=lowercase,
                 remove_unk=True,
             )
             bleu_wbw_de2en_word.add_alias(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/bleu_word_level", bleu_wbw_de2en_word.out_bleu)
-            tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", decluster_wbw_de2en.out_word_text)
+            tk.register_output(f"{prefix_name}/baseline_word_by_word/de2en_{metric}/hypotheses.word_level.txt", bleu_wbw_de2en_word.out_hyp_txt)
 
         # en -> de word-by-word baseline
         wbw_en2de_job = WordByWordCrossLingualEvalJob(
@@ -957,6 +992,7 @@ def run_wmt14_de_en_unmt_pipeline(
             retrieval_metric=metric,
             csls_k=10,
             copy_oov=(is_word_level_en and de_code_type == "word"),
+            lowercase_eval=lowercase,
         )
         wbw_en2de_job.add_alias(f"{prefix_name}/baseline_word_by_word/en2de_{metric}")
         tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/bleu", wbw_en2de_job.out_bleu)
@@ -968,7 +1004,7 @@ def run_wmt14_de_en_unmt_pipeline(
         # Standalone sequence difference evaluation job (en -> de)
         seq_diff_en2de = SequenceDifferenceEvalJob(
             input_txt=en_test_txt,
-            hypothesis_txt=wbw_en2de_job.out_hypotheses_txt,
+            hypothesis_txt=wbw_en2de_job.out_raw_hypotheses_txt,
             reference_txt=de_test_txt,
             name=f"en2de_{metric}",
             input_lang="en",
@@ -983,7 +1019,7 @@ def run_wmt14_de_en_unmt_pipeline(
         if enable_comet:
             comet_en2de = CometEvalJob(
                 src_file=en_test_txt,
-                hyp_file=wbw_en2de_job.out_hypotheses_txt,
+                hyp_file=wbw_en2de_job.out_raw_hypotheses_txt,
                 ref_file=de_test_txt,
                 name=f"en2de_{metric}",
                 gpus=1 if device == "gpu" else 0,
@@ -996,20 +1032,21 @@ def run_wmt14_de_en_unmt_pipeline(
 
         # Word-level BLEU if target is BPE
         if de_code_type == "bpe":
-            debpe_wbw_en2de = DeBpeTextJob(input_file=wbw_en2de_job.out_hypotheses_txt)
+            debpe_wbw_en2de = DeBpeTextJob(input_file=wbw_en2de_job.out_raw_hypotheses_txt)
             debpe_wbw_en2de.add_alias(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/debpe")
             bleu_wbw_en2de_word = ComputeBleuJob(
                 hyp_file=debpe_wbw_en2de.out_debpe_text,
                 ref_file=test2014_job.out_src_tok,
-                lowercase=False,
+                lowercase=lowercase,
                 remove_unk=True,
             )
             bleu_wbw_en2de_word.add_alias(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/bleu_word_level")
             tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/bleu_word_level", bleu_wbw_en2de_word.out_bleu)
-            tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/hypotheses.word_level.txt", debpe_wbw_en2de.out_debpe_text)
+            tk.register_output(f"{prefix_name}/baseline_word_by_word/en2de_{metric}/hypotheses.word_level.txt", bleu_wbw_en2de_word.out_hyp_txt)
 
     train_job = None
     pca_jobs = None
+    pca_hyp_jobs = None
 
     if run_undreamt_training:
         total_src_vocab_dim = effective_de_vocab_size + 4  # PAD=0, OOV=1, EOS=2, SOS=3, tokens=4..V+3
@@ -1182,7 +1219,9 @@ def run_wmt14_de_en_unmt_pipeline(
             "max_seqs": batch_max_seqs,
             "optimizer": {"class": "adam", "epsilon": 1e-8},
             "learning_rate": learning_rate,
+            "gradient_clip": 1.0,
             "gradient_clip_global_norm": 5.0,
+            "num_allowed_consec_invalid_gradient_steps": 10,
         }
 
         train_rqmt: Dict[str, Any] = {"mem_rqmt": 24, "time_rqmt": 12, "cpu_rqmt": 4}
@@ -1298,7 +1337,7 @@ def run_wmt14_de_en_unmt_pipeline(
                 bleu_job = ComputeBleuJob(
                     hyp_file=best_hyp,
                     ref_file=ref_file,
-                    lowercase=False,
+                    lowercase=lowercase,
                     remove_unk=True,
                 )
                 bleu_job.add_alias(f"{recog_prefix}/bleu_eval")
@@ -1341,13 +1380,13 @@ def run_wmt14_de_en_unmt_pipeline(
                     bleu_word_job = ComputeBleuJob(
                         hyp_file=debpe_hyp_job.out_debpe_text,
                         ref_file=word_ref,
-                        lowercase=False,
+                        lowercase=lowercase,
                         remove_unk=True,
                     )
                     bleu_word_job.add_alias(f"{recog_prefix}/bleu_word_level")
                     tk.register_output(f"{recog_prefix}/bleu_word_level", bleu_word_job.out_bleu)
                     tk.register_output(f"{recog_prefix}/bleu_word_level_report.txt", bleu_word_job.out_report)
-                    tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", debpe_hyp_job.out_debpe_text)
+                    tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", bleu_word_job.out_hyp_txt)
 
                     if enable_comet:
                         word_src = test2014_job.out_src_tok if direction_name == "de2en" else test2014_job.out_trg_tok
@@ -1371,13 +1410,13 @@ def run_wmt14_de_en_unmt_pipeline(
                     bleu_word_job = ComputeBleuJob(
                         hyp_file=decluster_hyp_job.out_word_text,
                         ref_file=word_ref,
-                        lowercase=False,
+                        lowercase=lowercase,
                         remove_unk=True,
                     )
                     bleu_word_job.add_alias(f"{recog_prefix}/bleu_word_level")
                     tk.register_output(f"{recog_prefix}/bleu_word_level", bleu_word_job.out_bleu)
                     tk.register_output(f"{recog_prefix}/bleu_word_level_report.txt", bleu_word_job.out_report)
-                    tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", decluster_hyp_job.out_word_text)
+                    tk.register_output(f"{recog_prefix}/hypotheses.word_level.txt", bleu_word_job.out_hyp_txt)
 
                     if enable_comet:
                         word_src = test2014_job.out_src_tok

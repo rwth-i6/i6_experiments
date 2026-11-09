@@ -413,7 +413,7 @@ def run_en_blank_phoneme_unmt_pipeline(
         tk.register_output(f"{prefix_name}/baseline_word_by_word/{src2trg_tag}_{metric}/hypotheses.txt", wbw_s2t.out_hypotheses_txt)
 
         per_wbw_s2t = ComputePerJob(
-            hyp_file=wbw_s2t.out_hypotheses_txt,
+            hyp_file=wbw_s2t.out_raw_hypotheses_txt,
             ref_file=trg_test_txt,
             remove_unk=True,
             collapse_blank_token=None,
@@ -424,7 +424,7 @@ def run_en_blank_phoneme_unmt_pipeline(
 
         # Also evaluate CTC-collapsed nearest-neighbor hypothesis (collapsing repeated frame predictions)
         per_wbw_s2t_col = ComputePerJob(
-            hyp_file=wbw_s2t.out_hypotheses_txt,
+            hyp_file=wbw_s2t.out_raw_hypotheses_txt,
             ref_file=trg_test_txt,
             remove_unk=True,
             collapse_blank_token=BLANK_TOKEN,
@@ -451,9 +451,10 @@ def run_en_blank_phoneme_unmt_pipeline(
         wbw_t2s.add_alias(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}")
         tk.register_output(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/bleu", wbw_t2s.out_bleu)
         tk.register_output(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/report", wbw_t2s.out_bleu_report_txt)
+        tk.register_output(f"{prefix_name}/baseline_word_by_word/{trg2src_tag}_{metric}/hypotheses.txt", wbw_t2s.out_hypotheses_txt)
 
         per_wbw_t2s = ComputePerJob(
-            hyp_file=wbw_t2s.out_hypotheses_txt,
+            hyp_file=wbw_t2s.out_raw_hypotheses_txt,
             ref_file=src_test_txt,
             remove_unk=True,
             collapse_blank_token=BLANK_TOKEN,
@@ -640,7 +641,9 @@ def run_en_blank_phoneme_unmt_pipeline(
             "max_seqs": batch_max_seqs,
             "optimizer": {"class": "adam", "epsilon": 1e-8},
             "learning_rate": learning_rate,
+            "gradient_clip": 1.0,
             "gradient_clip_global_norm": 5.0,
+            "num_allowed_consec_invalid_gradient_steps": 10,
         }
 
         train_rqmt: Dict[str, Any] = {
