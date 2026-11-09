@@ -64,6 +64,10 @@ from ....analysis.distribution_analysis import (
 )
 from i6_experiments.users.oyarzun.experiments.exp2026_09_15_self_learning_emb_asr.models.analysis import (
     EmbeddingAlignmentAnalysisJob,
+    Word2VecIsotropyAndPcaAnalysisJob,
+)
+from i6_experiments.users.oyarzun.experiments.exp2026_09_15_self_learning_emb_asr.sis_recipe.train_exp import (
+    build_self_learning_asr_alignment_pipeline,
 )
 from ... import __setup_base_name__
 
@@ -1357,6 +1361,34 @@ def eval_v5_6_gan_pca512(
     norm_title = "Unit Sphere" if norm_clean in ("unit_sphere", "sphere", "l2") else norm_tag
     prefix_name = f"{__setup_base_name__}/librispeech/cross_modal_cheat_seg_{active_cluster}/v5.6_{norm_clean}_gan_pca{pca_dim}"
 
+    if alignment_results is None:
+        alignment_results = build_self_learning_asr_alignment_pipeline(
+            librispeech_key="train-clean-100",
+            audio_layer=6,
+            word2vec_dims=[128],
+            word2vec_windows=[2],
+            word2vec_epochs=20,
+            cluster_counts=[1500, 10000],
+            code_types=["diphone", "triphone"],
+            version=f"v5.6_{norm_clean}",
+            text_version="v5.6",
+            coverage_threshold=0.8,
+            segmentation_type="cheat_seg",
+            pca_dim=pca_dim,
+            retrieval_metrics=["csls"],
+            csls_k=10,
+            alignment_method="gan",
+            code_cluster_map={
+                "diphone": [(1500, "clus_1500_1500")],
+                "triphone": [(10000, "clus_10000_10000")],
+            },
+            normalize_segments=norm_clean,
+            embedding_model="structured_skipgram",
+            word2vec_postprocessing="none",
+            all_but_the_top_D=0,
+            run_isotropy_analysis=True,
+        )
+
     oracle_ref_hdfs = get_cheating_phoneme_ref_hdfs()
     oracle_seq_tags = get_hubert_seq_tags_path()
     oracle_idx_to_phoneme = get_oracle_idx_to_phoneme_path()
@@ -1469,6 +1501,300 @@ def eval_v5_6_gan_pca512(
             tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
             tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
             tk.register_output(f"{prefix_name}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
+
+        # Baseline Isotropy & PCA Analysis (Mu, Bhat, & Viswanath 2018) for direct comparison with v5.6_isotropic
+        w2v_isotropy_job = res_entry.get("w2v_isotropy_job") if res_entry is not None else None
+        if w2v_isotropy_job is None and res_entry is not None:
+            a_w2v = res_entry.get("audio_w2v_job")
+            if a_w2v is not None:
+                w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+                    src_raw_embeddings_npy=a_w2v.out_embeddings_npy,
+                    trg_raw_embeddings_npy=t_w2v.out_embeddings_npy,
+                    src_post_embeddings_npy=None,
+                    trg_post_embeddings_npy=None,
+                    src_vocab_file=a_clus.out_cluster_vocab_txt,
+                    trg_vocab_file=t_w2v.out_vocab_txt,
+                    src_counts_file=a_clus.out_cluster_counts_txt,
+                    trg_counts_file=t_w2v.out_counts_txt,
+                    d_remove=1,
+                    title_prefix=f"v5.6 Baseline Embedding Isotropy & PCA ({code_type}, {clus_str}, {dw_tag})",
+                    src_label="Audio Clusters",
+                    trg_label=f"Text {code_type.capitalize()}s",
+                    is_postprocessed_active=False,
+                )
+
+        if w2v_isotropy_job is not None:
+            w2v_isotropy_job.add_alias(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis")
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/isotropy_report.json", w2v_isotropy_job.out_isotropy_report_json)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/isotropy_report.txt", w2v_isotropy_job.out_isotropy_report_txt)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_before_abtt.png", w2v_isotropy_job.out_src_before_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_after_abtt.png", w2v_isotropy_job.out_src_after_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/target_text_pca_before_abtt.png", w2v_isotropy_job.out_trg_before_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/target_text_pca_after_abtt.png", w2v_isotropy_job.out_trg_after_pca_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/pca_before_vs_after_abtt_panel.png", w2v_isotropy_job.out_before_after_panel_plot)
+            tk.register_output(f"{prefix_name}/{exp_key}/w2v_isotropy_analysis/isotropy_and_spectrum_panel.png", w2v_isotropy_job.out_isotropy_spectrum_plot)
+
+    if run_analysis:
+        analysis_prefix = f"{prefix_name}/analysis"
+        v5_6_cluster_configs = [
+            ("clus_1500_1500", 1500, f"v5.6 PCA-{pca_dim} 1500 Speech Clusters ({norm_title})"),
+            ("clus_10000_10000", 10000, f"v5.6 PCA-{pca_dim} 10k Speech Clusters ({norm_title})"),
+        ]
+        for c_str, k_clus, label in v5_6_cluster_configs:
+            a_clus = cluster_jobs_by_k.get(k_clus)
+            tokens_file = a_clus.out_collapsed_tokens_txt if a_clus is not None else None
+            if tokens_file is None:
+                continue
+
+            cluster_analysis_job = SpeechClusterDistributionAnalysisJob(
+                raw_clusters_file=tokens_file,
+                cluster_hdfs=[],
+                k_clusters=k_clus,
+                top_k=50,
+                title_prefix=f"{label} ({c_str})",
+                name_prefix=f"speech_cluster_dist_v5.6_{norm_clean}_pca{pca_dim}_{c_str}",
+            )
+            cluster_analysis_job.add_alias(f"{analysis_prefix}/speech_clusters/{c_str}")
+            tk.register_output(f"{analysis_prefix}/speech_clusters/{c_str}/cluster_distribution.png", cluster_analysis_job.out_distribution_plot)
+            tk.register_output(f"{analysis_prefix}/speech_clusters/{c_str}/cluster_cumulative_coverage.png", cluster_analysis_job.out_cumulative_plot)
+            tk.register_output(f"{analysis_prefix}/speech_clusters/{c_str}/cluster_counts.txt", cluster_analysis_job.out_counts_txt)
+            tk.register_output(f"{analysis_prefix}/speech_clusters/{c_str}/cluster_distribution.json", cluster_analysis_job.out_summary_json)
+            tk.register_output(f"{analysis_prefix}/speech_clusters/{c_str}/cluster_report.txt", cluster_analysis_job.out_report_txt)
+
+
+# =============================================================================
+# v5.6 Isotropic GAN Alignment Pipeline (All-but-the-Top, Mu et al. 2018)
+# =============================================================================
+
+def eval_v5_6_isotropic(
+    cluster: Optional[str] = None,
+    pca_dim: int = 512,
+    run_analysis: bool = True,
+    alignment_results_by_d: Optional[dict] = None,
+    norm_tag: str = "unit_sphere",
+    d_values: Optional[List[int]] = None,
+):
+    """
+    Evaluates v5.6_isotropic:
+      - Stage A (HuBERT Layer 6 -> PCA-512 -> segment averaging -> Unit-Sphere normalization
+        -> K-Means with K=1500 for diphone and K=10000 for triphone) is kept identical to
+        v5.6_unit_sphere_gan_pca512, reusing the exact same cluster sequences and raw
+        Structured Skip-Gram (dim=128, win=2, 80% coverage text diphones/triphones) jobs.
+      - Stage B applies Mu, Bhat, & Viswanath (2018, arXiv:1702.01417) "All-but-the-Top"
+        postprocessing with D in {1, 2, 3} removed top principal components to both the
+        audio cluster Structured Skip-Gram embeddings and text diphone/triphone Structured
+        Skip-Gram embeddings before GAN alignment and CSLS nearest-neighbor evaluation.
+      - Runs all evaluations and analyses:
+          1. GAN & CSLS cross-modal alignment (GANEmbeddingAlignmentJob)
+          2. Cheating segmentation nearest-neighbor evaluation (CheatingSegmentationNearestNeighborEvalJob)
+          3. 4-gram phoneme LM rescoring (PhonemeNgramRescoreJob)
+          4. Cross-modal 2D PCA & alignment representation analysis (EmbeddingAlignmentAnalysisJob)
+          5. Before vs. After All-but-the-Top PCA & Mu et al. (2018) isotropy analysis (Word2VecIsotropyAndPcaAnalysisJob)
+          6. Speech cluster distribution analysis (SpeechClusterDistributionAnalysisJob)
+    """
+    if cluster is not None:
+        set_cluster(cluster)
+    active_cluster = get_cluster()
+    norm_clean = norm_tag.strip().lower()
+    norm_title = "Unit Sphere" if norm_clean in ("unit_sphere", "sphere", "l2") else norm_tag
+    if d_values is None:
+        d_values = [1, 2, 3]
+
+    prefix_name = f"{__setup_base_name__}/librispeech/cross_modal_cheat_seg_{active_cluster}/v5.6_isotropic"
+
+    oracle_ref_hdfs = get_cheating_phoneme_ref_hdfs()
+    oracle_seq_tags = get_hubert_seq_tags_path()
+    oracle_idx_to_phoneme = get_oracle_idx_to_phoneme_path()
+    text_corpus_path = get_phoneme_text_corpus_path(cluster=active_cluster)
+
+    target_setups = [
+        ("diphone", 1500, "clus_1500_1500"),
+        ("triphone", 10000, "clus_10000_10000"),
+    ]
+    dim = 128
+    win = 2
+    metric = "csls"
+    dw_tag = f"dim{dim}_win{win}"
+
+    cluster_jobs_by_k = {}
+
+    for d_rem in d_values:
+        d_rem_int = int(d_rem)
+        d_tag = f"D{d_rem_int}"
+        d_prefix = f"{prefix_name}/{d_tag}"
+
+        if alignment_results_by_d is not None and d_rem_int in alignment_results_by_d:
+            alignment_results = alignment_results_by_d[d_rem_int]
+        else:
+            alignment_results = build_self_learning_asr_alignment_pipeline(
+                librispeech_key="train-clean-100",
+                audio_layer=6,
+                word2vec_dims=[dim],
+                word2vec_windows=[win],
+                word2vec_epochs=20,
+                cluster_counts=[1500, 10000],
+                code_types=["diphone", "triphone"],
+                version=f"v5.6_isotropic_{d_tag}",
+                text_version="v5.6",
+                coverage_threshold=0.8,
+                segmentation_type="cheat_seg",
+                pca_dim=pca_dim,
+                retrieval_metrics=[metric],
+                csls_k=10,
+                alignment_method="gan",
+                code_cluster_map={
+                    "diphone": [(1500, "clus_1500_1500")],
+                    "triphone": [(10000, "clus_10000_10000")],
+                },
+                normalize_segments=norm_clean,
+                embedding_model="structured_skipgram",
+                word2vec_postprocessing="all_but_the_top",
+                all_but_the_top_D=d_rem_int,
+                run_isotropy_analysis=True,
+            )
+
+        for code_type, k_clusters, clus_str in target_setups:
+            exp_key = f"{code_type}/{clus_str}/{dw_tag}_{metric}"
+            res_entry = (
+                alignment_results.get((code_type, clus_str, dim, win, f"gan_{metric}"))
+                if alignment_results is not None
+                else None
+            )
+            if res_entry is None:
+                continue
+
+            a_clus = res_entry["cluster_job"]
+            a_w2v = res_entry["audio_w2v_job"]
+            t_w2v = res_entry["text_w2v_job"]
+            raw_a_w2v = res_entry.get("raw_audio_w2v_job", a_w2v)
+            raw_t_w2v = res_entry.get("raw_text_w2v_job", t_w2v)
+            align_gan = res_entry["align_gan_job"]
+
+            cheat_seg_tokens_file = a_clus.out_collapsed_tokens_txt
+            audio_emb_path = align_gan.out_mapped_audio_emb_npy
+            text_emb_path = t_w2v.out_embeddings_npy
+            vocab_path = t_w2v.out_vocab_txt
+            cluster_jobs_by_k[k_clusters] = a_clus
+
+            # Register postprocessed embeddings & GAN alignment outputs under v5.6_isotropic/D{D}/...
+            tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_embeddings_abtt.npy", a_w2v.out_embeddings_npy)
+            tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_embeddings_abtt.npy", t_w2v.out_embeddings_npy)
+            if hasattr(a_w2v, "out_isotropy_json"):
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/audio_isotropy_stats.json", a_w2v.out_isotropy_json)
+            if hasattr(t_w2v, "out_isotropy_json"):
+                tk.register_output(f"{d_prefix}/{exp_key}/embeddings/text_isotropy_stats.json", t_w2v.out_isotropy_json)
+
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/dict.json", align_gan.out_dictionary_json)
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/report.json", align_gan.out_alignment_report)
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/W_star.npy", align_gan.out_mapping_matrix_npy)
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/W_adv.npy", align_gan.out_adv_mapping_matrix_npy)
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/mapped_audio_embeddings.npy", align_gan.out_mapped_audio_emb_npy)
+            tk.register_output(f"{d_prefix}/{exp_key}/gan_alignment/gan_training_curves.png", align_gan.out_gan_loss_plot)
+
+            # 1. Cheating Segmentation Nearest-Neighbor Evaluation
+            eval_train_job = CheatingSegmentationNearestNeighborEvalJob(
+                audio_embeddings_npy=audio_emb_path,
+                text_embeddings_npy=text_emb_path,
+                phoneme_vocab_file=vocab_path,
+                cheating_segmentation_path=cheat_seg_tokens_file,
+                audio_cluster_hdfs=None,
+                reference_phonemes=oracle_ref_hdfs,
+                reference_phoneme_vocab_file=oracle_idx_to_phoneme,
+                seq_tags_file=oracle_seq_tags,
+                code_type=code_type,
+                max_seqs=3000,
+                ignore_silence=True,
+                retrieval_metric=metric,
+                csls_k=10,
+                center_text_embeddings=True,
+                name_prefix=f"eval_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.6_isotropic_{d_tag}",
+            )
+            eval_train_job.add_alias(f"{d_prefix}/{exp_key}/eval_train3k")
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_per_summary.json", eval_train_job.out_per_summary_json)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_per_report.txt", eval_train_job.out_per_report_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_hypotheses.txt", eval_train_job.out_hypotheses_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_reference.txt", eval_train_job.out_reference_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_sclite.pra", eval_train_job.out_pra_report_txt)
+
+            # 2. 4-Gram Language Model Rescoring Job
+            rescore_train_job = PhonemeNgramRescoreJob(
+                hypotheses_file=eval_train_job.out_hypotheses_txt,
+                reference_file=eval_train_job.out_reference_txt,
+                text_corpus_file=text_corpus_path,
+                lm_order=4,
+                backoff_alpha=0.4,
+                lm_weight=0.5,
+                match_bonus=2.0,
+                beam_width=10,
+                collapse_before=True,
+                name_prefix=f"rescore_train3k_{code_type}_{clus_str}_{dw_tag}_{metric}_v5.6_isotropic_{d_tag}",
+            )
+            rescore_train_job.add_alias(f"{d_prefix}/{exp_key}/rescore_4gram_train3k")
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_hypotheses.txt", rescore_train_job.out_hypotheses_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_per_summary.json", rescore_train_job.out_per_summary_json)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_per_report.txt", rescore_train_job.out_per_report_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/train3k_4gram_sclite.pra", rescore_train_job.out_pra_report_txt)
+
+            # 3. Cross-Modal Embedding Alignment & Representation Analysis (PCA, Frequency Gradient, Unaligned & Aligned Spaces)
+            analysis_gan = res_entry.get("analysis_gan_job")
+            if analysis_gan is None:
+                analysis_gan = EmbeddingAlignmentAnalysisJob(
+                    mapped_audio_embeddings_npy=align_gan.out_mapped_audio_emb_npy,
+                    text_embeddings_npy=t_w2v.out_embeddings_npy,
+                    dictionary_json=align_gan.out_dictionary_json,
+                    raw_audio_embeddings_npy=a_w2v.out_embeddings_npy,
+                    raw_text_embeddings_npy=t_w2v.out_embeddings_npy,
+                    audio_vocab_file=a_clus.out_cluster_vocab_txt,
+                    text_vocab_file=t_w2v.out_vocab_txt,
+                    audio_counts_file=a_clus.out_cluster_counts_txt,
+                    text_counts_file=t_w2v.out_counts_txt,
+                    alignment_report_json=align_gan.out_alignment_report,
+                    title_prefix=f"v5.6_isotropic ({d_tag}) Cross-Modal 2D PCA ({code_type}, {clus_str}, {dw_tag}, {metric})",
+                    src_label="Audio Clusters",
+                    trg_label="Text Phonemes",
+                    _version=4,
+                )
+
+            analysis_gan.add_alias(f"{d_prefix}/{exp_key}/pca_analysis")
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca.png", analysis_gan.out_cross_modal_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca.json", analysis_gan.out_cross_modal_pca_json)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/source_audio_pca.png", analysis_gan.out_source_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/target_text_pca.png", analysis_gan.out_target_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/cross_modal_pca_panel.png", analysis_gan.out_cross_modal_panel_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/source_raw_pca.png", analysis_gan.out_source_raw_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/target_raw_pca.png", analysis_gan.out_target_raw_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/unaligned_cross_modal_pca.png", analysis_gan.out_unaligned_joint_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/alignment_comparison_panel.png", analysis_gan.out_alignment_comparison_panel_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/pca_analysis/analysis_report.json", analysis_gan.out_analysis_report_json)
+
+            # 4. Word2Vec / Structured Skip-Gram Isotropy & PCA Before vs. After All-but-the-Top Analysis (Mu et al. 2018)
+            w2v_isotropy_job = res_entry.get("w2v_isotropy_job")
+            if w2v_isotropy_job is None:
+                w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+                    src_raw_embeddings_npy=raw_a_w2v.out_embeddings_npy,
+                    trg_raw_embeddings_npy=raw_t_w2v.out_embeddings_npy,
+                    src_post_embeddings_npy=a_w2v.out_embeddings_npy,
+                    trg_post_embeddings_npy=t_w2v.out_embeddings_npy,
+                    src_vocab_file=a_clus.out_cluster_vocab_txt,
+                    trg_vocab_file=t_w2v.out_vocab_txt,
+                    src_counts_file=a_clus.out_cluster_counts_txt,
+                    trg_counts_file=t_w2v.out_counts_txt,
+                    d_remove=d_rem_int,
+                    title_prefix=f"v5.6_isotropic ({d_tag}) Embedding Isotropy & PCA ({code_type}, {clus_str}, {dw_tag})",
+                    src_label="Audio Clusters",
+                    trg_label=f"Text {code_type.capitalize()}s",
+                    is_postprocessed_active=True,
+                )
+
+            w2v_isotropy_job.add_alias(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis")
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_report.json", w2v_isotropy_job.out_isotropy_report_json)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_report.txt", w2v_isotropy_job.out_isotropy_report_txt)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_before_abtt.png", w2v_isotropy_job.out_src_before_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/source_audio_pca_after_abtt.png", w2v_isotropy_job.out_src_after_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/target_text_pca_before_abtt.png", w2v_isotropy_job.out_trg_before_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/target_text_pca_after_abtt.png", w2v_isotropy_job.out_trg_after_pca_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/pca_before_vs_after_abtt_panel.png", w2v_isotropy_job.out_before_after_panel_plot)
+            tk.register_output(f"{d_prefix}/{exp_key}/w2v_isotropy_analysis/isotropy_and_spectrum_panel.png", w2v_isotropy_job.out_isotropy_spectrum_plot)
 
     if run_analysis:
         analysis_prefix = f"{prefix_name}/analysis"
@@ -1608,8 +1934,15 @@ def py(cluster: Optional[str] = None, version: str = "all", run_analysis: bool =
     elif v_norm in ("v5.5", "v5_5", "v5.5_unit_sphere", "v5.5_gan", "v5.5_sphere"):
         eval_v5_5_gan_pca512(cluster=cluster, run_analysis=run_analysis, norm_tag="unit_sphere")
         return
-    elif v_norm in ("v5.6", "v5_6", "v5.6_unit_sphere", "v5.6_gan", "v5.6_sphere", "v5.6_ssg"):
+    elif v_norm in ("v5.6", "v5_6", "v5.6_unit_sphere", "v5.6_gan", "v5.6_sphere", "v5.6_ssg", "v5.6_unit_sphere_gan_pca512"):
         eval_v5_6_gan_pca512(cluster=cluster, run_analysis=run_analysis, norm_tag="unit_sphere")
+        return
+    elif v_norm in ("v5.6_isotropic", "v5_6_isotropic", "v5.6_abtt", "v5_6_abtt", "isotropic"):
+        eval_v5_6_isotropic(cluster=cluster, run_analysis=run_analysis, norm_tag="unit_sphere", d_values=[1, 2, 3])
+        return
+    elif v_norm in ("v5.6_both", "v5_6_both", "v5.6_all"):
+        eval_v5_6_gan_pca512(cluster=cluster, run_analysis=run_analysis, norm_tag="unit_sphere")
+        eval_v5_6_isotropic(cluster=cluster, run_analysis=run_analysis, norm_tag="unit_sphere", d_values=[1, 2, 3])
         return
     elif v_norm in ("v5_w2v2", "v5_w2v2_matched_90pct", "v5_w2v2_matched_90", "v5_w2v2_90"):
         eval_v5_w2v2_matched_90pct(cluster=cluster)
@@ -1626,12 +1959,19 @@ def py(cluster: Optional[str] = None, version: str = "all", run_analysis: bool =
         eval_v5_3_gan_pca512(cluster=cluster, run_analysis=False)
         eval_v5_4_gan_pca512(cluster=cluster, run_analysis=False, norm_tag="unit_sphere")
         eval_v5_4_gan_pca512(cluster=cluster, run_analysis=False, norm_tag="zscore")
+        eval_v5_5_gan_pca512(cluster=cluster, run_analysis=False, norm_tag="unit_sphere")
+        eval_v5_6_gan_pca512(cluster=cluster, run_analysis=False, norm_tag="unit_sphere")
+        eval_v5_6_isotropic(cluster=cluster, run_analysis=False, norm_tag="unit_sphere", d_values=[1, 2, 3])
         eval_v5_w2v2_matched_90pct(cluster=cluster)
     elif v_norm in ("analysis", "dist", "distribution"):
         run_distribution_analysis(cluster=cluster)
         return
     else:
-        raise ValueError(f"Unknown version: {version}. Choose from 'v1', 'v2', 'v3', 'v3_matched_90', 'v3_matched_90_direct_seg', 'v4', 'v5', 'v5.3', 'v5.4', 'v5_w2v2', 'v2_v3', 'all', 'analysis'.")
+        raise ValueError(
+            f"Unknown version: {version}. Choose from 'v1', 'v2', 'v3', 'v3_matched_90', "
+            f"'v3_matched_90_direct_seg', 'v4', 'v5', 'v5.3', 'v5.4', 'v5.5', 'v5.6', "
+            f"'v5.6_isotropic', 'v5.6_both', 'v5_w2v2', 'v2_v3', 'all', 'analysis'."
+        )
 
     if run_analysis:
         run_distribution_analysis(cluster=cluster)

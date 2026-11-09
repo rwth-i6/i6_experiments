@@ -80,6 +80,41 @@ def compute_pair_difference_stats(
     mean_a = float(np.mean(a_lens))
     mean_b = float(np.mean(b_lens))
 
+    # Directional / asymmetric length comparison
+    a_longer_mask = a_lens > b_lens
+    b_longer_mask = b_lens > a_lens
+    equal_mask = a_lens == b_lens
+
+    a_longer_diffs = (a_lens - b_lens)[a_longer_mask]
+    b_longer_diffs = (b_lens - a_lens)[b_longer_mask]
+
+    n_total = max(1, len(a_lens))
+
+    a_longer_stats = {
+        "count": int(np.sum(a_longer_mask)),
+        "percentage": float(np.sum(a_longer_mask) / n_total * 100.0),
+        "mean_extra": float(np.mean(a_longer_diffs)) if len(a_longer_diffs) > 0 else 0.0,
+        "std_extra": float(np.std(a_longer_diffs, ddof=1)) if len(a_longer_diffs) > 1 else 0.0,
+        "median_extra": float(np.median(a_longer_diffs)) if len(a_longer_diffs) > 0 else 0.0,
+        "min_extra": int(np.min(a_longer_diffs)) if len(a_longer_diffs) > 0 else 0,
+        "max_extra": int(np.max(a_longer_diffs)) if len(a_longer_diffs) > 0 else 0,
+    }
+
+    b_longer_stats = {
+        "count": int(np.sum(b_longer_mask)),
+        "percentage": float(np.sum(b_longer_mask) / n_total * 100.0),
+        "mean_extra": float(np.mean(b_longer_diffs)) if len(b_longer_diffs) > 0 else 0.0,
+        "std_extra": float(np.std(b_longer_diffs, ddof=1)) if len(b_longer_diffs) > 1 else 0.0,
+        "median_extra": float(np.median(b_longer_diffs)) if len(b_longer_diffs) > 0 else 0.0,
+        "min_extra": int(np.min(b_longer_diffs)) if len(b_longer_diffs) > 0 else 0,
+        "max_extra": int(np.max(b_longer_diffs)) if len(b_longer_diffs) > 0 else 0,
+    }
+
+    equal_stats = {
+        "count": int(np.sum(equal_mask)),
+        "percentage": float(np.sum(equal_mask) / n_total * 100.0),
+    }
+
     return {
         "num_sentences": int(len(abs_diffs)),
         "mean_abs_difference": float(np.mean(abs_diffs)),
@@ -94,6 +129,9 @@ def compute_pair_difference_stats(
         "mean_len_a": mean_a,
         "mean_len_b": mean_b,
         "length_ratio": float(mean_a / max(1e-6, mean_b)),
+        "a_longer": a_longer_stats,
+        "b_longer": b_longer_stats,
+        "equal_length": equal_stats,
         "_abs_diffs": abs_diffs,
         "_signed_diffs": signed_diffs,
         "_a_lens": a_lens,
@@ -136,6 +174,55 @@ def compute_all_sequence_differences(
         results["character_level"][key] = {
             "label": label,
             **{k: v for k, v in char_stats.items() if not k.startswith("_")}
+        }
+
+        if key == "hypothesis_reference":
+            results["token_level"][key]["hyp_longer"] = tok_stats["a_longer"]
+            results["token_level"][key]["ref_longer"] = tok_stats["b_longer"]
+            results["character_level"][key]["hyp_longer"] = char_stats["a_longer"]
+            results["character_level"][key]["ref_longer"] = char_stats["b_longer"]
+
+    # Top-level direct summary for hypothesis vs reference length asymmetry
+    hyp_ref_tok = results["token_level"].get("hypothesis_reference", {})
+    hyp_ref_char = results["character_level"].get("hypothesis_reference", {})
+    if hyp_ref_tok and "a_longer" in hyp_ref_tok:
+        results["length_asymmetry"] = {
+            "token_level": {
+                "hyp_longer_count": hyp_ref_tok["a_longer"]["count"],
+                "hyp_longer_percentage": hyp_ref_tok["a_longer"]["percentage"],
+                "hyp_extra_tokens_mean": hyp_ref_tok["a_longer"]["mean_extra"],
+                "hyp_extra_tokens_std": hyp_ref_tok["a_longer"]["std_extra"],
+                "hyp_extra_tokens_median": hyp_ref_tok["a_longer"]["median_extra"],
+                "hyp_extra_tokens_min": hyp_ref_tok["a_longer"]["min_extra"],
+                "hyp_extra_tokens_max": hyp_ref_tok["a_longer"]["max_extra"],
+                "ref_longer_count": hyp_ref_tok["b_longer"]["count"],
+                "ref_longer_percentage": hyp_ref_tok["b_longer"]["percentage"],
+                "ref_extra_tokens_mean": hyp_ref_tok["b_longer"]["mean_extra"],
+                "ref_extra_tokens_std": hyp_ref_tok["b_longer"]["std_extra"],
+                "ref_extra_tokens_median": hyp_ref_tok["b_longer"]["median_extra"],
+                "ref_extra_tokens_min": hyp_ref_tok["b_longer"]["min_extra"],
+                "ref_extra_tokens_max": hyp_ref_tok["b_longer"]["max_extra"],
+                "equal_length_count": hyp_ref_tok["equal_length"]["count"],
+                "equal_length_percentage": hyp_ref_tok["equal_length"]["percentage"],
+            },
+            "character_level": {
+                "hyp_longer_count": hyp_ref_char["a_longer"]["count"],
+                "hyp_longer_percentage": hyp_ref_char["a_longer"]["percentage"],
+                "hyp_extra_chars_mean": hyp_ref_char["a_longer"]["mean_extra"],
+                "hyp_extra_chars_std": hyp_ref_char["a_longer"]["std_extra"],
+                "hyp_extra_chars_median": hyp_ref_char["a_longer"]["median_extra"],
+                "hyp_extra_chars_min": hyp_ref_char["a_longer"]["min_extra"],
+                "hyp_extra_chars_max": hyp_ref_char["a_longer"]["max_extra"],
+                "ref_longer_count": hyp_ref_char["b_longer"]["count"],
+                "ref_longer_percentage": hyp_ref_char["b_longer"]["percentage"],
+                "ref_extra_chars_mean": hyp_ref_char["b_longer"]["mean_extra"],
+                "ref_extra_chars_std": hyp_ref_char["b_longer"]["std_extra"],
+                "ref_extra_chars_median": hyp_ref_char["b_longer"]["median_extra"],
+                "ref_extra_chars_min": hyp_ref_char["b_longer"]["min_extra"],
+                "ref_extra_chars_max": hyp_ref_char["b_longer"]["max_extra"],
+                "equal_length_count": hyp_ref_char["equal_length"]["count"],
+                "equal_length_percentage": hyp_ref_char["equal_length"]["percentage"],
+            } if hyp_ref_char and "a_longer" in hyp_ref_char else {},
         }
 
     return results
@@ -198,6 +285,39 @@ def format_sequence_difference_report(
                 f"Range: [{p['min_abs_difference']}, {p['max_abs_difference']}], Mean signed (A - B): {p['mean_signed_difference']:+.2f}, "
                 f"Avg Len A: {p['mean_len_a']:.1f}, Avg Len B: {p['mean_len_b']:.1f}{ratio_str})"
             )
+
+    lines.append("\n" + "=" * 78)
+    lines.append("   DIRECTIONAL LENGTH ASYMMETRY (HYPOTHESIS vs REFERENCE)")
+    lines.append("=" * 78)
+    n_total = summary_data.get("num_sentences", 0)
+    for level, level_label, level_unit in [
+        ("token_level", "TOKEN / WORD LEVEL", "Words / Tokens"),
+        ("character_level", "CHARACTER LEVEL", "Characters"),
+    ]:
+        pair_data = summary_data.get(level, {}).get("hypothesis_reference", {})
+        if not pair_data or "a_longer" not in pair_data:
+            continue
+        a_long = pair_data["a_longer"]
+        b_long = pair_data["b_longer"]
+        eq = pair_data["equal_length"]
+
+        lines.append(f"\n[ {level_label} ]")
+        lines.append(
+            f"  • Hypothesis LONGER than Reference (Hyp > Ref, Extra {level_unit}):\n"
+            f"      Number of sequences : {a_long['count']} / {n_total} ({a_long['percentage']:.2f}%)\n"
+            f"      Extra {level_unit:<14}: Mean = {a_long['mean_extra']:.2f} ± {a_long['std_extra']:.2f}, "
+            f"Median = {a_long['median_extra']:.1f} (Min: {a_long['min_extra']}, Max: {a_long['max_extra']})"
+        )
+        lines.append(
+            f"  • Hypothesis SHORTER than Reference (Hyp < Ref, Deficit {level_unit}):\n"
+            f"      Number of sequences : {b_long['count']} / {n_total} ({b_long['percentage']:.2f}%)\n"
+            f"      Deficit {level_unit:<12}: Mean = {b_long['mean_extra']:.2f} ± {b_long['std_extra']:.2f}, "
+            f"Median = {b_long['median_extra']:.1f} (Min: {b_long['min_extra']}, Max: {b_long['max_extra']})"
+        )
+        lines.append(
+            f"  • Exact Length Match (Hyp == Ref):\n"
+            f"      Number of sequences : {eq['count']} / {n_total} ({eq['percentage']:.2f}%)"
+        )
 
     lines.append("\n" + "=" * 78 + "\n")
     return "\n".join(lines)
@@ -297,8 +417,10 @@ class SequenceDifferenceEvalJob(Job):
                     "idx", "tag",
                     "tok_inp", "tok_hyp", "tok_ref",
                     "abs_diff_tok_inp_hyp", "abs_diff_tok_inp_ref", "abs_diff_tok_hyp_ref",
+                    "signed_diff_tok_hyp_ref",
                     "char_inp", "char_hyp", "char_ref",
                     "abs_diff_char_inp_hyp", "abs_diff_char_inp_ref", "abs_diff_char_hyp_ref",
+                    "signed_diff_char_hyp_ref",
                 ]
                 ft.write("\t".join(headers) + "\n")
                 for i in range(len(hyp_lines)):
@@ -315,10 +437,12 @@ class SequenceDifferenceEvalJob(Job):
                         str(abs(tok_inp - tok_hyp)),
                         str(abs(tok_inp - tok_ref)),
                         str(abs(tok_hyp - tok_ref)),
+                        str(tok_hyp - tok_ref),
                         str(char_inp), str(char_hyp), str(char_ref),
                         str(abs(char_inp - char_hyp)),
                         str(abs(char_inp - char_ref)),
                         str(abs(char_hyp - char_ref)),
+                        str(char_hyp - char_ref),
                     ]
                     ft.write("\t".join(row) + "\n")
             else:

@@ -94,7 +94,7 @@ class WordByWordCrossLingualEvalJob(Job):
         self.out_sequence_difference_report_txt = self.output_path("sequence_difference_report.txt")
 
     def tasks(self) -> Iterator[Task]:
-        yield Task("run", rqmt={"cpu": 4, "mem": 16, "time": 2})
+        yield Task("run", mini_task=True)
 
     def run(self):
         logging.basicConfig(level=logging.INFO)

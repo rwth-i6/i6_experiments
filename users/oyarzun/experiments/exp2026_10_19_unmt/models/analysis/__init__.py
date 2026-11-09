@@ -1,2 +1,3 @@
-from .embedding_alignment import EmbeddingAlignmentAnalysisJob
+from .embedding_alignment import EmbeddingAlignmentAnalysisJob, Word2VecIsotropyAndPcaAnalysisJob
+
 

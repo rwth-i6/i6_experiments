@@ -29,6 +29,7 @@ from .data.bpe import TrainBpeJob, ApplyBpeJob, DeBpeTextJob
 from .data.phonemize import PhonemizeEnglishTextJob, PhonemizeGermanTextJob, GenerateTextNgramsJob
 from .data.word2vec import (
     TrainWord2VecJob,
+    PostprocessWord2VecAllButTheTopJob,
     GetVocabSizeJob,
     AverageWordNgramEmbeddingsJob,
     ClusterWordAveragedEmbeddingsJob,
@@ -39,6 +40,7 @@ from .data.wmt14_de_en import (
     PrepareWmt14TestSetJob,
     PrepareWmt14MonolingualNewsCrawlJob,
     DumpTextToReturnnHdfJob,
+    NormalizeTokenizedTextJob,
 )
 from .bleu_eval import ComputeBleuJob, generic_bleu_score_recog_out
 from .eval_word_by_word_baseline import WordByWordCrossLingualEvalJob
@@ -49,7 +51,7 @@ from .config import get_forward_config
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from .cluster_adapter import get_wmt14_dir
 from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
-from ..models.analysis import EmbeddingAlignmentAnalysisJob
+from ..models.analysis import EmbeddingAlignmentAnalysisJob, Word2VecIsotropyAndPcaAnalysisJob
 
 
 def get_wmt14_monolingual_paths(
@@ -93,6 +95,11 @@ def run_wmt14_de_en_unmt_pipeline(
     w2v_sg: int = 1,
     w2v_epochs: int = 5,
     w2v_sample: Optional[float] = None,
+    w2v_all_but_the_top: bool = False,
+    w2v_abtt_d: Optional[int] = None,
+    run_w2v_isotropy_analysis: bool = True,
+    lowercase: bool = False,
+    remove_punctuation: bool = False,
     num_epochs: int = 20,
     eval_epochs: Optional[Sequence[int]] = None,
     partition_epoch: int = 20,
@@ -185,8 +192,6 @@ def run_wmt14_de_en_unmt_pipeline(
         lowercase=False,
     )
     test2014_job.add_alias(f"{prefix_name}/data/prepare_newstest2014")
-    tk.register_output(f"{prefix_name}/data/newstest2014.tok.de", test2014_job.out_src_tok)
-    tk.register_output(f"{prefix_name}/data/newstest2014.tok.en", test2014_job.out_trg_tok)
 
     newstest2013_de_txt = tk.Path(os.path.join(wmt14_dir, "raw", "dev", "newstest2013.de"))
     newstest2013_en_txt = tk.Path(os.path.join(wmt14_dir, "raw", "dev", "newstest2013.en"))
@@ -210,7 +215,6 @@ def run_wmt14_de_en_unmt_pipeline(
         lowercase=False,
     )
     mono_de_job.add_alias(f"{prefix_name}/data/prepare_mono_de")
-    tk.register_output(f"{prefix_name}/data/news_crawl.de.tok.txt", mono_de_job.out_tokenized_txt)
 
     mono_en_job = PrepareWmt14MonolingualNewsCrawlJob(
         input_files=en_raw_files,
@@ -221,7 +225,76 @@ def run_wmt14_de_en_unmt_pipeline(
         lowercase=False,
     )
     mono_en_job.add_alias(f"{prefix_name}/data/prepare_mono_en")
-    tk.register_output(f"{prefix_name}/data/news_crawl.en.tok.txt", mono_en_job.out_tokenized_txt)
+
+    if lowercase or remove_punctuation:
+        norm_suffix = ("_lc" if lowercase else "") + ("_nopunct" if remove_punctuation else "")
+        norm_mono_de = NormalizeTokenizedTextJob(
+            text_file=mono_de_job.out_tokenized_txt,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=False,
+            min_tokens=3,
+        )
+        norm_mono_de.add_alias(f"{prefix_name}/data/normalize_mono_de{norm_suffix}")
+        de_mono_tok_txt = norm_mono_de.out_normalized_txt
+
+        norm_mono_en = NormalizeTokenizedTextJob(
+            text_file=mono_en_job.out_tokenized_txt,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=False,
+            min_tokens=3,
+        )
+        norm_mono_en.add_alias(f"{prefix_name}/data/normalize_mono_en{norm_suffix}")
+        en_mono_tok_txt = norm_mono_en.out_normalized_txt
+
+        norm_dev_de = NormalizeTokenizedTextJob(
+            text_file=dev2013_job.out_src_tok,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=True,
+        )
+        norm_dev_de.add_alias(f"{prefix_name}/data/normalize_dev2013_de{norm_suffix}")
+        de_dev_tok_txt = norm_dev_de.out_normalized_txt
+
+        norm_dev_en = NormalizeTokenizedTextJob(
+            text_file=dev2013_job.out_trg_tok,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=True,
+        )
+        norm_dev_en.add_alias(f"{prefix_name}/data/normalize_dev2013_en{norm_suffix}")
+        en_dev_tok_txt = norm_dev_en.out_normalized_txt
+
+        norm_test_de = NormalizeTokenizedTextJob(
+            text_file=test2014_job.out_src_tok,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=True,
+        )
+        norm_test_de.add_alias(f"{prefix_name}/data/normalize_test2014_de{norm_suffix}")
+        de_test_tok_txt = norm_test_de.out_normalized_txt
+
+        norm_test_en = NormalizeTokenizedTextJob(
+            text_file=test2014_job.out_trg_tok,
+            lowercase=lowercase,
+            remove_punctuation=remove_punctuation,
+            keep_line_alignment=True,
+        )
+        norm_test_en.add_alias(f"{prefix_name}/data/normalize_test2014_en{norm_suffix}")
+        en_test_tok_txt = norm_test_en.out_normalized_txt
+    else:
+        de_mono_tok_txt = mono_de_job.out_tokenized_txt
+        en_mono_tok_txt = mono_en_job.out_tokenized_txt
+        de_dev_tok_txt = dev2013_job.out_src_tok
+        en_dev_tok_txt = dev2013_job.out_trg_tok
+        de_test_tok_txt = test2014_job.out_src_tok
+        en_test_tok_txt = test2014_job.out_trg_tok
+
+    tk.register_output(f"{prefix_name}/data/newstest2014.tok.de", de_test_tok_txt)
+    tk.register_output(f"{prefix_name}/data/newstest2014.tok.en", en_test_tok_txt)
+    tk.register_output(f"{prefix_name}/data/news_crawl.de.tok.txt", de_mono_tok_txt)
+    tk.register_output(f"{prefix_name}/data/news_crawl.en.tok.txt", en_mono_tok_txt)
 
     # -------------------------------------------------------------------------
     # BPE Training and Application (if de_code_type == 'bpe' or en_code_type == 'bpe')
@@ -239,7 +312,7 @@ def run_wmt14_de_en_unmt_pipeline(
     if de_code_type == "bpe" or en_code_type == "bpe":
         if bpe_mode == "joint":
             joint_bpe_train_job = TrainBpeJob(
-                input_files=[mono_de_job.out_tokenized_txt, mono_en_job.out_tokenized_txt],
+                input_files=[de_mono_tok_txt, en_mono_tok_txt],
                 num_operations=bpe_operations,
             )
             joint_bpe_train_job.add_alias(f"{prefix_name}/data/train_joint_bpe_{bpe_operations}")
@@ -249,7 +322,7 @@ def run_wmt14_de_en_unmt_pipeline(
         else:
             if de_code_type == "bpe":
                 de_bpe_train_job = TrainBpeJob(
-                    input_files=mono_de_job.out_tokenized_txt,
+                    input_files=de_mono_tok_txt,
                     num_operations=bpe_operations,
                 )
                 de_bpe_train_job.add_alias(f"{prefix_name}/data/train_de_bpe_{bpe_operations}")
@@ -260,7 +333,7 @@ def run_wmt14_de_en_unmt_pipeline(
 
             if en_code_type == "bpe":
                 en_bpe_train_job = TrainBpeJob(
-                    input_files=mono_en_job.out_tokenized_txt,
+                    input_files=en_mono_tok_txt,
                     num_operations=bpe_operations,
                 )
                 en_bpe_train_job.add_alias(f"{prefix_name}/data/train_en_bpe_{bpe_operations}")
@@ -278,24 +351,24 @@ def run_wmt14_de_en_unmt_pipeline(
     test2014_de_ngram_job = None
 
     if de_code_type == "bpe":
-        mono_de_bpe_job = ApplyBpeJob(text_file=mono_de_job.out_tokenized_txt, bpe_codes=de_bpe_codes)
+        mono_de_bpe_job = ApplyBpeJob(text_file=de_mono_tok_txt, bpe_codes=de_bpe_codes)
         mono_de_bpe_job.add_alias(f"{prefix_name}/data/prepare_mono_de_bpe")
         tk.register_output(f"{prefix_name}/data/news_crawl.de.bpe.txt", mono_de_bpe_job.out_bpe_text)
         de_train_txt = mono_de_bpe_job.out_bpe_text
 
-        dev2013_de_bpe_job = ApplyBpeJob(text_file=dev2013_job.out_src_tok, bpe_codes=de_bpe_codes)
+        dev2013_de_bpe_job = ApplyBpeJob(text_file=de_dev_tok_txt, bpe_codes=de_bpe_codes)
         dev2013_de_bpe_job.add_alias(f"{prefix_name}/data/dev2013_de_bpe")
         tk.register_output(f"{prefix_name}/data/newstest2013.de.bpe.txt", dev2013_de_bpe_job.out_bpe_text)
         de_dev_txt = dev2013_de_bpe_job.out_bpe_text
 
-        test2014_de_bpe_job = ApplyBpeJob(text_file=test2014_job.out_src_tok, bpe_codes=de_bpe_codes)
+        test2014_de_bpe_job = ApplyBpeJob(text_file=de_test_tok_txt, bpe_codes=de_bpe_codes)
         test2014_de_bpe_job.add_alias(f"{prefix_name}/data/test2014_de_bpe")
         tk.register_output(f"{prefix_name}/data/newstest2014.de.bpe.txt", test2014_de_bpe_job.out_bpe_text)
         de_test_txt = test2014_de_bpe_job.out_bpe_text
     elif de_code_type in ("diphone", "triphone"):
         ngram_order_de = 2 if de_code_type == "diphone" else 3
 
-        mono_de_phn_job = PhonemizeGermanTextJob(text_file=mono_de_job.out_tokenized_txt)
+        mono_de_phn_job = PhonemizeGermanTextJob(text_file=de_mono_tok_txt)
         mono_de_phn_job.add_alias(f"{prefix_name}/data/prepare_mono_de_phonemize")
         tk.register_output(f"{prefix_name}/data/news_crawl.de.phn.txt", mono_de_phn_job.out_phoneme_text)
 
@@ -309,7 +382,7 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/news_crawl.de.{de_code_type}.counts.txt", mono_de_ngram_job.out_vocab_counts)
         de_train_txt = mono_de_ngram_job.out_ngram_text
 
-        dev2013_de_phn_job = PhonemizeGermanTextJob(text_file=dev2013_job.out_src_tok)
+        dev2013_de_phn_job = PhonemizeGermanTextJob(text_file=de_dev_tok_txt)
         dev2013_de_phn_job.add_alias(f"{prefix_name}/data/dev2013_de_phonemize")
         dev2013_de_ngram_job = GenerateTextNgramsJob(
             phoneme_text_file=dev2013_de_phn_job.out_phoneme_text,
@@ -319,7 +392,7 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/newstest2013.de.{de_code_type}.txt", dev2013_de_ngram_job.out_ngram_text)
         de_dev_txt = dev2013_de_ngram_job.out_ngram_text
 
-        test2014_de_phn_job = PhonemizeGermanTextJob(text_file=test2014_job.out_src_tok)
+        test2014_de_phn_job = PhonemizeGermanTextJob(text_file=de_test_tok_txt)
         test2014_de_phn_job.add_alias(f"{prefix_name}/data/test2014_de_phonemize")
         test2014_de_ngram_job = GenerateTextNgramsJob(
             phoneme_text_file=test2014_de_phn_job.out_phoneme_text,
@@ -329,9 +402,9 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/newstest2014.de.{de_code_type}.txt", test2014_de_ngram_job.out_ngram_text)
         de_test_txt = test2014_de_ngram_job.out_ngram_text
     else:
-        de_train_txt = mono_de_job.out_tokenized_txt
-        de_dev_txt = dev2013_job.out_src_tok
-        de_test_txt = test2014_job.out_src_tok
+        de_train_txt = de_mono_tok_txt
+        de_dev_txt = de_dev_tok_txt
+        de_test_txt = de_test_tok_txt
 
     # English corpora preparation (word, BPE, diphone, triphone, or cluster-averaged monophones)
     mono_en_phn_job = None
@@ -345,24 +418,24 @@ def run_wmt14_de_en_unmt_pipeline(
     test2014_en_cluster_job = None
 
     if en_code_type == "bpe":
-        mono_en_bpe_job = ApplyBpeJob(text_file=mono_en_job.out_tokenized_txt, bpe_codes=en_bpe_codes)
+        mono_en_bpe_job = ApplyBpeJob(text_file=en_mono_tok_txt, bpe_codes=en_bpe_codes)
         mono_en_bpe_job.add_alias(f"{prefix_name}/data/prepare_mono_en_bpe")
         tk.register_output(f"{prefix_name}/data/news_crawl.en.bpe.txt", mono_en_bpe_job.out_bpe_text)
         en_train_txt = mono_en_bpe_job.out_bpe_text
 
-        dev2013_en_bpe_job = ApplyBpeJob(text_file=dev2013_job.out_trg_tok, bpe_codes=en_bpe_codes)
+        dev2013_en_bpe_job = ApplyBpeJob(text_file=en_dev_tok_txt, bpe_codes=en_bpe_codes)
         dev2013_en_bpe_job.add_alias(f"{prefix_name}/data/dev2013_en_bpe")
         tk.register_output(f"{prefix_name}/data/newstest2013.en.bpe.txt", dev2013_en_bpe_job.out_bpe_text)
         en_dev_txt = dev2013_en_bpe_job.out_bpe_text
 
-        test2014_en_bpe_job = ApplyBpeJob(text_file=test2014_job.out_trg_tok, bpe_codes=en_bpe_codes)
+        test2014_en_bpe_job = ApplyBpeJob(text_file=en_test_tok_txt, bpe_codes=en_bpe_codes)
         test2014_en_bpe_job.add_alias(f"{prefix_name}/data/test2014_en_bpe")
         tk.register_output(f"{prefix_name}/data/newstest2014.en.bpe.txt", test2014_en_bpe_job.out_bpe_text)
         en_test_txt = test2014_en_bpe_job.out_bpe_text
     elif en_code_type in ("diphone", "triphone"):
         ngram_order = 2 if en_code_type == "diphone" else 3
 
-        mono_en_phn_job = PhonemizeEnglishTextJob(text_file=mono_en_job.out_tokenized_txt)
+        mono_en_phn_job = PhonemizeEnglishTextJob(text_file=en_mono_tok_txt)
         mono_en_phn_job.add_alias(f"{prefix_name}/data/prepare_mono_en_phonemize")
         tk.register_output(f"{prefix_name}/data/news_crawl.en.phn.txt", mono_en_phn_job.out_phoneme_text)
 
@@ -376,7 +449,7 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/news_crawl.en.{en_code_type}.counts.txt", mono_en_ngram_job.out_vocab_counts)
         en_train_txt = mono_en_ngram_job.out_ngram_text
 
-        dev2013_en_phn_job = PhonemizeEnglishTextJob(text_file=dev2013_job.out_trg_tok)
+        dev2013_en_phn_job = PhonemizeEnglishTextJob(text_file=en_dev_tok_txt)
         dev2013_en_phn_job.add_alias(f"{prefix_name}/data/dev2013_en_phonemize")
         dev2013_en_ngram_job = GenerateTextNgramsJob(
             phoneme_text_file=dev2013_en_phn_job.out_phoneme_text,
@@ -386,7 +459,7 @@ def run_wmt14_de_en_unmt_pipeline(
         tk.register_output(f"{prefix_name}/data/newstest2013.en.{en_code_type}.txt", dev2013_en_ngram_job.out_ngram_text)
         en_dev_txt = dev2013_en_ngram_job.out_ngram_text
 
-        test2014_en_phn_job = PhonemizeEnglishTextJob(text_file=test2014_job.out_trg_tok)
+        test2014_en_phn_job = PhonemizeEnglishTextJob(text_file=en_test_tok_txt)
         test2014_en_phn_job.add_alias(f"{prefix_name}/data/test2014_en_phonemize")
         test2014_en_ngram_job = GenerateTextNgramsJob(
             phoneme_text_file=test2014_en_phn_job.out_phoneme_text,
@@ -397,7 +470,7 @@ def run_wmt14_de_en_unmt_pipeline(
         en_test_txt = test2014_en_ngram_job.out_ngram_text
     elif is_cluster_en:
         # Phonemize English News Crawl and generate monophones
-        mono_en_phn_job = PhonemizeEnglishTextJob(text_file=mono_en_job.out_tokenized_txt)
+        mono_en_phn_job = PhonemizeEnglishTextJob(text_file=en_mono_tok_txt)
         mono_en_phn_job.add_alias(f"{prefix_name}/data/prepare_mono_en_phonemize")
         tk.register_output(f"{prefix_name}/data/news_crawl.en.phn.txt", mono_en_phn_job.out_phoneme_text)
 
@@ -435,7 +508,7 @@ def run_wmt14_de_en_unmt_pipeline(
 
         # Average monophones per word, cluster into K centroids, and quantize corpus to cluster indices
         cluster_en_job = ClusterWordAveragedEmbeddingsJob(
-            word_text_file=mono_en_job.out_tokenized_txt,
+            word_text_file=en_mono_tok_txt,
             ngram_embeddings_npy=w2v_en_monophone_job.out_embeddings_npy,
             ngram_vocab_file=w2v_en_monophone_job.out_vocab_txt,
             num_clusters=effective_en_vocab_size,
@@ -453,7 +526,7 @@ def run_wmt14_de_en_unmt_pipeline(
 
         # Quantize dev and test sets to cluster indices
         dev2013_en_cluster_job = ApplyWordToClusterJob(
-            input_text_file=dev2013_job.out_trg_tok,
+            input_text_file=en_dev_tok_txt,
             word_to_cluster_json=cluster_en_job.out_word_to_cluster_json,
         )
         dev2013_en_cluster_job.add_alias(f"{prefix_name}/data/dev2013_en_cluster")
@@ -461,16 +534,16 @@ def run_wmt14_de_en_unmt_pipeline(
         en_dev_txt = dev2013_en_cluster_job.out_cluster_text
 
         test2014_en_cluster_job = ApplyWordToClusterJob(
-            input_text_file=test2014_job.out_trg_tok,
+            input_text_file=en_test_tok_txt,
             word_to_cluster_json=cluster_en_job.out_word_to_cluster_json,
         )
         test2014_en_cluster_job.add_alias(f"{prefix_name}/data/test2014_en_cluster")
         tk.register_output(f"{prefix_name}/data/newstest2014.en.cluster.txt", test2014_en_cluster_job.out_cluster_text)
         en_test_txt = test2014_en_cluster_job.out_cluster_text
     else:
-        en_train_txt = mono_en_job.out_tokenized_txt
-        en_dev_txt = dev2013_job.out_trg_tok
-        en_test_txt = test2014_job.out_trg_tok
+        en_train_txt = en_mono_tok_txt
+        en_dev_txt = en_dev_tok_txt
+        en_test_txt = en_test_tok_txt
 
     # -------------------------------------------------------------------------
     # 2. Train Independent Word2Vec Models on German and English
@@ -495,8 +568,9 @@ def run_wmt14_de_en_unmt_pipeline(
         workers=8,
     )
     w2v_de_job.add_alias(f"{prefix_name}/word2vec/de_{w2v_alias_suffix}")
-    tk.register_output(f"{prefix_name}/word2vec/de_embeddings.vec", w2v_de_job.out_embeddings_vec)
-    tk.register_output(f"{prefix_name}/word2vec/de_vocab.txt", w2v_de_job.out_vocab_txt)
+    if not w2v_all_but_the_top:
+        tk.register_output(f"{prefix_name}/word2vec/de_embeddings.vec", w2v_de_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/de_vocab.txt", w2v_de_job.out_vocab_txt)
 
     is_avg_ngram_en = en_code_type in (
         "avg_monophone",
@@ -618,8 +692,43 @@ def run_wmt14_de_en_unmt_pipeline(
             workers=8,
         )
         w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{w2v_alias_suffix}")
+        if not w2v_all_but_the_top:
+            tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
+            tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
+
+    raw_w2v_de_job = w2v_de_job
+    raw_w2v_en_job = w2v_en_job
+    effective_abtt_d = w2v_abtt_d if w2v_abtt_d is not None else max(1, w2v_dim // 100)
+
+    if w2v_all_but_the_top:
+        tk.register_output(f"{prefix_name}/word2vec/de_raw_embeddings.vec", raw_w2v_de_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/en_raw_embeddings.vec", raw_w2v_en_job.out_embeddings_vec)
+
+        w2v_de_job = PostprocessWord2VecAllButTheTopJob(
+            embeddings_npy=raw_w2v_de_job.out_embeddings_npy,
+            vocab_txt=raw_w2v_de_job.out_vocab_txt,
+            returnn_vocab=raw_w2v_de_job.out_returnn_vocab,
+            counts_txt=raw_w2v_de_job.out_counts_txt,
+            num_components_to_remove=effective_abtt_d,
+        )
+        w2v_de_job.add_alias(f"{prefix_name}/word2vec/de_{w2v_alias_suffix}_abtt_d{effective_abtt_d}")
+        tk.register_output(f"{prefix_name}/word2vec/de_embeddings.vec", w2v_de_job.out_embeddings_vec)
+        tk.register_output(f"{prefix_name}/word2vec/de_vocab.txt", w2v_de_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.json", w2v_de_job.out_isotropy_report_json)
+        tk.register_output(f"{prefix_name}/word2vec/de_isotropy_report.txt", w2v_de_job.out_isotropy_report_txt)
+
+        w2v_en_job = PostprocessWord2VecAllButTheTopJob(
+            embeddings_npy=raw_w2v_en_job.out_embeddings_npy,
+            vocab_txt=raw_w2v_en_job.out_vocab_txt,
+            returnn_vocab=raw_w2v_en_job.out_returnn_vocab,
+            counts_txt=raw_w2v_en_job.out_counts_txt,
+            num_components_to_remove=effective_abtt_d,
+        )
+        w2v_en_job.add_alias(f"{prefix_name}/word2vec/en_{w2v_alias_suffix}_abtt_d{effective_abtt_d}")
         tk.register_output(f"{prefix_name}/word2vec/en_embeddings.vec", w2v_en_job.out_embeddings_vec)
         tk.register_output(f"{prefix_name}/word2vec/en_vocab.txt", w2v_en_job.out_vocab_txt)
+        tk.register_output(f"{prefix_name}/word2vec/en_isotropy_report.json", w2v_en_job.out_isotropy_report_json)
+        tk.register_output(f"{prefix_name}/word2vec/en_isotropy_report.txt", w2v_en_job.out_isotropy_report_txt)
 
     # -------------------------------------------------------------------------
     # 3. Cross-Lingual Embedding Alignment (Numerals for words/BPE, Frequency for phonemes)
@@ -698,6 +807,60 @@ def run_wmt14_de_en_unmt_pipeline(
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/unaligned_cross_lingual_pca.png", align_analysis_job.out_unaligned_joint_pca_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/alignment_comparison_panel.png", align_analysis_job.out_alignment_comparison_panel_plot)
     tk.register_output(f"{prefix_name}/alignment/pca_analysis/analysis_report.json", align_analysis_job.out_analysis_report_json)
+
+    # 3b. Word2Vec Isotropy Measure & Before/After All-but-the-Top PCA Analysis (Mu et al., 2018 — arXiv:1702.01417)
+    w2v_isotropy_job = None
+    if run_w2v_isotropy_analysis:
+        w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+            src_raw_embeddings_npy=raw_w2v_de_job.out_embeddings_npy,
+            trg_raw_embeddings_npy=raw_w2v_en_job.out_embeddings_npy,
+            src_post_embeddings_npy=w2v_de_job.out_embeddings_npy if w2v_all_but_the_top else None,
+            trg_post_embeddings_npy=w2v_en_job.out_embeddings_npy if w2v_all_but_the_top else None,
+            mapped_src_embeddings_npy=align_job.out_mapped_src_emb_npy,
+            normalized_trg_embeddings_npy=align_job.out_normalized_trg_emb_npy,
+            src_vocab_file=raw_w2v_de_job.out_returnn_vocab,
+            trg_vocab_file=raw_w2v_en_job.out_returnn_vocab,
+            src_counts_file=raw_w2v_de_job.out_counts_txt,
+            trg_counts_file=raw_w2v_en_job.out_counts_txt,
+            d_remove=effective_abtt_d,
+            src_label=src_label_str,
+            trg_label=trg_label_str,
+            title_prefix=f"Word2Vec All-but-the-Top (arXiv:1702.01417) Isotropy & PCA ({prefix_name})",
+            is_postprocessed_active=w2v_all_but_the_top,
+        )
+        w2v_isotropy_job.add_alias(f"{prefix_name}/word2vec/isotropy_pca_analysis")
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/isotropy_report.json",
+            w2v_isotropy_job.out_isotropy_report_json,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/isotropy_report.txt",
+            w2v_isotropy_job.out_isotropy_report_txt,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/source_de_w2v_pca_before_abtt.png",
+            w2v_isotropy_job.out_src_before_pca_plot,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/source_de_w2v_pca_after_abtt.png",
+            w2v_isotropy_job.out_src_after_pca_plot,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/target_en_w2v_pca_before_abtt.png",
+            w2v_isotropy_job.out_trg_before_pca_plot,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/target_en_w2v_pca_after_abtt.png",
+            w2v_isotropy_job.out_trg_after_pca_plot,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/w2v_pca_before_vs_after_abtt_panel.png",
+            w2v_isotropy_job.out_before_after_comparison_panel_plot,
+        )
+        tk.register_output(
+            f"{prefix_name}/word2vec/isotropy_pca_analysis/w2v_isotropy_and_spectrum_panel.png",
+            w2v_isotropy_job.out_isotropy_and_spectrum_plot,
+        )
 
     # -------------------------------------------------------------------------
     # 4. Baseline System: Word-by-Word Translation via Cross-Lingual Embeddings

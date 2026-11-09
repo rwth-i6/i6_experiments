@@ -1179,8 +1179,35 @@ class EmbeddingAlignmentAnalysisJob(Job):
             except Exception as e:
                 logging.warning(f"Could not read base alignment report: {e}")
 
+        # 8. Isotropy Measure Analysis (Mu, Bhat, & Viswanath 2018 — arXiv:1702.01417)
+        from ...sis_recipe.data.word2vec import compute_isotropy_measure
+
+        isotropy_summary = {}
+        try:
+            iso_src_raw = compute_isotropy_measure(raw_X)
+            iso_trg_raw = compute_isotropy_measure(raw_Z)
+            iso_src_mapped = compute_isotropy_measure(mapped_X)
+            iso_trg_norm = compute_isotropy_measure(Z)
+            isotropy_summary = {
+                "source_before_alignment": {
+                    k: v for k, v in iso_src_raw.items() if k != "log_Z_per_component"
+                },
+                "target_before_alignment": {
+                    k: v for k, v in iso_trg_raw.items() if k != "log_Z_per_component"
+                },
+                "source_after_alignment_mapped": {
+                    k: v for k, v in iso_src_mapped.items() if k != "log_Z_per_component"
+                },
+                "target_after_alignment_normalized": {
+                    k: v for k, v in iso_trg_norm.items() if k != "log_Z_per_component"
+                },
+            }
+        except Exception as e:
+            logging.warning(f"Could not compute isotropy summary inside EmbeddingAlignmentAnalysisJob: {e}")
+
         analysis_report = {
             "base_alignment": base_report,
+            "isotropy_analysis_mu2018": isotropy_summary,
             "phoneme_coverage": {
                 "unique_covered": cov_entropy["unique_phonemes_covered"],
                 "total_phonemes": cov_entropy["num_phonemes"],
@@ -1214,3 +1241,578 @@ class EmbeddingAlignmentAnalysisJob(Job):
 
         with open(self.out_analysis_report_json.get_path(), "w") as f:
             json.dump(analysis_report, f, indent=2)
+
+
+def plot_w2v_before_after_abtt_panel(
+    src_before_pca: Dict,
+    src_after_pca: Dict,
+    trg_before_pca: Dict,
+    trg_after_pca: Dict,
+    src_iso_before: Dict,
+    src_iso_after: Dict,
+    trg_iso_before: Dict,
+    trg_iso_after: Dict,
+    d_remove: int,
+    out_png_path: str,
+    title_prefix: str = "Structured Skip-Gram / Word2Vec All-but-the-Top (arXiv:1702.01417) PCA Comparison",
+    src_label: str = "Audio Clusters",
+    trg_label: str = "Text Phonemes",
+    src_cmap: str = "viridis",
+    trg_cmap: str = "plasma",
+):
+    """
+    Renders a 2x2 multi-panel PCA comparison of embeddings Before vs. After
+    applying the "All-but-the-Top" isotropic transformation (Mu, Bhat, & Viswanath 2018):
+      - Top-Left (ax1): Source (Audio Clusters) BEFORE Transformation (with I({v}) & EVR)
+      - Top-Right (ax2): Source (Audio Clusters) AFTER All-but-the-Top (D=d_remove) (with I({v'}) & EVR)
+      - Bottom-Left (ax3): Target (Text Phonemes) BEFORE Transformation (with I({v}) & EVR)
+      - Bottom-Right (ax4): Target (Text Phonemes) AFTER All-but-the-Top (D=d_remove) (with I({v'}) & EVR)
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    matplotlib.rcParams["text.parse_math"] = False
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+    from scipy.ndimage import gaussian_filter
+
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 17), dpi=180)
+
+    def render_pca_panel(ax_target, pca_dict, iso_dict, panel_title, colormap):
+        m_items = pca_dict.get("items_2d", [])
+        if not m_items:
+            return
+        mx = np.array([p["x"] for p in m_items])
+        my = np.array([p["y"] for p in m_items])
+        mc = np.array([p.get("count", 1.0) for p in m_items])
+        mlog_c = np.log10(np.maximum(mc, 1.0))
+        m_labels = [p["label"] for p in m_items]
+
+        order = np.argsort(mc)
+        mx_s, my_s, mlog_c_s = mx[order], my[order], mlog_c[order]
+        c_min, c_max = mlog_c.min(), mlog_c.max()
+        norm_c = (mlog_c_s - c_min) / (c_max - c_min + 1e-6)
+        sizes = 14 + norm_c * 26
+        alphas = 0.55 + norm_c * 0.35
+
+        sc = ax_target.scatter(
+            mx_s, my_s, c=mlog_c_s, cmap=colormap, s=sizes, alpha=alphas, edgecolors="none", zorder=3
+        )
+
+        if len(mx) >= 20:
+            H, x_edges, y_edges = np.histogram2d(mx, my, bins=100)
+            H_smooth = gaussian_filter(H.T, sigma=2.0)
+            xc = 0.5 * (x_edges[:-1] + x_edges[1:])
+            yc = 0.5 * (y_edges[:-1] + y_edges[1:])
+            ax_target.contour(xc, yc, H_smooth, levels=6, colors="#444444", alpha=0.35, linewidths=0.8, zorder=2)
+
+        cbar = fig.colorbar(sc, ax=ax_target, fraction=0.046, pad=0.04)
+        cbar.formatter = FuncFormatter(format_count_tick)
+        cbar.update_ticks()
+        cbar.set_label("Token Frequency (log scale)", fontsize=9, fontweight="bold")
+
+        top_indices = order[-25:][::-1]
+        for idx in top_indices:
+            lab = m_labels[idx]
+            if lab in ("<pad>", "<unk>", "<s>", "</s>") and len(top_indices) > 5:
+                continue
+            ax_target.annotate(
+                lab,
+                (mx[idx], my[idx]),
+                fontsize=7.5,
+                fontweight="bold",
+                color="#111111",
+                xytext=(3, 3),
+                textcoords="offset points",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.82, edgecolor="#888888", linewidth=0.5),
+                zorder=5,
+            )
+
+        evr = pca_dict.get("total_2d_explained_variance_ratio", 0.0) * 100
+        iso_val = iso_dict.get("isotropy_measure", 0.0)
+        mu_norm = iso_dict.get("mean_vector_norm", 0.0)
+        ax_target.set_title(
+            f"{panel_title}\nIsotropy I({{v}}) = {iso_val:.4f} | ||mu||_2 = {mu_norm:.3f} | 2D Var: {evr:.1f}%",
+            fontsize=11,
+            fontweight="bold",
+        )
+        ax_target.set_xlabel(f"PC 1 ({pca_dict.get('explained_variance_ratio_pc1', 0.0)*100:.1f}%)", fontsize=9.5)
+        ax_target.set_ylabel(f"PC 2 ({pca_dict.get('explained_variance_ratio_pc2', 0.0)*100:.1f}%)", fontsize=9.5)
+        ax_target.grid(True, linestyle=":", alpha=0.5)
+
+    render_pca_panel(
+        ax1, src_before_pca, src_iso_before,
+        f"1. {src_label} — BEFORE Transformation (Raw Embeddings)", src_cmap
+    )
+    render_pca_panel(
+        ax2, src_after_pca, src_iso_after,
+        f"2. {src_label} — AFTER All-but-the-Top (D={d_remove})", src_cmap
+    )
+    render_pca_panel(
+        ax3, trg_before_pca, trg_iso_before,
+        f"3. {trg_label} — BEFORE Transformation (Raw Embeddings)", trg_cmap
+    )
+    render_pca_panel(
+        ax4, trg_after_pca, trg_iso_after,
+        f"4. {trg_label} — AFTER All-but-the-Top (D={d_remove})", trg_cmap
+    )
+
+    fig.suptitle(
+        f"{title_prefix}\nMu, Bhat, & Viswanath (ICLR 2018 — arXiv:1702.01417), Removed Top D={d_remove} PCA Components",
+        fontsize=13.5,
+        fontweight="bold",
+        y=0.99,
+    )
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.93)
+    fig.savefig(out_png_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_isotropy_and_spectrum_diagnostics(
+    src_iso_before: Dict,
+    src_iso_after: Dict,
+    trg_iso_before: Dict,
+    trg_iso_after: Dict,
+    src_sweep: Dict[int, float],
+    trg_sweep: Dict[int, float],
+    d_remove: int,
+    out_png_path: str,
+    src_label: str = "Audio Clusters",
+    trg_label: str = "Text Phonemes",
+):
+    """
+    Renders a 3-panel diagnostic figure for the Mu et al. (2018) isotropy analysis:
+      - Panel 1: Partition function log Z(c) across principal directions c_1..c_d (Before vs. After)
+      - Panel 2: Top-10 Singular Value Spectrum (Before vs. After)
+      - Panel 3: Isotropy Measure I({v(w)}) vs. Number of Removed Components D
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    matplotlib.rcParams["text.parse_math"] = False
+    import matplotlib.pyplot as plt
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.2), dpi=180)
+
+    # Panel 1: log Z(c) profile across eigenvectors
+    src_lz_bef = sorted(src_iso_before.get("log_Z_per_component", []), reverse=True)
+    src_lz_aft = sorted(src_iso_after.get("log_Z_per_component", []), reverse=True)
+    trg_lz_bef = sorted(trg_iso_before.get("log_Z_per_component", []), reverse=True)
+    trg_lz_aft = sorted(trg_iso_after.get("log_Z_per_component", []), reverse=True)
+
+    if src_lz_bef:
+        ax1.plot(src_lz_bef, label=f"{src_label} Before (I={src_iso_before['isotropy_measure']:.3f})", color="#1b4975", linestyle="--", linewidth=1.8)
+    if src_lz_aft:
+        ax1.plot(src_lz_aft, label=f"{src_label} After D={d_remove} (I={src_iso_after['isotropy_measure']:.3f})", color="#1b4975", linestyle="-", linewidth=2.2)
+    if trg_lz_bef:
+        ax1.plot(trg_lz_bef, label=f"{trg_label} Before (I={trg_iso_before['isotropy_measure']:.3f})", color="#b32d29", linestyle="--", linewidth=1.8)
+    if trg_lz_aft:
+        ax1.plot(trg_lz_aft, label=f"{trg_label} After D={d_remove} (I={trg_iso_after['isotropy_measure']:.3f})", color="#b32d29", linestyle="-", linewidth=2.2)
+
+    ax1.set_title("1. Partition Function log Z(c) Across Principal Directions", fontsize=11, fontweight="bold")
+    ax1.set_xlabel("Principal Component Index i (sorted by log Z)", fontsize=10)
+    ax1.set_ylabel("log Z(c_i) = log sum_w exp(c_i^T v(w))", fontsize=10)
+    ax1.grid(True, linestyle=":", alpha=0.5)
+    ax1.legend(loc="best", fontsize=8.5)
+
+    # Panel 2: Top-10 Singular Values (Uncentered X)
+    s_src_bef = src_iso_before.get("top_10_singular_values_uncentered", [])
+    s_src_aft = src_iso_after.get("top_10_singular_values_uncentered", [])
+    s_trg_bef = trg_iso_before.get("top_10_singular_values_uncentered", [])
+    s_trg_aft = trg_iso_after.get("top_10_singular_values_uncentered", [])
+    x_idx = np.arange(1, len(s_src_bef) + 1)
+    if len(s_src_bef):
+        ax2.plot(x_idx, s_src_bef, "o--", color="#1b4975", label=f"{src_label} Before")
+    if len(s_src_aft):
+        ax2.plot(x_idx, s_src_aft, "o-", color="#2b8cbe", label=f"{src_label} After (D={d_remove})")
+    if len(s_trg_bef):
+        ax2.plot(x_idx, s_trg_bef, "s--", color="#b32d29", label=f"{trg_label} Before")
+    if len(s_trg_aft):
+        ax2.plot(x_idx, s_trg_aft, "s-", color="#e34a33", label=f"{trg_label} After (D={d_remove})")
+
+    ax2.set_title("2. Top-10 Singular Values of Embedding Matrix V", fontsize=11, fontweight="bold")
+    ax2.set_xlabel("Singular Value Rank k (1..10)", fontsize=10)
+    ax2.set_ylabel("Singular Value sigma_k", fontsize=10)
+    ax2.set_xticks(x_idx)
+    ax2.grid(True, linestyle=":", alpha=0.5)
+    ax2.legend(loc="best", fontsize=8.5)
+
+    # Panel 3: Isotropy I({v(w)}) vs. D removed components
+    d_vals = sorted(src_sweep.keys())
+    src_i_vals = [src_sweep[k] for k in d_vals]
+    trg_i_vals = [trg_sweep[k] for k in d_vals]
+    ax3.plot(d_vals, src_i_vals, "o-", color="#1b4975", linewidth=2.0, markersize=7, label=f"{src_label} I({{v}})")
+    ax3.plot(d_vals, trg_i_vals, "s-", color="#b32d29", linewidth=2.0, markersize=7, label=f"{trg_label} I({{v}})")
+    ax3.axvline(x=d_remove, color="#2ca02c", linestyle=":", linewidth=1.8, label=f"Selected D={d_remove}")
+    ax3.set_ylim(0.0, 1.05)
+    ax3.set_title("3. Isotropy Measure I({v(w)}) vs. Removed Top Components D", fontsize=11, fontweight="bold")
+    ax3.set_xlabel("Number of Removed Top PCA Components D (0 = Mean-Centered Only)", fontsize=9.5)
+    ax3.set_ylabel("Isotropy I({v(w)}) = min Z(c) / max Z(c)", fontsize=10)
+    ax3.grid(True, linestyle=":", alpha=0.5)
+    ax3.legend(loc="lower right", fontsize=8.5)
+
+    fig.suptitle(
+        "Isotropy & Spectral Analysis of Cross-Modal Embeddings (Mu, Bhat, & Viswanath 2018 — arXiv:1702.01417)",
+        fontsize=13,
+        fontweight="bold",
+        y=1.01,
+    )
+    fig.tight_layout()
+    fig.savefig(out_png_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+class Word2VecIsotropyAndPcaAnalysisJob(Job):
+    """
+    Standalone Sisyphus analysis job for evaluating the isotropic properties (Eq. 2 of
+    Mu, Bhat, & Viswanath, ICLR 2018, https://arxiv.org/pdf/1702.01417) and 2D PCA visualizations
+    of source (Audio Clusters) and target (Text Phonemes) embeddings BEFORE and AFTER applying the
+    "All-but-the-Top" postprocessing transformation.
+
+    If `src_post_embeddings_npy` / `trg_post_embeddings_npy` are not provided (e.g., when run on
+    the baseline setup for comparison), the job computes the All-but-the-Top transformation with
+    `d_remove` on the fly so that both setups have full before/after isotropy metrics and PCA plots.
+    """
+    _version = 1
+
+    def __init__(
+        self,
+        src_raw_embeddings_npy: tk.Path,
+        trg_raw_embeddings_npy: tk.Path,
+        src_post_embeddings_npy: Optional[tk.Path] = None,
+        trg_post_embeddings_npy: Optional[tk.Path] = None,
+        mapped_src_embeddings_npy: Optional[tk.Path] = None,
+        normalized_trg_embeddings_npy: Optional[tk.Path] = None,
+        src_vocab_file: Optional[tk.Path] = None,
+        trg_vocab_file: Optional[tk.Path] = None,
+        src_counts_file: Optional[tk.Path] = None,
+        trg_counts_file: Optional[tk.Path] = None,
+        d_remove: int = 1,
+        src_label: str = "Audio Clusters",
+        trg_label: str = "Text Phonemes",
+        title_prefix: str = "Structured Skip-Gram All-but-the-Top Isotropy & PCA",
+        is_postprocessed_active: bool = True,
+    ):
+        super().__init__()
+        self.src_raw_embeddings_npy = src_raw_embeddings_npy
+        self.trg_raw_embeddings_npy = trg_raw_embeddings_npy
+        self.src_post_embeddings_npy = src_post_embeddings_npy
+        self.trg_post_embeddings_npy = trg_post_embeddings_npy
+        self.mapped_src_embeddings_npy = mapped_src_embeddings_npy
+        self.normalized_trg_embeddings_npy = normalized_trg_embeddings_npy
+        self.src_vocab_file = src_vocab_file
+        self.trg_vocab_file = trg_vocab_file
+        self.src_counts_file = src_counts_file
+        self.trg_counts_file = trg_counts_file
+        self.d_remove = d_remove
+        self.src_label = src_label
+        self.trg_label = trg_label
+        self.title_prefix = title_prefix
+        self.is_postprocessed_active = is_postprocessed_active
+
+        # Outputs
+        self.out_isotropy_report_json = self.output_path("isotropy_report.json")
+        self.out_isotropy_report_txt = self.output_path("isotropy_report.txt")
+        self.out_src_before_pca_plot = self.output_path("source_audio_pca_before_abtt.png")
+        self.out_src_after_pca_plot = self.output_path("source_audio_pca_after_abtt.png")
+        self.out_trg_before_pca_plot = self.output_path("target_text_pca_before_abtt.png")
+        self.out_trg_after_pca_plot = self.output_path("target_text_pca_after_abtt.png")
+        self.out_before_after_comparison_panel_plot = self.output_path("pca_before_vs_after_abtt_panel.png")
+        self.out_before_after_panel_plot = self.out_before_after_comparison_panel_plot
+        self.out_isotropy_and_spectrum_plot = self.output_path("isotropy_and_spectrum_panel.png")
+        self.out_isotropy_spectrum_plot = self.out_isotropy_and_spectrum_plot
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import matplotlib
+        matplotlib.rcParams["text.parse_math"] = False
+        from ...sis_recipe.data.word2vec import compute_isotropy_measure, apply_all_but_the_top
+
+        logging.basicConfig(level=logging.INFO)
+
+        src_raw = np.load(self.src_raw_embeddings_npy.get_path())
+        trg_raw = np.load(self.trg_raw_embeddings_npy.get_path())
+
+        if self.src_post_embeddings_npy is not None and os.path.exists(self.src_post_embeddings_npy.get_path()):
+            src_post = np.load(self.src_post_embeddings_npy.get_path())
+            _, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove)
+        else:
+            src_post, src_abtt_meta = apply_all_but_the_top(src_raw, d_remove=self.d_remove)
+
+        if self.trg_post_embeddings_npy is not None and os.path.exists(self.trg_post_embeddings_npy.get_path()):
+            trg_post = np.load(self.trg_post_embeddings_npy.get_path())
+            _, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove)
+        else:
+            trg_post, trg_abtt_meta = apply_all_but_the_top(trg_raw, d_remove=self.d_remove)
+
+        # Load vocabs and frequency counts
+        src_vocab = load_vocab_dict(self.src_vocab_file.get_path() if self.src_vocab_file is not None else None)
+        trg_vocab = load_vocab_dict(self.trg_vocab_file.get_path() if self.trg_vocab_file is not None else None)
+        src_counts = load_counts_dict(
+            self.src_counts_file.get_path() if self.src_counts_file is not None else None, vocab_dict=src_vocab
+        )
+        trg_counts = load_counts_dict(
+            self.trg_counts_file.get_path() if self.trg_counts_file is not None else None, vocab_dict=trg_vocab
+        )
+
+        # 1. Isotropy measures Before & After All-but-the-Top
+        src_iso_before = compute_isotropy_measure(src_raw)
+        src_iso_after = compute_isotropy_measure(src_post)
+        trg_iso_before = compute_isotropy_measure(trg_raw)
+        trg_iso_after = compute_isotropy_measure(trg_post)
+
+        # Sweep D in [0, 1, 2, 3, 5, 7, 10]
+        src_sweep_d = {}
+        trg_sweep_d = {}
+        src_sweep_details = {}
+        trg_sweep_details = {}
+        for d_val in (0, 1, 2, 3, 5, 7, 10):
+            s_emb_d, s_m = apply_all_but_the_top(src_raw, d_remove=d_val)
+            s_iso = compute_isotropy_measure(s_emb_d)
+            src_sweep_d[d_val] = s_iso["isotropy_measure"]
+            src_sweep_details[f"D={d_val}"] = {
+                "d_remove": d_val,
+                "isotropy_measure": s_iso["isotropy_measure"],
+                "isotropy_measure_symmetric": s_iso["isotropy_measure_symmetric"],
+                "min_log_Z": s_iso["min_log_Z"],
+                "max_log_Z": s_iso["max_log_Z"],
+                "removed_variance_ratio": s_m["removed_variance_ratio"],
+            }
+
+            t_emb_d, t_m = apply_all_but_the_top(trg_raw, d_remove=d_val)
+            t_iso = compute_isotropy_measure(t_emb_d)
+            trg_sweep_d[d_val] = t_iso["isotropy_measure"]
+            trg_sweep_details[f"D={d_val}"] = {
+                "d_remove": d_val,
+                "isotropy_measure": t_iso["isotropy_measure"],
+                "isotropy_measure_symmetric": t_iso["isotropy_measure_symmetric"],
+                "min_log_Z": t_iso["min_log_Z"],
+                "max_log_Z": t_iso["max_log_Z"],
+                "removed_variance_ratio": t_m["removed_variance_ratio"],
+            }
+
+        # Optional: Isotropy of aligned embeddings if provided
+        aligned_isotropy = {}
+        if self.mapped_src_embeddings_npy is not None and os.path.exists(self.mapped_src_embeddings_npy.get_path()):
+            mapped_src = np.load(self.mapped_src_embeddings_npy.get_path())
+            iso_m_src = compute_isotropy_measure(mapped_src)
+            aligned_isotropy["mapped_src"] = {k: v for k, v in iso_m_src.items() if k != "log_Z_per_component"}
+        if self.normalized_trg_embeddings_npy is not None and os.path.exists(self.normalized_trg_embeddings_npy.get_path()):
+            norm_trg = np.load(self.normalized_trg_embeddings_npy.get_path())
+            iso_n_trg = compute_isotropy_measure(norm_trg)
+            aligned_isotropy["normalized_trg"] = {k: v for k, v in iso_n_trg.items() if k != "log_Z_per_component"}
+
+        # 2. Compute 2D PCA Before and After All-but-the-Top
+        src_before_pca = compute_single_modality_pca(src_raw, vocab=src_vocab, counts=src_counts, prefix_label="audio_raw")
+        src_after_pca = compute_single_modality_pca(src_post, vocab=src_vocab, counts=src_counts, prefix_label="audio_abtt")
+        trg_before_pca = compute_single_modality_pca(trg_raw, vocab=trg_vocab, counts=trg_counts, prefix_label="text_raw")
+        trg_after_pca = compute_single_modality_pca(trg_post, vocab=trg_vocab, counts=trg_counts, prefix_label="text_abtt")
+
+        # 3. Render Individual & Panel PCA Visualizations
+        plot_single_modality_pca(
+            pca_result=src_before_pca,
+            out_png_path=self.out_src_before_pca_plot.get_path(),
+            modality_key="items_2d",
+            title=f"{self.src_label} — BEFORE All-but-the-Top (I={src_iso_before['isotropy_measure']:.4f})",
+            label=self.src_label,
+            cmap="viridis",
+        )
+        plot_single_modality_pca(
+            pca_result=src_after_pca,
+            out_png_path=self.out_src_after_pca_plot.get_path(),
+            modality_key="items_2d",
+            title=f"{self.src_label} — AFTER All-but-the-Top D={self.d_remove} (I={src_iso_after['isotropy_measure']:.4f})",
+            label=self.src_label,
+            cmap="viridis",
+        )
+        plot_single_modality_pca(
+            pca_result=trg_before_pca,
+            out_png_path=self.out_trg_before_pca_plot.get_path(),
+            modality_key="items_2d",
+            title=f"{self.trg_label} — BEFORE All-but-the-Top (I={trg_iso_before['isotropy_measure']:.4f})",
+            label=self.trg_label,
+            cmap="plasma",
+        )
+        plot_single_modality_pca(
+            pca_result=trg_after_pca,
+            out_png_path=self.out_trg_after_pca_plot.get_path(),
+            modality_key="items_2d",
+            title=f"{self.trg_label} — AFTER All-but-the-Top D={self.d_remove} (I={trg_iso_after['isotropy_measure']:.4f})",
+            label=self.trg_label,
+            cmap="plasma",
+        )
+
+        plot_w2v_before_after_abtt_panel(
+            src_before_pca=src_before_pca,
+            src_after_pca=src_after_pca,
+            trg_before_pca=trg_before_pca,
+            trg_after_pca=trg_after_pca,
+            src_iso_before=src_iso_before,
+            src_iso_after=src_iso_after,
+            trg_iso_before=trg_iso_before,
+            trg_iso_after=trg_iso_after,
+            d_remove=self.d_remove,
+            out_png_path=self.out_before_after_comparison_panel_plot.get_path(),
+            title_prefix=self.title_prefix,
+            src_label=self.src_label,
+            trg_label=self.trg_label,
+        )
+
+        plot_isotropy_and_spectrum_diagnostics(
+            src_iso_before=src_iso_before,
+            src_iso_after=src_iso_after,
+            trg_iso_before=trg_iso_before,
+            trg_iso_after=trg_iso_after,
+            src_sweep=src_sweep_d,
+            trg_sweep=trg_sweep_d,
+            d_remove=self.d_remove,
+            out_png_path=self.out_isotropy_and_spectrum_plot.get_path(),
+            src_label=self.src_label,
+            trg_label=self.trg_label,
+        )
+
+        # 4. Write comprehensive JSON and text reports
+        report_json = {
+            "paper_reference": "Mu, Bhat, & Viswanath (2018), All-but-the-Top: Simple and Effective Postprocessing for Word Representations (https://arxiv.org/pdf/1702.01417)",
+            "is_postprocessed_active_in_pipeline": self.is_postprocessed_active,
+            "num_components_removed_D": self.d_remove,
+            "source_audio": {
+                "abtt_metadata": src_abtt_meta,
+                "before_transformation": {k: v for k, v in src_iso_before.items() if k != "log_Z_per_component"},
+                "after_transformation": {k: v for k, v in src_iso_after.items() if k != "log_Z_per_component"},
+                "isotropy_improvement_delta": float(src_iso_after["isotropy_measure"] - src_iso_before["isotropy_measure"]),
+                "isotropy_improvement_ratio": float(
+                    src_iso_after["isotropy_measure"] / max(src_iso_before["isotropy_measure"], 1e-12)
+                ),
+                "pca_2d_before": {
+                    "explained_variance_ratio_pc1": src_before_pca["explained_variance_ratio_pc1"],
+                    "explained_variance_ratio_pc2": src_before_pca["explained_variance_ratio_pc2"],
+                    "total_2d_explained_variance_ratio": src_before_pca["total_2d_explained_variance_ratio"],
+                },
+                "pca_2d_after": {
+                    "explained_variance_ratio_pc1": src_after_pca["explained_variance_ratio_pc1"],
+                    "explained_variance_ratio_pc2": src_after_pca["explained_variance_ratio_pc2"],
+                    "total_2d_explained_variance_ratio": src_after_pca["total_2d_explained_variance_ratio"],
+                },
+                "d_sweep": src_sweep_details,
+            },
+            "target_text": {
+                "abtt_metadata": trg_abtt_meta,
+                "before_transformation": {k: v for k, v in trg_iso_before.items() if k != "log_Z_per_component"},
+                "after_transformation": {k: v for k, v in trg_iso_after.items() if k != "log_Z_per_component"},
+                "isotropy_improvement_delta": float(trg_iso_after["isotropy_measure"] - trg_iso_before["isotropy_measure"]),
+                "isotropy_improvement_ratio": float(
+                    trg_iso_after["isotropy_measure"] / max(trg_iso_before["isotropy_measure"], 1e-12)
+                ),
+                "pca_2d_before": {
+                    "explained_variance_ratio_pc1": trg_before_pca["explained_variance_ratio_pc1"],
+                    "explained_variance_ratio_pc2": trg_before_pca["explained_variance_ratio_pc2"],
+                    "total_2d_explained_variance_ratio": trg_before_pca["total_2d_explained_variance_ratio"],
+                },
+                "pca_2d_after": {
+                    "explained_variance_ratio_pc1": trg_after_pca["explained_variance_ratio_pc1"],
+                    "explained_variance_ratio_pc2": trg_after_pca["explained_variance_ratio_pc2"],
+                    "total_2d_explained_variance_ratio": trg_after_pca["total_2d_explained_variance_ratio"],
+                },
+                "d_sweep": trg_sweep_details,
+            },
+            "aligned_cross_modal_embeddings": aligned_isotropy,
+        }
+
+        with open(self.out_isotropy_report_json.get_path(), "w", encoding="utf-8") as f:
+            json.dump(report_json, f, indent=2)
+
+        active_mode_str = (
+            f"All-but-the-Top Postprocessed (D={self.d_remove})"
+            if self.is_postprocessed_active
+            else "Raw Baseline Embeddings (D=0 in pipeline, D={} shown for comparison)".format(self.d_remove)
+        )
+        txt_lines = [
+            "=" * 96,
+            "CROSS-MODAL EMBEDDING ISOTROPY & PCA ANALYSIS REPORT (Mu, Bhat, & Viswanath 2018 — arXiv:1702.01417)",
+            "=" * 96,
+            f"Pipeline Embedding Mode: {active_mode_str}",
+            f"Isotropy Definition    : I({{v(w)}}) = min_{{c in C}} Z(c) / max_{{c in C}} Z(c),  Z(c) = sum_{{w in V}} exp(c^T v(w))",
+            "-" * 96,
+            f"{'Representation':<42} | {'I({v(w)})':>10} | {'I_sym':>10} | {'min logZ':>9} | {'max logZ':>9} | {'||mu||_2':>8} | {'2D PCA Var':>10}",
+            "-" * 96,
+            (
+                f"{f'{self.src_label} — BEFORE (Raw)':<42} | "
+                f"{src_iso_before['isotropy_measure']:>10.6f} | "
+                f"{src_iso_before['isotropy_measure_symmetric']:>10.6f} | "
+                f"{src_iso_before['min_log_Z']:>9.2f} | "
+                f"{src_iso_before['max_log_Z']:>9.2f} | "
+                f"{src_iso_before['mean_vector_norm']:>8.4f} | "
+                f"{src_before_pca['total_2d_explained_variance_ratio']*100:>9.2f}%"
+            ),
+            (
+                f"{f'{self.src_label} — AFTER (ABTT D={self.d_remove})':<42} | "
+                f"{src_iso_after['isotropy_measure']:>10.6f} | "
+                f"{src_iso_after['isotropy_measure_symmetric']:>10.6f} | "
+                f"{src_iso_after['min_log_Z']:>9.2f} | "
+                f"{src_iso_after['max_log_Z']:>9.2f} | "
+                f"{src_iso_after['mean_vector_norm']:>8.4f} | "
+                f"{src_after_pca['total_2d_explained_variance_ratio']*100:>9.2f}%"
+            ),
+            "-" * 96,
+            (
+                f"{f'{self.trg_label} — BEFORE (Raw)':<42} | "
+                f"{trg_iso_before['isotropy_measure']:>10.6f} | "
+                f"{trg_iso_before['isotropy_measure_symmetric']:>10.6f} | "
+                f"{trg_iso_before['min_log_Z']:>9.2f} | "
+                f"{trg_iso_before['max_log_Z']:>9.2f} | "
+                f"{trg_iso_before['mean_vector_norm']:>8.4f} | "
+                f"{trg_before_pca['total_2d_explained_variance_ratio']*100:>9.2f}%"
+            ),
+            (
+                f"{f'{self.trg_label} — AFTER (ABTT D={self.d_remove})':<42} | "
+                f"{trg_iso_after['isotropy_measure']:>10.6f} | "
+                f"{trg_iso_after['isotropy_measure_symmetric']:>10.6f} | "
+                f"{trg_iso_after['min_log_Z']:>9.2f} | "
+                f"{trg_iso_after['max_log_Z']:>9.2f} | "
+                f"{trg_iso_after['mean_vector_norm']:>8.4f} | "
+                f"{trg_after_pca['total_2d_explained_variance_ratio']*100:>9.2f}%"
+            ),
+        ]
+        if aligned_isotropy:
+            txt_lines.append("-" * 96)
+            if "mapped_src" in aligned_isotropy:
+                ms = aligned_isotropy["mapped_src"]
+                txt_lines.append(
+                    f"{f'{self.src_label} — Aligned & Normalized (X W*)':<42} | "
+                    f"{ms['isotropy_measure']:>10.6f} | "
+                    f"{ms['isotropy_measure_symmetric']:>10.6f} | "
+                    f"{ms['min_log_Z']:>9.2f} | "
+                    f"{ms['max_log_Z']:>9.2f} | "
+                    f"{ms['mean_vector_norm']:>8.4f} | "
+                    f"{ms['top_2d_explained_variance_ratio']*100:>9.2f}%"
+                )
+            if "normalized_trg" in aligned_isotropy:
+                nt = aligned_isotropy["normalized_trg"]
+                txt_lines.append(
+                    f"{f'{self.trg_label} — Aligned & Normalized (Z)':<42} | "
+                    f"{nt['isotropy_measure']:>10.6f} | "
+                    f"{nt['isotropy_measure_symmetric']:>10.6f} | "
+                    f"{nt['min_log_Z']:>9.2f} | "
+                    f"{nt['max_log_Z']:>9.2f} | "
+                    f"{nt['mean_vector_norm']:>8.4f} | "
+                    f"{nt['top_2d_explained_variance_ratio']*100:>9.2f}%"
+                )
+        txt_lines.extend([
+            "-" * 96,
+            "Isotropy Sweep Across Number of Removed Top PCA Components D:",
+            f"  {'D':<6} | {'Audio I({v})':>12} | {'Audio Removed Var':>17} | {'Text I({v})':>12} | {'Text Removed Var':>16}",
+        ])
+        for d_val in (0, 1, 2, 3, 5, 7, 10):
+            sd = src_sweep_details[f"D={d_val}"]
+            td = trg_sweep_details[f"D={d_val}"]
+            txt_lines.append(
+                f"  D={d_val:<4} | {sd['isotropy_measure']:>12.6f} | {sd['removed_variance_ratio']*100:>16.2f}% | "
+                f"{td['isotropy_measure']:>12.6f} | {td['removed_variance_ratio']*100:>15.2f}%"
+            )
+        txt_lines.append("=" * 96)
+
+        with open(self.out_isotropy_report_txt.get_path(), "w", encoding="utf-8") as f:
+            f.write("\n".join(txt_lines) + "\n")
+

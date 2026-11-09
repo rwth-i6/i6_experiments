@@ -255,6 +255,8 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         import matplotlib
 
         matplotlib.use("Agg")
+        if "text.parse_math" in matplotlib.rcParams:
+            matplotlib.rcParams["text.parse_math"] = False
         import matplotlib.pyplot as plt
 
         if not self._src_pool or not self._trg_pool:
@@ -392,14 +394,17 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 seq_box_text = "\n".join(lines)
 
                 if seq_box_text:
-                    fig.text(
-                        0.5, 0.02,
-                        seq_box_text,
-                        ha="center", va="bottom",
+                    text_kwargs = dict(
+                        ha="center",
+                        va="bottom",
                         fontsize=7.5,
                         family="monospace",
                         bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
                     )
+                    try:
+                        fig.text(0.5, 0.02, seq_box_text, parse_math=False, **text_kwargs)
+                    except TypeError:
+                        fig.text(0.5, 0.02, seq_box_text.replace("$", "\uff04"), **text_kwargs)
                     fig.subplots_adjust(bottom=0.22 if (self.use_hypothesis and seq_tag in self._tag_to_trg_text) else 0.20)
                 else:
                     fig.tight_layout()

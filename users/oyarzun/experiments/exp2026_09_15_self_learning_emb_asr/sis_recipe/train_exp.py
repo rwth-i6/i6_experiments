@@ -17,10 +17,17 @@ from .data.hubert import (
     HuBERTFramePCAFitJob,
 )
 from .data.text import GenerateTextNgramsJob
-from .data.word2vec import TrainWord2VecJob, TrainStructuredSkipGramJob
+from .data.word2vec import (
+    TrainWord2VecJob,
+    TrainStructuredSkipGramJob,
+    PostprocessWord2VecAllButTheTopJob,
+)
 from ..models.self_learning_alignment import SelfLearningEmbeddingAlignmentJob
 from ..models.gan_alignment import GANEmbeddingAlignmentJob
-from ..models.analysis import EmbeddingAlignmentAnalysisJob
+from ..models.analysis import (
+    EmbeddingAlignmentAnalysisJob,
+    Word2VecIsotropyAndPcaAnalysisJob,
+)
 from recipe.i6_experiments.users.oyarzun.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.cluster_adapter import (
     get_cheating_phoneme_ref_hdfs,
 )
@@ -58,6 +65,9 @@ def build_self_learning_asr_alignment_pipeline(
     code_cluster_map: Optional[Dict[str, List[Tuple[int, str]]]] = None,
     normalize_segments: Optional[str] = None,
     embedding_model: str = "word2vec",
+    word2vec_postprocessing: Optional[str] = None,
+    all_but_the_top_D: Optional[int] = None,
+    run_isotropy_analysis: bool = False,
 ):
     """
     Constructs the end-to-end cross-modal embedding alignment ASR pipeline across
@@ -191,8 +201,42 @@ def build_self_learning_asr_alignment_pipeline(
                 tk.register_output(f"{text_alias_prefix}/text/{code_type}/{dw_tag}/vocab.txt", train_text_w2v_job.out_vocab_txt)
                 tk.register_output(f"{text_alias_prefix}/text/{code_type}/{dw_tag}/counts.txt", train_text_w2v_job.out_counts_txt)
 
+                raw_text_w2v_job = train_text_w2v_job
+                use_abtt = (
+                    (all_but_the_top_D is not None and all_but_the_top_D > 0)
+                    or (
+                        word2vec_postprocessing is not None
+                        and word2vec_postprocessing.lower() in ("all_but_the_top", "abtt", "isotropic", "mu2018")
+                    )
+                )
+                if use_abtt:
+                    d_rem = all_but_the_top_D if (all_but_the_top_D is not None and all_but_the_top_D > 0) else max(1, d // 100)
+                    abtt_text_job = PostprocessWord2VecAllButTheTopJob(
+                        embeddings_npy=raw_text_w2v_job.out_embeddings_npy,
+                        vocab_txt=raw_text_w2v_job.out_vocab_txt,
+                        counts_txt=raw_text_w2v_job.out_counts_txt,
+                        num_components_to_remove=d_rem,
+                    )
+                    abtt_text_job.add_alias(f"{alias_prefix}/text_{code_type}_abtt_D{d_rem}_{dw_tag}")
+                    tk.register_output(
+                        f"{alias_prefix}/text/{code_type}/{dw_tag}/abtt_D{d_rem}/embeddings.npy",
+                        abtt_text_job.out_embeddings_npy,
+                    )
+                    tk.register_output(
+                        f"{alias_prefix}/text/{code_type}/{dw_tag}/abtt_D{d_rem}/isotropy_report.json",
+                        abtt_text_job.out_isotropy_report_json,
+                    )
+                    tk.register_output(
+                        f"{alias_prefix}/text/{code_type}/{dw_tag}/abtt_D{d_rem}/isotropy_report.txt",
+                        abtt_text_job.out_isotropy_report_txt,
+                    )
+                    active_text_w2v_job = abtt_text_job
+                else:
+                    active_text_w2v_job = raw_text_w2v_job
+
                 text_pipelines[(code_type, d, w)] = {
-                    "w2v_job": train_text_w2v_job,
+                    "w2v_job": active_text_w2v_job,
+                    "raw_w2v_job": raw_text_w2v_job,
                     "vocab_file": fixed_vocab_file,
                 }
 
@@ -306,9 +350,31 @@ def build_self_learning_asr_alignment_pipeline(
                     train_audio_w2v_job.out_embeddings_npy,
                 )
 
+                raw_audio_w2v_job = train_audio_w2v_job
+                active_audio_w2v_job = raw_audio_w2v_job
+                if use_abtt:
+                    d_rem = all_but_the_top_D if (all_but_the_top_D is not None and all_but_the_top_D > 0) else max(1, d // 100)
+                    abtt_audio_job = PostprocessWord2VecAllButTheTopJob(
+                        embeddings_npy=raw_audio_w2v_job.out_embeddings_npy,
+                        vocab_txt=cluster_job.out_cluster_vocab_txt,
+                        counts_txt=cluster_job.out_cluster_counts_txt,
+                        num_components_to_remove=d_rem,
+                    )
+                    abtt_audio_job.add_alias(f"{audio_cluster_prefix}/{cluster_name}/audio_w2v_{dw_tag}_abtt_D{d_rem}")
+                    tk.register_output(
+                        f"{alias_prefix}/{cluster_name}/{dw_tag}/abtt_D{d_rem}/audio_embeddings.npy",
+                        abtt_audio_job.out_embeddings_npy,
+                    )
+                    tk.register_output(
+                        f"{alias_prefix}/{cluster_name}/{dw_tag}/abtt_D{d_rem}/isotropy_stats.json",
+                        abtt_audio_job.out_isotropy_json,
+                    )
+                    active_audio_w2v_job = abtt_audio_job
+
                 audio_pipelines[(K, d, w)] = {
                     "cluster_job": cluster_job,
-                    "w2v_job": train_audio_w2v_job,
+                    "w2v_job": active_audio_w2v_job,
+                    "raw_w2v_job": raw_audio_w2v_job,
                 }
 
     # -------------------------------------------------------------
@@ -338,11 +404,13 @@ def build_self_learning_asr_alignment_pipeline(
                     dw_tag = _make_dw_tag(d, w)
                     t_info = text_pipelines[(code_type, d, w)]
                     t_w2v = t_info["w2v_job"]
+                    raw_t_w2v = t_info.get("raw_w2v_job", t_w2v)
                     t_vocab = t_info["vocab_file"]
 
                     a_info = audio_pipelines[(K, d, w)]
                     a_clus = a_info["cluster_job"]
                     a_w2v = a_info["w2v_job"]
+                    raw_a_w2v = a_info.get("raw_w2v_job", a_w2v)
 
                     # Also register alias links under cluster_name if asymmetric (e.g., clus_500_483 / clus_500_6161)
                     if cluster_name != base_audio_clus:
@@ -365,6 +433,32 @@ def build_self_learning_asr_alignment_pipeline(
                         tk.register_output(
                             f"{alias_prefix}/{cluster_name}/{dw_tag}/audio_embeddings.npy",
                             a_w2v.out_embeddings_npy,
+                        )
+
+                    w2v_isotropy_job = None
+                    if use_abtt or run_isotropy_analysis:
+                        d_rem_val = (
+                            int(all_but_the_top_D)
+                            if (all_but_the_top_D is not None and all_but_the_top_D > 0)
+                            else max(1, d // 100)
+                        )
+                        w2v_isotropy_job = Word2VecIsotropyAndPcaAnalysisJob(
+                            src_raw_embeddings_npy=raw_a_w2v.out_embeddings_npy,
+                            trg_raw_embeddings_npy=raw_t_w2v.out_embeddings_npy,
+                            src_post_embeddings_npy=a_w2v.out_embeddings_npy if use_abtt else None,
+                            trg_post_embeddings_npy=t_w2v.out_embeddings_npy if use_abtt else None,
+                            src_vocab_file=a_clus.out_cluster_vocab_txt,
+                            trg_vocab_file=t_vocab,
+                            src_counts_file=a_clus.out_cluster_counts_txt,
+                            trg_counts_file=t_w2v.out_counts_txt,
+                            d_remove=d_rem_val,
+                            title_prefix=f"Embedding Isotropy & PCA ({code_type}, {cluster_name}, {dw_tag})",
+                            src_label="Audio Clusters",
+                            trg_label=f"Text {code_type.capitalize()}s",
+                            is_postprocessed_active=bool(use_abtt),
+                        )
+                        w2v_isotropy_job.add_alias(
+                            f"{alias_prefix}/{code_type}_{cluster_name}_{dw_tag}/w2v_isotropy_pca"
                         )
 
                     for metric in retrieval_metrics:
@@ -473,12 +567,49 @@ def build_self_learning_asr_alignment_pipeline(
                                 analysis_freq_job.out_alignment_comparison_panel_plot,
                             )
 
+                            if w2v_isotropy_job is not None:
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/isotropy_report.json",
+                                    w2v_isotropy_job.out_isotropy_report_json,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/isotropy_report.txt",
+                                    w2v_isotropy_job.out_isotropy_report_txt,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/source_audio_pca_before_abtt.png",
+                                    w2v_isotropy_job.out_src_before_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/source_audio_pca_after_abtt.png",
+                                    w2v_isotropy_job.out_src_after_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/target_text_pca_before_abtt.png",
+                                    w2v_isotropy_job.out_trg_before_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/target_text_pca_after_abtt.png",
+                                    w2v_isotropy_job.out_trg_after_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/pca_before_vs_after_abtt_panel.png",
+                                    w2v_isotropy_job.out_before_after_panel_plot,
+                                )
+                                tk.register_output(
+                                    f"{target_path_prefix}/w2v_isotropy_analysis/isotropy_and_spectrum_panel.png",
+                                    w2v_isotropy_job.out_isotropy_spectrum_plot,
+                                )
+
                             alignment_results[(code_type, cluster_name, d, w, metric)] = {
                                 "cluster_job": a_clus,
                                 "audio_w2v_job": a_w2v,
                                 "text_w2v_job": t_w2v,
+                                "raw_audio_w2v_job": raw_a_w2v,
+                                "raw_text_w2v_job": raw_t_w2v,
                                 "align_freq_job": align_freq_job,
                                 "analysis_freq_job": analysis_freq_job,
+                                "w2v_isotropy_job": w2v_isotropy_job,
                             }
 
                         if alignment_method in ("gan", "both"):
@@ -595,12 +726,49 @@ def build_self_learning_asr_alignment_pipeline(
                                 analysis_gan_job.out_alignment_comparison_panel_plot,
                             )
 
+                            if w2v_isotropy_job is not None:
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/isotropy_report.json",
+                                    w2v_isotropy_job.out_isotropy_report_json,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/isotropy_report.txt",
+                                    w2v_isotropy_job.out_isotropy_report_txt,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/source_audio_pca_before_abtt.png",
+                                    w2v_isotropy_job.out_src_before_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/source_audio_pca_after_abtt.png",
+                                    w2v_isotropy_job.out_src_after_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/target_text_pca_before_abtt.png",
+                                    w2v_isotropy_job.out_trg_before_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/target_text_pca_after_abtt.png",
+                                    w2v_isotropy_job.out_trg_after_pca_plot,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/pca_before_vs_after_abtt_panel.png",
+                                    w2v_isotropy_job.out_before_after_panel_plot,
+                                )
+                                tk.register_output(
+                                    f"{gan_target_prefix}/w2v_isotropy_analysis/isotropy_and_spectrum_panel.png",
+                                    w2v_isotropy_job.out_isotropy_spectrum_plot,
+                                )
+
                             alignment_results[(code_type, cluster_name, d, w, f"gan_{metric}")] = {
                                 "cluster_job": a_clus,
                                 "audio_w2v_job": a_w2v,
                                 "text_w2v_job": t_w2v,
+                                "raw_audio_w2v_job": raw_a_w2v,
+                                "raw_text_w2v_job": raw_t_w2v,
                                 "align_gan_job": align_gan_job,
                                 "analysis_gan_job": analysis_gan_job,
+                                "w2v_isotropy_job": w2v_isotropy_job,
                             }
 
     return alignment_results

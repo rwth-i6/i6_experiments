@@ -294,3 +294,76 @@ class DumpTextToReturnnHdfJob(Job):
 
         writer.close()
         logging.info(f"Dumped {count} sequences to {self.out_hdf.get_path()} (vocab dim={num_classes})")
+
+
+class NormalizeTokenizedTextJob(Job):
+    """
+    Applies additional text preprocessing (lowercasing and/or punctuation removal) to an
+    already-tokenized WMT14 text corpus while preserving words and numeral tokens (^[0-9]+$)
+    for cross-lingual seed dictionary initialization.
+    Runs as a fast login-node mini_task (~5 seconds on 2M tokenized sentences).
+    """
+    _version = 1
+
+    def __init__(
+        self,
+        text_file: tk.Path,
+        lowercase: bool = True,
+        remove_punctuation: bool = True,
+        keep_line_alignment: bool = False,
+        min_tokens: int = 1,
+    ):
+        super().__init__()
+        self.text_file = text_file
+        self.lowercase = lowercase
+        self.remove_punctuation = remove_punctuation
+        self.keep_line_alignment = keep_line_alignment
+        self.min_tokens = min_tokens
+
+        self.out_normalized_txt = self.output_path("normalized.tok.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        strip_punct_re = re.compile(r"^[^\w]+|[^\w]+$|_+", flags=re.UNICODE)
+        open_fn = gzip.open if self.text_file.get_path().endswith(".gz") else open
+
+        kept_lines = 0
+        with (
+            open_fn(self.text_file.get_path(), "rt", encoding="utf-8", errors="replace") as f_in,
+            open(self.out_normalized_txt.get_path(), "w", encoding="utf-8") as f_out,
+        ):
+            for line in f_in:
+                raw_line = line.strip()
+                if not raw_line and not self.keep_line_alignment:
+                    continue
+                if self.lowercase:
+                    raw_line = raw_line.lower()
+
+                raw_tokens = raw_line.split()
+                if self.remove_punctuation:
+                    clean_tokens = []
+                    for tok in raw_tokens:
+                        cleaned = strip_punct_re.sub("", tok)
+                        if cleaned and any(ch.isalnum() for ch in cleaned):
+                            clean_tokens.append(cleaned)
+                else:
+                    clean_tokens = raw_tokens
+
+                if self.keep_line_alignment:
+                    # Never drop a line in dev/test sets so 1-to-1 alignment with segment IDs is preserved
+                    if not clean_tokens:
+                        clean_tokens = [raw_tokens[0]] if raw_tokens else ["<unk>"]
+                    f_out.write(" ".join(clean_tokens) + "\n")
+                    kept_lines += 1
+                else:
+                    if len(clean_tokens) >= self.min_tokens:
+                        f_out.write(" ".join(clean_tokens) + "\n")
+                        kept_lines += 1
+
+        logging.info(
+            f"Normalized {kept_lines} lines (lowercase={self.lowercase}, "
+            f"remove_punctuation={self.remove_punctuation}) -> {self.out_normalized_txt.get_path()}"
+        )
+

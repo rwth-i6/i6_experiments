@@ -227,6 +227,10 @@ class HpoResultsExcelJob(tk.Job):
                     direct_out = os.path.join(gs.BASE_DIR, "output", self.prefix_name, name, "recog", str(ep), "score_results")
                     if os.path.isfile(direct_out):
                         cand_path = direct_out
+                    elif "/pretrain" in self.prefix_name:
+                        direct_out_strip = os.path.join(gs.BASE_DIR, "output", self.prefix_name.replace("/pretrain", ""), name, "recog", str(ep), "score_results")
+                        if os.path.isfile(direct_out_strip):
+                            cand_path = direct_out_strip
 
                 if cand_path and os.path.isfile(cand_path):
                     try:
@@ -262,6 +266,15 @@ class HpoResultsExcelJob(tk.Job):
                         elif os.path.isfile(p2):
                             cand_var_path = p2
                             break
+                        elif "/pretrain" in self.prefix_name:
+                            p1_strip = os.path.join(gs.BASE_DIR, "output", self.prefix_name.replace("/pretrain", ""), name, "variance_metric", str(ep), test_name, "variance", "variance_summary.txt")
+                            p2_strip = os.path.join(gs.BASE_DIR, "output", self.prefix_name.replace("/pretrain", ""), name, "variance_metric", str(ep), test_name, "variance_summary.txt")
+                            if os.path.isfile(p1_strip):
+                                cand_var_path = p1_strip
+                                break
+                            elif os.path.isfile(p2_strip):
+                                cand_var_path = p2_strip
+                                break
 
                 if cand_var_path:
                     try:
@@ -291,6 +304,46 @@ class HpoResultsExcelJob(tk.Job):
                     except Exception:
                         pass
 
+            # 4. Parse Length Difference Metrics
+            tok_len_diffs = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+            tok_len_ratios = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+            tok_hyp_longer_pcts = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+            tok_hyp_extra_means = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+            tok_ref_longer_pcts = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+            tok_ref_extra_means = {ep: ("Killed" if (is_killed and ep > max_epoch_seen) else ("Pending" if ep > max_epoch_seen else "")) for ep in self.eval_epochs}
+
+            for ep in self.eval_epochs:
+                cand_len_paths = []
+                for test_name in ["dev-other", "dev", "newstest2014", "test-other"]:
+                    if self.prefix_name:
+                        cand_len_paths.append(os.path.join(gs.BASE_DIR, "output", self.prefix_name, name, "recog", str(ep), test_name, "length_analysis", "summary.json"))
+                        if "/pretrain" in self.prefix_name:
+                            cand_len_paths.append(os.path.join(gs.BASE_DIR, "output", self.prefix_name.replace("/pretrain", ""), name, "recog", str(ep), test_name, "length_analysis", "summary.json"))
+
+                for cand_p in cand_len_paths:
+                    if os.path.isfile(cand_p):
+                        try:
+                            with open(cand_p, "r") as f_len:
+                                len_data = json.load(f_len)
+                            hyp_ref = len_data.get("token_level", {}).get("hypothesis_reference", {})
+                            if "mean_abs_difference" in hyp_ref:
+                                tok_len_diffs[ep] = f"{float(hyp_ref['mean_abs_difference']):.2f}"
+                            if "length_ratio" in hyp_ref:
+                                tok_len_ratios[ep] = f"{float(hyp_ref['length_ratio']):.3f}"
+                            a_long = hyp_ref.get("a_longer", {})
+                            b_long = hyp_ref.get("b_longer", {})
+                            if "percentage" in a_long:
+                                tok_hyp_longer_pcts[ep] = f"{float(a_long['percentage']):.1f}%"
+                            if "mean_extra" in a_long:
+                                tok_hyp_extra_means[ep] = f"{float(a_long['mean_extra']):.2f}"
+                            if "percentage" in b_long:
+                                tok_ref_longer_pcts[ep] = f"{float(b_long['percentage']):.1f}%"
+                            if "mean_extra" in b_long:
+                                tok_ref_extra_means[ep] = f"{float(b_long['mean_extra']):.2f}"
+                            break
+                        except Exception:
+                            pass
+
             mean_rt = round(statistics.mean(runtimes), 2) if runtimes else ""
             total_rt = round(sum(runtimes) / 3600.0, 2) if runtimes else ""
             latest_prob_ppl = round(prob_ppls[max(prob_ppls.keys())], 2) if prob_ppls else ("Killed" if is_killed else "")
@@ -317,6 +370,12 @@ class HpoResultsExcelJob(tk.Job):
                 "audio_vars": audio_vars,
                 "text_vars": text_vars,
                 "mixed_vars": mixed_vars,
+                "tok_len_diffs": tok_len_diffs,
+                "tok_len_ratios": tok_len_ratios,
+                "tok_hyp_longer_pcts": tok_hyp_longer_pcts,
+                "tok_hyp_extra_means": tok_hyp_extra_means,
+                "tok_ref_longer_pcts": tok_ref_longer_pcts,
+                "tok_ref_extra_means": tok_ref_extra_means,
                 "is_killed": is_killed,
             }
             rec.update(meta)
@@ -326,7 +385,9 @@ class HpoResultsExcelJob(tk.Job):
         standard_keys = [
             "name", "status", "mean_rt", "total_rt", "latest_prob_ppl", "latest_hard_ppl",
             "prob_ppls", "hard_ppls", "latest_aux_ce", "latest_aux_fer", "aux_ces", "aux_fers",
-            "dev_aux_ces", "dev_aux_fers", "pers", "audio_vars", "text_vars", "mixed_vars", "is_killed"
+            "dev_aux_ces", "dev_aux_fers", "pers", "audio_vars", "text_vars", "mixed_vars",
+            "tok_len_diffs", "tok_len_ratios", "tok_hyp_longer_pcts", "tok_hyp_extra_means",
+            "tok_ref_longer_pcts", "tok_ref_extra_means", "is_killed"
         ]
         extra_keys = []
         for r in records:
@@ -336,6 +397,13 @@ class HpoResultsExcelJob(tk.Job):
 
         has_ppl = any(r["prob_ppls"] for r in records)
         has_aux_rec = any(r["aux_ces"] for r in records)
+        has_len_metrics = any(
+            any(v not in ("", "Pending", "Killed") for v in r["tok_len_diffs"].values())
+            for r in records
+        ) or any(
+            any(v not in ("", "Pending", "Killed") for v in r["tok_len_ratios"].values())
+            for r in records
+        )
 
         # --- CSV Generation ---
         headers = ["Config Name", "Status"] + [k.replace("_", " ").title() for k in extra_keys] + [
@@ -362,6 +430,19 @@ class HpoResultsExcelJob(tk.Job):
             headers.append(f"Text Var Ep {ep}")
         for ep in self.eval_epochs:
             headers.append(f"Mixed Var Ep {ep}")
+        if has_len_metrics:
+            for ep in self.eval_epochs:
+                headers.append(f"Mean |Δ| Tok Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Hyp/Ref Len Ratio Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Hyp>Ref % Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Mean Extra Tok Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Hyp<Ref % Ep {ep}")
+            for ep in self.eval_epochs:
+                headers.append(f"Mean Deficit Tok Ep {ep}")
 
         with open(self.out_csv.get_path(), "w") as f:
             f.write(",".join(headers) + "\n")
@@ -395,6 +476,19 @@ class HpoResultsExcelJob(tk.Job):
                     row.append(str(r["text_vars"].get(ep, "")))
                 for ep in self.eval_epochs:
                     row.append(str(r["mixed_vars"].get(ep, "")))
+                if has_len_metrics:
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_len_diffs"].get(ep, "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_len_ratios"].get(ep, "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_hyp_longer_pcts"].get(ep, "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_hyp_extra_means"].get(ep, "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_ref_longer_pcts"].get(ep, "")))
+                    for ep in self.eval_epochs:
+                        row.append(str(r["tok_ref_extra_means"].get(ep, "")))
                 f.write(",".join(row) + "\n")
 
         # --- Styled Excel Generation ---
@@ -449,6 +543,19 @@ class HpoResultsExcelJob(tk.Job):
                     row.append(r["text_vars"].get(ep, ""))
                 for ep in self.eval_epochs:
                     row.append(r["mixed_vars"].get(ep, ""))
+                if has_len_metrics:
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_len_diffs"].get(ep, ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_len_ratios"].get(ep, ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_hyp_longer_pcts"].get(ep, ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_hyp_extra_means"].get(ep, ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_ref_longer_pcts"].get(ep, ""))
+                    for ep in self.eval_epochs:
+                        row.append(r["tok_ref_extra_means"].get(ep, ""))
                 ws.append(row)
 
                 if r["is_killed"] or "Killed" in str(r["status"]):
