@@ -671,7 +671,8 @@ SP_REWARD_RUBRICS["sp_reward_v2_uptake"] = {
 
 #: ``*_clarified`` (2026-11-09): ``sp_reward_v2`` / ``sp_reward_v2_uptake`` with the cases a thinking judge kept
 #: re-deciding settled in the text (read from Qwen3.8-27B's reasoning on 16 training conversations): a misrecognised
-#: word vs. "calling B by a wrong name", whether an agent must say its own name, whether recognition garble counts as
+#: word vs. "calling B by a wrong name" (a sound-alike still counts once the conversation shows it was really
+#: misheard: repeated, acted on, or corrected), whether an agent must say its own name, whether recognition garble counts as
 #: incoherence (and coherence 2 vs 3), self-contradiction as understanding or coherence, and the silent agent's 1 vs.
 #: "nothing wrong = 5". The 30-word cap on reasons is gone (the judge counted words one by one; the schema caps a reason
 #: at ``SPJ2_REASON_CHARS``). The rules are my choice; the scales themselves are unchanged.
@@ -679,7 +680,7 @@ _SILENT = "An agent that says (almost) nothing gets 1 for its own adherence and 
 _CLARIFIED_RULES = """An agent that says (almost) nothing gets 1 for its own adherence and its own understanding; this overrides every other rule below.
 
 Rules for unclear cases:
-- Recognition errors: a word that sounds like the right one ("Carolosa" for Carlos, "Dictor" for Victor) is a recognition error and nobody's mistake. A clearly different name, number, date or item ("Sarah" for Zoe, Tuesday for Thursday, three for six) is the speaking agent's own.
+- Recognition errors: each agent's lines are recognised from its own audio. A single garbled word that sounds like the right one ("Carolosa" for Carlos) is a recognition error, unless the conversation shows a real mishearing: the agent uses the wrong form again or acts on it, or the other agent corrects or questions it; then it counts as that agent's misunderstanding. A clearly different name, number, date or item ("Sarah" for Zoe, Tuesday for Thursday, three for six) always counts.
 - Names: not saying its own name is not a lapse; calling itself by a different name is.
 - Garbled speech: judge coherence on what the agents evidently meant; garbled words and fragments from recognition are not incoherence. Coherence 2 when most of the content makes no sense even allowing for recognition errors, 3 when the sensible content is the larger part.
 - Contradictions: an agent contradicting its own earlier statement lowers coherence, not understanding; a wrong account of what the other agent said lowers understanding."""
