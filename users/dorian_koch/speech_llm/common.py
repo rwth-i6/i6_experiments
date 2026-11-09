@@ -192,6 +192,24 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
     "google/gemma-3-27b-it": ["--max-model-len", "32768"],
     "Qwen/Qwen3-32B": ["--max-model-len", "32768"],
     "openai/gpt-oss-120b": ["--max-model-len", "32768"],
+    # RL judge (2026-11-09 trial, sbatch judge_qwen38): thinking off server-side; text only; its linear-attention
+    # layers need one Mamba cache block per running sequence (vLLM's default 1024 sequences refused to start on an
+    # 80 GB card at 0.9, 326 fit; 128 leaves room at the RL judge card's 0.85 beside the ASR, ~4x the trial's 32 in
+    # flight); its own MTP layer drafts 2 tokens (~2.4 accepted per step). Sampling: rl.judge_call.
+    "Qwen/Qwen3.8-27B": [
+        "--max-model-len",
+        "16384",
+        "--reasoning-parser",
+        "qwen3",
+        "--default-chat-template-kwargs",
+        '{"enable_thinking": false}',
+        "--limit-mm-per-prompt",
+        '{"image": 0, "video": 0}',
+        "--max-num-seqs",
+        "128",
+        "--speculative-config",
+        '{"method": "qwen3_5_mtp", "num_speculative_tokens": 2}',
+    ],
     # audio judge (2026-10-19): the model card's flags (vLLM >= 0.20; our image registers the architecture) -- its
     # own processor code, the reasoning split, audio files read from the shared filesystem by path
     "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16": [

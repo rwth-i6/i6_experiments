@@ -688,6 +688,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_reasoning_tokens.py": {
   "env": "module"
  },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_sampling.py": {
+  "env": "module"
+ },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_judge_stats.py": {
   "env": "module"
  },
