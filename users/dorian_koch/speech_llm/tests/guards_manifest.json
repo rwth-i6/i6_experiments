@@ -700,6 +700,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_knowledge_rate_subsample.py": {
   "env": "module"
  },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_knowledge_truthful.py": {
+  "env": "module"
+ },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_multitask.py": {
   "env": "module"
  },
