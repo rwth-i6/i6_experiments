@@ -241,7 +241,7 @@ def analyze_pair(a, b, ua, ub, fusions, *, unit_sink=None, example_sink=None, ex
                     error_count_headroom=min(a["summary"]["total"], b["summary"]["total"]) - oracle["total"],
                     candidate_reference_denominators_differ=any(ua[k]["counts"]["ref_len"] != ub[k]["counts"]["ref_len"] for k in ua),
                     diagnostic_only=True, rule="Minimum edit count per scoring unit; ties choose A; selected hypothesis denominator"),
-                fusions={label: dict(stats, wer=record["summary"]["wer_percent"],
+                fusions={label: dict(fusion_stats[label], wer=record["summary"]["wer_percent"],
                                      delta_vs_better_standalone=record["summary"]["wer_percent"] - min(wa, wb),
                                      source=record["score"], condition=record["condition"], decoding=record["decoding"])
                          for label, (record, _) in fusions.items()},

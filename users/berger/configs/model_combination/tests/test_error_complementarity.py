@@ -141,3 +141,17 @@ def test_score_checksum_guard_and_alignment_validation(pair):
         ec.load_units(dict(a, score_sha256="not-the-hash"))
     with pytest.raises(ValueError, match="Alignment disagrees"):
         ec.aligned_errors(dict(ua["0"], counts=dict(ua["0"]["counts"], total=1)))
+
+
+def test_multiple_fusions_keep_their_own_error_attribution(pair):
+    a, b, f, ua, ub, uf = pair
+    # The first fusion exactly reproduces A; the second has independent errors.
+    # Adding/reordering another system must not overwrite the first one's counts.
+    copies_a = dict(a, condition="copies-a", decoding="control")
+    only = ec.analyze_pair(a, b, ua, ub, {"copies-a": (copies_a, ua)})
+    forward = ec.analyze_pair(a, b, ua, ub, {"copies-a": (copies_a, ua), "fusion": (f, uf)})
+    reverse = ec.analyze_pair(a, b, ua, ub, {"fusion": (f, uf), "copies-a": (copies_a, ua)})
+    assert forward["fusions"]["copies-a"] == only["fusions"]["copies-a"]
+    assert forward["fusions"] == reverse["fusions"]
+    assert forward["fusions"]["copies-a"]["units"].get("worsened_vs_a", 0) == 0
+    assert forward["fusions"]["fusion"]["units"]["worsened_vs_a"] > 0
