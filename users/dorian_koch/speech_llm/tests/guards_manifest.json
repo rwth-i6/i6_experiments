@@ -748,6 +748,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_speech_rate.py": {
   "env": "module"
  },
+ "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_speedup_cer.py": {
+  "env": "module"
+ },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_staleness.py": {
   "env": "module"
  },
