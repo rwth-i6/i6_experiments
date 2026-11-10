@@ -166,3 +166,66 @@ def build_test_datasets():
             seq_order_control_dataset="phon_indices",
         ),
     }
+
+
+def build_contrastive_pca_test_datasets():
+    """
+    Builds evaluation datasets for contrastive PCA containing both dev-clean and dev-other.
+    """
+    clusters_dev_other_hdfs = [
+        "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/dev_other_data_0.hdf"
+    ]
+    clusters_dev_clean_hdfs = [
+        "/rwthfs/rz/cluster/hpcwork/bpd03090/sisyphus-work-dirs/exp2026_04_09_unsupervised_asr/data/librispeech_cluster_indices/dev_clean_data_0.hdf"
+    ]
+
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = text.get_phonemized_text(
+        "dev-clean",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+    )
+    phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+    )
+
+    return {
+        "dev-clean": MetaDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_dev_clean_hdfs,
+                    segment_file=dev_clean_seq_tags,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_dev_clean_hdfs,
+                    segment_file=dev_clean_seq_tags,
+                ),
+            },
+            data_map={
+                "data": ("feature_clusters", "data"),
+                "target": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+        "dev-other": MetaDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_dev_other_hdfs,
+                    segment_file=dev_other_seq_tags,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_dev_other_hdfs,
+                    segment_file=dev_other_seq_tags,
+                ),
+            },
+            data_map={
+                "data": ("feature_clusters", "data"),
+                "target": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+    }

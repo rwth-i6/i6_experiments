@@ -11,7 +11,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from . import learning_rate_configs
 from .tune_eval import eval_model
 from .tune_eval import eval_model_rasr
-from .analysis import analyze_encoder_states, analyze_cross_attention
+from .analysis import analyze_encoder_states, analyze_cross_attention, analyze_encoder_states_contrastive
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..models.recognition.discrete_audio_aed.beam_search import DecoderConfig
@@ -55,8 +55,8 @@ def run_train(
 
     if cleanup_old_models is None:
         cleanup_old_models = {
-            "keep_last_n": 4,
-            "keep_best_n": 4,
+            "keep_last_n": 1,
+            "keep_best_n": 0,
             "keep": keep_epochs,
         }
 
@@ -204,6 +204,44 @@ def run_encoder_embedding_visualization(
     )
 
 
+def run_contrastive_encoder_embedding_visualization(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    keep_epochs: Optional[List[int]] = None,
+    recog_name: str = "pca-contrastive",
+    network_module: Optional[str] = None,
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    decoder_config: DecoderConfig = DecoderConfig(
+        beam_size=12,
+    ),
+    recog_model_args: Optional[Dict] = None,
+    main_eval_measure_key: str = "dev",
+    recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    cosine_similarity_summary: bool = True,
+    plot_seq_tags: Optional[List[str]] = None,
+    max_plotted_seqs: int = 20,
+):
+    analyze_encoder_states_contrastive(
+        config={**config["general"], **config.get("recog", {})},
+        analysis_name=recog_name,
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=keep_epochs,
+        extra_forward_config=extra_forward_config,
+        cosine_similarity_summary=cosine_similarity_summary,
+        plot_seq_tags=plot_seq_tags,
+        max_plotted_seqs=max_plotted_seqs,
+        rqmt=config.get("recog_rqmt", None),
+    )
+
+
 def run_variance_analysis(
     training_name: str,
     train_job,
@@ -339,6 +377,8 @@ def run_experiment(
     rasr_recog_opts: Optional[Dict] = None,
     vis_epochs: Optional[List[int]] = None,
     vis_kwargs: Optional[Dict[str, Any]] = None,
+    run_contrastive_pca: bool = False,
+    contrastive_pca_test_data_dict: Optional[Dict[str, Tuple]] = None,
 ):
     train_job, train_args = run_train(
         training_name=training_name,
@@ -432,5 +472,25 @@ def run_experiment(
             network_module=network_module_recog,
             extra_forward_config=extra_forward_config,
         )
+
+        if run_contrastive_pca:
+            cpca_test_data = contrastive_pca_test_data_dict if contrastive_pca_test_data_dict is not None else test_data_dict
+            run_contrastive_encoder_embedding_visualization(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                config=copy.deepcopy(config),
+                train_data=train_data,
+                test_data_dict=cpca_test_data,
+                keep_epochs=vis_epochs,
+                recog_name="pca-contrastive",
+                network_module=network_module_recog,
+                extra_forward_config=extra_forward_config,
+                decoder_config=decoder_config,
+                recog_model_args=recog_model_args,
+                main_eval_measure_key=main_eval_measure_key,
+                recog_post_proc_funcs=recog_post_proc_funcs,
+                **kwargs,
+            )
 
     return train_job

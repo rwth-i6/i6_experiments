@@ -19,5 +19,6 @@ if os.path.exists(_sibling_analysis_py):
     _spec.loader.exec_module(_mod)
     analyze_encoder_states = _mod.analyze_encoder_states
     analyze_cross_attention = _mod.analyze_cross_attention
+    analyze_encoder_states_contrastive = _mod.analyze_encoder_states_contrastive
     EncoderPcaConfig = _mod.EncoderPcaConfig
     CrossAttentionConfig = _mod.CrossAttentionConfig

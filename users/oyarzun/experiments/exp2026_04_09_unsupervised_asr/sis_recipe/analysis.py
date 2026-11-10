@@ -23,6 +23,7 @@ from .data.common import TrainingDatasets
 
 ENCODER_PCA_FORWARD_STEP_MODULE = "analysis.encoder_state_pca.forward_step.forward_step"
 ENCODER_PCA_CALLBACK_MODULE = "analysis.encoder_state_pca.callback.EncoderStatePcaCallback"
+CONTRASTIVE_PCA_CALLBACK_MODULE = "analysis.encoder_state_pca.contrastive_callback.ContrastiveEncoderStatePcaCallback"
 
 
 @dataclass
@@ -50,6 +51,7 @@ def analyze_encoder_states(
     plot_seq_tags: Optional[List[str]] = None,
     max_plotted_seqs: int = 20,
     cosine_similarity_summary: bool = False,
+    extra_callback_opts: Optional[Dict[str, Any]] = None,
     out_dir_name: str = "encoder_pca",
     loss_name: str = "dev_loss_ce",
     extra_forward_config: Optional[ReturnnConfig] = None,
@@ -87,6 +89,8 @@ def analyze_encoder_states(
     }
     if cosine_similarity_summary:
         callback_opts["cosine_similarity_summary"] = cosine_similarity_summary
+    if extra_callback_opts:
+        callback_opts.update(extra_callback_opts)
 
     # both modalities must be available to the forward_step, so declare the text key in extern_data
     returnn_forward_config = get_forward_config(
@@ -257,6 +261,129 @@ def analyze_cross_attention(
                 log_verbosity=5,
                 mem_rqmt=rqmt.get("mem", 20),
                 time_rqmt=rqmt.get("time", 1),
+                device=device,
+                cpu_rqmt=rqmt.get("cpu", 4),
+                returnn_python_exe=RETURNN_EXE,
+                returnn_root=RETURNN_ROOT,
+                output_files=[out_dir_name],
+            )
+            gpu_mem = rqmt.get("gpu_mem", None)
+            if device == "gpu" and gpu_mem is not None and gpu_mem != 11:
+                forward_job.rqmt["gpu_mem"] = gpu_mem
+            forward_job.add_alias(prefix_name + "/forward")
+            tk.register_output(prefix_name + f"/{out_dir_name}", forward_job.out_files[out_dir_name])
+            forward_jobs.setdefault(checkpoint_name, {})[key] = forward_job.out_files[out_dir_name]
+
+    return forward_jobs
+
+
+def analyze_encoder_states_contrastive(
+    *,
+    config: Dict[str, Any],
+    training_name: str,
+    train_job: Optional[ReturnnTrainingJob],
+    train_args: Dict[str, Any],
+    train_data: TrainingDatasets,
+    test_data_dict: Dict[str, Any],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "pca-contrastive",
+    forward_step_module: str = ENCODER_PCA_FORWARD_STEP_MODULE,
+    callback_module: str = CONTRASTIVE_PCA_CALLBACK_MODULE,
+    base_analysis_config: Optional[EncoderPcaConfig] = None,
+    max_points_per_modality: int = 50_000,
+    plot_seq_tags: Optional[List[str]] = None,
+    max_plotted_seqs: int = 20,
+    cosine_similarity_summary: bool = True,
+    out_dir_name: str = "pca_contrastive",
+    loss_name: str = "dev_loss_ce",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    rqmt: Optional[Dict[str, Any]] = None,
+) -> Dict[Union[int, str], Dict[str, tk.Path]]:
+    """
+    Run contrastive shared-encoder PCA analysis forward jobs.
+    Computes pairwise BERTScore similarity matrix with IDF and baseline rescaling,
+    identifies most dissimilar sequence pairs, and plots 4 sequences with text transcripts.
+    """
+    from .data.librispeech import text as librispeech_text
+    from ..models.analysis.encoder_state_pca.contrastive_callback import ComputeBertScoreSimilarityMatrixJob
+
+    bertscore_jobs: Dict[str, ComputeBertScoreSimilarityMatrixJob] = {}
+    for key in test_data_dict.keys():
+        text_file, seq_tags_file = librispeech_text.get_text(key)
+        bertscore_job = ComputeBertScoreSimilarityMatrixJob(
+            text_file=text_file,
+            seq_tags_file=seq_tags_file,
+            max_seqs=200,
+            priority_seq_tags=plot_seq_tags,
+            lang="en",
+        )
+        bertscore_jobs[key] = bertscore_job
+        bert_prefix = f"{training_name}/bertscore_similarity/{key}"
+        bertscore_job.add_alias(f"{bert_prefix}/job")
+        tk.register_output(f"{bert_prefix}/similarity_matrix.npy", bertscore_job.out_similarity_matrix_npy)
+        tk.register_output(f"{bert_prefix}/bertscore_similarity_report.json", bertscore_job.out_similarity_report_json)
+        tk.register_output(f"{bert_prefix}/most_similar_pairs.txt", bertscore_job.out_most_similar_txt)
+        tk.register_output(f"{bert_prefix}/least_similar_pairs.txt", bertscore_job.out_least_similar_txt)
+        tk.register_output(f"{bert_prefix}/bertscore_similarity_heatmap.png", bertscore_job.out_heatmap_png)
+
+    if base_analysis_config is None:
+        base_analysis_config = EncoderPcaConfig(
+            audio_data_key=config.get("default_data_key", "data"),
+            text_data_key=config.get("default_target_key", "target"),
+        )
+
+    if rqmt is None:
+        rqmt = {}
+
+    forward_jobs = {}
+    for checkpoint_name in checkpoints:
+        if isinstance(checkpoint_name, int):
+            checkpoint = get_checkpoint(training_name, train_job, get_specific_checkpoint=checkpoint_name)
+        elif checkpoint_name == "best":
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(1, loss_name))
+        else:
+            assert checkpoint_name == "best4", f"unknown checkpoint spec: {checkpoint_name!r}"
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(4, loss_name))
+
+        for key, dataset in test_data_dict.items():
+            text_file, seq_tags_file = librispeech_text.get_text(key)
+            bertscore_job = bertscore_jobs[key]
+
+            callback_opts = {
+                "out_dir": out_dir_name,
+                "max_points_per_modality": max_points_per_modality,
+                "plot_seq_tags": plot_seq_tags,
+                "max_plotted_seqs": max_plotted_seqs,
+                "cosine_similarity_summary": cosine_similarity_summary,
+                "transcript_text_file": text_file,
+                "transcript_seq_tags_file": seq_tags_file,
+                "bertscore_report_json": bertscore_job.out_similarity_report_json,
+            }
+
+            returnn_forward_config = get_forward_config(
+                config=config,
+                network_module=train_args["network_module"],
+                extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
+                net_args=train_args["net_args"],
+                decoder_args=asdict(base_analysis_config),
+                decoder=forward_step_module,
+                callback_module=callback_module,
+                datastreams=train_data.datastreams,
+                callback_opts=callback_opts,
+                add_text_to_extern_data=True,
+            )
+
+            forward_config = copy.deepcopy(returnn_forward_config)
+            forward_config.config["forward_data"] = dataset.as_returnn_opts()
+
+            prefix_name = f"{training_name}/{analysis_name}/{checkpoint_name}/{key}"
+            device = rqmt.get("device", "cpu")
+            forward_job = ReturnnForwardJobV2(
+                model_checkpoint=checkpoint,
+                returnn_config=forward_config,
+                log_verbosity=5,
+                mem_rqmt=rqmt.get("mem", 24),
+                time_rqmt=rqmt.get("time", 2),
                 device=device,
                 cpu_rqmt=rqmt.get("cpu", 4),
                 returnn_python_exe=RETURNN_EXE,

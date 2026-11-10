@@ -20,7 +20,7 @@ from i6_core.serialization import Collection
 from sisyphus import tk
 
 from ....train_exp import run_experiment
-from ..data.common import build_training_datasets, build_test_datasets
+from ..data.common import build_training_datasets, build_test_datasets, build_contrastive_pca_test_datasets
 from ....data.common import DatasetSettings
 from ... import __setup_base_name__
 from .config_librispeech_960_v1 import base_config, alternate_batching
@@ -36,6 +36,7 @@ train_data = build_training_datasets(
     settings=settings,
 )
 test_data_dict = build_test_datasets()
+contrastive_pca_test_data_dict = build_contrastive_pca_test_datasets()
 
 base_config = copy.deepcopy(base_config)
 base_config["random_seed"] = 42
@@ -155,6 +156,8 @@ def py():
         rasr_recog_opts=None,
         vis_epochs=pretrain_eval_epochs,
         vis_kwargs={"cosine_similarity_summary": True},
+        run_contrastive_pca=True,
+        contrastive_pca_test_data_dict=contrastive_pca_test_data_dict,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
     )
 
@@ -243,6 +246,8 @@ def py():
         rasr_recog_opts=None,
         vis_epochs=eval_epochs,
         vis_kwargs={"cosine_similarity_summary": True},
+        run_contrastive_pca=True,
+        contrastive_pca_test_data_dict=contrastive_pca_test_data_dict,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
     )
 

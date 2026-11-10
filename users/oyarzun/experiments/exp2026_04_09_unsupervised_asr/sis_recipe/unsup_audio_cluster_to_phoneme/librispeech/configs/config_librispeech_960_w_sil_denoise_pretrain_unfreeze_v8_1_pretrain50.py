@@ -22,7 +22,7 @@ from i6_core.serialization import Collection
 from sisyphus import tk
 
 from ....train_exp import run_experiment
-from ..data.common import build_training_datasets, build_test_datasets
+from ..data.common import build_training_datasets, build_test_datasets, build_contrastive_pca_test_datasets
 from ....data.common import DatasetSettings
 from ... import __setup_base_name__
 from .config_librispeech_960_v1 import base_config, alternate_batching
@@ -38,6 +38,7 @@ train_data = build_training_datasets(
     settings=settings,
 )
 test_data_dict = build_test_datasets()
+contrastive_pca_test_data_dict = build_contrastive_pca_test_datasets()
 
 base_config = copy.deepcopy(base_config)
 base_config["random_seed"] = 42
@@ -158,6 +159,8 @@ def py():
         rasr_recog_opts=None,
         vis_epochs=eval_epochs,
         vis_kwargs={"cosine_similarity_summary": True},
+        run_contrastive_pca=True,
+        contrastive_pca_test_data_dict=contrastive_pca_test_data_dict,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
     )
 
@@ -190,7 +193,120 @@ def py():
     tk.register_output(f"{prefix_name}/unsup_v8_1_pretrain50_summary.xlsx", excel_job.out_excel)
     tk.register_output(f"{prefix_name}/unsup_v8_1_pretrain50_summary.csv", excel_job.out_csv)
 
+    # =========================================================================
+    # PHASE 2: Denoising + Backtranslation Posttraining (200 Epochs, 4 Evals)
+    # Starting from Pretrain Checkpoint 40 and Pretrain Checkpoint 50
+    # =========================================================================
+    ft_epochs = 200
+    ft_eval_epochs = [50, 100, 150, 200]
+    ft_cleanup_old_models = {
+        "keep_last_n": 1,
+        "keep_best_n": 0,
+        "keep": ft_eval_epochs,
+    }
+
+    ft_train_jobs = {}
+    ft_configs_meta = {}
+
+    for init_ep in [40, 50]:
+        ft_train_name = (
+            f"from-pretrain-ep{init_ep}_disc-neither_enc-{layers}_dec-{layers}_unfreeze-warm_"
+            f"constlr-{lr_str}_auxrec-{aux_rec_scale}_avg-layers-1-6_k15_ft_ep-{ft_epochs}_v8.1"
+        )
+
+        ft_cfg = copy.deepcopy(base_config)
+        ft_cfg["train_args"].update({
+            "codebook_diversity_loss_scale": 0.0,
+            "denoise_pretrain_epochs": 0,
+            "pretrain_codebook_prob": 0.0,
+            "pretrain_codebook_diversity_loss_scale": 0.0,
+            "adv_loss_scale": 0.0,
+            "pretrain_adv_loss_scale": 0.0,
+            "audio_aux_rec_loss_scale": aux_rec_scale,
+            "gradual_unfreeze": False,
+            "freeze_encoder": False,
+            "bt_buffer_size_steps": 10,
+            "bt_train_iterations": 50,
+            "text_masking_opts": text_masking_opts,
+            "audio_masking_opts": audio_masking_opts,
+        })
+
+        ft_cfg["training"].update({
+            "batch_size": 15000,
+            "grad_scaler": None,
+            "accum_grad_multiple_step": 2,
+            "__num_epochs": ft_epochs,
+            "preload_from_files": {
+                "pretrained_model": {
+                    "filename": pretrain_job.out_checkpoints[init_ep].path,
+                    "init_for_train": True,
+                    "checkpoint_key": "model",
+                    "ignore_missing": True,
+                    "ignore_params_prefixes": ["quantizer.", "discriminator."],
+                }
+            },
+            "__lr_opts": {
+                "type": "dyn_lr_piecewise_linear",
+                "piecewise_epochs": [0, ft_epochs],
+                "piecewise_values": [lr_val, lr_val],
+            },
+        })
+
+        ft_cfg["recog_rqmt"] = {
+            "time": 4,
+            "mem": 32,
+            "cpu": 6,
+            "gpu": 1,
+            "device": "gpu",
+            "gpu_mem": 80,
+        }
+        ft_cfg.setdefault("train_rqmt", {})["mem_rqmt"] = 64
+
+        ft_job = run_experiment(
+            training_name=f"{prefix_name}/{ft_train_name}",
+            config=ft_cfg,
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=ft_eval_epochs,
+            cleanup_old_models=ft_cleanup_old_models,
+            skip_eval=False,
+            rasr_recog_opts=None,
+            vis_epochs=ft_eval_epochs,
+            vis_kwargs={"cosine_similarity_summary": True},
+            run_contrastive_pca=True,
+            contrastive_pca_test_data_dict=contrastive_pca_test_data_dict,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+        )
+
+        ft_train_jobs[ft_train_name] = ft_job
+        ft_configs_meta[ft_train_name] = {
+            "base_checkpoint": f"{pretrain_train_name}@epoch_{init_ep}",
+            "layers": layers,
+            "disc_type": "None",
+            "codebook_prob": 0.0,
+            "unfreeze_mode": "warm (fully unfrozen)",
+            "learning_rate": lr_str,
+            "audio_aux_rec_loss_scale": aux_rec_scale,
+            "audio_aux_rec_layers": str(aux_rec_layers),
+            "text_mask_k_max": 15,
+            "audio_masking": "in-place 1-to-1 (no expansion)",
+            "ft_epochs": ft_epochs,
+            "cumulative_epochs": init_ep + ft_epochs,
+        }
+
+    ft_excel_job = HpoResultsExcelJob(
+        configs_meta=ft_configs_meta,
+        train_jobs=ft_train_jobs,
+        eval_epochs=ft_eval_epochs,
+        target_num_epochs=ft_epochs,
+        prefix_name=f"{prefix_name}/ft200",
+        report_name="unsup_v8_1_pretrain50_ft200_summary",
+    )
+    tk.register_output(f"{prefix_name}/unsup_v8_1_pretrain50_ft200_summary.xlsx", ft_excel_job.out_excel)
+    tk.register_output(f"{prefix_name}/unsup_v8_1_pretrain50_ft200_summary.csv", ft_excel_job.out_csv)
+
     return {
         "pretrain_job": pretrain_job,
+        "finetune_jobs": ft_train_jobs,
     }
 
