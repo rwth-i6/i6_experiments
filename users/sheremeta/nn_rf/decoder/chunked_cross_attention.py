@@ -72,6 +72,7 @@ class ChunkCrossAttentionDecoderLayer(TransformerDecoderLayer):
         num_heads: int,
         att_dropout: float,
         norm: Callable,
+        ff_output_dropout: bool = True,
         **kwargs,
     ):
         """
@@ -80,10 +81,12 @@ class ChunkCrossAttentionDecoderLayer(TransformerDecoderLayer):
         :param num_heads: attention heads of the self-attention and the cross-attention
         :param att_dropout: dropout on the attention weights of both
         :param norm: the norm in front of every block
+        :param ff_output_dropout: whether the feed-forward output gets the dropout of the attention outputs
         :param kwargs: the other options of :class:`TransformerDecoderLayer`
         """
         super().__init__(None, out_dim, num_heads=num_heads, att_dropout=att_dropout, norm=norm, **kwargs)
 
+        self.ff_output_dropout = ff_output_dropout
         self.encoder_dim = encoder_dim
         self.cross_att = group_cross_attention_class()(
             encoder_dim,
@@ -138,7 +141,9 @@ class ChunkCrossAttentionDecoderLayer(TransformerDecoderLayer):
         x = x_ca + x
 
         # feed-forward
-        x_ff = rf.dropout(ff(ff_norm(x)), self.dropout, axis=self.dropout_broadcast and self.out_dim)
+        x_ff = ff(ff_norm(x))
+        if self.ff_output_dropout:
+            x_ff = rf.dropout(x_ff, self.dropout, axis=self.dropout_broadcast and self.out_dim)
         x = x_ff + x
 
         return x, new_state
