@@ -28,7 +28,7 @@ WER (%). G = Granite CTC; P = Parakeet RNN-T; S = standalone Speech-Qwen 1.7B. F
 | spgispeech | 1.841 | 2.679 | 2.569 | 1.691 | pending | 2.537 |
 | voxpopuli-cleaned | 4.635 | 3.776 | 2.852 | 3.741 | 3.105 | 3.004 |
 
-The P control is the dev-selected `zero-beam32` AM-only search. It is not always stronger than native decoding: on AMI the native Parakeet score in the complementarity snapshot is 9.426%, whereas the frozen beam control is 13.295%. Both Parakeet/Speech-Qwen fusions on AMI remain worse than that native control and than standalone Speech-Qwen. Granite + Speech-Qwen reaches 7.062% there, close to fixed native Cohere at 7.035%. AMI therefore needs an AM-only search diagnostic before attributing all the Parakeet gap to fusion.
+The P control is the dev-selected `zero-beam32` AM-only search. Correction after checking the paired native artifacts: native Parakeet on AMI is 14.339%, not 9.426%; 9.426% is Speech-Qwen 0.6B. The beam control improves to 13.295%. The 1.7B one-pass/two-pass fusions improve further to 10.699%/10.182%, but remain worse than standalone Speech-Qwen 1.7B at 8.367%. Granite + Speech-Qwen reaches 7.062%, close to fixed native Cohere at 7.035%. There is no aggregate AMI beam-search degradation demonstrated by these results.
 
 ## What has changed in the conclusions
 
@@ -99,10 +99,18 @@ Duration bins do not yet show a persuasive long-form trend. Most development seg
 
 1. Run a small calibration study on the existing development candidate pools, with a separate validation partition. Focus on EOS/length terms, confidence/disagreement-based score balance, and retained first-pass LM costs where present. Compare to the frozen global scale/reward baseline. Do not fit using test labels or pretend the reference oracle is a usable ranking rule. Pure Speech-Qwen ranking is a required negative control.
 
-2. Diagnose AMI AM-only beam-search degradation. Preserve native controls in every comparison; a weak matched search control must not inflate the claimed benefit over the strongest standalone recognizer.
+2. Finish the comparison against native and frozen beam controls, and audit the report interpretations. The initial AMI degradation claim was a reading error, not an experimental finding; no extra AMI search experiment is motivated by it.
 
 3. Pilot a consistently scored union pool. Prioritize Granite, where coverage gaps are larger, and inspect representative Qwen-strong corpora before committing to Speech-LLM-led search. Every union candidate needs a comparable AM and auxiliary score; do not use a zero or missing AM cost for Qwen-generated hypotheses. If better candidates win after consistent scoring, prioritize proposal/search direction. If they lose, prioritize calibration/objective changes.
 
 4. Proceed with the small controlled-noise pilot and company-side AppTek preparation. Keep common segmentation and settings fixed initially. Reserve natural long-form claims for real long-input experiments. No extra large model sweep or three-model fusion is justified by this review alone.
 
 For a paper the defensible result is conditional benefit and failure modes, with competitive two-pass/cost controls—not universal superiority of one-pass fusion. The last two SPGISpeech cells need not block these pilots.
+
+## Follow-up: AMI native/beam error inspection
+
+The two scores use the same raw reference file and all 7,715 IDs match. Native Parakeet has I/D/S = 950/6,557/4,288; the beam control has 1,298/5,033/4,605. Beam search removes 1,524 deletions while adding 348 insertions and 317 substitutions: 859 fewer errors overall (14.339% → 13.295%). It improves 1,001 units and worsens 481; 6,233 tie in edit count. Native-correct/beam-wrong units number 157; the reverse numbers 324.
+
+Newly introduced errors include dropping the repeated “I AM” in `AMI_EN2002a_H02_FEO072_0084151_0084417` and replacing “WHAT WE ARE DOING IS FINE” with “WE ARE DOING SO” in `AMI_EN2002a_H03_MEE071_0064862_0064969`. These regressions coexist with a larger aggregate reduction in deletions. They do not establish a broken search path or an overall beam-search regression.
+
+The 9.426% overview value was the minimum of the Parakeet and Speech-Qwen 0.6B scores, not the Parakeet score. The source snapshot and current score/segment artifacts agree; this was a reading mistake, not changed evidence. Calibration, union-pool, noise and long-form studies remain optional follow-ups. None is required merely to complete the present descriptive comparison; mechanistic claims about proposal bottlenecks would require additional evidence.
