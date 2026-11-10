@@ -694,8 +694,7 @@ def _clarified_text(base: str) -> str:
 
 
 #: ``*_timed`` (2026-11-10): the rubric for the ``timed_turns_v1`` transcript (``moshi_family.rl.selfplay_reward.
-#: timed_turns_transcript``: lines with start and end time, not cut where both talk, talked-over lines marked with the
-#: seconds, the totals on top) plus a rule that long talking at the same time is a serious failure. Why: MT v4 late
+#: timed_turns_transcript``: lines with start and end time, not cut where both talk, the talk-over totals on top) plus a rule that long talking at the same time is a serious failure. Why: MT v4 late
 #: self-play talks over itself for ~half its speaking time (Open Yap human conversations: median 7%, p90 21%), and the
 #: ``turns_v1`` text alternated the overlapping speech in 4-word chunks, which reads as quick turn-taking. The
 #: thresholds ("a few seconds", "a third") are my choice, between the human p90 and MT v4 late.
@@ -707,9 +706,9 @@ _TURNS_V1_LINES = (
 )
 _TIMED_LINES = (
     "Each line is a stretch of one agent's speech with its start and end time in seconds, in time order by start time; "
-    "a line ends when the agent pauses or when the other agent starts speaking. A line spoken while the other agent "
-    "was also talking says so and for how many seconds, and the first line totals how long the two talked at the same "
-    'time. A short line inside the other\'s speech is often a backchannel ("uh-huh", "yeah").'
+    "a line ends when the agent pauses or when the other agent starts speaking, so lines whose times overlap were "
+    "spoken at the same time. The first line totals how long the two talked at the same time. A short line inside "
+    'the other\'s speech is often a backchannel ("uh-huh", "yeah").'
 )
 _TIMED_RULE = (
     "TALKING AT THE SAME TIME: brief overlaps are normal (a backchannel, a quick interjection, starting a reply a moment "
