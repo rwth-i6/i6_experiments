@@ -160,12 +160,10 @@ class ScoreSpeechNbestJob(Job):
 
     def run(self):
         import torch
-        import transformers
         from datasets import load_from_disk
-        from .hf_benchmark import audio_array
+        from .hf_benchmark import audio_array, check_transformers_version
         from .qwen_speech import QwenSpeechScorer
-        if transformers.__version__ != "5.16.1":
-            raise RuntimeError("Use benchmark transformers==5.16.1")
+        check_transformers_version()
         torch.set_num_threads(2)
         torch.backends.cuda.matmul.allow_tf32 = False
         backend = QwenSpeechScorer(self.speech_repo.get_path(), batch_size=self.batch_size)

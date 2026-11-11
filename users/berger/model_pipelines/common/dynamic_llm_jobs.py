@@ -264,16 +264,20 @@ class DynamicGraniteQwenJob(Job):
         import sys
         import numpy as np
         import torch
-        import transformers
         from datasets import load_from_disk
-        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result, collapse_ctc
+        from .hf_benchmark import (
+            HfBenchmarkAdapter,
+            audio_array,
+            traceback_result,
+            collapse_ctc,
+            check_transformers_version,
+        )
         from .dynamic_llm import register_qwen_scorer
 
         with open(self.gate.get_path()) as f:
             if not json.load(f)["passed"]:
                 raise ValueError("Dynamic Qwen native preflight did not pass")
-        if transformers.__version__ != "5.16.1":
-            raise RuntimeError("Use benchmark transformers==5.16.1")
+        check_transformers_version()
         torch.set_num_threads(2)
         torch.backends.cuda.matmul.allow_tf32 = False
         sys.path.insert(0, self.binary.get_path())

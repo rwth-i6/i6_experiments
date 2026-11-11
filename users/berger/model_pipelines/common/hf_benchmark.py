@@ -13,6 +13,18 @@ import numpy as np
 import torch
 from sisyphus import Job, Task
 
+# 5.16.1 is the public benchmark environment, 5.19.0 the AppTek v19 container runtime.
+SUPPORTED_TRANSFORMERS_VERSIONS = ("5.16.1", "5.19.0")
+
+
+def check_transformers_version():
+    import transformers
+
+    if transformers.__version__ not in SUPPORTED_TRANSFORMERS_VERSIONS:
+        raise RuntimeError(
+            f"Use benchmark transformers in {SUPPORTED_TRANSFORMERS_VERSIONS}; found {transformers.__version__}"
+        )
+
 
 def audio_array(audio):
     """Handle both datasets' dict interface and torchcodec AudioDecoder."""

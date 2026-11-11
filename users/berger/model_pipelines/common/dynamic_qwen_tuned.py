@@ -96,15 +96,13 @@ class TunedDynamicQwenJob(DynamicGraniteQwenJob):
         import sys
         import numpy as np
         import torch
-        import transformers
         from datasets import load_from_disk
-        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result
+        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result, check_transformers_version
 
         with open(self.gate.get_path()) as src:
             if not json.load(src)["passed"]:
                 raise ValueError("Original native Qwen numerical gate did not pass")
-        if transformers.__version__ != "5.16.1":
-            raise RuntimeError("Use benchmark transformers==5.16.1")
+        check_transformers_version()
         torch.set_num_threads(2)
         torch.backends.cuda.matmul.allow_tf32 = False
         sys.path.insert(0, self.binary.get_path())

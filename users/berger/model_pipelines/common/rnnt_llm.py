@@ -245,17 +245,21 @@ class RnntQwenRecogJob(Job):
 
     def run(self):
         import sys
-        import transformers
         from datasets import load_from_disk
-        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result, register_hf_scorer
+        from .hf_benchmark import (
+            HfBenchmarkAdapter,
+            audio_array,
+            traceback_result,
+            register_hf_scorer,
+            check_transformers_version,
+        )
         from .dynamic_qwen_tuned import TunedQwenScorer
         from .qwen_speech import QwenSpeechScorer
 
         with open(self.gate.get_path()) as src:
             if not json.load(src)["passed"]:
                 raise ValueError("RNN-T topology gate did not pass")
-        if transformers.__version__ != "5.16.1":
-            raise RuntimeError("Use benchmark transformers==5.16.1")
+        check_transformers_version()
         if self.speech_baseline is not None:
             with open(self.speech_baseline.get_path()) as src:
                 if not json.load(src)["ref_len"]:
