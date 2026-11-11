@@ -4,8 +4,9 @@ __all__ = ["NbestKenLmRescoreJob", "NbestCtcRescoreJob"]
 
 import ast
 import math
+from typing import Dict, Union
 
-from sisyphus import Job, Task
+from sisyphus import Job, Task, tk
 
 
 class NbestKenLmRescoreJob(Job):
@@ -97,7 +98,7 @@ class NbestCtcRescoreJob(Job):
         self.am_scale = float(am_scale)
         self.tuned_scale = tuned_scale
 
-        self.out_search_results = {
+        self.out_search_results: Dict[Union[float, str], tk.Path] = {
             cs: self.output_path(f"search_out.ctc{cs}.py") for cs in self.ctc_scales
         }
         if tuned_scale is not None:
@@ -128,7 +129,7 @@ class NbestCtcRescoreJob(Job):
                 lst.append((float(am_score), float(ctc_score), am_text))
             joined[seq_tag] = lst
 
-        scale_by_key = {cs: cs for cs in self.ctc_scales}
+        scale_by_key: Dict[Union[float, str], float] = {cs: cs for cs in self.ctc_scales}
         if self.tuned_scale is not None:
             value = self.tuned_scale.get() if hasattr(self.tuned_scale, "get") else self.tuned_scale
             scale_by_key["tuned"] = float(value)
