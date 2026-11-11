@@ -104,3 +104,34 @@ def activate():
     if loaded:
         raise RuntimeError("Activate ASR research before importing templates; restart this Python process")
     sys.meta_path.insert(0, ResearchFinder())
+
+
+def source_bytes(path):
+    """Bytes for runtime fingerprints, with narrowly audited compatibility edits.
+
+    Never applies to unknown/future source contents. Runtime execution still uses
+    the current source; only exact reviewed numerical-equivalent changes on the
+    public 5.16.1 path retain the original fingerprint. New APIs/jobs must hash
+    their own source and environment. The versioned registry records both SHAs
+    and the complete reverse edits, rather than overriding any job's hash.
+    """
+    import hashlib
+    import json
+
+    path = Path(path).resolve()
+    actual = path.read_bytes()
+    try:
+        key = str(path.relative_to(RESEARCH))
+    except ValueError:
+        return actual
+    registry = json.loads((CONFIGS / "runtime_fingerprint_compat.json").read_text())["files"]
+    entry = registry.get(key)
+    if not entry or hashlib.sha256(actual).hexdigest() != entry["compatible_sha256"]:
+        return actual
+    lines = actual.decode().splitlines(keepends=True)
+    for edit in reversed(entry["reverse_edits"]):
+        lines[edit["start"]:edit["end"]] = [edit["original"]]
+    original = "".join(lines).encode()
+    if hashlib.sha256(original).hexdigest() != entry["original_sha256"]:
+        raise ValueError(f"Invalid reviewed runtime fingerprint edits: {key}")
+    return original

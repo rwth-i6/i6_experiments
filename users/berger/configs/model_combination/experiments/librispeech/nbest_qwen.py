@@ -1,5 +1,7 @@
 """Quick two-pass Qwen baseline on LibriSpeech dev-other, not the test suite."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -52,7 +54,7 @@ def run():
 
     prefix = "qwen-nbest/dev-other"
     version = hashlib.sha256(
-        Path(nbest_rescoring.__file__).read_bytes() + recognition_version("ctc").encode() + scoring_version().encode()
+        source_bytes(Path(nbest_rescoring.__file__)) + recognition_version("ctc").encode() + scoring_version().encode()
     ).hexdigest()
     # HF's original dev-other split; no evaluation text is used for lexica.
     dataset = PrepareOpenAsrDatasetJob(
@@ -132,14 +134,14 @@ def run():
         result[name] = evaluation
         full_dev = qwen_full_dev.EvaluateQwenFullDevJob(
             dataset.out_references, scoring.out_scores,
-            code_version=hashlib.sha256(Path(qwen_full_dev.__file__).read_bytes() + version.encode()).hexdigest(),
+            code_version=hashlib.sha256(source_bytes(Path(qwen_full_dev.__file__)) + version.encode()).hexdigest(),
         )
         full_dev.add_alias(f"{prefix}/{name}/full-dev-tuning")
         tk.register_output(f"{prefix}/{name}/full-dev-tuning/summary", full_dev.out_summary)
         tk.register_output(f"{prefix}/{name}/full-dev-tuning/best-hypotheses", full_dev.out_best)
         # Keep the original generation/scoring hashes stable: diagnostics have
         # their own version and reuse the completed lists and Qwen scores.
-        diagnostic_version = hashlib.sha256(Path(diagnostics.__file__).read_bytes() + version.encode()).hexdigest()
+        diagnostic_version = hashlib.sha256(source_bytes(Path(diagnostics.__file__)) + version.encode()).hexdigest()
         selected_policy = "initial-capital-period_scale0.2" if name == "open-no-lm" else "lowercase_scale0"
         examples = diagnostics.SelectQwenOracleExamplesJob(
             dataset.out_references, scoring.out_scores,

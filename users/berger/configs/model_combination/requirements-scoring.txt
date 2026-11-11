@@ -1,0 +1,2 @@
+# Install in the worker/container, including the AppTek v19 image.
+kaldialign==0.12.0

@@ -305,7 +305,7 @@ class HuggingFaceCtcVocabJob(Job):
         self.out_vocab_size = self.output_var("vocab_size")
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=dict(cpu=1, mem=4, time=2))
 
     def run(self) -> None:
         labels = _get_labels(

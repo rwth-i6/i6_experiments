@@ -1,5 +1,7 @@
 """Qwen3-ASR standalone and audio-conditioned Granite fusion experiments."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -48,10 +50,10 @@ def run(*, data=None, tuning=False, speech_size="0.6b"):
     prefix = f"open-asr/qwen-speech-{speech_size}"
     # Hash runtime code, not alias/output wiring. Preserve the reviewed runtime's
     # existing fusion identity; recognition parameters are already job inputs.
-    version = hashlib.sha256(Path(qwen_speech.__file__).read_bytes()).hexdigest()
+    version = hashlib.sha256(source_bytes(Path(qwen_speech.__file__))).hexdigest()
     if version == "c5cafcfd0cec939ec1d2198b97635dcf1bfe33fb7b9dc2ff7eb27d78fee8d3c5":
         version = "12d174b8537a64b44dfe89562d226dfa6196a0f1b69d8fe59a99910b5bff1a71"
-    native_version = hashlib.sha256(Path(qwen_speech.__file__).read_bytes()).hexdigest()
+    native_version = hashlib.sha256(source_bytes(Path(qwen_speech.__file__))).hexdigest()
     # Reviewed batching-only migration: native generate() is unchanged.
     # Future runtime edits still invalidate native jobs unless reviewed again.
     if native_version in {
@@ -65,8 +67,8 @@ def run(*, data=None, tuning=False, speech_size="0.6b"):
     _, repo_id, revision = MODELS["granite-ctc"]
     granite = DownloadHuggingFaceRepoJob(repo_id, revision=revision).out_repo_dir
     raw_version = hashlib.sha256(
-        Path(dynamic_llm.__file__).read_bytes()
-        + Path(dynamic_llm_jobs.__file__).read_bytes()
+        source_bytes(Path(dynamic_llm.__file__))
+        + source_bytes(Path(dynamic_llm_jobs.__file__))
         + source_version().encode()
         + scoring_version().encode()
     ).hexdigest()

@@ -359,3 +359,14 @@ Do not run two managers writing the same report collection concurrently.
 The historical corpus reports are linked from `own-models.md`. WER differences
 are only calculated for matching normalizer revisions; test sets are never used
 to pick the best condition, and overlapping subsets are not pooled.
+
+## CTC request-API parity (opt-in)
+
+`./sis m config/ctc_api_parity.py` loads one Granite + Speech-Qwen 1.7B
+recognition on LibriSpeech dev-other with the d000386c request API and compares
+it with the completed selected 9804f5aa run. It is not called by main. It uses
+FP32 and enforces transformers 5.16.1 by default, with validated per-segment
+resume enabled. `ASR_CTC_PARITY_DATASETS` can add `loquacious-dev.short`;
+`ASR_CTC_PARITY_TRANSFORMERS=5.19.0` selects a separate explicit environment
+comparison (it requires that installed environment). See
+[AppTek feedback](experiments/open_asr/APPTEK_FEEDBACK_20261111.md).

@@ -216,6 +216,8 @@ class RnntLlmGateJob(Job):
 
 class RnntQwenRecogJob(Job):
     # Class attributes, not job arguments: subclasses change them without touching existing hashes.
+    __sis_hash_exclude__ = {"resume": False}
+    resume = False  # Older saved job instances have no resume attribute.
     family = "rnnt"
     speech_case_variants = ("lower", "capitalized")
 
@@ -232,9 +234,11 @@ class RnntQwenRecogJob(Job):
         kind,
         code_version,
         speech_baseline=None,
+        resume=False,
     ):
         if kind not in {"zero", "text", "speech"} or (kind == "speech" and speech_baseline is None):
             raise ValueError("Unknown fusion kind or missing standalone Speech-LLM baseline")
+        self.resume = resume
         self.dataset, self.repo, self.auxiliary_repo = dataset, repo, auxiliary_repo
         self.vocabulary, self.binary, self.config, self.gate = vocabulary, binary, config, gate
         self.kind, self.code_version, self.speech_baseline = kind, code_version, speech_baseline
@@ -244,8 +248,19 @@ class RnntQwenRecogJob(Job):
         self.out_log = self.output_path("rasr.log")
         self.rqmt = dict(cpu=2, mem=64, gpu=1, gpu_mem=24, time=48)
 
+    @classmethod
+    def hash(cls, parsed_args):
+        enabled = parsed_args.get("resume", parsed_args.get("kwargs", {}).get("resume", False))
+        if enabled:
+            import hashlib
+            from pathlib import Path
+            from . import segment_resume
+            parsed_args = dict(parsed_args, segment_resume_version=hashlib.sha256(
+                Path(segment_resume.__file__).read_bytes()).hexdigest())
+        return super().hash(parsed_args)
+
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", resume="run" if self.resume else None, rqmt=self.rqmt)
 
     def run(self):
         import sys
@@ -307,16 +322,33 @@ class RnntQwenRecogJob(Job):
         with open(self.vocabulary.get_path()) as src:
             vocabulary = {p.rstrip("\n"): i for i, p in enumerate(src)}
         dataset = load_from_disk(self.dataset.get_path())
-        elapsed = audio_seconds = 0
+        progress = None
+        if self.resume:
+            import hashlib
+            from .segment_resume import SegmentResumeState
+            inputs = {"job": self._sis_id(), "dataset_fingerprint": dataset._fingerprint}
+            for label, filename in (("config", self.config.get_path()), ("vocabulary", self.vocabulary.get_path()),
+                                    ("prior", self.prior.get_path() if getattr(self, "prior", None) else None)):
+                if filename:
+                    with open(filename, "rb") as source:
+                        inputs[label] = hashlib.sha256(source.read()).hexdigest()
+            progress = SegmentResumeState(self.out_hypotheses.get_path(), dataset["id"], inputs)
+            print(f"Resume: {progress.start_index}/{len(dataset)} completed segments", flush=True)
+        elapsed = progress.elapsed_seconds if progress else 0
+        audio_seconds = progress.audio_seconds if progress else 0
         validation = dict(passed=True, topology_gate=True, kind=self.kind)
-        with open(self.out_hypotheses.get_path(), "w") as dst:
-            for i, sample in enumerate(dataset):
+        if progress:
+            validation.update(progress.validation)
+            validation["resumed_segments"] = progress.start_index
+        with open(self.out_hypotheses.get_path(), "a" if progress else "w") as dst:
+            iterator = ((i, dataset[i]) for i in range(progress.start_index, len(dataset))) if progress else enumerate(dataset)
+            for i, sample in iterator:
                 waveform = audio_array(sample["audio"])
                 torch.cuda.synchronize()
                 started = time.perf_counter()
                 if backend is not None:
                     backend.set_audio(backend.prepare(waveform))
-                    if i == 0:
+                    if i == (progress.start_index if progress else 0):
                         validation["speech_score_gate"] = backend.validate()
                 with torch.inference_mode():
                     features = adapter.encode_inputs(adapter.inputs(waveform))
@@ -327,6 +359,8 @@ class RnntQwenRecogJob(Job):
                 elapsed += seconds
                 audio_seconds += len(waveform) / 16000
                 result.update(id=str(sample["id"]), elapsed_seconds=seconds)
+                if progress:
+                    result.update(_resume_audio_seconds=len(waveform) / 16000, _resume_validation=validation)
                 dst.write(json.dumps(result, ensure_ascii=False) + "\n")
                 dst.flush()
                 print(f"{i + 1}/{len(dataset)}: RTF={elapsed / audio_seconds:.3f}", flush=True)

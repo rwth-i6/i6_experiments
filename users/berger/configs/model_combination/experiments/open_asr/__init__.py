@@ -12,7 +12,7 @@ from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 from i6_core.rasr.config import RasrConfig, WriteRasrConfigJob
 from i6_core.am.config import acoustic_model_config
-from i6_experiments.users.berger.configs.model_combination.bootstrap import source_path
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_path, source_bytes
 
 from ... import tools
 from ...data.open_asr import DATASETS, PrepareOpenAsrDatasetJob
@@ -50,7 +50,7 @@ def source_version():
         source_path("model_pipelines/common/hf_scoring.py"),
     ]
     paths += sorted(source_path("model_pipelines/common/hf_normalizer").glob("*.py"))
-    digest = hashlib.sha256(b"\0".join(p.read_bytes() for p in paths)).hexdigest()
+    digest = hashlib.sha256(b"\0".join(source_bytes(p) for p in paths)).hexdigest()
     if digest == "1da74feffccf8e357fb4e43996345ac6aeee3aabb31c34abb246885df69e2fd3":
         return "c37b1c7c749309ef10c6e704b895bdb7f689ffa5be54364a73afb0f017d73cb7"
     return digest
@@ -64,7 +64,7 @@ def recognition_version(family, dataset=None):
     Future adapter edits invalidate all models unless explicitly audited here.
     """
     adapter = source_path("model_pipelines/common/hf_benchmark.py")
-    digest = hashlib.sha256(adapter.read_bytes()).hexdigest()
+    digest = hashlib.sha256(source_bytes(adapter)).hexdigest()
     original = "33163df58f92d0f621edc3e31e36b516351f077c476a25e4d7b4b49517c2dc52"
     chunked = "75293c0009a1b78811cc07b1cc8cbc7675654e90cc5bc44939a55d7330a90cb0"
     logging_only = "a48d406d9930d7b541b09f4e5fe69b7e91556ca18049ca6199db506d8e283226"
@@ -88,7 +88,7 @@ def recognition_version(family, dataset=None):
 def scoring_version():
     """Invalidate only scoring/comparison jobs when their implementation changes."""
     scoring = source_path("model_pipelines/common/benchmark_scoring.py")
-    return hashlib.sha256(source_version().encode() + b"\0" + scoring.read_bytes()).hexdigest()
+    return hashlib.sha256(source_version().encode() + b"\0" + source_bytes(scoring)).hexdigest()
 
 
 def rnnt_binary():

@@ -1,0 +1,20 @@
+{
+  "sha256": "609e8736dadb48eb77977394e98cc14e03f28aaf3cb6ff5b434d4b77eb273c54",
+  "num_labels": 16384,
+  "blank": 0,
+  "sample_count": 512,
+  "frames": 83686,
+  "audio_seconds": 6708.3101875000075,
+  "source": {
+    "repo": "openslr/librispeech_asr",
+    "config": "clean",
+    "split": "train.100",
+    "audio_key": "audio",
+    "revision": "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1"
+  },
+  "model": {
+    "repo": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+    "revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+  },
+  "recipe": "Frame-weighted probabilities on 512 training samples; log probabilities floored as in EstimateGranitePriorJob. Inventory and original public provenance are retained verbatim in the prior file."
+}

@@ -61,3 +61,17 @@ The graph reuse probe covers 1,197 job IDs plus source manifests/pickle imports.
 See [MIGRATION_VALIDATION.md](MIGRATION_VALIDATION.md). Review the proposed graph
 at cutover rather than assuming every historical configuration is covered.
 No recognition jobs are submitted by this refactor.
+
+## AppTek portability update
+
+The [AppTek follow-up](experiments/open_asr/APPTEK_FEEDBACK_20261111.md) records
+the incompatible RASR scorer APIs, the opt-in public parity experiment, frozen
+public stage/config exports and exact committed Granite prior. Config-only
+imports do not construct default tool jobs or require CMakeJob.
+
+Runtime fingerprints use `bootstrap.source_bytes()` for the narrowly reviewed
+compatibility changes listed in `runtime_fingerprint_compat.json`. Only an exact
+SHA match reconstructs the original fingerprint bytes; subsequent edits
+invalidate normally. New CTC parity jobs fingerprint actual new code and their
+explicit environment. This preserves the checked public graph, rather than
+assuming constructor defaults alone preserve source-based job identity.

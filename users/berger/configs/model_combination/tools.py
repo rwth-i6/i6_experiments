@@ -1,58 +1,88 @@
 from i6_core.lm.kenlm import CompileKenLMJob
-from i6_core.tools.compile import CMakeJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from sisyphus import tk
 
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.tools.sctk import compile_sctk
 
-returnn_root = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn.git", checkout_folder_name="returnn"
-).out_repository
-returnn_root.hash_overwrite = "RETURNN_ROOT"
+def _cmake_job(**kwargs):
+    # Config-only consumers need no local CMakeJob extension.
+    from i6_core.tools.compile import CMakeJob
+    return CMakeJob(**kwargs)
 
-minireturnn_root = CloneGitRepositoryJob(
-    "https://github.com/JackTemaki/MiniReturnn.git", checkout_folder_name="returnn"
-).out_repository
-minireturnn_root.hash_overwrite = "MINIRETURNN_ROOT"
 
-returnn_python_exe = tk.Path("/usr/bin/python3")
+def _default_tools():
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn.git", checkout_folder_name="returnn"
+    ).out_repository
+    returnn_root.hash_overwrite = "RETURNN_ROOT"
 
-# TODO: When everything necessary is merged, switch to master branch, update apptainer-setup
-# to torch-only image with CUDA enabled, update unhashed_package_roots
-# to version with no variations
-# And make all export returnn dims explicit
+    minireturnn_root = CloneGitRepositoryJob(
+        "https://github.com/JackTemaki/MiniReturnn.git", checkout_folder_name="returnn"
+    ).out_repository
+    minireturnn_root.hash_overwrite = "MINIRETURNN_ROOT"
 
-rasr_root = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/rasr.git",
-    branch="berger_dev",
-    checkout_folder_name="rasr",
-).out_repository
-rasr_root.hash_overwrite = "RASR_ROOT"
+    returnn_python_exe = tk.Path("/usr/bin/python3")
 
-# rasr_make_job = MakeJob(
-#     folder=rasr_root,
-#     make_sequence=["build", "install"],
-#     configure_opts=[
-#         "--apptainer-setup=2026-04-28_torch-2.8_onnx-1.22",
-#     ],
-#     num_processes=8,
-#     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
-# )
-# rasr_make_job.rqmt["gpu"] = 1
-# rasr_make_job.rqmt["gpu_mem"] = 24
-rasr_make_job = CMakeJob(
-    source_folder=rasr_root,
-    cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
-    num_processes=8,
-    mem_rqmt=8,
-)
-# Needed to have CUDA headers available
-# rasr_make_job.rqmt["gpu"] = 1
-# rasr_make_job.rqmt["gpu_mem"] = 24
+    # TODO: When everything necessary is merged, switch to master branch, update apptainer-setup
+    # to torch-only image with CUDA enabled, update unhashed_package_roots
+    # to version with no variations
+    # And make all export returnn dims explicit
 
-rasr_binary_path: tk.Path = rasr_make_job.out_install_dir
-rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
+    rasr_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/rasr.git",
+        branch="berger_dev",
+        checkout_folder_name="rasr",
+    ).out_repository
+    rasr_root.hash_overwrite = "RASR_ROOT"
+
+    # rasr_make_job = MakeJob(
+    #     folder=rasr_root,
+    #     make_sequence=["build", "install"],
+    #     configure_opts=[
+    #         "--apptainer-setup=2026-04-28_torch-2.8_onnx-1.22",
+    #     ],
+    #     num_processes=8,
+    #     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+    # )
+    # rasr_make_job.rqmt["gpu"] = 1
+    # rasr_make_job.rqmt["gpu_mem"] = 24
+    rasr_make_job = _cmake_job(
+        source_folder=rasr_root,
+        cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
+        num_processes=8,
+        mem_rqmt=8,
+    )
+    # Needed to have CUDA headers available
+    # rasr_make_job.rqmt["gpu"] = 1
+    # rasr_make_job.rqmt["gpu_mem"] = 24
+
+    rasr_binary_path: tk.Path = rasr_make_job.out_install_dir
+    rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
+
+
+    sctk_binary_path = compile_sctk(branch="v2.4.12")
+    sctk_binary_path.hash_overwrite = "SCTK_BINARY_PATH"
+
+    ken_lm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm.git").out_repository
+    ken_lm_repo.hash_overwrite = "KENLM"
+    ken_lm_binaries = CompileKenLMJob(repository=ken_lm_repo).out_binaries
+
+    subword_nmt_repo = get_returnn_subword_nmt(commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf")
+    subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"
+    return {name: value for name, value in locals().items() if name in _DEFAULT_NAMES}
+
+
+_DEFAULT_NAMES = {'sctk_binary_path', 'rasr_root', 'minireturnn_root', 'returnn_python_exe', 'subword_nmt_repo', 'rasr_make_job', 'ken_lm_binaries', 'returnn_root', 'rasr_binary_path', 'ken_lm_repo'}
+
+
+def __getattr__(name):
+    if name not in _DEFAULT_NAMES:
+        raise AttributeError(name)
+    globals().update(_default_tools())
+    return globals()[name]
+
+
 
 
 # Isolated prototype build: do not overwrite the hashes of the production paths.
@@ -74,7 +104,7 @@ def get_oov_prototype_rasr_binary_path() -> tk.Path:
         patches=[separator_patch],
     )
     source.add_alias("tools/rasr-oov-prototype/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -96,7 +126,7 @@ def get_oov_length_rasr_binary_path() -> tk.Path:
         patches=[Path(__file__).with_name("rasr_oov_separator.patch").read_text()],
     )
     source.add_alias("tools/rasr-oov-101ed636/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -117,7 +147,7 @@ def get_oov_upfront_rasr_binary_path() -> tk.Path:
         patches=[Path(__file__).with_name("rasr_oov_separator.patch").read_text()],
     )
     source.add_alias("tools/rasr-oov-3ed6d27b/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -139,7 +169,7 @@ def get_oov_lookahead_rasr_binary_path() -> tk.Path:
         patches=[Path(__file__).with_name("rasr_oov_separator.patch").read_text()],
     )
     source.add_alias("tools/rasr-oov-6e07a2e5/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -158,7 +188,7 @@ def get_llm_search_rasr_binary_path() -> tk.Path:
         checkout_folder_name="rasr",
     )
     source.add_alias("tools/rasr-llm-9804f5aa/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -177,7 +207,7 @@ def get_llm_rnnt_search_rasr_binary_path() -> tk.Path:
         checkout_folder_name="rasr",
     )
     source.add_alias("tools/rasr-llm-rnnt-d000386c/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -199,7 +229,7 @@ def get_nbest_fixed_rasr_binary_path() -> tk.Path:
         patches=[Path(__file__).with_name("rasr_oov_separator.patch").read_text()],
     )
     source.add_alias("tools/rasr-nbest-ff206f90/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -221,7 +251,7 @@ def get_oov_multitoken_rasr_binary_path() -> tk.Path:
         patches=[Path(__file__).with_name("rasr_oov_separator.patch").read_text()],
     )
     source.add_alias("tools/rasr-oov-8c1ac793/source")
-    build = CMakeJob(
+    build = _cmake_job(
         source_folder=source.out_repository,
         cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
         num_processes=8,
@@ -241,13 +271,3 @@ def get_oov_multitoken_rasr_binary_path() -> tk.Path:
 #     "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard",
 #     hash_overwrite="RASR_BINARY_PATH",
 # )
-
-sctk_binary_path = compile_sctk(branch="v2.4.12")
-sctk_binary_path.hash_overwrite = "SCTK_BINARY_PATH"
-
-ken_lm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm.git").out_repository
-ken_lm_repo.hash_overwrite = "KENLM"
-ken_lm_binaries = CompileKenLMJob(repository=ken_lm_repo).out_binaries
-
-subword_nmt_repo = get_returnn_subword_nmt(commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf")
-subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"

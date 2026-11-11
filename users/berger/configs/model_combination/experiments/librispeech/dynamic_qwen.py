@@ -1,5 +1,7 @@
 """Small dev-only lexicon-free Qwen prototype, separate from word-LM trees."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -36,8 +38,8 @@ def run():
 
     prefix = "qwen-dynamic-9804f5aa/dev-other"
     version = hashlib.sha256(
-        Path(dynamic_llm.__file__).read_bytes()
-        + Path(dynamic_llm_jobs.__file__).read_bytes()
+        source_bytes(Path(dynamic_llm.__file__))
+        + source_bytes(Path(dynamic_llm_jobs.__file__))
         + source_version().encode()
         + scoring_version().encode()
     ).hexdigest()
@@ -129,7 +131,7 @@ def run_rescoring_transfer():
     controls = run()
     control = controls["lm0.3_wordpen0_beam16_pre64_cases"]
     original = control.hypotheses.creator
-    version = hashlib.sha256(Path(dynamic_qwen_tuned.__file__).read_bytes() + original.code_version.encode()).hexdigest()
+    version = hashlib.sha256(source_bytes(Path(dynamic_qwen_tuned.__file__)) + original.code_version.encode()).hexdigest()
     prefix = "qwen-dynamic-transfer/dev-other"
     tokenization = dynamic_qwen_tuned.WordwiseQwenTokenizationJob(
         original.out_hypotheses, original.qwen_repo, code_version=version,

@@ -1,0 +1,250 @@
+{
+  "reason": "Reviewed 2026-11-11: transformers version acceptance; unchanged default RNNT behavior plus opt-in CTC/resume support; worker scheduling changes. Preserve public 5.16.1 identities only for these exact reviewed source bytes. Opt-in resume gets its own hashed flag/helper version. New APIs/jobs hash actual source and environment; further edits invalidate normally.",
+  "files": {
+    "model_pipelines/common/hf_benchmark.py": {
+      "original_sha256": "a2e96c25c0ca2172c98947c3aefe318ae65885d54b55b525aaebc069f2398d53",
+      "compatible_sha256": "dbf3669748f4a416c626eee5b53e8f602ca729abfbee768310cad99b28f95d9d",
+      "reverse_edits": [
+        {
+          "start": 14,
+          "end": 26,
+          "original": ""
+        }
+      ]
+    },
+    "model_pipelines/common/dynamic_llm_jobs.py": {
+      "original_sha256": "11100507217a4a2ac33605b940b2e6317f8e0708cca1e947e0665116102a0b94",
+      "compatible_sha256": "44445c680bcec4e12150ada8de5372b67cabff8c9403eba3153cb7eb7bbdb2a1",
+      "reverse_edits": [
+        {
+          "start": 17,
+          "end": 18,
+          "original": "        yield Task(\"run\", mini_task=True)\n"
+        },
+        {
+          "start": 266,
+          "end": 266,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 267,
+          "end": 274,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result, collapse_ctc\n"
+        },
+        {
+          "start": 279,
+          "end": 280,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/dynamic_qwen_tuned.py": {
+      "original_sha256": "911ee054d209c2fbdbc8d3c87e74eecb43863ee54049f895d1460f0cba6030e2",
+      "compatible_sha256": "1349e1f15ac6203f0cb911dc55e3baeae19c34cc181c7b5366c89052bb7aef9b",
+      "reverse_edits": [
+        {
+          "start": 98,
+          "end": 98,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 99,
+          "end": 100,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result\n"
+        },
+        {
+          "start": 104,
+          "end": 105,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/nbest_rescoring.py": {
+      "original_sha256": "4fc889a0e6dab0b1d9be08680241bde7fe884e100017e9ba0bbe006a2a334d28",
+      "compatible_sha256": "d5600a41dac1500f23edee347ba0c1a31b150de52e09c6be785dec3d253cf81a",
+      "reverse_edits": [
+        {
+          "start": 67,
+          "end": 67,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 68,
+          "end": 69,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result\n"
+        },
+        {
+          "start": 70,
+          "end": 71,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use the benchmark environment: transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/qwen_benchmark.py": {
+      "original_sha256": "e223af1e0d2813a33b247cdce61f8e67579336dffb12f7c50cc6a2aa37ee7be2",
+      "compatible_sha256": "f1789048ad19258e86bf01324d846b091a50fc6f9d7f9385ae742ef84542ff80",
+      "reverse_edits": [
+        {
+          "start": 18,
+          "end": 18,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 19,
+          "end": 20,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result\n"
+        },
+        {
+          "start": 21,
+          "end": 22,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/qwen_speech.py": {
+      "original_sha256": "c5cafcfd0cec939ec1d2198b97635dcf1bfe33fb7b9dc2ff7eb27d78fee8d3c5",
+      "compatible_sha256": "d544c67663a0ebe89a8a4a5a4f6e4ad8c7509dbf57dd26914052ab83486ed163",
+      "reverse_edits": [
+        {
+          "start": 192,
+          "end": 192,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 193,
+          "end": 194,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result\n"
+        },
+        {
+          "start": 195,
+          "end": 196,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/rnnt_llm.py": {
+      "original_sha256": "29d5694d4d02dd357cd362f6f5c3ecfb886cfe328dd3d257ff9f338286b5078e",
+      "compatible_sha256": "49c6873afba6426558bad3e245a2eba9687c829d742b8bc97926812389b715b0",
+      "reverse_edits": [
+        {
+          "start": 217,
+          "end": 223,
+          "original": ""
+        },
+        {
+          "start": 236,
+          "end": 237,
+          "original": ""
+        },
+        {
+          "start": 240,
+          "end": 241,
+          "original": ""
+        },
+        {
+          "start": 250,
+          "end": 261,
+          "original": ""
+        },
+        {
+          "start": 262,
+          "end": 263,
+          "original": "        yield Task(\"run\", rqmt=self.rqmt)\n"
+        },
+        {
+          "start": 266,
+          "end": 266,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 267,
+          "end": 274,
+          "original": "        from .hf_benchmark import HfBenchmarkAdapter, audio_array, traceback_result, register_hf_scorer\n"
+        },
+        {
+          "start": 280,
+          "end": 281,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        },
+        {
+          "start": 290,
+          "end": 291,
+          "original": "        adapter = HfBenchmarkAdapter(self.repo.get_path(), \"rnnt\", \"float32\")\n"
+        },
+        {
+          "start": 311,
+          "end": 314,
+          "original": "            register_rnnt_llm_scorer(librasr, \"qwen-speech\", lambda config: backend)\n"
+        },
+        {
+          "start": 324,
+          "end": 338,
+          "original": "        elapsed = audio_seconds = 0\n"
+        },
+        {
+          "start": 339,
+          "end": 345,
+          "original": "        with open(self.out_hypotheses.get_path(), \"w\") as dst:\n            for i, sample in enumerate(dataset):\n"
+        },
+        {
+          "start": 350,
+          "end": 351,
+          "original": "                    if i == 0:\n"
+        },
+        {
+          "start": 361,
+          "end": 363,
+          "original": ""
+        }
+      ]
+    },
+    "model_pipelines/common/speech_qwen_round.py": {
+      "original_sha256": "8f76a1af09ef9cff6ab619c675c2757b3773821fe6a981beb95748b0681aac31",
+      "compatible_sha256": "048755384dfd552facba8188ef6bb0266776db8f7c86cd6e9b021e58fc9cc37f",
+      "reverse_edits": [
+        {
+          "start": 162,
+          "end": 162,
+          "original": "        import transformers\n"
+        },
+        {
+          "start": 163,
+          "end": 164,
+          "original": "        from .hf_benchmark import audio_array\n"
+        },
+        {
+          "start": 165,
+          "end": 166,
+          "original": "        if transformers.__version__ != \"5.16.1\":\n            raise RuntimeError(\"Use benchmark transformers==5.16.1\")\n"
+        }
+      ]
+    },
+    "model_pipelines/common/benchmark_scoring.py": {
+      "original_sha256": "93fd523a1529ef78c98c3c2834a342f0811253c3e73e5cd1be463997aa141bce",
+      "compatible_sha256": "35fb116efdf45a7b3167554baea48d992cd215a810a5d39022159c40d98257a5",
+      "reverse_edits": [
+        {
+          "start": 56,
+          "end": 57,
+          "original": "        yield Task(\"run\", mini_task=True)\n"
+        },
+        {
+          "start": 98,
+          "end": 99,
+          "original": "        yield Task(\"run\", mini_task=True)\n"
+        }
+      ]
+    },
+    "data/huggingface.py": {
+      "original_sha256": "2b13d396be7ae6aaf165ebc314f121a02a198b78692720b524a517be8490a589",
+      "compatible_sha256": "2a79314bcb1e3379435227dbf17c7e7b8dbde1a3bc0d163755cc4596d9793c5a",
+      "reverse_edits": [
+        {
+          "start": 307,
+          "end": 308,
+          "original": "        yield Task(\"run\", mini_task=True)\n"
+        }
+      ]
+    }
+  }
+}

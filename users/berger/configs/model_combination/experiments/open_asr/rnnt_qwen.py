@@ -1,5 +1,7 @@
 """Parakeet RNN-T + text/Speech-Qwen, without a pronunciation lexicon."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -110,7 +112,7 @@ def run(*, data=None, speech_baselines=None, tuning_only=True, evaluation_only=F
                     parent.out_references,
                     parent.out_manifest,
                     _get_dev_short_segments(),
-                    code_version=hashlib.sha256(Path(benchmark_subset.__file__).read_bytes()).hexdigest(),
+                    code_version=hashlib.sha256(source_bytes(Path(benchmark_subset.__file__))).hexdigest(),
                 )
                 short.add_alias("dev.short")
             data = {"loquacious-dev.short": short}
@@ -130,9 +132,9 @@ def run(*, data=None, speech_baselines=None, tuning_only=True, evaluation_only=F
     if speech_only:
         prefix += f"-speech-{speech_size}"
     version = hashlib.sha256(
-        Path(rnnt_llm.__file__).read_bytes()
-        + Path(qwen_speech.__file__).read_bytes()
-        + Path(dynamic_qwen_tuned.__file__).read_bytes()
+        source_bytes(Path(rnnt_llm.__file__))
+        + source_bytes(Path(qwen_speech.__file__))
+        + source_bytes(Path(dynamic_qwen_tuned.__file__))
     ).hexdigest()
     # Reviewed migration: runtime unchanged; adding conditions must not restart
     # existing recognitions, inventory or gate. Config files hash pruning values.
@@ -147,7 +149,7 @@ def run(*, data=None, speech_baselines=None, tuning_only=True, evaluation_only=F
     speech = DownloadHuggingFaceRepoJob(speech_id, revision=speech_revision).out_repo_dir
     if speech_baselines is None:
         # Register standalone Speech-Qwen controls only, not the Granite/full suite.
-        native_version = hashlib.sha256(Path(qwen_speech.__file__).read_bytes()).hexdigest()
+        native_version = hashlib.sha256(source_bytes(Path(qwen_speech.__file__))).hexdigest()
         if native_version in {
             "644de60ac0ca5038bdb1c5c7330a5d9bf3056e15b42c7ea006684c42f2a584e7",
             "c5cafcfd0cec939ec1d2198b97635dcf1bfe33fb7b9dc2ff7eb27d78fee8d3c5",

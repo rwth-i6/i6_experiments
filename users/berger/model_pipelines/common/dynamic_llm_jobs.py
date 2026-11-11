@@ -15,7 +15,7 @@ class GraniteRawPiecesJob(Job):
         self.out_report = self.output_path("inventory.json")
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=dict(cpu=1, mem=4, time=2))
 
     def run(self):
         from transformers import AutoConfig, AutoTokenizer

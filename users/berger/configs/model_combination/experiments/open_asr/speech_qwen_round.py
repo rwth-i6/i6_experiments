@@ -1,5 +1,7 @@
 """Development-only Speech-Qwen balance, prior, rescoring and pruning batch."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -142,7 +144,7 @@ def run_rescoring(data=None):
     data = development(data)
     speech, rnnt = bases(data)
     granite = qwen.run(data=data, two_pass=True)
-    version = hashlib.sha256(b"".join(Path(m.__file__).read_bytes()
+    version = hashlib.sha256(b"".join(source_bytes(Path(m.__file__))
                                      for m in (runtime, speech_runtime, rnnt_llm, hf_benchmark))).hexdigest()
     generation, scoring, selections, oracles = [], [], [], []
     for name, prepared in data.items():

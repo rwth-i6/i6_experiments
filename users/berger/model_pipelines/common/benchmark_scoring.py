@@ -54,7 +54,7 @@ class ScoreBenchmarkJob(Job):
         self.out_wer = self.output_var("wer")
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=dict(cpu=1, mem=4, time=2))
 
     def run(self):
         from kaldialign import edit_distance
@@ -96,7 +96,7 @@ class CompareBenchmarkHypothesesJob(Job):
         self.out_differences = self.output_path("differences.jsonl")
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=dict(cpu=1, mem=4, time=2))
 
     def run(self):
         a, b = read_jsonl(self.native.get_path()), read_jsonl(self.rasr.get_path())

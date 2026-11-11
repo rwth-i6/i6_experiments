@@ -97,17 +97,27 @@ class CtcLlmGateJob(Job):
 class CtcQwenRecogJob(RnntQwenRecogJob):
     """Granite CTC with zero, text or speech LLM; Granite's own surface casing is kept."""
 
+    __sis_hash_exclude__ = {"resume": False, "transformers_version": None}
     family = "ctc"
     speech_case_variants = ("original",)
 
-    def __init__(self, *, prior=None, prior_scale=0.0, **kwargs):
+    def __init__(self, *, prior=None, prior_scale=0.0, resume=False, transformers_version=None, **kwargs):
+        self.transformers_version = transformers_version
         self.prior, self.prior_scale = prior, prior_scale
-        super().__init__(**kwargs)
+        super().__init__(resume=resume, **kwargs)
         self.out_correction_validation = self.output_path("correction_validation.json")
 
     def run(self):
         from .pretrained_correction import _save_validation, corrected_adapter
 
+        import transformers
+        if self.transformers_version is not None and transformers.__version__ != self.transformers_version:
+            raise RuntimeError(f"API parity requires transformers=={self.transformers_version}, found {transformers.__version__}")
         with corrected_adapter(self.prior, self.prior_scale) as adapters:
             super().run()
         _save_validation(self.out_correction_validation, adapters)
+        with open(self.out_correction_validation.get_path()) as src:
+            validation = json.load(src)
+        validation["transformers_version"] = transformers.__version__
+        with open(self.out_correction_validation.get_path(), "w") as dst:
+            json.dump(validation, dst)

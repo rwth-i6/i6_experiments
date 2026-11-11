@@ -1,5 +1,7 @@
 """Frozen LibriSpeech settings for Granite + Qwen across public corpora."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import hashlib
 from pathlib import Path
 
@@ -66,7 +68,7 @@ def run(*, dataset_names=None, loquacious=True, two_pass=True, data=None,
     # reading don't invalidate all finished Loquacious/Open-ASR recognitions.
     preparation_source = inspect.getsource(loquacious_benchmark.PrepareLoquaciousBenchmarkJob).encode()
     version = hashlib.sha256(
-        b"\0".join(Path(m.__file__).read_bytes() for m in (dynamic_qwen_tuned, qwen_benchmark, qwen_full_dev))
+        b"\0".join(source_bytes(Path(m.__file__)) for m in (dynamic_qwen_tuned, qwen_benchmark, qwen_full_dev))
         + b"\0"
         + preparation_source
         + source_version().encode()
@@ -78,8 +80,8 @@ def run(*, dataset_names=None, loquacious=True, two_pass=True, data=None,
     # Exactly the original raw-piece and numerical gate version, so they reuse
     # finished LibriSpeech jobs instead of downloading/validating again.
     raw_version = hashlib.sha256(
-        Path(dynamic_llm.__file__).read_bytes()
-        + Path(dynamic_llm_jobs.__file__).read_bytes()
+        source_bytes(Path(dynamic_llm.__file__))
+        + source_bytes(Path(dynamic_llm_jobs.__file__))
         + source_version().encode()
         + scoring_version().encode()
     ).hexdigest()
@@ -267,7 +269,7 @@ def run(*, dataset_names=None, loquacious=True, two_pass=True, data=None,
             if tuning:
                 from ...model_pipelines.common import qwen_nbest_selection
 
-                selection_version = hashlib.sha256(Path(qwen_nbest_selection.__file__).read_bytes()).hexdigest()
+                selection_version = hashlib.sha256(source_bytes(Path(qwen_nbest_selection.__file__))).hexdigest()
                 for scale in (0.1, 0.5):
                     selection = qwen_nbest_selection.SelectQwenScaleJob(
                         lm.out_scores, scale, code_version=selection_version

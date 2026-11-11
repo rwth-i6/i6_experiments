@@ -1,5 +1,7 @@
 """Development-only dynamic word fusion for our continuation-marked BPE models."""
 
+from i6_experiments.users.berger.configs.model_combination.bootstrap import source_bytes
+
 import copy
 import hashlib
 from dataclasses import replace
@@ -159,7 +161,7 @@ def run(*, models=None, artifacts=None, include_wide_diagnostic=False):
 
     version = hashlib.sha256(
         b"\0".join(
-            Path(m.__file__).read_bytes() for m in (wordwise_transformer, dynamic_llm, dynamic_qwen_tuned, rnnt_llm)
+            source_bytes(Path(m.__file__)) for m in (wordwise_transformer, dynamic_llm, dynamic_qwen_tuned, rnnt_llm)
         )
     ).hexdigest()
     binary = tools.get_llm_rnnt_search_rasr_binary_path()  # Also contains the new CTC/RNA API and @@ assembler.
@@ -231,7 +233,7 @@ def run(*, models=None, artifacts=None, include_wide_diagnostic=False):
                 serializers.serializer_objects.append(ExplicitHash(version))
                 if unknown_penalty:
                     serializers.serializer_objects.append(
-                        ExplicitHash(hashlib.sha256(Path(wordwise_unknown.__file__).read_bytes()).hexdigest())
+                        ExplicitHash(hashlib.sha256(source_bytes(Path(wordwise_unknown.__file__))).hexdigest())
                     )
                 hook = None
                 if kind is not None:

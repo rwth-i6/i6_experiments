@@ -1,6 +1,8 @@
 # AppTek model-combination experiments: company-side handoff
 
-Recorded 2026-11-04; updated 2026-11-11 after the public-data review and repository split.
+Recorded 2026-11-04; updated 2026-11-11 after the public-data review, repository split and AppTek feedback.
+Read [the feedback follow-up](APPTEK_FEEDBACK_20261111.md) before porting: it includes
+the incompatible scorer APIs, parity-run status and the exact frozen assets.
 This is a setup brief for a separate company-side checkout. No company jobs have
 been created or submitted from the public setup. Preparation can start while the
 last public SPGISpeech jobs are running; switching the public live checkout still
@@ -70,13 +72,13 @@ Rebuild RASR against the company Python/CUDA/ONNX environment.
 
 | Model | Hugging Face repository | Recorded revision |
 | --- | --- | --- |
-| Granite CTC | `ibm-granite/granite-speech-5.0-470m-turboctc-nc` | `1ea89b7` |
+| Granite CTC | `ibm-granite/granite-speech-5.0-470m-turboctc-nc` | `1ea89b77a944f4a5ea26e5fcf36273e008594436` |
 | Parakeet RNN-T | `nvidia/parakeet-rnnt-1.1b` | `2acc4c61eede2f52ddefe74935de1930a9064d4a` |
 | Speech-Qwen 0.6B | `Qwen/Qwen3-ASR-0.6B-hf` | `7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c` |
 | Speech-Qwen 1.7B | `Qwen/Qwen3-ASR-1.7B-hf` | `bcd2b5b7f32b480ab5790554cfa8347f246a14f3` |
 
-Granite's original recorded revision is short; resolve and record the full
-commit when materializing the company checkpoint. Speech-Qwen here means the
+Granite's original download-job argument remains `1ea89b7` to preserve public job IDs;
+the fully resolved commit is recorded above. Speech-Qwen here means the
 **audio-conditioned ASR checkpoint**, not text-only Qwen3 Base.
 
 ### RASR implementations used by the selected public jobs
@@ -87,7 +89,10 @@ commit when materializing the company checkpoint. Speech-Qwen here means the
 | Parakeet dynamic one-pass and its n-best recipe | `d000386c08a9b9213238e3cafdeb4291dc0b1775` |
 | Granite tree n-best generation with score-accounting fixes | `ff206f90c64fa5c44fa1acb7059f23722bfefc8c` |
 
-These are distinct historical implementations, not interchangeable builds.
+These have incompatible Python scorer methods and config keys, not merely
+different builds. `CtcQwenRecogJob` supports the d000386c request-based API; the
+old Granite jobs do not. The new public parity run is still pending; do not
+assume the AppTek/new-API results reproduce the old-API public condition.
 Run the corresponding topology, multi-token/casing and one-best/n-best parity
 gates against the **same binary** used for decoding. A newer unified branch can
 be used only after these checks and a public-data smoke comparison. The build
@@ -175,7 +180,14 @@ continuation NLLs with EOS and retain the recorded first-pass costs; do not
 average by token count or invent missing AM scores. Check scaled n-best/one-best
 score parity before rescoring.
 
-For Granite prior correction, explicitly choose either the frozen public prior
+The frozen public constructor parameters and complete decoder configs are in
+[frozen_public_conditions.json](frozen_public_conditions.json). The selected
+Granite AM-only control is an open fallback tree, not generic lexicon-free search;
+see the feedback follow-up.
+
+For Granite prior correction, the exact public prior is now committed at
+`users/berger/data/assets/granite_ctc/librispeech_train_clean_100_prior.json`.
+Explicitly choose either this frozen public prior
 as a transfer condition or a new prior estimated from separate company training
 (or designated calibration) audio. Do not estimate it from untouched evaluation
 data or silently substitute a company prior while calling it the same condition.

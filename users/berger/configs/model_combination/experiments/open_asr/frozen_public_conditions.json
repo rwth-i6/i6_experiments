@@ -1,0 +1,1693 @@
+{
+  "schema": 1,
+  "protocol_sha256": "f4212424889ee5d390df7a87d917b77b65d35c1a15e7c4920c3599c3c1769a56",
+  "note": "Frozen selected public stages, not a company replay config. Public paths are provenance only. Rebuild dependencies/configs with local paths. Both dataset-specific stages are stored so prior differences remain explicit.",
+  "models": {
+    "ibm-granite/granite-speech-5.0-470m-turboctc-nc": {
+      "revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436",
+      "recorded_revision": "1ea89b7"
+    },
+    "Qwen/Qwen3-ASR-0.6B-hf": {
+      "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
+      "recorded_revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+    },
+    "Qwen/Qwen3-ASR-1.7B-hf": {
+      "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
+      "recorded_revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+    },
+    "nvidia/parakeet-rnnt-1.1b": {
+      "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a",
+      "recorded_revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+    }
+  },
+  "conditions": {
+    "Granite CTC | None | standalone": {
+      "family": "Granite CTC | None | standalone",
+      "group": "qwen-granite",
+      "condition": "first-pass-librispeech-lexicon",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.630658636098698,
+          "rtf": 0.18275488484213695,
+          "stages": [
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/first_pass.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.BJVrPgUX1mJT/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/generation.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.705315561265457,
+          "rtf": 0.2023163926464718,
+          "stages": [
+            {
+              "job_type": "LoquaciousSubsetJob",
+              "parameters": {
+                "hypotheses": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.vqSoWuCixmCv/output/first_pass.jsonl",
+                "manifest": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/loquacious_benchmark/PrepareLoquaciousBenchmarkJob.EoybMW7B7aeS/output/manifest.json",
+                "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/loquacious_benchmark/PrepareLoquaciousBenchmarkJob.EoybMW7B7aeS/output/references.jsonl",
+                "segments": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/text/processing/HeadJob.mQWY4xL8B5a5/output/out.gz",
+                "subset": "short"
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/loquacious_benchmark/PrepareLoquaciousBenchmarkJob.EoybMW7B7aeS/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/loquacious_benchmark/LoquaciousSubsetJob.YHTMOaj5jNkM/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/data/loquacious_benchmark/LoquaciousSubsetJob.YHTMOaj5jNkM/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.ncVTvGyDcxQA/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.2YrfJvcj8xai/output/generation.json"
+          }
+        }
+      }
+    },
+    "Granite CTC | Speech Qwen 0.6B | one-pass": {
+      "family": "Granite CTC | Speech Qwen 0.6B | one-pass",
+      "group": "qwen-speech-0.6b",
+      "condition": "granite-fusion-scale-0.3-prior0.1",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.536098101327322,
+          "rtf": 0.2354973282728304,
+          "stages": [
+            {
+              "job_type": "CorrectedGraniteSpeechJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "code_version": "138a664c1225335a508ffb58ff93ec45b01d4f9a34dccdcc3ceafdf6154246ad",
+                "granite_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.2eBmZFPWCZ5g/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.vL432yicJcj1/output/install",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                "baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.2fssQVFfrOz0/output/summary.json",
+                "max_new_tokens": 500,
+                "batch_size": 8,
+                "prior": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.yUVjbst8kko5/output/prior.json",
+                "prior_scale": 0.1
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                },
+                "granite_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                  "sha256": "b38fdcb65155cde6385e40afb859c33f582e155121bbaa3b5bbc675124241103",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 0\ncollapse-repeated-labels = yes\nllm-scale                = 0.3\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = on\nscore-threshold          = 6.0\ntype                     = llm-timesync-beam-search\nword-penalty             = 0.0\nword-start-marker        = \u2581\n\n[lib-rasr.search-algorithm.llm]\nformatting      = original\nouter-lm-scale  = 0.3\nterminal-period = no\ntoken-reward    = 0.5\ntype            = qwen-speech",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt"
+                  ]
+                },
+                "prior": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.yUVjbst8kko5/output/prior.json",
+                  "sha256": "c346f23a5b13607c08c746bf58bb8f514a8fa3d45c349c38adad0f4203a138e7"
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                  "sha256": "53c35a6ef54ebfc2af3f2812778deab6c7f87495389749eebc021a9b14a42715"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.1ghl9MSDhdXE/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.kj0tBOlgwJEa/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.1ghl9MSDhdXE/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.379518072289157,
+          "rtf": 0.23388793295381416,
+          "stages": [
+            {
+              "job_type": "CorrectedGraniteSpeechJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "code_version": "138a664c1225335a508ffb58ff93ec45b01d4f9a34dccdcc3ceafdf6154246ad",
+                "granite_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.2eBmZFPWCZ5g/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.vL432yicJcj1/output/install",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                "baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.W46TeWcUuZJ7/output/summary.json",
+                "max_new_tokens": 500,
+                "batch_size": 8,
+                "prior": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.eqJgctvqpzTD/output/prior.json",
+                "prior_scale": 0.1
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                },
+                "granite_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                  "sha256": "b38fdcb65155cde6385e40afb859c33f582e155121bbaa3b5bbc675124241103",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 0\ncollapse-repeated-labels = yes\nllm-scale                = 0.3\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = on\nscore-threshold          = 6.0\ntype                     = llm-timesync-beam-search\nword-penalty             = 0.0\nword-start-marker        = \u2581\n\n[lib-rasr.search-algorithm.llm]\nformatting      = original\nouter-lm-scale  = 0.3\nterminal-period = no\ntoken-reward    = 0.5\ntype            = qwen-speech",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt"
+                  ]
+                },
+                "prior": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.eqJgctvqpzTD/output/prior.json",
+                  "sha256": "51eba67ddfb254dd47c1b2d0cb8daf7fb46950f37a9dfec558049016d3d1b043"
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                  "sha256": "53c35a6ef54ebfc2af3f2812778deab6c7f87495389749eebc021a9b14a42715"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.oBgZG46A8Osm/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.sDs1xhX9IOBh/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.oBgZG46A8Osm/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Granite CTC | Speech Qwen 0.6B | two-pass": {
+      "family": "Granite CTC | Speech Qwen 0.6B | two-pass",
+      "group": "qwen-speech-0.6b",
+      "condition": "two-pass-speech-n50-scale-0.3-word-penalty0-initial-capital-period",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.553340328786289,
+          "rtf": 0.30311564348179676,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.cjOBVG22PMBC/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/generation.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.cjOBVG22PMBC/output/runtime.json",
+                "word_penalty": 0.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.Wy2vyHZEOI6a/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.7kyWvKxN9Chz/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.Wy2vyHZEOI6a/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.392780421209018,
+          "rtf": 0.30971055596063896,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.5h3xRWN67AnF/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.2YrfJvcj8xai/output/generation.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.5h3xRWN67AnF/output/runtime.json",
+                "word_penalty": 0.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.2YrfJvcj8xai/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.FaS2GjIciyxE/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.N5L6VG9oBQq4/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.FaS2GjIciyxE/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Granite CTC | Speech Qwen 1.7B | one-pass": {
+      "family": "Granite CTC | Speech Qwen 1.7B | one-pass",
+      "group": "qwen-speech-1.7b",
+      "condition": "granite-fusion-scale-0.3-prior0.1",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.465993004275165,
+          "rtf": 0.20691229982492412,
+          "stages": [
+            {
+              "job_type": "CorrectedGraniteSpeechJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "code_version": "138a664c1225335a508ffb58ff93ec45b01d4f9a34dccdcc3ceafdf6154246ad",
+                "granite_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.2eBmZFPWCZ5g/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.vL432yicJcj1/output/install",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                "baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.GJXEfYwMwVfc/output/summary.json",
+                "max_new_tokens": 500,
+                "batch_size": 8,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                "prior": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.lN9V549a2dvh/output/prior.json",
+                "prior_scale": 0.1
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                },
+                "granite_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                  "sha256": "b38fdcb65155cde6385e40afb859c33f582e155121bbaa3b5bbc675124241103",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 0\ncollapse-repeated-labels = yes\nllm-scale                = 0.3\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = on\nscore-threshold          = 6.0\ntype                     = llm-timesync-beam-search\nword-penalty             = 0.0\nword-start-marker        = \u2581\n\n[lib-rasr.search-algorithm.llm]\nformatting      = original\nouter-lm-scale  = 0.3\nterminal-period = no\ntoken-reward    = 0.5\ntype            = qwen-speech",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt"
+                  ]
+                },
+                "prior": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.lN9V549a2dvh/output/prior.json",
+                  "sha256": "609e8736dadb48eb77977394e98cc14e03f28aaf3cb6ff5b434d4b77eb273c54"
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                  "sha256": "53c35a6ef54ebfc2af3f2812778deab6c7f87495389749eebc021a9b14a42715"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.ynnLDu6t1LOf/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.0hBTPpbqtswo/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.ynnLDu6t1LOf/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.239126069320053,
+          "rtf": 0.2050668526053841,
+          "stages": [
+            {
+              "job_type": "CorrectedGraniteSpeechJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "code_version": "138a664c1225335a508ffb58ff93ec45b01d4f9a34dccdcc3ceafdf6154246ad",
+                "granite_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.2eBmZFPWCZ5g/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.vL432yicJcj1/output/install",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                "baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.3mDVutfFuZzT/output/summary.json",
+                "max_new_tokens": 500,
+                "batch_size": 8,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                "prior": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.ewRiDCeV6PkK/output/prior.json",
+                "prior_scale": 0.1
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                },
+                "granite_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.xZf1SWkLLi24/output/rasr.config",
+                  "sha256": "b38fdcb65155cde6385e40afb859c33f582e155121bbaa3b5bbc675124241103",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 0\ncollapse-repeated-labels = yes\nllm-scale                = 0.3\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = on\nscore-threshold          = 6.0\ntype                     = llm-timesync-beam-search\nword-penalty             = 0.0\nword-start-marker        = \u2581\n\n[lib-rasr.search-algorithm.llm]\nformatting      = original\nouter-lm-scale  = 0.3\nterminal-period = no\ntoken-reward    = 0.5\ntype            = qwen-speech",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt"
+                  ]
+                },
+                "prior": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/EstimateGranitePriorJob.ewRiDCeV6PkK/output/prior.json",
+                  "sha256": "63220cc40fbd21783cf49110f5ba0cc6fddfed4d00111eb0b1726fec567e94d7"
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/dynamic_llm_jobs/GraniteRawPiecesJob.K7CrkVuNOD35/output/pieces.txt",
+                  "sha256": "53c35a6ef54ebfc2af3f2812778deab6c7f87495389749eebc021a9b14a42715"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.hizaUYiNBn02/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.W3Eb8I5dALRo/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/CorrectedGraniteSpeechJob.hizaUYiNBn02/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Granite CTC | Speech Qwen 1.7B | two-pass": {
+      "family": "Granite CTC | Speech Qwen 1.7B | two-pass",
+      "group": "qwen-speech-1.7b",
+      "condition": "two-pass-speech-n50-scale-0.5-word-penalty-1-initial-capital-period",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.491158524736699,
+          "rtf": 0.4765329617763665,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.jE8Xi8c6vqse/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/generation.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.5,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.jE8Xi8c6vqse/output/runtime.json",
+                "word_penalty": -1.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.W5UXEd4Xe22M/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.awczBmb51ZNI/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.ZNC8LZ2QovsW/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.awczBmb51ZNI/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.262538649961852,
+          "rtf": 0.46665905854671075,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.IoL3GMhjOm54/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.2YrfJvcj8xai/output/generation.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.5,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.IoL3GMhjOm54/output/runtime.json",
+                "word_penalty": -1.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/qwen_benchmark/CompactGraniteNbestJob.2YrfJvcj8xai/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "CompactGraniteNbestJob",
+              "parameters": {
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.i7SRQUlpT2ZK/output/install",
+                "code_version": "87613c4f00d5a027a149c91c9e8e6e7e13dc846d4b07356df0f045f2553777bf",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "n": 50,
+                "rasr_config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.pNFDC94zvRuh/output/repo"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "ibm-granite/granite-speech-5.0-470m-turboctc-nc",
+                  "revision": "1ea89b7",
+                  "resolved_revision": "1ea89b77a944f4a5ea26e5fcf36273e008594436"
+                }
+              },
+              "files": {
+                "rasr_config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.wjPsRl47Vm6B/output/rasr.config",
+                  "sha256": "77fdc6185799d7be368cc20b23e991e3c6b4bdc67b8c1bfc54413e0043dba79e",
+                  "public_text": "[lib-rasr]\nlexicon.file = /u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz\nlm.scale     = 0.0\n\n[lib-rasr.acoustic-model]\nstate-tying.type = monophone\n\n[lib-rasr.acoustic-model.allophones]\nadd-all          = yes\nadd-from-lexicon = no\n\n[lib-rasr.acoustic-model.hmm]\nacross-word-model   = yes\nearly-recombination = no\nstate-repetitions   = 1\nstates-per-phone    = 1\n\n[lib-rasr.acoustic-model.phonology]\nfuture-length  = 0\nhistory-length = 0\n\n[lib-rasr.acoustic-model.tdp]\nentry-m1.loop = infinity\nentry-m2.loop = infinity\nscale         = 1.0\n\n[lib-rasr.acoustic-model.tdp.*]\nexit    = 2.0\nforward = 0.0\nloop    = 3.0\nskip    = 3.0\n\n[lib-rasr.acoustic-model.tdp.silence]\nexit    = 6.0\nforward = 3.0\nloop    = 0.0\nskip    = infinity\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = no-op\n\n[lib-rasr.search-algorithm]\ncollapse-repeated-labels            = yes\nforce-blank-between-repeated-labels = yes\nlog-stepwise-statistics             = yes\nmax-beam-size                       = 256\nmax-word-end-beam-size              = 256\nrecombination-mode                  = on\nscore-threshold                     = 16\nsentence-end-fall-back              = no\ntree-builder-type                   = ctc\ntype                                = tree-timesync-beam-search\nunknown-piece-penalty               = 2\nunknown-word-fallback               = known-excluding\nunknown-word-penalty                = 1\nunknown-word-tokenization           = word-start-marked\nword-end-score-threshold            = 16",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/oov_prototype/ValidateOovPrototypeInputsJob.2FXafoeWvDgE/output/lexicon.xml.gz"
+                  ]
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.eymMBeq0yKm3/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.JFd7RO9rBiXi/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.eymMBeq0yKm3/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Parakeet RNN-T | None | standalone": {
+      "family": "Parakeet RNN-T | None | standalone",
+      "group": "qwen-parakeet-rnnt",
+      "condition": "zero-beam32",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.0364145113965373,
+          "rtf": 0.2330943985391745,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": null,
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.WD3fbhy44RWE/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "zero",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.WD3fbhy44RWE/output/rasr.config",
+                  "sha256": "6d433c39f8b65ebf339d960e3d60800e464e3416ae257b37ecb70956d62bf2c6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = sum\nscore-threshold          = 6.0\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.HoUYhPSasSLl/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.Kgn7SUHkJZcm/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.HoUYhPSasSLl/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 3.950513144945874,
+          "rtf": 0.23064949464329199,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": null,
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.WD3fbhy44RWE/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "zero",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.WD3fbhy44RWE/output/rasr.config",
+                  "sha256": "6d433c39f8b65ebf339d960e3d60800e464e3416ae257b37ecb70956d62bf2c6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 32\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6.0\nrecombination-mode       = sum\nscore-threshold          = 6.0\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.1zKZFItcDjBf/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.1Q4kXfATRTCs/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.1zKZFItcDjBf/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Parakeet RNN-T | Speech Qwen 0.6B | one-pass": {
+      "family": "Parakeet RNN-T | Speech Qwen 0.6B | one-pass",
+      "group": "qwen-parakeet-rnnt",
+      "condition": "speech-qwen-scale-0.2-beam8-pre32-thr3",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 1.966843527102404,
+          "rtf": 1.3737087329124313,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.jqZ0eWR3OtIg/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "speech",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.2fssQVFfrOz0/output/summary.json",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                },
+                "auxiliary_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.jqZ0eWR3OtIg/output/rasr.config",
+                  "sha256": "d08a5ca1565efb1f0e155338bb83fec3a22cfd58ee2a3042f0f46ff388de0111",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.2\nllm.type                 = qwen-speech\nlog-stepwise-statistics  = no\nmax-beam-size            = 8\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 32\npre-llm-score-threshold  = 3.0\nrecombination-mode       = sum\nscore-threshold          = 3.0\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.NpHbh28RlWgo/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.FD8jZesWpffw/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.NpHbh28RlWgo/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 3.912275064267352,
+          "rtf": 1.234120851087955,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.jqZ0eWR3OtIg/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "speech",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.W46TeWcUuZJ7/output/summary.json",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                },
+                "auxiliary_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.jqZ0eWR3OtIg/output/rasr.config",
+                  "sha256": "d08a5ca1565efb1f0e155338bb83fec3a22cfd58ee2a3042f0f46ff388de0111",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.2\nllm.type                 = qwen-speech\nlog-stepwise-statistics  = no\nmax-beam-size            = 8\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 32\npre-llm-score-threshold  = 3.0\nrecombination-mode       = sum\nscore-threshold          = 3.0\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.Fy1900EItjO0/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.YpT4otd1AO6g/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.Fy1900EItjO0/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Parakeet RNN-T | Speech Qwen 0.6B | two-pass": {
+      "family": "Parakeet RNN-T | Speech Qwen 0.6B | two-pass",
+      "group": "qwen-parakeet-rnnt",
+      "condition": "two-pass-speech-n50-scale-0.3-word-penalty0-initial-capital-period",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 1.9671111456673016,
+          "rtf": 0.43832824027308714,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.n7iz1wOmgtEU/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.csouizx2XpuP/output/runtime.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.n7iz1wOmgtEU/output/runtime.json",
+                "word_penalty": 0.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.csouizx2XpuP/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "RnntSpeechNbestJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "auxiliary_repo": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                "kind": "zero",
+                "code_version": "c0fa7181ea17d6bb5433c137cf17a3d18ed1b73186b5580e6946ad10d562e56b",
+                "speech_baseline": null,
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                "n": 50
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                  "sha256": "02075732fa6431a9493eb4a2f495119545b616167f7858b7ca4371fb3e1ba1b6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 64\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6\nrecombination-mode       = viterbi\nscore-threshold          = 6\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                  "sha256": "4563a0e90e8eac17db29d2d796cffcf3f511b2ce4625b711c5baf742d035cc80"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.PvfuBUAms5dY/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.VoIJROL4BQQM/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.PvfuBUAms5dY/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 3.9365334404498897,
+          "rtf": 0.45614030887960494,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.h4cTPHooDq1s/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.2ohXcZsnSrDZ/output/runtime.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.h4cTPHooDq1s/output/runtime.json",
+                "word_penalty": 0.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.2ohXcZsnSrDZ/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "RnntSpeechNbestJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "auxiliary_repo": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                "kind": "zero",
+                "code_version": "c0fa7181ea17d6bb5433c137cf17a3d18ed1b73186b5580e6946ad10d562e56b",
+                "speech_baseline": null,
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                "n": 50
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                  "sha256": "02075732fa6431a9493eb4a2f495119545b616167f7858b7ca4371fb3e1ba1b6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 64\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6\nrecombination-mode       = viterbi\nscore-threshold          = 6\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                  "sha256": "4563a0e90e8eac17db29d2d796cffcf3f511b2ce4625b711c5baf742d035cc80"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.z7NERHyfzVQa/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.Pca8By5bPBb1/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.z7NERHyfzVQa/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Parakeet RNN-T | Speech Qwen 1.7B | one-pass": {
+      "family": "Parakeet RNN-T | Speech Qwen 1.7B | one-pass",
+      "group": "qwen-parakeet-rnnt-speech-1.7b",
+      "condition": "speech-qwen-scale-0.25-word-penalty-0.5-beam8-pre32-thr3",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 1.8965081709189127,
+          "rtf": 1.2414455879640904,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.qveSbeJstbGE/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "speech",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.GJXEfYwMwVfc/output/summary.json",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                },
+                "auxiliary_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.qveSbeJstbGE/output/rasr.config",
+                  "sha256": "8fc82cbb1db3c6f7f3d931614a9d4ec0c95e01a7e328bc9d57123501af6548b5",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.25\nllm.type                 = qwen-speech\nlog-stepwise-statistics  = no\nmax-beam-size            = 8\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 32\npre-llm-score-threshold  = 3\nrecombination-mode       = sum\nscore-threshold          = 3\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = -0.5\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.ynb6wybqCN2o/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.zznFxlyTpwqi/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.ynb6wybqCN2o/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 3.7952569328701378,
+          "rtf": 1.1460927897043351,
+          "stages": [
+            {
+              "job_type": "RnntQwenRecogJob",
+              "parameters": {
+                "auxiliary_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "code_version": "901f31ee12b6a7b580182fd2cc988d20922c1cd895119c31aa4676c87d14bfa7",
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.qveSbeJstbGE/output/rasr.config",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                "kind": "speech",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "speech_baseline": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.3mDVutfFuZzT/output/summary.json",
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                },
+                "auxiliary_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.qveSbeJstbGE/output/rasr.config",
+                  "sha256": "8fc82cbb1db3c6f7f3d931614a9d4ec0c95e01a7e328bc9d57123501af6548b5",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.25\nllm.type                 = qwen-speech\nlog-stepwise-statistics  = no\nmax-beam-size            = 8\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 32\npre-llm-score-threshold  = 3\nrecombination-mode       = sum\nscore-threshold          = 3\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = -0.5\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntLlmGateJob.UtLaNAr6eOSV/output/validation.json",
+                  "sha256": "446c5b98dd46009c553e6da8ccdf293a8479a8cb7e96949c9235e43a6ce82b26"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.18Es6NqjR2in/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.Ms7gR94leabp/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntQwenRecogJob.18Es6NqjR2in/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Parakeet RNN-T | Speech Qwen 1.7B | two-pass": {
+      "family": "Parakeet RNN-T | Speech Qwen 1.7B | two-pass",
+      "group": "qwen-parakeet-rnnt-speech-1.7b",
+      "condition": "two-pass-speech-n50-scale-0.3-word-penalty-1-initial-capital-period",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 1.9351078298037692,
+          "rtf": 0.49259361103051663,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.1gvTAPeprczJ/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.csouizx2XpuP/output/runtime.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.1gvTAPeprczJ/output/runtime.json",
+                "word_penalty": -1.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.csouizx2XpuP/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "RnntSpeechNbestJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "auxiliary_repo": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                "kind": "zero",
+                "code_version": "c0fa7181ea17d6bb5433c137cf17a3d18ed1b73186b5580e6946ad10d562e56b",
+                "speech_baseline": null,
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                "n": 50
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                  "sha256": "02075732fa6431a9493eb4a2f495119545b616167f7858b7ca4371fb3e1ba1b6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 64\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6\nrecombination-mode       = viterbi\nscore-threshold          = 6\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                  "sha256": "4563a0e90e8eac17db29d2d796cffcf3f511b2ce4625b711c5baf742d035cc80"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.dh3380qyFUaD/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.bLAVcyxMDLvu/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.dh3380qyFUaD/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 3.8112449799196786,
+          "rtf": 0.5248658102138457,
+          "stages": [
+            {
+              "job_type": "SelectSpeechNbestJob",
+              "parameters": {
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.AmQyxejISG4h/output/speech_candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "generation_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.2ohXcZsnSrDZ/output/runtime.json",
+                "n": 50,
+                "policy": "initial-capital-period",
+                "scale": 0.3,
+                "scoring_runtime": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/ScoreSpeechNbestJob.AmQyxejISG4h/output/runtime.json",
+                "word_penalty": -1.0
+              },
+              "repositories": {},
+              "files": {}
+            },
+            {
+              "job_type": "ScoreSpeechNbestJob",
+              "parameters": {
+                "batch_size": 8,
+                "candidates": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestJob.2ohXcZsnSrDZ/output/candidates.jsonl",
+                "code_version": "b922ecac1f3511f1f0ff3f37fa0d720350ec0962299d365c5d66b321a7995401",
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "policies": [
+                  "original",
+                  "initial-capital",
+                  "initial-capital-period"
+                ],
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo"
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            },
+            {
+              "job_type": "RnntSpeechNbestJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.n6i90nNRIkEh/output/repo",
+                "auxiliary_repo": null,
+                "vocabulary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                "binary": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/tools/compile/CMakeJob.f37Fc6lWurlz/output/install",
+                "gate": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                "kind": "zero",
+                "code_version": "c0fa7181ea17d6bb5433c137cf17a3d18ed1b73186b5580e6946ad10d562e56b",
+                "speech_baseline": null,
+                "config": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                "n": 50
+              },
+              "repositories": {
+                "repo": {
+                  "allow_patterns": [
+                    "*.json",
+                    "*.safetensors",
+                    "*.txt",
+                    "*.model"
+                  ],
+                  "repo_id": "nvidia/parakeet-rnnt-1.1b",
+                  "revision": "2acc4c61eede2f52ddefe74935de1930a9064d4a"
+                }
+              },
+              "files": {
+                "config": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_core/rasr/config/WriteRasrConfigJob.vhUZHx9xWMRc/output/rasr.config",
+                  "sha256": "02075732fa6431a9493eb4a2f495119545b616167f7858b7ca4371fb3e1ba1b6",
+                  "public_text": "[lib-rasr]\nlexicon.file = vocab-text:/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt\n\n[lib-rasr.label-scorer]\nscale = 1.0\ntype  = hf-benchmark\n\n[lib-rasr.search-algorithm]\nblank-label-index        = 1024\ncollapse-repeated-labels = no\nlength-norm-scale        = 0.0\nllm-scale                = 0.0\nllm.type                 = qwen-dynamic-zero\nlog-stepwise-statistics  = no\nmax-beam-size            = 64\nmax-labels-per-timeframe = 10\npre-llm-max-beam-size    = 128\npre-llm-score-threshold  = 6\nrecombination-mode       = viterbi\nscore-threshold          = 6\ntype                     = llm-rnnt-timesync-beam-search\nword-penalty             = 0.0\nword-piece-convention    = word-start-marked\nword-piece-marker        = \u2581\nword-separator           =  ",
+                  "relocate_paths": [
+                    "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt"
+                  ]
+                },
+                "vocabulary": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/rnnt_llm/RnntRawPiecesJob.DONLqUsZLjlt/output/pieces.txt",
+                  "sha256": "7996cffb001bd5ad81271f43f149a44cc9c6e383f6b68b7cc524a805a329124e"
+                },
+                "gate": {
+                  "path": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/RnntSpeechNbestGateJob.FPkEbnBLN7Qu/output/validation.json",
+                  "sha256": "4563a0e90e8eac17db29d2d796cffcf3f511b2ce4625b711c5baf742d035cc80"
+                }
+              }
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.LbmwRbS2Duco/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.v57TBHQMKsB3/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/speech_qwen_round/SelectSpeechNbestJob.LbmwRbS2Duco/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Speech Qwen 0.6B | None | standalone": {
+      "family": "Speech Qwen 0.6B | None | standalone",
+      "group": "qwen-speech-0.6b",
+      "condition": "native-beam8-lp0",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 3.625401147525041,
+          "rtf": 0.11073589390760315,
+          "stages": [
+            {
+              "job_type": "SpeechQwenBeamJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "code_version": "4d3885087870366a3eff4c98e9a66ff47a6655cd408d8842323d498a470127a7",
+                "batch_size": 8,
+                "beam": 8,
+                "length_penalty": 0.0
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.r07FPkv4i4v4/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.UiH7JhZxYn0p/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.r07FPkv4i4v4/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 5.654881478505424,
+          "rtf": 0.09311024073579967,
+          "stages": [
+            {
+              "job_type": "SpeechQwenBeamJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.jrfDvShnl3Ju/output/repo",
+                "code_version": "4d3885087870366a3eff4c98e9a66ff47a6655cd408d8842323d498a470127a7",
+                "batch_size": 8,
+                "beam": 8,
+                "length_penalty": 0.0
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-0.6B-hf",
+                  "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c"
+                }
+              },
+              "files": {}
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.WUnO0THmo6lF/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.IRe894UF9lyE/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.WUnO0THmo6lF/output/runtime.json"
+          }
+        }
+      }
+    },
+    "Speech Qwen 1.7B | None | standalone": {
+      "family": "Speech Qwen 1.7B | None | standalone",
+      "group": "qwen-speech-1.7b",
+      "condition": "native-beam8-lp0",
+      "development": {
+        "librispeech-dev-other": {
+          "wer": 2.6640738940204183,
+          "rtf": 0.09380285195367283,
+          "stages": [
+            {
+              "job_type": "SpeechQwenBeamJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "code_version": "4d3885087870366a3eff4c98e9a66ff47a6655cd408d8842323d498a470127a7",
+                "batch_size": 8,
+                "beam": 8,
+                "length_penalty": 0.0
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/open_asr/PrepareOpenAsrDatasetJob.FJPxkiDyKWZE/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.LcVIufTyo8rK/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.H0QGqBmXXVfT/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.LcVIufTyo8rK/output/runtime.json"
+          }
+        },
+        "loquacious-dev.short": {
+          "wer": 4.623789820431447,
+          "rtf": 0.07905586211144293,
+          "stages": [
+            {
+              "job_type": "SpeechQwenBeamJob",
+              "parameters": {
+                "dataset": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/dataset",
+                "speech_repo": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/huggingface/DownloadHuggingFaceRepoJob.ofuTSduYiuxe/output/repo",
+                "code_version": "4d3885087870366a3eff4c98e9a66ff47a6655cd408d8842323d498a470127a7",
+                "batch_size": 8,
+                "beam": 8,
+                "length_penalty": 0.0
+              },
+              "repositories": {
+                "speech_repo": {
+                  "allow_patterns": null,
+                  "repo_id": "Qwen/Qwen3-ASR-1.7B-hf",
+                  "revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3"
+                }
+              },
+              "files": {}
+            }
+          ],
+          "public_artifacts": {
+            "references": "/u/berger/asr-exps/librispeech/20241106_seq2seq_template_setups/work/i6_experiments/example_setups/seq2seq_rasr_2025/data/benchmark_subset/PrepareBenchmarkSubsetJob.ZKptgHRT3VIt/output/references.jsonl",
+            "hypotheses": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.3YBB3qSHs0rO/output/hypotheses.jsonl",
+            "score": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/benchmark_scoring/ScoreBenchmarkJob.2r70Ey8JJSMX/output/summary.json",
+            "runtime": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/pretrained_correction/SpeechQwenBeamJob.3YBB3qSHs0rO/output/runtime.json"
+          }
+        }
+      }
+    }
+  }
+}
