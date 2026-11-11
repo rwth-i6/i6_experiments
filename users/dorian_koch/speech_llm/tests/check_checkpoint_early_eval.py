@@ -10,7 +10,11 @@ Drives the real ``CheckpointOutputs.path_available`` / ``checkpoint`` of ``RLFin
 real ``resolve_lora``; each acceptance paired with a rejection:
   * complete checkpoint, run still training -> runnable; weights without ``config.json`` -> waiting;
   * a run without checkpoint outputs -> the run-dir resolver, waiting while the run trains;
-  * the resolver on a run dir hashes as before (``checkpoint`` excluded from the hash when None).
+  * the resolver on a run dir hashes as before (``checkpoint`` excluded from the hash when None);
+  * the self-play evals' route (``track_persona._lora_overlay`` -> ``PpxCkpt.overlay``, 2026-11-11: it read ``run_dir``,
+    so every self-play benchmark of a checkpoint waited for the whole run) reads the step's own output for an RL run at
+    ``rl2-2026-11-06``+ and is runnable while training; an RL run at ``rl2-2026-11-05`` keeps the run-dir route (its
+    self-play evals finished that way, their hashes stay).
 
 Run from the setup root:
     CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_checkpoint_early_eval.py
@@ -136,12 +140,45 @@ def check_full_finetune(tmp):
     print("PASS  full finetune: the renamed model.safetensors completes the step")
 
 
+def check_selfplay_overlay(tmp):
+    """The self-play evals' checkpoint (``_selfplay`` -> ``_lora_overlay``) on an RL run that is still training."""
+    from speech_llm.full_duplex.sis_recipe.doriank import track_persona as tp
+
+    def rl(name, policy):
+        run = _RL.make(os.path.join(tmp, name), outputs=True)
+        run.policy = policy
+        run.max_steps = 1000
+        run.adapter = SimpleNamespace(overlay_kind="lora")
+        _ckpt(run._dir, 250, ["lora.safetensors", "config.json"])
+        return run
+
+    orig_rank = tp.ppx_overlay_rank
+    tp.ppx_overlay_rank = lambda run: 32  # the rank is read off the run's model spec; not what this checks
+    try:
+        new = rl("sp_new", "rl2-2026-11-06")
+        r = tp._lora_overlay(new, 250)[0].creator
+        assert r.checkpoint is not None and r.run_dir is None, "self-play on an rl2-11-06 run must read the step output"
+        assert r._sis_runnable(), "a written step must be runnable while the run trains"
+        assert r is _resolver(new, 250), "self-play and knowledge must share one resolver per step"
+        print("PASS  self-play evals: an rl2-11-06 run's step is read from its own output, runnable while training")
+
+        old = rl("sp_old", "rl2-2026-11-05")
+        r = tp._lora_overlay(old, 250)[0].creator
+        assert r.run_dir is not None and r.checkpoint is None, "rl2-11-05 self-play evals keep the run-dir route"
+        assert not r._sis_runnable(), "the run-dir route waits for the run"
+        print("PASS  self-play evals: rl2-11-05 runs keep the run-dir route (finished evals keep their hashes)")
+    finally:
+        tp.ppx_overlay_rank = orig_rank
+
+
 def main():
     for Run in (_RL, _SFT):
         with tempfile.TemporaryDirectory() as tmp:
             check(Run, tmp)
     with tempfile.TemporaryDirectory() as tmp:
         check_full_finetune(tmp)
+    with tempfile.TemporaryDirectory() as tmp:
+        check_selfplay_overlay(tmp)
 
 
 if __name__ == "__main__":
