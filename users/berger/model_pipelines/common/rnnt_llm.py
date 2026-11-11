@@ -215,6 +215,10 @@ class RnntLlmGateJob(Job):
 
 
 class RnntQwenRecogJob(Job):
+    # Class attributes, not job arguments: subclasses change them without touching existing hashes.
+    family = "rnnt"
+    speech_case_variants = ("lower", "capitalized")
+
     def __init__(
         self,
         dataset,
@@ -269,7 +273,7 @@ class RnntQwenRecogJob(Job):
         sys.path.insert(0, self.binary.get_path())
         import librasr
 
-        adapter = HfBenchmarkAdapter(self.repo.get_path(), "rnnt", "float32")
+        adapter = HfBenchmarkAdapter(self.repo.get_path(), self.family, "float32")
         register_hf_scorer(librasr, adapter)
         backend = None
         if self.kind == "zero":
@@ -290,7 +294,9 @@ class RnntQwenRecogJob(Job):
             )
         else:
             backend = QwenSpeechScorer(self.auxiliary_repo.get_path(), batch_size=8)
-            register_rnnt_llm_scorer(librasr, "qwen-speech", lambda config: backend)
+            register_rnnt_llm_scorer(
+                librasr, "qwen-speech", lambda config: backend, case_variants=self.speech_case_variants
+            )
         cfg = librasr.Configuration()
         if not cfg.set_from_file(self.config.get_path()):
             raise ValueError("Failed to read RNN-T LLM config")
