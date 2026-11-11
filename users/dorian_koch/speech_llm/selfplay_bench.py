@@ -732,6 +732,36 @@ for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     }
 
 
+#: ``*_merged_timed``: the ``*_timed`` rubric for the ``merged_turns_v1`` transcript (the words in the order of the
+#: mixed-audio merge, ``selfplay_reward.merged_turns_transcript``). There, speech spoken at the same time comes out
+#: as lines that alternate in short pieces, which reads as quick turn-taking unless the judge is told; backchannels
+#: are exempt in so many words, so that listening signals are not marked down with it.
+_MERGED_LINES = (
+    "Each line is a stretch of one agent's speech with its start and end time in seconds, in the order in which a "
+    "listener hears the words. Lines whose times overlap were spoken at the same time; where the agents talk at the "
+    "same time for longer, their lines alternate in short pieces. The first line totals how long the two talked at "
+    'the same time. A short line inside the other\'s speech that only signals listening ("uh-huh", "yeah", "right") '
+    "is a backchannel."
+)
+_MERGED_RULE = (
+    " Lines that alternate in short pieces with overlapping times are the two agents talking over each other, not "
+    "quick turn-taking: count them as talking at the same time. Backchannels are the exception: a short listening "
+    "signal while the other agent keeps talking is good conversational behaviour and must not lower any score."
+)
+
+
+def _merged_timed_text(timed: str) -> str:
+    assert timed.count(_TIMED_LINES) == 1 and timed.count(_TIMED_RULE) == 1, "the timed rubric's wording changed"
+    return timed.replace(_TIMED_LINES, _MERGED_LINES).replace(_TIMED_RULE, _TIMED_RULE + _MERGED_RULE)
+
+
+for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
+    SP_REWARD_RUBRICS[f"{_base}_merged_timed"] = {
+        "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
+        "text": _merged_timed_text(SP_REWARD_RUBRICS[f"{_base}_timed"]["text"]),
+    }
+
+
 for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
         "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
