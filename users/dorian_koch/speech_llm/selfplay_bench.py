@@ -762,6 +762,58 @@ for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     }
 
 
+#: ``sp_reward_v3_merged_timed``: a rubric written anew for the ``merged_turns_v1`` transcript, with the six scores of
+#: ``sp_reward_v2``. What it changes against ``sp_reward_v2_uptake_merged_timed``: (1) words spoken while the other
+#: agent talks earn no credit in ANY score (before, talk-over only capped coherence and responsiveness, so reciting the
+#: role over the partner kept full adherence); (2) understanding: taking up details with one mistake (3) scores above
+#: taking up nothing (2); before, one mistake scored below generic replies, which pays for not engaging; (3) a
+#: backchannel is defined by its shape (one to three words while the other keeps talking); (4) the talk-over caps are
+#: bands on the share stated in the transcript's first line: 10% and 20% sit at the Open Yap human median (7%) and p90
+#: (21%), 33% is ``_TIMED_RULE``'s; the bands are my choice. It carries selfplay_reward's ``UPTAKE_MARKER`` phrase.
+SP_REWARD_RUBRICS["sp_reward_v3_merged_timed"] = {
+    "metrics": SP_REWARD_RUBRICS["sp_reward_v2"]["metrics"],
+    "text": """You are grading a spoken conversation between two AI voice agents, A and B. Each agent got its own private instructions (below) and did not see the other's. {transcript_source}
+
+HOW TO READ THE TRANSCRIPT: each line is a stretch of one agent's speech with its start and end time in seconds, roughly in the order a listener hears it. Lines whose times overlap were spoken at the same time. The first line says what share of the talking time both agents talked at once. A backchannel is a line of one to three words that only signals listening ("uh-huh", "yeah", "right") while the other agent keeps talking.
+
+INSTRUCTIONS GIVEN TO A:
+{prompt_a}
+
+INSTRUCTIONS GIVEN TO B:
+{prompt_b}
+
+Duration: {duration} s. Words: A {n_a}, B {n_b}.
+
+TRANSCRIPT:
+{transcript}
+
+WHAT GOOD LOOKS LIKE: each agent plays its role and pursues its goal, listens, and answers what the other actually said, in short natural turns with one agent speaking at a time, like two people on a phone call.
+
+Give six scores from 1 to 5. Three rules apply to all of them:
+- Words an agent says while the other is also talking cannot be heard: they earn no credit in any score. Backchannels are the exception: they are good listening and never lower a score.
+- An agent that says almost nothing gets 1 for its own adherence and its own understanding.
+- Ignore audio quality, disfluencies and whether facts about the world are true.
+
+adherence_a, adherence_b: does the agent follow ITS OWN instructions: its role and name, its goal or topic, and each explicit thing to say, ask, avoid or do?
+  5 = all of it, throughout. 4 = one minor lapse. 3 = the role or topic is recognisable, but the goal or several instructions are dropped. 2 = only a trace of the role or topic. 1 = none.
+
+understanding_a, understanding_b: does the agent show that it understood the other? Look at the specific things the other said (a name, number, date, place, item, request or question) and whether the agent takes them up correctly: answers them, repeats them back or builds on them.
+  5 = takes up several correctly, none wrong. 4 = takes up at least one correctly, none wrong. 3 = takes up several correctly but gets one wrong. 2 = gets nothing wrong but shows no understanding (generic replies, or only its own topic), or gets as much wrong as right. 1 = gets most of it wrong, or answers things the other never said.
+
+coherence: does what is said make sense: intelligible, consistent with what was said before, and moving forward? Loops, repeated sentences, word salad, contradictions and unrelated jumps lower it.
+  5 = throughout. 4 = brief odd moments. 3 = noticeable stretches that do not make sense. 2 = mostly does not make sense. 1 = none of it does, or almost no speech.
+
+responsiveness: do the two take turns and respond to each other: questions get answered, each picks up what the other just said, and turns are short enough for the other to react? Monologues, ignored questions and talking at the same time lower it.
+  5 = throughout, in both directions. 4 = one or two misses. 3 = some real exchange, but frequent misses or long monologues. 2 = mostly talking past each other. 1 = no exchange.
+
+TALKING AT THE SAME TIME, by the share on the transcript's first line:
+  under 10% = normal, no limit. 10% to 20% = responsiveness at most 4. 20% to 33% = responsiveness at most 3 and coherence at most 4. 33% or more = responsiveness at most 2 and coherence at most 3.
+
+Answer with JSON only. Each reason is one short sentence:
+{"adherence_a": {"reason": "...", "score": 1-5}, "adherence_b": {"reason": "...", "score": 1-5}, "understanding_a": {"reason": "...", "score": 1-5}, "understanding_b": {"reason": "...", "score": 1-5}, "coherence": {"reason": "...", "score": 1-5}, "responsiveness": {"reason": "...", "score": 1-5}}""",
+}
+
+
 for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
         "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
