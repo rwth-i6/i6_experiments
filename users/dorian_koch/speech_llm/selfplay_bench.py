@@ -814,6 +814,32 @@ Answer with JSON only. Each reason is one short sentence:
 }
 
 
+#: ``sp_reward_v3_general_adherence_merged_timed``: ``sp_reward_v3_merged_timed`` with the adherence block made
+#: general: the judge first compares who each agent's instructions say it is with who it acts as, and the 1-anchor
+#: names acting as someone else (a name, role or goal its instructions do not give). Under v3's "1 = none" a judge
+#: scored an agent that played the other agent's role on-topic as adherent: with A's and B's instructions swapped,
+#: A got 1 in 6 of 8 draws under v3 and in 8 of 8 under this block (Qwen3.8-27B, non-thinking sampling).
+_V3_ADHERENCE = (
+    "adherence_a, adherence_b: does the agent follow ITS OWN instructions: its role and name, its goal or topic, and "
+    "each explicit thing to say, ask, avoid or do?\n"
+    "  5 = all of it, throughout. 4 = one minor lapse. 3 = the role or topic is recognisable, but the goal or several "
+    "instructions are dropped. 2 = only a trace of the role or topic. 1 = none."
+)
+_GENERAL_ADHERENCE = (
+    "adherence_a, adherence_b: does the agent follow ITS OWN instructions (A's for A, B's for B): its name and role, its "
+    "goal or topic, and each explicit thing to say, ask, avoid or do? First compare who its instructions say it is with "
+    "who it acts as in the transcript.\n"
+    "  5 = all of it, throughout. 4 = one minor lapse. 3 = its role or topic is recognisable, but the goal or several "
+    "instructions are dropped. 2 = only a trace of its role or topic. 1 = it does not act on its instructions: silent, "
+    "off-topic, or acting as someone else (a name, role or goal its instructions do not give)."
+)
+assert SP_REWARD_RUBRICS["sp_reward_v3_merged_timed"]["text"].count(_V3_ADHERENCE) == 1
+SP_REWARD_RUBRICS["sp_reward_v3_general_adherence_merged_timed"] = {
+    "metrics": SP_REWARD_RUBRICS["sp_reward_v3_merged_timed"]["metrics"],
+    "text": SP_REWARD_RUBRICS["sp_reward_v3_merged_timed"]["text"].replace(_V3_ADHERENCE, _GENERAL_ADHERENCE),
+}
+
+
 for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
         "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
