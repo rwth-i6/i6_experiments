@@ -866,6 +866,28 @@ Answer with JSON only, the reason one short sentence:
 {"adherence": {"reason": "...", "score": 1-5}}""",
 }
 
+#: ``sp_adherence_one_side_v2``: v1 with silence no longer the worst case: 1 is kept for contradicting the instructions
+#: (someone else's name, role or goal, another subject, what they forbid); saying (almost) nothing gets 2, like a mere
+#: trace of the role or topic; and instructions to mostly listen or stay quiet make short fitting replies and
+#: backchannels count as following them (up to 5). On the Open Yap sides with their persona prompts, v1 gave the sides
+#: that mostly listen 1-2 even when their instructions said so.
+_ONE_SIDE_V1_SCALE = (
+    "1 = it does not act on its instructions: silent, off-topic, or acting as someone else (a name, role or goal its "
+    "instructions do not give).\nAn agent that says almost nothing gets 1. "
+)
+_ONE_SIDE_V2_SCALE = (
+    "1 = it contradicts its instructions: it acts as someone else (a name, role or goal its instructions do not give), "
+    "talks about something else entirely, or does what they tell it not to.\n"
+    "Saying little is not contradicting: an agent that says nothing or almost nothing gets 2, as one that shows only a "
+    "trace of its role or topic does. If its instructions tell it to mostly listen or stay quiet, short replies and "
+    "backchannels that fit its role and topic follow them and can score up to 5. "
+)
+assert SP_REWARD_RUBRICS["sp_adherence_one_side_v1"]["text"].count(_ONE_SIDE_V1_SCALE) == 1
+SP_REWARD_RUBRICS["sp_adherence_one_side_v2"] = {
+    "metrics": ["adherence"],
+    "text": SP_REWARD_RUBRICS["sp_adherence_one_side_v1"]["text"].replace(_ONE_SIDE_V1_SCALE, _ONE_SIDE_V2_SCALE),
+}
+
 
 for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
