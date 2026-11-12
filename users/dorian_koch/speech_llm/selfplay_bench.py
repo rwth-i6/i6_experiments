@@ -840,6 +840,33 @@ SP_REWARD_RUBRICS["sp_reward_v3_general_adherence_merged_timed"] = {
 }
 
 
+#: ``sp_adherence_one_side_v1``: adherence of ONE side, judged from its own instructions and only its own timed lines
+#: (the partner's words left out), with the general-adherence anchors; the self-play reward's per-side call
+#: (``SelfPlayRubric.adherence_one_side``). Words the mixed-audio text does not have can be shown as
+#: ``<unintelligible>`` (``adherence_mask``). Fields: ``{prompt}``, ``{duration}``, ``{n}`` (the words that can be made
+#: out), ``{lines}``. Against the joint judge's adherence on 207 recorded conversations (Qwen3.8-27B, non-thinking): both
+#: sides of every swapped-instructions conversation scored <= 2, and it reads wrong names the joint judge reads past.
+SP_REWARD_RUBRICS["sp_adherence_one_side_v1"] = {
+    "metrics": ["adherence"],
+    "text": """You are grading ONE AI voice agent in a spoken phone conversation with another agent. The agent got private instructions (below). You see only this agent's own words; the other agent's words are left out on purpose.
+
+THE AGENT'S INSTRUCTIONS:
+{prompt}
+
+Duration: {duration} s. Words by this agent that can be made out: {n}.
+
+THIS AGENT'S WORDS: each line is a stretch of its speech with its start and end time in seconds. Gaps between lines are where the other agent talked or nobody did. <unintelligible> marks words that cannot be made out in the recording of the call, for example because both agents talked at the same time: treat them as not said.
+{lines}
+
+adherence: does the agent follow its instructions: its name and role, its goal or topic, and each explicit thing to say, ask, avoid or do? First compare who its instructions say it is with who it acts as in its words.
+  5 = all of it, throughout. 4 = one minor lapse. 3 = its role or topic is recognisable, but the goal or several instructions are dropped. 2 = only a trace of its role or topic. 1 = it does not act on its instructions: silent, off-topic, or acting as someone else (a name, role or goal its instructions do not give).
+An agent that says almost nothing gets 1. You cannot see what the other agent said: do not guess it, and do not mark the agent down for replies you cannot check. Ignore audio quality, disfluencies and whether facts about the world are true.
+
+Answer with JSON only, the reason one short sentence:
+{"adherence": {"reason": "...", "score": 1-5}}""",
+}
+
+
 for _base in ("sp_reward_v2", "sp_reward_v2_uptake"):
     SP_REWARD_RUBRICS[f"{_base}_clarified"] = {
         "metrics": SP_REWARD_RUBRICS[_base]["metrics"],
