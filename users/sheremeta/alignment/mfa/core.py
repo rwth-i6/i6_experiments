@@ -5,12 +5,19 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path as SysPath
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, Iterable, Iterator, List, Sequence, Set, Tuple
 
 from sisyphus import Job, Task, tk
 
+from i6_experiments.users.sheremeta.text.text_dict import read_text_dict
+
 ws_reg = re.compile(r"\s+")
+
+# MFA splits a word missing from its dictionary at these marks, a word without them becomes the unknown word
+_SPLIT_MARKS = ("'", "’", "-")
+_UNK = "<unk>"
 
 _HELPER_SCRIPT = SysPath(__file__).parent / "mfa_pipeline_helper.py"
 
@@ -183,6 +190,49 @@ class ConvertWordAlignmentStoreToSqliteJob(Job):
         self.out_num_seqs.set(n)
 
 
+def _store_records(jsonl_path: str) -> Iterator[Dict[str, Any]]:
+    """
+    :param jsonl_path: a gzipped JSONL word-alignment store
+    :return: its records in order, one ``{"seq_tag": ..., "words": [[word, start, end], ...]}`` per sequence
+    """
+    with gzip.open(jsonl_path, "rt", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+
+def _write_word_time_hdf(
+    records: Iterable[Tuple[str, Sequence[Sequence[Any]]]], labels: List[str], hdf_path: str, *, sample_rate: int
+) -> int:
+    """
+    :param records: per sequence its tag and its words, each a word of ``labels`` with its start and end in seconds
+    :param labels: the words of the HDF
+    :param hdf_path: the HDF to write, per word its start and end in samples and its index in ``labels``
+    :param sample_rate: samples per second of the stored times, kept in the ``sample_rate`` attribute of the HDF
+    :return: the number of sequences written
+    """
+    import h5py
+    import numpy as np
+    from returnn.datasets.hdf import SimpleHDFWriter
+
+    index = {word: i for i, word in enumerate(labels)}
+    writer = SimpleHDFWriter(filename=hdf_path, dim=len(labels), ndim=1, labels=labels)
+    n = 0
+    for seq_tag, words in records:
+        values = []
+        for word, start, end in words:
+            times = [int(round(t * sample_rate)) for t in (start, end)]
+            assert all(float(np.float32(v / sample_rate)) == t for v, t in zip(times, (start, end))), (seq_tag, word)
+            values += times + [index[word]]
+        data = np.asarray(values, dtype=np.int32)
+        writer.insert_batch(data[None, :], seq_len={0: [int(data.shape[0])]}, seq_tag=[seq_tag])
+        n += 1
+    writer.close()
+    with h5py.File(hdf_path, "r+") as f:
+        f.attrs["sample_rate"] = sample_rate
+    return n
+
+
 def word_times_hdf_from_jsonl(jsonl_path: str, hdf_path: str, *, sample_rate: int) -> int:
     """
     Writes a word-alignment store as an HDF holding per word its start and end in samples and its label index.
@@ -192,38 +242,148 @@ def word_times_hdf_from_jsonl(jsonl_path: str, hdf_path: str, *, sample_rate: in
     :param sample_rate: samples per second of the stored times, kept in the ``sample_rate`` attribute of the HDF
     :return: the number of sequences written
     """
-    import h5py
-    import numpy as np
-    from returnn.datasets.hdf import SimpleHDFWriter
+    labels = sorted({word for rec in _store_records(jsonl_path) for word, _start, _end in rec["words"]})
+    records = ((rec["seq_tag"], rec["words"]) for rec in _store_records(jsonl_path))
+    return _write_word_time_hdf(records, labels, hdf_path, sample_rate=sample_rate)
 
-    def records():
-        """
-        :return: the records of the store, one per sequence
-        """
-        with gzip.open(jsonl_path, "rt", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    yield json.loads(line)
 
-    labels = sorted({word for rec in records() for word, _start, _end in rec["words"]})
-    index = {word: i for i, word in enumerate(labels)}
-    writer = SimpleHDFWriter(filename=hdf_path, dim=len(labels), ndim=1, labels=labels)
-    n = 0
-    for rec in records():
-        values = []
-        for word, start, end in rec["words"]:
-            times = [int(round(t * sample_rate)) for t in (start, end)]
-            assert all(float(np.float32(v / sample_rate)) == t for v, t in zip(times, (start, end))), (
-                rec["seq_tag"],
-                word,
-            )
-            values += times + [index[word]]
-        data = np.asarray(values, dtype=np.int32)
-        writer.insert_batch(data[None, :], seq_len={0: [int(data.shape[0])]}, seq_tag=[rec["seq_tag"]])
-        n += 1
-    writer.close()
-    with h5py.File(hdf_path, "r+") as f:
-        f.attrs["sample_rate"] = sample_rate
+def _letters(word: str) -> str:
+    """
+    :param word: a transcript or MFA word
+    :return: its letters in upper case, without the marks MFA splits words at
+    """
+    letters = word.upper()
+    for mark in _SPLIT_MARKS:
+        letters = letters.replace(mark, "")
+    return letters
+
+
+def _is_unk(word: str) -> bool:
+    """
+    :param word: an MFA word
+    :return: whether it is the unknown word
+    """
+    return word.lower() == _UNK
+
+
+def _group_fits(group: Sequence[str], word: str) -> bool:
+    """
+    :param group: consecutive MFA words
+    :param word: a transcript word
+    :return: whether the group spells the word, an ``<unk>`` standing for any letters
+    """
+    if not any(_is_unk(w) for w in group):
+        return "".join(_letters(w) for w in group) == _letters(word)
+    pattern = "".join(".+" if _is_unk(w) else re.escape(_letters(w)) for w in group)
+    return re.fullmatch(pattern, _letters(word)) is not None
+
+
+def transcript_word_groups(words: Sequence[str], mfa_words: Sequence[str]) -> List[Tuple[int, int]]:
+    """
+    Cuts the MFA words of an utterance into consecutive groups, one per transcript word.
+
+    MFA keeps the order of the words, drops none and splits a word only at an apostrophe or a hyphen, so a word with n
+    of them takes at most n + 1 MFA words. A group fits its word when their letters spell it, case, apostrophes and
+    hyphens aside, an ``<unk>`` standing for any letters.
+
+    :param words: the transcript words
+    :param mfa_words: the MFA words, ``<unk>`` the only marker
+    :return: per transcript word the start and the end of its group in the MFA words
+    :raises ValueError: when the MFA words cut into the transcript words in no way or in more than one
+    """
+    markers = sorted({w for w in mfa_words if w.startswith("<") and w.endswith(">") and not _is_unk(w)})
+    if markers:
+        raise ValueError(f"markers other than {_UNK}: {markers}")
+
+    # per number of transcript words done, every count of MFA words they can take, with the number of ways (capped at
+    # two) and the count before the last word
+    reach: List[Dict[int, Tuple[int, int]]] = [{0: (1, 0)}]
+    for word in words:
+        most = 1 + sum(word.count(mark) for mark in _SPLIT_MARKS)
+        step: Dict[int, Tuple[int, int]] = {}
+        for used, (ways, _before) in reach[-1].items():
+            for end in range(used + 1, min(used + most, len(mfa_words)) + 1):
+                if _group_fits(mfa_words[used:end], word):
+                    step[end] = (min(2, step.get(end, (0, 0))[0] + ways), used)
+        reach.append(step)
+
+    ways = reach[-1].get(len(mfa_words), (0, 0))[0]
+    if ways != 1:
+        raise ValueError(
+            f"{len(mfa_words)} MFA words cut into {len(words)} transcript words in "
+            f"{'no way' if ways == 0 else 'more than one way'}: {list(words)} {list(mfa_words)}"
+        )
+    groups: List[Tuple[int, int]] = []
+    end = len(mfa_words)
+    for done in range(len(words), 0, -1):
+        start = reach[done][end][1]
+        groups.append((start, end))
+        end = start
+    return groups[::-1]
+
+
+def _match_kind(word: str, group: Sequence[str]) -> str:
+    """
+    :param word: a transcript word
+    :param group: the MFA words that spell it
+    :return: how they spell it
+    """
+    if len(group) > 1:
+        return "split, <unk> for a part" if any(_is_unk(w) for w in group) else "split at an apostrophe or hyphen"
+    if _is_unk(group[0]):
+        return "<unk> for the whole word"
+    return "same word" if group[0].upper() == word.upper() else "same letters, other apostrophes or hyphens"
+
+
+def transcript_word_times_hdf(
+    store_path: str, text_dict_path: str, hdf_path: str, summary_path: str, *, sample_rate: int
+) -> int:
+    """
+    Writes the HDF of :func:`word_times_hdf_from_jsonl` with the words of the transcripts. A word runs from the start of
+    the first MFA word that spells it to the end of the last (:func:`transcript_word_groups`).
+
+    :param store_path: the gzipped JSONL MFA store
+    :param text_dict_path: the transcript of every sequence by its tag, as ``CorpusToTextDictJob`` writes it
+    :param hdf_path: the HDF to write, its labels are the sorted words of the transcripts
+    :param summary_path: the summary of how the words matched
+    :param sample_rate: samples per second of the stored times
+    :return: the number of sequences written
+    """
+    texts = read_text_dict(text_dict_path)
+    labels = sorted({word for text in texts.values() for word in text.split()})
+    words_per_match: Counter = Counter()
+    seqs_per_match: Counter = Counter()
+    covered: Set[str] = set()
+
+    def records() -> Iterator[Tuple[str, List[Tuple[str, float, float]]]]:
+        """
+        :return: per sequence of the store its tag and its transcript words with their times
+        """
+        for rec in _store_records(store_path):
+            seq_tag = rec["seq_tag"]
+            words = texts[seq_tag].split()
+            mfa = [(str(w), float(start), float(end)) for w, start, end in rec["words"]]
+            try:
+                groups = transcript_word_groups(words, [w for w, _start, _end in mfa])
+            except ValueError as exc:
+                raise ValueError(f"{seq_tag}: {exc}") from exc
+            matches = [_match_kind(word, [w for w, _s, _e in mfa[a:b]]) for word, (a, b) in zip(words, groups)]
+            words_per_match.update(matches)
+            seqs_per_match.update(set(matches))
+            covered.add(seq_tag)
+            yield seq_tag, [(word, mfa[a][1], mfa[b - 1][2]) for word, (a, b) in zip(words, groups)]
+
+    n = _write_word_time_hdf(records(), labels, hdf_path, sample_rate=sample_rate)
+    missing = sorted(set(texts) - covered)
+    lines = [
+        f"sequences written {n}",
+        f"transcripts without MFA words {len(missing)}: {missing[:10]}",
+        f"transcript words {sum(words_per_match.values())}",
+        f"words per match {dict(words_per_match)}",
+        f"sequences per match {dict(seqs_per_match)}",
+    ]
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
     return n
 
 
@@ -255,6 +415,46 @@ class MfaWordStoreToWordTimeHdfJob(Job):
         """
         self.out_num_seqs.set(
             word_times_hdf_from_jsonl(self.store.get_path(), self.out_hdf.get_path(), sample_rate=self.sample_rate)
+        )
+
+
+class MfaWordStoreToTranscriptWordTimeHdfJob(Job):
+    """
+    Writes the word-time HDF of :func:`transcript_word_times_hdf`, the words of the transcripts timed by MFA.
+    """
+
+    def __init__(self, store: tk.Path, text_dict: tk.Path, *, sample_rate: int):
+        """
+        :param store: the gzipped JSONL MFA store
+        :param text_dict: the transcript of every sequence by its tag
+        :param sample_rate: samples per second of the stored times
+        """
+        self.store = store
+        self.text_dict = text_dict
+        self.sample_rate = sample_rate
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 4}
+        self.out_hdf = self.output_path("word_times.hdf")
+        self.out_summary = self.output_path("summary.txt")
+        self.out_num_seqs = self.output_var("num_seqs")
+
+    def tasks(self):
+        """
+        :return: the conversion task
+        """
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def run(self):
+        """
+        Writes the HDF and the summary.
+        """
+        self.out_num_seqs.set(
+            transcript_word_times_hdf(
+                self.store.get_path(),
+                self.text_dict.get_path(),
+                self.out_hdf.get_path(),
+                self.out_summary.get_path(),
+                sample_rate=self.sample_rate,
+            )
         )
 
 

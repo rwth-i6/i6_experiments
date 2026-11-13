@@ -5,10 +5,14 @@ import gzip
 
 from sisyphus import Job, Task, tk
 
-__all__ = ["IntersectTextDictJob", "TextDictToRefVariantsJob"]
+__all__ = ["IntersectTextDictJob", "TextDictToRefVariantsJob", "read_text_dict"]
 
 
-def _read_text_dict(path: str) -> dict:
+def read_text_dict(path: str) -> dict:
+    """
+    :param path: a TextDict, ``{seq_tag: text}`` as a Python literal, gzipped when the name ends in ``.gz``
+    :return: the text of every sequence by its tag
+    """
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8") as f:
         return ast.literal_eval(f.read())
@@ -31,8 +35,8 @@ class IntersectTextDictJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1}, mini_task=True)
 
     def run(self):
-        ref = _read_text_dict(self.text_dict.get_path())
-        keys = set(_read_text_dict(self.keys_from.get_path()).keys())
+        ref = read_text_dict(self.text_dict.get_path())
+        keys = set(read_text_dict(self.keys_from.get_path()).keys())
         kept = {k: v for k, v in ref.items() if k in keys}
         missing = keys - set(kept)
         # a hyp without reference cannot be scored at all, fail loud instead of skewing wer

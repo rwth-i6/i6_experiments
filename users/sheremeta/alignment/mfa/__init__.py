@@ -3,6 +3,7 @@ from .core import (
     EnsureMfaModelsJob,
     MergeWordAlignmentStoresJob,
     MfaStoreToTextDictJob,
+    MfaWordStoreToTranscriptWordTimeHdfJob,
     MfaWordStoreToWordTimeHdfJob,
     WordTimeHdfSeqTagsJob,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "EnsureMfaModelsJob",
     "MergeWordAlignmentStoresJob",
     "MfaStoreToTextDictJob",
+    "MfaWordStoreToTranscriptWordTimeHdfJob",
     "MfaWordStoreToWordTimeHdfJob",
     "WordTimeHdfSeqTagsJob",
     "RunMfaAlignHuggingFaceShardJob",
