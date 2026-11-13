@@ -212,6 +212,43 @@ _out = check_engine_limits(dict(_hist), _FakeTask("work/.../X.abc", _decl))["sba
 assert _out.count("-p") == 1 and _out[_out.index("-p") + 1] == "c25g", f"declared -p lost: {_out}"
 print(f"[ok] {'a declared -p still pins':38s} -> {' '.join(_out)}")
 
+# A partition with no usable node at all (2026-11-13: c25g fully drained) makes `sbatch --test-only` answer
+# "Requested node configuration is not available" instead of a time. That is a definite "never starts", not a
+# failed probe; read as one, it sent every job back to the preferred, dead partition via the fallback rules.
+import subprocess as _sp  # noqa: E402
+
+_real_run = _sp.run
+_DEAD = "sbatch: error: [I] No output file given allocation failure: Requested node configuration is not available"
+
+
+def _fake_run(cmd, **kw):
+    dead = cmd[cmd.index("-p") + 1] == "c25g"
+    reply = (
+        _DEAD
+        if dead
+        else "sbatch: Job 1 to start at 2026-11-15T02:58:00 using 8 processors on nodes n0 in partition c23g"
+    )
+    return _sp.CompletedProcess(cmd, 1 if dead else 0, stdout="", stderr=reply)
+
+
+_sp.run = _fake_run
+try:
+    ns["_estimated_start"] = _real_probe
+    ns["_start_cache"].clear()
+    assert _real_probe("c25g", _r8) == float("inf"), "a partition with no usable node must read as never starting"
+    assert isinstance(_real_probe("c23g", _r8), float) and _real_probe("c23g", _r8) < float("inf")
+    _got = {
+        select_gpu_partition(time_h=t, spread_key=f"job{i}", rqmt=dict(_r8, time=t)) for i in range(50) for t in (1, 23)
+    }
+    assert _got == {"c23g"}, f"jobs routed to a partition that cannot run them: {_got}"
+finally:
+    _sp.run = _real_run
+    ns["_start_cache"].clear()
+_fake({"c23g": float("inf"), "c25g": float("inf")})  # nothing can run anywhere: the old rules, no crash
+_seen = {select_gpu_partition(time_h=8, spread_key=f"job{i}", rqmt=_r8) for i in range(200)}
+assert _seen == {"c23g", "c25g"}, _seen
+print(f"[ok] {'unavailable partition is skipped':38s} -> 'node configuration is not available' = never starts")
+
 # Live smoke: the real probe returns a time (login node) or None (no sbatch here) -- never raises.
 ns["_estimated_start"] = _real_probe
 _t = _real_probe("c23g", _r8)
