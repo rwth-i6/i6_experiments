@@ -69,3 +69,36 @@ separately before deploying the research setup to another environment.
 The template lazily imports optional v2 preparation so ordinary examples do
 not require those local classes just to import. Preserve the current dependency
 checkouts when resuming existing jobs.
+
+## Completion and cutover readiness: 2026-11-14
+
+All 234 selected evaluation cells now exist, with zero missing standalone
+baselines. The submitted Granite/Speech-Qwen scorer-API check also matches
+exactly on all 2,864 dev-other segments; see
+[the final completion review](experiments/open_asr/COMPLETED_REPORT_REVIEW_20261114.md).
+
+A fresh constructor-only comparison loaded the four actual active configs:
+`controlled_comparison`, `controlled_evaluation`, `error_complementarity` and
+`research_diagnostics`, using the same public settings, work directory and
+completed exports in the live and isolated research checkouts:
+
+- Both graphs contain 778 jobs, including 165 GPU jobs.
+- All 165 GPU IDs are identical and have completion markers in the work tree.
+- The 63 replaced IDs are exclusively CPU error-complementarity/research-analysis
+  jobs, reflecting the corrected multi-fusion attribution code.
+- A historical CPU PipelineJob cannot estimate its resource request because the
+  old Loquacious lexicon source is unavailable on this host. Its identity is
+  included in both inventories; no tasks were executed or recreated by the check.
+- All tracked modifications/untracked files in the live checkout still match
+  the complete November 4 backup byte-for-byte.
+
+The two full graph inventories are retained in
+`/work/asr4/berger/refactor/asr-20261104/cutover-20261114-{original,research}-graph.json`.
+They supplement, rather than replace, the broader 1,197-ID migration probe.
+
+The branch/config cutover has **not** happened at the time of this readiness
+check: manager shutdown still needs confirmation. Keep the live source unchanged
+until the manager and workers are stopped, then preserve its dirty state before
+switching. Do not run two managers writing the same reports. A fresh manager
+should only need the corrected CPU analyses for these four configs, not new
+recognition. Other entrypoints and dependency changes require their own review.
