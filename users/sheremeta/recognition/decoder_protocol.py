@@ -10,7 +10,7 @@ StateT = TypeVar("StateT")
 class SearchDecoder(Protocol[StateT]):
     """Autoregressive interface the greedy and beam search loops require."""
 
-    def text_embed(self, text_codes: torch.Tensor) -> torch.Tensor:
+    def text_embed(self, text_stream: torch.Tensor, /) -> torch.Tensor:
         ...
 
     def initial_state(self, *, batch_size: int, device: torch.device) -> StateT:
@@ -55,7 +55,7 @@ class LabelSyncSearchModel(Protocol):
 class MaskedStepDecoder(Protocol[StateT]):
     """Search decoder whose step leaves the rows with ``active`` False untouched, so histories may differ in length."""
 
-    def text_embed(self, text_codes: torch.Tensor) -> torch.Tensor:
+    def text_embed(self, text_stream: torch.Tensor, /) -> torch.Tensor:
         ...
 
     def initial_state(self, *, batch_size: int, device: torch.device) -> StateT:
