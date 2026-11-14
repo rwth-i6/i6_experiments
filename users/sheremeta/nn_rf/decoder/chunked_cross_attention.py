@@ -39,6 +39,7 @@ def group_cross_attention_class():
             query_chunk_idx: ReturnnTensor,
             key_chunk_idx: ReturnnTensor,
         ) -> ReturnnTensor:
+            assert isinstance(self.num_heads, ReturnnDim), "the attention heads are a dim"
             q = self.q_proj(query)
             q = rf.split_dims(q, axis=self.key_dim_total, dims=[self.num_heads, self.key_dim_per_head])
             att = rf.dot_attention(
@@ -88,7 +89,7 @@ class ChunkCrossAttentionDecoderLayer(TransformerDecoderLayer):
 
         self.ff_output_dropout = ff_output_dropout
         self.encoder_dim = encoder_dim
-        self.cross_att = group_cross_attention_class()(
+        cross_att = group_cross_attention_class()(
             encoder_dim,
             out_dim,
             key_dim_total=out_dim,
@@ -96,6 +97,7 @@ class ChunkCrossAttentionDecoderLayer(TransformerDecoderLayer):
             num_heads=num_heads,
             att_dropout=att_dropout,
         )
+        setattr(self, "cross_att", cross_att)
         self.cross_att_layer_norm = make_norm(norm, out_dim)
 
     def __call__(
