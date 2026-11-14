@@ -1,7 +1,7 @@
 """Read-only stores of per-sequence alignments for dataset workers, staged once per node on local disk."""
 
 import os
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, Type
 
 import numpy as np
 
@@ -61,7 +61,7 @@ class MmapAlignmentStore:
         return self._flat[off : off + n]
 
 
-def _stage_store(paths: Sequence[str], base: str, heartbeat=None, dtype=np.uint16) -> None:
+def _stage_store(paths: Sequence[str], base: str, heartbeat=None, dtype: Type[np.unsignedinteger] = np.uint16) -> None:
     """Stream the HDF shard(s) into the staged flat file plus index arrays, then rename atomically."""
     tmp = f"{base}.build{os.getpid()}"
     try:
@@ -76,7 +76,9 @@ def _stage_store(paths: Sequence[str], base: str, heartbeat=None, dtype=np.uint1
                 os.remove(f"{tmp}{suffix}")
 
 
-def _build_staged_files(paths: Sequence[str], tmp: str, heartbeat=None, dtype=np.uint16) -> None:
+def _build_staged_files(
+    paths: Sequence[str], tmp: str, heartbeat=None, dtype: Type[np.unsignedinteger] = np.uint16
+) -> None:
     """
     Writes the flat file and its index arrays under a private prefix, the heartbeat called throughout.
 
@@ -93,11 +95,14 @@ def _build_staged_files(paths: Sequence[str], tmp: str, heartbeat=None, dtype=np
     totals = []
     for p in paths:
         with h5py.File(p, "r") as f:
-            totals.append(int(f["inputs"].shape[0]))
-            for s in range(0, int(f["seqTags"].shape[0]), _STAGE_ROWS):
-                for row in f["seqLengths"][s : s + _STAGE_ROWS]:
+            inputs, seq_tags, seq_lengths = f["inputs"], f["seqTags"], f["seqLengths"]
+            assert isinstance(inputs, h5py.Dataset) and isinstance(seq_tags, h5py.Dataset), p
+            assert isinstance(seq_lengths, h5py.Dataset), p
+            totals.append(int(inputs.shape[0]))
+            for s in range(0, int(seq_tags.shape[0]), _STAGE_ROWS):
+                for row in seq_lengths[s : s + _STAGE_ROWS]:
                     lengths.append(int(row[0]))
-                for t in f["seqTags"][s : s + _STAGE_ROWS]:
+                for t in seq_tags[s : s + _STAGE_ROWS]:
                     tags.append(t.decode("utf-8") if isinstance(t, (bytes, bytearray)) else str(t))
                 if heartbeat is not None:
                     heartbeat()
@@ -112,6 +117,7 @@ def _build_staged_files(paths: Sequence[str], tmp: str, heartbeat=None, dtype=np
     for p in paths:
         with h5py.File(p, "r") as f:
             ds = f["inputs"]
+            assert isinstance(ds, h5py.Dataset), p
             for s in range(0, int(ds.shape[0]), _STAGE_CHUNK):
                 chunk = np.asarray(ds[s : s + _STAGE_CHUNK]).reshape(-1)
                 if chunk.size == 0:
@@ -147,7 +153,7 @@ def _build_staged_files(paths: Sequence[str], tmp: str, heartbeat=None, dtype=np
         pickle.dump(exceptions, f)
 
 
-def _stage_base(paths: Sequence[str], dtype=np.uint16) -> str:
+def _stage_base(paths: Sequence[str], dtype: Type[np.unsignedinteger] = np.uint16) -> str:
     """
     :param paths: the HDF shards
     :param dtype: integer type of the flat file
@@ -181,7 +187,7 @@ def _refresh_lock(lock: str) -> None:
         pass
 
 
-def _ensure_staged(paths: Sequence[str], base: str, dtype=np.uint16) -> None:
+def _ensure_staged(paths: Sequence[str], base: str, dtype: Type[np.unsignedinteger] = np.uint16) -> None:
     """Have exactly one process of the job stage the store, everyone else waits on the done marker."""
     import shutil
     import time
@@ -221,7 +227,7 @@ def _ensure_staged(paths: Sequence[str], base: str, dtype=np.uint16) -> None:
         return
 
 
-def load_alignment_store(store_path, dtype=np.uint16) -> MmapAlignmentStore:
+def load_alignment_store(store_path, dtype: Type[np.unsignedinteger] = np.uint16) -> MmapAlignmentStore:
     """
     Opens the staged node-local store, staging it first once per node and store.
 
