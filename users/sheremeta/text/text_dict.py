@@ -10,12 +10,22 @@ __all__ = ["IntersectTextDictJob", "TextDictToRefVariantsJob", "read_text_dict"]
 
 def read_text_dict(path: str) -> dict:
     """
-    :param path: a TextDict, ``{seq_tag: text}`` as a Python literal, gzipped when the name ends in ``.gz``
+    :param path: a TextDict, ``{seq_tag: text}`` as a Python literal with one entry per line, gzipped when the name
+        ends in ``.gz``
     :return: the text of every sequence by its tag
     """
     opener = gzip.open if path.endswith(".gz") else open
+    texts: dict = {}
     with opener(path, "rt", encoding="utf-8") as f:
-        return ast.literal_eval(f.read())
+        assert f.readline().strip() == "{", f"{path} does not open with a brace on a line of its own"
+        # one entry at a time, up to the closing brace
+        for line in f:
+            if line.strip() == "}":
+                return texts
+            entry = ast.literal_eval("{" + line + "}")
+            assert isinstance(entry, dict) and len(entry) == 1, f"{path} holds {line!r} as an entry"
+            texts.update(entry)
+    raise AssertionError(f"{path} ends before its closing brace")
 
 
 class IntersectTextDictJob(Job):
