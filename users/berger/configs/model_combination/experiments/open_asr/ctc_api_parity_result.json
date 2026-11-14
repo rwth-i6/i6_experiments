@@ -1,0 +1,62 @@
+{
+  "num_segments": 2864,
+  "raw_differences": 0,
+  "normalized_differences": 0,
+  "token_differences": 0,
+  "old_score": {
+    "ins": 94,
+    "sub": 1107,
+    "total": 1269,
+    "ref_len": 51460,
+    "del": 68,
+    "wer_percent": 2.465993004275165,
+    "num_scoring_units": 2864,
+    "kaldialign_version": "0.12.0",
+    "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+  },
+  "new_score": {
+    "ins": 94,
+    "sub": 1107,
+    "total": 1269,
+    "ref_len": 51460,
+    "del": 68,
+    "wer_percent": 2.465993004275165,
+    "num_scoring_units": 2864,
+    "kaldialign_version": "0.12.0",
+    "normalizer_revision": "48219c6028db0517d704600d92f31edfc96e8c23"
+  },
+  "equal_edit_counts": true,
+  "max_am_delta_on_equal_paths": 0.0,
+  "max_lm_delta_on_equal_paths": 0.0,
+  "matched_score_paths": 2864,
+  "exact_parity": true,
+  "verdict": "parity",
+  "dataset": "librispeech-dev-other",
+  "old_rasr_commit": "9804f5aa545d1fcf69df4843382a41242eb9f722",
+  "new_rasr_commit": "d000386c08a9b9213238e3cafdeb4291dc0b1775",
+  "scope": "Granite CTC + Speech-Qwen 1.7B, frozen selected prior/FP32 configuration; transformers 5.16.1 only. Does not certify 5.19.0 or other conditions.",
+  "runtime": {
+    "audio_seconds": 18436.265375000006,
+    "elapsed_seconds": 3953.0744049297646,
+    "rtf": 0.21441839355872058,
+    "num_segments": 2864,
+    "kind": "speech",
+    "dtype": "float32",
+    "batch_size": 8
+  },
+  "correction_validation": {
+    "passed": true,
+    "prior_scale": 0.1,
+    "ilm_scale": 0.0,
+    "prior_inventory_checked": true,
+    "prior_shape_checked": true,
+    "transformers_version": "5.16.1"
+  },
+  "source": "/work/asr4/berger/refactor/asr-20261104/ctc-api-parity-dev-other",
+  "evidence_sha256": {
+    "hypotheses.jsonl": "81a8ef237830ead2d7a28b869c98238b6de612115e3debbde73d5fd74e29c33a",
+    "recog.config": "2c93c50a5add387accfbf8abd5304958d98382060bb1ea613ae8273081341f08",
+    "score.json": "6aa3539d54d7466623e169a91afe431b325e83d6a231b84154e5cfd03e10f0e9",
+    "comparison.json": "06475ed2a977b4f46224fe4bdf781c21a13d238bd2c204be0d631ba89ca7c971"
+  }
+}

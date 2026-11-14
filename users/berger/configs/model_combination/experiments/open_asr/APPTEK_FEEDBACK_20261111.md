@@ -3,7 +3,7 @@
 This update was prepared in the isolated `berger_dev` worktree. The live public
 checkout and its running jobs were not modified.
 
-## API parity is a required measurement, not established yet
+## API parity: completed, reviewed 2026-11-14
 
 `9804f5aa` and `d000386c` have incompatible Python scorer APIs and boundary
 configuration keys. The old Granite jobs must not be pointed at the newer binary.
@@ -32,9 +32,11 @@ are running or start a second manager writing its outputs concurrently. With
 `ASR_CTC_PARITY_TRANSFORMERS` defaults to `5.16.1` and is a hashed, enforced input
 of the new recognition. A separate 5.19.0 run needs that environment and a separate
 job. Accepting both library versions is not proof of numerical parity between
-them. This shell has no CUDA or sbatch: the GPU comparison is prepared, **not run**.
-Do not pool AppTek/new-API Granite numbers with old-API public results until the
-comparison has been reviewed.
+them. The submitted GPU comparison has now completed: all 2,864 dev-other segments,
+token paths, transcripts, AM/LM scores and exact edit counts match. WER is
+2.465993004275165% in both APIs. See [the evidence](ctc_api_parity_result.json).
+This validates the selected transfer configuration under transformers 5.16.1;
+5.19.0 is not covered by this result.
 
 ## Frozen settings and prior are now in the repository
 
@@ -135,7 +137,7 @@ assets, comparison of token paths and interrupted/resumed job execution. The
 final graph probe is byte-identical to the original 1,197-job inventory. The
 parity entrypoint constructs seven jobs (one GPU recognition plus its pinned
 build/gate/scoring/comparison dependencies) without rebuilding the full suite.
-The GPU result and an actual reloaded-manager inspection remain pending.
+The GPU result has been reviewed; the public manager has not yet been reloaded.
 
 A standalone batch script is also supplied so the parity check can run now
 without switching the live checkout or starting another Sisyphus manager:
@@ -148,4 +150,4 @@ It uses the existing public image/binary/model/dataset paths, runs native stages
 in separate processes and writes only under
 `/work/asr4/berger/refactor/asr-20261104/ctc-api-parity-dev-other`. It enables
 per-segment resume. Keep that isolated checkout fixed while the batch runs.
-The standalone CPU gate has been executed successfully; its GPU stage has not.
+The standalone CPU gate and GPU stage have completed successfully.

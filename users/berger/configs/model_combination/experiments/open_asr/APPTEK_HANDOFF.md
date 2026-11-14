@@ -91,8 +91,10 @@ the fully resolved commit is recorded above. Speech-Qwen here means the
 
 These have incompatible Python scorer methods and config keys, not merely
 different builds. `CtcQwenRecogJob` supports the d000386c request-based API; the
-old Granite jobs do not. The new public parity run is still pending; do not
-assume the AppTek/new-API results reproduce the old-API public condition.
+old Granite jobs do not. The public parity run now matches exactly on all 2,864 LibriSpeech dev-other
+segments, including token paths and AM/LM scores, under transformers 5.16.1.
+See [the completed parity evidence](ctc_api_parity_result.json). This does not
+establish parity for transformers 5.19.0 or arbitrary configurations.
 Run the corresponding topology, multi-token/casing and one-best/n-best parity
 gates against the **same binary** used for decoding. A newer unified branch can
 be used only after these checks and a public-data smoke comparison. The build
