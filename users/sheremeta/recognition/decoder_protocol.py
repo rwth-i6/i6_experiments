@@ -61,7 +61,7 @@ class MaskedStepDecoder(Protocol[StateT]):
     def initial_state(self, *, batch_size: int, device: torch.device) -> StateT:
         ...
 
-    def step(self, combined: torch.Tensor, state: StateT, active: torch.Tensor) -> Tuple[torch.Tensor, StateT]:
+    def step(self, combined: torch.Tensor, state: StateT, active: torch.Tensor, /) -> Tuple[torch.Tensor, StateT]:
         ...
 
     def reorder_state(self, state: StateT, beam_backrefs: torch.Tensor) -> StateT:
