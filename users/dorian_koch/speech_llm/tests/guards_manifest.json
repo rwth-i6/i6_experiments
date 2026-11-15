@@ -901,5 +901,13 @@
  },
  "recipe/speech_llm/full_duplex/rl_spec/tests/check_rlv2_judge_context.py": {
   "env": "setup"
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_haru_lane_prompts.py": {
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1200
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_haru_rl_generators.py": {
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 1200
  }
 }

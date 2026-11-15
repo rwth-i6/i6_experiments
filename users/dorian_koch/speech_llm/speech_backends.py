@@ -404,7 +404,14 @@ TEACHER_PERSONA = "You are a wise and friendly teacher. Answer questions or prov
 
 
 def haru_family_backend_spec(
-    system_prompt: str = TEACHER_PERSONA, voice: str = HARU_EVAL_VOICE, max_truncated_frac: float | None = None
+    system_prompt: str = TEACHER_PERSONA,
+    voice: str = HARU_EVAL_VOICE,
+    max_truncated_frac: float | None = None,
+    lora_rank: int | None = None,
+    lora_scaling: float = 2.0,
+    temp_text: float | None = None,
+    top_k_text: int | None = None,
+    dry: bool | None = None,
 ) -> BackendSpec:
     """Haru-4B (``higurashi-ai/Haru-4B``) via ``moshi_family.haru`` and the architecture-neutral reply driver
     (``moshi_family.duplex.reply``): ``python -m moshi_family.haru.offline_inference``.
@@ -412,19 +419,29 @@ def haru_family_backend_spec(
     ``system_prompt``: the persona of Haru's character card (``card:<preset>`` = an upstream preset card);
     ``voice``: the reference clip. Both are the same for every clip and both are hashed driver arguments.
     ``max_truncated_frac``: knowledge mode's truncation ceiling (``duplex.reply.run_pairs``); ``None`` = the driver
-    default (0.75), passed only when set."""
+    default (0.75), passed only when set. ``lora_rank``: evaluating a LoRA finetune (``HaruDuplex.save_checkpoint``
+    layout; the harness passes ``--overlay``). ``temp_text`` / ``top_k_text`` / ``dry``: the text sampler (None = the
+    driver's defaults: upstream's demo, T 0.7 / top-k 25 / DRY on); each passed only when set."""
 
     def _venv():
         from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import moshi_family_venv
 
         return moshi_family_venv()
 
+    extra = () if max_truncated_frac is None else ("--max_truncated_frac", str(max_truncated_frac))
+    if lora_rank is not None:
+        extra += ("--lora_rank", str(lora_rank), "--lora_scaling", str(lora_scaling))
+    if temp_text is not None:
+        extra += ("--temp_text", str(temp_text))
+    if top_k_text is not None:
+        extra += ("--top_k_text", str(top_k_text))
+    if dry is not None:
+        extra += ("--dry", "on" if dry else "off")
     return BackendSpec(
-        name="haru_family",
+        name="haru_family" if lora_rank is None else f"haru_family_lora{lora_rank}",
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.haru.offline_inference",
-        offline_extra_args=("--voice", voice, "--system_prompt", system_prompt)
-        + (() if max_truncated_frac is None else ("--max_truncated_frac", str(max_truncated_frac))),
+        offline_extra_args=("--voice", voice, "--system_prompt", system_prompt) + extra,
         inference_venv=_venv,
         rqmt_override={"mem": 32},
     )

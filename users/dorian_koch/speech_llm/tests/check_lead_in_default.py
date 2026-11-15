@@ -48,6 +48,7 @@ KNOWLEDGE_SITES = {
     "speech_llm/full_duplex/moshi_family/kame_engine.py::run_pairs",
     "speech_llm/full_duplex/moshi_family/knowledge_probe.py::run_knowledge_probe",
     "speech_llm/full_duplex/moshi_family/rl/knowledge_segments.py::LEAD_IN_S",
+    "speech_llm/full_duplex/moshi_family/haru/rl.py::HaruRolloutGenerator.__init__",
     "speech_llm/full_duplex/moshi_family/rl/ppx_policy.py::PpxRolloutGenerator.__init__",
     "speech_llm/full_duplex/moshi_family/rl/moshi_policy.py::MoshiRolloutGenerator.__init__",
     "speech_llm/full_duplex/flmaudio/offline_inference.py::--lead_in_s",
