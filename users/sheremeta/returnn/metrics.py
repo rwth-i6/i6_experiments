@@ -266,8 +266,8 @@ def format_metrics_markdown(m: Dict[str, Any]) -> str:
         row("Training device", m["train_device"])
     if has("frame_length_ms"):
         row("Frame length", f"{m['frame_length_ms']} ms")
-    if m.get("delay_frames") is not None:
-        row("Delay", f"{m['delay_frames']} frames")
+    if has("delay_frames", "frame_length_ms"):
+        row("Delay", f"{m['delay_frames'] * m['frame_length_ms'] / 1000:g} s")
     if m.get("spm"):
         row("SPM vocab", m["spm"])
 
