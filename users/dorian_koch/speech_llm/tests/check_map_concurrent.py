@@ -37,15 +37,20 @@ import i6_experiments.users.dorian_koch.speech_llm.mtr_duplexbench as mtr  # noq
 
 
 class Probe:
-    """Counts calls in flight; records completion order."""
+    """Counts calls in flight; records completion order. ``hold``: a call does not return before that many calls
+    have been in flight at once (or 5 s have passed), so the measured peak is the fan-out's real width and not how
+    fast a loaded node starts threads (under a 16-way guard run the peak came out as 61 of 64)."""
 
-    def __init__(self):
-        self.lock, self.now, self.peak, self.finished = threading.Lock(), 0, 0, []
+    def __init__(self, hold=1):
+        self.lock, self.now, self.peak, self.finished = threading.Condition(), 0, 0, []
+        self.hold = hold
 
     def __call__(self, x):
         with self.lock:
             self.now += 1
             self.peak = max(self.peak, self.now)
+            self.lock.notify_all()
+            self.lock.wait_for(lambda: self.peak >= self.hold, timeout=5.0)
         time.sleep(random.Random(x).uniform(0.0, 0.03))
         with self.lock:
             self.now -= 1
@@ -55,7 +60,7 @@ class Probe:
 
 # ---- 1 + 2 ----
 items = list(range(200))
-p = Probe()
+p = Probe(hold=50)
 got = common.map_concurrent(p, items, concurrency=50)
 assert got == [x * x for x in items], "results not in input order"
 assert p.finished != items, "completions arrived in order: the order check would be vacuous"
@@ -100,7 +105,7 @@ assert len(calls) < 2 * 4 + 4, f"fn ran {len(calls)} times after item 0 raised"
 print(f"[3b] the queued items are cancelled after the first exception (fn ran {len(calls)} of 1000 times)")
 
 # ---- 4 ----
-state = Probe()
+state = Probe(hold=min(mtr.MTR_JUDGE_CONCURRENCY, 150))
 
 
 class _Completions:
