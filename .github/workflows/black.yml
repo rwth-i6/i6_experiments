@@ -6,14 +6,16 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 jobs:
   check-black-formatting:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-python@v2
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
       with:
-        python-version: 3.8
+        # Newest Python the pinned tools support: black 22.3.0 fails on Python 3.14 (asyncio.get_event_loop).
+        python-version: "3.13"
     - run: pip install black==22.3.0
     - run: black --diff ./common
     - run: black --check ./common
