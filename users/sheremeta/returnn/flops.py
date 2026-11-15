@@ -47,18 +47,18 @@ def _counts(counter: Any, phase: str) -> Dict[str, Any]:
     return {f"{phase}_flops": int(counter.get_total_flops()), f"{phase}_by_op": by_op}
 
 
-def _batch_size(extern_data: Any, *, config: Any, sample_rate: int, frame_rate: float) -> Dict[str, Any]:
+def _batch_size(extern_data: Any, *, config: Any, sample_rate: int, frame_length_ms: int) -> Dict[str, Any]:
     """
     :param extern_data: the batch of a step
     :param config: the RETURNN config of the run
     :param sample_rate: audio samples per second
-    :param frame_rate: encoder frames per second
+    :param frame_length_ms: length of an encoder frame in ms
     :return: its sequences, its audio, its encoder frames, padded too, and their squares, which the attention over the
         frames grows with
     """
     audio = extern_data[config.typed_value("default_input")]
     lens = audio.dims[1].get_size_tensor().raw_tensor.detach().cpu().long()
-    frames = [math.ceil(int(n) * frame_rate / sample_rate) for n in lens]
+    frames = [math.ceil(int(n) * (1000 / frame_length_ms) / sample_rate) for n in lens]
     size = {
         "num_seqs": len(frames),
         "audio_seconds": float(lens.sum()) / sample_rate,
@@ -81,19 +81,19 @@ class FlopCountingTrainStep:
     """
 
     def __init__(
-        self, train_step: Any, *, num_steps: int, sample_rate: int, frame_rate: float, out_file: str = STEPS_FILE
+        self, train_step: Any, *, num_steps: int, sample_rate: int, frame_length_ms: int, out_file: str = STEPS_FILE
     ):
         """
         :param train_step: the train step of the config
         :param num_steps: the steps counted
         :param sample_rate: audio samples per second
-        :param frame_rate: encoder frames per second
+        :param frame_length_ms: length of an encoder frame in ms
         :param out_file: the file the counts are written to
         """
         self.train_step = train_step
         self.num_steps = num_steps
         self.sample_rate = sample_rate
-        self.frame_rate = frame_rate
+        self.frame_length_ms = frame_length_ms
         self.out_file = out_file
         self._steps: List[Dict[str, Any]] = []
         self._backward: Any = None
@@ -117,7 +117,9 @@ class FlopCountingTrainStep:
                 self._finish()
 
         config = get_global_config()
-        step = _batch_size(extern_data, config=config, sample_rate=self.sample_rate, frame_rate=self.frame_rate)
+        step = _batch_size(
+            extern_data, config=config, sample_rate=self.sample_rate, frame_length_ms=self.frame_length_ms
+        )
         forward = FlopCounterMode(display=False)
         with forward:
             result = self.train_step(model=model, extern_data=extern_data, **kwargs)
@@ -149,7 +151,7 @@ class FlopCountingTrainStep:
 
 
 def probe_config(
-    returnn_config: ReturnnConfig, *, num_steps: int, sample_rate: int, frame_rate: float, model_dir: str
+    returnn_config: ReturnnConfig, *, num_steps: int, sample_rate: int, frame_length_ms: int, model_dir: str
 ) -> ReturnnConfig:
     """
     Turns the config of a training into the config of its FLOP probe: one epoch on one GPU, eager without the graph
@@ -158,7 +160,7 @@ def probe_config(
     :param returnn_config: the config of the training
     :param num_steps: the steps counted
     :param sample_rate: audio samples per second
-    :param frame_rate: encoder frames per second
+    :param frame_length_ms: length of an encoder frame in ms
     :param model_dir: the folder the run would save its checkpoints in
     :return: the config of the probe, the training's left as it is
     """
@@ -189,7 +191,7 @@ def probe_config(
     epilog.append(
         "from i6_experiments.users.sheremeta.returnn.flops import FlopCountingTrainStep\n"
         f"train_step = FlopCountingTrainStep(train_step, num_steps={num_steps}, sample_rate={sample_rate},"
-        f" frame_rate={frame_rate!r})\n"
+        f" frame_length_ms={frame_length_ms!r})\n"
     )
     probe.python_epilog = epilog
     return probe
@@ -270,7 +272,7 @@ class TrainingFlopsJob(Job):
         returnn_python_exe: tk.Path,
         returnn_root: tk.Path,
         sample_rate: int,
-        frame_rate: float,
+        frame_length_ms: int,
         num_steps: int = 30,
         cpu_rqmt: int = 24,
         mem_rqmt: float = 120,
@@ -281,7 +283,7 @@ class TrainingFlopsJob(Job):
         :param returnn_python_exe: the python of the run
         :param returnn_root: the RETURNN checkout of the run
         :param sample_rate: audio samples per second
-        :param frame_rate: encoder frames per second
+        :param frame_length_ms: length of an encoder frame in ms
         :param num_steps: the steps counted
         :param cpu_rqmt: CPUs of the run, for the dataset workers of the training
         :param mem_rqmt: memory of the run in GB
@@ -291,7 +293,7 @@ class TrainingFlopsJob(Job):
         self.returnn_python_exe = returnn_python_exe
         self.returnn_root = returnn_root
         self.sample_rate = sample_rate
-        self.frame_rate = frame_rate
+        self.frame_length_ms = frame_length_ms
         self.num_steps = num_steps
         self.out_returnn_config = self.output_path("returnn.config")
         self.out_models = self.output_path("models", directory=True)
@@ -323,7 +325,7 @@ class TrainingFlopsJob(Job):
             self.returnn_config,
             num_steps=self.num_steps,
             sample_rate=self.sample_rate,
-            frame_rate=self.frame_rate,
+            frame_length_ms=self.frame_length_ms,
             model_dir=self.out_models.get_path(),
         ).write(self.out_returnn_config.get_path())
 

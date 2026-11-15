@@ -39,14 +39,14 @@ def _drop_pseudo_words(words: Sequence[Tuple[str, float, float]]) -> List[Tuple[
     return [(word, start, end) for word, start, end in words if not (word.startswith("<") and word.endswith(">"))]
 
 
-def _load_onsets(store_path: str, *, unit: str, blank: int, frame_rate: float, sp):
+def _load_onsets(store_path: str, *, unit: str, blank: int, frame_length_ms: int, sp):
     """
     Reads the onsets of an align_jsonl CTC store, per word or per token.
 
     :param store_path: the store
     :param unit: "word" or "token"
     :param blank: the blank index of the alignment
-    :param frame_rate: alignment frames per second
+    :param frame_length_ms: length of an alignment frame in ms
     :param sp: the SentencePiece processor of the labels
     :return: per seq_tag the labels and their onsets in seconds
     """
@@ -67,7 +67,7 @@ def _load_onsets(store_path: str, *, unit: str, blank: int, frame_rate: float, s
                 frames = [fr for fr, _ in tok_onsets]
             else:
                 labels, frames = token_onsets_to_words(tok_onsets, sp)
-            out[str(rec["seq_tag"])] = (labels, np.asarray(frames, dtype="float64") / frame_rate)
+            out[str(rec["seq_tag"])] = (labels, np.asarray(frames, dtype="float64") / (1000 / frame_length_ms))
     return out
 
 
@@ -116,12 +116,12 @@ class CtcAlignToWordOnsetsJob(Job):
 
     __sis_version__ = 1
 
-    def __init__(self, *, ctc_store: tk.Path, spm_file: tk.Path, vocab_size: int, frame_rate: float):
+    def __init__(self, *, ctc_store: tk.Path, spm_file: tk.Path, vocab_size: int, frame_length_ms: int):
         super().__init__()
         self.ctc_store = ctc_store
         self.spm_file = spm_file
         self.vocab_size = int(vocab_size)
-        self.frame_rate = float(frame_rate)
+        self.frame_length_ms = int(frame_length_ms)
         self.out_store = self.output_path("word_onsets.jsonl.gz")
 
     def tasks(self):
@@ -132,7 +132,7 @@ class CtcAlignToWordOnsetsJob(Job):
 
         sp = spm.SentencePieceProcessor(model_file=self.spm_file.get_path())
         onsets = _load_onsets(self.ctc_store.get_path(), unit="word", blank=self.vocab_size,
-                              frame_rate=self.frame_rate, sp=sp)
+                              frame_length_ms=self.frame_length_ms, sp=sp)
         _write_word_onset_store(self.out_store.get_path(), onsets)
 
 
@@ -360,13 +360,13 @@ class PerturbationConsistencyJob(Job):
     __sis_version__ = 3
 
     def __init__(self, *, stores: Dict[str, tk.Path], spm_file: tk.Path, vocab_size: int,
-                 frame_rate: float, unit: str = "word", subset_regex: Optional[str] = None):
+                 frame_length_ms: int, unit: str = "word", subset_regex: Optional[str] = None):
         super().__init__()
         assert "orig" in stores, "need the unperturbed 'orig' store as reference"
         self.stores = stores
         self.spm_file = spm_file
         self.blank = int(vocab_size)
-        self.frame_rate = float(frame_rate)
+        self.frame_length_ms = int(frame_length_ms)
         self.unit = unit
         self.subset_regex = subset_regex
         self.out_summary = self.output_path("summary.json")
@@ -390,7 +390,7 @@ class PerturbationConsistencyJob(Job):
 
         def load(p):
             return _load_onsets(p.get_path(), unit=self.unit, blank=self.blank,
-                                frame_rate=self.frame_rate, sp=sp)
+                                frame_length_ms=self.frame_length_ms, sp=sp)
 
         base = load(self.stores["orig"])
         per_pair = []
@@ -566,7 +566,7 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         alignment_hdf: tk.Path,
         spm_file: tk.Path,
         blank: int,
-        frame_rate: float,
+        frame_length_ms: int,
         returnn_root: tk.Path,
         merge_repeats: bool = True,
         frame_offset: int = 0,
@@ -575,7 +575,7 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         :param alignment_hdf: per sequence the label or the blank of every frame
         :param spm_file: the SentencePiece model of the labels
         :param blank: the blank index
-        :param frame_rate: frames per second
+        :param frame_length_ms: length of a frame in ms
         :param returnn_root: the RETURNN checkout that reads and writes the HDFs
         :param merge_repeats: whether a label on adjacent frames is one token, as in a CTC path, else every frame is one
         :param frame_offset: the frame that is second 0, the delay of a delayed text stream
@@ -584,7 +584,7 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
         self.alignment_hdf = alignment_hdf
         self.spm_file = spm_file
         self.blank = int(blank)
-        self.frame_rate = float(frame_rate)
+        self.frame_length_ms = int(frame_length_ms)
         self.returnn_root = returnn_root
         self.merge_repeats = merge_repeats
         self.frame_offset = int(frame_offset)
@@ -620,7 +620,7 @@ class CtcAlignmentHdfToWordBoundariesJob(Job):
             path: List[int] = np.asarray(alignment.get_data(i, "data"), dtype=np.int64).reshape(-1).tolist()
             spans = path_to_word_spans(path, self.blank, pieces, merge_repeats=self.merge_repeats)
             frames = np.asarray(spans, dtype=np.float32).reshape(1, len(spans), 2) - np.float32(self.frame_offset)
-            seconds = frames / np.float32(self.frame_rate)
+            seconds = frames / np.float32(1000 / self.frame_length_ms)
             writer.insert_batch(seconds, seq_len=[len(spans)], seq_tag=[alignment.get_tag(i)])
         writer.close()
 
@@ -801,20 +801,20 @@ class TokenFrameOffsetJob(Job):
     __sis_version__ = 1
 
     def __init__(
-        self, *, path_hdf: tk.Path, target_hdf: tk.Path, blank: int, frame_rate: float, returnn_root: tk.Path
+        self, *, path_hdf: tk.Path, target_hdf: tk.Path, blank: int, frame_length_ms: int, returnn_root: tk.Path
     ):
         """
         :param path_hdf: per sequence the label or the blank of every frame of the path
         :param target_hdf: per sequence the label or the blank of every frame of the targets, on the frames of the path
         :param blank: the code of a frame without a label, in both files
-        :param frame_rate: frames per second
+        :param frame_length_ms: length of a frame in ms
         :param returnn_root: the RETURNN checkout that reads the HDFs
         """
         super().__init__()
         self.path_hdf = path_hdf
         self.target_hdf = target_hdf
         self.blank = int(blank)
-        self.frame_rate = float(frame_rate)
+        self.frame_length_ms = int(frame_length_ms)
         self.returnn_root = returnn_root
         self.out_summary = self.output_path("summary.json")
         self.out_report = self.output_path("report.txt")
@@ -859,7 +859,11 @@ class TokenFrameOffsetJob(Job):
             "n_tokens": int(pooled.size),
             "failures": failures,
             "offset_frames": frames,
-            "offset_ms": {key: 1000.0 * value / self.frame_rate for key, value in frames.items()} if frames else None,
+            "offset_ms": (
+                {key: 1000.0 * value / (1000 / self.frame_length_ms) for key, value in frames.items()}
+                if frames
+                else None
+            ),
             "share_exact": float(np.mean(pooled == 0)) if pooled.size else None,
             "histogram_frames": _counts(pooled),
         }
