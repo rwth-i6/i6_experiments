@@ -31,8 +31,9 @@ import tempfile
 
 import numpy as np
 
-from moshi_family.personaplex import live_server as ls
-from moshi_family.personaplex import voice_index as vx
+from moshi_family.live import server as ls
+from moshi_family.live import voice_index as vx
+from moshi_family.personaplex.live import LiveCore
 
 FAILS: list[str] = []
 DIST = "/hpcwork/p0023999/common_hf_home/hub/models--nvidia--personaplex-7b-v1/snapshots/*/dist"
@@ -162,7 +163,7 @@ def main() -> int:
             check(True, "1f unknown pool raises")
         c = vi.clip_codes("clip:jre/e1/SPEAKER_01")
         check(c.shape == (8, 34) and c.dtype == np.int64 and (c == 2).all(), "2a clip codes trimmed to n_frames")
-        core = ls.LiveCore(object(), object(), None, None, "cpu", voice_index=vi)
+        core = LiveCore(object(), object(), None, None, "cpu", voice_index=vi)
         check(
             np.array_equal(core.jre_codes("clip:jre/e2/SPEAKER_00"), vi.clip_codes("clip:jre/e2/SPEAKER_00")),
             "2b LiveCore.jre_codes routes clip: voices to the index",

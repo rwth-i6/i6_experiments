@@ -70,8 +70,15 @@ def _moshi_family_pythonpath() -> str:
 #: kyutai/personaplex-rl-seamless, kyutai/moshiko|moshika-pytorch-bf16, kyutai/moshika-rl-seamless; a repo without
 #: config.json raises LocalEntryNotFoundError, which loaders' ``except EntryNotFoundError`` still catches). They run
 #: with HF offline mode (``common.worker_env``). Every other driver (Audex: the trunk downloads lazily; MoshiRAG,
-#: KAME, FLM-Audio, fork scripts) stays online.
-HF_OFFLINE_DRIVERS = frozenset({"moshi_family.offline_inference", "moshi_family.personaplex.offline_inference"})
+#: KAME, FLM-Audio, fork scripts) stays online. Haru (verified 2026-11-15 with HF_HUB_OFFLINE=1: config.json,
+#: model.safetensors, tokenizer.json of higurashi-ai/Haru-4B; its evaluation voice is a file, no Mimi).
+HF_OFFLINE_DRIVERS = frozenset(
+    {
+        "moshi_family.offline_inference",
+        "moshi_family.personaplex.offline_inference",
+        "moshi_family.haru.offline_inference",
+    }
+)
 
 
 @dataclass

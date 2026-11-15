@@ -1,7 +1,7 @@
 """Guard: the live page's mic-health badge and the server's own view of the input level.
 
 2026-09-25: the first live sessions failed because the mic clipped hard, and nothing on the page
-said so. ``moshi_family/personaplex/mic_health.js`` (served by the patched client) measures the raw mic
+said so. ``moshi_family/live/mic_health.js`` (served by the patched client) measures the raw mic
 samples before NVIDIA's Opus encoder and shows Clipping! / Too quiet / OK / No speech; the server records
 ``input_clip_share`` (decoded input at ``|x| >= 0.99``), serves the last 2 s at ``/api/stats`` ``live`` and
 keeps the page's ``/api/client_mic`` report as ``client_mic``. Checks:
@@ -38,7 +38,7 @@ import tempfile
 
 import numpy as np
 
-from moshi_family.personaplex import live_server as ls
+from moshi_family.live import server as ls
 
 FAILS: list[str] = []
 

@@ -1,4 +1,4 @@
-"""Guard: the live server's adaptive jitter target (``moshi_family.personaplex.jitter.JitterTarget``).
+"""Guard: the live server's adaptive jitter target (``moshi_family.live.jitter.JitterTarget``).
 
 The live-mic server steps the model on its own 80 ms clock from a queue whose size this controller picks
 (2026-09-24; a tester's tunnel delivered mic audio with gap p95 204 ms, max 719 ms). On synthetic arrival
@@ -11,6 +11,10 @@ traces (``simulate_arrivals`` + ``random_stalls``, pure Python, no torch):
      the floor within 30 s, one frame per hold period (never below the floor).
   4. BOUNDS. On 5 seeded traces with long stalls the target never leaves [floor, ceiling].
   5. CAN FAIL. A controller without the ceiling violates 4; one that never shrinks violates 3.
+  6. START-UP FILL. On a perfectly steady stream the paced loop (``simulate_queue``) never underruns when the first
+     tick waits for one frame + ``fill_slack``: 133 ms frames (Haru) with 20 / 40 / 80 ms packets, 80 ms frames
+     with 20 / 40 / 80 ms packets (slack 0: nothing changes for PersonaPlex / Moshi). CAN FAIL: without the slack,
+     133 ms frames on 80 ms packets underrun at the second tick (measured 2026-11-15 in every Haru session).
 
 Run (any python3 with the recipe on PYTHONPATH; seconds)::
 
@@ -20,7 +24,7 @@ Run (any python3 with the recipe on PYTHONPATH; seconds)::
 
 import statistics
 
-from moshi_family.personaplex.jitter import JitterTarget, random_stalls, simulate_arrivals
+from moshi_family.live.jitter import JitterTarget, fill_slack, random_stalls, simulate_arrivals, simulate_queue
 
 
 def run(ctrl, arrivals):
@@ -78,6 +82,11 @@ def main():
     assert not bounded(_NoCeiling), "check 4 passes without the ceiling: it cannot fail"
     assert not spike_ok(_NoShrink), "check 3 passes without shrinking: it cannot fail"
     print("[ok] 5 no-ceiling and never-shrink controllers fail checks 4 and 3 (the guard can fail)")
+    for frame, packet in ((3200, 480), (3200, 960), (3200, 1920), (1920, 480), (1920, 960), (1920, 1920)):
+        assert simulate_queue(frame, packet, frame + fill_slack(frame, packet)) == 0, (frame, packet)
+    assert all(fill_slack(1920, p) == 0 for p in (480, 960, 1920)), "80 ms frames must need no slack"
+    assert simulate_queue(3200, 1920, 3200) > 0, "check 6 passes without the slack: it cannot fail"
+    print("[ok] 6 start-up fill: no underrun on a steady stream with frame + fill_slack; 133/80 ms underruns without")
     print("\nALL CHECKS PASSED")
 
 

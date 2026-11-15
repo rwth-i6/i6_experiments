@@ -3,7 +3,7 @@
 The server keeps ONE model loaded and serves conversation after conversation. PersonaPlex's LM is
 streaming-detached from its LMGen, so a reset that does not reach it silently continues the previous
 conversation's KV cache and positions (the 2026-08-01 -> 09-22 reset bug, check_ppx_reset.py).
-This drives the server's own session code, ``live_server.LiveCore.begin_sync`` (what the server runs on
+This drives the server's own session code, ``personaplex.live.LiveCore.begin_sync`` (what the server runs on
 its model thread since 2026-09-24) + ``step_codes``, on a
 tiny random PersonaPlex LM (real LMModel + LMGen, greedy, float64):
 
@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duple
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from moshi_family.personaplex.live_server import LiveCore  # noqa: E402
+from moshi_family.personaplex.live import LiveCore  # noqa: E402
 from moshi_family.personaplex.models import loaders  # noqa: E402
 from moshi_family.personaplex.models.lm import LMGen, LMModel  # noqa: E402
 

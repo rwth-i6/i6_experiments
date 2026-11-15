@@ -396,6 +396,35 @@ def kame_family_backend_spec(hf_repo: str = "SakanaAI/kame", inject_at_s: float 
     )
 
 
+#: The reference voice of the Haru evaluations: the voice bank's ``jre00`` prompt (4 s) as audio. A file, so the
+#: driver needs no Mimi; its path is in the hashed driver arguments.
+HARU_EVAL_VOICE = "/hpcwork/p0023999/tt201262/talk/voice_bank/previews/jre00.wav"
+#: PersonaPlex's default role (``moshi_family.personaplex.engine.DEFAULT_SYSTEM_PROMPT``), as Haru's persona.
+TEACHER_PERSONA = "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way."
+
+
+def haru_family_backend_spec(system_prompt: str = TEACHER_PERSONA, voice: str = HARU_EVAL_VOICE) -> BackendSpec:
+    """Haru-4B (``higurashi-ai/Haru-4B``) via ``moshi_family.haru`` and the architecture-neutral reply driver
+    (``moshi_family.duplex.reply``): ``python -m moshi_family.haru.offline_inference``.
+
+    ``system_prompt``: the persona of Haru's character card (``card:<preset>`` = an upstream preset card);
+    ``voice``: the reference clip. Both are the same for every clip and both are hashed driver arguments."""
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import moshi_family_venv
+
+        return moshi_family_venv()
+
+    return BackendSpec(
+        name="haru_family",
+        server=None,  # end-to-end + causal: offline driver, no websocket server
+        offline_module="moshi_family.haru.offline_inference",
+        offline_extra_args=("--voice", voice, "--system_prompt", system_prompt),
+        inference_venv=_venv,
+        rqmt_override={"mem": 32},
+    )
+
+
 def flm_audio_backend_spec(hf_repo: str = "CofeAI/FLM-Audio") -> BackendSpec:
     """FLM-Audio (arXiv 2509.02521): a native full-duplex ~7B speech chatbot with its own FLM
     backbone over the Mimi codec, vendored at ``speech_llm.full_duplex.flmaudio`` for *inference

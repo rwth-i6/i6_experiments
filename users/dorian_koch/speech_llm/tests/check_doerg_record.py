@@ -32,7 +32,7 @@ import tempfile
 
 import numpy as np
 
-from moshi_family.personaplex import live_server as ls
+from moshi_family.live import server as ls
 
 FAILS: list[str] = []
 SR = 24000
