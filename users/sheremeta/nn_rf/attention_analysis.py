@@ -346,7 +346,7 @@ def maps_from_npz(path: str) -> List[Dict[str, Any]]:
     entries = []
     for i, tag in enumerate(arrays["seq_tags"]):
         entry: Dict[str, Any] = {"seq_tag": str(tag)}
-        for field in ("encoder", "decoder", "text_codes", "emits", "encoder_frames", "decoder_frames"):
+        for field in ("encoder", "decoder", "text_stream", "emits", "encoder_frames", "decoder_frames"):
             if f"{i}_{field}" in arrays.files:
                 entry[field] = arrays[f"{i}_{field}"]
         entries.append(entry)
