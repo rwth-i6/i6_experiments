@@ -52,7 +52,7 @@ def extend(
     *,
     blank_id: int,
     pad_id: int,
-    word_id: int,
+    word_token_id: int,
 ) -> Tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]:
@@ -65,7 +65,7 @@ def extend(
     """
     B, P = cand.shape
     T = x.shape[1]
-    is_real = (cand != pad_id) & (cand != word_id)  # shape: (B, P)
+    is_real = (cand != pad_id) & (cand != word_token_id)  # shape: (B, P)
 
     # frame scores for each proposed label and for blank
     x_c = torch.gather(x, 2, cand.unsqueeze(1).expand(B, T, P)).transpose(1, 2)
