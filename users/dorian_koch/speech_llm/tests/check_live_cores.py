@@ -15,6 +15,11 @@ the real ``LiveServer.handle_chat`` (fake cores, aiohttp test client, CPU) and t
      JRE ids only. With ``pt_voices=True`` the list keeps them.
   5. FAMILIES. Every ``FAMILIES`` module imports and has ``add_live_args`` / ``build_live_core``; each parser accepts
      its own flags, and ``--family`` selects the flag set (``--guidance_scale`` is Haru's, not PersonaPlex's).
+  6. THE CORE IS ONE LANE OF AN ADAPTER (``cores.SessionCore``, every family's core). A session that emits a frame
+     before it hears (Haru) gives that frame together with the first reply, in track order; a session with an
+     initial delay (Moshi) gives nothing until it emits; a session without pieces gets its text from
+     ``adapter.piece`` (no text for PAD); ``info`` / ``done`` reach the server's record fields; every conversation
+     is a new session. CAN FAIL: a core that drops the frames of ``start``.
 
 moshi_family venv, CPU, seconds::
 
@@ -45,6 +50,93 @@ def check(ok: bool, what: str) -> None:
     print(("PASS " if ok else "FAIL ") + what, flush=True)
     if not ok:
         FAILS.append(what)
+
+
+class FakeSession:
+    """A seam session of one lane: ``lead`` frames from ``start``, none for the first ``delay`` steps, ``done`` after
+    ``max_steps``. Frame ``k`` of its track is filled with the value ``k`` and has text id ``k`` (id 3 = PAD)."""
+
+    def __init__(self, adapter):
+        self.a, self.k, self.steps = adapter, 0, 0
+        self.info = {"family": "fake", "opened": adapter.opened}
+
+    def _frames(self, n):
+        from moshi_family.duplex import Frames
+
+        fs = self.a.spec.frame_samples
+        ids = np.arange(self.k, self.k + n, dtype=np.int64)[None]
+        audio = np.repeat(ids.astype(np.float32), fs, axis=1)
+        self.k += n
+        pieces = [[f"<{i}>" for i in ids[0]]] if self.a.pieces else []
+        return Frames(audio=audio, text_ids=ids, pieces=pieces)
+
+    def start(self, voice=None, role=None, clips=None):
+        return self._frames(self.a.lead)
+
+    def step(self, user_pcm):
+        assert user_pcm.shape == (1, self.a.spec.frame_samples), user_pcm.shape
+        self.steps += 1
+        return self._frames(0 if self.steps <= self.a.delay else 1)
+
+    @property
+    def done(self):
+        return self.a.max_steps is not None and self.steps >= self.a.max_steps
+
+
+class FakeAdapter:
+    def __init__(self, lead=0, delay=0, pieces=False, max_steps=None):
+        import types
+
+        self.spec = types.SimpleNamespace(frame_samples=8, frame_s=8 / 24000, sample_rate=24000)
+        self.lead, self.delay, self.pieces, self.max_steps, self.opened = lead, delay, pieces, max_steps, 0
+
+    def open(self, batch=1):
+        assert batch == 1
+        self.opened += 1
+        return FakeSession(self)
+
+    def piece(self, token):
+        return "" if token == 3 else f"p{token}"
+
+
+def check_session_core():
+    x = np.zeros(8, np.float32)
+
+    def track(core, steps):
+        core.begin_sync("v", "role")
+        return [[(int(a[0]), len(a), t) for a, t in core.step_pcm(x)] for _ in range(steps)]
+
+    haru = track(cores.SessionCore(FakeAdapter(lead=1, pieces=True)), 3)
+    check(
+        haru == [[(0, 8, "<0>"), (1, 8, "<1>")], [(2, 8, "<2>")], [(3, 8, "<3>")]],
+        f"6a a session that speaks first: frame 0 comes with the first reply, in track order ({haru[0]})",
+    )
+    moshi = track(cores.SessionCore(FakeAdapter(delay=2)), 6)
+    check(
+        moshi[:2] == [[], []] and moshi[2:] == [[(0, 8, "p0")], [(1, 8, "p1")], [(2, 8, "p2")], [(3, 8, None)]],
+        f"6b an initial delay gives nothing; text comes from adapter.piece, none for PAD ({moshi[2:]})",
+    )
+    core = cores.SessionCore(FakeAdapter(max_steps=2), default_voice="d", pt_voices=False)
+    done = []
+    for _ in range(2):  # two conversations
+        core.begin_sync(None, None)
+        done.append([core.session_done] + [(core.step_pcm(x), core.session_done)[1] for _ in range(2)])
+    check(
+        done == [[False, False, True]] * 2 and core.session_info == {"family": "fake", "opened": 2},
+        f"6c done and info are the session's, and every conversation is a new session ({done}, {core.session_info})",
+    )
+    check(
+        (core.frame_size, core.default_voice, core.pt_voices, core.jre_voices) == (8, "d", False, None),
+        "6d frame size from the adapter's spec; the page's voice defaults from the family",
+    )
+
+    class DropsStart(cores.SessionCore):
+        def begin_sync(self, voice, text_prompt):
+            super().begin_sync(voice, text_prompt)
+            self._first = None
+
+    bad = track(DropsStart(FakeAdapter(lead=1, pieces=True)), 3)
+    check(bad != haru, "6e CAN FAIL: a core that drops the frames of start loses frame 0")
 
 
 class FakeCore:
@@ -209,6 +301,7 @@ def main() -> int:
         check(True, "5b --guidance_scale is not a PersonaPlex flag")
     cores.family_module("haru").add_live_args(p := argparse.ArgumentParser())
     check(p.parse_args(["--guidance_scale", "1.2"]).guidance_scale == 1.2, "5c --guidance_scale is a Haru flag")
+    check_session_core()
     print("\nALL PASS" if not FAILS else f"\n{len(FAILS)} FAILED: {FAILS}")
     return 1 if FAILS else 0
 

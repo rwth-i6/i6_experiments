@@ -20,6 +20,9 @@
   4. SMALL CONTEXT. The same weights built with a context just large enough for the frames stepped
      give exactly the full-context output (the context sizes only the KV cache and the attention
      window); a context smaller than that is refused, not silently wrapped.
+  5. UNEVEN PROMPTS. One conversation whose two sides have prompts of different length (the seam's loop,
+     ``duplex.selfplay.selfplay_native``): the side past its prompt first hears silence until its partner is past
+     its own, then the partner's previous-step frame. Passing a side's prompt frames on must FAIL.
 
 moshi_family venv, CPU, seconds (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && python \
@@ -192,7 +195,8 @@ class FakeGen:
 def fake_model(side):
     g = FakeGen(side)
     mimi = types.SimpleNamespace(reset_streaming=lambda: None)
-    return types.SimpleNamespace(lm_gen=g, mimi=mimi, other_mimi=mimi)
+    g._frame_size = 1920
+    return types.SimpleNamespace(lm_gen=g, mimi=mimi, other_mimi=mimi, sample_rate=24000, text_tokenizer=None)
 
 
 import moshi_family.personaplex.selfplay as sp  # noqa: E402
@@ -248,7 +252,8 @@ def make_model():
         frame_rate=12.5,
     )
     g.streaming_forever(1)
-    return types.SimpleNamespace(lm_gen=g, mimi=Dummy(), other_mimi=Dummy())
+    g._frame_size = 1920
+    return types.SimpleNamespace(lm_gen=g, mimi=Dummy(), other_mimi=Dummy(), sample_rate=24000, text_tokenizer=None)
 
 
 # Rows differ in prompt length ACROSS rows (voice 50/44/47 frames, text 5/9/2 tokens); within a row
@@ -306,7 +311,8 @@ def make_model_ctx(ctx):
     lm.load_state_dict(base_lm.state_dict())
     g = LMGen(lm, device="cpu", use_sampling=False, audio_silence_frame_cnt=SIL, sample_rate=24000, frame_rate=12.5)
     g.streaming_forever(1)
-    return types.SimpleNamespace(lm_gen=g, mimi=Dummy(), other_mimi=Dummy())
+    g._frame_size = 1920
+    return types.SimpleNamespace(lm_gen=g, mimi=Dummy(), other_mimi=Dummy(), sample_rate=24000, text_tokenizer=None)
 
 
 steps = int(max(la.max(), lb.max())) + NF
@@ -320,4 +326,50 @@ try:
 except AssertionError as e:
     assert "exceed the LM context" in str(e), e
 print(f"[4] context {steps} (= frames stepped) == context {kw['context']}; context {steps - 1} is refused")
+# ---- 5 ----
+# The two sides of ONE conversation with prompts of different length: the side that is past its prompt first hears
+# silence until its partner is past its own, then the partner's previous-step frame.
+import inspect  # noqa: E402
+
+import moshi_family.duplex.selfplay as seam_sp  # noqa: E402
+
+
+def run_uneven():
+    a, b = make_model(), make_model()
+    heard = []
+    real_step = a.lm_gen.step
+    a.lm_gen.step = lambda x: (heard.append(x[0, :, 0].clone()), real_step(x))[1]
+    va, vb = rng2.integers(0, 2048, size=(8, 30)), rng2.integers(0, 2048, size=(8, 50))
+    ((_, _), (cb5, _)), (la5, lb5) = sp.converse_batched(
+        a, b, voices_a=[va], texts_a=[[7, 8]], voices_b=[vb], texts_b=[[9, 10, 11, 12, 13, 14]], n_frames=NF,
+        silence_frames=SIL,
+    )
+    la5, lb5 = int(la5[0]), int(lb5[0])
+    sil5 = a.lm_gen._encode_zero_frame()[0, :, 0]
+    quiet = all(torch.equal(heard[t], sil5) for t in range(la5, lb5 + 1))
+    cross = all(torch.equal(heard[lb5 + 1 + j], torch.as_tensor(cb5[0][:, j]).long()) for j in range(NF - 1))
+    return la5, lb5, quiet, cross
+
+
+rng2 = np.random.default_rng(5)
+la5, lb5, quiet, cross = run_uneven()
+assert lb5 - la5 >= 10, (la5, lb5)
+assert quiet, "a side past its prompt heard its partner's prompt frames"
+assert cross, "after both prompts a side does not hear its partner's previous-step frame"
+src = inspect.getsource(seam_sp.selfplay_native)
+gate = "last[k] = torch.where(t >= speaks[k], f.rep, silence)"
+assert src.count(gate) == 1, "the mutant's line is gone: update this check"
+real_native, ns = seam_sp.selfplay_native, dict(vars(seam_sp))
+exec(src.replace(gate, "last[k] = f.rep"), ns)  # mutant: a side's prompt frames are passed on to its partner
+seam_sp.selfplay_native = ns["selfplay_native"]
+try:
+    rng2 = np.random.default_rng(5)
+    _, _, quiet_m, _ = run_uneven()
+finally:
+    seam_sp.selfplay_native = real_native
+assert not quiet_m, "guard is vacuous: passing prompt frames on was not seen"
+print(
+    f"[5] one conversation, prompts of {la5} and {lb5} frames: the early side hears silence for steps {la5}..{lb5}, "
+    f"then its partner's previous frame; passing prompt frames on is caught"
+)
 print("OK")

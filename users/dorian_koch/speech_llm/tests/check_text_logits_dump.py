@@ -5,7 +5,7 @@ re-implements the released text sampling call. Two ways it could silently go wro
 differently (the probe's replies would then no longer be the scored benchmark replies its logits are meant to
 explain), or its rows are misaligned with the frames (a logit row labelled frame t would describe another frame).
 Through the REAL ``engine.run_pairs`` (B=1 serial and the B=2 batched path, 3 clips of different lengths), tiny
-random PersonaPlex LM (real LMModel + LMGen, sampling on, temp 0.7 / top-k 25), stub voice/system components and
+random PersonaPlex LM (real LMModel + LMGen, sampling on, temp 0.7 / top-k 25), no voice, a stub tokenizer and
 a stateless stub Mimi:
 
   1. UNCHANGED. Same seed with and without the recorder -> byte-identical reply wavs.
@@ -38,7 +38,6 @@ import numpy as np  # noqa: E402
 import sphn  # noqa: E402
 import torch  # noqa: E402
 
-import moshi_family.personaplex.components as components  # noqa: E402
 from moshi_family.personaplex import engine  # noqa: E402
 from moshi_family.personaplex.models import loaders  # noqa: E402
 from moshi_family.personaplex.models.lm import LMGen, LMModel  # noqa: E402
@@ -99,24 +98,8 @@ class StubTok:
     def id_to_piece(self, i):
         return f"▁w{i}"
 
-
-class StubVoice:
-    def __init__(self, *_a, **_k):
-        pass
-
-    def load(self, model, hf_repo):
-        pass
-
-
-class StubSystem:
-    def __init__(self, *_a, **_k):
-        pass
-
-    def configure_generation(self, lm_gen, *, tokenizer, clip_key=None):
-        lm_gen.text_prompt_tokens = [5, 6, 7]
-
-
-components.VoicePrompt, components.SystemPrompt = StubVoice, StubSystem
+    def encode(self, text):  # the system prompt's ids
+        return [5, 6, 7]
 
 
 def make_model():
@@ -183,7 +166,7 @@ def run(B, name, recorder_cls=None):
         m.lm_gen.step, rec.start = spy, start_group
     torch.manual_seed(1234)
     with contextlib.redirect_stdout(open(os.devnull, "w")):
-        engine.run_pairs(m, pairs, hf_repo="stub", lead_in_s=LEAD, capture_s=CAP, batch_size=B, recorder=rec)
+        engine.run_pairs(m, pairs, hf_repo="stub", voice=None, lead_in_s=LEAD, capture_s=CAP, batch_size=B, recorder=rec)
         if rec is not None:
             rec.save(str(out / "dump"), "text_logits.test", frame_rate=FR)
     wavs = [sphn.read(o)[0] for _, o in pairs]

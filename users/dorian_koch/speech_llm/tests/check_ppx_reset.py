@@ -85,7 +85,8 @@ def make_model(hook: bool = True):
         frame_rate=12.5,
     )
     g.streaming_forever(1)
-    return types.SimpleNamespace(lm_gen=g, mimi=_NoMimi(), other_mimi=_NoMimi())
+    g._frame_size = 1920
+    return types.SimpleNamespace(lm_gen=g, mimi=_NoMimi(), other_mimi=_NoMimi(), sample_rate=24000, text_tokenizer=None)
 
 
 def lm_positions(m):

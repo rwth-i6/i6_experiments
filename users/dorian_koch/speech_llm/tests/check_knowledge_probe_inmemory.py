@@ -30,6 +30,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_dir())
@@ -54,6 +55,7 @@ from speech_llm.full_duplex.moshi_family.moshi_engine import (  # noqa: E402
 )
 
 SR = 24000
+FRAME = 1920
 N_CLIPS = 5
 BATCH = 2
 #: Token ids the decoder must drop (EPAD 0, BOS 1, EOS 2, PAD 3: text_trace.decode_monologue, which run_pairs uses).
@@ -68,30 +70,44 @@ class _FakeTokenizer:
 
 
 class _FakeState:
+    """The streaming pieces the seam's Moshi session steps (``moshi_duplex``): codec + ``LMGen``, one frame per call.
+
+    Row b gets a distinguishable monologue so a positional mix-up between clips is visible, and every frame has
+    audible energy at its end so the truncation branch is exercised on the disk path too.
+    """
+
+    frame_size = FRAME
+
     def __init__(self, batch_size):
         self.text_tokenizer = _FakeTokenizer()
         self.batch_size = batch_size
         self.mimi = self
         self.lm_gen = self
+        self.lm_model = types.SimpleNamespace(delays=[0, 1])
+        self._calls = 0
 
     def reset_streaming(self):
-        pass
+        self._calls = 0
 
-    def run(self, in_pcms):
-        """Return ``[(text_tokens, audio)]`` per batch row, the shape run_pairs unpacks.
+    def encode(self, pcm):
+        return torch.zeros(pcm.shape[0], 8, 1, dtype=torch.long)
 
-        Row b gets a distinguishable monologue so a positional mix-up between clips is visible, and
-        audible tail energy so the truncation branch is exercised on the disk path too.
-        """
-        bs = in_pcms.shape[0]
-        out = []
-        for b in range(bs):
+    def step(self, codes):
+        self._calls += 1
+        if self._calls == 1:  # the first step only fills the delay
+            return None
+        k = self._calls - 2
+        out = torch.zeros(codes.shape[0], 9, 1, dtype=torch.long)
+        for b in range(codes.shape[0]):
             # word ids >= 4: 1 / 2 are the tokenizer's <s> / </s>, dropped like PAD / EPAD (check_monologue_decode)
-            toks = torch.tensor([6, 7, 0, 4, 3, 5 if b % 2 == 0 else 6])
-            audio = torch.zeros(1, SR // 2)
-            audio[0, -100:] = 0.5  # non-silent tail -> "possibly truncated"
-            out.append((toks, audio))
+            toks = [6, 7, 0, 4, 3, 5 if b % 2 == 0 else 6]
+            out[b, 0, 0] = toks[k] if k < len(toks) else 3
         return out
+
+    def decode(self, tokens):
+        audio = torch.zeros(tokens.shape[0], 1, FRAME)
+        audio[:, 0, -100:] = 0.5  # non-silent tail -> "possibly truncated"
+        return audio
 
 
 class _FakeModel:
@@ -221,7 +237,7 @@ def check_truncation_accounting_survives_without_a_directory():
                 tail_check_s=0.01,
                 progress_every=0,
             )
-        except AssertionError as e:
+        except RuntimeError as e:
             assert "capture window" in str(e), e
         else:
             raise SystemExit("FAIL: a 100% truncation rate did not trip max_truncated_frac")
@@ -279,8 +295,9 @@ def check_keep_audio_returns_pcm_without_writing():
             assert isinstance(u, np.ndarray) and isinstance(a, np.ndarray), (type(u), type(a))
             # Sample-aligned means SAME LENGTH; a length mismatch is a time offset by another name.
             assert u.shape == a.shape, (u.shape, a.shape)
-            # Trimmed to the shorter of (input, output) -- the fake model's reply is SR//2.
-            assert u.shape == (SR // 2,), u.shape
+            # Trimmed to the shorter of (input, output): the reply is the input's full frames (1 s clip + 2 s lead-in
+            # + 0.1 s capture = 74400 samples -> 38 frames), the input has a partial frame more.
+            assert u.shape == (38 * FRAME,), u.shape
         # The retained clips are the FIRST ones in input order, so the same questions are captured
         # at every probe step and the run is comparable to itself over time.
         # Default stays off: a run that does not ask for audio must retain nothing at all.

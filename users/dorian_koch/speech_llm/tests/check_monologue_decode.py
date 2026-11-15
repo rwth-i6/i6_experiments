@@ -36,7 +36,7 @@ import sentencepiece as spm  # noqa: E402
 import sphn  # noqa: E402
 import torch  # noqa: E402
 
-from moshi_family import moshi_engine  # noqa: E402
+from moshi_family import moshi_duplex, moshi_engine  # noqa: E402
 from moshi_family.rl import ppx_selfplay  # noqa: E402
 from moshi_family.text_trace import TEXT_SPECIAL_IDS, decode_monologue  # noqa: E402
 
@@ -75,17 +75,29 @@ def interleave(word_ids):
 
 
 def run_engine(tok, ids, out_wav):
-    """moshi_engine.run_pairs on a stub model whose InferenceState emits ``ids`` as the text stream."""
+    """moshi_engine.run_pairs on a stub model whose LMGen emits ``ids`` as the text stream, one per frame (PAD after)."""
+    it = iter(ids)
+
+    def step(codes):
+        out = torch.zeros(codes.shape[0], 9, 1, dtype=torch.long)
+        out[:, 0, 0] = next(it, 3)
+        return out
+
     state = SimpleNamespace(
         text_tokenizer=tok,
-        mimi=SimpleNamespace(reset_streaming=lambda: None),
-        lm_gen=SimpleNamespace(reset_streaming=lambda: None),
+        mimi=SimpleNamespace(
+            reset_streaming=lambda: None,
+            encode=lambda pcm: torch.zeros(pcm.shape[0], 8, 1, dtype=torch.long),
+            decode=lambda tokens: torch.zeros(tokens.shape[0], 1, 1920),
+        ),
+        lm_gen=SimpleNamespace(reset_streaming=lambda: None, step=step, lm_model=SimpleNamespace(delays=[0])),
         frame_size=1920,
-        run=lambda pcms: [(torch.tensor(ids), torch.zeros(1, SR)) for _ in range(pcms.shape[0])],
+        batch_size=1,
     )
     model = SimpleNamespace(sample_rate=SR, batch_size=1, state=state, device="cpu")
     with contextlib.redirect_stdout(io.StringIO()):
-        res = moshi_engine.run_pairs(model, [(str(IN_WAV), out_wav)], lead_in_s=0.1, capture_s=0.5)
+        # the window holds every scripted id: one frame per id (+ the repeated first frame)
+        res = moshi_engine.run_pairs(model, [(str(IN_WAV), out_wav)], lead_in_s=0.1, capture_s=0.08 * (len(ids) + 2))
     return res.monologues[0]
 
 
@@ -99,8 +111,17 @@ def ast_checks():
                     vals[k.value] = ast.unparse(v)
     check(vals.get("text_a", "").startswith("decode_monologue(") and vals.get("text_b", "").startswith("decode_monologue("),
           f"[5] self-play eval text_a / text_b = decode_monologue(...): {vals}")  # fmt: skip
-    live = (PKG / "personaplex" / "live_server.py").read_text()
-    check("tid not in TEXT_SPECIAL_IDS" in live, "[5] live server skips TEXT_SPECIAL_IDS")
+    from moshi_family.moshi_duplex import MoshiDuplex
+    from moshi_family.personaplex.duplex import PersonaPlexDuplex
+
+    for cls in (PersonaPlexDuplex, MoshiDuplex):  # the per-frame text of the live server (adapter.piece)
+        a = cls.__new__(cls)
+        a.text_tokenizer = moshi_tokenizer()
+        word = a.text_tokenizer.encode("paris")[0]
+        check(
+            [a.piece(i) for i in TEXT_SPECIAL_IDS] == [""] * 4 and a.piece(word).strip() != "",
+            f"[5] {cls.__name__}.piece: no text for TEXT_SPECIAL_IDS, text for a word",
+        )
     hits = []
     for f in sorted(PKG.rglob("*.py")):
         rel = str(f.relative_to(PKG))
@@ -158,12 +179,12 @@ def main():
     ast_checks()
 
     print("== [6] CAN FAIL: the old (0, 3) filter")
-    real = moshi_engine.decode_monologue
-    moshi_engine.decode_monologue = legacy_decode
+    real = moshi_duplex.decode_monologue
+    moshi_duplex.decode_monologue = legacy_decode
     try:
         bad = run_engine(tok, ids, None)
     finally:
-        moshi_engine.decode_monologue = real
+        moshi_duplex.decode_monologue = real
     check(bad != mono and "<s>" in bad, f"run_pairs with the legacy decode differs: {bad!r}")
     real_ids = ppx_selfplay.TEXT_SPECIAL_IDS
     ppx_selfplay.TEXT_SPECIAL_IDS = (0, 3)

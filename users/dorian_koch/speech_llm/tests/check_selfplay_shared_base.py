@@ -121,7 +121,8 @@ def main():
                 lm, device="cpu", use_sampling=True, audio_silence_frame_cnt=SIL, sample_rate=24000, frame_rate=12.5
             )
             g.streaming_forever(1)
-            return types.SimpleNamespace(lm_gen=g, mimi=_NoMimi(), other_mimi=_NoMimi())
+            g._frame_size = 1920
+            return types.SimpleNamespace(lm_gen=g, mimi=_NoMimi(), other_mimi=_NoMimi(), sample_rate=24000, text_tokenizer=None)
 
         def per_side(specs_):
             return [build(load_base(), s) for s in specs_]

@@ -7,7 +7,7 @@ aiohttp test client):
   1. a draw is a pure function of (pool, seed): same seed -> same clip, 40 seeds -> several clips, ``@seed`` in
      the spec wins over the argument, every drawn clip is in its pool; unknown pool raises; no seed -> a seed is
      chosen AND recorded (redrawing with it gives the same clip);
-  2. ``clip_codes`` returns the clip trimmed to its ``n_frames`` (int64), ``LiveCore.jre_codes`` routes ``clip:``;
+  2. ``clip_codes`` returns the clip trimmed to its ``n_frames`` (int64), ``PersonaPlexDuplex.stored_codes`` routes ``clip:``;
   3. a chat with ``voice_prompt=random:jre@7`` primes the core with the drawn clip id, and the session record +
      manifest line carry ``voice`` = that clip, ``voice_draw`` (spec with seed) and ``voice_info`` (episode, label,
      source, row); ``/api/voice_draw`` previews the SAME clip;
@@ -33,7 +33,7 @@ import numpy as np
 
 from moshi_family.live import server as ls
 from moshi_family.live import voice_index as vx
-from moshi_family.personaplex.live import LiveCore
+from moshi_family.personaplex.duplex import PersonaPlexDuplex
 
 FAILS: list[str] = []
 DIST = "/hpcwork/p0023999/common_hf_home/hub/models--nvidia--personaplex-7b-v1/snapshots/*/dist"
@@ -163,10 +163,11 @@ def main() -> int:
             check(True, "1f unknown pool raises")
         c = vi.clip_codes("clip:jre/e1/SPEAKER_01")
         check(c.shape == (8, 34) and c.dtype == np.int64 and (c == 2).all(), "2a clip codes trimmed to n_frames")
-        core = LiveCore(object(), object(), None, None, "cpu", voice_index=vi)
+        adapter = PersonaPlexDuplex.__new__(PersonaPlexDuplex)  # the live core's adapter: only its voice lookup
+        adapter.jre_voices, adapter.voice_index = {}, vi
         check(
-            np.array_equal(core.jre_codes("clip:jre/e2/SPEAKER_00"), vi.clip_codes("clip:jre/e2/SPEAKER_00")),
-            "2b LiveCore.jre_codes routes clip: voices to the index",
+            np.array_equal(adapter.stored_codes("clip:jre/e2/SPEAKER_00"), vi.clip_codes("clip:jre/e2/SPEAKER_00")),
+            "2b PersonaPlexDuplex.stored_codes routes clip: voices to the index",
         )
 
         fc, server, preview, lines = asyncio.run(chat(td, vi, "random:jre@7"))

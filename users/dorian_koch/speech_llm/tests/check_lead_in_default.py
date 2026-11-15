@@ -43,6 +43,7 @@ CANON = ("speech_llm/full_duplex/moshi_family/offline_cli.py", "DEFAULT_LEAD_IN_
 KNOWLEDGE_SITES = {
     "speech_llm/full_duplex/moshi_family/offline_cli.py::DEFAULT_LEAD_IN_S",
     "speech_llm/full_duplex/moshi_family/offline_cli.py::--lead_in_s",
+    "speech_llm/full_duplex/moshi_family/duplex/reply.py::run_pairs",
     "speech_llm/full_duplex/moshi_family/moshi_engine.py::run_pairs",
     "speech_llm/full_duplex/moshi_family/kame_engine.py::run_pairs",
     "speech_llm/full_duplex/moshi_family/knowledge_probe.py::run_knowledge_probe",

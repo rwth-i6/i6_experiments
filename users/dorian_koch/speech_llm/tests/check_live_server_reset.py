@@ -3,39 +3,37 @@
 The server keeps ONE model loaded and serves conversation after conversation. PersonaPlex's LM is
 streaming-detached from its LMGen, so a reset that does not reach it silently continues the previous
 conversation's KV cache and positions (the 2026-08-01 -> 09-22 reset bug, check_ppx_reset.py).
-This drives the server's own session code, ``personaplex.live.LiveCore.begin_sync`` (what the server runs on
-its model thread since 2026-09-24) + ``step_codes``, on a
-tiny random PersonaPlex LM (real LMModel + LMGen, greedy, float64):
+This drives the server's own session code: a session of ``personaplex.duplex.PersonaPlexDuplex`` (the live core,
+``live.cores.SessionCore``, is one lane of it: ``begin_sync`` = ``open(1).start(voice, prompt)``) + ``step_codes``,
+on a tiny random PersonaPlex LM (real LMModel + LMGen, greedy, float64):
 
   1. SECOND SESSION == FRESH. Session 1 (prompt A, 30 frames of codes), then session 2 (prompt B, other
      codes) on the same core must equal session 2 on a freshly built core, token for token.
   2. THE PROMPT IS IN. Two sessions with different role prompts and the same input differ.
-  3. CAN FAIL. A core whose ``begin_sync`` skips ``lm_gen.reset_streaming()`` must violate check 1.
-  4. SYNC == ASYNC. ``begin_sync`` (model thread, no disconnect check) gives the same session as the async
-     ``begin`` it duplicates.
-  5. JRE VOICE == SELF-PLAY PRIMING. A ``jre:<id>`` session on the core equals ``selfplay.prime_from_codes``
+  3. CAN FAIL. A session whose start does not reset the LM (``lm_gen.reset_streaming()``) must violate check 1.
+  4. JRE VOICE == SELF-PLAY PRIMING. A ``jre:<id>`` session on the core equals ``selfplay.prime_from_codes``
      with the same stored codes and encoded prompt followed by the same steps, token for token.
-  6. NO VOICE LEAK. JRE -> no voice -> JRE on one core: the middle session equals a fresh no-voice session
-     (``prime_from_codes`` overrides the voice source on the instance; ``_forget_stored_codes`` must undo
-     it) and the last equals a fresh JRE session. CAN FAIL: a core that keeps the override violates it.
+  5. NO VOICE LEAK. JRE -> no voice -> JRE on one core: the middle session equals a fresh no-voice session
+     (``prime_from_codes`` overrides the voice source on the instance; ``forget_stored_codes`` must undo
+     it) and the last equals a fresh JRE session. CAN FAIL: an adapter that keeps the override violates it.
 
 moshi_family venv, CPU, seconds (no checkpoint download):
     ./hpc-venv.py --cluster i6-rz moshi_family_venv_v1 --sh 'cd <setup> && PYTHONPATH=recipe/speech_llm/full_duplex:recipe \
         python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_live_server_reset.py'
 """
 
-import asyncio
 import contextlib
 import copy
 import os
 import sys
+import types
 
 sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duplex"))
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from moshi_family.personaplex.live import LiveCore  # noqa: E402
+from moshi_family.personaplex.duplex import PersonaPlexDuplex  # noqa: E402
 from moshi_family.personaplex.models import loaders  # noqa: E402
 from moshi_family.personaplex.models.lm import LMGen, LMModel  # noqa: E402
 
@@ -83,36 +81,21 @@ class _Tok:
         return [4 + (ord(c) % 90) for c in text]
 
 
-class _NoResetCore(LiveCore):
-    """The failure mode: a session that starts without resetting the LM."""
-
-    async def begin(self, voice, text_prompt, is_alive=None):
-        from moshi_family.personaplex.components import encode_system_prompt
-
-        self.lm_gen.text_prompt_tokens = encode_system_prompt(self.text_tokenizer, text_prompt)
-        await self.lm_gen.step_system_prompts_async(self.mimi, is_alive=is_alive)
-
-    def begin_sync(self, voice, text_prompt):
-        from moshi_family.personaplex.components import encode_system_prompt
-
-        self.lm_gen.text_prompt_tokens = encode_system_prompt(self.text_tokenizer, text_prompt)
-        self.lm_gen.step_system_prompts(self.mimi)
-
-
 JRE = {
     "v0": np.random.default_rng(7).integers(0, 2048, size=(8, 20)),
     "v1": np.random.default_rng(8).integers(0, 2048, size=(8, 20)),
 }
 
 
-class _KeepsOverride(LiveCore):
+class _KeepsOverride(PersonaPlexDuplex):
     """The failure mode: a session after a JRE one keeps the stored-codes voice source."""
 
-    def _forget_stored_codes(self):
+    def forget_stored_codes(self):
         pass
 
 
-def make_core(cls=LiveCore):
+def make_core(cls=PersonaPlexDuplex, reset=True):
+    """The adapter on a tiny model. ``reset=False``: the failure mode, a session start that does not reset the LM."""
     g = LMGen(
         copy.deepcopy(BASE_LM),
         device="cpu",
@@ -122,33 +105,46 @@ def make_core(cls=LiveCore):
         frame_rate=12.5,
     )
     g.streaming_forever(1)
-    return cls(_NoMimi(), _NoMimi(), _Tok(), g, torch.device("cpu"), jre_voices=JRE)
+    if not reset:
+        g.reset_streaming = lambda *a, **k: None
+    model = types.SimpleNamespace(
+        lm_gen=g, mimi=_NoMimi(), other_mimi=_NoMimi(), text_tokenizer=_Tok(), sample_rate=24000, device=torch.device("cpu")
+    )
+    return cls(model, jre_voices=JRE)
+
+
+def make_no_reset():
+    return make_core(reset=False)
 
 
 def codes(seed, n=30):
     return torch.as_tensor(np.random.default_rng(seed).integers(0, 2048, size=(1, 8, n)))
 
 
-def session(core, prompt, seed, use_async=False, voice=None):
+def step_codes(step, c):
+    """Feed codes ``[1, 8, T]`` one frame at a time; the model's output token frames."""
+    out = [step(c[:, :, k : k + 1]) for k in range(c.shape[-1])]
+    return [o for o in out if o is not None]
+
+
+def session(core, prompt, seed, voice=None):
     with contextlib.redirect_stdout(open(os.devnull, "w")):
-        if use_async:
-            asyncio.run(core.begin(voice, prompt))
-        else:
-            core.begin_sync(voice, prompt)
-        out = core.step_codes(codes(seed))
+        s = core.open(1)
+        s.start(voice, prompt)
+        out = step_codes(s.step_codes, codes(seed))
     return torch.cat(out, dim=-1).numpy()
 
 
-def second_equals_fresh(cls) -> bool:
-    fresh = session(make_core(cls), "You are a pirate.", 2)
-    core = make_core(cls)
+def second_equals_fresh(make) -> bool:
+    fresh = session(make(), "You are a pirate.", 2)
+    core = make()
     session(core, "You enjoy having a good conversation.", 1)
     second = session(core, "You are a pirate.", 2)
     return fresh.shape == second.shape and np.array_equal(fresh, second)
 
 
 def main():
-    assert second_equals_fresh(LiveCore), "a second session differs from a fresh core: state leaked across sessions"
+    assert second_equals_fresh(make_core), "a second session differs from a fresh core: state leaked across sessions"
     print("[ok] 1 second session on the same core == the same session on a fresh core")
 
     a = session(make_core(), "You are a pirate.", 3)
@@ -157,33 +153,24 @@ def main():
     assert not np.array_equal(a[:, :9], b[:, :9]), "the role prompt had no effect on the output"
     print("[ok] 2 different role prompts give different outputs (the prompt reaches the model)")
 
-    assert not second_equals_fresh(_NoResetCore), "check 1 cannot fail: it passes without the reset"
+    assert not second_equals_fresh(make_no_reset), "check 1 cannot fail: it passes without the reset"
     print("[ok] 3 without lm_gen.reset_streaming() check 1 fails (the guard can fail)")
-
-    core = make_core()
-    session(core, "You enjoy having a good conversation.", 1)
-    s = session(core, "You are a pirate.", 2)
-    core = make_core()
-    session(core, "You enjoy having a good conversation.", 1, use_async=True)
-    a = session(core, "You are a pirate.", 2, use_async=True)
-    assert np.array_equal(s, a), "begin_sync and begin give different sessions"
-    print("[ok] 4 begin_sync (the server's model-thread path) == the async begin, token for token")
 
     from moshi_family.personaplex.components import encode_system_prompt
     from moshi_family.personaplex.selfplay import prime_from_codes
 
     live = session(make_core(), "You are a pirate.", 4, voice="jre:v0")
-    ref = make_core()
+    ref = make_core().model
     with contextlib.redirect_stdout(open(os.devnull, "w")):
         ref.lm_gen.reset_streaming()
         prime_from_codes(
             ref.lm_gen, ref.mimi, JRE["v0"], encode_system_prompt(ref.text_tokenizer, "You are a pirate.") or []
         )
-        manual = torch.cat(ref.step_codes(codes(4)), dim=-1).numpy()
+        manual = torch.cat(step_codes(ref.lm_gen.step, codes(4)), dim=-1).numpy()
     assert np.array_equal(live, manual), "a jre: session differs from self-play's prime_from_codes"
     other = session(make_core(), "You are a pirate.", 4, voice="jre:v1")
     assert not np.array_equal(live[:, :9], other[:, :9]), "the JRE voice had no effect on the output"
-    print("[ok] 5 a jre: session == prime_from_codes + the same steps (and the voice matters)")
+    print("[ok] 4 a jre: session == prime_from_codes + the same steps (and the voice matters)")
 
     def leak_free(cls) -> bool:
         core = make_core(cls)
@@ -194,9 +181,9 @@ def main():
         fresh_last = session(make_core(cls), "You are a nurse on a night shift.", 7, voice="jre:v1")
         return np.array_equal(mid, fresh_mid) and np.array_equal(last, fresh_last)
 
-    assert leak_free(LiveCore), "a session after a JRE voice differs from a fresh one: the voice leaked"
-    assert not leak_free(_KeepsOverride), "check 6 passes with the override kept: it cannot fail"
-    print("[ok] 6 JRE -> no voice -> JRE == fresh sessions; a core that keeps the override fails (can fail)")
+    assert leak_free(PersonaPlexDuplex), "a session after a JRE voice differs from a fresh one: the voice leaked"
+    assert not leak_free(_KeepsOverride), "check 5 passes with the override kept: it cannot fail"
+    print("[ok] 5 JRE -> no voice -> JRE == fresh sessions; an adapter that keeps the override fails (can fail)")
     print("\nALL CHECKS PASSED")
 
 

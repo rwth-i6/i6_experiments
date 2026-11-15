@@ -14,7 +14,7 @@ its offline driver calls:
     driver's call); its own reset is the trunk ``DynamicCache`` (``reset_streaming_cache``), which the
     streaming machinery cannot reach because the HF trunk is a plain ``nn.Module``;
   * KAME       -- ``kame_engine.run_pairs`` (B=1, per-clip oracle injection);
-  * MoshiRAG   -- ``moshirag.engine.run_pairs`` -> ``MoshiRagModel.run_clip`` (B=1 lockstep pump:
+  * MoshiRAG   -- ``moshirag.engine.run_pairs`` -> ``moshirag.duplex.MoshiRagSession`` (B=1 lockstep pump:
     ``BatchRunner.run_step`` resets on the first frame, the local STT resets in ``start_up``, and a
     retrieval's pending streaming-sum rows are cleared by the reset callback).
 
@@ -218,16 +218,16 @@ class NoHookLMGen(LMGen):
         return state
 
 
-def moshi_family_model(lm, lm_gen_cls, batch_size=2, mimi_cls=StubMimi):
+def moshi_family_model(lm, lm_gen_cls, batch_size=2, mimi_cls=StubMimi, use_sampling=False):
     """Exactly MoshiModel/AudexModel minus the checkpoint load: `.state` is the real InferenceState."""
     m = types.SimpleNamespace(batch_size=batch_size, sample_rate=SR, device="cpu")
-    m.state = _inference_state(lm, lm_gen_cls, batch_size, mimi_cls)
+    m.state = _inference_state(lm, lm_gen_cls, batch_size, mimi_cls, use_sampling)
     # The token printer binds the real stdout/stderr at import time, so redirecting cannot mute it.
     m.state.printer = RawPrinter(io.StringIO(), io.StringIO())
     return m
 
 
-def _inference_state(lm, lm_gen_cls, batch_size, mimi_cls=StubMimi):
+def _inference_state(lm, lm_gen_cls, batch_size, mimi_cls=StubMimi, use_sampling=False):
     return InferenceState(
         types.SimpleNamespace(model_type="moshi"),
         mimi_cls(),
@@ -237,7 +237,7 @@ def _inference_state(lm, lm_gen_cls, batch_size, mimi_cls=StubMimi):
         1.0,
         "cpu",
         lm_gen_cls=lm_gen_cls,
-        use_sampling=False,
+        use_sampling=use_sampling,
     )
 
 
@@ -285,6 +285,52 @@ def check_moshi():
         lambda: moshi_family_model(MOSHI_LM, LMGen, mimi_cls=NoResetStatefulStubMimi), moshi_outputs, ins, 2
     )
     check(not bad, "[codec] CAN FAIL: without the codec reset batches 2-3 differ from fresh")
+
+
+def check_moshi_upstream_loop():
+    """The engines run on the architecture seam (``moshi_duplex.MoshiSession``: one frame per step). Upstream's
+    offline loop (``run_inference.InferenceState.run``, vendored) is the reference it must reproduce."""
+    print("\n== base Moshi: the seam's session == upstream's offline loop (InferenceState.run), sampled, batch 2")
+    from moshi_family.duplex.reply import reply_batch
+    from moshi_family.moshi_duplex import MoshiDuplex, moshi_protocol
+
+    r = np.random.default_rng(5)
+    clips = [(0.3 * r.standard_normal(n)).astype(np.float32) for n in (7 * FRAME + 300, 9 * FRAME, 5 * FRAME + 10)]
+    groups = [clips[:2], clips[2:]]  # the second batch is partial: its spare row hears silence
+
+    def upstream(seed):
+        m = moshi_family_model(MOSHI_LM, LMGen, use_sampling=True)
+        out = []
+        for g in groups:
+            arr = np.zeros((2, 1, max(len(x) for x in g)), dtype=np.float32)
+            for b, x in enumerate(g):
+                arr[b, 0, : len(x)] = x
+            m.state.mimi.reset_streaming()
+            m.state.lm_gen.reset_streaming()
+            torch.manual_seed(seed)
+            with quiet(), torch.no_grad():
+                items = m.state.run(torch.from_numpy(arr))
+            out += [(items[b][0].tolist(), items[b][1][0].numpy()) for b in range(len(g))]
+        return out
+
+    def seam(seed, **kw):
+        m = moshi_family_model(MOSHI_LM, LMGen, use_sampling=True)
+        out = []
+        for g in groups:
+            torch.manual_seed(seed)
+            out += [(x.text_ids.tolist(), x.pcm) for x in reply_batch(MoshiDuplex(m, **kw), g, protocol=moshi_protocol(False))]
+        return out
+
+    ref = upstream(3)
+    check(same_outputs(seam(3), ref), "text ids and audio of every clip == upstream's loop (same seed)")
+    check(not same_outputs(upstream(4), ref), "the comparison is sampled: another seed gives another reply")
+    check(not same_outputs(seam(3, repeat_first_frame=False), ref), "CAN FAIL: without the repeated first frame")
+    own = [(x.text_ids.tolist(), x.pcm) for x in reply_batch(
+        MoshiDuplex(moshi_family_model(MOSHI_LM, LMGen)), clips[:2], protocol=moshi_protocol(True))]
+    check(
+        [len(t) for t, _ in own] == [7, 9] and [len(p) for _, p in own] == [7 * FRAME, 9 * FRAME],
+        "--trim_to_input: each clip keeps its own full frames",
+    )
 
 
 def check_moshi_trim():
@@ -385,15 +431,21 @@ def check_kame():
     oracles = ["paris is the capital", "forty two", "the blue whale"]
 
     def run(model, ins):
-        got = []
-        real_run = model.state.run
+        got = []  # per clip: every token frame its LMGen emitted (text + audio codebooks)
+        lm_gen = model.state.lm_gen
+        real_step, real_reset = lm_gen.step, lm_gen.reset_streaming
 
-        def recording_run(pcms):
-            out = real_run(pcms)
-            got.append((out[0][0].tolist(), out[0][1].numpy().copy()))
+        def step(codes):
+            out = real_step(codes)
+            if out is not None:
+                got[-1].append(out.clone())
             return out
 
-        model.state.run = recording_run
+        def reset(*a, **kw):
+            got.append([])
+            return real_reset(*a, **kw)
+
+        lm_gen.step, lm_gen.reset_streaming = step, reset
         texts = [oracles[int(Path(p).stem.split("in")[-1])] for p in ins]
         with quiet():
             kame_engine.run_pairs(
@@ -402,7 +454,8 @@ def check_kame():
                 lead_in_s=0.16,
                 capture_s=0.8,
             )
-        return got
+        assert len(got) == len(ins) and all(got), [len(g) for g in got]
+        return [("", torch.cat(g, dim=-1).numpy()) for g in got]
 
     ins = write_inputs(3, 3, "kame")
     ok, first_ok, _ = reused_equals_fresh(make, run, ins, 1)
@@ -416,7 +469,7 @@ def check_kame():
 # MoshiRAG: moshirag.engine.run_pairs -> MoshiRagModel.run_clip
 # ------------------------------------------------------------------------------------------------
 def check_moshirag():
-    print("\n== MoshiRAG: moshirag.engine.run_pairs -> run_clip (B=1 lockstep pump, local STT, retrieval)")
+    print("\n== MoshiRAG: moshirag.engine.run_pairs (B=1 lockstep pump, local STT, retrieval)")
     from moshi_family.moshirag import engine as reng
     from moshi_family.moshirag.inference_utils import utils as rutils
     from moshi_family.moshirag.inference_utils.audio_processor import AudioProcessor
@@ -476,7 +529,7 @@ def check_moshirag():
         if "stt" in disable:
             stt._lm_gen._streaming_state.reset_callback = None
         if "pending" in disable:
-            # Pending rows are cleared TWICE per clip: run_clip reassigns the list before the first
+            # Pending rows are cleared TWICE per clip: the session's start reassigns the list before the first
             # frame, and the reset callback clears reset slots. Defeat both, or the other masks it.
             st = m.lm_gen._streaming_state
             real_cb = st.reset_callback
@@ -508,15 +561,13 @@ def check_moshirag():
     def run(model, ins):
         outs = [str(TMP / f"rag_out_{Path(p).stem}.wav") for p in ins]
         with quiet():
-            asyncio.run(
-                reng.run_pairs(
-                    model,
-                    list(zip(ins, outs)),
-                    lead_in_s=0.16,
-                    capture_s=0.8,
-                    tail_s=0.0,
-                    gt_reference_for={p: f"reference for {Path(p).stem}" for p in ins},
-                )
+            reng.run_pairs(
+                model,
+                list(zip(ins, outs)),
+                lead_in_s=0.16,
+                capture_s=0.8,
+                tail_s=0.0,
+                gt_reference_for={p: f"reference for {Path(p).stem}" for p in ins},
             )
         leftover.append(sum(p.shape[0] for p in model.lm_gen._streaming_state.pending_streaming_sums if p is not None))
         got = []
@@ -548,15 +599,13 @@ def check_moshirag():
     # Re-arming: a clip long enough for the model to emit <ret> again after its first retrieval retrieves again.
     long_out = str(TMP / "rag_out_long.wav")
     with quiet():
-        asyncio.run(
-            reng.run_pairs(
-                make(rag_token_id=rag_id),
-                [(ins[0], long_out)],
-                lead_in_s=0.16,
-                capture_s=4.0,
-                tail_s=0.0,
-                gt_reference_for={ins[0]: "reference"},
-            )
+        reng.run_pairs(
+            make(rag_token_id=rag_id),
+            [(ins[0], long_out)],
+            lead_in_s=0.16,
+            capture_s=4.0,
+            tail_s=0.0,
+            gt_reference_for={ins[0]: "reference"},
         )
     import json as _json
 
@@ -572,7 +621,7 @@ def check_moshirag():
     m_err.reference_generator = _FailingLLM()
     err_out = str(TMP / "rag_out_err.wav")
     with quiet():
-        asyncio.run(reng.run_pairs(m_err, [(ins[0], err_out)], lead_in_s=0.16, capture_s=0.8, tail_s=0.0))
+        reng.run_pairs(m_err, [(ins[0], err_out)], lead_in_s=0.16, capture_s=0.8, tail_s=0.0)
     rets = _json.loads(Path(err_out).with_suffix(".json").read_text())["retrievals"]
     check(
         rets and all(r.get("error", "").startswith("ConnectionError") and r["reference_text"] == "" for r in rets),
@@ -600,7 +649,7 @@ def check_moshirag():
 
 
 def main():
-    for fn in (check_moshi, check_moshi_trim, check_audex, check_kame, check_moshirag):
+    for fn in (check_moshi, check_moshi_upstream_loop, check_moshi_trim, check_audex, check_kame, check_moshirag):
         fn()
     print()
     if FAILURES:

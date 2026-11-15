@@ -7,6 +7,8 @@ This guard pins the batched path's logic with a deterministic model so a future 
 real one (cross-row leakage, clip order, per-row time alignment, prompt broadcast, padding of short clips,
 per-row streaming state, a partial last group).
 
+  0. REFERENCE. ``run_pairs`` at B=1 == NVIDIA's released offline loop (the vendored ``offline.run_inference``'s
+     steps) on the same tiny model; without the system prompt the reply differs.
   1. PARITY. A tiny random float64 PersonaPlex LM (real LMModel + LMGen, greedy) with a stateful, causal,
      per-row stub Mimi, driven through the REAL ``engine.run_pairs``: 5 clips of different lengths (a partial
      final frame, one clip of 2 frames) at B=1 and at B=3 (two groups, the second one partial) -> every output
@@ -34,6 +36,7 @@ import numpy as np  # noqa: E402
 import sphn  # noqa: E402
 import torch  # noqa: E402
 
+from moshi_family.duplex import reply as reply_mod  # noqa: E402
 from moshi_family.personaplex import engine  # noqa: E402
 from moshi_family.personaplex.models import loaders  # noqa: E402
 from moshi_family.personaplex.models.lm import LMGen, LMModel  # noqa: E402
@@ -109,6 +112,9 @@ class Tok:
     def encode(self, s):
         return [4 + (ord(c) % 90) for c in s[:12]]
 
+    def id_to_piece(self, i):
+        return f"\u2581w{i}"
+
 
 def make_model(voice_dir, mutant=None):
     g = LMGen(
@@ -163,11 +169,48 @@ def run(d, clips, B, tag, mutant=None, order=None):
     return [open(os.path.join(d, tag, f"{i}.wav"), "rb").read() for i in range(len(clips))]
 
 
+def nvidia_loop(d, clip, tag, prompt="be nice"):
+    """NVIDIA's released offline loop (``personaplex/offline.py::run_inference`` steps 6-11, kept verbatim in the
+    vendored file) on the tiny model: the reference the seam's B=1 session must reproduce."""
+    from moshi_family.personaplex.components import encode_system_prompt
+    from moshi_family.personaplex.models.lm import _iterate_audio, encode_from_sphn, load_audio
+    from moshi_family.personaplex.offline import decode_tokens_to_pcm
+
+    m = make_model(d)
+    g, mimi, other = m.lm_gen, m.mimi, m.other_mimi
+    g.load_voice_prompt_embeddings(os.path.join(d, "stub.pt"))
+    g.text_prompt_tokens = encode_system_prompt(m.text_tokenizer, prompt)
+    mimi.reset_streaming()
+    other.reset_streaming()
+    g.reset_streaming()
+    g.step_system_prompts(mimi)
+    mimi.reset_streaming()
+    user = load_audio(clip, SR)
+    total = user.shape[-1]
+    frames = []
+    for enc in encode_from_sphn(mimi, _iterate_audio(user, sample_interval_size=g._frame_size, pad=True), max_batch=1):
+        for c in range(enc.shape[-1]):
+            tokens = g.step(enc[:, :, c : c + 1])
+            if tokens is not None:
+                frames.append(decode_tokens_to_pcm(mimi, other, g, tokens))
+    pcm = np.concatenate(frames, axis=-1)
+    pcm = pcm[:total] if pcm.shape[-1] > total else np.concatenate([pcm, np.zeros(total - pcm.shape[-1], pcm.dtype)])
+    out = os.path.join(d, f"{tag}.wav")
+    sphn.write_wav(out, pcm, SR)
+    return open(out, "rb").read()
+
+
 def main():
     with tempfile.TemporaryDirectory() as d:
         write_voice(d)
         clips = write_clips(d)
         ref = run(d, clips, 1, "b1")
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            nv = [nvidia_loop(d, c, f"nv{i}") for i, c in enumerate(clips)]
+            nv_other = nvidia_loop(d, clips[0], "nv_other", prompt=None)
+        assert nv == ref, f"run_pairs (B=1) differs from NVIDIA's offline loop for clips {[i for i in range(len(clips)) if nv[i] != ref[i]]}"
+        assert nv_other != ref[0], "check 0 cannot fail: the loop without the system prompt gives the same reply"
+        print("[ok] 0 run_pairs at B=1 (the seam's session) == NVIDIA's released offline loop, byte for byte")
         ref_again = run(d, clips, 1, "b1_again")
         assert ref == ref_again, "B=1 itself is not deterministic"
         got = run(d, clips, 3, "b3")
@@ -178,18 +221,18 @@ def main():
         assert not bad, f"batched B=5 (reverse order) differs from B=1 for clips {bad}"
         print("[ok] 1 batched run_pairs (B=3 two groups incl. a partial one; B=5 reversed) == B=1, byte for byte")
 
-        orig = engine._stream_group
+        orig = reply_mod.reply_batch  # one batched group of the seam's reply driver (engine.run_pairs runs on it)
         for mutant in ("leak", "order", "bvar", "late"):
             try:
                 if mutant == "order":
-                    engine._stream_group = lambda m, a, B, **kw: orig(m, a, B, **kw)[::-1]
+                    reply_mod.reply_batch = lambda *a, **kw: orig(*a, **kw)[::-1]
                     got = run(d, clips, 3, f"mut_{mutant}")
                     r1 = ref
                 else:
                     got = run(d, clips, 3, f"mut_{mutant}", mutant=mutant)
                     r1 = run(d, clips, 1, f"mut_{mutant}_b1", mutant=mutant)
             finally:
-                engine._stream_group = orig
+                reply_mod.reply_batch = orig
             assert got != r1, f"check 1 cannot fail: mutant {mutant!r} passes"
             print(f"[ok] 2 mutant {mutant!r} breaks the parity (the guard can fail)")
     print("\nALL CHECKS PASSED")
