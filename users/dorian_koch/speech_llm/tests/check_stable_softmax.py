@@ -218,7 +218,7 @@ def wiring(src: dict) -> list[str]:
         bad.append("rl/v2/launcher_v2.py: Model.stable_softmax not applied")  # the native V2 runtime reads config.json
     for n in ("train_data_common.py", "audex/train_data.py"):
         bad += [f"{n}: raw {m.group(0)}" for m in RAW.finditer(src[n])]
-    for n in ("rl/generator.py", "rl/moshi_policy.py", "rl/ppx_rollout.py"):
+    for n in ("rl/generator.py", "moshi_duplex.py", "rl/ppx_rollout.py"):  # moshi_duplex: base Moshi's scoring forward
         if "stable_softmax.target_logprobs(" not in src[n]:
             bad.append(f"{n}: no stable_softmax.target_logprobs")
     return bad
@@ -229,7 +229,7 @@ for n in (
     "train_data_common.py",
     "audex/train_data.py",
     "rl/generator.py",
-    "rl/moshi_policy.py",
+    "moshi_duplex.py",
     "rl/ppx_rollout.py",
     "rl/v2/launcher_v2.py",
 ):
