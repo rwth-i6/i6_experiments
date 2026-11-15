@@ -1,6 +1,6 @@
 """Run every standalone guard (``check_*.py`` / ``test_*.py``) and report which pass, fail or time out.
 
-The guards live in three places and run in three kinds of interpreter; ``guards_manifest.json`` (next to this file) says
+The guards live in four places and run in three kinds of interpreter; ``guards_manifest.json`` (next to this file) says
 for each guard how it runs:
 
 * ``env``: ``login`` = the login node's ``python3``; ``setup`` = the setup's ``.venv`` (``CUDA_HOME=/usr``); ``module`` =
@@ -42,6 +42,7 @@ ROOTS = (
     "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_*.py",
     "recipe/speech_llm/full_duplex/rl_spec/tests/check_*.py",
     "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_*.py",
+    "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_*.py",
 )
 OUT_ROOT = os.path.join("/hpcwork", os.environ.get("USER", "tt201262"), "guard_runs")
 VENV_GLOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.{name}/output/venv/bin/python"
