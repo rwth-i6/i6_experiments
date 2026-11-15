@@ -6,24 +6,26 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 jobs:
   test-hashes:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         path: "recipe/i6_experiments"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         repository: "rwth-i6/i6_core"
         path: "recipe/i6_core"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         repository: "rwth-i6/sisyphus"
         path: "sisyphus"
-    - uses: actions/setup-python@v6
+    - uses: actions/setup-python@v7
       with:
-        python-version: 3.10.12
+        # Newest Python the pinned tools support: pydantic 2.11.7 (i6_core requirements) has no Python 3.14 build.
+        python-version: "3.13"
         cache: "pip"
     - run: |
         pip install --user --upgrade pip setuptools wheel
