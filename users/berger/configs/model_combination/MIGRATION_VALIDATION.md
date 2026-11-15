@@ -102,3 +102,33 @@ until the manager and workers are stopped, then preserve its dirty state before
 switching. Do not run two managers writing the same reports. A fresh manager
 should only need the corrected CPU analyses for these four configs, not new
 recognition. Other entrypoints and dependency changes require their own review.
+
+## Live cutover completed: 2026-11-15
+
+After the user confirmed Sisyphus was stopped, the live checkout was switched to
+`berger_dev`. The setup's `config` symlink now points to
+`recipe/i6_experiments/users/berger/configs/model_combination`. Settings, external
+dependency checkouts and the work/output/alias locations were preserved.
+The local `berger_template_setups` branch was fast-forwarded to its published
+cleaned tip, `84efa1d62`, for separate generic-template use.
+
+The pre-cutover source tree has a fresh 175 MB filesystem backup at
+`/work/asr4/berger/backups/i6_experiments-20261115-pre-cutover`, plus Git stash
+`4a4d643790d1a95b7749a288b873cbc2a6cf4005` (`pre-berger-dev-cutover-20261115`).
+The original complete November 4 backup and archive worktree are also retained.
+Do not apply the mixed-source stash over the cleaned branch; its original base
+and configuration-link metadata are recorded in the cutover directory below.
+
+Post-switch graph construction from the actual setup location loaded all four
+active configs and matched the isolated readiness graph exactly: 778 jobs,
+165 unchanged GPU IDs, all GPU completion markers present, and only the expected
+63 CPU analysis replacements relative to the old live code. Historical and
+canonical runtime imports refer to the same module objects. Filename-style
+launchers expose `py()`; the optional parity launcher was corrected to use an
+absolute experiment import when loaded as `config.ctc_api_parity`.
+
+The cutover metadata, original tracked patch, saved settings, applied state and
+post-switch graph/validation are under
+`/work/asr4/berger/refactor/asr-20261104/cutover-20261115`.
+No manager was started and no tasks were submitted during cutover. Restart the
+same four configs to regenerate corrected CPU analysis; recognition is reused.

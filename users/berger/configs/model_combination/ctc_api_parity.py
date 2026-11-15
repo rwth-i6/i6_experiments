@@ -3,7 +3,7 @@
 
 def py():
     import os
-    from .experiments.open_asr.ctc_api_parity import run
+    from i6_experiments.users.berger.configs.model_combination.experiments.open_asr.ctc_api_parity import run
 
     return run(
         tuple(os.environ.get("ASR_CTC_PARITY_DATASETS", "librispeech-dev-other").split(",")),
