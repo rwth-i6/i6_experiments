@@ -77,15 +77,15 @@ class ReturnnConfigDatasetToHdfJob(Job):
 
 class ReturnnConfigDatasetDroppedLabelsJob(Job):
     """
-    Counts per sequence of the dataset of a RETURNN config the labels its text codes leave out, with the config's
-    prolog run first. The text codes hold the labels in order, one per frame, and the blank on every other frame.
+    Counts per sequence of the dataset of a RETURNN config the labels its text stream leaves out, with the config's
+    prolog run first. The text stream holds the labels in order, one per frame, and the blank on every other frame.
     """
 
     def __init__(
         self,
         *,
         returnn_config: ReturnnConfig,
-        codes_key: str,
+        text_stream_key: str,
         labels_key: str,
         blank: int,
         returnn_root: tk.Path,
@@ -96,9 +96,9 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
     ):
         """
         :param returnn_config: the config, its prolog defines what its dataset needs
-        :param codes_key: the data key of the text codes, one code per frame
+        :param text_stream_key: the data key of the text stream, one label, blank or word token per frame
         :param labels_key: the data key of the labels
-        :param blank: the code of a frame without a label
+        :param blank: the id of the blank
         :param returnn_root: the RETURNN checkout that loads the config and the dataset
         :param dataset_key: the config key of the dataset
         :param cpu_rqmt: CPUs of the job, the workers of the dataset among them
@@ -107,7 +107,7 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
         """
         super().__init__()
         self.returnn_config = returnn_config
-        self.codes_key = codes_key
+        self.text_stream_key = text_stream_key
         self.labels_key = labels_key
         self.blank = int(blank)
         self.returnn_root = returnn_root
@@ -134,7 +134,7 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
         dataset = _load_config_dataset(self.returnn_config, self.dataset_key, self.returnn_root)
         dataset.init_seq_order(epoch=1)
 
-        # the labels the codes of every sequence place, which must be its first labels in order, the rest dropped
+        # the labels the text stream of every sequence places, which must be its first labels in order, the rest dropped
         num_seqs = num_not_in_order = num_labels = num_dropped = 0
         dropped_histogram: Dict[int, int] = {}
         with open(self.out_dropped.get_path(), "wt") as out:
@@ -142,8 +142,8 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
                 dataset.load_seqs(num_seqs, num_seqs + 1)
                 tag = dataset.get_tag(num_seqs)
                 labels = np.asarray(dataset.get_data(num_seqs, self.labels_key)).reshape(-1)
-                codes = np.asarray(dataset.get_data(num_seqs, self.codes_key)).reshape(-1)
-                placed = codes[codes != self.blank]
+                text_stream = np.asarray(dataset.get_data(num_seqs, self.text_stream_key)).reshape(-1)
+                placed = text_stream[text_stream != self.blank]
                 num_seqs += 1
                 if num_seqs % 10000 == 0:
                     print(f"{num_seqs} sequences, {num_dropped} of {num_labels} labels dropped", flush=True)
@@ -157,7 +157,12 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
                 num_dropped += dropped
                 if dropped:
                     dropped_histogram[dropped] = dropped_histogram.get(dropped, 0) + 1
-                    row = {"seq_tag": tag, "labels": int(labels.size), "dropped": dropped, "frames": int(codes.size)}
+                    row = {
+                        "seq_tag": tag,
+                        "labels": int(labels.size),
+                        "dropped": dropped,
+                        "frames": int(text_stream.size),
+                    }
                     out.write(json.dumps(row) + "\n")
 
         num_counted = num_seqs - num_not_in_order
@@ -177,5 +182,5 @@ class ReturnnConfigDatasetDroppedLabelsJob(Job):
         with open(self.out_report.get_path(), "wt") as f:
             f.write(
                 f"sequences={num_seqs}  with dropped labels={num_with_drops}  labels={num_labels}  "
-                f"dropped={num_dropped}  codes not the labels in order={num_not_in_order}\n"
+                f"dropped={num_dropped}  text stream not the labels in order={num_not_in_order}\n"
             )
