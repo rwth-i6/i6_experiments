@@ -3,12 +3,9 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from sisyphus import Job, Task, tk
-    from i6_experiments.users.sheremeta.returnn.checkpoint import resolve_label, resolve_names
-except ImportError:
-    Job, Task, tk = object, None, None
-    resolve_label = resolve_names = None
+from sisyphus import Job, Task
+
+from i6_experiments.users.sheremeta.returnn.checkpoint import resolve_label, resolve_names
 
 from .throughput import rank_zero_log_text
 
@@ -362,7 +359,7 @@ class ModelMetricsJob(Job):
             wer[key] = value
             wer[f"{key}_label"] = label
         breakdown = {resolve_label(label, names): parts for label, parts in self.breakdown_vars.items()}
-        for part, v in breakdown.get(wer.get("wer_label"), {}).items():
+        for part, v in breakdown.get(wer.get("wer_label", ""), {}).items():
             wer[part] = v.get() if hasattr(v, "get") else v
         if self.source_wer_vars:
             by_source: Dict[str, Dict[str, float]] = {}
