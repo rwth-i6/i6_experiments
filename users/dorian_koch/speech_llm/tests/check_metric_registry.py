@@ -9,6 +9,8 @@ registry misses or matches twice would silently drop or merge a curve. Reads the
 and translates every row with the strict ``Namer``: no row may raise (unknown key, a key two registry entries match,
 a layout that cannot be built), every output name must be ``registered``, and no two keys of a row may land on one name.
 The writer side (structured runs through the real trainer) is ``moshi_family/rl/tests/test_metric_names.py``.
+A run that logged a metric before it was registered (stored as ``unregistered.<scope>.<key>``) is read under the
+registered name (``Namer._adopt``; without it the two MT v4 smoke runs fail the scan).
 Can fail: two mutants (a registry entry removed; an entry duplicated under another pattern) run in ``main`` and must
 be caught. Standard library only (the login node's python3).
 """
@@ -84,6 +86,25 @@ def _collisions_checked():
     assert len(out) == len(row), (row, out)
 
 
+def _late_registration_checked():
+    """A run that logged a metric before the registry had it wrote ``unregistered.<scope>.<key>``; the readers show
+    it under its registered name once it is registered, and keep (strict: refuse) a key that still is not."""
+    cfg = {"tasks": [{"name": "selfplay", "rollout": {"kind": "selfplay_rollout"},
+                      "source": {"kind": "selfplay_scenarios"}}]}  # fmt: skip
+    row = {"step": 1, "rl_task.selfplay.reward.mean": 0.5, "unregistered.rl_task.selfplay.monologue_match_mean": 0.7,
+           "unregistered.run.gpu_peak_gb": 3.0}  # fmt: skip
+    out = M.Namer(M.Layout.from_v2_config(cfg), strict=True).translate(row)
+    assert len(out) == len(row) and all(M.registered(k) for k in out), out
+    assert 0.7 in out.values() and 3.0 in out.values(), out
+    unknown = {"step": 1, "rl_task.selfplay.reward.mean": 0.5, "unregistered.rl_task.selfplay.no_such_metric": 1.0}
+    assert M.Namer(M.Layout.from_v2_config(cfg)).translate(unknown) == unknown
+    try:
+        M.Namer(M.Layout.from_v2_config(cfg), strict=True).translate(unknown)
+    except M.Unregistered:
+        return
+    raise SystemExit("a key the registry does not know passed the strict reader")
+
+
 def _mutant(name, patch):
     saved = M.TASK
     try:
@@ -102,6 +123,7 @@ def _mutant(name, patch):
 
 def main():
     _collisions_checked()
+    _late_registration_checked()
     print("check_metric_registry:", check())
     _mutant("entry removed", lambda t: tuple(m for m in t if m.legacy != "correct_rate"))
     _mutant("entry duplicated", lambda t: t + (M.Metric(r"correct_rat(?P<x>e)", "dup.{x}", "frac", "mutant"),))
