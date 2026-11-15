@@ -269,8 +269,8 @@ def format_metrics_markdown(m: Dict[str, Any]) -> str:
         row("Training device", m["train_device"])
     if has("frame_rate"):
         row("Frame rate", f"{m['frame_rate']} Hz")
-    if m.get("delay_s") is not None:
-        row("Delay", f"{m['delay_s']} s")
+    if m.get("delay_frames") is not None:
+        row("Delay", f"{m['delay_frames']} frames")
     if m.get("spm"):
         row("SPM vocab", m["spm"])
 
@@ -429,7 +429,7 @@ _TABLE_COLS = [
     "peak_train_mem_GB",
     "graph_pool_GB",
     "frame_rate",
-    "delay_s",
+    "delay_frames",
     "spm",
     "epochs",
 ]
