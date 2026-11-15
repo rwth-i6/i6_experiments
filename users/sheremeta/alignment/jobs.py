@@ -130,7 +130,8 @@ class CtcAlignToWordOnsetsJob(Job):
     def run(self):
         import sentencepiece as spm
 
-        sp = spm.SentencePieceProcessor(model_file=self.spm_file.get_path())
+        sp = spm.SentencePieceProcessor()
+        sp.Load(self.spm_file.get_path())
         onsets = _load_onsets(self.ctc_store.get_path(), unit="word", blank=self.vocab_size,
                               frame_length_ms=self.frame_length_ms, sp=sp)
         _write_word_onset_store(self.out_store.get_path(), onsets)
@@ -386,7 +387,8 @@ class PerturbationConsistencyJob(Job):
                                                                      perturbation_deviations_ms)
         from i6_experiments.users.sheremeta.alignment.transforms import transform_by_name
 
-        sp = spm.SentencePieceProcessor(model_file=self.spm_file.get_path())
+        sp = spm.SentencePieceProcessor()
+        sp.Load(self.spm_file.get_path())
 
         def load(p):
             return _load_onsets(p.get_path(), unit=self.unit, blank=self.blank,
@@ -403,6 +405,7 @@ class PerturbationConsistencyJob(Job):
             if name == "orig":
                 continue
             tr = transform_by_name(name)
+            assert tr is not None, f"no transform named {name!r}"
             fc = failures_by_tr.setdefault(name, FailureCounts())
             perturbed = load(store)
             # tags the perturbed store produced but the reference did not: a missing original
