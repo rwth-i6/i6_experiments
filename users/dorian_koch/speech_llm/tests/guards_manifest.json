@@ -872,5 +872,9 @@
  "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_haru_duplex.py": {
   "env": "venv:moshi_family_venv_v1",
   "timeout": 900
+ },
+ "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_haru_rl_trainer.py": {
+  "env": "venv:moshi_family_venv_v1",
+  "timeout": 900
  }
 }
