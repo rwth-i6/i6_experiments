@@ -132,3 +132,14 @@ post-switch graph/validation are under
 `/work/asr4/berger/refactor/asr-20261104/cutover-20261115`.
 No manager was started and no tasks were submitted during cutover. Restart the
 same four configs to regenerate corrected CPU analysis; recognition is reused.
+
+## Analysis refresh verified after restart
+
+All 63 expected CPU analysis replacements have completion markers. None of the
+165 GPU job completion markers is newer than cutover: recognition was reused.
+The selected comparison still has 234 complete result cells and no missing
+baselines. The regenerated complementarity outputs use the corrected analysis
+source version and now retain distinct one-pass/two-pass error-attribution
+counters. WERs and the main conclusions are unchanged. The verification record
+is `cutover-20261115/after-restart-validation.json` in the retained refactor area.
+The public setup migration and analysis refresh are complete.

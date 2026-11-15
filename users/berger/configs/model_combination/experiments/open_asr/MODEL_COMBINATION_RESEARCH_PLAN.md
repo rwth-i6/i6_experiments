@@ -268,3 +268,19 @@ merely whether some tuned combination can lower WER.
 
 Do not launch every branch at once. Use the decision gates to avoid expanding
 the experiment grid without sharpening the research question.
+
+## Current checkpoint: public batch and corrected analyses complete
+
+The frozen selected public comparison is complete (234 result cells). The live
+setup is on `berger_dev`; its 63 corrected CPU analyses have finished, reusing
+all 165 GPU jobs from the four active configs. The scorer-API transfer check for
+Granite/Speech-Qwen 1.7B matches the selected old-API result exactly on dev-other
+under transformers 5.16.1. See the November 14 completion review and migration
+validation for the evidence and limits.
+
+The agreed next work is to consolidate the public study and compare with the
+company-side AppTek results when available. Calibration, union pools, reversed
+search, controlled noise and natural long-form evaluation are optional extensions,
+not requirements for closing this public experiment batch. No additional public
+recognition grid is currently requested. Keep the descriptive conclusions distinct
+from untested causal claims about search or ranking mechanisms.
