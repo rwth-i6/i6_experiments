@@ -403,12 +403,16 @@ HARU_EVAL_VOICE = "/hpcwork/p0023999/tt201262/talk/voice_bank/previews/jre00.wav
 TEACHER_PERSONA = "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way."
 
 
-def haru_family_backend_spec(system_prompt: str = TEACHER_PERSONA, voice: str = HARU_EVAL_VOICE) -> BackendSpec:
+def haru_family_backend_spec(
+    system_prompt: str = TEACHER_PERSONA, voice: str = HARU_EVAL_VOICE, max_truncated_frac: float | None = None
+) -> BackendSpec:
     """Haru-4B (``higurashi-ai/Haru-4B``) via ``moshi_family.haru`` and the architecture-neutral reply driver
     (``moshi_family.duplex.reply``): ``python -m moshi_family.haru.offline_inference``.
 
     ``system_prompt``: the persona of Haru's character card (``card:<preset>`` = an upstream preset card);
-    ``voice``: the reference clip. Both are the same for every clip and both are hashed driver arguments."""
+    ``voice``: the reference clip. Both are the same for every clip and both are hashed driver arguments.
+    ``max_truncated_frac``: knowledge mode's truncation ceiling (``duplex.reply.run_pairs``); ``None`` = the driver
+    default (0.75), passed only when set."""
 
     def _venv():
         from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import moshi_family_venv
@@ -419,7 +423,8 @@ def haru_family_backend_spec(system_prompt: str = TEACHER_PERSONA, voice: str = 
         name="haru_family",
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.haru.offline_inference",
-        offline_extra_args=("--voice", voice, "--system_prompt", system_prompt),
+        offline_extra_args=("--voice", voice, "--system_prompt", system_prompt)
+        + (() if max_truncated_frac is None else ("--max_truncated_frac", str(max_truncated_frac))),
         inference_venv=_venv,
         rqmt_override={"mem": 32},
     )
