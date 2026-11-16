@@ -237,6 +237,7 @@ SINK_KINDS = {
     "SpeechFinetune": "train",
     "RLFinetune": "rl",
     "RLFinetuneV2": "rl",
+    "InteractionBenchGrade": "interaction_bench",
 }
 
 
