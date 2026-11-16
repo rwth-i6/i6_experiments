@@ -20,7 +20,8 @@ mtime in its tree, not the dir's own, so a sink attached after the fact sorts by
 awaited item added mid-run turns READY); a failed RESULTS.jsonl append fails the task; ``read_results.py`` renders every record of the live ``RESULTS.jsonl`` (an
 unknown shape is shown flagged, never as an empty cell); and with ``--graph`` (one config load, ~2 min) every result
 output of a ``SINK_KINDS`` class in the real graph has a sink -- ``attach_result_sinks`` exists because, by
-2026-10, only MFDB and MRQA still fed the log.
+2026-10, only MFDB and MRQA still fed the log -- and (2026-11-16) every class with a result-like output is in
+``SINK_KINDS`` or ``NOT_SINK_KINDS``: a new eval Job left out of both could never be awaited.
 
 Run from the setup root, no GPU needed:
     CUDA_HOME=/usr .venv/bin/python \\
@@ -177,6 +178,20 @@ def check_graph_coverage():
     gap = unsinked_results(sinked=sinked - {one})
     assert [p.get_path() for _, p in gap.values()] == [one], f"a dropped sink was not caught: {one} -> {list(gap)}"
     print(f"[ok] every result output in the graph has a sink ({len(sinked)} sinked paths); a dropped one is caught")
+    from i6_experiments.users.dorian_koch.speech_llm.result_notify import (
+        NOT_SINK_KINDS,
+        SINK_KINDS,
+        unclassified_result_kinds,
+    )
+
+    left = unclassified_result_kinds()
+    assert not left, (
+        f"result-like outputs of classes in neither SINK_KINDS nor NOT_SINK_KINDS: {left} -- an eval Job belongs in "
+        "SINK_KINDS (else awaited.py can never wait on it), data prep in NOT_SINK_KINDS with its reason"
+    )
+    gap = unclassified_result_kinds(kinds={k: v for k, v in SINK_KINDS.items() if k != "InteractionBenchGrade"})
+    assert list(gap) == ["InteractionBenchGrade"], f"a sink kind dropped from SINK_KINDS was not caught: {gap}"
+    print(f"[ok] every result-like output class is classified ({len(SINK_KINDS)} sinked, {len(NOT_SINK_KINDS)} not)")
 
 
 def check_empty_and_malformed_are_survivable():

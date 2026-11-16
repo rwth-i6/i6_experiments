@@ -241,6 +241,52 @@ SINK_KINDS = {
 }
 
 
+#: Classes whose registered outputs LOOK like results (``summary*.json`` / ``eval.json`` / a run_dir) but get no sink,
+#: each with the reason. Every such class must be in ``SINK_KINDS`` or here (guard ``check_result_notify.py --graph``):
+#: a new eval Job is classified when it is written, so ``awaited.py add`` never refuses it later (2026-11-16:
+#: ``InteractionBenchGrade`` was missing and its runs were never awaited).
+NOT_SINK_KINDS = {
+    "AudexDuplexFinetune": "data prep / legacy training: its summary describes data, not a result",
+    "MoshiFinetune": "data prep / legacy training: its summary describes data, not a result",
+    "OpenYapShards": "data prep / legacy training: its summary describes data, not a result",
+    "PersonaHeldoutSet": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeAttachUserWords": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeConcatMeta": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeDialogueCodes": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeKnownScore": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeVoiceConvert": "data prep / legacy training: its summary describes data, not a result",
+    "KnowledgeVoicePool": "data prep / legacy training: its summary describes data, not a result",
+    "AttachContentPrompts": "data prep / legacy training: its summary describes data, not a result",
+    "EpisodeEdgeRows": "data prep / legacy training: its summary describes data, not a result",
+    "EpisodeSplit": "data prep / legacy training: its summary describes data, not a result",
+    "PersonaContentPromptGen": "data prep / legacy training: its summary describes data, not a result",
+    "CensorFlaggedWords": "data prep / legacy training: its summary describes data, not a result",
+    "FlaggedWordSpans": "data prep / legacy training: its summary describes data, not a result",
+    "LexiconRows": "data prep / legacy training: its summary describes data, not a result",
+    "MonologueRows": "data prep / legacy training: its summary describes data, not a result",
+    "SelfPlayLexiconRates": "data prep / legacy training: its summary describes data, not a result",
+    "ThresholdRowWeights": "data prep / legacy training: its summary describes data, not a result",
+    "FDBTurnTakingRescore": "eval without a sink (audit 2026-11-16): move to SINK_KINDS before awaiting it",
+    "KnowledgeForcedChoice": "eval without a sink (audit 2026-11-16): move to SINK_KINDS before awaiting it",
+    "VoiceBenchScore": "eval without a sink (audit 2026-11-16): move to SINK_KINDS before awaiting it",
+    "AudioJudgeAgreement": "eval without a sink (audit 2026-11-16): move to SINK_KINDS before awaiting it",
+    "SelfPlayCopyStats": "eval without a sink (audit 2026-11-16): move to SINK_KINDS before awaiting it",
+}
+
+
+def unclassified_result_kinds(kinds: dict = SINK_KINDS, skip: dict = NOT_SINK_KINDS) -> dict:
+    """``{class name: an output name}`` for every class with a result-like registered output in neither ``kinds`` nor
+    ``skip``."""
+    out = {}
+    for t in sorted(tk.sis_graph.targets, key=lambda t: t.name):
+        for p in t.required_full_list:
+            name = type(p.creator).__name__ if p.creator is not None else None
+            if name is None or name in kinds or name in skip or not _is_result(p, p.creator):
+                continue
+            out.setdefault(name, t.name)
+    return out
+
+
 def _is_result(path, creator) -> bool:
     if path is getattr(creator, "out_rundir", None):
         return True

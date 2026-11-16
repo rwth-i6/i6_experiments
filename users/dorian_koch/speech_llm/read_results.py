@@ -94,6 +94,19 @@ def render(rec: dict) -> tuple[str, bool]:
                         f"{sub.split('_')[0]} {_num(m.get('acc_upstream'), '{:.3f}')}/{_num(m.get('acc_strict'), '{:.3f}')}"
                     )
             out.append("MRQA up/strict " + " ".join(cells))
+        elif isinstance(p.get("headline"), dict) and "spoken_task" in p["headline"]:  # InteractionBench (MIB)
+            h = p["headline"]
+            cells = [
+                f"{k} {h[k]['npass']}/{h[k]['n']}"
+                for k in ("spoken_task", "timing", "whisper_volume", "grounded")
+                if isinstance(h.get(k), dict)
+            ]
+            line = "MIB " + " ".join(cells) + f" coh {h.get('coherence', '?')}"
+            agree = ((p.get("released") or {}).get("agreement") or {}).get("per_task") or {}
+            if agree:  # a release check: verdict agreement with upstream's Gemini
+                a, n = sum(v["agree"] for v in agree.values()), sum(v["n"] for v in agree.values())
+                line += f"; agree w/ upstream {a}/{n}"
+            out.append(line)
         elif isinstance(p.get("result"), dict) and "evaluator" in p:  # one VoiceBench subset
             r = p["result"]
             v = r.get("acc", r.get("final"))
