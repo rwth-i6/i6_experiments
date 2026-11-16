@@ -16,6 +16,10 @@ unchanged generic modules are reused from the templates.
 The research plan and AppTek handoff are under `experiments/open_asr/`.
 `source_manifest.json` records pre-cleanup source paths and SHA256 hashes.
 
+The completed public results are consolidated in
+[Public study summary](experiments/open_asr/PUBLIC_STUDY_SUMMARY.md), with
+full WER tables, paired uncertainty, runtime and diagnostic exports.
+
 Point the Sisyphus setup's `config` symlink at this directory, then use
 `./sis m config/research_diagnostics.py`, for example. The package
 `py()`/`main()` runs the combined setup. Historical definitions remain

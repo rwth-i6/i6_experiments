@@ -284,3 +284,9 @@ search, controlled noise and natural long-form evaluation are optional extension
 not requirements for closing this public experiment batch. No additional public
 recognition grid is currently requested. Keep the descriptive conclusions distinct
 from untested causal claims about search or ranking mechanisms.
+
+Consolidation completed 2026-11-16: [public study summary](PUBLIC_STUDY_SUMMARY.md)
+and its generated tables record the frozen results, paired intervals, observed
+runtime, corrected attribution, candidate diagnostics and frequency slices.
+The report-only `config/study_summary.py` reproduces the collection without
+recognition jobs. The next external checkpoint is the AppTek evaluation.

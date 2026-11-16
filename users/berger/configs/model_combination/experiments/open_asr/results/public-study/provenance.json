@@ -1,0 +1,100 @@
+{
+  "protocol_sha256": "f4212424889ee5d390df7a87d917b77b65d35c1a15e7c4920c3599c3c1769a56",
+  "seed": 20261103,
+  "bootstrap_samples": 10000,
+  "cells": 234,
+  "renderer_sha256": "378282f3ae2c773d90662d990edbc4097007634aaebf5002ca8300ac4366374e",
+  "sources": {
+    "comparison": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/controlled_comparison/ControlledComparisonJob.1TiMMZhRQv8V/output/comparison.json",
+      "sha256": "67b98e9a957ecbaa0c126c45f9c4b3eff7cd7fac47e778e3a3a6b602cdb21e84"
+    },
+    "protocol": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/controlled_comparison/SelectControlledConfigsJob.AhmCFYsgyJ7p/output/selection.json",
+      "sha256": "f4212424889ee5d390df7a87d917b77b65d35c1a15e7c4920c3599c3c1769a56"
+    },
+    "librispeech-dev-other/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.idGgpspm7kvr/output/complementarity.json",
+      "sha256": "b9e8b58de6b683090fb6d24352407806dbdad79ade392c9442a53104c56e02c9"
+    },
+    "librispeech-dev-other/ranking": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/research_diagnostics/CandidateRankingDiagnosticsJob.MCh2iGAp2TwH/output/ranking.json",
+      "sha256": "30343c7370073d114ab8913263cb0fac140a68a871b10a81723ad7fffef09bf0"
+    },
+    "librispeech-dev-other/stratified": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/research_diagnostics/StratifiedErrorsJob.Br3DJWmbSalN/output/stratified.json",
+      "sha256": "1c67d2c10863388b4b348743ccf22d9da3996d85134e176fee8ec736f02155a5"
+    },
+    "loquacious-dev.short/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.WWTN4huTyvY0/output/complementarity.json",
+      "sha256": "f3e38cd28e4ca90acbce1c55b62dc65ce8aa7965a70f0067e45ff3c45c0668a3"
+    },
+    "loquacious-dev.short/ranking": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/research_diagnostics/CandidateRankingDiagnosticsJob.h7TLH8svwdfE/output/ranking.json",
+      "sha256": "8385d214bb206c36f6d2ddead148d60b3f3402529ccf8f9f1595681e803bf81b"
+    },
+    "loquacious-dev.short/stratified": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/research_diagnostics/StratifiedErrorsJob.IPO8WGVTuQzG/output/stratified.json",
+      "sha256": "e8ab94e7952b6a67b50fd6f7d89723e698172a86eb8881cd0681d6bfa6720859"
+    },
+    "ami-cleaned/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.49uGmMVceuQQ/output/complementarity.json",
+      "sha256": "4f04eeca4ebded1a04006506ee8d48dbe6c5a8ac0e83e2e678e99ddf849bd939"
+    },
+    "earnings22-cleaned/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.iXGm13XXWIvA/output/complementarity.json",
+      "sha256": "60a52504301ec96a4de963abf74f6d298446192787450bcca61caf145cc7c10c"
+    },
+    "gigaspeech-cleaned/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.YLuYd3pLb9iZ/output/complementarity.json",
+      "sha256": "5b2cbaa63fb5bd099ede38638fbdd9ec80dc5b9cf6dc42b7238c0d4136295f11"
+    },
+    "librispeech-test-clean/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.Qh8LFzYQIdgA/output/complementarity.json",
+      "sha256": "28e4fdace284ba32697228e57f338fde4e0a02d769a0dc3b1cc7e0fe9cd1c7ce"
+    },
+    "librispeech-test-other/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.RfR6nWte3qvB/output/complementarity.json",
+      "sha256": "b2bbc89bd7d1e2b50728ee39cf78f69f8794fc99584b9c8f99a5209f08faed49"
+    },
+    "loquacious-test/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.rBCQdlF0fMeT/output/complementarity.json",
+      "sha256": "3872e1eed4579810ff8770b23b81930939491c12932df4edcc525f27c694b78e"
+    },
+    "loquacious-test.commonvoice/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.LxSV5cjirqg0/output/complementarity.json",
+      "sha256": "b83e19e55abc9f0192f209eddfdc3cc2e503c25257a1ae3c308df1ee2df9c8f7"
+    },
+    "loquacious-test.librispeech/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.6q8xM7QhTxMx/output/complementarity.json",
+      "sha256": "174807011ab6a8acec7e16f56fae65563a548975202fac1691ac4edf5717598c"
+    },
+    "loquacious-test.voxpopuli/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.IDmG4fcwPpq8/output/complementarity.json",
+      "sha256": "dd13924a9eae7ab15aee0367b8a71555a60a5a7cd4ec9c8c9cfac3f612876bbf"
+    },
+    "loquacious-test.yodas/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.UyFYVTfFBzxw/output/complementarity.json",
+      "sha256": "27a0820f000a2f6c7bc0561df4836c45f51ac281e3d9e35b47d2a923de885a7b"
+    },
+    "monsoon-en-in/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.3bBFdWH3niNG/output/complementarity.json",
+      "sha256": "38315ad2353467a0f09156945de25afe691c488768211e36d55a6c6a2f3058b5"
+    },
+    "spgispeech/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.NzjurZDhYHX6/output/complementarity.json",
+      "sha256": "8200e7bf01256b009d2eac5a17827740b638869e0c63ea4f242c71ba83dea6e1"
+    },
+    "voxpopuli-cleaned/complementarity": {
+      "path": "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_experiments/example_setups/seq2seq_rasr_2025/model_pipelines/common/error_complementarity/ErrorComplementarityJob.emMLLb9flSv7/output/complementarity.json",
+      "sha256": "696a909c012174f2c3b91d06c0e67c4a51c32e1f6d9d36a8c274a0ed57b53b80"
+    }
+  },
+  "outputs": {
+    "tables.md": "544f61341139a10be13c0ad8e376f979a8ff79407fa422375b050b7b9334f869",
+    "metrics.md": "34a6dbb3e6257c2a1bb92397fbfa75db1a7328a278e04814903dee5b5143ad28",
+    "diagnostics.md": "270a5729473945a82eb1b83321dc934c971592d5f1f02edddf142bc71bc9849d",
+    "attribution.md": "39a724831bee1345883890ee90f3f0de4846d4ad1d24d7be9203c898d4df4fa0",
+    "results.tsv": "d2dd8a964531556fb94fe4df50ca19f58c64b1a61e056f1cddfb076176a1498d"
+  }
+}

@@ -370,3 +370,14 @@ resume enabled. `ASR_CTC_PARITY_DATASETS` can add `loquacious-dev.short`;
 `ASR_CTC_PARITY_TRANSFORMERS=5.19.0` selects a separate explicit environment
 comparison (it requires that installed environment). See
 [AppTek feedback](experiments/open_asr/APPTEK_FEEDBACK_20261111.md).
+
+## Frozen public-study consolidation
+
+The [study summary](experiments/open_asr/PUBLIC_STUDY_SUMMARY.md) links the
+checked-in WER tables, paired gains/intervals, runtimes and corrected diagnostics.
+`./sis m config/study_summary.py` registers the same collection from completed
+producer outputs, with one CPU mini-task and no recognition/download graph.
+Outputs: `output/public-study/` and
+`output/reports/asr-lm/public-study-{tables,metrics,diagnostics,attribution}.md`.
+It requires the completed frozen comparison and analysis files; use
+`ASR_STUDY_OUTPUT_ROOT` to select an existing output tree explicitly.
