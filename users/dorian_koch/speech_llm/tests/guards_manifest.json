@@ -912,5 +912,11 @@
  },
  "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_step_scale.py": {
   "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/interaction_bench/tests/test_protocol.py": {
+  "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/interaction_bench/tests/test_local_judge.py": {
+  "env": "module"
  }
 }

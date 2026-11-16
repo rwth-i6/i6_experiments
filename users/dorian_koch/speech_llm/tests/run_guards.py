@@ -4,7 +4,7 @@ The guards live in four places and run in three kinds of interpreter; ``guards_m
 for each guard how it runs:
 
 * ``env``: ``login`` = the login node's ``python3``; ``setup`` = the setup's ``.venv`` (``CUDA_HOME=/usr``); ``module`` =
-  the setup ``.venv`` with ``PYTHONPATH=recipe/speech_llm/full_duplex:recipe``, run as ``-m moshi_family.rl.tests.<name>``
+  the setup ``.venv`` with ``PYTHONPATH=recipe/speech_llm/full_duplex:recipe``, run as ``-m <its dotted path under full_duplex>``
   (a file without a ``__main__`` block under pytest instead); ``venv:<name>`` = the ``CreateVenv.<name>`` job venv (a
   packed one mounts itself), same ``PYTHONPATH``.
 * ``pythonpath``: (``setup``) put ``recipe/speech_llm/full_duplex:recipe`` on ``PYTHONPATH`` as the other envs do.
@@ -43,6 +43,7 @@ ROOTS = (
     "recipe/speech_llm/full_duplex/rl_spec/tests/check_*.py",
     "recipe/speech_llm/full_duplex/moshi_family/rl/tests/test_*.py",
     "recipe/speech_llm/full_duplex/moshi_family/haru/tests/check_*.py",
+    "recipe/speech_llm/full_duplex/interaction_bench/tests/test_*.py",
 )
 OUT_ROOT = os.path.join("/hpcwork", os.environ.get("USER", "tt201262"), "guard_runs")
 VENV_GLOB = "work/i6_experiments/users/dorian_koch/jobs/venv/CreateVenv.{name}/output/venv/bin/python"
@@ -99,7 +100,8 @@ def command(path: str, spec: dict, root: str):
             has_main = "__main__" in f.read()
         if not has_main:  # pytest-style: run as a module it would exit 0 without testing anything
             return [setup_py, "-m", "pytest", "-q", "-p", "no:cacheprovider", path, *args], env
-        mod = "moshi_family.rl.tests." + os.path.splitext(os.path.basename(path))[0]
+        # the dotted path under full_duplex (moshi_family.rl.tests.<name>, interaction_bench.tests.<name>, ...)
+        mod = os.path.splitext(os.path.relpath(os.path.join(root, path), fd))[0].replace(os.sep, ".")
         return [setup_py, "-m", mod, *args], env
     if kind.startswith("venv:"):
         py = os.path.join(root, VENV_GLOB.format(name=kind.split(":", 1)[1]))
