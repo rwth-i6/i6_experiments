@@ -89,10 +89,30 @@ class InteractionBenchData(Job):
     """The released files named in ``file_list`` (``[{"id", "path"}]``, a listing of the Drive folder), downloaded
     one by one with gdown on the login node; ``base_dir`` (another data job's ``out_dir``) is copied in first.
 
-    Drive throttles a client that fetches many files (a laptop was cut off after 86, 2026-11-16), so the download is
-    paced, resumable (a present file is kept) and retried with backoff; files still missing at the end fail the task
-    with their count, and rerunning it continues where it stopped. ``out_dir`` mirrors the folder's paths.
+    Each file comes straight from ``drive.usercontent.google.com`` (gdown only as the fallback): gdown's ``uc`` page
+    got throttled after 86 files on a laptop and after 250 on the login node (2026-11-16) while the direct endpoint
+    still served. Paced, resumable (a present file is kept), retried with backoff; a reply that is an HTML page is a
+    failure, not a file (a stale ``.part`` is overwritten by the next try). Files still missing at the end fail the
+    task with their count, and rerunning it continues where it stopped. ``out_dir`` mirrors the folder's paths.
     """
+
+    DIRECT_URL = "https://drive.usercontent.google.com/download?id={}&export=download&confirm=t"
+
+    def _direct(self, file_id: str, part: str) -> str:
+        """Fetch one file to ``part``; '' on success, else the reason."""
+        import urllib.request
+
+        try:
+            req = urllib.request.Request(self.DIRECT_URL.format(file_id), headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                if "text/html" in r.headers.get("Content-Type", ""):
+                    return f"html reply ({r.status})"
+                data = r.read()
+            with open(part, "wb") as fh:
+                fh.write(data)
+            return ""
+        except Exception as e:  # noqa: BLE001 -- any network error is a retry
+            return repr(e)
 
     __sis_hash_exclude__ = {"base_dir": None}
 
@@ -124,18 +144,21 @@ class InteractionBenchData(Job):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             ok = False
             for attempt in range(5):
-                r = subprocess.run(
-                    [self.grader_python.get(), "-m", "gdown", "-q", f["id"], "-O", dst + ".part"],
-                    capture_output=True, text=True,
-                )  # fmt: skip
-                if r.returncode == 0 and os.path.exists(dst + ".part"):
+                why = self._direct(f["id"], dst + ".part")
+                if why and attempt == 4:  # last try: gdown
+                    r = subprocess.run(
+                        [self.grader_python.get(), "-m", "gdown", "-q", f["id"], "-O", dst + ".part"],
+                        capture_output=True, text=True,
+                    )  # fmt: skip
+                    why = "" if r.returncode == 0 else r.stderr.strip()[-300:]
+                if not why and os.path.exists(dst + ".part"):
                     os.rename(dst + ".part", dst)
                     ok = True
                     break
                 time.sleep(30 * (attempt + 1))
             if not ok:
                 failed.append(f["path"])
-                print(f"[ib-data] FAILED {f['path']}: {r.stderr.strip()[-300:]}", flush=True)
+                print(f"[ib-data] FAILED {f['path']}: {why}", flush=True)
                 if len(failed) >= 20:  # throttled: stop, a rerun resumes
                     break
             if (i + 1) % 50 == 0:
