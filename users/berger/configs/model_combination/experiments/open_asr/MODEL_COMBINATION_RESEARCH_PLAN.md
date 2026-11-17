@@ -290,3 +290,12 @@ and its generated tables record the frozen results, paired intervals, observed
 runtime, corrected attribution, candidate diagnostics and frequency slices.
 The report-only `config/study_summary.py` reproduces the collection without
 recognition jobs. The next external checkpoint is the AppTek evaluation.
+
+## Approved independent follow-ups — 2026-11-17
+
+The user approved two public follow-ups while AppTek validates forced scoring:
+`config/convention_audit.py` audits existing raw hypotheses and paired error
+slices, and `config/noise_pilot.py` schedules a 256-utterance dev-other clean /
+20 / 10 dB white-noise pilot for Parakeet, Speech-Qwen 1.7B and their frozen
+one-pass combination. No full-suite grid or new tuning is enabled. See
+[PUBLIC_PILOTS.md](PUBLIC_PILOTS.md) for controls and the decision checkpoint.

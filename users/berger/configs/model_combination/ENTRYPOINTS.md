@@ -381,3 +381,16 @@ Outputs: `output/public-study/` and
 `output/reports/asr-lm/public-study-{tables,metrics,diagnostics,attribution}.md`.
 It requires the completed frozen comparison and analysis files; use
 `ASR_STUDY_OUTPUT_ROOT` to select an existing output tree explicitly.
+
+## Public follow-up pilots (opt-in)
+
+- `./sis m config/convention_audit.py`: one CPU job over frozen public hypotheses;
+  descriptive surface-form counts and paired error slices, no recognition.
+- `./sis m config/noise_pilot.py`: a deterministic 256-utterance dev-other subset,
+  clean/20/10 dB white-noise conditions, Parakeet/Speech-Qwen 1.7B/one-pass fusion.
+  Nine GPU recognitions with frozen settings, using the 48 GB queue.
+
+Reports: `output/reports/asr-lm/transcription-conventions.md` and `noise-pilot.md`.
+See [PUBLIC_PILOTS.md](experiments/open_asr/PUBLIC_PILOTS.md) for pairing,
+selection, audio preparation, uncertainty and interpretation limits. Neither
+config schedules the historical suite or requires new model/data downloads.
