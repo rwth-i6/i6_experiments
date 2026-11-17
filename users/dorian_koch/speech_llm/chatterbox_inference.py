@@ -10,11 +10,15 @@ from typing import Any
 from datasets import Features, Value, Sequence, Audio, Dataset, load_from_disk
 
 try:  # imported as part of the package (tests)
-    from . import chatterbox_fast
+    from . import chatterbox_fast, chatterbox_fast_mtl
     from .clip_codec import wav_to_flac
 except ImportError:  # run as a script under the job venv: the sibling files
     import chatterbox_fast
+    import chatterbox_fast_mtl
     from clip_codec import wav_to_flac
+
+#: ``--language``: None = Chatterbox Turbo (English); a language id = Chatterbox Multilingual V3 (chatterbox_fast_mtl)
+LANGUAGE = None
 
 print("Imports successful", flush=True)
 
@@ -316,14 +320,16 @@ def _plan_dialogue(model, dialogue, diag_id, speaker_dir, silence_length_sampler
             paths_used.add(p)
         key = (speaker_to_path[s[0]], s[1])
         if key not in cond_cache:
-            model.prepare_conditionals(key[0], exaggeration=s[1], norm_loudness=True)
+            # Turbo's own generate normalizes the voice prompt's loudness; the multilingual one has no such option
+            kw = {} if LANGUAGE else {"norm_loudness": True}
+            model.prepare_conditionals(key[0], exaggeration=s[1], **kw)
             cond_cache[key] = model.conds
             model.conds = None
         speak_map[s] = cond_cache[key]
     items, gaps = [], []
     for idx, turn in enumerate(dialogue):
         items.append({"text": turn["text"], "cond": speak_map[(turn["speaker"], turn.get("exaggeration", 0.5))],
-                      "seed": (_seed * 1009 + idx) % (2**63)})  # fmt: skip
+                      "seed": (_seed * 1009 + idx) % (2**63), "lang": LANGUAGE})  # fmt: skip
         gaps.append(float(silence_length_sampler()))
     return {"dialogue": dialogue, "speaker_to_path": speaker_to_path, "items": items, "gaps": gaps,
             "speakers": set((turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue)}  # fmt: skip
@@ -354,12 +360,16 @@ def _render(plan, wavs, sr, device):
 
 def process_dialogues_batched(model, examples, device, speaker_dir, out_dir, cond_cache):
     """The default path: ``examples`` = [(diag_id, dialogue, passthrough)], every turn of every dialogue synthesized
-    together by ``chatterbox_fast.synthesize``, then each dialogue rendered and written as ``process_dialogue``
-    does. No watermark (the per-utterance path applies upstream's Perth watermark)."""
+    together by ``chatterbox_fast.synthesize`` (``chatterbox_fast_mtl.synthesize`` when ``LANGUAGE`` is set), then
+    each dialogue rendered and written as ``process_dialogue`` does. No watermark (the per-utterance path applies
+    upstream's Perth watermark)."""
     plans = [(i, _plan_dialogue(model, d, i, speaker_dir, silence_length_sampler, cond_cache), pt)
              for i, d, pt in examples]  # fmt: skip
     items = [it for _, p, _ in plans for it in p["items"]]
-    wavs = chatterbox_fast.synthesize(model, items)
+    if LANGUAGE:
+        wavs = chatterbox_fast_mtl.synthesize(model, items, s3_batch=16, flow_autocast=torch.bfloat16)
+    else:
+        wavs = chatterbox_fast.synthesize(model, items)
     k = 0
     for i, p, pt in plans:
         n = len(p["items"])
@@ -452,6 +462,12 @@ def main():
     )
     parser.add_argument("--chunk", type=int, default=192, help="Dialogues per batched synthesis call (default path).")
     parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        help="Language id (de, zh, ...): synthesize with Chatterbox Multilingual V3 (batched only). Default: Turbo.",
+    )
+    parser.add_argument(
         "--id_prefix",
         type=str,
         default="",
@@ -466,7 +482,13 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     assert device == "cuda"
-    model = ChatterboxTurboTTS.from_pretrained(device=device)
+    global LANGUAGE
+    LANGUAGE = args.language.lower() if args.language else None
+    if LANGUAGE:
+        assert not args.legacy_per_utterance, "--legacy_per_utterance is Turbo only"
+        model = chatterbox_fast_mtl.load_mtl(device, "v3")
+    else:
+        model = ChatterboxTurboTTS.from_pretrained(device=device)
 
     torch.set_float32_matmul_precision("high")
     if args.legacy_per_utterance:
@@ -474,7 +496,8 @@ def main():
         torch._dynamo.config.capture_scalar_outputs = True
         model.t3.inference_turbo = torch.compile(model.t3.inference_turbo, dynamic=True)
     else:
-        print(f"Synthesis path: batched (chatterbox_fast), {args.chunk} dialogues per call", flush=True)
+        name = f"chatterbox_fast_mtl, Multilingual V3, language {LANGUAGE}" if LANGUAGE else "chatterbox_fast"
+        print(f"Synthesis path: batched ({name}), {args.chunk} dialogues per call", flush=True)
         chatterbox_fast.speed_s3gen(model)
     cond_cache = {}
     batch = []  # (diag_id, dialogue, passthrough) waiting for the batched path
@@ -489,6 +512,7 @@ def main():
     )
 
     last_diag_id = 0
+    id_base = 0  # first output id; the HF path moves it to its sub-shard's start (the jsonl path's export needs it too)
     if args.in_hf is not None:
         assert args.limit is None, (
             "Limiting number of dialogues is not supported when reading from Hugging Face dataset"

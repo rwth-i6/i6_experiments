@@ -183,6 +183,7 @@ class ChatterboxInference(Job):
         id_prefix: str | None = None,
         rqmt: dict[str, int] | None = None,
         legacy_per_utterance: bool = False,
+        language: str | None = None,
     ):
         """``legacy_per_utterance``: synthesize with upstream ``model.generate`` one utterance at a time (Perth
         watermark on, ~25x slower) instead of the batched default (``chatterbox_fast``: continuous batching,
@@ -190,7 +191,11 @@ class ChatterboxInference(Job):
         of the hash: a job's hash names its inputs, and both paths write the same kind of corpus from them; every
         existing hash runs the batched path from now on (guard ``check_chatterbox_fast_path``). As the hash is the same,
         Sisyphus hands every later construction of that hash the first-built object: within one graph the first
-        construction decides the path."""
+        construction decides the path.
+
+        ``language``: a Chatterbox language id (``de``, ``zh``, ... the 23 of ``chatterbox.mtl_tts.SUPPORTED_LANGUAGES``)
+        synthesizes with Chatterbox Multilingual V3 (``chatterbox_fast_mtl``, batched; ~21x upstream's one-at-a-time
+        speed with the same Parakeet WER on German). Default None = Turbo (English); hash-excluded at None."""
         self.in_json = in_json
         self.in_hf = in_hf
         assert (in_json is not None) ^ (in_hf is not None), "Must provide exactly one of in_json or in_hf"
@@ -208,6 +213,8 @@ class ChatterboxInference(Job):
         # Hash-excluded at the default (None): existing TTS hashes are unchanged.
         self.id_prefix = id_prefix
         self.legacy_per_utterance = legacy_per_utterance
+        assert language is None or not legacy_per_utterance, "legacy_per_utterance is Turbo only"
+        self.language = language
         if with_audio_output:
             self.out_dir = self.output_path("chatterbox_output", directory=True)
         else:
@@ -240,6 +247,8 @@ class ChatterboxInference(Job):
         if not d.get("id_prefix"):
             d.pop("id_prefix", None)  # same: only ids_at_source shards hash it
         d.pop("legacy_per_utterance", None)  # the synthesis path, never the hash (see __init__)
+        if not d.get("language"):
+            d.pop("language", None)  # Turbo at the default: existing hashes unchanged
         return super().hash(d)
 
     @staticmethod
@@ -293,6 +302,8 @@ class ChatterboxInference(Job):
         # getattr: a job pickled before this parameter existed has no such attribute (and runs batched)
         if getattr(self, "legacy_per_utterance", False):
             args += ["--legacy_per_utterance"]
+        if getattr(self, "language", None):
+            args += ["--language", self.language]
 
         # torchcodec needs BOTH our FFmpeg libs and CUDA NPP on LD_LIBRARY_PATH. Supplying both is
         # what makes this job node-independent; c23g merely happened to provide them system-wide.

@@ -25,6 +25,7 @@ dialogues at 172 dialogue-h per GPU-h vs ~6-7 for the per-utterance loop (same H
 from __future__ import annotations
 
 import time
+from contextlib import nullcontext
 
 import torch
 import torch.nn.functional as F
@@ -290,12 +291,25 @@ def speed_s3gen(model):
 
 
 @torch.inference_mode()
-def s3gen_batch(model, tokens: list[torch.Tensor], conds: list, seeds: list[int]) -> list:
+def s3gen_batch(
+    model,
+    tokens: list[torch.Tensor],
+    conds: list,
+    seeds: list[int],
+    *,
+    sil_tokens: int = 3,
+    n_timesteps: int = 2,
+    meanflow: bool = True,
+    flow_autocast: torch.dtype | None = None,
+) -> list:
     """S3Gen (``tokens_to_wav`` without watermark) for many utterances, one call per group of equal voice-prompt
     length: tokens right-padded with their lengths (the flow encoder and decoder take masks), each utterance's
     mean-flow noise from its own seed, HiFiGAN on the padded mels (zero mel past an utterance's end, as the
     convolutions' own zero padding sees upstream), each waveform trimmed to 2 x tokens x hop and faded in as
-    upstream. -> float32 numpy waveforms at ``model.sr``."""
+    upstream. Defaults = Turbo (3 appended silence tokens, 2 mean-flow steps); the regular / multilingual S3Gen is
+    ``sil_tokens=0, n_timesteps=10, meanflow=False`` (flow matching with CFG; the generated part's noise is seeded per
+    utterance, the voice-prompt part's comes from the global generator as upstream's). -> float32 numpy waveforms at
+    ``model.sr``."""
     from chatterbox.tts_turbo import S3GEN_SIL
 
     s3 = model.s3gen
@@ -303,7 +317,7 @@ def s3gen_batch(model, tokens: list[torch.Tensor], conds: list, seeds: list[int]
     toks = []
     for t in tokens:
         t = t[t < S3_VOCAB].to(dev)
-        toks.append(torch.cat([t, torch.tensor([S3GEN_SIL] * 3, dtype=torch.long, device=dev)]))
+        toks.append(torch.cat([t, torch.tensor([S3GEN_SIL] * sil_tokens, dtype=torch.long, device=dev)]))
     groups: dict = {}
     for i, c in enumerate(conds):
         g = c.gen
@@ -321,11 +335,13 @@ def s3gen_batch(model, tokens: list[torch.Tensor], conds: list, seeds: list[int]
                                                            generator=gen)  # fmt: skip
         ref = [conds[i].gen for i in idx]
         cat = lambda k: torch.cat([r[k].to(dev) for r in ref], dim=0)  # noqa: E731
-        feat, _ = s3.flow.inference(
-            token=tok, token_len=lens, prompt_token=cat("prompt_token"), prompt_token_len=cat("prompt_token_len"),
-            prompt_feat=cat("prompt_feat"), prompt_feat_len=None, embedding=cat("embedding"), finalize=True,
-            n_timesteps=2, noised_mels=noise, meanflow=True,
-        )  # fmt: skip
+        amp = torch.autocast("cuda", dtype=flow_autocast) if flow_autocast is not None else nullcontext()
+        with amp:
+            feat, _ = s3.flow.inference(
+                token=tok, token_len=lens, prompt_token=cat("prompt_token"), prompt_token_len=cat("prompt_token_len"),
+                prompt_feat=cat("prompt_feat"), prompt_feat_len=None, embedding=cat("embedding"), finalize=True,
+                n_timesteps=n_timesteps, noised_mels=noise, meanflow=meanflow,
+            )  # fmt: skip
         feat = feat.to(dtype=dt)
         for j in range(len(idx)):  # zero mel past each utterance's end
             feat[j, :, 2 * int(lens[j]) :] = 0

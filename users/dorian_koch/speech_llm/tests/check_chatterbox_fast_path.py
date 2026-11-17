@@ -8,6 +8,7 @@ against the REAL job and the REAL worker source:
   * the job: default -> the worker argv has no ``--legacy_per_utterance``; ``legacy_per_utterance=True`` -> it has;
     both give the same Sisyphus hash, and that hash equals the one computed without the parameter at all (so no
     existing TTS job moved); a job object without the attribute (pickled before it existed) runs batched;
+    ``language='de'`` passes ``--language de`` and moves the hash (Multilingual output), None keeps it;
   * the worker: ``--legacy_per_utterance`` is a ``store_true`` flag, and in ``main`` every call of
     ``process_dialogue`` (the ``model.generate`` path) sits under ``if args.legacy_per_utterance``; the batched
     path's code never calls ``generate`` / ``gen_conversation``. The source check is also run on a mutated copy
@@ -146,8 +147,9 @@ def main():
         fails.append("could not build the mutated worker (the HF loop changed): update this guard")
     elif not worker_problems(mutated):
         fails.append("the source check passed a worker that calls process_dialogue unguarded")
-    for p in fast_module_problems((K / "chatterbox_fast.py").read_text()):
-        fails.append(p)
+    for name in ("chatterbox_fast.py", "chatterbox_fast_mtl.py"):
+        for p in fast_module_problems((K / name).read_text()):
+            fails.append(p.replace("chatterbox_fast.py", name))
 
     argv_default, id_default = job_argv()
     argv_legacy, id_legacy = job_argv(legacy_per_utterance=True)
@@ -161,15 +163,22 @@ def main():
             fails.append(f"a job pickled before the parameter passes {FLAG}")
     except AttributeError as e:
         fails.append(f"a job pickled before the parameter existed crashes in run(): {e}")
+    argv_de, id_de = job_argv(language="de")
+    if argv_de[-2:] != ["--language", "de"] or "--language" in argv_default:
+        fails.append(f"language='de' does not pass --language de (or the default passes one): {argv_de}")
+    if id_de == id_default:
+        fails.append("language='de' keeps the Turbo hash: a German corpus would reuse an English job")
     if id_default != id_legacy:
         fails.append(f"legacy_per_utterance moves the hash: {id_default} vs {id_legacy}")
     # the hash of a job built before the parameter existed: its parsed args lack the key
     args = dict(tts.ChatterboxInference.__init__.__kwdefaults__ or {})
     parsed = {"venv_python_path": tk.Path("/x"), "in_hf": tk.Path("/y"), "speaker_dir": tk.Path("/z")}
     with_key = tts.ChatterboxInference.hash({**{k: v for k, v in args.items()}, **parsed})
-    without = tts.ChatterboxInference.hash({**{k: v for k, v in args.items() if k != "legacy_per_utterance"}, **parsed})
+    without = tts.ChatterboxInference.hash(
+        {**{k: v for k, v in args.items() if k not in ("legacy_per_utterance", "language")}, **parsed}
+    )
     if with_key != without:
-        fails.append("the hash function keeps legacy_per_utterance: every existing TTS hash would move")
+        fails.append("the hash function keeps legacy_per_utterance / language=None: every existing TTS hash would move")
 
     for f in fails:
         print("FAIL", f)

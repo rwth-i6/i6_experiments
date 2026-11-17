@@ -933,5 +933,9 @@
   "env": "venv:chatterbox_tts_venv_v5",
   "gpu": true,
   "timeout": 900
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_chatterbox_mtl_tokenizer.py": {
+  "env": "venv:chatterbox_tts_venv_v5",
+  "timeout": 600
  }
 }
