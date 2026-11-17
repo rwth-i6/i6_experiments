@@ -289,6 +289,18 @@ class InteractionBenchGrade(Job):
             subprocess.run(cmd, env=env, check=True)
 
 
+def _source_file(path: str) -> tk.Path:
+    """A file list shipped in the source tree. It lies inside the setup dir, so sisyphus warns on every declaration
+    (~10 lines per manager start); the absolute path stays the hash, only the warning is off."""
+    from sisyphus import global_settings as gs
+
+    old, gs.WARNING_ABSPATH = gs.WARNING_ABSPATH, False
+    try:
+        return tk.Path(path)
+    finally:
+        gs.WARNING_ABSPATH = old
+
+
 def _shared(with_runs: bool = False):
     """(code job, grader python, data job: stimuli, or stimuli + released runs, NeMo python)."""
     from .common import moshi_family_lib_parent
@@ -297,11 +309,11 @@ def _shared(with_runs: bool = False):
     code = InteractionBenchCode()
     grader = ib_grader_venv()
     lists = os.path.join(moshi_family_lib_parent(), "interaction_bench")
-    data = InteractionBenchData(file_list=tk.Path(os.path.join(lists, "release_stimuli.json")), grader_python=grader)
+    data = InteractionBenchData(file_list=_source_file(os.path.join(lists, "release_stimuli.json")), grader_python=grader)
     tk.register_output("benchmark/interaction_bench/code", code.out_dir)
     tk.register_output("benchmark/interaction_bench/data", data.out_dir)
     if with_runs:
-        data = InteractionBenchData(file_list=tk.Path(os.path.join(lists, "release_runs.json")), grader_python=grader,
+        data = InteractionBenchData(file_list=_source_file(os.path.join(lists, "release_runs.json")), grader_python=grader,
                                     base_dir=data.out_dir)  # fmt: skip
         tk.register_output("benchmark/interaction_bench/data_with_released_runs", data.out_dir)
     return code, grader, data, fdb_asr_venv()
