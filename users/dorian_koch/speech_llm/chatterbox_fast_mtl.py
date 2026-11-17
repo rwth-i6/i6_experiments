@@ -16,7 +16,7 @@ model modules of the installed ``chatterbox-tts`` (PyPI 0.1.7; tokenizer / S3Gen
   weights (``speed_s3gen``).
 * No watermark.
 
-Measured (German FLEURS, one H100, 2026-11-17): 84.7x realtime vs upstream V3's 3.5x, Parakeet WER vs upstream
+Measured (German FLEURS, one H100, 2026-11-17): 67-85x realtime (three runs) vs upstream V3's 3.5x, WER vs upstream
 +0.005 [95% -0.016, +0.025] on 96 sentences; peak ~39-49 GB, and the card holds Parakeet transcribing alongside
 (62 GB peak together). Chinese: Whisper CER 0.003-0.005 vs upstream 0.003-0.009 (8 sentences).
 """
@@ -84,8 +84,9 @@ def fix_cangjie(tok) -> None:
 
 def speed_s3gen(model) -> None:
     """``chatterbox_fast.speed_s3gen`` plus the flow estimator in bf16 weights (``solve_euler`` casts its inputs to the
-    estimator's dtype and the result back). German, 288 sentences: 84.7x vs 74.9x realtime under bf16 autocast,
-    Parakeet WER vs upstream +0.005 [95% -0.016, +0.025]; compiling the estimator on top gave nothing (85.9x)."""
+    estimator's dtype and the result back). German, 288 sentences: 82.4x / 84.7x / 66.6x realtime in three runs vs
+    74.9x under bf16 autocast, Parakeet WER vs upstream +0.005 [95% -0.016, +0.025]; compiling the estimator on top
+    gave nothing (85.9x); the T3 transformer in bf16 weights was slower (T3 21 s -> 29 s per 288 sentences)."""
     cf.speed_s3gen(model)
     model.s3gen.flow.decoder.estimator.to(torch.bfloat16)
 
