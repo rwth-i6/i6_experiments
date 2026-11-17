@@ -11,8 +11,14 @@ model modules of the installed ``chatterbox-tts`` (PyPI 0.1.7; tokenizer / S3Gen
   static bf16 KV cache, the step captured as a CUDA graph per 128-position window. Sampling is upstream's chain (CFG
   mix, repetition penalty over the ids incl. the start token, temperature, min-p, top-p) with the exponential-race
   draw from a generator seeded per utterance.
-* ``chatterbox_fast.s3gen_batch`` with the regular S3Gen settings (10 steps, CFG, no appended silence tokens).
+* ``chatterbox_fast.s3gen_batch`` with the regular S3Gen settings (10 steps, CFG, no appended silence tokens), in
+  groups of 16 (faster than 32 here: the 10-step flow decoder is ~85% of S3Gen's time), the flow estimator in bf16
+  weights (``speed_s3gen``).
 * No watermark.
+
+Measured (German FLEURS, one H100, 2026-11-17): 84.7x realtime vs upstream V3's 3.5x, Parakeet WER vs upstream
++0.005 [95% -0.016, +0.025] on 96 sentences; peak ~39-49 GB, and the card holds Parakeet transcribing alongside
+(62 GB peak together). Chinese: Whisper CER 0.003-0.005 vs upstream 0.003-0.009 (8 sentences).
 """
 
 from __future__ import annotations
@@ -74,6 +80,14 @@ def fix_cangjie(tok) -> None:
         cj._load_cangjie_mapping(None)
     if not cj.word2cj:
         raise RuntimeError("Chatterbox Cangjie5_TC.json not loadable: Chinese would synthesize as [UNK] tokens")
+
+
+def speed_s3gen(model) -> None:
+    """``chatterbox_fast.speed_s3gen`` plus the flow estimator in bf16 weights (``solve_euler`` casts its inputs to the
+    estimator's dtype and the result back). German, 288 sentences: 84.7x vs 74.9x realtime under bf16 autocast,
+    Parakeet WER vs upstream +0.005 [95% -0.016, +0.025]; compiling the estimator on top gave nothing (85.9x)."""
+    cf.speed_s3gen(model)
+    model.s3gen.flow.decoder.estimator.to(torch.bfloat16)
 
 
 def text_tokens(model, text: str, language_id: str) -> torch.Tensor:

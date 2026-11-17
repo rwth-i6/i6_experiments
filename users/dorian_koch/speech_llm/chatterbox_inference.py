@@ -367,7 +367,7 @@ def process_dialogues_batched(model, examples, device, speaker_dir, out_dir, con
              for i, d, pt in examples]  # fmt: skip
     items = [it for _, p, _ in plans for it in p["items"]]
     if LANGUAGE:
-        wavs = chatterbox_fast_mtl.synthesize(model, items, s3_batch=16, flow_autocast=torch.bfloat16)
+        wavs = chatterbox_fast_mtl.synthesize(model, items, s3_batch=16)
     else:
         wavs = chatterbox_fast.synthesize(model, items)
     k = 0
@@ -498,7 +498,7 @@ def main():
     else:
         name = f"chatterbox_fast_mtl, Multilingual V3, language {LANGUAGE}" if LANGUAGE else "chatterbox_fast"
         print(f"Synthesis path: batched ({name}), {args.chunk} dialogues per call", flush=True)
-        chatterbox_fast.speed_s3gen(model)
+        (chatterbox_fast_mtl if LANGUAGE else chatterbox_fast).speed_s3gen(model)
     cond_cache = {}
     batch = []  # (diag_id, dialogue, passthrough) waiting for the batched path
 
