@@ -343,6 +343,181 @@ class ChatterboxInference(Job):
             merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
 
 
+class ChatterboxInferenceV2(Job):
+    """Dialogue TTS for SFT data, any Chatterbox language: turns that switch language, an ASR check that regenerates
+    bad segments, and word timings, all in one pass on one GPU (worker ``chatterbox_v2_inference.py``; the model-free
+    logic in ``chatterbox_v2_core``).
+
+    Input ``in_hf`` with a ``dialogue`` column (JSON): a list of turns ``{"speaker", "text" | "segments", "lang"?,
+    "exaggeration"?, "pre_silence"?}`` or ``{"turns", "lang"?, "voices"?: {speaker: voice name in speaker_dir}}``. A
+    turn's text may switch language inline (``Das heißt <en>to commute</en>.``); the output's ``turns.text`` has no
+    tags, the languages are in ``segments``. Synthesis: Turbo for English-only dialogues (``english_model="turbo"``),
+    Multilingual V3 for every other dialogue as a whole (one model per voice per dialogue), per segment in its language.
+
+    ``annotators`` (default ``chatterbox_v2_core.DEFAULT_ANNOTATORS``: Parakeet v3, Qwen3 for zh / ja / yue): per
+    language the ``check`` backend (its transcript, normalised as ``speech_text_norm``, against the segment's text:
+    ``metric``: ``cer`` (default) or ``wer``) and the ``words`` backend; the job also caps the TTS process at the card minus
+    16 GB for the annotators and halves its decoder batches on CUDA out of memory instead of failing. A segment above ``max_err`` (per language, ``*`` default) is
+    synthesized again with a new seed, up to ``max_attempts`` in all, and the best attempt kept (attempt 0 = the seed a
+    run without regeneration uses); a segment shorter than ``min_check_tokens`` reference tokens is scored but never
+    regenerated (default ``chatterbox_v2_core.DEFAULT_MIN_CHECK_TOKENS``). Output columns: ``chatterbox_v2_inference``'s docstring; ``out_stats``: per
+    language error rates, regeneration shares, audio hours, wall times.
+
+    ``parakeet_python_path``: the NeMo venv (``fdb.fdb_asr_venv()``), needed when a backend is ``parakeet``;
+    ``annotate_python_path``: the annotate venv (``qwen-asr``, ``num2words``, ``cn2an``, ``whisper_normalizer``;
+    ``venvs.speech_annotate_venv``), always (it scores). The config is resolved at construction, so the hash pins it
+    (a later change of a module default never changes what an existing hash means). ``rqmt`` and ``chunk`` (dialogues
+    per batched call) are not hashed."""
+
+    def __init__(
+        self,
+        *,
+        venv_python_path: tk.AbstractPath,
+        annotate_python_path: tk.AbstractPath,
+        in_hf: tk.Path,
+        speaker_dir: tk.Path,
+        parakeet_python_path: tk.AbstractPath | None = None,
+        speaker_alias: dict[str, str] | None = None,
+        ffmpeg_path: tk.Path | None = None,
+        shard: int | None = None,
+        num_shards: int | None = None,
+        id_prefix: str = "",
+        keep_columns: list[str] | None = None,
+        default_lang: str = "en",
+        english_model: str = "turbo",
+        code_switch: str = "segments",
+        annotators: dict | None = None,
+        max_err: dict | None = None,
+        metric: str = "cer",
+        max_attempts: int = 3,
+        min_check_tokens: int | None = None,
+        segment_gap: float = 0.08,
+        qwen3_asr_model: str = "Qwen/Qwen3-ASR-0.6B",
+        qwen3_aligner_model: str = "Qwen/Qwen3-ForcedAligner-0.6B",
+        chunk: int = 192,
+        rqmt: dict | None = None,
+    ):
+        from . import chatterbox_v2_core as core
+
+        assert english_model in ("turbo", "mtl"), english_model
+        assert code_switch in ("segments", "single_pass"), code_switch
+        annotators = annotators if annotators is not None else core.DEFAULT_ANNOTATORS
+        core.check_annotators(annotators)
+        uses = {b for r in annotators.values() for b in r.values()}
+        assert "parakeet" not in uses or parakeet_python_path is not None, "a parakeet annotator needs parakeet_python_path"
+        max_err = max_err if max_err is not None else core.DEFAULT_MAX_ERR
+        assert "*" in max_err and max_attempts >= 1 and metric in ("cer", "wer")
+        self.venv_python_path = venv_python_path
+        self.annotate_python_path = annotate_python_path
+        self.parakeet_python_path = parakeet_python_path
+        self.in_hf = in_hf
+        self.speaker_dir = speaker_dir
+        self.speaker_alias = speaker_alias or {}
+        self.ffmpeg_path = ffmpeg_path
+        self.shard, self.num_shards = shard, num_shards
+        self.id_prefix = id_prefix
+        self.keep_columns = keep_columns or []
+        self.config = {
+            "default_lang": default_lang,
+            "english_model": english_model,
+            "code_switch": code_switch,
+            "annotators": {k: dict(v) for k, v in sorted(annotators.items())},
+            "max_err": dict(sorted(max_err.items())),
+            "metric": metric,
+            "max_attempts": int(max_attempts),
+            "min_check_tokens": int(core.DEFAULT_MIN_CHECK_TOKENS if min_check_tokens is None else min_check_tokens),
+            "segment_gap": float(segment_gap),
+            "qwen3_asr_model": qwen3_asr_model,
+            "qwen3_aligner_model": qwen3_aligner_model,
+        }
+        self.chunk = chunk
+        self.out_hf = self.output_path("out_hf", directory=True)
+        self.out_stats = self.output_path("stats.json")
+        self.rqmt = rqmt if rqmt is not None else {"gpu": 1, "cpu": 4, "mem": 32, "time": 4}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d.pop("rqmt", None)
+        d.pop("chunk", None)
+        return super().hash(d)
+
+    @staticmethod
+    def sharded(*, num_shards: int, **kwargs) -> tk.Path:
+        """``num_shards`` jobs (ids ``shard_{s}_dialogue_{i}`` written at the source), merged by linking."""
+        if num_shards == 1:
+            return ChatterboxInferenceV2(**kwargs).out_hf
+        shards = [ChatterboxInferenceV2(shard=s, num_shards=num_shards, id_prefix=f"shard_{s}_", **kwargs)
+                  for s in range(num_shards)]  # fmt: skip
+        return HfMergeShards(shard_paths=[s.out_hf for s in shards], add_shard_to_id=False).out_hf
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        return job_progress_fraction(self)
+
+    def run(self):
+        import shutil
+        import tempfile
+
+        # the dataset builder's cache: node-local disk (SLURM's per-job $TMPDIR), never the job dir (audio goes
+        # straight into the arrow file; no per-dialogue files anywhere)
+        scratch = tempfile.mkdtemp(prefix="cbx_v2_", dir=os.environ.get("TMPDIR"))
+        try:
+            self._run(scratch)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    def _run(self, scratch: str):
+        import importlib.util
+
+        from . import chatterbox_v2_core as core
+
+        here = Path(__file__).resolve().parent
+        cfg = {**self.config, "chunk": self.chunk}
+        args = ["--in_hf", self.in_hf.get(), "--out_hf", self.out_hf.get(), "--scratch_dir", scratch,
+                "--stats_json", f"{self.out_stats.get()}.part0", "--speaker_directory", self.speaker_dir.get(),
+                "--speaker_alias", json.dumps(self.speaker_alias), "--config", json.dumps(cfg),
+                "--annotate_python", self.annotate_python_path.get(),
+                "--annotate_worker", str(here / "speech_annotate_worker.py")]  # fmt: skip
+        if self.parakeet_python_path is not None:
+            root = importlib.util.find_spec("speech_llm").submodule_search_locations[0]  # imports nothing
+            worker = os.path.join(root, "full_duplex", "moshi_family", "rl", "parakeet_worker.py")
+            assert os.path.exists(worker), worker
+            args += ["--parakeet_python", self.parakeet_python_path.get(), "--parakeet_worker", worker]
+        if self.shard is not None:
+            args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
+        if self.keep_columns:
+            args += ["--keep_columns", *self.keep_columns]
+        if self.id_prefix:
+            args += ["--id_prefix", self.id_prefix]
+
+        def env_hook(env):
+            add_torchcodec_to_env(env, ffmpeg_path=self.ffmpeg_path, npp_venv_python=self.venv_python_path.get(),
+                                  venv_python=self.venv_python_path.get(), who="ChatterboxInferenceV2")  # fmt: skip
+
+        out_hf, stats = self.out_hf.get(), self.out_stats.get()
+
+        def args_for(k, n):
+            a = list(args)
+            a[a.index("--stats_json") + 1] = f"{stats}.part{k}"
+            if n > 1:
+                a += ["--sub_shard", k, "--sub_num_shards", n]
+                a[a.index("--out_hf") + 1] = f"{out_hf}.part{k}"
+            return a
+
+        n = run_worker_script_per_gpu(self.venv_python_path.get(), here / "chatterbox_v2_inference.py", args_for,
+                                      log_label="ChatterboxInferenceV2", env_hook=env_hook)  # fmt: skip
+        if n > 1:
+            merge_hf_parts(out_hf, [f"{out_hf}.part{k}" for k in range(n)])
+        parts = [json.load(open(f"{stats}.part{k}")) for k in range(n)]
+        raw = core.stats_merge([p["raw"] for p in parts])
+        with open(stats, "w") as f:
+            json.dump({"summary": core.stats_summary(raw), "raw": raw, "workers": n,
+                       "peak_tts_gpu_gb": max(p["peak_tts_gpu_gb"] for p in parts)}, f, indent=1)  # fmt: skip
+
+
 class ParlerTTSInference(Job):
     def __init__(
         self,

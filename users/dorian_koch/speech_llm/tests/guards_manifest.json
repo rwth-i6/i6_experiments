@@ -937,5 +937,11 @@
  "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_chatterbox_mtl_tokenizer.py": {
   "env": "venv:chatterbox_tts_venv_v5",
   "timeout": 600
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_chatterbox_v2_core.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_speech_text_norm.py": {
+  "env": "venv:speech_annotate_venv_v1"
  }
 }
