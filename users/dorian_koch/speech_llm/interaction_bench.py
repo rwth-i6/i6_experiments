@@ -290,15 +290,9 @@ class InteractionBenchGrade(Job):
 
 
 def _source_file(path: str) -> tk.Path:
-    """A file list shipped in the source tree. It lies inside the setup dir, so sisyphus warns on every declaration
-    (~10 lines per manager start); the absolute path stays the hash, only the warning is off."""
-    from sisyphus import global_settings as gs
-
-    old, gs.WARNING_ABSPATH = gs.WARNING_ABSPATH, False
-    try:
-        return tk.Path(path)
-    finally:
-        gs.WARNING_ABSPATH = old
+    """A file list shipped in the source tree (inside the setup dir: sisyphus warns unless the hash is overridden).
+    ``hash_overwrite=(None, path)`` is exactly the hash a plain ``tk.Path(path)`` has, so no job moves."""
+    return tk.Path(path, hash_overwrite=(None, path))
 
 
 def _shared(with_runs: bool = False):
