@@ -925,5 +925,13 @@
  },
  "recipe/speech_llm/full_duplex/interaction_bench/tests/test_judge_shape.py": {
   "env": "module"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_chatterbox_fast_path.py": {
+  "env": "setup"
+ },
+ "recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_chatterbox_fast_worker.py": {
+  "env": "venv:chatterbox_tts_venv_v5",
+  "gpu": true,
+  "timeout": 900
  }
 }

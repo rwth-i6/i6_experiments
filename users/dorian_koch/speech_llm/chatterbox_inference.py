@@ -10,8 +10,10 @@ from typing import Any
 from datasets import Features, Value, Sequence, Audio, Dataset, load_from_disk
 
 try:  # imported as part of the package (tests)
+    from . import chatterbox_fast
     from .clip_codec import wav_to_flac
-except ImportError:  # run as a script under the job venv: the sibling file
+except ImportError:  # run as a script under the job venv: the sibling files
+    import chatterbox_fast
     from clip_codec import wav_to_flac
 
 print("Imports successful", flush=True)
@@ -230,8 +232,8 @@ def gen_conversation(
     return rendered, utterances, speaker_to_path
 
 
-def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id, passthrough=None):
-
+def _prepare_dialogue(dialogue, diag_id):
+    """Seed the module-global RNGs for this dialogue and normalise its turns (in place)."""
     # Per-dialogue seed: covers the TTS sampling, the speaker draw and the silence sampler, all of
     # which read the module-global RNGs. See seed_for_dialogue.
     _seed = SEED ^ seed_for_dialogue(diag_id)
@@ -250,20 +252,29 @@ def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sample
     for turn in dialogue:
         if isinstance(turn["text"], list):
             turn["text"] = " ".join(str(t) for t in turn["text"])
+    return _seed
 
-    output_dir = os.path.join(out_dir, f"dialogue_{diag_id}")
-    os.makedirs(output_dir, exist_ok=True)
 
+def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id, passthrough=None):
+    """The per-utterance path (``--legacy_per_utterance``): upstream ``model.generate`` one turn at a time."""
+    _prepare_dialogue(dialogue, diag_id)
     audios_per_speaker, utterances, speaker_to_path = gen_conversation(
         model, dialogue, device, speaker_dir, silence_length_sampler
     )
+    _write_dialogue(out_dir, diag_id, model.sr, speaker_dir, audios_per_speaker, utterances, speaker_to_path,
+                    passthrough)  # fmt: skip
+
+
+def _write_dialogue(out_dir, diag_id, sr, speaker_dir, audios_per_speaker, utterances, speaker_to_path, passthrough):
+    output_dir = os.path.join(out_dir, f"dialogue_{diag_id}")
+    os.makedirs(output_dir, exist_ok=True)
 
     for speaker, audio in audios_per_speaker.items():
         clipped = (audio.abs() > 1.0).any().item()
         if clipped:
             print(f"Warning: audio for speaker {speaker!r} clipped; clamping to [-1, 1].")
         torch.clamp_(audio, -1.0, 1.0)
-        torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), model.sr)
+        torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), sr)
         print(f"Saved {speaker}'s audio to {output_dir}/{speaker}.wav")
 
     # save utterances without audio as metadata.json; include resolved voice path
@@ -273,8 +284,8 @@ def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sample
             {
                 "speaker": u["speaker"],
                 "text": u["text"],
-                "start_time": u["start"] / model.sr,
-                "end_time": u["end"] / model.sr,
+                "start_time": u["start"] / sr,
+                "end_time": u["end"] / sr,
                 "voice": os.path.relpath(speaker_to_path[u["speaker"]], speaker_dir),
             }
         )
@@ -287,6 +298,74 @@ def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sample
     if passthrough:
         with open(f"{output_dir}/passthrough.json", "w", encoding="utf-8") as f:
             json.dump(passthrough, f, ensure_ascii=False)
+
+
+def _plan_dialogue(model, dialogue, diag_id, speaker_dir, silence_length_sampler, cond_cache):
+    """``gen_conversation``'s speaker resolution and silence draws, in its order on the same per-dialogue seeded
+    ``random`` (the TTS draws torch's RNG, not ``random``), so speakers and gaps are what the per-utterance path
+    picks; plus one TTS seed per turn. Conditionals are prepared once per (voice file, exaggeration) per process."""
+    _seed = _prepare_dialogue(dialogue, diag_id)
+    speaker_to_path, paths_used, speak_map = {}, set(), {}
+    for s in set((turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue):
+        if s[0] not in speaker_to_path:
+            for _ in range(5):  # try a few times to resolve random speaker if needed
+                p = speaker_name_to_path(s[0], speaker_dir)
+                if p not in paths_used:
+                    break
+            speaker_to_path[s[0]] = p
+            paths_used.add(p)
+        key = (speaker_to_path[s[0]], s[1])
+        if key not in cond_cache:
+            model.prepare_conditionals(key[0], exaggeration=s[1], norm_loudness=True)
+            cond_cache[key] = model.conds
+            model.conds = None
+        speak_map[s] = cond_cache[key]
+    items, gaps = [], []
+    for idx, turn in enumerate(dialogue):
+        items.append({"text": turn["text"], "cond": speak_map[(turn["speaker"], turn.get("exaggeration", 0.5))],
+                      "seed": (_seed * 1009 + idx) % (2**63)})  # fmt: skip
+        gaps.append(float(silence_length_sampler()))
+    return {"dialogue": dialogue, "speaker_to_path": speaker_to_path, "items": items, "gaps": gaps,
+            "speakers": set((turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue)}  # fmt: skip
+
+
+def _render(plan, wavs, sr, device):
+    """``gen_conversation``'s timeline for already synthesized turns: pre-silence, each turn after the previous one
+    plus its gap (a negative gap overlaps, never before the previous turn's start), one track per speaker."""
+    utterances, t_samples = [], 0
+    for turn, wav, gap in zip(plan["dialogue"], wavs, plan["gaps"]):
+        if "pre_silence" in turn:
+            assert turn["pre_silence"] >= 0, "Pre-silence must be non-negative"
+            t_samples += int(sr * turn["pre_silence"])
+        wav = torch.from_numpy(wav).to(device)[None]
+        start = t_samples
+        utterances.append({"speaker": turn["speaker"], "wav": wav, "start": start, "end": start + wav.shape[-1],
+                           "text": turn["text"]})  # fmt: skip
+        t_samples += wav.shape[-1]
+        delta = int(sr * gap)
+        t_samples = t_samples + delta if gap >= 0 else max(start, t_samples + delta)
+    end_samples = max(u["end"] for u in utterances)
+    rendered = {s: torch.zeros(1, end_samples, device=device, dtype=utterances[0]["wav"].dtype)
+                for s, _ in plan["speakers"]}  # fmt: skip
+    for u in utterances:
+        rendered[u["speaker"]][0, u["start"] : u["end"]] += u["wav"][0]
+    return rendered, utterances
+
+
+def process_dialogues_batched(model, examples, device, speaker_dir, out_dir, cond_cache):
+    """The default path: ``examples`` = [(diag_id, dialogue, passthrough)], every turn of every dialogue synthesized
+    together by ``chatterbox_fast.synthesize``, then each dialogue rendered and written as ``process_dialogue``
+    does. No watermark (the per-utterance path applies upstream's Perth watermark)."""
+    plans = [(i, _plan_dialogue(model, d, i, speaker_dir, silence_length_sampler, cond_cache), pt)
+             for i, d, pt in examples]  # fmt: skip
+    items = [it for _, p, _ in plans for it in p["items"]]
+    wavs = chatterbox_fast.synthesize(model, items)
+    k = 0
+    for i, p, pt in plans:
+        n = len(p["items"])
+        rendered, utterances = _render(p, wavs[k : k + n], model.sr, device)
+        k += n
+        _write_dialogue(out_dir, i, model.sr, speaker_dir, rendered, utterances, p["speaker_to_path"], pt)
 
 
 # chatterbox inference gets its own venv, so we let the job execute this file directly
@@ -366,6 +445,13 @@ def main():
         help="Input columns to pass through to the output unchanged (e.g. RAG reference_text).",
     )
     parser.add_argument(
+        "--legacy_per_utterance",
+        action="store_true",
+        help="Upstream model.generate one utterance at a time (~25x slower), with the Perth watermark. Only for "
+        "reproducing an old corpus's exact path; the default batched path is chatterbox_fast.",
+    )
+    parser.add_argument("--chunk", type=int, default=192, help="Dialogues per batched synthesis call (default path).")
+    parser.add_argument(
         "--id_prefix",
         type=str,
         default="",
@@ -382,17 +468,20 @@ def main():
     assert device == "cuda"
     model = ChatterboxTurboTTS.from_pretrained(device=device)
 
-    # TODO there are some projects that try to make chatterbox faster
-    # https://github.com/rsxdalv/chatterbox/blob/faster/src/chatterbox/tts.py
-    # or chatterbox-vllm
-    # but I am not certain that they have no regressions. Just use shards for now for "speedup"
-    torch._dynamo.config.capture_scalar_outputs = True
     torch.set_float32_matmul_precision("high")
-    # model.generate = torch.compile(model.generate, dynamic=True)
-    model.t3.inference_turbo = torch.compile(
-        model.t3.inference_turbo,
-        dynamic=True,  # fullgraph=True, backend="cudagraphs"
-    )
+    if args.legacy_per_utterance:
+        print("Synthesis path: legacy per-utterance model.generate", flush=True)
+        torch._dynamo.config.capture_scalar_outputs = True
+        model.t3.inference_turbo = torch.compile(model.t3.inference_turbo, dynamic=True)
+    else:
+        print(f"Synthesis path: batched (chatterbox_fast), {args.chunk} dialogues per call", flush=True)
+        chatterbox_fast.speed_s3gen(model)
+    cond_cache = {}
+    batch = []  # (diag_id, dialogue, passthrough) waiting for the batched path
+
+    def run_batch():
+        process_dialogues_batched(model, batch, device, args.speaker_directory, args.out_dir, cond_cache)
+        batch.clear()
 
     assert args.in_jsonl is not None or args.in_hf is not None, "Either --in_jsonl or --in_hf must be provided"
     assert not (args.in_jsonl is not None and args.in_hf is not None), (
@@ -436,18 +525,24 @@ def main():
                         dialogue = _v
                         break
             passthrough = {c: example[c] for c in keep_cols if c in example}
-            process_dialogue(
-                model,
-                dialogue,
-                device,
-                args.speaker_directory,
-                silence_length_sampler,
-                args.out_dir,
-                i,
-                passthrough=passthrough,
-            )
             last_diag_id = i
-            _write_progress(i + 1 - id_base, total_dialogues)
+            if args.legacy_per_utterance:
+                process_dialogue(
+                    model,
+                    dialogue,
+                    device,
+                    args.speaker_directory,
+                    silence_length_sampler,
+                    args.out_dir,
+                    i,
+                    passthrough=passthrough,
+                )
+                _write_progress(i + 1 - id_base, total_dialogues)
+                continue
+            batch.append((i, dialogue, passthrough))
+            if len(batch) >= args.chunk or i + 1 - id_base == total_dialogues:
+                run_batch()
+                _write_progress(i + 1 - id_base, total_dialogues)
     else:
         with open(args.in_jsonl, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
@@ -458,16 +553,23 @@ def main():
 
                 # each line is a json array that contains dialogues
                 dialogue = json.loads(line)
-                process_dialogue(
-                    model,
-                    dialogue,
-                    device,
-                    args.speaker_directory,
-                    silence_length_sampler,
-                    args.out_dir,
-                    i,
-                )
                 last_diag_id = i
+                if args.legacy_per_utterance:
+                    process_dialogue(
+                        model,
+                        dialogue,
+                        device,
+                        args.speaker_directory,
+                        silence_length_sampler,
+                        args.out_dir,
+                        i,
+                    )
+                    continue
+                batch.append((i, dialogue, None))
+                if len(batch) >= args.chunk:
+                    run_batch()
+        if batch:
+            run_batch()
     print("All dialogues processed successfully!")
 
     if args.out_hf is not None:
