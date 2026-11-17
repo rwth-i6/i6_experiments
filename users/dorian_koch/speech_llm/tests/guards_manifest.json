@@ -922,5 +922,8 @@
  },
  "recipe/speech_llm/full_duplex/interaction_bench/tests/test_local_judge.py": {
   "env": "module"
+ },
+ "recipe/speech_llm/full_duplex/interaction_bench/tests/test_judge_shape.py": {
+  "env": "module"
  }
 }
