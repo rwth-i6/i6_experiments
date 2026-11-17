@@ -290,9 +290,11 @@ class InteractionBenchGrade(Job):
 
 
 def _source_file(path: str) -> tk.Path:
-    """A file list shipped in the source tree (inside the setup dir: sisyphus warns unless the hash is overridden).
-    ``hash_overwrite=(None, path)`` is exactly the hash a plain ``tk.Path(path)`` has, so no job moves."""
-    return tk.Path(path, hash_overwrite=(None, path))
+    """A file shipped in the source tree, hashed by its path below the recipe root, so the hash is the same in every
+    setup (a plain ``tk.Path`` hashes the absolute path, which names the user's home)."""
+    from .common import recipe_root
+
+    return tk.Path(path, hash_overwrite=os.path.relpath(path, recipe_root()))
 
 
 def _shared(with_runs: bool = False):
